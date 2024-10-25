@@ -471,6 +471,7 @@ message HostSpec {
 message HostId {
   string id = 1;
   string nodeName = 2; // The name of the Kubernetes node that the Host is running on.
+  bool existing = 3; // Indicates whether the node is starting for the first time or not.
 }
 
 // KernelErrorReporter is a gRPC service provided by Local Daemon nodes.

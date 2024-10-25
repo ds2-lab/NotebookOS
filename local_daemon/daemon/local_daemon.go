@@ -94,6 +94,10 @@ type SchedulerDaemonImpl struct {
 	id       string
 	nodeName string
 
+	// finishedGatewayHandshake is set in setID when the Local Daemon completes to registration
+	// procedure with the cluster gateway for the first time.
+	finishedGatewayHandshake bool
+
 	tracer       opentracing.Tracer
 	consulClient *consul.Client
 
@@ -238,13 +242,17 @@ type KernelRegistrationClient struct {
 	conn net.Conn
 }
 
-func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.LocalDaemonOptions, kernelRegistryPort int, kernelErrorReporterServerPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...domain.SchedulerDaemonConfig) *SchedulerDaemonImpl {
+func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.LocalDaemonOptions,
+	kernelRegistryPort int, kernelErrorReporterServerPort int, virtualGpuPluginServer device.VirtualGpuPluginServer,
+	nodeName string, dockerNodeId string, configs ...domain.SchedulerDaemonConfig) *SchedulerDaemonImpl {
+
 	ip := os.Getenv("POD_IP")
 
 	daemon := &SchedulerDaemonImpl{
 		connectionOptions:                  connectionOptions,
 		transport:                          "tcp",
 		ip:                                 ip,
+		id:                                 dockerNodeId,
 		nodeName:                           nodeName,
 		kernels:                            hashmap.NewCornelkMap[string, *client.KernelReplicaClient](128),
 		kernelClientCreationChannels:       hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](128),
@@ -363,6 +371,11 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	case "local":
 		daemon.log.Info("Running in LOCAL mode.")
 		daemon.deploymentMode = types.LocalMode
+
+		if daemon.id != "" {
+			daemon.log.Error("We're running in Local mode, yet we already have an ID: \"%s\"", daemon.id)
+			panic("We should not yet have an ID as we're running in Local mode.")
+		}
 	case "docker":
 		{
 			daemon.log.Error("\"docker\" mode is no longer a valid deployment mode")
@@ -387,6 +400,11 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		{
 			daemon.log.Info("Running in KUBERNETES mode.")
 			daemon.deploymentMode = types.KubernetesMode
+
+			if daemon.id != "" {
+				daemon.log.Error("We're running in Kubernetes mode, yet we already have an ID: \"%s\"", daemon.id)
+				panic("We should not yet have an ID as we're running in Kubernetes mode.")
+			}
 		}
 	default:
 		{
@@ -397,6 +415,10 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 			daemon.log.Error("- \"docker-compose\"")
 			daemon.log.Error("- \"local\"")
 		}
+	}
+
+	if daemon.id != "" {
+		daemon.log.Debug("Successfully recovered ID of Docker Container: \"%s\"", daemon.id)
 	}
 
 	daemon.log.Debug("Connection options: %v", daemon.connectionOptions)
@@ -451,29 +473,56 @@ func (d *SchedulerDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayCli
 	d.provisionerClientConnectionGRPC = grpcClientConn
 }
 
+// hasId returns true if we already have a valid ID assigned.
+// Otherwise, hasId returns false.
+func (d *SchedulerDaemonImpl) hasId() bool {
+	return d.id != ""
+}
+
+// isValidId returns true if the given ID is not the empty string and thus is valid.
+func isValidId(id string) bool {
+	return id != ""
+}
+
 // SetID sets the SchedulerDaemonImpl id by the gateway.
 // This also instructs the Local Daemon to create a LocalDaemonPrometheusManager and begin serving metrics.
 func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto.HostId, error) {
-	// If id has been set(e.g., restored after restart), return the original id.
-	if d.id != "" {
+	// If we've already done this once before, then we'll use our existing ID and whatnot.
+	if d.finishedGatewayHandshake {
 		return &proto.HostId{
 			Id:       d.id,
 			NodeName: d.nodeName,
+			Existing: true,
 		}, nil
 	}
 
-	d.id = in.Id
+	// If we don't have an ID yet...
+	if d.hasId() {
+		// Make sure we received a valid ID.
+		if !isValidId(in.Id) {
+			log.Fatalf(utils.RedStyle.Render("Received empty ID, and our current ID is also empty...\n"))
+		}
+
+		d.id = in.Id
+		d.log.Debug("Set ID to \"%s\"", d.id)
+	} else {
+		// We'll use our existing ID, which must be the ID of our Docker container, since we've
+		// not already been through the registration process already, so it isn't the case that
+		// we just simply have some other ID already assigned (that isn't our container ID).
+		d.log.Debug("Refusing to replace existing ID \"%s\" with new ID \"%s\"", d.id, in.Id)
+		in.Id = d.id // Pass our existing ID back
+	}
+
 	in.NodeName = d.nodeName // We're passing this value back
 
-	d.log.Debug("Set ID to \"%s\"", d.id)
-
 	// Update the ID field of the router and of any existing kernels.
-	d.router.SetComponentId(in.Id)
+	d.router.SetComponentId(d.id)
 	d.kernels.Range(func(_ string, replicaClient *client.KernelReplicaClient) (contd bool) {
-		replicaClient.SetComponentId(in.Id)
+		replicaClient.SetComponentId(d.id)
 		return true
 	})
-	d.resourceManager.NodeID = in.Id
+	d.resourceManager.NodeID = d.id
+	d.finishedGatewayHandshake = true
 
 	if d.prometheusManager != nil {
 		// We'll just restart the Local Daemon's Prometheus Manager.
@@ -483,7 +532,7 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 	} else {
-		d.prometheusManager = metrics.NewLocalDaemonPrometheusManager(8089, in.Id)
+		d.prometheusManager = metrics.NewLocalDaemonPrometheusManager(8089, d.id)
 		err := d.prometheusManager.Start()
 		if err != nil {
 			d.log.Error("Failed to start Prometheus Manager because: %v", err)

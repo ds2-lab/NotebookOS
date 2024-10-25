@@ -235,7 +235,45 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		if confirmedId.NodeName == "" {
 			err = ErrNodeNameUnspecified
 		} else if confirmedId.Id != id {
-			err = ErrRestoreRequired
+			// The ID we passed does not equal the ID we received back.
+			// Replace the ID we were going to use with the ID we received.
+			id = confirmedId.Id
+
+			// If the node already exists, then we need to restore it, rather than create an entirely new node.
+			if confirmedId.Existing {
+				err = ErrRestoreRequired
+
+				var gpuInfoResp *proto.GpuInfo
+				gpuInfoResp, err = localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
+				if err != nil {
+					return nil, err
+				}
+
+				// Create the ResourceSpec defining the Resources available on the Host.
+				resourceSpec := &types.DecimalSpec{
+					GPUs:      decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
+					Millicpus: decimal.NewFromFloat(float64(millicpus)),
+					MemoryMb:  decimal.NewFromFloat(float64(memMb)),
+					VRam:      decimal.NewFromFloat(vramGb),
+				}
+
+				// Create a Host struct populated with a few key fields.
+				// This Host will be used to "restore" the existing Host struct.
+				// That is, the existing Host struct will replace its values for these fields
+				// with the values of this new Host struct.
+				//
+				// The most important is probably the LocalGatewayClient, as that ensures that the
+				// existing Host struct has a new, valid connection to the remote Local Daemon.
+				host := &Host{
+					ID:                 confirmedId.Id,
+					resourceSpec:       resourceSpec,
+					NodeName:           confirmedId.NodeName,
+					latestGpuInfo:      gpuInfoResp,
+					LocalGatewayClient: localGatewayClient,
+				}
+
+				return host, err
+			}
 		}
 	}
 
@@ -609,14 +647,13 @@ func (h *Host) ContainerScheduled(container *Container) error {
 }
 
 // Restore restores the state of a Host from another Host.
-// TODO: Implement this more.
-func (h *Host) Restore(restored *Host, callback ErrorCallback) error {
+func (h *Host) Restore(restoreFrom *Host, callback ErrorCallback) error {
 	h.SetErrorCallback(callback)
-	h.resourceSpec = restored.resourceSpec
-	h.ID = restored.ID
-	h.NodeName = restored.NodeName
-	h.LocalGatewayClient = restored.LocalGatewayClient
-	h.latestGpuInfo = restored.latestGpuInfo
+	h.LocalGatewayClient = restoreFrom.LocalGatewayClient
+	h.resourceSpec = restoreFrom.resourceSpec
+	h.ID = restoreFrom.ID
+	h.NodeName = restoreFrom.NodeName
+	h.latestGpuInfo = restoreFrom.latestGpuInfo
 
 	return nil
 }

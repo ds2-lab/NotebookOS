@@ -872,26 +872,48 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, d.cluster, d.gatewayPrometheusManager, gConn, d.localDaemonDisconnected)
 
 	if err != nil {
-		d.log.Error("Failed to create host scheduler client: %v", err)
-		return nil, err
-		//if errors.Is(err, scheduling.ErrRestoreRequired) {
-		//	d.log.Warn("Restoration is required for newly-connected Local Daemon %s.", host.ID)
-		//	// Restore host scheduler.
-		//	registered, loaded := d.cluster.GetHostManager().LoadOrStore(host.ID, host)
-		//	if loaded {
-		//		err := registered.Restore(host, d.localDaemonDisconnected)
-		//		if err != nil {
-		//			d.log.Error("Error while restoring host %v: %v", host, err)
-		//			return nil, err
-		//		}
-		//	} else {
-		//		d.log.Warn("Host scheduler requested for restoration but not found: %s", host.ID)
-		//		return nil, scheduling.ErrRestorationFailed
-		//	}
-		//} else {
-		//	d.log.Error("Failed to create host scheduler client: %v", err)
-		//	return nil, err
-		//}
+		if errors.Is(err, scheduling.ErrRestoreRequired) {
+			d.log.Warn("Newly-connected Local Daemon actually already exists.")
+
+			// Sanity check.
+			if host == nil {
+				log.Fatalf(utils.RedStyle.Render("We're supposed to restore a Local Daemon, but the host with which we would perform the restoration is nil...\n"))
+			}
+
+			// Restore the Local Daemon.
+			// This replaces the gRPC connection of the existing Host struct with that of a new one,
+			// as well as a few other fields.
+			registered, loaded := d.cluster.GetHost(host.ID)
+			if loaded {
+				err := registered.Restore(host, d.localDaemonDisconnected)
+				if err != nil {
+					d.log.Error("Error while restoring host %v: %v", host, err)
+					return nil, err
+				}
+
+				d.log.Debug("Successfully restored existing Local Daemon %s (ID=%s).", registered.NodeName, registered.ID)
+				go d.notifyDashboardOfInfo(
+					fmt.Sprintf("Local Daemon %s Reconnected", registered.NodeName),
+					fmt.Sprintf("Local Daemon %s on node %s has reconnected to the Cluster Gateway.",
+						registered.ID,
+						registered.NodeName))
+				return conn, nil
+			} else {
+				errorMessage := fmt.Sprintf("Supposedly existing Local Daemon (re)connected, but cannot find associated Host struct... Node claims to be Local Daemon %s (ID=%s).", host.ID, host.NodeName)
+				d.log.Error(errorMessage)
+
+				go d.notifyDashboardOfError(
+					fmt.Sprintf("Local Daemon %s Restoration has Failed", registered.NodeName),
+					fmt.Sprintf(errorMessage,
+						registered.ID,
+						registered.NodeName))
+
+				return nil, scheduling.ErrRestorationFailed
+			}
+		} else {
+			d.log.Error("Failed to create host scheduler client: %v", err)
+			return nil, err
+		}
 	}
 
 	if host == nil {
@@ -902,7 +924,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	d.cluster.NewHostAddedOrConnected(host)
 
-	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the internalCluster Gateway.", host.ID, host.NodeName))
+	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s on node %s has connected to the Cluster Gateway.", host.ID, host.NodeName))
 
 	return conn, nil
 }
