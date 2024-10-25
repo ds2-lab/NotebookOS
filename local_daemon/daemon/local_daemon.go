@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/opentracing/opentracing-go"
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
@@ -187,6 +188,9 @@ type SchedulerDaemonImpl struct {
 	// kernelErrorReporterServerPort is the port on which the proto.KernelErrorReporterServer gRPC service is listening.
 	kernelErrorReporterServerPort int
 
+	// localDaemonOptions is the options struct that the Local Daemon was created with.
+	localDaemonOptions *domain.LocalDaemonOptions
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -214,7 +218,7 @@ type KernelRegistrationClient struct {
 	conn net.Conn
 }
 
-func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *domain.SchedulerDaemonOptions, kernelRegistryPort int, kernelErrorReporterServerPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...domain.SchedulerDaemonConfig) *SchedulerDaemonImpl {
+func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.LocalDaemonOptions, kernelRegistryPort int, kernelErrorReporterServerPort int, virtualGpuPluginServer device.VirtualGpuPluginServer, nodeName string, configs ...domain.SchedulerDaemonConfig) *SchedulerDaemonImpl {
 	ip := os.Getenv("POD_IP")
 
 	daemon := &SchedulerDaemonImpl{
@@ -230,22 +234,23 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		cleaned:                            make(chan struct{}),
 		kernelRegistryPort:                 kernelRegistryPort,
 		kernelErrorReporterServerPort:      kernelErrorReporterServerPort,
-		smrPort:                            schedulerDaemonOptions.SMRPort,
+		localDaemonOptions:                 localDaemonOptions,
+		smrPort:                            localDaemonOptions.SMRPort,
 		virtualGpuPluginServer:             virtualGpuPluginServer,
-		deploymentMode:                     types.DeploymentMode(schedulerDaemonOptions.DeploymentMode),
-		hdfsNameNodeEndpoint:               schedulerDaemonOptions.HdfsNameNodeEndpoint,
-		dockerStorageBase:                  schedulerDaemonOptions.DockerStorageBase,
-		usingWSL:                           schedulerDaemonOptions.UsingWSL,
-		DebugMode:                          schedulerDaemonOptions.CommonOptions.DebugMode,
-		prometheusInterval:                 time.Second * time.Duration(schedulerDaemonOptions.PrometheusInterval),
-		prometheusPort:                     schedulerDaemonOptions.PrometheusPort,
-		numResendAttempts:                  schedulerDaemonOptions.NumResendAttempts,
-		runKernelsInGdb:                    schedulerDaemonOptions.RunKernelsInGdb,
+		deploymentMode:                     types.DeploymentMode(localDaemonOptions.DeploymentMode),
+		hdfsNameNodeEndpoint:               localDaemonOptions.HdfsNameNodeEndpoint,
+		dockerStorageBase:                  localDaemonOptions.DockerStorageBase,
+		usingWSL:                           localDaemonOptions.UsingWSL,
+		DebugMode:                          localDaemonOptions.CommonOptions.DebugMode,
+		prometheusInterval:                 time.Second * time.Duration(localDaemonOptions.PrometheusInterval),
+		prometheusPort:                     localDaemonOptions.PrometheusPort,
+		numResendAttempts:                  localDaemonOptions.NumResendAttempts,
+		runKernelsInGdb:                    localDaemonOptions.RunKernelsInGdb,
 		outgoingExecuteRequestQueue:        hashmap.NewCornelkMap[string, chan *enqueuedExecuteRequestMessage](128),
 		outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
 		executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
-		MessageAcknowledgementsEnabled:     schedulerDaemonOptions.MessageAcknowledgementsEnabled,
-		SimulateCheckpointingLatency:       schedulerDaemonOptions.SimulateCheckpointingLatency,
+		MessageAcknowledgementsEnabled:     localDaemonOptions.MessageAcknowledgementsEnabled,
+		SimulateCheckpointingLatency:       localDaemonOptions.SimulateCheckpointingLatency,
 	}
 
 	for _, configFunc := range configs {
@@ -270,7 +275,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 	}
 
 	daemon.resourceManager = scheduling.NewResourceManager(&types.Float64Spec{
-		GPUs:      float64(schedulerDaemonOptions.GpusPerHost),
+		GPUs:      float64(localDaemonOptions.GpusPerHost),
 		VRam:      scheduling.VramPerHostGb,
 		Millicpus: scheduling.MillicpusPerHost,
 		MemoryMb:  scheduling.MemoryMbPerHost})
@@ -294,11 +299,11 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		}
 	}
 
-	if len(schedulerDaemonOptions.HdfsNameNodeEndpoint) == 0 {
+	if len(localDaemonOptions.HdfsNameNodeEndpoint) == 0 {
 		panic("HDFS NameNode endpoint is empty.")
 	}
 
-	switch schedulerDaemonOptions.SchedulingPolicy {
+	switch localDaemonOptions.SchedulingPolicy {
 	case "default":
 		{
 			daemon.schedulingPolicy = "default"
@@ -325,11 +330,11 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		}
 	default:
 		{
-			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", schedulerDaemonOptions.SchedulingPolicy))
+			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", localDaemonOptions.SchedulingPolicy))
 		}
 	}
 
-	switch schedulerDaemonOptions.DeploymentMode {
+	switch localDaemonOptions.DeploymentMode {
 	case "":
 		{
 			daemon.log.Info("No 'deployment_mode' specified. Running in default mode: LOCAL mode.")
@@ -365,7 +370,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 		}
 	default:
 		{
-			daemon.log.Error("Unknown/unsupported deployment mode: \"%s\"", schedulerDaemonOptions.DeploymentMode)
+			daemon.log.Error("Unknown/unsupported deployment mode: \"%s\"", localDaemonOptions.DeploymentMode)
 			daemon.log.Error("The supported deployment modes are: ")
 			daemon.log.Error("- \"kubernetes\"")
 			daemon.log.Error("- \"docker-swarm\"")
@@ -376,19 +381,19 @@ func New(connectionOptions *jupyter.ConnectionInfo, schedulerDaemonOptions *doma
 
 	daemon.log.Debug("Connection options: %v", daemon.connectionOptions)
 
-	if !schedulerDaemonOptions.IsLocalMode() && len(nodeName) == 0 {
+	if !localDaemonOptions.IsLocalMode() && len(nodeName) == 0 {
 		panic("Node name is empty.")
 	}
 
-	if schedulerDaemonOptions.IsLocalMode() && len(nodeName) == 0 {
+	if localDaemonOptions.IsLocalMode() && len(nodeName) == 0 {
 		daemon.nodeName = types.LocalNode
 	}
 
-	if schedulerDaemonOptions.IsDockerComposeMode() && len(nodeName) == 0 {
+	if localDaemonOptions.IsDockerComposeMode() && len(nodeName) == 0 {
 		daemon.nodeName = types.VirtualDockerNode
 	}
 
-	if schedulerDaemonOptions.IsDockerSwarmMode() && len(nodeName) == 0 {
+	if localDaemonOptions.IsDockerSwarmMode() && len(nodeName) == 0 {
 		// Eventually, Docker Swarm mode will only support "Docker Nodes", which correspond to real machines or VMs.
 		// Virtual Docker Nodes will only be used in Docker Compose mode.
 		daemon.nodeName = types.VirtualDockerNode // types.DockerNode
@@ -636,6 +641,103 @@ func (d *SchedulerDaemonImpl) StartKernel(ctx context.Context, in *proto.KernelS
 		Replicas:  nil,
 		Kernel:    in,
 	})
+}
+
+// connectToGateway connects to the Cluster Gateway.
+func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize LocalDaemonFinalizer, tracer opentracing.Tracer) (*grpc.Server, net.Listener, error) {
+	tracer, consulClient := CreateConsulAndTracer(d.localDaemonOptions)
+	gOpts := GetGrpcOptions(tracer)
+
+	srv := grpc.NewServer(gOpts...)
+	proto.RegisterLocalGatewayServer(srv, d)
+	proto.RegisterKernelErrorReporterServer(srv, d)
+
+	// Initialize gRPC listener
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", d.localDaemonOptions.Port))
+	if err != nil {
+		d.log.Error("Failed to listen: %v", err)
+		return nil, nil, err
+	}
+
+	start := time.Now()
+	var (
+		connectedToProvisioner = false
+		numAttempts            = 1
+		provConn               net.Conn
+	)
+	for !connectedToProvisioner && time.Since(start) < (time.Minute*1) {
+		globalLogger.Info("Attempt #%d to connect to Provisioner (Gateway) at %s. Connection timeout: %v.",
+			numAttempts, gatewayAddress, connectionTimeout)
+		provConn, err = net.DialTimeout("tcp", gatewayAddress, connectionTimeout)
+
+		if err != nil {
+			globalLogger.Warn("Failed to connect to provisioner at %s on attempt #%d: %v",
+				gatewayAddress, numAttempts, err)
+			numAttempts += 1
+			time.Sleep(time.Second * 3)
+		} else {
+			connectedToProvisioner = true
+		}
+	}
+
+	// Initialize connection to the provisioner
+	if !connectedToProvisioner {
+		return nil, nil, err
+	}
+
+	if provConn == nil {
+		return nil, nil, fmt.Errorf("provisioner connection is nil")
+	}
+
+	// Initialize provisioner and wait for ready
+	provisioner, grpcClientConn, err := NewProvisioner(provConn)
+	if err != nil {
+		d.log.Error("Failed to initialize the provisioner: %v", err)
+		return nil, nil, err
+	}
+
+	errorChan := make(chan interface{}, 1)
+	// Wait for reverse connection
+	go func() {
+		defer finalize(true)
+		if err := srv.Serve(provisioner); err != nil {
+			d.log.Error("Failed to serve provisioner: %v", err)
+			errorChan <- err
+		}
+
+		errorChan <- struct{}{}
+	}()
+
+	select {
+	case <-provisioner.Ready():
+		{
+			break
+		}
+	case v := <-errorChan:
+		{
+			if err, ok := v.(error); ok {
+				return nil, nil, err
+			}
+		}
+	}
+	if err := provisioner.Validate(); err != nil {
+		d.log.Error("Failed to validate the provisioner: %v", err)
+		return nil, nil, err
+	}
+	d.SetProvisioner(provisioner, grpcClientConn)
+	d.log.Debug("Scheduler connected to %v", provConn.RemoteAddr())
+
+	// Register services in consul
+	if consulClient != nil {
+		err = consulClient.Register(ServiceName, uuid.New().String(), "", d.localDaemonOptions.Port)
+		if err != nil {
+			d.log.Error("Failed to register in consul: %v", err)
+			return nil, nil, err
+		}
+		d.log.Debug("Successfully registered in consul")
+	}
+
+	return srv, lis, nil
 }
 
 // Register a Kernel that has started running on the same node as we are.

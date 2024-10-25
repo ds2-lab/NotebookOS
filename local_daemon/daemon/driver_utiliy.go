@@ -4,17 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"log"
-	"net"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/zhangjyr/distributed-notebook/common/proto"
 
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
@@ -144,10 +140,6 @@ func getNameOfDockerContainer() string {
 }
 
 func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, done *sync.WaitGroup, finalize LocalDaemonFinalizer, sig chan os.Signal) (*SchedulerDaemonImpl, func()) {
-	tracer, consulClient := CreateConsulAndTracer(options)
-
-	gOpts := GetGrpcOptions(tracer)
-
 	var nodeName string
 	if options.IsLocalMode() {
 		nodeName = options.NodeName
@@ -163,68 +155,15 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 
 	globalLogger.Debug("Local Daemon Options:\n%s", options.PrettyString(2))
 
+	tracer, consulClient := CreateConsulAndTracer(options)
+
 	// Initialize grpc server
-	srv := grpc.NewServer(gOpts...)
-	scheduler := New(&options.ConnectionInfo, &options.SchedulerDaemonOptions, options.KernelRegistryPort, options.Port, devicePluginServer, nodeName)
-	proto.RegisterLocalGatewayServer(srv, scheduler)
-	proto.RegisterKernelErrorReporterServer(srv, scheduler)
+	scheduler := New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port, devicePluginServer, nodeName)
 
-	// Initialize gRPC listener
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", options.Port))
+	srv, lis, err := scheduler.connectToGateway(options.ProvisionerAddr, finalize, tracer)
 	if err != nil {
-		log.Fatalf("Failed to listen: %v", err)
+		log.Fatalf(utils.RedStyle.Render("Failed to connect to Cluster Gateway: %v\n"), err)
 	}
-	// defer lis.Close()
-	globalLogger.Info("Scheduler listening for gRPC at %v", lis.Addr())
-
-	start := time.Now()
-	var connectedToProvisioner = false
-	var numAttempts = 1
-	var provConn net.Conn
-	for !connectedToProvisioner && time.Since(start) < (time.Minute*1) {
-		globalLogger.Info("Attempt #%d to connect to Provisioner (Gateway) at %s. Connection timeout: %v.",
-			numAttempts, options.ProvisionerAddr, connectionTimeout)
-		provConn, err = net.DialTimeout("tcp", options.ProvisionerAddr, connectionTimeout)
-
-		if err != nil {
-			globalLogger.Warn("Failed to connect to provisioner at %s on attempt #%d: %v",
-				options.ProvisionerAddr, numAttempts, err)
-			numAttempts += 1
-			time.Sleep(time.Second * 3)
-		} else {
-			connectedToProvisioner = true
-		}
-	}
-
-	// Initialize connection to the provisioner
-	if !connectedToProvisioner {
-		_ = lis.Close()
-		log.Fatalf("Failed to connect to provisioner after %d attempt(s). Most recent error: %v", numAttempts, err)
-	}
-
-	if provConn == nil {
-		panic("provConn should not be nil at this point")
-	}
-	// defer provConn.Close()
-
-	// Initialize provisioner and wait for ready
-	provisioner, grpcClientConn, err := NewProvisioner(provConn)
-	if err != nil {
-		log.Fatalf("Failed to initialize the provisioner: %v", err)
-	}
-	// Wait for reverse connection
-	go func() {
-		defer finalize(true)
-		if err := srv.Serve(provisioner); err != nil {
-			log.Fatalf("Failed to serve provisioner: %v", err)
-		}
-	}()
-	<-provisioner.Ready()
-	if err := provisioner.Validate(); err != nil {
-		log.Fatalf("Failed to validate reverse provisioner connection: %v", err)
-	}
-	scheduler.SetProvisioner(provisioner, grpcClientConn)
-	globalLogger.Info("Scheduler connected to %v", provConn.RemoteAddr())
 
 	// Register services in consul
 	if consulClient != nil {
@@ -242,7 +181,10 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 
 		globalLogger.Warn("Received signal: \"%v\". Shutting down...", s.String())
 		srv.Stop()
-		scheduler.Close()
+		err := scheduler.Close()
+		if err != nil {
+			globalLogger.Error("Error while closing scheduler: %v", err)
+		}
 		done.Done()
 	}()
 
@@ -294,8 +236,15 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	}()
 
 	closeConnections := func() {
-		lis.Close()
-		provisioner.Close()
+		err := lis.Close()
+		if err != nil {
+			globalLogger.Error("Error while closing listener: %v", err)
+		}
+
+		err = scheduler.provisioner.(*Provisioner).Close()
+		if err != nil {
+			globalLogger.Error("Error while closing provisioner: %v", err)
+		}
 	}
 
 	return scheduler, closeConnections
