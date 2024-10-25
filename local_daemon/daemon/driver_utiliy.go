@@ -102,7 +102,7 @@ func getNameOfDockerContainerNonJson() (string, error) {
 	globalLogger.Info("Retrieved value for HOSTNAME environment variable: \"%s\"", hostnameEnv)
 
 	// We will use this command to retrieve the name of this Docker container.
-	unformattedCommand := "docker inspect {container_hostname_env} --format=json"
+	unformattedCommand := "docker inspect {container_hostname_env} --format='{{.Name}}'"
 	formattedCommand := strings.ReplaceAll(unformattedCommand, "{container_hostname_env}", hostnameEnv)
 	argv := strings.Split(formattedCommand, " ")
 
