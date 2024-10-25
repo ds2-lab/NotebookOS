@@ -911,15 +911,16 @@ class RaftLog(object):
         This return value of this function should be passed to the `self._log_node.WriteDataDirectoryToHDFS` function.
         """
         data_dict: dict = {
-            "kernel_id": self._kernel_id,
-            "proposed_values": self._proposed_values,
-            "buffered_proposals": self._buffered_proposals,
-            "leader_term": self._leader_term,
-            "leader_id": self._leader_id,
-            "expected_term": self.expected_term,
-            "elections": self._elections,
-            "current_election": self._current_election,
-            "last_completed_election": self._last_completed_election,
+            "kernel_id": self._kernel_id, # string
+            "proposed_values": self._proposed_values, # leader proposals, which generally contain a string and a few ints
+            "buffered_proposals": self._buffered_proposals, # leader proposals, which generally contain a string and a few ints
+            "buffered_votes": self._buffered_votes, # election votes, which generally contain a string and a few ints
+            "leader_term": self._leader_term, # int
+            "leader_id": self._leader_id, # int
+            "expected_term": self.expected_term, # int
+            "elections": self._elections, # map of Election objects
+            "current_election": self._current_election, # Election object
+            "last_completed_election": self._last_completed_election, # Election object
         }
 
         try:
@@ -998,6 +999,7 @@ class RaftLog(object):
         # TODO: 
         # There may be some bugs that arrise from these values being somewhat old or outdated, potentially.
         self._buffered_proposals = data_dict["buffered_proposals"]
+        self._buffered_votes = data_dict["buffered_votes"]
         self._proposed_values = data_dict["proposed_values"]
         self._elections = data_dict["elections"]
         self._current_election = data_dict["current_election"]
