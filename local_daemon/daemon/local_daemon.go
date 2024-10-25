@@ -666,11 +666,24 @@ func (d *SchedulerDaemonImpl) initializeConsulAndTracer() {
 }
 
 // connectToGateway connects to the Cluster Gateway.
+//
+// This is thread-safe. If another thread is already executing connectToGateway when the current thread calls
+// connectToGateway, then the current thread will return immediately.
 func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize LocalDaemonFinalizer) error {
+	// Make sure nobody else is already trying to connect. Don't want to execute this method non-atomically.
 	if !d.connectingToGateway.CompareAndSwap(0, 1) {
 		d.log.Warn("Another goroutine is already attempting to connect to the Cluster Gateway.")
 		return errConcurrentConnectionAttempt
 	}
+
+	// Make sure to swap the connectingToGateway flag back to 0 once we're done, regardless of whether or not
+	// we successfully reconnected to the Cluster Gateway.
+	defer func() {
+		swapped := d.connectingToGateway.CompareAndSwap(1, 0)
+		if !swapped {
+			log.Fatalf(utils.RedStyle.Render("Failed to swap `connecting to gateway` flag back after finishing connection attempt...\n"))
+		}
+	}()
 
 	d.log.Debug("Connecting to Cluster Gateway at \"%s\"", gatewayAddress)
 
