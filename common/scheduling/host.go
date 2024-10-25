@@ -363,7 +363,9 @@ func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramG
 
 	host, err := NewHost(id, addr, millicpus, memMb, vramGb, cluster, metricsProvider, localGatewayClient, errorCallback)
 	if err != nil {
-		return nil, err
+		// We need to return host here, in case the error is ErrRestoreRequired, as a host IS returned in that case.
+		// It's a host with only some fields filled-in so that it can be used to restore the existing host.
+		return host, err
 	}
 
 	// Populate the conn field "retroactively".
