@@ -3,7 +3,7 @@
 - name: Deploy the Traefik stack on the Docker Swarm cluster
   hosts: swarm-leader
   roles:
-    - traefik
+    - deploy-traefik-docker-stack
   tags:
     - docker
     - swarm
