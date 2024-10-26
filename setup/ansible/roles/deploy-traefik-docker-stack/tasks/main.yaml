@@ -1,7 +1,7 @@
 - name: Create the docker-compose.yml file for the Traefik Docker Swarm stack using the associated template
   template:
     src: docker-compose.yml.j2
-    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/traefik/files/docker-compose.yml"
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-traefik-docker-stack/files/docker-compose.yml"
     mode: 0640
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
@@ -33,7 +33,7 @@
     ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
 - name: "Deploy the Traefik Docker Swarm stack"
-  shell: "docker stack deploy -c '{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/traefik/files/docker-compose.yml' {{ traefik_docker_swarm_stack_name }}"
+  shell: "docker stack deploy -c '{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-traefik-docker-stack/files/docker-compose.yml' {{ traefik_docker_swarm_stack_name }}"
   become: true
   environment:
     LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
