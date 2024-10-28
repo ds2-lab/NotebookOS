@@ -72,9 +72,10 @@ signal.signal(signal.SIGABRT, sigabrt_handler)
 signal.signal(signal.SIGINT, sigint_handler)
 signal.signal(signal.SIGTERM, sigterm_handler)
 
-DeploymentMode_Kubernetes: str = "kubernetes"
-DeploymentMode_Docker: str = "docker"
-DeploymentMode_Local: str = "local"
+DeploymentMode_Kubernetes: str = "KUBERNETES"
+DeploymentMode_DockerSwarm: str = "DOCKER-SWARM"
+DeploymentMode_DockerCompose: str = "DOCKER-COMPOSE"
+DeploymentMode_Local: str = "LOCAL"
 
 SMR_LEAD_TASK: str = "smr_lead_task"
 
@@ -327,7 +328,7 @@ class DistributedKernel(IPythonKernel):
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
 
-        self.deployment_mode: str = os.environ.get("DEPLOYMENT_MODE", "local")
+        self.deployment_mode: str = os.environ.get("DEPLOYMENT_MODE", DeploymentMode_Local)
         if len(self.deployment_mode) == 0:
             raise ValueError("Could not determine deployment mode.")
         else:
@@ -340,7 +341,7 @@ class DistributedKernel(IPythonKernel):
             self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
             self.docker_container_id: str = "N/A"
-        elif self.deployment_mode == DeploymentMode_Docker:
+        elif self.deployment_mode == DeploymentMode_DockerSwarm or self.deployment_mode == DeploymentMode_DockerCompose:
             self.docker_container_id: str = socket.gethostname()
             self.pod_name = os.environ.get("POD_NAME", default=self.docker_container_id)
             self.node_name = os.environ.get("NODE_NAME", default="DockerNode")
@@ -2157,7 +2158,8 @@ class DistributedKernel(IPythonKernel):
                                    debug_port=self.debug_port,
                                    report_error_callback=self.report_error,
                                    send_notification_func=self.send_notification,
-                                   hdfs_read_latency_callback=self.hdfs_read_latency_callback)
+                                   hdfs_read_latency_callback=self.hdfs_read_latency_callback,
+                                   deploymentMode = self.deployment_mode)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
 

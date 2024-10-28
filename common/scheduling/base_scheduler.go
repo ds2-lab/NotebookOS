@@ -457,6 +457,9 @@ func (s *BaseScheduler) ValidateCapacity() {
 				if numFailures > 3 {
 					s.log.Error("We've failed three times to provision a new host. Aborting automated operation.")
 					return
+				} else if errors.Is(err, ErrUnsupportedOperation) {
+					s.log.Warn("Aborting scale-out operation as we lack sufficient disabled hosts to scale-out, and adding additional hosts directly is not supported by the current cluster type.")
+					return
 				} else {
 					continue
 				}

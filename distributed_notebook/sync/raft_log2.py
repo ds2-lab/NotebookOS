@@ -70,6 +70,7 @@ class RaftLog(object):
             report_error_callback: Callable[[str, str], None] = None,
             send_notification_func: Callable[[str, str, int], None] = None,
             hdfs_read_latency_callback: Optional[Callable[[int], None]] = None,
+            deploymentMode: str = "LOCAL",
     ):
         self._shouldSnapshotCallback = None
         if len(hdfs_hostname) == 0:
@@ -124,7 +125,7 @@ class RaftLog(object):
         sys.stdout.flush()
 
         self._log_node = NewLogNode(self._persistent_store_path, node_id, hdfs_hostname, should_read_data_from_hdfs,
-                                    Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port)
+                                    Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port, deploymentMode)
         self.logger.info("<< RETURNED FROM GO CODE (NewLogNode)")
         sys.stderr.flush()
         sys.stdout.flush()

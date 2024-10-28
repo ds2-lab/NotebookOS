@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+var (
+	ErrUnsupportedOperation = errors.New("the requested operation is not supported")
+)
+
 // DockerSwarmCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
 // locally, and scaling-up and down sometimes involves simulation steps in which nodes are not actually deleted,
 // but simply toggled "off" and "on".
@@ -204,7 +208,8 @@ func (c *DockerSwarmCluster) getScaleOutCommand(targetScale int32, coreLogicDone
 
 		c.log.Error("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.", targetScale)
 		c.log.Error("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.", numDisabledHostsUsed, targetScale-int32(currentScale))
-		coreLogicDoneChan <- fmt.Errorf("cannot scale-out; adding additional nodes is not supported by docker swarm clusters")
+
+		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker swarm clusters", ErrUnsupportedOperation)
 	}
 }
 

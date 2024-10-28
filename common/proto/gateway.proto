@@ -764,6 +764,7 @@ message KernelRegistrationNotification {
   int32 cpu = 10;  // In 1/100 core.
   int32 memory = 11; // In MB.
   int32 gpu = 12; // Number of GPUs.
+  string notificationId = 13;
 }
 
 // Returned by the Cluster Gateway for the NotifyKernelRegistered RPC.

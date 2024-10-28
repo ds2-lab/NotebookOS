@@ -186,6 +186,10 @@ type ClusterGatewayImpl struct {
 	// We also send a notification on the channel mapped by the kernel's key when all replicas have joined their SMR cluster.
 	kernelsStarting *hashmap.CornelkMap[string, chan struct{}]
 
+	// kernelRegisteredNotifications is a map from notification ID to *proto.KernelRegistrationNotification
+	// to keep track of the notifications that we've received so we can discard duplicates.
+	kernelRegisteredNotifications *hashmap.CornelkMap[string, *proto.KernelRegistrationNotification]
+
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
 	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]]
 
@@ -263,6 +267,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		kernelIdToKernel:                      hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
 		kernelSpecs:                           hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
 		waitGroups:                            hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
+		kernelRegisteredNotifications:         hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](128),
 		cleaned:                               make(chan struct{}),
 		smrPort:                               clusterDaemonOptions.SMRPort,
 		activeAddReplicaOpsPerKernel:          hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]](64),
@@ -1762,8 +1767,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		PersistentId:           &persistentId,
 		ShouldReadDataFromHdfs: true,
 		ResourceSpec:           replicaSpec.Kernel.ResourceSpec,
-		// DataDirectory: &dataDirectory,
-		SmrPort: int32(d.smrPort),
+		SmrPort:                int32(d.smrPort),
 	}
 
 	d.Unlock()
@@ -1847,8 +1851,15 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	d.log.Info("Pod name: %v", kernelPodName)
 	d.log.Info("Host ID: %v", hostId)
 	d.log.Info("Node ID: %v", nodeName)
+	d.log.Info("Notification ID: %v", in.NotificationId)
 
 	d.Lock()
+
+	_, loaded := d.kernelRegisteredNotifications.LoadOrStore(in.NotificationId, in)
+	if loaded {
+		d.log.Warn("Received duplicate \"Kernel Registered\" notification with ID=%s", in.NotificationId)
+		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("Duplicate \"kernel registered\" request with ID=%s", in.NotificationId))
+	}
 
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {

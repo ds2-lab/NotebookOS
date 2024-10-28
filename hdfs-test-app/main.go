@@ -41,9 +41,9 @@ func main() {
 		// UseDatanodeHostname: false,
 		DatanodeDialFunc: func(ctx context.Context, network, address string) (net.Conn, error) {
 			port := strings.Split(address, ":")[1]
-			modified_address := fmt.Sprintf("%s:%s", "172.17.0.1", port)
-			fmt.Printf("Dialing. Original address \"%s\". Modified address: %s.\n", address, modified_address)
-			conn, err := (&net.Dialer{}).DialContext(ctx, network, modified_address)
+			modifiedAddress := fmt.Sprintf("%s:%s", "172.17.0.1", port)
+			fmt.Printf("Dialing. Original address \"%s\". Modified address: %s.\n", address, modifiedAddress)
+			conn, err := (&net.Dialer{}).DialContext(ctx, network, modifiedAddress)
 			if err != nil {
 				return nil, err
 			}
@@ -55,12 +55,12 @@ func main() {
 		panic(err)
 	}
 
-	file_info, err := client.Stat("/")
+	fileInfo, err := client.Stat("/")
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("Stat(\"/\"):\nName: %s\nSize: %d\nIsDir: %v\n", file_info.Name(), file_info.Size(), file_info.IsDir())
+	fmt.Printf("Stat(\"/\"):\nName: %s\nSize: %d\nIsDir: %v\n", fileInfo.Name(), fileInfo.Size(), fileInfo.IsDir())
 
 	err = client.Remove("/test.txt")
 	if err != nil {
