@@ -1133,7 +1133,6 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 	// TODO: Figure out a better way to handle this. As of right now, we really cannot recover from this.
 	var response *proto.KernelRegistrationNotificationResponse
 	for response == nil && numTries < maxNumTries {
-
 		// Create a function to avoid warning/error with leaking context due to calling cancel() in a for-loop.
 		doNotify := func() bool {
 			childCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)

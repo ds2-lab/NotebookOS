@@ -1858,6 +1858,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	_, loaded := d.kernelRegisteredNotifications.LoadOrStore(in.NotificationId, in)
 	if loaded {
 		d.log.Warn("Received duplicate \"Kernel Registered\" notification with ID=%s", in.NotificationId)
+		d.Unlock()
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("Duplicate \"kernel registered\" request with ID=%s", in.NotificationId))
 	}
 
