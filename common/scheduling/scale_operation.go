@@ -25,7 +25,7 @@ const (
 	ScaleOperationAwaitingStart ScaleOperationStatus = "awaiting_start"
 	ScaleOperationInProgress    ScaleOperationStatus = "in_progress"
 	ScaleOperationComplete      ScaleOperationStatus = "complete"
-	ScaleOperationErred         ScaleOperationStatus = "error"
+	ScaleOperationErred         ScaleOperationStatus = "erred"
 )
 
 var (

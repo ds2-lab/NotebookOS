@@ -213,6 +213,13 @@ func (c *DockerSwarmCluster) getScaleOutCommand(targetScale int32, coreLogicDone
 	}
 }
 
+// canPossiblyScaleOut returns true if the Cluster could possibly scale-out.
+// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
+// it is currently not supported unless there is at least one disabled host already within the cluster.
+func (c *DockerSwarmCluster) canPossiblyScaleOut() bool {
+	return c.DisabledHosts.Len() > 0
+}
+
 // unsafeGetTargetedScaleInCommand returns a function that, when executed, will terminate the hosts specified in the targetHosts parameter.
 //
 // Important: this should be called with the Cluster's hostMutex already acquired.

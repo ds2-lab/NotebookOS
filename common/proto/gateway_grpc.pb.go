@@ -26,6 +26,7 @@ const (
 	ClusterGateway_SmrReady_FullMethodName               = "/gateway.ClusterGateway/SmrReady"
 	ClusterGateway_SmrNodeAdded_FullMethodName           = "/gateway.ClusterGateway/SmrNodeAdded"
 	ClusterGateway_Notify_FullMethodName                 = "/gateway.ClusterGateway/Notify"
+	ClusterGateway_PingGateway_FullMethodName            = "/gateway.ClusterGateway/PingGateway"
 )
 
 // ClusterGatewayClient is the client API for ClusterGateway service.
@@ -52,6 +53,8 @@ type ClusterGatewayClient interface {
 	SmrNodeAdded(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
 	// Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
 	Notify(ctx context.Context, in *Notification, opts ...grpc.CallOption) (*Void, error)
+	// PingGateway is a no-op for testing connectivity.
+	PingGateway(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
 }
 
 type clusterGatewayClient struct {
@@ -132,6 +135,16 @@ func (c *clusterGatewayClient) Notify(ctx context.Context, in *Notification, opt
 	return out, nil
 }
 
+func (c *clusterGatewayClient) PingGateway(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Void)
+	err := c.cc.Invoke(ctx, ClusterGateway_PingGateway_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterGatewayServer is the server API for ClusterGateway service.
 // All implementations must embed UnimplementedClusterGatewayServer
 // for forward compatibility.
@@ -156,6 +169,8 @@ type ClusterGatewayServer interface {
 	SmrNodeAdded(context.Context, *ReplicaInfo) (*Void, error)
 	// Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
 	Notify(context.Context, *Notification) (*Void, error)
+	// PingGateway is a no-op for testing connectivity.
+	PingGateway(context.Context, *Void) (*Void, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -186,6 +201,9 @@ func (UnimplementedClusterGatewayServer) SmrNodeAdded(context.Context, *ReplicaI
 }
 func (UnimplementedClusterGatewayServer) Notify(context.Context, *Notification) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Notify not implemented")
+}
+func (UnimplementedClusterGatewayServer) PingGateway(context.Context, *Void) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PingGateway not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
 func (UnimplementedClusterGatewayServer) testEmbeddedByValue()                        {}
@@ -334,6 +352,24 @@ func _ClusterGateway_Notify_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClusterGateway_PingGateway_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterGatewayServer).PingGateway(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterGateway_PingGateway_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterGatewayServer).PingGateway(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterGateway_ServiceDesc is the grpc.ServiceDesc for ClusterGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -368,6 +404,10 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Notify",
 			Handler:    _ClusterGateway_Notify_Handler,
+		},
+		{
+			MethodName: "PingGateway",
+			Handler:    _ClusterGateway_PingGateway_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

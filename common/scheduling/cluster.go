@@ -136,6 +136,11 @@ type clusterInternal interface {
 	// When the operation completes, a notification is sent on the channel associated with the ScaleOperation.
 	registerScaleInOperation(string, int32, []string) (*ScaleOperation, error)
 
+	// canPossiblyScaleOut returns true if the Cluster could possibly scale-out.
+	// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
+	// it is currently not supported unless there is at least one disabled host already within the cluster.
+	canPossiblyScaleOut() bool
+
 	// ClusterMetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
 	ClusterMetricsProvider() metrics.ClusterMetricsProvider
 }

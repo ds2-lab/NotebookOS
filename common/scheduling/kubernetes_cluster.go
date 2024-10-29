@@ -52,6 +52,14 @@ func (c *KubernetesCluster) RequestHost(spec types.Spec) promise.Promise {
 	return promise.Resolved(nil, promise.ErrNotImplemented)
 }
 
+// canPossiblyScaleOut returns true if the Cluster could possibly scale-out.
+// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
+// it is currently not supported unless there is at least one disabled host already within the cluster.
+func (c *KubernetesCluster) canPossiblyScaleOut() bool {
+	// For now, this is never supported for Kubernetes clusters.
+	return false
+}
+
 func (c *KubernetesCluster) ReleaseHost(id string) promise.Promise {
 	return promise.Resolved(nil, promise.ErrNotImplemented)
 }

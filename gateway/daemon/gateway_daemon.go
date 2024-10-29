@@ -1859,7 +1859,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	if loaded {
 		d.log.Warn("Received duplicate \"Kernel Registered\" notification with ID=%s", in.NotificationId)
 		d.Unlock()
-		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("Duplicate \"kernel registered\" request with ID=%s", in.NotificationId))
+		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification)
 	}
 
 	kernel, loaded := d.kernels.Load(kernelId)
@@ -1996,6 +1996,11 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	waitGroup.Notify()
 	return response, nil
+}
+
+// PingGateway is a no-op for testing connectivity.
+func (d *ClusterGatewayImpl) PingGateway(_ context.Context, in *proto.Void) (*proto.Void, error) {
+	return in, nil
 }
 
 // ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.

@@ -1127,65 +1127,91 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
 
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancelPing()
+
+	_, err = d.provisioner.PingGateway(pingCtx, proto.VOID)
+	if err != nil {
+		d.log.Error("PingGateway RPC failed... we're in trouble. Error was: %v", err)
+	}
+
 	numTries := 0
 	maxNumTries := 3
 
 	// TODO: Figure out a better way to handle this. As of right now, we really cannot recover from this.
 	var response *proto.KernelRegistrationNotificationResponse
 	for response == nil && numTries < maxNumTries {
-		// Create a function to avoid warning/error with leaking context due to calling cancel() in a for-loop.
-		doNotify := func() bool {
-			childCtx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-			defer cancel()
+		// NOTE: If you feel inclined to add a context.WithTimeout here -- is it REALLY necessary?
+		// Because often, there is either a delay or an error on the Gateway side (e.g., some sort of deadlock),
+		// rather than a connectivity problem here, and resubmitting the request won't help.
+		response, err = d.provisioner.NotifyKernelRegistered(context.Background(), kernelRegistrationNotification)
 
-			response, err = d.provisioner.NotifyKernelRegistered(childCtx, kernelRegistrationNotification)
+		if err != nil {
+			d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
+				kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
 
-			if err != nil {
-				d.log.Error("Failed to notify Cluster Gateway that kernel %s has registered on attempt %d/%d: %v",
-					kernelReplicaSpec.ID(), numTries+1, maxNumTries, err)
-
-				// Convert the golang error to a gRPC Status struct for additional information.
-				if statusError, ok := status.FromError(err); ok {
-					d.log.Error("Received gRPC error with statusError code %d: %s.",
-						statusError.Code(), statusError.Message())
-					details := statusError.Details()
-					if len(details) > 0 {
-						d.log.Error("Additional details associated with gRPC error: %v", details)
-					}
-				}
-
-				// Attempt to re-establish connection with Cluster Gateway.
-				grpcConnState := d.provisionerClientConnectionGRPC.GetState()
-				d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
-				if grpcConnState != connectivity.Ready {
-					d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
-
-					// TODO: This will cause SetID to be called. We may need to wait to try again until that process
-					// finishes. We also need to implement that process.
-					err = d.connectToGateway(d.localDaemonOptions.ProvisionerAddr, func(v bool) {
-						d.log.Error("The finalize function passed to connectToGateway when registerKernelReplica fails to notify the provisioner was called with argument %v", v)
-					})
-					if err != nil {
-						log.Fatalf(utils.RedStyle.Render("Failed to re-establish connectivity with the Cluster Gateway: %v"), err)
-					}
-				}
-
-				numTries += 1
-
-				// If we're not done (i.e., if this loop will execute again because we've not exhausted our attempts),
-				// then we'll sleep. If we've already exhausted our attempts, then there's no point in sleeping again.
-				if numTries < maxNumTries {
-					time.Sleep(time.Millisecond * 100 * time.Duration(numTries))
-				}
-			} else {
-				return true
+			if errors.Is(err, types.ErrDuplicateRegistrationNotification) {
+				// TODO: What to do here? If the Gateway received our request but then there was some sort
+				//       of error, then we need a way to get the response. The Gateway could call an RPC to
+				//		 this Local Daemon with the response, perhaps. But is it obvious that the Gateway will
+				//	     know to do this? Like, will the connection error be visible to the Gateway, or is it just
+				// 		 going to return from the NotifyKernelRegistered RPC handler like nothing is wrong?
+				//
+				//	     In any case, if it becomes a problem, then the Gateway can either send the result proactively
+				//		 via some other RPC, or if the Local Daemon gets a types.ErrDuplicateRegistrationNotification
+				//	     error, then maybe the Local Daemon can periodically call some other RPC (yet to be implemented)
+				//		 that either attempts to receive the result of the registration, OR just blocks until that
+				//		 result is available.
+				//
+				// 		 For now, we panic, as we have no way to handle this.
+				notifyCtx, cancelNotify := context.WithTimeout(context.Background(), time.Second*10)
+				d.notifyClusterGatewayOfError(notifyCtx, &proto.Notification{
+					Id:    uuid.NewString(),
+					Title: "Local Daemon Sent Duplicate \"Kernel Registered\" Message",
+					Message: fmt.Sprintf("Local daemon %s (ID=%S) sent a duplicate \"kernel registered\" notification for replica %d of kernel %s.",
+						d.nodeName, d.id, registrationPayload.ReplicaId, kernel.ID()),
+					NotificationType: 0,
+					Panicked:         true,
+				})
+				cancelNotify()
+				log.Fatalf(utils.RedStyle.Render("Sent duplicate a duplicate \"kernel registered\" notification for replica %d of kernel %s.\n"),
+					registrationPayload.ReplicaId, kernel.ID())
 			}
 
-			return false
-		}
+			// Convert the golang error to a gRPC Status struct for additional information.
+			if statusError, ok := status.FromError(err); ok {
+				d.log.Error("Received gRPC error with statusError code %d: %s.",
+					statusError.Code(), statusError.Message())
+				details := statusError.Details()
+				if len(details) > 0 {
+					d.log.Error("Additional details associated with gRPC error: %v", details)
+				}
+			}
 
-		success := doNotify()
-		if success {
+			// Attempt to re-establish connection with Cluster Gateway.
+			grpcConnState := d.provisionerClientConnectionGRPC.GetState()
+			d.log.Error("gRPC Client Connection for Provisioner is in state \"%s\"", grpcConnState.String())
+			if grpcConnState != connectivity.Ready {
+				d.log.Warn("Attempting to re-establish provisioner gRPC connection with Cluster Gateway...")
+
+				// TODO: This will cause SetID to be called. We may need to wait to try again until that process
+				// finishes. We also need to implement that process.
+				err = d.connectToGateway(d.localDaemonOptions.ProvisionerAddr, func(v bool) {
+					d.log.Error("The finalize function passed to connectToGateway when registerKernelReplica fails to notify the provisioner was called with argument %v", v)
+				})
+				if err != nil {
+					log.Fatalf(utils.RedStyle.Render("Failed to re-establish connectivity with the Cluster Gateway: %v"), err)
+				}
+			}
+
+			numTries += 1
+
+			// If we're not done (i.e., if this loop will execute again because we've not exhausted our attempts),
+			// then we'll sleep. If we've already exhausted our attempts, then there's no point in sleeping again.
+			if numTries < maxNumTries {
+				time.Sleep(time.Millisecond * 100 * time.Duration(numTries))
+			}
+		} else {
 			break
 		}
 	}
