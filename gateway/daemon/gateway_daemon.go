@@ -405,10 +405,11 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			clusterGateway.dockerApiClient = apiClient
 
-			clusterGateway.containerEventHandler = NewDockerEventHandler()
+			dockerEventHandler := NewDockerEventHandler()
+			clusterGateway.containerEventHandler = dockerEventHandler
 
 			eventObserver := observer.NewEventObserver(domain.DockerProjectName, "") /* TODO: Don't hardcode this (the project name parameter). */
-			eventObserver.RegisterEventConsumer(uuid.NewString(), clusterGateway.containerEventHandler.(*DockerEventHandler))
+			eventObserver.RegisterEventConsumer(uuid.NewString(), dockerEventHandler)
 			eventObserver.Start()
 
 			clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
@@ -426,13 +427,14 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			clusterGateway.dockerApiClient = apiClient
 
-			clusterGateway.containerEventHandler = NewDockerEventHandler()
+			dockerEventHandler := NewDockerEventHandler()
+			clusterGateway.containerEventHandler = dockerEventHandler
 
 			eventObserver := observer.NewEventObserver(domain.DockerProjectName, "") /* TODO: Don't hardcode this (the project name parameter). */
-			eventObserver.RegisterEventConsumer(uuid.NewString(), clusterGateway.containerEventHandler.(*DockerEventHandler))
+			eventObserver.RegisterEventConsumer(uuid.NewString(), dockerEventHandler)
 			eventObserver.Start()
 
-			clusterGateway.remoteDockerEventAggregator = NewRemoteDockerEventAggregator(clusterDaemonOptions.RemoteDockerEventAggregatorPort, clusterGateway.containerEventHandler.(*DockerEventHandler))
+			clusterGateway.remoteDockerEventAggregator = NewRemoteDockerEventAggregator(clusterDaemonOptions.RemoteDockerEventAggregatorPort, dockerEventHandler)
 			go clusterGateway.remoteDockerEventAggregator.Start()
 
 			clusterGateway.cluster = scheduling.NewDockerSwarmCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)

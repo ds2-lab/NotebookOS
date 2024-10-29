@@ -32,7 +32,10 @@ type DockerEventHandler struct {
 }
 
 func NewDockerEventHandler() *DockerEventHandler {
-	handler := &DockerEventHandler{}
+	handler := &DockerEventHandler{
+		channels:               hashmap.NewCornelkMap[string, []chan string](64),
+		unwatchedNotifications: hashmap.NewCornelkMap[string, []*ContainerStartedNotification](64),
+	}
 	config.InitLogger(&handler.log, handler)
 
 	return handler

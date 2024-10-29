@@ -129,8 +129,20 @@ func (w *EventObserver) monitor() {
 
 			w.mu.Lock()
 
-			for _, consumer := range w.eventConsumers {
+			toRemove := make([]string, 0)
+			for id, consumer := range w.eventConsumers {
+				if consumer == nil {
+					w.log.Warn("Found nil consumer in EventConsumers map with ID=%s", id)
+					toRemove = append(toRemove, id)
+					continue
+				}
+
 				consumer.ConsumeDockerEvent(containerCreationEvent)
+			}
+
+			for _, id := range toRemove {
+				w.log.Warn("Removing nil entry from EventConsumers map with ID=%s", id)
+				delete(w.eventConsumers, id)
 			}
 
 			w.mu.Unlock()
