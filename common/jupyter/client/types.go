@@ -39,7 +39,7 @@ type AbstractDistributedKernelClient interface {
 	AddOperationStarted()
 	AddOperationCompleted()
 	Replicas() []scheduling.KernelReplica
-	PodName(id int32) (string, error)
+	PodOrContainerName(id int32) (string, error)
 	PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec
 	AddReplica(r scheduling.KernelReplica, host *scheduling.Host) error
 	RemoveReplica(r scheduling.KernelReplica, remover ReplicaRemover, noop bool) (*scheduling.Host, error)
@@ -84,7 +84,7 @@ type AbstractKernelClient interface {
 	SetWorkloadId(workloadId string)
 	WorkloadIdSet() bool
 	ShouldAckMessages() bool
-	PodName() string
+	GetPodOrContainerName() string
 	NodeName() string
 	ShellListenPort() int
 	IOPubListenPort() int

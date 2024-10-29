@@ -909,13 +909,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 							SignatureScheme: jupyter.JupyterSignatureScheme,
 							Key:             kernelKey,
 						},
-						KernelId:  kernelId,
-						SessionId: "N/A",
-						ReplicaId: replicaId,
-						HostId:    host1Id,
-						KernelIp:  "0.0.0.0",
-						PodName:   "kernel1pod",
-						NodeName:  node1Name,
+						KernelId:           kernelId,
+						SessionId:          "N/A",
+						ReplicaId:          replicaId,
+						HostId:             host1Id,
+						KernelIp:           "0.0.0.0",
+						PodOrContainerName: "kernel1pod",
+						NodeName:           node1Name,
 					})
 					Expect(resp).ToNot(BeNil())
 					Expect(err).To(BeNil())

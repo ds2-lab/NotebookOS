@@ -282,7 +282,7 @@ func (m *migrationManagerImpl) RegisterKernel(kernelId string) {
 // InitiateKernelMigration initiates a migration operation for a particular Pod.
 func (m *migrationManagerImpl) InitiateKernelMigration(_ context.Context, targetClient *client.DistributedKernelClient, targetSmrNodeId int32, newSpec *proto.KernelReplicaSpec) (string, error) {
 	kernelId := targetClient.ID()
-	podName, err := targetClient.PodName(targetSmrNodeId)
+	podName, err := targetClient.PodOrContainerName(targetSmrNodeId)
 	if err != nil {
 		panic(fmt.Sprintf("Could not find replica of kernel \"%s\" with SMR Node ID %d.", kernelId, targetSmrNodeId))
 	}

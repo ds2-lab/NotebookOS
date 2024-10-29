@@ -79,7 +79,7 @@ type KernelReplicaClient struct {
 	numResendAttempts                int                                            // Number of times to try resending a message before giving up.
 	shellListenPort                  int                                            // Port that the KernelReplicaClient::shell socket listens on.
 	iopubListenPort                  int                                            // Port that the KernelReplicaClient::iopub socket listens on.
-	podOrContainerName               string                                         // Name of the Pod or Container housing the associated distributed kernel replica container.
+	PodOrContainerName               string                                         // Name of the Pod or Container housing the associated distributed kernel replica container.
 	nodeName                         string                                         // Name of the node that the Pod or Container is running on.
 	ready                            bool                                           // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
 	yieldNextExecutionRequest        bool                                           // If true, then we will yield the next 'execute_request'.
@@ -155,7 +155,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		shellListenPort:                      shellListenPort,
 		messagingMetricsProvider:             messagingMetricsProvider,
 		iopubListenPort:                      iopubListenPort,
-		podOrContainerName:                   podOrContainerName,
+		PodOrContainerName:                   podOrContainerName,
 		nodeName:                             nodeName,
 		smrNodeReadyCallback:                 smrNodeReadyCallback,
 		smrNodeAddedCallback:                 smrNodeAddedCallback,
@@ -620,9 +620,17 @@ func (c *KernelReplicaClient) updateLogPrefix() {
 	c.client.Log.(*logger.ColorLogger).Prefix = fmt.Sprintf("Replica %s:%d ", c.id, c.replicaId)
 }
 
-// PodName returns the name of the Kubernetes Pod hosting the replica.
-func (c *KernelReplicaClient) PodName() string {
-	return c.podOrContainerName
+// GetPodOrContainerName returns the name of the Kubernetes Pod hosting the replica.
+func (c *KernelReplicaClient) GetPodOrContainerName() string {
+	return c.PodOrContainerName
+}
+
+func (c *KernelReplicaClient) SetPodOrContainerName(name string) {
+	c.PodOrContainerName = name
+}
+
+func (c *KernelReplicaClient) SetNodeName(name string) {
+	c.nodeName = name
 }
 
 // NodeName returns the name of the node that the Pod is running on.

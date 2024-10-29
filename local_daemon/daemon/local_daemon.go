@@ -233,20 +233,20 @@ type SchedulerDaemonImpl struct {
 }
 
 type KernelRegistrationPayload struct {
-	Op              string                  `json:"op"`
-	SignatureScheme string                  `json:"signatureScheme"`
-	Key             string                  `json:"key"`
-	Kernel          *proto.KernelSpec       `json:"kernel,omitempty"`
-	ReplicaId       int32                   `json:"replicaId,omitempty"`
-	NumReplicas     int32                   `json:"numReplicas,omitempty"`
-	Join            bool                    `json:"join,omitempty"`
-	PersistentId    *string                 `json:"persistentId,omitempty"`
-	PodName         string                  `json:"podName,omitempty"`
-	NodeName        string                  `json:"nodeName,omitempty"`
-	Cpu             int32                   `json:"cpu,omitempty"`
-	Memory          int32                   `json:"memory,omitempty"`
-	Gpu             int32                   `json:"gpu,omitempty"`
-	ConnectionInfo  *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
+	Op                 string                  `json:"op"`
+	SignatureScheme    string                  `json:"signatureScheme"`
+	Key                string                  `json:"key"`
+	Kernel             *proto.KernelSpec       `json:"kernel,omitempty"`
+	ReplicaId          int32                   `json:"replicaId,omitempty"`
+	NumReplicas        int32                   `json:"numReplicas,omitempty"`
+	Join               bool                    `json:"join,omitempty"`
+	PersistentId       *string                 `json:"persistentId,omitempty"`
+	PodOrContainerName string                  `json:"podName,omitempty"`
+	NodeName           string                  `json:"nodeName,omitempty"`
+	Cpu                int32                   `json:"cpu,omitempty"`
+	Memory             int32                   `json:"memory,omitempty"`
+	Gpu                int32                   `json:"gpu,omitempty"`
+	ConnectionInfo     *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
 }
 
 // KernelRegistrationClient represents an incoming connection from local distributed kernel.
@@ -1083,7 +1083,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the internalCluster Gateway.
 		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id,
-			d.numResendAttempts, listenPorts[0], listenPorts[1], registrationPayload.PodName, registrationPayload.NodeName,
+			d.numResendAttempts, listenPorts[0], listenPorts[1], registrationPayload.PodOrContainerName, registrationPayload.NodeName,
 			d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "",
 			d.id, nil, metrics.LocalDaemon, false, false, d.DebugMode,
 			d.prometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
@@ -1170,23 +1170,29 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		Key:             connInfo.Key,
 	}
 
+	kernelRegistrationNotification := &proto.KernelRegistrationNotification{
+		ConnectionInfo:     info,
+		KernelId:           kernel.ID(),
+		HostId:             d.id,
+		SessionId:          "N/A",
+		ReplicaId:          registrationPayload.ReplicaId,
+		KernelIp:           remoteIp,
+		PodOrContainerName: registrationPayload.PodOrContainerName,
+		NodeName:           d.nodeName,
+		NotificationId:     uuid.NewString(),
+	}
+
 	var dockerContainerId string
 	if d.DockerMode() {
 		containerStartedNotification := d.containerStartedNotificationManager.GetAndDeleteNotification(kernel.ID())
 		dockerContainerId = containerStartedNotification.FullContainerId
-	}
 
-	kernelRegistrationNotification := &proto.KernelRegistrationNotification{
-		ConnectionInfo:    info,
-		KernelId:          kernel.ID(),
-		HostId:            d.id,
-		SessionId:         "N/A",
-		ReplicaId:         registrationPayload.ReplicaId,
-		KernelIp:          remoteIp,
-		PodName:           registrationPayload.PodName,
-		NodeName:          registrationPayload.NodeName,
-		NotificationId:    uuid.NewString(),
-		DockerContainerId: dockerContainerId,
+		kernel.SetPodOrContainerName(dockerContainerId)
+		kernel.SetNodeName(d.nodeName)
+
+		kernelRegistrationNotification.DockerContainerId = dockerContainerId
+		kernelRegistrationNotification.NodeName = d.nodeName
+		kernelRegistrationNotification.PodOrContainerName = dockerContainerId
 	}
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)

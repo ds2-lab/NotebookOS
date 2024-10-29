@@ -1661,7 +1661,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, jupyter.ConnectionInfoFromKernelConnectionInfo(in.ConnectionInfo),
-		d.id, d.numResendAttempts, -1, -1, in.PodName, in.NodeName,
+		d.id, d.numResendAttempts, -1, -1, in.PodOrContainerName, in.NodeName,
 		nil, nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
 		host, metrics.ClusterGateway, true, true, d.DebugMode, d.gatewayPrometheusManager,
 		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
@@ -1802,7 +1802,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	kernelId := in.KernelId
 	hostId := in.HostId
 	kernelIp := in.KernelIp
-	kernelPodName := in.PodName
+	kernelPodOrContainerName := in.PodOrContainerName
 	nodeName := in.NodeName
 	replicaId := in.ReplicaId
 
@@ -1811,7 +1811,13 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	d.log.Info("Kernel ID: %v", kernelId)
 	d.log.Info("Replica ID: %v", replicaId)
 	d.log.Info("Kernel IP: %v", kernelIp)
-	d.log.Info("Pod name: %v", kernelPodName)
+
+	if d.KubernetesMode() {
+		d.log.Info("Pod name: %v", kernelPodOrContainerName)
+	} else {
+		d.log.Info("Container name: %v", kernelPodOrContainerName)
+	}
+
 	d.log.Info("Host ID: %v", hostId)
 	d.log.Info("Node ID: %v", nodeName)
 	d.log.Info("Notification ID: %v", in.NotificationId)
@@ -1881,7 +1887,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, jupyter.ConnectionInfoFromKernelConnectionInfo(connectionInfo), d.id,
-		d.numResendAttempts, -1, -1, kernelPodName, nodeName, nil,
+		d.numResendAttempts, -1, -1, kernelPodOrContainerName, nodeName, nil,
 		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
 		true, true, d.DebugMode, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
 		d.kernelRequestResubmissionFailedAfterReconnection)
@@ -3242,7 +3248,7 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) (*s
 		return nil, ErrKernelIDRequired
 	}
 
-	oldPodName := replica.PodName()
+	oldPodName := replica.GetPodOrContainerName()
 
 	session, loaded := d.cluster.Sessions().Load(kernelId)
 	if !loaded {
@@ -3335,7 +3341,7 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 			kernelReplica := &proto.JupyterKernelReplica{
 				KernelId:  id,
 				ReplicaId: replica.ReplicaID(),
-				PodId:     replica.PodName(),
+				PodId:     replica.GetPodOrContainerName(),
 				NodeId:    replica.NodeName(),
 			}
 			replicas = append(replicas, kernelReplica)

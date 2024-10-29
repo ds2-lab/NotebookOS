@@ -528,7 +528,7 @@ func (c *DistributedKernelClient) Replicas() []scheduling.KernelReplica {
 	return ret
 }
 
-func (c *DistributedKernelClient) PodName(id int32) (string, error) {
+func (c *DistributedKernelClient) PodOrContainerName(id int32) (string, error) {
 	replica, err := c.GetReplicaByID(id)
 
 	if err != nil {
@@ -536,7 +536,7 @@ func (c *DistributedKernelClient) PodName(id int32) (string, error) {
 		return "", err
 	}
 
-	return replica.PodName(), nil
+	return replica.GetPodOrContainerName(), nil
 }
 
 // PrepareNewReplica determines the replica ID for the new replica and returns the KernelReplicaSpec required to start the replica.

@@ -86,8 +86,8 @@ type KernelReplica interface {
 	// ReplicaID returns the replica ID.
 	ReplicaID() int32
 
-	// PodName returns the name of the Kubernetes Pod hosting the replica.
-	PodName() string
+	// GetPodOrContainerName returns the name of the Kubernetes Pod/Docker container hosting the replica.
+	GetPodOrContainerName() string
 
 	// NodeName returns the name of the node that the Pod is running on.
 	NodeName() string
