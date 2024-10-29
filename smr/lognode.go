@@ -345,7 +345,6 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 			conn, err := (&net.Dialer{
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
-				DualStack: true,
 			}).DialContext(ctx, network, address)
 			if err != nil {
 				node.sugaredLogger.Errorf("Failed to dial HDFS DataNode at address '%s' with network '%s' because: %v", address, network, err)
@@ -358,7 +357,7 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 		// At least for development/testing, I am using a local Kubernetes cluster and a local HDFS deployment.
 		// So, the HDFS NameNode returns the local IP address. But since Kubernetes Pods have their own local host, they cannot use this to connect to the HDFS DataNode.
 		DatanodeDialFunc: func(ctx context.Context, network, address string) (net.Conn, error) {
-			if deploymentMode == "LOCAL" {
+			if deploymentMode == "LOCAL" || deploymentMode == "DOCKER_COMPOSE" {
 				// If it is local, then we just use the loopback address (or whatever) to the host,
 				// which is where the data node is running.
 				originalAddress := address
