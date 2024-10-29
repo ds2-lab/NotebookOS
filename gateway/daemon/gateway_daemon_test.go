@@ -103,7 +103,8 @@ var (
     "use-stateful-set": false,
     "notebook-image-name": "scusemua/jupyter",
     "notebook-image-tag": "latest",
-    "distributed-cluster-service-port": 8079
+    "distributed-cluster-service-port": 8079,
+	"remote-docker-event-aggregator-port": 5821,
   },
   "port": 8080,
   "provisioner_port": 8081,

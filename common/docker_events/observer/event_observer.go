@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"net"
 	"net/http"
 	"sync"
@@ -24,29 +23,18 @@ type ContainerStartedNotification struct {
 	KernelId         string `json:"kernel-id"`          // KernelId is the associated KernelId.
 }
 
-// EventConsumer defines the interface for an entity which consumes the events collected/observed by a ContainerCreatedEventCollector.
+// EventConsumer defines the interface for an entity which consumes the events collected/observed by a EventObserver.
 type EventConsumer interface {
-	// ConsumeDockerEvent consumes an event collected/observed by a ContainerCreatedEventCollector.
+	// ConsumeDockerEvent consumes an event collected/observed by a EventObserver.
 	// Any processing of the event should be quick and non-blocking.
-	ConsumeDockerEvent(event []byte)
+	ConsumeDockerEvent(event map[string]interface{})
 }
 
-// ContainerCreatedEventCollector monitors for "container created" events by dialing
+// EventObserver monitors for "container created" events by dialing
 // the Docker socket and listening for events that are emitted.
 //
 // This is only used for Docker Compose clusters.
-type ContainerCreatedEventCollector struct {
-	// Mapping from Kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
-	channels hashmap.BaseHashMap[string, []chan string]
-
-	// Mapping from Kernel ID to []*ContainerStartedNotification structs for which there was no channel registered
-	// when the notification was received. This exists so the Docker container ID can be retrieved for the initial
-	// kernel replica containers that are created when a kernel is created for the first time.
-	//
-	// Note that we use a slice of *ContainerStartedNotification here because there will be N unwatched
-	// notifications for a kernel, where N is the number of replicas of that kernel.
-	unwatchedNotifications hashmap.BaseHashMap[string, []*ContainerStartedNotification]
-
+type EventObserver struct {
 	eventConsumers map[string]EventConsumer
 
 	// Docker Swarm / Docker Compose project name.
@@ -59,28 +47,30 @@ type ContainerCreatedEventCollector struct {
 	log logger.Logger
 }
 
-func NewContainerCreatedEventCollector(projectName string, networkName string) *ContainerCreatedEventCollector {
+func NewEventObserver(projectName string, networkName string) *EventObserver {
 	if networkName == "" {
 		networkName = fmt.Sprintf("%s_default", projectName)
 	}
 
-	watcher := &ContainerCreatedEventCollector{
-		projectName:            projectName,
-		networkName:            networkName,
-		channels:               hashmap.NewCornelkMap[string, []chan string](64),
-		unwatchedNotifications: hashmap.NewCornelkMap[string, []*ContainerStartedNotification](64),
+	watcher := &EventObserver{
+		projectName:    projectName,
+		networkName:    networkName,
+		eventConsumers: make(map[string]EventConsumer),
 	}
 
 	config.InitLogger(&watcher.log, watcher)
 
-	go watcher.monitor()
-
 	return watcher
+}
+
+// Start initiates the monitoring procedure in its own goroutine.
+func (w *EventObserver) Start() {
+	go w.monitor()
 }
 
 // RegisterEventConsumer registers an EventConsumer to which observed/collected events will be delivered via the
 // EventConsumer's ConsumeDockerEvent function.
-func (w *ContainerCreatedEventCollector) RegisterEventConsumer(id string, consumer EventConsumer) {
+func (w *EventObserver) RegisterEventConsumer(id string, consumer EventConsumer) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -88,66 +78,17 @@ func (w *ContainerCreatedEventCollector) RegisterEventConsumer(id string, consum
 }
 
 // UnregisterEventConsumer unregisters an EventConsumer such that it will no longer receive any events
-// collected/consumed by the ContainerCreatedEventCollector.
-func (w *ContainerCreatedEventCollector) UnregisterEventConsumer(id string) {
+// collected/consumed by the EventObserver.
+func (w *EventObserver) UnregisterEventConsumer(id string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	delete(w.eventConsumers, id)
 }
 
-// RegisterChannel registers a channel that is used to notify waiting goroutines that the Pod/Container has started.
-func (w *ContainerCreatedEventCollector) RegisterChannel(kernelId string, startedChan chan string) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	// Store the new channel in the mapping.
-	channels, ok := w.channels.Load(kernelId)
-	if !ok {
-		channels = make([]chan string, 0, 4)
-	}
-	channels = append(channels, startedChan)
-	w.channels.Store(kernelId, channels)
-}
-
-// LoadAndDeleteUnwatchedNotifications attempts to load a slice of *ContainerStartedNotification structs for
-// the specified kernel from the mapping of unwatched notifications.
-//
-// If this slice exists and contains at least `expected` *ContainerStartedNotification structs, then the
-// slice is removed from the mapping and returned.
-//
-// If the slice either does not exist, or it exists but contains less than expected entries,
-// then this method simply returns nil.
-//
-// If the slice exists and contains more than `expected` entries, then this method will panic.
-//
-// TODO: How to determine which scheduling.Container instance corresponds to which Container ID...?
-func (w *ContainerCreatedEventCollector) LoadAndDeleteUnwatchedNotifications(kernelId string, expected int) []*ContainerStartedNotification {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	notifications, loaded := w.unwatchedNotifications.Load(kernelId)
-	if !loaded {
-		// Entry for specified kernel does not exist --> return nil.
-		return nil
-	}
-
-	if len(notifications) < expected {
-		// Exists but contains less than expected entries --> return nil.
-		return nil
-	} else if len(notifications) > expected {
-		// Exists and contains more than `expected` entries --> panic.
-		panic(fmt.Sprintf("Expected %d notification(s) for kernel \"%s\", but we have %d.", expected, kernelId, len(notifications)))
-	} else {
-		// Exists and contains at least `expected` entries --> delete entry and return slice.
-		w.unwatchedNotifications.Delete(kernelId)
-		return notifications
-	}
-}
-
-// monitor is the main loop of the ContainerCreatedEventCollector and is automatically
-// called in a separate goroutine in the  NewContainerCreatedEventCollector function.
-func (w *ContainerCreatedEventCollector) monitor() {
+// monitor is the main loop of the EventObserver and is automatically
+// called in a separate goroutine in the  NewEventObserver function.
+func (w *EventObserver) monitor() {
 	ctx := context.Background()
 	dialerFunc := func(ctx context.Context, proto string, addr string) (conn net.Conn, err error) {
 		return net.Dial("unix", "/var/run/docker.sock")
@@ -193,78 +134,6 @@ func (w *ContainerCreatedEventCollector) monitor() {
 			}
 
 			w.mu.Unlock()
-
-			fullContainerId := containerCreationEvent["id"].(string)
-			shortContainerId := fullContainerId[0:12]
-			attributes := containerCreationEvent["Actor"].(map[string]interface{})["Attributes"].(map[string]interface{})
-
-			var kernelId string
-			if val, ok := attributes["kernel_id"]; ok {
-				kernelId = val.(string)
-			} else {
-				w.log.Debug("Docker Container %s related to the distributed cluster has started.", shortContainerId)
-				continue
-			}
-
-			w.log.Debug("Docker Container %s for kernel %s has started running.", shortContainerId, kernelId)
-
-			// Notify that the Container has been created by sending its name over the channel.
-			notification := &ContainerStartedNotification{
-				FullContainerId:  fullContainerId,
-				ShortContainerId: shortContainerId,
-				KernelId:         kernelId,
-			}
-
-			////////////////////////////
-			// Start Critical Section //
-			////////////////////////////
-			w.mu.Lock()
-
-			channels, ok := w.channels.Load(kernelId)
-
-			if !ok || len(channels) == 0 {
-				w.log.Debug("No scale-up waiters for kernel %s", kernelId)
-
-				var unwatchedNotificationsForKernel []*ContainerStartedNotification
-				// Check if we already have an entry for unwatched notifications for this kernel.
-				if unwatchedNotificationsForKernel, ok = w.unwatchedNotifications.Load(kernelId); !ok {
-					// If we do not have such an entry, then we'll create one. First, instantiate the slice.
-					unwatchedNotificationsForKernel = make([]*ContainerStartedNotification, 0, 3)
-				}
-
-				// Add the notification to the slice.
-				unwatchedNotificationsForKernel = append(unwatchedNotificationsForKernel, notification)
-
-				// Store the slice back to the unwatched notifications map.
-				w.unwatchedNotifications.Store(kernelId, unwatchedNotificationsForKernel)
-
-				w.mu.Unlock()
-				continue
-			}
-
-			w.log.Debug("Notifying waiters that new container %s for kernel %s has been created.", shortContainerId, kernelId)
-
-			// Notify the first wait group that a Container has started.
-			// We only notify one of the wait groups, as each wait group corresponds to
-			// a different scale-up operation and thus requires a unique Container to have been created.
-			// We treat the slice of wait groups as FIFO queue.
-			var channel chan string
-			channel, channels = channels[0], channels[1:]
-
-			// Add the remaining channels back.
-			w.channels.Store(kernelId, channels)
-
-			//////////////////////////
-			// End Critical Section //
-			//////////////////////////
-			w.mu.Unlock()
-
-			marshalled, err := json.Marshal(notification)
-			if err != nil {
-				panic(err)
-			}
-
-			channel <- string(marshalled)
 		}
 	}
 }

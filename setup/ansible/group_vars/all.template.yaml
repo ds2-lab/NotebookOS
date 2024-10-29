@@ -69,6 +69,7 @@ gateway_port: 8080
 gateway_docker_username: scusemua
 gateway_docker_image_name: gateway
 gateway_docker_image_tag: latest
+gateway_remote_docker_event_aggregator_port: 5821
 
 ##################################################################
 # Local Daemon

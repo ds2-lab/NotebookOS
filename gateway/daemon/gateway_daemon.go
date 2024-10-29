@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shopspring/decimal"
+	"github.com/zhangjyr/distributed-notebook/common/docker_events/observer"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"log"
 	"math/rand"
@@ -201,7 +202,7 @@ type ClusterGatewayImpl struct {
 	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
 	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
 	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
-	addReplicaNewPodNotifications *hashmap.CornelkMap[string, chan *AddReplicaOperation]
+	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *AddReplicaOperation]
 
 	// Used to wait for an explicit notification that a particular node was successfully removed from its SMR cluster.
 	// smrNodeRemovedNotifications *hashmap.CornelkMap[string, chan struct{}]
@@ -215,7 +216,10 @@ type ClusterGatewayImpl struct {
 	// Watches for new Pods/Containers.
 	//
 	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
-	containerWatcher scheduling.ContainerWatcher
+	containerEventHandler scheduling.ContainerWatcher
+
+	// remoteDockerEventAggregator listens for docker events that occur on remote nodes in Docker Swarm mode.
+	remoteDockerEventAggregator *RemoteDockerEventAggregator
 
 	// gRPC connection to the Dashboard.
 	clusterDashboard proto.ClusterDashboardClient
@@ -256,29 +260,29 @@ type ClusterGatewayImpl struct {
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
 	clusterGateway := &ClusterGatewayImpl{
-		id:                                    uuid.New().String(),
-		connectionOptions:                     opts,
-		createdAt:                             time.Now(),
-		transport:                             "tcp",
-		ip:                                    opts.IP,
-		DebugMode:                             clusterDaemonOptions.CommonOptions.DebugMode,
-		availablePorts:                        utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
-		kernels:                               hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
-		kernelIdToKernel:                      hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
-		kernelSpecs:                           hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
-		waitGroups:                            hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
-		kernelRegisteredNotifications:         hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](128),
-		cleaned:                               make(chan struct{}),
-		smrPort:                               clusterDaemonOptions.SMRPort,
-		activeAddReplicaOpsPerKernel:          hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]](64),
-		addReplicaOperationsByKernelReplicaId: hashmap.NewCornelkMap[string, *AddReplicaOperation](64),
-		kernelsStarting:                       hashmap.NewCornelkMap[string, chan struct{}](64),
-		addReplicaNewPodNotifications:         hashmap.NewCornelkMap[string, chan *AddReplicaOperation](64),
-		hdfsNameNodeEndpoint:                  clusterDaemonOptions.HdfsNameNodeEndpoint,
-		dockerNetworkName:                     clusterDaemonOptions.DockerNetworkName,
-		numResendAttempts:                     clusterDaemonOptions.NumResendAttempts,
-		MessageAcknowledgementsEnabled:        clusterDaemonOptions.MessageAcknowledgementsEnabled,
-		prometheusInterval:                    time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
+		id:                                       uuid.New().String(),
+		connectionOptions:                        opts,
+		createdAt:                                time.Now(),
+		transport:                                "tcp",
+		ip:                                       opts.IP,
+		DebugMode:                                clusterDaemonOptions.CommonOptions.DebugMode,
+		availablePorts:                           utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
+		kernels:                                  hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
+		kernelIdToKernel:                         hashmap.NewCornelkMap[string, *client.DistributedKernelClient](128),
+		kernelSpecs:                              hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
+		waitGroups:                               hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
+		kernelRegisteredNotifications:            hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](128),
+		cleaned:                                  make(chan struct{}),
+		smrPort:                                  clusterDaemonOptions.SMRPort,
+		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]](64),
+		addReplicaOperationsByKernelReplicaId:    hashmap.NewCornelkMap[string, *AddReplicaOperation](64),
+		kernelsStarting:                          hashmap.NewCornelkMap[string, chan struct{}](64),
+		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *AddReplicaOperation](64),
+		hdfsNameNodeEndpoint:                     clusterDaemonOptions.HdfsNameNodeEndpoint,
+		dockerNetworkName:                        clusterDaemonOptions.DockerNetworkName,
+		numResendAttempts:                        clusterDaemonOptions.NumResendAttempts,
+		MessageAcknowledgementsEnabled:           clusterDaemonOptions.MessageAcknowledgementsEnabled,
+		prometheusInterval:                       time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
 	}
 	for _, configFunc := range configs {
 		configFunc(clusterGateway)
@@ -401,7 +405,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			clusterGateway.dockerApiClient = apiClient
 
-			clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
+			clusterGateway.containerEventHandler = NewDockerEventHandler()
+
+			eventObserver := observer.NewEventObserver(domain.DockerProjectName, "") /* TODO: Don't hardcode this (the project name parameter). */
+			eventObserver.RegisterEventConsumer(uuid.NewString(), clusterGateway.containerEventHandler.(*DockerEventHandler))
+			eventObserver.Start()
+
 			clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 			break
 		}
@@ -417,7 +426,15 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			clusterGateway.dockerApiClient = apiClient
 
-			clusterGateway.containerWatcher = NewDockerContainerWatcher(domain.DockerProjectName) /* TODO: Don't hardcode this (the project name parameter). */
+			clusterGateway.containerEventHandler = NewDockerEventHandler()
+
+			eventObserver := observer.NewEventObserver(domain.DockerProjectName, "") /* TODO: Don't hardcode this (the project name parameter). */
+			eventObserver.RegisterEventConsumer(uuid.NewString(), clusterGateway.containerEventHandler.(*DockerEventHandler))
+			eventObserver.Start()
+
+			clusterGateway.remoteDockerEventAggregator = NewRemoteDockerEventAggregator(clusterDaemonOptions.RemoteDockerEventAggregatorPort, clusterGateway.containerEventHandler.(*DockerEventHandler))
+			go clusterGateway.remoteDockerEventAggregator.Start()
+
 			clusterGateway.cluster = scheduling.NewDockerSwarmCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 
 			break
@@ -428,7 +445,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.deploymentMode = types.KubernetesMode
 
 			clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
-			clusterGateway.containerWatcher = clusterGateway.kubeClient
+			clusterGateway.containerEventHandler = clusterGateway.kubeClient
 
 			clusterGateway.cluster = scheduling.NewKubernetesCluster(clusterGateway, clusterGateway.kubeClient, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 
@@ -1616,7 +1633,7 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 // Handle a registration notification from a new kernel replica that was created during an add-replica/migration operation.
 //
 // IMPORTANT: This must be called with the main mutex held. Otherwise, there are race conditions with the
-// addReplicaNewPodNotifications field.
+// addReplicaNewPodOrContainerNotifications field.
 //
 // IMPORTANT: This will release the main mutex before returning.
 func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegistrationNotification, kernel *client.DistributedKernelClient, waitGroup *registrationWaitGroups) (*proto.KernelRegistrationNotificationResponse, error) {
@@ -1626,8 +1643,8 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	addReplicaOp, ok := d.addReplicaOperationsByKernelReplicaId.LoadAndDelete(key)
 
 	// If we cannot find the migration operation, then we have an unlikely race here.
-	// Basically, the new replica Pod was created, started running, and contacted its Local Daemon, which then contacted us,
-	// all before we received and processed the associated pod-created notification from kubernetes.
+	// The new replica Pod was created, started running, and contacted its Local Daemon, which then contacted us
+	// before we received and processed the associated pod-created notification from docker/kubernetes.
 	//
 	// So, we have to wait to receive the notification so we can get the migration operation and get the correct SMR node ID for the Pod.
 	//
@@ -1644,7 +1661,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		}
 
 		channel := make(chan *AddReplicaOperation, 1)
-		d.addReplicaNewPodNotifications.Store(key, channel)
+		d.addReplicaNewPodOrContainerNotifications.Store(key, channel)
 
 		d.Unlock()
 		d.log.Debug("Waiting to receive AddReplicaNotification on NewPodNotification channel. Key: %s.", key)
@@ -1654,7 +1671,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		d.Lock()
 
 		// Clean up mapping. Don't need it anymore.
-		d.addReplicaNewPodNotifications.Delete(key)
+		d.addReplicaNewPodOrContainerNotifications.Delete(key)
 	}
 
 	host, loaded := d.cluster.GetHost(in.HostId)
@@ -3138,7 +3155,7 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	d.activeAddReplicaOpsPerKernel.Store(kernelId, ops)
 	d.addReplicaMutex.Unlock()
 
-	d.containerWatcher.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
+	d.containerEventHandler.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
 
 	err := d.cluster.ClusterScheduler().ScheduleKernelReplica(newReplicaSpec, nil, blacklistedHosts)
 	if err != nil {
@@ -3186,16 +3203,16 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 			close(addReplicaOp.ReplicaStartedChannel())
 		}
 
-		// In Docker mode, we receive a DockerContainerStartedNotification that was marshalled to JSON, which returns
+		// In Docker mode, we receive a ContainerStartedNotification that was marshalled to JSON, which returns
 		// a []byte, and then converted to a string via string(marshalledDockerContainerStartedNotification).
 		//
 		// Unmarshal it so we can extract the metadata.
 		//
-		// We'll store the metadata from the DockerContainerStartedNotification in the AddReplicaOperation's metadata.
-		var notification *DockerContainerStartedNotification
+		// We'll store the metadata from the ContainerStartedNotification in the AddReplicaOperation's metadata.
+		var notification *observer.ContainerStartedNotification
 		if err := json.Unmarshal([]byte(notificationMarshalled), &notification); err != nil {
-			d.log.Error("Failed to unmarshal DockerContainerStartedNotification because: %v", err)
-			go d.notifyDashboardOfError("Failed to Unmarshal DockerContainerStartedNotification", err.Error())
+			d.log.Error("Failed to unmarshal ContainerStartedNotification because: %v", err)
+			go d.notifyDashboardOfError("Failed to Unmarshal ContainerStartedNotification", err.Error())
 			panic(err)
 		}
 
@@ -3210,7 +3227,7 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	d.Lock()
 	d.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
 
-	if channel, ok := d.addReplicaNewPodNotifications.Load(key); ok {
+	if channel, ok := d.addReplicaNewPodOrContainerNotifications.Load(key); ok {
 		d.log.Debug("Sending AddReplicaOperation \"%s\" for replica %d of kernel \"%s\" over channel.",
 			addReplicaOp.OperationID(), addReplicaOp.ReplicaId(), addReplicaOp.KernelId())
 		channel <- addReplicaOp
