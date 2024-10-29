@@ -39,6 +39,37 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  docker_event_forwarder:
+    image: scusemua/docker_event_forwarder:latest
+    command:
+    - "--project-name={{ distributed_notebook_docker_stack_name }}"
+    - "--network-name=traefik-public"
+    - "--remote-host=gateway"
+    - "--remote-port=5821"
+    networks:
+    - traefik-public
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=docker_event_forwarder"
+      - "logging=promtail"
+      - "logging_jobname=docker_event_forwarder"
+      - "prometheus.metrics.port={{ distributed_notebook_prometheus_port }}"
+      - "prometheus-metrics-provider=true"
+    deploy:
+      restart_policy:
+        condition: any
+      endpoint_mode: dnsrr
+      mode: global
+      labels:
+        - "app=distributed_cluster"
+        - "component=docker_event_forwarder"
+        - "logging=promtail"
+        - "logging_jobname=docker_event_forwarder"
+    depends_on:
+      - prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   gateway:
     environment:
       - "DOCKER_NETWORK_NAME=traefik-public"

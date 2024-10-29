@@ -24,9 +24,11 @@ type EventForwarder struct {
 	remotePort int
 }
 
-func NewEventForwarder() *EventForwarder {
+func NewEventForwarder(remoteHost string, remotePort int) *EventForwarder {
 	forwarder := &EventForwarder{
-		events: make(chan map[string]interface{}, 5),
+		events:     make(chan map[string]interface{}, 5),
+		remoteHost: remoteHost,
+		remotePort: remotePort,
 	}
 
 	config.InitLogger(&forwarder.log, forwarder)
