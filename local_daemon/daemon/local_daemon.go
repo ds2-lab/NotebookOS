@@ -10,6 +10,7 @@ import (
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zhangjyr/distributed-notebook/common/consul"
+	"github.com/zhangjyr/distributed-notebook/common/docker_events/observer"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -170,7 +171,18 @@ type SchedulerDaemonImpl struct {
 	// This enables the Gateway's SUB sockets to filter messages from each kernel.
 	// iopub *jupyter.Socket
 
-	// devicePluginServer deviceplugin.VirtualGpuPluginServer
+	// When deployed in Docker Swarm mode, the dockerEventObserver listens for "container-created"
+	// events from the node's Docker daemon socket.
+	//
+	// This is only used (and is only non-nil) when deployed in Docker Swarm/Compose mode.
+	dockerEventObserver *observer.EventObserver
+
+	// containerStartedNotificationManager keeps track of observer.ContainerStartedNotification structs
+	// associated with various kernels. Specifically, it maintains the most recent notification associated
+	// with a particular kernel.
+	//
+	// This is only used (and is only non-nil) when deployed in Docker Swarm/Compose mode.
+	containerStartedNotificationManager *ContainerStartedNotificationManager
 
 	// There's a simple TCP server that listens for kernel registration notifications on this port.
 	kernelRegistryPort int
@@ -390,11 +402,23 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		{
 			daemon.log.Info("Running in DOCKER COMPOSE mode.")
 			daemon.deploymentMode = types.DockerComposeMode
+
+			daemon.containerStartedNotificationManager = NewContainerStartedNotificationManager()
+
+			daemon.dockerEventObserver = observer.NewEventObserver(localDaemonOptions.DockerAppName, localDaemonOptions.DockerNetworkName)
+			daemon.dockerEventObserver.RegisterEventConsumer(uuid.NewString(), daemon)
+			daemon.dockerEventObserver.Start()
 		}
 	case "docker-swarm":
 		{
 			daemon.log.Info("Running in DOCKER SWARM mode.")
 			daemon.deploymentMode = types.DockerSwarmMode
+
+			daemon.containerStartedNotificationManager = NewContainerStartedNotificationManager()
+
+			daemon.dockerEventObserver = observer.NewEventObserver(localDaemonOptions.DockerAppName, localDaemonOptions.DockerNetworkName)
+			daemon.dockerEventObserver.RegisterEventConsumer(uuid.NewString(), daemon)
+			daemon.dockerEventObserver.Start()
 		}
 	case "kubernetes":
 		{
@@ -477,6 +501,40 @@ func (d *SchedulerDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayCli
 // Otherwise, hasId returns false.
 func (d *SchedulerDaemonImpl) hasId() bool {
 	return d.id != ""
+}
+
+func (d *SchedulerDaemonImpl) ConsumeDockerEvent(event map[string]interface{}) {
+	m, _ := json.MarshalIndent(event, "", "  ")
+	d.log.Debug("Received Docker 'container-created' event:\n%s", m)
+
+	// TODO: Store this event in a way that avoids race between receiving the event and the kernel registering.
+
+	fullContainerId := event["id"].(string)
+	shortContainerId := fullContainerId[0:12]
+	attributes := event["Actor"].(map[string]interface{})["Attributes"].(map[string]interface{})
+
+	var kernelId string
+	if val, ok := attributes["kernel_id"]; ok {
+		kernelId = val.(string)
+	} else {
+		d.log.Debug("Docker Container %s related to the distributed cluster has started.", shortContainerId)
+		return
+	}
+
+	// Generate a more meaningful error message + notify the dashboard UI.
+	if d.containerStartedNotificationManager == nil {
+		err := fmt.Errorf("containerStartedNotificationManager is nil")
+
+		// This call will panic.
+		d.notifyClusterGatewayAndPanic("Cannot Handle Docker Event", err.Error(), err)
+	}
+
+	notification := &observer.ContainerStartedNotification{
+		FullContainerId:  fullContainerId,
+		ShortContainerId: shortContainerId,
+		KernelId:         kernelId,
+	}
+	d.containerStartedNotificationManager.DeliverNotification(notification)
 }
 
 // isValidId returns true if the given ID is not the empty string and thus is valid.
@@ -907,7 +965,7 @@ func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize L
 
 // Register a Kernel that has started running on the same node as we are.
 // This method must be thread-safe.
-func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelRegistrationClient *KernelRegistrationClient) {
+func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelRegistrationClient *KernelRegistrationClient) {
 	registeredAt := time.Now()
 	d.log.Debug("Registering Kernel at (remote) address %v", kernelRegistrationClient.conn.RemoteAddr())
 
@@ -1112,17 +1170,23 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(ctx context.Context, kernelR
 		Key:             connInfo.Key,
 	}
 
+	var dockerContainerId string
+	if d.DockerMode() {
+		containerStartedNotification := d.containerStartedNotificationManager.GetAndDeleteNotification(kernel.ID())
+		dockerContainerId = containerStartedNotification.FullContainerId
+	}
+
 	kernelRegistrationNotification := &proto.KernelRegistrationNotification{
-		ConnectionInfo: info,
-		KernelId:       kernel.ID(),
-		HostId:         d.id,
-		SessionId:      "N/A",
-		ReplicaId:      registrationPayload.ReplicaId,
-		KernelIp:       remoteIp,
-		PodName:        registrationPayload.PodName,
-		NodeName:       registrationPayload.NodeName,
-		NotificationId: uuid.NewString(),
-		// ResourceSpec:   registrationPayload.ResourceSpec,
+		ConnectionInfo:    info,
+		KernelId:          kernel.ID(),
+		HostId:            d.id,
+		SessionId:         "N/A",
+		ReplicaId:         registrationPayload.ReplicaId,
+		KernelIp:          remoteIp,
+		PodName:           registrationPayload.PodName,
+		NodeName:          registrationPayload.NodeName,
+		NotificationId:    uuid.NewString(),
+		DockerContainerId: dockerContainerId,
 	}
 
 	d.log.Info("Kernel %s registered: %v. Notifying Gateway now.", kernelReplicaSpec.ID(), info)
@@ -1858,6 +1922,15 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	// We use this channel to notify the goroutine handling the registration that the kernel client is set up and connected.
 	kernelClientCreationChannel := make(chan *proto.KernelConnectionInfo)
 	d.kernelClientCreationChannels.Store(in.Kernel.Id, kernelClientCreationChannel)
+
+	// Clear any existing "container started" notifications associated with the target kernel.
+	if d.containerStartedNotificationManager != nil {
+		deleted := d.containerStartedNotificationManager.DeleteNotification(in.Kernel.Id)
+		if deleted {
+			d.log.Warn("Deleting existing 'Container Started' notification associated with some replica of kernel %s.",
+				in.Kernel.Id)
+		}
+	}
 
 	// We already know for a fact that kernelInvoker cannot be nil here.
 	// We'll have either returned from this method or panicked in any of the cases in which

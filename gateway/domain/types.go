@@ -18,8 +18,8 @@ const (
 	// then the value of this const must be updated so that it matches the "name" field.
 	DockerProjectName = "distributed_cluster"
 
-	DockerContainerFullId  MetadataKey = "docker-container-full-id"
-	DockerContainerShortId MetadataKey = "docker-container-short-id"
+	//DockerContainerFullId  MetadataKey = "docker-container-full-id"
+	//DockerContainerShortId MetadataKey = "docker-container-short-id"
 
 	// DefaultNumResendAttempts is the default number of attempts we'll resend a message before giving up.
 	DefaultNumResendAttempts = 3

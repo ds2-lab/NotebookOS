@@ -56,7 +56,7 @@ func (f *EventForwarder) ForwardEvents() {
 
 	address := fmt.Sprintf("%s:%d", f.remoteHost, f.remotePort)
 	for conn == nil || !connected {
-		f.log.Debug("Connecting to remote server at address \"%s\" [attempt #%d]", address, attempts+1)
+		f.log.Info("Connecting to remote server at address \"%s\" [attempt #%d]", address, attempts+1)
 
 		conn, err = net.Dial("tcp", address)
 
@@ -74,8 +74,12 @@ func (f *EventForwarder) ForwardEvents() {
 		time.Sleep(time.Millisecond * 2500)
 	}
 
+	f.log.Info("Successfully connected to remote server at address \"%s\" [attempt #%d]", address, attempts+1)
+
 	for {
 		evt := <-f.events
+
+		f.log.Info("Forwarding docker event now: %v", evt)
 
 		encoded, err := json.Marshal(evt)
 		if err != nil {

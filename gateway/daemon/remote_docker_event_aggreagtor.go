@@ -46,20 +46,22 @@ func (a *RemoteDockerEventAggregator) Start() {
 
 		// Spawn a goroutine to handle messages from that connection.
 		go func() {
-			reader := bufio.NewReader(conn)
-			decoder := json.NewDecoder(reader)
-
 			for {
-				var evt map[string]interface{}
-				if err := decoder.Decode(&evt); err != nil {
-					a.log.Error("Error encountered while trying to decode docker event: %v", err)
-					continue
+				reader := bufio.NewReader(conn)
+				decoder := json.NewDecoder(reader)
+
+				for {
+					var evt map[string]interface{}
+					if err := decoder.Decode(&evt); err != nil {
+						a.log.Error("Error encountered while trying to decode docker event: %v", err)
+						break
+					}
+
+					m, _ := json.MarshalIndent(evt, "", "  ")
+					a.log.Debug("Received docker event:\n%s", m)
+
+					a.consumer.ConsumeDockerEvent(evt)
 				}
-
-				m, _ := json.MarshalIndent(evt, "", "  ")
-				a.log.Debug("Received docker event:\n%s", m)
-
-				a.consumer.ConsumeDockerEvent(evt)
 			}
 		}()
 	}

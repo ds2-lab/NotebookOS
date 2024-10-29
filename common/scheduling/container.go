@@ -45,7 +45,6 @@ type Container struct {
 	session              *Session       // The Session associated with the Container.
 	host                 *Host          // The Host on which the Container is currently scheduled.
 	id                   string         // The kernel ID of the Container.
-	dockerId             string         // The Docker container ID of the Container.
 	containerState       ContainerState // The current state of the Container.
 	executions           atomic.Int32   // The number of training events processed by the Container.
 	outstandingResources types.Spec     // The number of GPUs required by the Container to train.
@@ -59,6 +58,8 @@ type Container struct {
 	interactivePriorityBase        float64
 	interactivePriority            cache.InlineCache
 	interactivePriorityExplanation string
+
+	// dockerId             string         // The Docker container ID of the Container.
 }
 
 // NewContainer creates and returns a new *Container.
@@ -124,15 +125,15 @@ func (c *Container) ContainerStatistics() ContainerStatistics {
 	return c
 }
 
-// DockerContainerID returns the Docker container ID of the Container.
-func (c *Container) DockerContainerID() string {
-	return c.dockerId
-}
-
-// SetDockerContainerID sets the Docker container ID of the Container to the specified value.
-func (c *Container) SetDockerContainerID(dockerId string) {
-	c.dockerId = dockerId
-}
+//// DockerContainerID returns the Docker container ID of the Container.
+//func (c *Container) DockerContainerID() string {
+//	return c.dockerId
+//}
+//
+//// SetDockerContainerID sets the Docker container ID of the Container to the specified value.
+//func (c *Container) SetDockerContainerID(dockerId string) {
+//	c.dockerId = dockerId
+//}
 
 // ContainerID returns the "container ID", which is a combination of the kernel ID and the replica ID.
 func (c *Container) ContainerID() string {

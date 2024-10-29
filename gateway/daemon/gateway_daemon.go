@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shopspring/decimal"
-	"github.com/zhangjyr/distributed-notebook/common/docker_events/observer"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"log"
 	"math/rand"
@@ -405,12 +404,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			clusterGateway.dockerApiClient = apiClient
 
-			dockerEventHandler := NewDockerEventHandler()
-			clusterGateway.containerEventHandler = dockerEventHandler
-
-			eventObserver := observer.NewEventObserver(domain.DockerProjectName, "") /* TODO: Don't hardcode this (the project name parameter). */
-			eventObserver.RegisterEventConsumer(uuid.NewString(), dockerEventHandler)
-			eventObserver.Start()
+			//dockerEventHandler := NewDockerEventHandler()
+			//clusterGateway.containerEventHandler = dockerEventHandler
+			//
+			//eventObserver := observer.NewEventObserver(domain.DockerProjectName, "") /* TODO: Don't hardcode this (the project name parameter). */
+			//eventObserver.RegisterEventConsumer(uuid.NewString(), dockerEventHandler)
+			//eventObserver.Start()
 
 			clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 			break
@@ -426,16 +425,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			}
 
 			clusterGateway.dockerApiClient = apiClient
-
-			dockerEventHandler := NewDockerEventHandler()
-			clusterGateway.containerEventHandler = dockerEventHandler
-
-			eventObserver := observer.NewEventObserver(domain.DockerProjectName, "") /* TODO: Don't hardcode this (the project name parameter). */
-			eventObserver.RegisterEventConsumer(uuid.NewString(), dockerEventHandler)
-			eventObserver.Start()
-
-			clusterGateway.remoteDockerEventAggregator = NewRemoteDockerEventAggregator(clusterDaemonOptions.RemoteDockerEventAggregatorPort, dockerEventHandler)
-			go clusterGateway.remoteDockerEventAggregator.Start()
 
 			clusterGateway.cluster = scheduling.NewDockerSwarmCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 
@@ -1644,36 +1633,12 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	key := fmt.Sprintf("%s-%d", in.KernelId, in.ReplicaId)
 	addReplicaOp, ok := d.addReplicaOperationsByKernelReplicaId.LoadAndDelete(key)
 
-	// If we cannot find the migration operation, then we have an unlikely race here.
-	// The new replica Pod was created, started running, and contacted its Local Daemon, which then contacted us
-	// before we received and processed the associated pod-created notification from docker/kubernetes.
-	//
-	// So, we have to wait to receive the notification so we can get the migration operation and get the correct SMR node ID for the Pod.
-	//
-	// This race would be simplified if we added the constraint that there may be only one active migration per kernel at any given time,
-	// but I've not yet enforced this.
-	if !ok || addReplicaOp.Completed() {
-		// If we managed to somehow retrieve a completed add replica operation, then we'll just discard it.
-		if ok && addReplicaOp.Completed() /* Technically, we know the second condition must be true if ok is true */ {
-			warningMessage := fmt.Sprintf("Retrieved COMPLETED AddReplicaOperation \"%s\" for kernel-replicaId key \"%s\": %s",
-				addReplicaOp.OperationID(), key, addReplicaOp.String())
-			d.log.Warn(warningMessage)
-			go d.notifyDashboardOfWarning("Retrieved COMPLETED AddReplicaOperation", warningMessage)
-			addReplicaOp = nil
-		}
+	if !ok {
+		errorMessage := fmt.Sprintf("Could not find AddReplicaOperation struct under key \"%s\"", key)
+		d.log.Error(errorMessage)
+		d.notifyDashboardOfError("Kernel Registration Error", errorMessage)
 
-		channel := make(chan *AddReplicaOperation, 1)
-		d.addReplicaNewPodOrContainerNotifications.Store(key, channel)
-
-		d.Unlock()
-		d.log.Debug("Waiting to receive AddReplicaNotification on NewPodNotification channel. Key: %s.", key)
-		// Just need to provide a mechanism to wait until we receive the pod-created notification, and get the migration operation that way.
-		addReplicaOp = <-channel
-		d.log.Debug("Received AddReplicaNotification on NewPodNotification channel. Key: %s.", key)
-		d.Lock()
-
-		// Clean up mapping. Don't need it anymore.
-		d.addReplicaNewPodOrContainerNotifications.Delete(key)
+		return nil, fmt.Errorf(errorMessage)
 	}
 
 	host, loaded := d.cluster.GetHost(in.HostId)
@@ -1684,6 +1649,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// The replica spec that was specifically prepared for the new replica during the initiation of the migration operation.
 	replicaSpec := addReplicaOp.KernelSpec()
 	addReplicaOp.SetReplicaHostname(in.KernelIp)
+	addReplicaOp.SetReplicaStarted()
 
 	if in.NodeName == "" {
 		if !d.DockerMode() {
@@ -1741,9 +1707,9 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 
 	// Attempt to load the Docker container ID metadata, which will be attached to the metadata of the add replica
 	// operation if we're running in Docker mode. If we're not in Docker mode, then this will do nothing.
-	if dockerContainerId, loaded := addReplicaOp.GetMetadata(domain.DockerContainerFullId); loaded {
-		container.SetDockerContainerID(dockerContainerId.(string))
-	}
+	//if dockerContainerId, loaded := addReplicaOp.GetMetadata(domain.DockerContainerFullId); loaded {
+	//	container.SetDockerContainerID(dockerContainerId.(string))
+	//}
 
 	d.log.Debug("Adding replica for kernel %s, replica %d on host %s. Resource spec: %v", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID, replicaSpec.Kernel.ResourceSpec)
 	err = kernel.AddReplica(replica, host)
@@ -3143,6 +3109,9 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	var newReplicaSpec = kernel.PrepareNewReplica(persistentId, smrNodeId)
 
 	addReplicaOp := NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
+	key := fmt.Sprintf("%s-%d", addReplicaOp.KernelId(), addReplicaOp.ReplicaId())
+	d.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
+
 	d.log.Debug("Created new AddReplicaOperation \"%s\": %s", addReplicaOp.OperationID(), addReplicaOp.String())
 	d.log.Debug("Adding replica %d to kernel \"%s\" as part of AddReplicaOperation \"%s\" now.",
 		newReplicaSpec.ReplicaId, kernelId, addReplicaOp.OperationID())
@@ -3157,7 +3126,9 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	d.activeAddReplicaOpsPerKernel.Store(kernelId, ops)
 	d.addReplicaMutex.Unlock()
 
-	d.containerEventHandler.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
+	if d.KubernetesMode() {
+		d.containerEventHandler.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
+	}
 
 	err := d.cluster.ClusterScheduler().ScheduleKernelReplica(newReplicaSpec, nil, blacklistedHosts)
 	if err != nil {
@@ -3168,15 +3139,15 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	// In Docker deployments, the container name isn't really the container's name, but its ID, which is a hash
 	// or something like that.
 	var (
-		key, podOrContainerName, notificationMarshalled string
-		sentBeforeClosed                                bool
+		podOrContainerName string
+		sentBeforeClosed   bool
 	)
 	if d.KubernetesMode() {
 		d.log.Debug("Waiting for new replica to be created for kernel \"%s\" during AddReplicaOperation \"%s\".",
 			kernelId, addReplicaOp.OperationID())
 
 		// Always wait for the scale-out operation to complete and the new replica to be created.
-		key, sentBeforeClosed = <-addReplicaOp.ReplicaStartedChannel()
+		podOrContainerName, sentBeforeClosed = <-addReplicaOp.ReplicaStartedChannel()
 		if !sentBeforeClosed {
 			errorMessage := fmt.Sprintf("Received default value from \"Replica Started\" channel for AddReplicaOperation \"%s\": %v",
 				addReplicaOp.OperationID(), addReplicaOp.String())
@@ -3186,59 +3157,9 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 			close(addReplicaOp.ReplicaStartedChannel())
 		}
 
-		podOrContainerName = key
-	} else {
-		// connInfo, err := d.launchReplicaDocker(int(newReplicaSpec.ReplicaID), host, 3, nil, newReplicaSpec) /* Only 1 of arguments 3 and 4 can be non-nil */
-		// connInfo, err := d.placer.Place(host, newReplicaSpec)
-
-		d.log.Debug("Waiting for new replica to be created for kernel \"%s\" during AddReplicaOperation \"%s\".",
-			kernelId, addReplicaOp.OperationID())
-
-		// Always wait for the scale-out operation to complete and the new replica to be created.
-		notificationMarshalled, sentBeforeClosed = <-addReplicaOp.ReplicaStartedChannel()
-		if !sentBeforeClosed {
-			errorMessage := fmt.Sprintf("Received default value from \"Replica Started\" channel for AddReplicaOperation \"%s\": %v",
-				addReplicaOp.OperationID(), addReplicaOp.String())
-			d.log.Error(errorMessage)
-			go d.notifyDashboardOfError("Channel Receive on Closed \"ReplicaStartedChannel\" Channel", errorMessage)
-		} else {
-			close(addReplicaOp.ReplicaStartedChannel())
-		}
-
-		// In Docker mode, we receive a ContainerStartedNotification that was marshalled to JSON, which returns
-		// a []byte, and then converted to a string via string(marshalledDockerContainerStartedNotification).
-		//
-		// Unmarshal it so we can extract the metadata.
-		//
-		// We'll store the metadata from the ContainerStartedNotification in the AddReplicaOperation's metadata.
-		var notification *observer.ContainerStartedNotification
-		if err := json.Unmarshal([]byte(notificationMarshalled), &notification); err != nil {
-			d.log.Error("Failed to unmarshal ContainerStartedNotification because: %v", err)
-			go d.notifyDashboardOfError("Failed to Unmarshal ContainerStartedNotification", err.Error())
-			panic(err)
-		}
-
-		addReplicaOp.SetMetadata(domain.DockerContainerFullId, notification.FullContainerId)
-		addReplicaOp.SetMetadata(domain.DockerContainerShortId, notification.ShortContainerId)
-		podOrContainerName = notification.FullContainerId
-		key = fmt.Sprintf("%s-%d", notification.KernelId, addReplicaOp.ReplicaId())
+		d.log.Debug("New replica %d has been created for kernel %s.", addReplicaOp.ReplicaId(), kernelId)
+		addReplicaOp.SetContainerName(podOrContainerName)
 	}
-
-	d.log.Debug("New replica %d has been created for kernel %s.", addReplicaOp.ReplicaId(), kernelId)
-	addReplicaOp.SetContainerName(podOrContainerName)
-	d.Lock()
-	d.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
-
-	if channel, ok := d.addReplicaNewPodOrContainerNotifications.Load(key); ok {
-		d.log.Debug("Sending AddReplicaOperation \"%s\" for replica %d of kernel \"%s\" over channel.",
-			addReplicaOp.OperationID(), addReplicaOp.ReplicaId(), addReplicaOp.KernelId())
-		channel <- addReplicaOp
-	} else {
-		d.log.Debug("Skipping the sending of AddReplicaOperation \"%s\" for replica %d of kernel %s over channel.",
-			addReplicaOp.OperationID(), addReplicaOp.ReplicaId(), addReplicaOp.KernelId())
-	}
-
-	d.Unlock()
 
 	if opts.WaitRegistered() {
 		d.log.Debug("Waiting for new replica %d of kernel \"%s\" to register during AddReplicaOperation \"%s\"",
