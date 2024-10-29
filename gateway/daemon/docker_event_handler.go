@@ -102,6 +102,7 @@ func (h *DockerEventHandler) ConsumeDockerEvent(event map[string]interface{}) {
 		kernelId = val.(string)
 	} else {
 		h.log.Debug("Docker Container %s related to the distributed cluster has started.", shortContainerId)
+		return
 	}
 
 	h.log.Debug("Docker Container %s for kernel %s has started running.", shortContainerId, kernelId)
@@ -137,6 +138,7 @@ func (h *DockerEventHandler) ConsumeDockerEvent(event map[string]interface{}) {
 		h.unwatchedNotifications.Store(kernelId, unwatchedNotificationsForKernel)
 
 		h.mu.Unlock()
+		return
 	}
 
 	h.log.Debug("Notifying waiters that new container %s for kernel %s has been created.", shortContainerId, kernelId)
