@@ -3128,6 +3128,12 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 		d.containerEventHandler.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
 	}
 
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Anything that needs to happen before it's possible for the kernel to have registered already must
+	// occur before this line (i.e., before we call ScheduleKernelReplica). Once we call ScheduleKernelReplica,
+	// we cannot assume that we've not yet received the registration notification from the kernel, so all of
+	// our state needs to be set up BEFORE that call occurs.
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	err := d.cluster.ClusterScheduler().ScheduleKernelReplica(newReplicaSpec, nil, blacklistedHosts)
 	if err != nil {
 		return addReplicaOp, err
