@@ -24,7 +24,7 @@ type KubernetesScheduler struct {
 	kubeClient KubeClient // Kubernetes client.
 }
 
-func NewKubernetesScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, hostSpec types.Spec, kubeClient KubeClient, opts *ClusterSchedulerOptions) (*KubernetesScheduler, error) {
+func NewKubernetesScheduler(gateway ClusterGateway, cluster clusterInternal, placer Placer, hostSpec types.Spec, kubeClient KubeClient, opts *ClusterSchedulerOptions) (*KubernetesScheduler, error) {
 	if !gateway.KubernetesMode() {
 		return nil, types.ErrIncompatibleDeploymentMode
 	}

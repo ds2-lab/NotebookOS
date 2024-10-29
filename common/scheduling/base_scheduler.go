@@ -99,7 +99,7 @@ type BaseScheduler struct {
 	log logger.Logger
 }
 
-func NewBaseScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BaseScheduler {
+func NewBaseScheduler(gateway ClusterGateway, cluster clusterInternal, placer Placer, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BaseScheduler {
 	clusterScheduler := &BaseScheduler{
 		gateway:                       gateway,
 		cluster:                       cluster,

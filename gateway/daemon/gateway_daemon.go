@@ -1338,26 +1338,6 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c *client.Distribute
 		waitGroup.Done()
 	}()
 
-	// Next, let's update the message so that we target the new replica.
-	// We do this now, before calling waitGroup.Wait(), just to overlap the two tasks
-	// (the kernel starting + registering and us updating the "execute_request" Jupyter
-	// message for resubmission).
-	//metadataFrame := msg.JupyterFrames.MetadataFrame()
-	//var metadataDict map[string]interface{}
-	//
-	//// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
-	//if len(metadataFrame.Frame()) > 0 {
-	//	// Unmarshal the frame. This way, we preserve any other metadata that was
-	//	// originally included with the message when we specify the target replica.
-	//	err := metadataFrame.Decode(&metadataDict)
-	//	if err != nil {
-	//		d.log.Error("Error unmarshalling metadata frame for 'execute_request' message: %v", err)
-	//		return err
-	//	} else {
-	//		d.log.Debug("Unmarshalled metadata frame for 'execute_request' message: %v", metadataDict)
-	//	}
-	//}
-
 	metadataDict, err := msg.DecodeMetadata()
 	if err != nil {
 		d.log.Warn("Failed to unmarshal metadata frame for \"execute_request\" message \"%s\" (JupyterID=\"%s\"): %v",
@@ -1859,7 +1839,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	if loaded {
 		d.log.Warn("Received duplicate \"Kernel Registered\" notification with ID=%s", in.NotificationId)
 		d.Unlock()
-		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification)
+		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
 	}
 
 	kernel, loaded := d.kernels.Load(kernelId)
