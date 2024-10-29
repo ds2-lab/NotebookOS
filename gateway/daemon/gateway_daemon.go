@@ -61,7 +61,7 @@ const (
 	SchedulingPolicyDynamicV3 SchedulingPolicy = "dynamic-v3"
 	SchedulingPolicyDynamicV4 SchedulingPolicy = "dynamic-v4"
 
-	// Passed in Context of NotifyKernelRegistered to skip the connection validation step.
+	// SkipValidationKey is passed in Context of NotifyKernelRegistered to skip the connection validation step.
 	SkipValidationKey string = "SkipValidationKey"
 )
 
@@ -548,20 +548,6 @@ func (wg *registrationWaitGroups) RemoveReplica(nodeId int32) bool {
 func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) map[int32]string {
 	wg.replicasMutex.Lock()
 	defer wg.replicasMutex.Unlock()
-
-	// var idx int32 = nodeId - 1
-
-	// if idx > int32(len(wg.replicas)) {
-	// 	panic(fmt.Sprintf("Cannot add node %d at index %d, as there is/are only %d replica(s) in the list already.", nodeId, idx, len(wg.replicas)))
-	// }
-
-	// // Add it to the end.
-	// if idx == int32(len(wg.replicas)) {
-	// 	wg.replicas = append(wg.replicas, hostname)
-	// } else {
-	// 	fmt.Printf("WARNING: Replacing replica %d (%s) at index %d with new replica %s.\n", nodeId, wg.replicas[idx], idx, hostname)
-	// 	wg.replicas[idx] = hostname
-	// }
 
 	if _, ok := wg.replicas[nodeId]; ok {
 		fmt.Printf("WARNING: Replacing replica %d (%s) with new replica %s.\n", nodeId, wg.replicas[nodeId], hostname)
@@ -1639,6 +1625,18 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		d.notifyDashboardOfError("Kernel Registration Error", errorMessage)
 
 		return nil, fmt.Errorf(errorMessage)
+	}
+
+	if d.DockerMode() {
+		dockerContainerId := in.DockerContainerId
+		if dockerContainerId == "" {
+			d.log.Error("Kernel registration notification did not contain docker container ID: %v", dockerContainerId)
+			go d.notifyDashboardOfError("Missing Docker Container ID in Kernel Registration Notification",
+				fmt.Sprintf("Kernel registration notification for replica %d of kernel \"%s\" did not contain a valid Docker container ID",
+					in.ReplicaId, in.KernelId))
+		}
+
+		addReplicaOp.SetContainerName(dockerContainerId)
 	}
 
 	host, loaded := d.cluster.GetHost(in.HostId)
