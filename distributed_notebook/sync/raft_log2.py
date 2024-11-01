@@ -125,7 +125,7 @@ class RaftLog(object):
         sys.stdout.flush()
 
         self._log_node = NewLogNode(self._persistent_store_path, node_id, hdfs_hostname, should_read_data_from_hdfs,
-                                    Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port, deploymentMode)
+                                Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port, deploymentMode)
         self.logger.info("<< RETURNED FROM GO CODE (NewLogNode)")
         sys.stderr.flush()
         sys.stdout.flush()
@@ -1052,18 +1052,7 @@ class RaftLog(object):
             self.logger.debug(
                 "Registering callback future on unknown loop. loop.is_running: %s" % str(loop.is_running()))
 
-        # future: asyncio.Future[Any] = loop.create_future()
         self._async_loop = loop
-
-        # def resolve(value, goerr):
-        #     err = FromGoError(goerr)
-        #     self.logger.debug(f"Resolve Callback called with value {value} and goerr {err}")
-        #     if err is None:
-        #         future.set_result(value)
-        #         self.logger.debug(f"Set result on future with callback: {value}")
-        #     else:
-        #         future.set_exception(err)
-        #         self.logger.debug(f"Set exception on future with callback: {err}")
 
         future: Future = Future(loop=loop, name=future_name)  # type: ignore
         self._async_loop = loop
@@ -1263,17 +1252,20 @@ class RaftLog(object):
         assert future is not None
         assert resolve is not None
         self.logger.debug(f"Calling 'propose' now for SynchronizedValue: {value}")
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.Propose)")
+        self.propose(dumped, resolve, value.key)
+        # await future.result()
+        self.logger.debug(f"Called 'propose' for SynchronizedValue: {value}")
+        await future.result()
+        self.logger.debug(f"Successfully proposed and appended SynchronizedValue: {value}")
+
+    def propose(self, value: bytes, resolve: Callable[[str, Exception], Any], key: str):
         sys.stderr.flush()
         sys.stdout.flush()
-        self._log_node.Propose(NewBytes(dumped), resolve, value.key)
-        # await future.result()
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.Propose)")
+        self._log_node.Propose(NewBytes(value), resolve, key)
         self.logger.info("<< RETURNED FROM GO CODE (_log_node.Propose)")
         sys.stderr.flush()
         sys.stdout.flush()
-        self.logger.debug(f"Called 'propose' now for SynchronizedValue: {value}")
-        await future.result()
-        self.logger.debug(f"Successfully proposed and appended SynchronizedValue: {value}")
 
     async def _handle_election(
             self,

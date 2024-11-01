@@ -10,6 +10,7 @@ import (
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zhangjyr/distributed-notebook/common/consul"
+	"github.com/zhangjyr/distributed-notebook/common/docker_events/notification_manager"
 	"github.com/zhangjyr/distributed-notebook/common/docker_events/observer"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"google.golang.org/grpc"
@@ -182,7 +183,7 @@ type SchedulerDaemonImpl struct {
 	// with a particular kernel.
 	//
 	// This is only used (and is only non-nil) when deployed in Docker Swarm/Compose mode.
-	containerStartedNotificationManager *ContainerStartedNotificationManager
+	containerStartedNotificationManager *notification_manager.ContainerStartedNotificationManager
 
 	// There's a simple TCP server that listens for kernel registration notifications on this port.
 	kernelRegistryPort int
@@ -403,7 +404,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 			daemon.log.Info("Running in DOCKER COMPOSE mode.")
 			daemon.deploymentMode = types.DockerComposeMode
 
-			daemon.containerStartedNotificationManager = NewContainerStartedNotificationManager()
+			daemon.containerStartedNotificationManager = notification_manager.NewContainerStartedNotificationManager()
 
 			daemon.dockerEventObserver = observer.NewEventObserver(localDaemonOptions.DockerAppName, localDaemonOptions.DockerNetworkName)
 			daemon.dockerEventObserver.RegisterEventConsumer(uuid.NewString(), daemon)
@@ -414,7 +415,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 			daemon.log.Info("Running in DOCKER SWARM mode.")
 			daemon.deploymentMode = types.DockerSwarmMode
 
-			daemon.containerStartedNotificationManager = NewContainerStartedNotificationManager()
+			daemon.containerStartedNotificationManager = notification_manager.NewContainerStartedNotificationManager()
 
 			daemon.dockerEventObserver = observer.NewEventObserver(localDaemonOptions.DockerAppName, localDaemonOptions.DockerNetworkName)
 			daemon.dockerEventObserver.RegisterEventConsumer(uuid.NewString(), daemon)

@@ -404,14 +404,11 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			clusterGateway.dockerApiClient = apiClient
 
-			//dockerEventHandler := NewDockerEventHandler()
-			//clusterGateway.containerEventHandler = dockerEventHandler
-			//
-			//eventObserver := observer.NewEventObserver(domain.DockerProjectName, "") /* TODO: Don't hardcode this (the project name parameter). */
-			//eventObserver.RegisterEventConsumer(uuid.NewString(), dockerEventHandler)
-			//eventObserver.Start()
+			dockerEventHandler := NewDockerEventHandler()
+			clusterGateway.containerEventHandler = dockerEventHandler
 
-			clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+			clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway, clusterGateway.hostSpec,
+				clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 			break
 		}
 	case "docker-swarm":
@@ -426,7 +423,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			clusterGateway.dockerApiClient = apiClient
 
-			clusterGateway.cluster = scheduling.NewDockerSwarmCluster(clusterGateway, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+			clusterGateway.cluster = scheduling.NewDockerSwarmCluster(clusterGateway, clusterGateway.hostSpec,
+				clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 
 			break
 		}
@@ -438,7 +436,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
 			clusterGateway.containerEventHandler = clusterGateway.kubeClient
 
-			clusterGateway.cluster = scheduling.NewKubernetesCluster(clusterGateway, clusterGateway.kubeClient, clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+			clusterGateway.cluster = scheduling.NewKubernetesCluster(clusterGateway, clusterGateway.kubeClient,
+				clusterGateway.hostSpec, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 
 			break
 		}

@@ -445,7 +445,12 @@ class DistributedKernel(IPythonKernel):
             self.log.error("Will use default prometheus metrics port of 8089.")
             self.prometheus_port: int = 8089
 
-        self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
+        if self.prometheus_port > 0:
+            self.log.debug(f"Starting Prometheus HTTP server on port {self.prometheus_port}.")
+            self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
+        else:
+            self.log.warning(f"Prometheus Port is configured as {self.prometheus_port}. "
+                          f"Skipping creation of Prometheus HTTP server.")
 
     def __init_tcp_server(self):
         self.local_tcp_server_queue: Queue = Queue()
@@ -1102,6 +1107,7 @@ class DistributedKernel(IPythonKernel):
         self._associate_new_top_level_threads_with(parent_header)
 
         if not self.session:
+            self.log.error("We don't have a Session. Cannot process 'execute_request'.")
             return
         try:
             content = parent["content"]
