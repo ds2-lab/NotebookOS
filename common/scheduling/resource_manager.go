@@ -389,15 +389,21 @@ func (m *ResourceManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapshot 
 	defer m.mu.Unlock()
 
 	snapshotId := m.resourceSnapshotCounter.Add(1)
+
+	idleSnapshot := m.resourcesWrapper.IdleProtoResourcesSnapshot(snapshotId)
+	pendingSnapshot := m.resourcesWrapper.PendingProtoResourcesSnapshot(snapshotId)
+	committedSnapshot := m.resourcesWrapper.CommittedProtoResourcesSnapshot(snapshotId)
+	specSnapshot := m.resourcesWrapper.SpecProtoResourcesSnapshot(snapshotId)
+
 	snapshot := &proto.NodeResourcesSnapshot{
 		SnapshotId:         snapshotId,
 		Timestamp:          timestamppb.Now(),
 		NodeId:             m.NodeID,
 		ManagerId:          m.ID,
-		IdleResources:      m.resourcesWrapper.IdleProtoResourcesSnapshot(snapshotId),
-		PendingResources:   m.resourcesWrapper.PendingProtoResourcesSnapshot(snapshotId),
-		CommittedResources: m.resourcesWrapper.CommittedProtoResourcesSnapshot(snapshotId),
-		SpecResources:      m.resourcesWrapper.SpecProtoResourcesSnapshot(snapshotId),
+		IdleResources:      idleSnapshot,
+		PendingResources:   pendingSnapshot,
+		CommittedResources: committedSnapshot,
+		SpecResources:      specSnapshot,
 	}
 
 	return snapshot
@@ -478,9 +484,6 @@ func (m *ResourceManager) SpecMemoryMB() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) SpecVRAM() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.SpecResources().VRAMAsDecimal().Copy()
 }
 
@@ -494,9 +497,6 @@ func (m *ResourceManager) SpecResources() *types.DecimalSpec {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) IdleGPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.IdleResources().GPUsAsDecimal().Copy()
 }
 
@@ -504,9 +504,6 @@ func (m *ResourceManager) IdleGPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) IdleCPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.IdleResources().MillicpusAsDecimal().Copy()
 }
 
@@ -514,9 +511,6 @@ func (m *ResourceManager) IdleCPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) IdleMemoryMB() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.IdleResources().MemoryMbAsDecimal().Copy()
 }
 
@@ -524,9 +518,6 @@ func (m *ResourceManager) IdleMemoryMB() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) IdleVRamGB() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.IdleResources().VRAMAsDecimal().Copy()
 }
 
@@ -540,9 +531,6 @@ func (m *ResourceManager) IdleResources() *types.DecimalSpec {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) CommittedGPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.CommittedResources().GPUsAsDecimal().Copy()
 }
 
@@ -550,9 +538,6 @@ func (m *ResourceManager) CommittedGPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) CommittedCPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.CommittedResources().MillicpusAsDecimal().Copy()
 }
 
@@ -560,9 +545,6 @@ func (m *ResourceManager) CommittedCPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) CommittedMemoryMB() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.CommittedResources().MemoryMbAsDecimal().Copy()
 }
 
@@ -570,9 +552,6 @@ func (m *ResourceManager) CommittedMemoryMB() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) CommittedVRamGB() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.CommittedResources().VRAMAsDecimal().Copy()
 }
 
@@ -589,9 +568,6 @@ func (m *ResourceManager) CommittedResources() *types.DecimalSpec {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) PendingGPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.PendingResources().GPUsAsDecimal().Copy()
 }
 
@@ -602,9 +578,6 @@ func (m *ResourceManager) PendingGPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) PendingCPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.PendingResources().MillicpusAsDecimal().Copy()
 }
 
@@ -615,9 +588,6 @@ func (m *ResourceManager) PendingCPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) PendingMemoryMB() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.PendingResources().MemoryMbAsDecimal().Copy()
 }
 
@@ -629,9 +599,6 @@ func (m *ResourceManager) PendingMemoryMB() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) PendingVRAM() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.PendingResources().VRAMAsDecimal().Copy()
 }
 

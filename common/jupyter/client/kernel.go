@@ -1205,26 +1205,6 @@ func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames *
 	return nil
 }
 
-// func (c *KernelReplicaClient) handleIOKernelSMRNodeRemoved(kernel scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
-// 	c.log.Debug("Handling IO Kernel SMR Node-Removed message...")
-// 	var node_removed_message types.MessageSMRNodeUpdated
-// 	if err := frames.Validate(); err != nil {
-// 		return err
-// 	}
-// 	err := frames.DecodeContent(&node_removed_message)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	c.log.Debug("Handling IO Kernel SMR Node-Removed message for replica %d of kernel %s.", node_removed_message.NodeID, node_removed_message.KernelId)
-
-// 	if c.smrNodeRemovedCallback != nil {
-// 		c.smrNodeRemovedCallback(&node_removed_message)
-// 	}
-
-// 	return types.ErrStopPropagation
-// }
-
 // handleIOKernelSMRNodeAdded is the handler for "smr_node_added" IOPub messages.
 //
 // NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called, as "smr_node_added" are

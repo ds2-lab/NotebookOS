@@ -374,6 +374,15 @@ func (res *Resources) ToDecimalSpec() *types.DecimalSpec {
 	res.Lock()
 	defer res.Unlock()
 
+	return res.unsafeToDecimalSpec()
+}
+
+// unsafeToDecimalSpec returns a pointer to a types.DecimalSpec struct that encapsulates a snapshot of
+// the current quantities of Resources encoded/maintained by the target Resources struct.
+//
+// This method is not thread-safe and should be called only by the ToDecimalSpec method, unless
+// the Resources' lock is already held.
+func (res *Resources) unsafeToDecimalSpec() *types.DecimalSpec {
 	return &types.DecimalSpec{
 		GPUs:      res.gpus.Copy(),
 		Millicpus: res.millicpus.Copy(),
@@ -896,7 +905,7 @@ func (res *Resources) ValidateWithError(spec types.Spec) error {
 	}
 
 	if len(offendingKinds) > 0 {
-		return NewInsufficientResourcesError(res.ToDecimalSpec(), spec, offendingKinds)
+		return NewInsufficientResourcesError(res.unsafeToDecimalSpec(), spec, offendingKinds)
 	} else {
 		return nil
 	}

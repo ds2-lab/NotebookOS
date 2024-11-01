@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	ConsecutiveFailuresWarning int = 1
-	ConsecutiveFailuresBad     int = 2
+	ConsecutiveFailuresWarning int = 2
+	ConsecutiveFailuresBad     int = 3
 )
 
 var (

@@ -2709,12 +2709,13 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 			// So, what we'd like to do here is just discard/ignore the "execute_reply", as we received it late, and
 			// we already did the processing that is required. However, if the current execution is actually older than
 			// the execution associated with the "execute_reply" that we just received, then our assumptions are wrong!
-			errorMessage := fmt.Sprintf("Thought we received out-of-order \"smr_lead_task\" and \"execute_reply\" messages for execution i+1 and i respectively, but current execution is actually older than execution associated with the \"execute_reply\" message that we just received...")
+			errorMessage := fmt.Sprintf("Thought we received out-of-order \"smr_lead_task\" and \"execute_reply\" " +
+				"messages for execution i+1 and i respectively, but current execution is actually older than execution " +
+				"associated with the \"execute_reply\" message that we just received...")
 			d.notifyDashboardOfError("Old Active Execution Isn't Actually Old...", errorMessage)
 			d.log.Error(errorMessage)
 			d.log.Error(utils.RedStyle.Render("Old active execution isn't actually old. Current execution: %v. \"Old\" execution: %v.\n"),
 				activeExecution.String(), oldActiveExecution.String())
-			// log.Fatalf(utils.RedStyle.Render("Received out of order \"smr_lead_task\" and \"execute_reply\" messages from kernel %s.\n"), kernelId)
 			d.log.Error(utils.RedStyle.Render("Received out of order \"smr_lead_task\" and \"execute_reply\" messages from kernel %s.\n"), kernelId)
 		}
 	}

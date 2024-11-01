@@ -432,6 +432,12 @@ class RaftLog(object):
                 return GoNilError()
 
         with self._election_lock:
+            if self.current_election is None:
+                self.logger.error(f"We just received a notification that code execution has completed for "
+                                  f"election {notification.election_term}; however, our current election is nil...")
+                raise ValueError(f"We just received a notification that code execution has completed for "
+                                 f"election {notification.election_term}; however, our current election is nil...")
+
             if self.current_election.term_number != notification.election_term:
                 self.logger.error(f"Current election is for term {self.current_election.term_number}, "
                                   f"but we just received a notification that election {notification.election_term} has finished...")
@@ -577,10 +583,17 @@ class RaftLog(object):
                             raise ValueError(
                                 f"Could not decide election term {current_term} despite timeout period elapsing")
 
-                    _pick_and_propose_winner_future.set_result(1)  # Generic result set here
-                except asyncio.InvalidStateError:
+                    # Commented-out:
+                    # We already set this future's result inside the Election class when we call
+                    # __try_pick_winner_to_propose (which eventually calls methods of the Election class).from
+                    #
+                    # We caught the error and continued immediately, so I don't think it caused any problems,
+                    # but still. It's unnecessary.
+                    #
+                    # _pick_and_propose_winner_future.set_result(1)  # Generic result set here
+                except asyncio.InvalidStateError as ex:
                     self.logger.error(
-                        f"Future for picking and proposing a winner of election term {current_term} has already been resolved...")
+                        f"Future for picking and proposing a winner of election term {current_term} has already been resolved...: {ex}")
 
             if self._future_io_loop is None:
                 self.logger.error("Future IO loop is None. Cannot schedule `resolve()` future on loop.")

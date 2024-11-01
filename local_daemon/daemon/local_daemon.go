@@ -3052,10 +3052,13 @@ func (d *SchedulerDaemonImpl) Notify(ctx context.Context, notification *proto.Ke
 			notification.ReplicaId, notification.KernelId, notification.Title, notification.Message)
 	}
 
+	message := fmt.Sprintf("%s [KernelID=%s, ReplicaID=%d]",
+		notification.Message, notification.KernelId, notification.ReplicaId)
+
 	return d.provisioner.Notify(ctx, &proto.Notification{
 		Id:               uuid.NewString(),
 		Title:            notification.Title,
-		Message:          notification.Message,
+		Message:          message,
 		NotificationType: notification.NotificationType,
 		Panicked:         false,
 	})
