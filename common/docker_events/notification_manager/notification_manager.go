@@ -1,4 +1,4 @@
-package daemon
+package notification_manager
 
 import (
 	"github.com/zhangjyr/distributed-notebook/common/docker_events/observer"
