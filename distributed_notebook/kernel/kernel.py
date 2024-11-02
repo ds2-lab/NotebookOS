@@ -1030,11 +1030,11 @@ class DistributedKernel(IPythonKernel):
     async def init_persistent_store_with_persistent_id(self, persistent_id: str) -> str:
         """Initialize persistent store with persistent id. Return store path."""
         assert isinstance(self.storage_base, str)
-        store = os.path.join(self.storage_base, "store", persistent_id)
+        store_path = os.path.join(self.storage_base, "store", persistent_id)
 
         self.log.info(
             "Initializing the Persistent Store with Persistent ID: \"%s\"" % persistent_id)
-        self.log.debug("Full path of Persistent Store: \"%s\"" % store)
+        self.log.debug("Full path of Persistent Store: \"%s\"" % store_path)
         self.log.debug("Disabling `outstream` now.")
 
         sys.stderr.flush()
@@ -1047,12 +1047,41 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Overriding shell hooks now.")
 
         # Override shell hooks
-        await self.override_shell(store)
+        await self.override_shell()
 
         self.log.debug("Overrode shell hooks.")
 
-        # Notify the client that the SMR is ready.
-        # await self.smr_ready() 
+        # Get synclog for synchronization.
+        sync_log = await self.get_synclog(store_path)
+
+        self.log.info("Creating Synchronizer now.")
+
+        # Start the synchronizer.
+        # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
+        self.synchronizer = Synchronizer(
+            sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO)  # type: ignore
+
+        self.log.info("Created Synchronizer. Starting Synchronizer now.")
+
+        self.synchronizer.start()
+
+        self.log.debug("Started synchronizer.")
+
+        sys.stderr.flush()
+        sys.stdout.flush()
+
+        # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be started before we attempt to catch-up.
+        # The catch-up process involves appending a new value and waiting until it gets committed. This cannot be done until the RaftLog has started.
+        # And the RaftLog is started by the Synchronizer, within Synchronizer::start.
+        if self.synclog.needs_to_catch_up:
+            self.log.debug("RaftLog will need to propose a \"catch up\" value "
+                           "so that it can tell when it has caught up with its peers.")
+            await self.synclog.catchup_with_peers()
+
+        # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
+        await self.smr_ready()
+
+        self.log.info("Started Synchronizer.")
 
         # TODO(Ben): Should this go before the "smr_ready" send?
         # It probably shouldn't matter -- or if it does, then more synchronization is required.
@@ -1581,20 +1610,7 @@ class DistributedKernel(IPythonKernel):
             assert self.execution_count is not None
             self.log.info("Synchronized. End of sync execution: {}".format(term_number))
 
-            # Add task to the set. This creates a strong reference.
-            # We don't await this here so that we can go ahead and send the shell response back.
-            # We'll notify our peer replicas in time.
-            #
-            # TODO: Is this okay, or should we await this before returning?
-            task: asyncio.Task = asyncio.create_task(self.synchronizer.notify_execution_complete(term_number))
-
-            # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
-            # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
-            self.background_tasks.add(task)
-
-            # To prevent keeping references to finished tasks forever, we make each task remove its own reference
-            # from the "background tasks" set after completion.
-            task.add_done_callback(self.background_tasks.discard)
+            await self.schedule_notify_execution_complete(term_number)
 
             return reply_content
         except ExecutionYieldError as eye:
@@ -1607,6 +1623,24 @@ class DistributedKernel(IPythonKernel):
             self.report_error("Execution Error", str(e))
 
             return gen_error_response(e)
+
+    async def schedule_notify_execution_complete(self, term_number: int):
+        """
+        Schedule the proposal of an "execution complete" notification for this election.
+        """
+
+        # Add task to the set. This creates a strong reference.
+        # We don't await this here so that we can go ahead and send the shell response back.
+        # We'll notify our peer replicas in time.
+        task: asyncio.Task = asyncio.create_task(self.synchronizer.notify_execution_complete(term_number))
+
+        # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
+        # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
+        self.background_tasks.add(task)
+
+        # To prevent keeping references to finished tasks forever, we make each task remove its own reference
+        # from the "background tasks" set after completion.
+        task.add_done_callback(self.background_tasks.discard)
 
     async def do_shutdown(self, restart):
         self.log.info("Replica %d of kernel %s is shutting down.",
@@ -2063,48 +2097,11 @@ class DistributedKernel(IPythonKernel):
                 'user_expressions': {},
                 }
 
-    async def override_shell(self, store_path):
+    async def override_shell(self):
         """Override IPython Core"""
         self.old_run_cell = self.shell.run_cell  # type: ignore
         self.shell.run_cell = self.run_cell  # type: ignore
         self.shell.transform_ast = self.transform_ast  # type: ignore
-
-        # Get synclog for synchronization.
-        sync_log = await self.get_synclog(store_path)
-
-        self.log.info("Creating Synchronizer now.")
-
-        # Start the synchronizer.
-        # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
-        self.synchronizer = Synchronizer(
-            sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO)  # type: ignore
-
-        self.log.info("Created Synchronizer. Starting Synchronizer now.")
-
-        # if self.control_thread:
-        #     control_loop = self.control_thread.io_loop
-        # else:
-        #     control_loop = self.io_loop
-        # asyncio.run_coroutine_threadsafe(self.synchronizer.start(), control_loop.asyncio_loop)
-        self.synchronizer.start()
-
-        self.log.debug("Started synchronizer.")
-
-        sys.stderr.flush()
-        sys.stdout.flush()
-
-        # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be started before we attempt to catch-up.
-        # The catch-up process involves appending a new value and waiting until it gets committed. This cannot be done until the RaftLog has started.
-        # And the RaftLog is started by the Synchronizer, within Synchronizer::start.
-        if self.synclog.needs_to_catch_up:
-            self.log.debug("RaftLog will need to propose a \"catch up\" value "
-                           "so that it can tell when it has caught up with its peers.")
-            await self.synclog.catchup_with_peers()
-
-        # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
-        await self.smr_ready()
-
-        self.log.info("Started Synchronizer.")
 
     async def smr_ready(self) -> None:
         """
