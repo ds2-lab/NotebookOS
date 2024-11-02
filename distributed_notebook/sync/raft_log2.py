@@ -125,7 +125,7 @@ class RaftLog(object):
         sys.stdout.flush()
 
         self._log_node = NewLogNode(self._persistent_store_path, node_id, hdfs_hostname, should_read_data_from_hdfs,
-                                Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port, deploymentMode)
+                                    Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port, deploymentMode)
         self.logger.info("<< RETURNED FROM GO CODE (NewLogNode)")
         sys.stderr.flush()
         sys.stdout.flush()
@@ -149,14 +149,15 @@ class RaftLog(object):
 
         self.logger.info(f"Successfully created LogNode {node_id}.")
 
-        hdfs_read_latency:int = self._log_node.HdfsReadLatencyMilliseconds()
+        hdfs_read_latency: int = self._log_node.HdfsReadLatencyMilliseconds()
         if hdfs_read_latency > 0:
             self.logger.debug(f"Retrieved HDFS read latency of {hdfs_read_latency} milliseconds from LogNode.")
 
             if hdfs_read_latency_callback is not None:
                 hdfs_read_latency_callback(hdfs_read_latency)
             else:
-                self.logger.warning("Callback for reporting HDFS read latency is None. Cannot report HDFS read latency.")
+                self.logger.warning(
+                    "Callback for reporting HDFS read latency is None. Cannot report HDFS read latency.")
 
         # Indicates whether we've created the first Election / at least one Election
         self.__created_first_election: bool = False
@@ -540,6 +541,7 @@ class RaftLog(object):
             f"Received proposal \"{proposal.key}\" from node {proposal.proposer_id}: {str(proposal)}. Match: {self._node_id == proposal.proposer_id}.")
 
         with self._election_lock:
+            # val will only be non-None if this is the first LEAD proposal we're receiving for this election term.
             val: Optional[tuple[asyncio.Future[Any], float]] = self._current_election.add_proposal(proposal,
                                                                                                    self._future_io_loop,
                                                                                                    received_at=received_at)
@@ -602,7 +604,7 @@ class RaftLog(object):
             # Schedule `decide_election` to be called.
             # It will sleep until the discardAt time expires, at which point a decision needs to be made.
             # If a decision was already made for that election, then the `decide_election` function will simply return.
-            asyncio.run_coroutine_threadsafe(decide_election(), self._future_io_loop)
+            self.decide_election_future: asyncio.Future = asyncio.run_coroutine_threadsafe(decide_election(), self._future_io_loop)
         else:
             self.logger.debug(f"No future returned after registering \"{proposal.election_proposal_key}\" proposal "
                               f"from node {proposal.proposer_id} with election for term "
@@ -703,23 +705,32 @@ class RaftLog(object):
 
         return ret
 
-    def __value_committed(self, goObject, value_size: int, value_id: str) -> bytes:
-        sys.stderr.flush()
-        sys.stdout.flush()
-        received_at: float = time.time()
-
-        if value_id != "":
-            self.logger.debug(f"Our proposal of size {value_size} bytes was committed.")
-        else:
-            self.logger.debug(f"Received remote update of size {value_size} bytes")
-
-        reader = readCloser(ReadCloser(handle=goObject), value_size)
+    def __deserialize_goObject(self, goObject, value_size: int, value_id: str)->SynchronizedValue:
+        reader = readCloser(ReadCloser(handle=goObject))
 
         try:
             committedValue: SynchronizedValue = pickle.load(reader)
         except Exception as ex:
             self.logger.error(f"Failed to unpickle committed value because: {ex}")
             raise ex
+
+        return committedValue
+
+    def __value_committed(self, goObject, value_size: int, value_id: str) -> bytes:
+        sys.stderr.flush()
+        sys.stdout.flush()
+        received_at: float = time.time()
+
+        if value_id != "":
+            self.logger.debug(
+                f"Our proposal of size {value_size} bytes was committed. type(goObject): {type(goObject).__name__}")
+        else:
+            self.logger.debug(f"Received remote update of size {value_size} bytes. type(goObject): {type(goObject).__name__}")
+
+        if isinstance(goObject, SynchronizedValue):
+            committedValue: SynchronizedValue = goObject
+        else:
+            committedValue: SynchronizedValue =  self.__deserialize_goObject(goObject, value_size, value_id)
 
         if self.needs_to_catch_up:
             assert self._catchup_value is not None
@@ -738,14 +749,14 @@ class RaftLog(object):
                         f"The leader term before migration was {self._leader_term_before_migration}, "
                         f"while the committed \"catch-up\" value has term {committedValue.election_term}. "
                         f"The term of the \"catch-up\" value should be equal to last leader term.")
-                        # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
+                    # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
                     sys.stderr.flush()
                     sys.stdout.flush()
                     raise ValueError(
                         f"The leader term before migration was {self._leader_term_before_migration}, "
                         f"while the committed \"catch-up\" value has term {committedValue.election_term}. "
                         f"The term of the \"catch-up\" value should be equal to last leader term.")
-                        # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
+                    # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
 
                 self._needs_to_catch_up = False
 
@@ -925,16 +936,18 @@ class RaftLog(object):
         This return value of this function should be passed to the `self._log_node.WriteDataDirectoryToHDFS` function.
         """
         data_dict: dict = {
-            "kernel_id": self._kernel_id, # string
-            "proposed_values": self._proposed_values, # leader proposals, which generally contain a string and a few ints
-            "buffered_proposals": self._buffered_proposals, # leader proposals, which generally contain a string and a few ints
-            "buffered_votes": self._buffered_votes, # election votes, which generally contain a string and a few ints
-            "leader_term": self._leader_term, # int
-            "leader_id": self._leader_id, # int
-            "expected_term": self.expected_term, # int
-            "elections": self._elections, # map of Election objects
-            "current_election": self._current_election, # Election object
-            "last_completed_election": self._last_completed_election, # Election object
+            "kernel_id": self._kernel_id,  # string
+            "proposed_values": self._proposed_values,
+            # leader proposals, which generally contain a string and a few ints
+            "buffered_proposals": self._buffered_proposals,
+            # leader proposals, which generally contain a string and a few ints
+            "buffered_votes": self._buffered_votes,  # election votes, which generally contain a string and a few ints
+            "leader_term": self._leader_term,  # int
+            "leader_id": self._leader_id,  # int
+            "expected_term": self.expected_term,  # int
+            "elections": self._elections,  # map of Election objects
+            "current_election": self._current_election,  # Election object
+            "last_completed_election": self._last_completed_election,  # Election object
         }
 
         try:
@@ -1556,7 +1569,8 @@ class RaftLog(object):
             if value.data is not None and type(value.data) is bytes and len(value.data) > MAX_MEMORY_OBJECT:
                 self.logger.debug(f"Offloading value with key \"{value.key}\" before proposing/appending it.")
                 value = await self._offload_value(value)
-                self.logger.debug(f"Successfully offloaded value with key \"{value.key}\" before proposing/appending it.")
+                self.logger.debug(
+                    f"Successfully offloaded value with key \"{value.key}\" before proposing/appending it.")
 
         await self._serialize_and_append_value(value)
 
