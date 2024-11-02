@@ -724,83 +724,11 @@ async def test_all_propose_yield_and_win_second_round(kernel, execute_request):
                                                                            attempt_number=1)
     raftLog._valueCommittedCallback(yieldProposalFromNode3, sys.getsizeof(proposedValue), proposedValue.id)
 
-    try:
-        proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
-    except TimeoutError:
-        print("[ERROR] LeaderElectionVote was not proposed.")
-
-        for task in asyncio.all_tasks():
-            asyncio.Task.print_stack(task)
-            print("\n\n\n")
-
-        assert False
-
-    print(f"Got proposed vote: {proposedVote}")
-
-    assert (raftLog._leading_future.done() == False)
-    assert (election.num_proposals_received == 3)
-    assert (election.num_lead_proposals_received == 0)
-    assert (election.num_yield_proposals_received == 3)
-    assert (election.proposals.get(1) == proposedValue)
-    assert (election.proposals.get(2) == yieldProposalFromNode2)
-    assert (election.proposals.get(3) == yieldProposalFromNode3)
-    assert (len(raftLog._proposed_values) == 1)
-    assert election.is_active
-    assert election.voting_phase_completed_successfully == False
-
-    assert election_decision_future.done()
-    vote: LeaderElectionVote = election_decision_future.result()
-    assert vote is not None
-    assert vote == proposedVote
-    assert vote.election_term == 1
-    assert vote.proposer_id == 1
-    assert vote.proposed_node_id == 2
-    assert vote.attempt_number == 1
-
-    assert election.is_active
-    assert election.voting_phase_completed_successfully == False
-    assert leading_future is not None
-    assert leading_future.done() == False
-
-    raftLog._valueCommittedCallback(vote, sys.getsizeof(proposedValue), vote.id)
-
-    assert election.voting_phase_completed_successfully == True
-    assert election.winner == 2
-
-    try:
-        # We'll wait up to 5 seconds, but it should happen very quickly.
-        await asyncio.wait_for(leading_future, 5)
-    except TimeoutError:
-        print("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
-        assert False  # Fail the test.
-
-    print("\"Leading\" future should be done now.")
-    assert leading_future.done() == True
-    assert raftLog.leader_id == 2
-    assert raftLog.leader_term == 1
-    wait, leading = raftLog._is_leading(1)
-    assert wait == False
-    assert leading == False
-
-    await asyncio.sleep(0.5)
-
-    notification: ExecutionCompleteNotification = ExecutionCompleteNotification(proposer_id = 2, election_term = 1)
-
-    raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), notification.id)
-
-    try:
-        # We'll wait up to 5 seconds, but it should happen very quickly.
-        await asyncio.wait_for(execute_request_task, 5)
-    except TimeoutError:
-        print("[ERROR] \"execute_request\" task was not resolved.")
-
-        for task in asyncio.all_tasks():
-            asyncio.Task.print_stack(task)
-            print("\n\n\n")
-
-        assert False
-
-    assert execute_request_task.done()
+    # TODO: There's actually another proposal that needs to happen -- a node proposing "FAILURE"
+    assert election.num_proposals_accepted == 3
+    assert election.num_yield_proposals_received == 3
+    assert election.num_lead_proposals_received == 0
+    assert election.election_failed()
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
