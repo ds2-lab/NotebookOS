@@ -1207,7 +1207,7 @@ class DistributedKernel(IPythonKernel):
             buffers=buffers,
         )
 
-        self.log.debug("%s", reply_msg)
+        self.log.debug(f"Sent \"execute_reply\" message: {reply_msg}")
 
         if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
             self._abort_queues()
