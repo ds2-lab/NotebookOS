@@ -257,6 +257,13 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
+    @property
+    def node_id(self)->int:
+        """
+        Return this node's SMR node ID.
+        """
+        return self._node_id
+
     def _create_persistent_store_directory(self, path: str):
         """
         Create a directory at the specified path if it does not already exist.

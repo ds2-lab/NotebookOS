@@ -223,61 +223,6 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
 
-        # Prometheus metrics.
-        self.num_yield_proposals: Counter = Counter(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_yield_proposals_total",
-            documentation="Total number of 'YIELD' proposals.")
-        self.num_lead_proposals: Counter = Counter(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_lead_proposals_total",
-            documentation="Total number of 'LEAD' proposals.")
-        self.hdfs_read_latency_milliseconds: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_hdfs_read_latency_milliseconds",
-            documentation="The amount of time the kernel spent reading data from HDFS.",
-            unit="milliseconds",
-            buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
-        self.hdfs_write_latency_milliseconds: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_hdfs_write_latency_milliseconds",
-            documentation="The amount of time the kernel spent writing data to HDFS.",
-            unit="milliseconds",
-            buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
-        self.registration_time_milliseconds: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_registration_latency_milliseconds",
-            documentation="The latency of a new kernel replica registering with its Local Daemon.",
-            unit="milliseconds",
-            buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
-        self.execute_request_latency: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_execute_request_latency_milliseconds",
-            documentation="Execution time of the kernels' execute_request method in milliseconds.",
-            unit="milliseconds",
-            buckets=[10, 100, 250, 500, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
-                     6e9])
-        self.checkpointing_write_latency_milliseconds: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="checkpointing_write_latency_milliseconds",
-            documentation="Latency in milliseconds of writing checkpointed state to external storage.",
-            unit="milliseconds",
-            buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
-        self.checkpointing_read_latency_milliseconds: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="checkpointing_read_latency_milliseconds",
-            documentation="Latency in milliseconds of reading checkpointed state from external storage.",
-            unit="milliseconds",
-            buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
-
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
         self.log.setLevel(logging.DEBUG)
@@ -285,6 +230,80 @@ class DistributedKernel(IPythonKernel):
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
+
+        self.prometheus_enabled: bool = True
+        prometheus_port_str: str | int = os.environ.get("PROMETHEUS_METRICS_PORT", 8089)
+
+        try:
+            self.prometheus_port: int = int(prometheus_port_str)
+        except ValueError as ex:
+            self.log.error(f"Failed to parse \"PROMETHEUS_METRICS_PORT\" environment variable value \"{prometheus_port_str}\": {ex}")
+            self.log.error("Will use default prometheus metrics port of 8089.")
+            self.prometheus_port: int = 8089
+
+        if self.prometheus_port > 0:
+            self.log.debug(f"Starting Prometheus HTTP server on port {self.prometheus_port}.")
+            self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
+        else:
+            self.log.warning(f"Prometheus Port is configured as {self.prometheus_port}. "
+                             f"Skipping creation of Prometheus HTTP server.")
+            self.prometheus_enabled = False
+
+        if self.prometheus_enabled:
+            # Prometheus metrics.
+            self.num_yield_proposals: Counter = Counter(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_yield_proposals_total",
+                documentation="Total number of 'YIELD' proposals.")
+            self.num_lead_proposals: Counter = Counter(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_lead_proposals_total",
+                documentation="Total number of 'LEAD' proposals.")
+            self.hdfs_read_latency_milliseconds: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_hdfs_read_latency_milliseconds",
+                documentation="The amount of time the kernel spent reading data from HDFS.",
+                unit="milliseconds",
+                buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+            self.hdfs_write_latency_milliseconds: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_hdfs_write_latency_milliseconds",
+                documentation="The amount of time the kernel spent writing data to HDFS.",
+                unit="milliseconds",
+                buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+            self.registration_time_milliseconds: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_registration_latency_milliseconds",
+                documentation="The latency of a new kernel replica registering with its Local Daemon.",
+                unit="milliseconds",
+                buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+            self.execute_request_latency: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_execute_request_latency_milliseconds",
+                documentation="Execution time of the kernels' execute_request method in milliseconds.",
+                unit="milliseconds",
+                buckets=[10, 100, 250, 500, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
+                         6e9])
+            self.checkpointing_write_latency_milliseconds: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="checkpointing_write_latency_milliseconds",
+                documentation="Latency in milliseconds of writing checkpointed state to external storage.",
+                unit="milliseconds",
+                buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
+            self.checkpointing_read_latency_milliseconds: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="checkpointing_read_latency_milliseconds",
+                documentation="Latency in milliseconds of reading checkpointed state from external storage.",
+                unit="milliseconds",
+                buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
 
         from ipykernel.debugger import _is_debugpy_available
         if _is_debugpy_available:
@@ -420,7 +439,10 @@ class DistributedKernel(IPythonKernel):
             registration_start: float = time.time()
             self.register_with_local_daemon(connection_info, session_id)
             registration_duration: float = (time.time() - registration_start) * 1.0e3
-            self.registration_time_milliseconds.observe(registration_duration)
+
+            if self.prometheus_enabled:
+                self.registration_time_milliseconds.observe(registration_duration)
+
             self.__init_tcp_server()
         else:
             self.log.warning("Skipping registration step with local daemon.")
@@ -432,25 +454,6 @@ class DistributedKernel(IPythonKernel):
             self.smr_nodes_map = {1: str(self.hostname) + ":" + str(self.smr_port)}
             self.debug_port: int = int(os.environ.get("debug_port", "31000"))
             # self.start()
-
-        # TODO: Remove this after finish debugging the ACK stuff.
-        # self.auth = None
-
-        prometheus_port_str: str | int = os.environ.get("PROMETHEUS_METRICS_PORT", 8089)
-
-        try:
-            self.prometheus_port: int = int(prometheus_port_str)
-        except ValueError as ex:
-            self.log.error(f"Failed to parse \"PROMETHEUS_METRICS_PORT\" environment variable value \"{prometheus_port_str}\": {ex}")
-            self.log.error("Will use default prometheus metrics port of 8089.")
-            self.prometheus_port: int = 8089
-
-        if self.prometheus_port > 0:
-            self.log.debug(f"Starting Prometheus HTTP server on port {self.prometheus_port}.")
-            self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
-        else:
-            self.log.warning(f"Prometheus Port is configured as {self.prometheus_port}. "
-                          f"Skipping creation of Prometheus HTTP server.")
 
     def __init_tcp_server(self):
         self.local_tcp_server_queue: Queue = Queue()
@@ -1238,7 +1241,9 @@ class DistributedKernel(IPythonKernel):
 
         end_time: float = time.time()
         duration_ms: float = (end_time - start_time) * 1.0e3
-        self.execute_request_latency.observe(duration_ms)
+
+        if self.prometheus_enabled:
+            self.execute_request_latency.observe(duration_ms)
 
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
         """ Respond to a 'ping kernel' Control request. """
@@ -1405,7 +1410,8 @@ class DistributedKernel(IPythonKernel):
             self.log.info(f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
                           f"shell.execution_count: {self.shell.execution_count}")
 
-            self.num_yield_proposals.inc()
+            if self.prometheus_enabled:
+                self.num_yield_proposals.inc()
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
@@ -1549,7 +1555,8 @@ class DistributedKernel(IPythonKernel):
             self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
                           f"shell.execution_count: {self.shell.execution_count}")
 
-            self.num_lead_proposals.inc()
+            if self.prometheus_enabled:
+                self.num_lead_proposals.inc()
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
@@ -1743,7 +1750,8 @@ class DistributedKernel(IPythonKernel):
             write_start: float = time.time()
             waldir_path: str = await self.synclog.write_data_dir_to_hdfs()
             write_duration_ms: float = (time.time() - write_start) * 1.0e3
-            self.hdfs_write_latency_milliseconds.observe(write_duration_ms)
+            if self.prometheus_enabled:
+                self.hdfs_write_latency_milliseconds.observe(write_duration_ms)
             self.log.info(
                 "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % waldir_path)
         except Exception as e:
@@ -2194,7 +2202,8 @@ class DistributedKernel(IPythonKernel):
         if latency_ms < 0:
             return
 
-        self.hdfs_read_latency_milliseconds.observe(latency_ms)
+        if self.prometheus_enabled:
+            self.hdfs_read_latency_milliseconds.observe(latency_ms)
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):
         self.log.debug("Running cell: %s" % str(raw_cell))

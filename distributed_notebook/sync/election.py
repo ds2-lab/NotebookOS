@@ -195,6 +195,20 @@ class Election(object):
             self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
     @property
+    def num_lead_proposals_received(self) -> int:
+        """
+        The number of 'LEAD' proposals received.
+        """
+        return self._num_lead_proposals_received
+
+    @property
+    def num_yield_proposals_received(self) -> int:
+        """
+        The number of 'YIELD' proposals received.
+        """
+        return self._num_yield_proposals_received
+
+    @property
     def num_discarded_vote_proposals(self) -> int:
         """
         The number of 'vote' proposals that have been discarded (due to being received after the timeout period).
