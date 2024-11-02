@@ -102,6 +102,44 @@ async def mocked_sync(execution_ast, source: Optional[str] = None, checkpointer:
     return True
 
 
+def propose(raftLog: RaftLog, proposedValue: LeaderElectionProposal, election: Election,
+            execute_request_task: asyncio.Task[any], expectedNumProposals: int = -1):
+    if expectedNumProposals == -1:
+        expectedNumProposals = election.num_proposals_received + 1
+
+    raftLog._valueCommittedCallback(proposedValue, sys.getsizeof(proposedValue), proposedValue.id)
+
+    # Check that everything is updated correctly now that we've received a proposal.
+    assert (raftLog.decide_election_future is not None)
+    assert (election.num_proposals_received == expectedNumProposals)
+    assert (election.proposals.get(proposedValue.proposer_id) is not None)
+    assert (election.proposals.get(proposedValue.proposer_id) == proposedValue)
+    assert (len(raftLog._proposed_values) == 1)
+
+    assert (election.term_number in raftLog._proposed_values)
+    assert (raftLog._proposed_values.get(election.term_number) is not None)
+
+    if raftLog._node_id == proposedValue.proposer_id:
+        innerMap: OrderedDict[int, LeaderElectionProposal] = raftLog._proposed_values.get(election.term_number)
+        assert (innerMap is not None)
+        assert (len(innerMap) == 1)
+        assert (innerMap[proposedValue.proposer_id] == proposedValue)
+
+    assert (raftLog._future_io_loop is not None)
+    assert (raftLog._election_decision_future is not None)
+    assert (raftLog._leading_future is not None)
+    assert (raftLog._election_decision_future.done() == False)
+    assert (raftLog._leading_future.done() == False)
+
+    leading_future: asyncio.Future[int] = raftLog._leading_future
+    assert leading_future is not None
+    assert leading_future.done() == False
+
+    assert execute_request_task.done() == False
+    assert leading_future is not None
+    assert leading_future.done() == False
+
+
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
 async def test_basic_election(kernel, execute_request):
@@ -124,7 +162,7 @@ async def test_basic_election(kernel, execute_request):
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
                            mocked_append_election_proposal):
         execute_request_task: asyncio.Task[any] = loop.create_task(kernel.execute_request(None, [], execute_request))
-        proposedValue: SynchronizedValue = await election_proposal_future
+        proposedValue: LeaderElectionProposal = await election_proposal_future
 
     # Check that the kernel proposed a LEAD value.
     assert (proposedValue.key == str(ElectionProposalKey.LEAD))
@@ -155,56 +193,14 @@ async def test_basic_election(kernel, execute_request):
     assert leading_future is not None
     assert leading_future.done() == False
 
-    print("Calling RaftLog::_valueCommittedCallback now.")
-
-    raftLog._valueCommittedCallback(proposedValue, sys.getsizeof(proposedValue), proposedValue.id)
-
-    print("Called RaftLog::_valueCommittedCallback.")
-
-    # Check that everything is updated correctly now that we've received a proposal.
-    assert (raftLog.decide_election_future is not None)
-    assert (election.num_proposals_received == 1)
-    assert (election.proposals.get(kernel.smr_node_id) is not None)
-    assert (election.proposals.get(kernel.smr_node_id) == proposedValue)
-    assert (len(raftLog._proposed_values) == 1)
-
-    assert (election.term_number in raftLog._proposed_values)
-    assert (raftLog._proposed_values.get(election.term_number) is not None)
-
-    innerMap: OrderedDict[int, LeaderElectionProposal] = raftLog._proposed_values.get(election.term_number)
-    assert (innerMap is not None)
-    assert (len(innerMap) == 1)
-    assert (1 in innerMap)
-    assert (innerMap[1] == proposedValue)
-
-    assert (raftLog._future_io_loop is not None)
-    assert (raftLog._election_decision_future is not None)
-    assert (raftLog._leading_future is not None)
-    assert (raftLog._election_decision_future.done() == False)
-    assert (raftLog._leading_future.done() == False)
-
-    assert execute_request_task.done() == False
-    assert leading_future is not None
-    assert leading_future.done() == False
+    propose(raftLog, proposedValue, election, execute_request_task)
 
     # Call "value committed" handler again for the 2nd proposal.
     leadProposalFromNode2: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.LEAD),
                                                                            proposer_id=2,
                                                                            election_term=1,
                                                                            attempt_number=1)
-    raftLog._valueCommittedCallback(leadProposalFromNode2, sys.getsizeof(proposedValue), proposedValue.id)
-
-    assert (raftLog._election_decision_future.done() == False)
-    assert (raftLog._leading_future.done() == False)
-    assert (election.num_proposals_received == 2)
-    assert (election.proposals.get(1) == proposedValue)
-    assert (election.proposals.get(2) == leadProposalFromNode2)
-    assert (election.proposals.get(3) is None)
-    assert (len(raftLog._proposed_values) == 1)
-
-    assert execute_request_task.done() == False
-    assert leading_future is not None
-    assert leading_future.done() == False
+    propose(raftLog, leadProposalFromNode2, election, execute_request_task)
 
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
@@ -216,6 +212,7 @@ async def test_basic_election(kernel, execute_request):
     assert (election_decision_future is not None)
 
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
+
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
         print(f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
@@ -225,7 +222,8 @@ async def test_basic_election(kernel, execute_request):
                              _append_execution_end_notification=mocked_raftlog_append_execution_end_notification):
         print(f"\n\n\n\nraftLog._append_execution_end_notification: {raftLog._append_execution_end_notification}")
         print(f"kernel.synclog._append_execution_end_notification: {kernel.synclog._append_execution_end_notification}")
-        print(f"kernel.synchronizer._synclog._append_execution_end_notification: {kernel.synchronizer._synclog._append_execution_end_notification}")
+        print(
+            f"kernel.synchronizer._synclog._append_execution_end_notification: {kernel.synchronizer._synclog._append_execution_end_notification}")
 
         assert raftLog._append_execution_end_notification is not None
         assert kernel.synclog._append_execution_end_notification is not None
