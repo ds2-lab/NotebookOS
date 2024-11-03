@@ -696,7 +696,10 @@ def assert_election_failed(
     assert election.election_finished_event.is_set()
     assert election.completion_reason == AllReplicasProposedYield
 
+    print(f"Election {election.term_number} has current attempt number = {election.current_attempt_number}.")
+    print(f"Election proposals (quantity: {len(election.proposals)}):")
     for _, proposal in election.proposals.items():
+        print(f"Proposal: {proposal}")
         assert proposal.election_term == expected_term_number
         assert proposal.attempt_number == expected_attempt_number
         assert proposal.is_yield
@@ -869,7 +872,7 @@ async def test_all_propose_yield_and_win_second_round(kernel, execute_request):
                                                                             proposer_id=3,
                                                                             election_term=1,
                                                                             attempt_number=1)
-    raftLog._valueCommittedCallback(yieldProposalFromNode3, sys.getsizeof(proposedValue), proposedValue.id)
+    propose(raftLog, yieldProposalFromNode3, election, execute_request_task, expected_num_proposals = 3, expected_attempt_number = 1)
 
     election_decision_future: asyncio.Future[LeaderElectionVote] = raftLog._election_decision_future
 
@@ -938,7 +941,7 @@ async def test_all_propose_yield_and_win_second_round(kernel, execute_request):
 
     propose(raftLog, proposedValue, election, execute_request_task, expected_attempt_number=2)
 
-    assert (election.current_attempt_number == 2)  # Hasn't been committed yet, so still 1
+    assert (election.current_attempt_number == 2)
 
     # Call "value committed" handler again for the 2nd proposal.
     leadProposalFromNode2: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.LEAD),
@@ -1045,6 +1048,237 @@ async def test_all_propose_yield_and_win_second_round(kernel, execute_request):
         for _, proposal in election.proposals.items():
             assert proposal.election_term == 1
             assert proposal.attempt_number == 2
+            assert proposal.is_lead
+
+        raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), notification.id)
+
+        try:
+            # We'll wait up to 5 seconds, but it should happen very quickly.
+            await asyncio.wait_for(execute_request_task, 5)
+        except TimeoutError:
+            print("[ERROR] \"execute_request\" task was not resolved.")
+
+            for task in asyncio.all_tasks():
+                asyncio.Task.print_stack(task)
+                print("\n\n\n")
+
+            assert False
+
+        assert execute_request_task.done()
+        assert_election_success(election)
+
+@mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
+@pytest.mark.asyncio
+async def test_fail_election_nine_times_then_win(kernel, execute_request):
+    raftLog: RaftLog = kernel.synclog
+
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+
+    NUM_FAILURES: int = 9
+
+    for i in range(0, NUM_FAILURES):
+        print(f"\n\n\nElection Round #{i}\n")
+        election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
+        async def mocked_append_election_proposal(*args, **kwargs):
+            print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+            election_proposal_future.set_result(args[1])
+
+        with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
+                               mocked_append_election_proposal):
+            execute_request_task: asyncio.Task[any] = loop.create_task(kernel.yield_request(None, [], execute_request))
+            proposedValue: LeaderElectionProposal = await election_proposal_future
+
+        # Check that the kernel created an election, but that no proposals were received yet.
+        election: Election = kernel.synclog.get_election(1)
+
+        # Call "value committed" handler again for the 2nd proposal.
+        yieldProposalFromNode2: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.YIELD),
+                                                                                proposer_id=2,
+                                                                                election_term=1,
+                                                                                attempt_number=i+1)
+
+        propose(raftLog, proposedValue, election, execute_request_task, expected_num_proposals = 1, expected_attempt_number = i+1)
+
+        propose(raftLog, yieldProposalFromNode2, election, execute_request_task, expected_num_proposals = 2, expected_attempt_number = i+1)
+
+        yieldProposalFromNode3: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.YIELD),
+                                                                                proposer_id=3,
+                                                                                election_term=1,
+                                                                                attempt_number=i+1)
+        propose(raftLog, yieldProposalFromNode3, election, execute_request_task, expected_num_proposals = 3, expected_attempt_number = i+1)
+
+        election_decision_future: asyncio.Future[LeaderElectionVote] = raftLog._election_decision_future
+
+        try:
+            await asyncio.wait_for(election_decision_future, 5)
+        except TimeoutError:
+            print("[ERROR] \"election_decision\" future was not resolved.")
+
+            for task in asyncio.all_tasks():
+                asyncio.Task.print_stack(task)
+                print("\n\n\n")
+
+            assert False
+
+        assert_election_failed(election, execute_request_task, election_decision_future, expected_proposer_id=1,
+                               expected_term_number=1, expected_attempt_number=i+1, expected_proposals_received=3)
+
+    # Check that the kernel created an election, but that no proposals were received yet.
+    election: Election = kernel.synclog.get_election(1)
+    assert election.election_finished_event.is_set()
+
+    election_proposal_future = loop.create_future()
+
+    async def mocked_append_election_proposal(*args, **kwargs):
+        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        election_proposal_future.set_result(args[1])
+
+    with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
+                           mocked_append_election_proposal):
+        execute_request_task = loop.create_task(kernel.execute_request(None, [], execute_request))
+        proposedValue = await election_proposal_future
+
+    # Check that the kernel proposed a LEAD value.
+    assert (proposedValue.key == str(ElectionProposalKey.LEAD))
+    assert (proposedValue.proposer_id == kernel.smr_node_id)
+    assert (proposedValue.election_term == 1)
+    assert (proposedValue.attempt_number == NUM_FAILURES+1)
+
+    # Check that the kernel created an election, but that no proposals were received yet.
+    election: Election = kernel.synclog.get_election(1)
+    assert (election is not None)
+    assert (election.term_number == 1)
+    assert (election.current_attempt_number == NUM_FAILURES)  # Hasn't been committed yet, so still NUM_FAILURES
+    assert (election.num_proposals_received == 0)
+    assert (raftLog._future_io_loop is not None)
+    assert (raftLog._election_decision_future is not None)
+    assert (raftLog._leading_future is not None)
+    assert (raftLog._election_decision_future.done() == False)
+    assert (raftLog._leading_future.done() == False)
+
+    # We've proposed it, so the RaftLog knows about it, even though the value hasn't been committed yet.
+    assert (len(raftLog._proposed_values) == 1)
+
+    innerMap: OrderedDict[int, LeaderElectionProposal] = raftLog._proposed_values.get(election.term_number)
+    assert (innerMap is not None)
+    assert (len(innerMap) == NUM_FAILURES+1)
+    for i in range(1, NUM_FAILURES+2):
+        assert i in innerMap
+    assert (innerMap[NUM_FAILURES+1] == proposedValue)
+
+    leading_future: asyncio.Future[int] = raftLog._leading_future
+    assert leading_future is not None
+    assert leading_future.done() == False
+
+    propose(raftLog, proposedValue, election, execute_request_task, expected_attempt_number=NUM_FAILURES+1)
+
+    assert (election.current_attempt_number == NUM_FAILURES+1)
+
+    # Call "value committed" handler again for the 2nd proposal.
+    leadProposalFromNode2: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.LEAD),
+                                                                           proposer_id=2,
+                                                                           election_term=1,
+                                                                           attempt_number=NUM_FAILURES+1)
+    propose(raftLog, leadProposalFromNode2, election, execute_request_task, expected_attempt_number=NUM_FAILURES+1)
+
+    vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
+
+    async def mocked_append_election_vote(*args, **kwargs):
+        print(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
+        vote_proposal_future.set_result(args[1])
+
+    election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = raftLog._election_decision_future
+    assert (election_decision_future is not None)
+
+    execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
+
+    async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
+        print(f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
+        execution_done_future.set_result(args[1])
+
+    with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
+                             _append_election_vote=mocked_append_election_vote,
+                             _append_execution_end_notification=mocked_raftlog_append_execution_end_notification):
+        print(f"\n\n\n\nraftLog._append_execution_end_notification: {raftLog._append_execution_end_notification}")
+        print(f"kernel.synclog._append_execution_end_notification: {kernel.synclog._append_execution_end_notification}")
+        print(
+            f"kernel.synchronizer._synclog._append_execution_end_notification: {kernel.synchronizer._synclog._append_execution_end_notification}")
+
+        assert raftLog._append_execution_end_notification is not None
+        assert kernel.synclog._append_execution_end_notification is not None
+        assert kernel.synchronizer._synclog._append_execution_end_notification is not None
+
+        leadProposalFromNode3: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.LEAD),
+                                                                               proposer_id=3,
+                                                                               election_term=1,
+                                                                               attempt_number=NUM_FAILURES+1)
+        propose(raftLog, leadProposalFromNode3, election, execute_request_task, expected_attempt_number=NUM_FAILURES+1)
+
+        try:
+            proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
+        except TimeoutError:
+            print("[ERROR] LeaderElectionVote was not proposed.")
+
+            for task in asyncio.all_tasks():
+                asyncio.Task.print_stack(task)
+                print("\n\n\n")
+
+            assert False
+
+        print(f"Got proposed vote: {proposedVote}")
+
+        assert (raftLog._leading_future.done() == False)
+        assert (election.num_proposals_received == 3)
+        assert (election.num_lead_proposals_received == 3)
+        assert (election.num_yield_proposals_received == 0)
+        assert (election.proposals.get(1) == proposedValue)
+        assert (election.proposals.get(2) == leadProposalFromNode2)
+        assert (election.proposals.get(3) == leadProposalFromNode3)
+        assert (len(raftLog._proposed_values) == 1)
+        assert election.is_active
+        assert not election.voting_phase_completed_successfully
+
+        propose_vote(raftLog, proposedVote, leading_future, election, election_decision_future,
+                     expected_attempt_number=NUM_FAILURES+1)
+
+        try:
+            # We'll wait up to 5 seconds, but it should happen very quickly.
+            await asyncio.wait_for(leading_future, 5)
+        except TimeoutError:
+            print("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
+            assert False  # Fail the test.
+
+        print("\"Leading\" future should be done now.")
+        assert leading_future.done() == True
+        assert raftLog.leader_id == 1
+        assert raftLog.leader_term == 1
+        wait, leading = raftLog._is_leading(1)
+        assert wait == False
+        assert leading == True
+
+        try:
+            # We'll wait up to 5 seconds, but it should happen very quickly.
+            await asyncio.wait_for(execution_done_future, 5)
+        except TimeoutError:
+            print("[ERROR] \"execution_done\" future was not resolved.")
+
+            for task in asyncio.all_tasks():
+                asyncio.Task.print_stack(task)
+                print("\n\n\n")
+
+            assert False
+
+        assert execution_done_future.done()
+
+        notification: ExecutionCompleteNotification = execution_done_future.result()
+        print(f"Got ExecutionCompleteNotification: {notification}")
+        assert notification is not None
+        assert notification.proposer_id == 1
+        assert notification.election_term == 1
+
+        for _, proposal in election.proposals.items():
+            assert proposal.election_term == 1
+            assert proposal.attempt_number == NUM_FAILURES+1
             assert proposal.is_lead
 
         raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), notification.id)
