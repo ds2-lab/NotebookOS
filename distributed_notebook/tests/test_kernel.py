@@ -26,10 +26,9 @@ DefaultDate: str = "2024-11-01T15:32:45.123456789Z"
 # - Receiving additional vote(s) doesn't cause anything to break (after the first vote is received)
 # - Migration-related unit tests
 
-@pytest_asyncio.fixture
-async def kernel(
+async def create_kernel(
         hdfs_namenode_hostname: str = "127.0.0.1:10000",
-        kernel_id: str= DefaultKernelId,
+        kernel_id: str = DefaultKernelId,
         smr_port: int = 8000,
         smr_node_id: int = 1,
         smr_nodes: int = [],
@@ -90,6 +89,34 @@ async def kernel(
     return kernel
 
 
+@pytest_asyncio.fixture
+async def kernel(
+        hdfs_namenode_hostname: str = "127.0.0.1:10000",
+        kernel_id: str = DefaultKernelId,
+        smr_port: int = 8000,
+        smr_node_id: int = 1,
+        smr_nodes: list[int] = [],
+        smr_join: bool = False,
+        should_register_with_local_daemon: bool = False,
+        pod_name: str = "TestPod",
+        node_name: str = "TestNode",
+        debug_port: int = -1,
+        **kwargs
+) -> DistributedKernel:
+    return await create_kernel(
+        hdfs_namenode_hostname=hdfs_namenode_hostname,
+        kernel_id=kernel_id,
+        smr_port=smr_port,
+        smr_node_id=smr_node_id,
+        smr_nodes=smr_nodes,
+        smr_join=smr_join,
+        should_register_with_local_daemon=should_register_with_local_daemon,
+        pod_name=pod_name,
+        node_name=node_name,
+        debug_port=debug_port,
+    )
+
+
 def assert_election_success(election: Election):
     assert election.code_execution_completed_successfully
     assert election.voting_phase_completed_successfully
@@ -117,7 +144,8 @@ def execute_request():
     }
 
 
-async def mocked_sync(execution_ast, source: Optional[str] = None, checkpointer: Optional[Checkpointer] = None) -> bool:
+async def mocked_sync(execution_ast, source: Optional[str] = None,
+                      checkpointer: Optional[Checkpointer] = None) -> bool:
     print(
         f"\nMocked Synchronizer::sync called with execution_ast={execution_ast}, source={source}, checkpointer={checkpointer}")
     await asyncio.sleep(0.25)
@@ -236,7 +264,8 @@ async def test_propose_lead_and_win_no_asserts(kernel: DistributedKernel, execut
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
                            mocked_append_election_proposal):
-        execute_request_task: asyncio.Task[any] = loop.create_task(kernel.execute_request(None, [], execute_request))
+        execute_request_task: asyncio.Task[any] = loop.create_task(
+            kernel.execute_request(None, [], execute_request))
         proposedValue: LeaderElectionProposal = await election_proposal_future
 
     # Check that the kernel created an election, but that no proposals were received yet.
@@ -263,7 +292,8 @@ async def test_propose_lead_and_win_no_asserts(kernel: DistributedKernel, execut
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
+        print(
+            f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
     with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
@@ -356,7 +386,8 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execute_request: 
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
                            mocked_append_election_proposal):
-        execute_request_task: asyncio.Task[any] = loop.create_task(kernel.execute_request(None, [], execute_request))
+        execute_request_task: asyncio.Task[any] = loop.create_task(
+            kernel.execute_request(None, [], execute_request))
         proposedValue: LeaderElectionProposal = await election_proposal_future
 
     # Check that the kernel proposed a LEAD value.
@@ -409,7 +440,8 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execute_request: 
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
+        print(
+            f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
     with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
@@ -531,7 +563,8 @@ async def test_propose_lead_and_lose(kernel: DistributedKernel, execute_request:
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
                            mocked_append_election_proposal):
-        execute_request_task: asyncio.Task[any] = loop.create_task(kernel.execute_request(None, [], execute_request))
+        execute_request_task: asyncio.Task[any] = loop.create_task(
+            kernel.execute_request(None, [], execute_request))
         proposedValue: LeaderElectionProposal = await election_proposal_future
 
     # Check that the kernel proposed a LEAD value.
@@ -1094,7 +1127,8 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
+        print(
+            f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
     with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
@@ -1215,7 +1249,8 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
 
         with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
                                mocked_append_election_proposal):
-            execute_request_task: asyncio.Task[any] = loop.create_task(kernel.yield_request(None, [], execute_request))
+            execute_request_task: asyncio.Task[any] = loop.create_task(
+                kernel.yield_request(None, [], execute_request))
             proposedValue: LeaderElectionProposal = await election_proposal_future
 
         # Check that the kernel created an election, but that no proposals were received yet.
@@ -1312,7 +1347,8 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
                                                                            proposer_id=2,
                                                                            election_term=1,
                                                                            attempt_number=NUM_FAILURES + 1)
-    propose(raftLog, leadProposalFromNode2, election, execute_request_task, expected_attempt_number=NUM_FAILURES + 1)
+    propose(raftLog, leadProposalFromNode2, election, execute_request_task,
+            expected_attempt_number=NUM_FAILURES + 1)
 
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
@@ -1326,7 +1362,8 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
+        print(
+            f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
     with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
@@ -1455,7 +1492,8 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
                            mocked_append_election_proposal):
-        execute_request_task: asyncio.Task[any] = loop.create_task(kernel.execute_request(None, [], execute_request))
+        execute_request_task: asyncio.Task[any] = loop.create_task(
+            kernel.execute_request(None, [], execute_request))
         proposedValue: LeaderElectionProposal = await election_proposal_future
 
     # Check that the kernel created an election, but that no proposals were received yet.
@@ -1476,7 +1514,8 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
+        print(
+            f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
     with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
@@ -1601,7 +1640,8 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
                            mocked_append_election_proposal):
-        execute_request_task: asyncio.Task[any] = loop.create_task(kernel.execute_request(None, [], execute_request))
+        execute_request_task: asyncio.Task[any] = loop.create_task(
+            kernel.execute_request(None, [], execute_request))
         proposedValue: LeaderElectionProposal = await election_proposal_future
 
     # Check that the kernel proposed a LEAD value.
@@ -1648,7 +1688,8 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
+        print(
+            f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
     with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
@@ -1764,7 +1805,8 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
                            mocked_append_election_proposal):
-        execute_request_task: asyncio.Task[any] = loop.create_task(kernel.execute_request(None, [], execute_request))
+        execute_request_task: asyncio.Task[any] = loop.create_task(
+            kernel.execute_request(None, [], execute_request))
         proposedValue: LeaderElectionProposal = await election_proposal_future
 
     # Check that the kernel proposed a LEAD value.
@@ -1811,7 +1853,8 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
+        print(
+            f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
     with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
@@ -1929,7 +1972,6 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execute_reque
     """
     print(f"Testing execute request with kernel {kernel} and execute request {execute_request}")
 
-    synchronizer: Synchronizer = kernel.synchronizer
     raftLog: RaftLog = kernel.synclog
 
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
@@ -1981,13 +2023,15 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execute_reque
                            expected_term_number=1, expected_attempt_number=1, expected_proposals_received=3)
 
     close_future: asyncio.Future[int] = loop.create_future()
+
     def mocked_raftlog_close(*args, **kwargs):
-        print(f"\nMocked RaftLog::close called with args {args} and kwargs {kwargs}.", flush = True)
+        print(f"\nMocked RaftLog::close called with args {args} and kwargs {kwargs}.", flush=True)
         close_future.set_result(1)
 
     write_data_dir_to_hdfs_future: asyncio.Future[bytes] = loop.create_future()
+
     async def mocked_raftlog_write_data_dir_to_hdfs(*args, **kwargs):
-        print(f"\nMocked RaftLog::write_data_dir_to_hdfs called with args {args} and kwargs {kwargs}.", flush = True)
+        print(f"\nMocked RaftLog::write_data_dir_to_hdfs called with args {args} and kwargs {kwargs}.", flush=True)
 
         assert isinstance(args[0], RaftLog)
 
@@ -2028,9 +2072,24 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execute_reque
         state = pickle.loads(serialized_state)
     except Exception as ex:
         print(f"Failed to unpickle serialized state: {ex}")
-        assert ex is None # Will necessarily fail
+        assert ex is None  # Will necessarily fail
 
     assert state is not None
     assert isinstance(state, dict)
 
     # TODO: Apply serialized state. Recreate Kernel.
+    new_kernel: DistributedKernel = await create_kernel(**state)
+
+    assert new_kernel is not None
+    new_raft_log: RaftLog = new_kernel.synclog
+
+    assert new_kernel != kernel
+    assert new_raft_log != raftLog
+
+    assert new_kernel.kernel_id == kernel.kernel_id
+    assert new_kernel.smr_node_id == kernel.smr_node_id
+
+    assert new_raft_log._kernel_id == kernel.kernel_id
+    assert new_raft_log.node_id == kernel.smr_node_id
+
+    # TODO: Finish this unit test.
