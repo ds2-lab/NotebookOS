@@ -21,90 +21,9 @@ DefaultDate: str = "2024-11-01T15:32:45.123456789Z"
 
 
 # TODO (create the following unit tests):
-# - Election succeeds after receiving 1 LEAD proposal and delays pass
-# - Receiving proposal(s) for future election before receiving own call to yield_request or execute_request
 # - Receiving vote(s) for future election before receiving own call to yield_request or execute_request
 # - Receiving additional vote(s) doesn't cause anything to break (after the first vote is received)
-
-@pytest_asyncio.fixture
-async def migrated_kernel() -> DistributedKernel:
-    """
-    Create and return a DistributedKernel that is setup as if it had been migrated.
-    """
-    kwargs = {
-        "hdfs_namenode_hostname": "127.0.0.1:10000",
-        "kernel_id": DefaultKernelId,
-        "smr_port": 8000,
-        "smr_node_id": 1,
-        "smr_nodes": [],
-        "smr_join": False,
-        "should_register_with_local_daemon": False,
-        "pod_name": "TestPod",
-        "node_name": "TestNode",
-        "debug_port": -1,
-    }
-
-    async def mocked_load_and_apply_serialized_state(*args, **kwargs) -> bool:
-        print(f"Mocked RaftLog::_load_and_apply_serialized_state called with args {args} and kwargs {kwargs}")
-        sys.stderr.flush()
-        sys.stdout.flush()
-
-        raftLog: RaftLog = args[0]
-        assert raftLog is not None
-
-        raftLog._buffered_proposals = {}
-        raftLog._buffered_votes = {}
-        raftLog._proposed_values = {}
-        raftLog._elections = {}
-        raftLog._current_election = Election(3, 3, 10)
-        raftLog._last_completed_election = 1
-
-        # The value of _leader_term before a migration/eviction was triggered.
-        raftLog._leader_term_before_migration: int = 2
-
-        # Commenting these out for now; it's not clear if we should set these in this way yet.
-        raftLog._expected_term = 3
-
-        raftLog._future_io_loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
-        raftLog._future_io_loop.set_debug(True)
-
-        return True
-
-    with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_load_and_apply_serialized_state",
-                           mocked_load_and_apply_serialized_state):
-        os.environ.setdefault("PROMETHEUS_METRICS_PORT", "-1")
-        kernel: DistributedKernel = DistributedKernel(**kwargs)
-        kernel.num_replicas = 3
-        kernel.should_read_data_from_hdfs = False
-        kernel.deployment_mode = "DOCKER_SWARM"
-        kernel.session = TestSession()
-        kernel.store = "/"
-        kernel.prometheus_port = -1
-        kernel.debug_port = -1
-
-        kernel.synclog = distributed_notebook.sync.raft_log.RaftLog(kernel.smr_node_id,
-                                 base_path=kernel.store,
-                                 kernel_id=kernel.kernel_id,
-                                 num_replicas=kernel.num_replicas,
-                                 hdfs_hostname=kernel.hdfs_namenode_hostname,
-                                 should_read_data_from_hdfs=kernel.should_read_data_from_hdfs,
-                                 peer_addrs=[],
-                                 peer_ids=[],
-                                 join=kernel.smr_join,
-                                 debug_port=kernel.debug_port,
-                                 report_error_callback=kernel.report_error,
-                                 send_notification_func=kernel.send_notification,
-                                 hdfs_read_latency_callback=kernel.hdfs_read_latency_callback,
-                                 deploymentMode=kernel.deployment_mode)
-
-        kernel.synchronizer = Synchronizer(kernel.synclog, module=None, opts=CHECKPOINT_AUTO)
-
-        await kernel.override_shell()
-
-        # Need to yield here rather than return, or else we'll go out-of-scope,
-        # and the mock that happens above won't work.
-        return kernel
-
+# - Migration-related unit tests
 
 @pytest_asyncio.fixture
 async def kernel() -> DistributedKernel:
