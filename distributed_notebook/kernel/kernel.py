@@ -28,7 +28,7 @@ from ipykernel.ipkernel import IPythonKernel
 from jupyter_client.jsonutil import extract_dates
 from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
-from traitlets import List, Integer, Unicode, Bool, Undefined
+from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
 from .execution_yield_error import ExecutionYieldError
 from .util import extract_header
@@ -164,6 +164,8 @@ class DistributedKernel(IPythonKernel):
     # data_directory: Union[str, Unicode] = Unicode(help="""The etcd-raft WAL/data directory. This will always be equal to the empty string unless we're created during a migration operation.""").tag(config=False)
 
     debug_port: Integer = Integer(8464, help="""Port of debug HTTP server.""").tag(config=False)
+
+    election_timeout_seconds: Float = Float(10.0, help = """How long to wait to receive other proposals before making a decision (if we can, like if we have at least received one LEAD proposal). """).tag(config=True)
 
     implementation = 'Distributed Python 3'
     implementation_version = '0.2'
@@ -327,6 +329,10 @@ class DistributedKernel(IPythonKernel):
         # By default, we do not want to remove the replica from the raft SMR cluster on shutdown.
         # We'll only do this if we're explicitly told to do so.
         self.remove_on_shutdown = False
+
+        # How long to wait to receive other proposals before making a decision (if we can, like if we
+        # have at least received one LEAD proposal).
+        self.election_timeout_seconds: float = 10
 
         # Single node mode
         if not isinstance(self.smr_nodes, list) or len(self.smr_nodes) == 0:
@@ -2197,7 +2203,8 @@ class DistributedKernel(IPythonKernel):
                                    report_error_callback=self.report_error,
                                    send_notification_func=self.send_notification,
                                    hdfs_read_latency_callback=self.hdfs_read_latency_callback,
-                                   deploymentMode = self.deployment_mode)
+                                   deploymentMode = self.deployment_mode,
+                                   election_timeout_seconds = self.election_timeout_seconds)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
 

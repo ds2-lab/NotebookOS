@@ -70,6 +70,7 @@ class RaftLog(object):
             report_error_callback: Callable[[str, str], None] = None,
             send_notification_func: Callable[[str, str, int], None] = None,
             hdfs_read_latency_callback: Optional[Callable[[int], None]] = None,
+            election_timeout_seconds: float = 10,
             deploymentMode: str = "LOCAL",
     ):
         self._shouldSnapshotCallback = None
@@ -106,6 +107,10 @@ class RaftLog(object):
         self._last_winner_id: int = -1
         self._report_error_callback = report_error_callback
         self._send_notification_func = send_notification_func
+
+        # How long to wait to receive other proposals before making a decision (if we can, like if we
+        # have at least received one LEAD proposal).
+        self._election_timeout_seconds = election_timeout_seconds
 
         try:
             self._create_persistent_store_directory(base_path)
@@ -1184,7 +1189,7 @@ class RaftLog(object):
                     f"execution phase (current state: {self._current_election.election_state})")
             else:
                 # Create a new election. We don't have an existing election to restart/use.
-                election: Election = Election(term_number, self._num_replicas)
+                election: Election = Election(term_number, self._num_replicas, self._election_timeout_seconds)
                 self._elections[term_number] = election
                 # Elections contain a sort of (singly-)linked list between themselves. We're performing an append-to-end-of-linked-list operation here.
                 self._last_completed_election = self._current_election

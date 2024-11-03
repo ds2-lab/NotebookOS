@@ -35,6 +35,7 @@ class Election(object):
             self,
             term_number: int,
             num_replicas: int,
+            timeout_seconds: float = 10,
     ):
         # The term number of the election.
         # Each election has a unique term number.
@@ -111,7 +112,7 @@ class Election(object):
         self._discard_after: float = -1
 
         # The duration of time that must elapse before we start discarding new proposals.
-        self._timeout: float = -1
+        self._timeout: float = timeout_seconds
 
         # The SMR node ID Of the winner of the last election.
         # A value of -1 indicates that the winner has not been chosen/identified yet.
@@ -422,7 +423,6 @@ class Election(object):
                 if prop == self._first_lead_proposal:
                     self._first_lead_proposal = None
                     self._discard_after = -1
-                    self._timeout = -1
 
                     # Cancel this future if it exists. (It should probably exist, if the first 'LEAD' proposal also exists.)
                     if self._pick_and_propose_winner_future is not None:
@@ -925,7 +925,6 @@ class Election(object):
         # If so, we'll return a future that can be used to ensure we make a decision after the timeout period, even if we've not received all other proposals.
         if self._first_lead_proposal is None and proposal.is_lead:
             self._first_lead_proposal = proposal
-            self._timeout = 10
             self._discard_after = time.time() + self._timeout
 
             self._pick_and_propose_winner_future = asyncio.Future(loop=future_io_loop)
