@@ -550,7 +550,7 @@ class Election(object):
         self._proposals.clear()
         self._vote_proposals.clear()
 
-    def election_failed(self):
+    def set_election_failed(self):
         """
         Record that the election has failed. This transitions the election to the FAILED state.
 
@@ -914,7 +914,7 @@ class Election(object):
                 self._expecting_failure = True
                 self.logger.warning(
                     "Received third 'YIELD' proposal. Election is doomed to fail! Automatically transitioning to the 'FAILED' state.")
-                self.election_failed()
+                self.set_election_failed()
                 self._auto_failed = True
 
         self.logger.debug(

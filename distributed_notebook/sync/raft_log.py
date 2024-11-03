@@ -1462,7 +1462,7 @@ class RaftLog(object):
                     "RaftLog %d: Got decision to propose: election failed. No replicas proposed 'LEAD'." % self._node_id)
 
                 with self._election_lock:
-                    self._current_election.election_failed()
+                    self._current_election.set_election_failed()
 
                 # None of the replicas proposed 'LEAD'
                 # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.

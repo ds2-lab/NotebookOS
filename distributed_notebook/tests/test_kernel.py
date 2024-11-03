@@ -728,9 +728,29 @@ async def test_all_propose_yield_and_win_second_round(kernel, execute_request):
     assert election.num_proposals_accepted == 3
     assert election.num_yield_proposals_received == 3
     assert election.num_lead_proposals_received == 0
-    assert election.election_failed()
 
-@mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
-@pytest.mark.asyncio
-async def test_all_propose_yield_and_win_second_third(kernel, execute_request):
-    pass
+    election_decision_future: asyncio.Future[LeaderElectionVote] = raftLog._election_decision_future
+    assert election_decision_future is not None
+
+    try:
+        await asyncio.wait_for(election_decision_future, 5)
+    except TimeoutError:
+        print("[ERROR] \"election_decision\" future was not resolved.")
+
+        for task in asyncio.all_tasks():
+            asyncio.Task.print_stack(task)
+            print("\n\n\n")
+
+        assert False
+
+    assert election_decision_future.done()
+    assert election.is_in_failed_state
+
+    failure_vote: LeaderElectionVote = election_decision_future.result()
+    assert failure_vote is not None
+    assert failure_vote.proposed_node_id == -1
+    assert failure_vote.proposer_id == 1
+    assert failure_vote.election_term == 1
+    assert failure_vote.attempt_number == 1
+
+    assert execute_request_task.done()
