@@ -1759,6 +1759,7 @@ class DistributedKernel(IPythonKernel):
             "Closing the SyncLog (and therefore the etcd-Raft process) now.")
         try:
             self.synclog.close()
+
             self.synclog_stopped = True
             self.log.info(
                 "SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
@@ -1869,7 +1870,7 @@ class DistributedKernel(IPythonKernel):
         sent_message = self.session.send(stream, "prepare_to_migrate_reply", content, parent, ident=ident,
                                          buffers=buffers)
 
-        self.log.debug("Sent 'prepare_to_migrate_reply message: %s" % str(sent_message))
+        self.log.debug("Sent 'prepare_to_migrate_reply' message: %s" % str(sent_message))
 
     async def do_add_replica(self, replicaId, addr) -> tuple[dict, bool]:
         """Add a replica to the SMR cluster"""

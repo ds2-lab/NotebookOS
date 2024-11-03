@@ -1,5 +1,6 @@
 import asyncio
 import os
+import pickle
 import sys
 from collections import OrderedDict
 from typing import Optional
@@ -26,22 +27,36 @@ DefaultDate: str = "2024-11-01T15:32:45.123456789Z"
 # - Migration-related unit tests
 
 @pytest_asyncio.fixture
-async def kernel() -> DistributedKernel:
-    kwargs = {
-        "hdfs_namenode_hostname": "127.0.0.1:10000",
-        "kernel_id": DefaultKernelId,
-        "smr_port": 8000,
-        "smr_node_id": 1,
-        "smr_nodes": [],
-        "smr_join": False,
-        "should_register_with_local_daemon": False,
-        "pod_name": "TestPod",
-        "node_name": "TestNode",
-        "debug_port": -1,
+async def kernel(
+        hdfs_namenode_hostname: str = "127.0.0.1:10000",
+        kernel_id: str= DefaultKernelId,
+        smr_port: int = 8000,
+        smr_node_id: int = 1,
+        smr_nodes: int = [],
+        smr_join: bool = False,
+        should_register_with_local_daemon: bool = False,
+        pod_name: str = "TestPod",
+        node_name: str = "TestNode",
+        debug_port: int = -1,
+        **kwargs
+) -> DistributedKernel:
+    keyword_args = {
+        "hdfs_namenode_hostname": hdfs_namenode_hostname,
+        "kernel_id": kernel_id,
+        "smr_port": smr_port,
+        "smr_node_id": smr_node_id,
+        "smr_nodes": smr_nodes,
+        "smr_join": smr_join,
+        "should_register_with_local_daemon": should_register_with_local_daemon,
+        "pod_name": pod_name,
+        "node_name": node_name,
+        "debug_port": debug_port,
     }
 
+    keyword_args.update(kwargs)
+
     os.environ.setdefault("PROMETHEUS_METRICS_PORT", "-1")
-    kernel: DistributedKernel = DistributedKernel(**kwargs)
+    kernel: DistributedKernel = DistributedKernel(**keyword_args)
     kernel.num_replicas = 3
     kernel.should_read_data_from_hdfs = False
     kernel.deployment_mode = "DOCKER_SWARM"
@@ -49,6 +64,7 @@ async def kernel() -> DistributedKernel:
     kernel.store = "/"
     kernel.prometheus_port = -1
     kernel.debug_port = -1
+    kernel.kernel_id = DefaultKernelId
 
     kernel.synclog = RaftLog(kernel.smr_node_id,
                              base_path=kernel.store,
@@ -810,6 +826,9 @@ def assert_election_failed(
     assert not election.code_execution_completed_successfully
     assert not election.voting_phase_completed_successfully
     assert election.election_finished_event.is_set()
+    assert election.is_active == False
+    assert election.is_inactive == False
+    assert election.winner_id == -1
     assert election.completion_reason == AllReplicasProposedYield
 
     print(f"Election {election.term_number} has current attempt number = {election.current_attempt_number}.")
@@ -893,11 +912,6 @@ async def test_election_fails_when_all_propose_yield(kernel: DistributedKernel, 
     propose(raftLog, proposedValue, election, execute_request_task)
 
     propose(raftLog, yieldProposalFromNode2, election, execute_request_task)
-
-    print(f"\n\n\n\nraftLog._append_execution_end_notification: {raftLog._append_execution_end_notification}")
-    print(f"kernel.synclog._append_execution_end_notification: {kernel.synclog._append_execution_end_notification}")
-    print(
-        f"kernel.synchronizer._synclog._append_execution_end_notification: {kernel.synchronizer._synclog._append_execution_end_notification}")
 
     assert raftLog._append_execution_end_notification is not None
     assert kernel.synclog._append_execution_end_notification is not None
@@ -1909,14 +1923,114 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
-async def test_catch_up_after_migration(migrated_kernel: DistributedKernel, execute_request: dict[str, any]):
+async def test_catch_up_after_migration(kernel: DistributedKernel, execute_request: dict[str, any]):
     """
     The election succeeds like normal after buffering two of the proposals.
     """
+    print(f"Testing execute request with kernel {kernel} and execute request {execute_request}")
 
-    assert migrated_kernel is not None
+    synchronizer: Synchronizer = kernel.synchronizer
+    raftLog: RaftLog = kernel.synclog
 
-    synchronizer: Synchronizer = migrated_kernel.synchronizer
-    raftLog: RaftLog = migrated_kernel.synclog
+    loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
 
-    assert raftLog.needs_to_catch_up
+    election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
+
+    async def mocked_append_election_proposal(*args, **kwargs):
+        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        election_proposal_future.set_result(args[1])
+
+    with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
+                           mocked_append_election_proposal):
+        execute_request_task: asyncio.Task[any] = loop.create_task(kernel.yield_request(None, [], execute_request))
+        proposedValue: LeaderElectionProposal = await election_proposal_future
+
+    # Check that the kernel created an election, but that no proposals were received yet.
+    election: Election = kernel.synclog.get_election(1)
+
+    # Call "value committed" handler again for the 2nd proposal.
+    yieldProposalFromNode2: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.YIELD),
+                                                                            proposer_id=2,
+                                                                            election_term=1,
+                                                                            attempt_number=1)
+
+    propose(raftLog, proposedValue, election, execute_request_task)
+    propose(raftLog, yieldProposalFromNode2, election, execute_request_task)
+
+    yieldProposalFromNode3: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.YIELD),
+                                                                            proposer_id=3,
+                                                                            election_term=1,
+                                                                            attempt_number=1)
+    propose(raftLog, yieldProposalFromNode3, election, execute_request_task)
+
+    election_decision_future: asyncio.Future[LeaderElectionVote] = raftLog._election_decision_future
+    assert election_decision_future is not None
+
+    try:
+        await asyncio.wait_for(election_decision_future, 5)
+    except TimeoutError:
+        print("[ERROR] \"election_decision\" future was not resolved.")
+
+        for task in asyncio.all_tasks():
+            asyncio.Task.print_stack(task)
+            print("\n\n\n")
+
+        assert False
+
+    assert_election_failed(election, execute_request_task, election_decision_future, expected_proposer_id=1,
+                           expected_term_number=1, expected_attempt_number=1, expected_proposals_received=3)
+
+    close_future: asyncio.Future[int] = loop.create_future()
+    def mocked_raftlog_close(*args, **kwargs):
+        print(f"\nMocked RaftLog::close called with args {args} and kwargs {kwargs}.", flush = True)
+        close_future.set_result(1)
+
+    write_data_dir_to_hdfs_future: asyncio.Future[bytes] = loop.create_future()
+    async def mocked_raftlog_write_data_dir_to_hdfs(*args, **kwargs):
+        print(f"\nMocked RaftLog::write_data_dir_to_hdfs called with args {args} and kwargs {kwargs}.", flush = True)
+
+        assert isinstance(args[0], RaftLog)
+
+        serialized_state: bytes = args[0]._get_serialized_state()
+
+        write_data_dir_to_hdfs_future.set_result(serialized_state)
+
+        return "/mocked/hdfs/path/does/not/actually/exist"
+
+    # with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "close", mocked_raftlog_close):
+    with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
+                             close=mocked_raftlog_close,
+                             write_data_dir_to_hdfs=mocked_raftlog_write_data_dir_to_hdfs):
+        await kernel.prepare_to_migrate_request(None, [], {})
+
+    assert close_future.done()
+    assert close_future.result() == 1
+
+    assert write_data_dir_to_hdfs_future.done()
+
+    test_session: TestSession = kernel.session
+    assert test_session is not None
+    assert isinstance(test_session, TestSession)
+
+    assert "prepare_to_migrate_reply" in test_session.message_types_sent
+    assert "execute_input" in test_session.message_types_sent
+    assert "execute_reply" in test_session.message_types_sent
+
+    assert test_session.num_send_calls == 3
+    assert len(test_session.message_types_sent) == 3
+
+    serialized_state: bytes = write_data_dir_to_hdfs_future.result()
+    assert serialized_state is not None
+    assert isinstance(serialized_state, bytes)
+
+    state: Optional[dict[str, any]] = None
+    try:
+        state = pickle.loads(serialized_state)
+    except Exception as ex:
+        print(f"Failed to unpickle serialized state: {ex}")
+        assert ex is None # Will necessarily fail
+
+    assert state is not None
+    assert isinstance(state, dict)
+
+    # TODO: Apply serialized state. Recreate Kernel.

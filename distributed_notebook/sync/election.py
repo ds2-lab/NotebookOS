@@ -175,6 +175,7 @@ class Election(object):
         del state["_pick_and_propose_winner_future"]
         del state["election_finished_event"]
         del state["election_finished_condition_waiter_loop"]
+        del state["logger"]
 
         self.logger.debug(f"Returning state dictionary containing {len(state)} entries:")
         for key, val in state.items():

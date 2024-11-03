@@ -13,6 +13,7 @@ class TestSession(Session):
         print("Created new Test Session")
 
         self.num_send_calls: int = 0
+        self.message_types_sent: list[str] = []
 
     def send(
             self,
@@ -43,5 +44,11 @@ class TestSession(Session):
                 header=header,
                 metadata=metadata,
             )
+
+        if header is None:
+            header = msg["header"]
+
+        if isinstance(header, dict) and "msg_type" in header:
+            self.message_types_sent.append(header["msg_type"])
 
         return msg
