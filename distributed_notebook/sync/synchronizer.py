@@ -223,7 +223,9 @@ class Synchronizer:
         if election is None:
             raise ValueError(f"Could not find election with term number {term_number}")
 
-        return election.voting_phase_completed_successfully and election.code_execution_completed_successfully
+        voting_done: bool = election.voting_phase_completed_successfully
+        code_executed: bool = election.code_execution_completed_successfully
+        return (voting_done and code_executed) or election.is_in_failed_state
 
     async def propose_yield(self, execution_count: int) -> int:
         """Propose to yield the next execution to another replica.

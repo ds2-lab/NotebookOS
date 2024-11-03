@@ -1313,6 +1313,33 @@ class DistributedKernel(IPythonKernel):
         if not self.synchronizer.created_first_election():
             return
 
+        # If the term number is 0, but we've created the first election, then the first election must have failed.
+        if term_number == 0:
+            first_election: Election = self.synchronizer.get_election(1)
+
+            if first_election is None:
+                self.log.error("We've supposedly created the first election, "
+                               "but cannot find election with term number equal to 1.")
+                self.report_error(
+                    "Cannot Find First Election",
+                    f"Replica {self.smr_node_id} of kernel {self.kernel_id} thinks it created the first election, but "
+                    f"it cannot find any record of that election..."
+                )
+                exit(1)
+
+            if not first_election.is_in_failed_state:
+                self.log.error(f"Current term number is 0, and we've created the first election, "
+                               f"but the election is not in failed state. Instead, it is in state {first_election.election_state}.")
+                self.report_error(
+                    "Election State Error",
+                    f"Replica {self.smr_node_id} of kernel {self.kernel_id} has current term number of 0, "
+                    f"and it has created the first election, but the election is not in failed state. "
+                    f"Instead, it is in state {first_election.election_state}."
+                )
+                exit(1)
+
+            term_number = 1
+
         try:
             if not self.synchronizer.is_election_finished(term_number):
                 self.log.warning(f"Previous election (term {term_number}) has not finished yet. "
