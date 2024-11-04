@@ -9,17 +9,16 @@ import math
 import os
 import signal
 import socket
-import concurrent
 import sys
 import time
 import traceback
 import typing as t
 import uuid
+from concurrent import futures
 from hmac import compare_digest
 from multiprocessing import Process, Queue
 from threading import Lock
 from typing import Union, Optional, Dict, Any
-from concurrent import futures
 
 import debugpy
 import grpc
@@ -146,7 +145,7 @@ class DistributedKernel(IPythonKernel):
 
     local_tcp_server_port = Integer(5555, help="Port for local TCP server.").tag(config=True)
 
-    persistent_id: Union[str, Unicode] = Unicode(help="""Persistent id for storage""").tag(config=True)
+    persistent_id: Union[str, Unicode] = Unicode(help="""Persistent id for storage""",allow_none=True).tag(config=True)
 
     pod_name: Union[str, Unicode] = Unicode(
         help="""Kubernetes name of the Pod encapsulating this distributed kernel replica""").tag(config=False)
@@ -166,7 +165,9 @@ class DistributedKernel(IPythonKernel):
 
     debug_port: Integer = Integer(8464, help="""Port of debug HTTP server.""").tag(config=False)
 
-    election_timeout_seconds: Float = Float(10.0, help = """How long to wait to receive other proposals before making a decision (if we can, like if we have at least received one LEAD proposal). """).tag(config=True)
+    election_timeout_seconds: Float = Float(10.0,
+                                            help="""How long to wait to receive other proposals before making a decision (if we can, like if we have at least received one LEAD proposal). """).tag(
+        config=True)
 
     implementation = 'Distributed Python 3'
     implementation_version = '0.2'
@@ -234,13 +235,19 @@ class DistributedKernel(IPythonKernel):
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+        if "local_tcp_server_port" in kwargs:
+            self.log.warning(f"Overriding default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
+                             f"value from keyword arguments: {kwargs['local_tcp_server_port']}")
+            self.local_tcp_server_port = kwargs["local_tcp_server_port"]
+
         self.prometheus_enabled: bool = True
         prometheus_port_str: str | int = os.environ.get("PROMETHEUS_METRICS_PORT", 8089)
 
         try:
             self.prometheus_port: int = int(prometheus_port_str)
         except ValueError as ex:
-            self.log.error(f"Failed to parse \"PROMETHEUS_METRICS_PORT\" environment variable value \"{prometheus_port_str}\": {ex}")
+            self.log.error(
+                f"Failed to parse \"PROMETHEUS_METRICS_PORT\" environment variable value \"{prometheus_port_str}\": {ex}")
             self.log.error("Will use default prometheus metrics port of 8089.")
             self.prometheus_port: int = 8089
 
@@ -291,7 +298,8 @@ class DistributedKernel(IPythonKernel):
                 name="kernel_execute_request_latency_milliseconds",
                 documentation="Execution time of the kernels' execute_request method in milliseconds.",
                 unit="milliseconds",
-                buckets=[10, 100, 250, 500, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
+                buckets=[10, 100, 250, 500, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7,
+                         6e8,
                          6e9])
             self.checkpointing_write_latency_milliseconds: Histogram = Histogram(
                 namespace="distributed_cluster",
@@ -299,14 +307,16 @@ class DistributedKernel(IPythonKernel):
                 name="checkpointing_write_latency_milliseconds",
                 documentation="Latency in milliseconds of writing checkpointed state to external storage.",
                 unit="milliseconds",
-                buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
+                buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
+                         6e9])
             self.checkpointing_read_latency_milliseconds: Histogram = Histogram(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
                 name="checkpointing_read_latency_milliseconds",
                 documentation="Latency in milliseconds of reading checkpointed state from external storage.",
                 unit="milliseconds",
-                buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
+                buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
+                         6e9])
 
         from ipykernel.debugger import _is_debugpy_available
         if _is_debugpy_available:
@@ -467,13 +477,18 @@ class DistributedKernel(IPythonKernel):
             self.smr_node_id: int = int(os.environ.get("smr_node_id", "1"))
             self.hostname = os.environ.get("hostname", str(socket.gethostname()))
             self.num_replicas: int = 1
-            self.persistent_id = os.environ.get("persistent_id", str(uuid.uuid4()))
             self.smr_nodes_map = {1: str(self.hostname) + ":" + str(self.smr_port)}
             self.debug_port: int = int(os.environ.get("debug_port", "31000"))
+
+            if "persistent_id" in kwargs:
+                self.persistent_id: str = kwargs["persistent_id"]
+            else:
+                self.persistent_id = os.environ.get("persistent_id", str(uuid.uuid4()))
+
             # self.start()
 
     def __init_tcp_server(self):
-        if self.local_tcp_server_port == 0:
+        if self.local_tcp_server_port < 0:
             self.log.warning(f"Local TCP server port set to {self.local_tcp_server_port}. Returning immediately.")
             return
 
@@ -489,7 +504,7 @@ class DistributedKernel(IPythonKernel):
     def server_process(self, queue: Queue):
         faulthandler.enable()
 
-        if self.local_tcp_server_port == 0:
+        if self.local_tcp_server_port < 0:
             self.log.warning(f"[Local TCP Server] Port set to {self.local_tcp_server_port}. Returning immediately.")
             return
 
@@ -664,7 +679,7 @@ class DistributedKernel(IPythonKernel):
             self.log.debug("debugpy server is disabled or server port is set to a negative number.")
             return
 
-        debugpy_port:int = self.debug_port + 1000
+        debugpy_port: int = self.debug_port + 1000
         self.log.debug(f"Starting debugpy server on 0.0.0.0:{debugpy_port}")
         debugpy.listen(("0.0.0.0", debugpy_port))
 
@@ -682,7 +697,7 @@ class DistributedKernel(IPythonKernel):
 
         self.init_debugpy()
 
-        if self.persistent_id != Undefined and self.persistent_id != "":
+        if self.persistent_id != Undefined and self.persistent_id != "" and self.persistent_id is not None:
             assert isinstance(self.persistent_id, str)
 
             def init_persistent_store_done_callback(f: futures.Future):
@@ -693,12 +708,14 @@ class DistributedKernel(IPythonKernel):
                     self.log.error("Initialization of Persistent Store on-start has been cancelled...")
 
                     try:
-                        self.log.error(f"Initialization of Persistent Store apparently raised an exception: {f.exception()}")
-                    except: # noqa
+                        self.log.error(
+                            f"Initialization of Persistent Store apparently raised an exception: {f.exception()}")
+                    except:  # noqa
                         self.log.error(f"No exception associated with cancelled initialization of Persistent Store.")
                 elif f.done():
                     self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
 
+            self.log.debug(f"Scheduling creation of init_persistent_store_on_start_future. Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}")
             self.init_persistent_store_on_start_future: futures.Future = asyncio.run_coroutine_threadsafe(
                 self.init_persistent_store_on_start(self.persistent_id), self.control_thread.io_loop.asyncio_loop)
             self.init_persistent_store_on_start_future.add_done_callback(init_persistent_store_done_callback)
@@ -2228,8 +2245,8 @@ class DistributedKernel(IPythonKernel):
                                    report_error_callback=self.report_error,
                                    send_notification_func=self.send_notification,
                                    hdfs_read_latency_callback=self.hdfs_read_latency_callback,
-                                   deployment_mode= self.deployment_mode,
-                                   election_timeout_seconds = self.election_timeout_seconds)
+                                   deployment_mode=self.deployment_mode,
+                                   election_timeout_seconds=self.election_timeout_seconds)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
 

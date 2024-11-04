@@ -42,18 +42,29 @@ FullFakePersistentStorePath: str = f"./store/{FakePersistentStorePath}"
 # - Receiving additional vote(s) doesn't cause anything to break (after the first vote is received)
 # - Migration-related unit tests
 
+CommittedValues: list[SynchronizedValue] = []
+def commit_value(raftLog: RaftLog, proposedValue: SynchronizedValue, value_id: str = "", record: bool = True):
+    if record:
+        CommittedValues.append(proposedValue)
+
+    raftLog._valueCommittedCallback(proposedValue, sys.getsizeof(proposedValue), value_id)
+
 @pytest.fixture(autouse=True)
-def remove_persistent_store_directory():
+def before_and_after_test_fixture():
     """
     pytest fixture that will run before and after each unit test.
     """
     # Ensure the persistent store directory does not already exist.
+    global CommittedValues
+
     try:
         unit_test_logger.debug(f"Removing persistent store directory \"{FullFakePersistentStorePath}\".")
         shutil.rmtree(FullFakePersistentStorePath)
         unit_test_logger.debug(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
     except FileNotFoundError:
         unit_test_logger.debug(f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
+
+    CommittedValues.clear()
 
     yield
 
@@ -64,6 +75,8 @@ def remove_persistent_store_directory():
         unit_test_logger.debug(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
     except FileNotFoundError:
         unit_test_logger.debug(f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
+
+    CommittedValues.clear()
 
 def mock_create_log_node(*args, **mock_kwargs):
     unit_test_logger.debug(f"Mocked RaftLog::create_log_node called with args {args} and kwargs {mock_kwargs}.")
@@ -84,6 +97,8 @@ async def create_kernel(
         storage_base:str = "./",
         init_persistent_store: bool = True,
         call_start: bool = True,
+        local_tcp_server_port: int = -1,
+        persistent_id: Optional[str] = None,
         **kwargs
 ) -> DistributedKernel:
     keyword_args = {
@@ -98,6 +113,8 @@ async def create_kernel(
         "node_name": node_name,
         "debug_port": debug_port,
         "storage_base": storage_base,
+        "local_tcp_server_port": local_tcp_server_port,
+        "persistent_id": persistent_id,
     }
 
     keyword_args.update(kwargs)
@@ -106,6 +123,7 @@ async def create_kernel(
     kernel: DistributedKernel = DistributedKernel(**keyword_args)
     kernel.control_thread = ControlThread(daemon=True)
     kernel.control_stream = SpoofedStream()
+    kernel.control_thread.start()
     kernel.num_replicas = 3
     kernel.should_read_data_from_hdfs = False
     kernel.deployment_mode = "DOCKER_SWARM"
@@ -220,7 +238,7 @@ def propose(raftLog: RaftLog, proposedValue: LeaderElectionProposal, election: E
     if proposedValue.proposer_id == 1:
         valueId = proposedValue.id
 
-    raftLog._valueCommittedCallback(proposedValue, sys.getsizeof(proposedValue), valueId)
+    commit_value(raftLog, proposedValue, value_id = valueId)
 
     if election.num_lead_proposals_received > 0:
         assert (raftLog.decide_election_future is not None)
@@ -297,7 +315,7 @@ def propose_vote(
     if vote.proposer_id == 1:
         voteId = vote.id
 
-    raftLog._valueCommittedCallback(vote, sys.getsizeof(vote), voteId)
+    commit_value(raftLog, vote, value_id = voteId)
 
     assert election.voting_phase_completed_successfully == True
     assert election.winner == expected_winner_id
@@ -407,7 +425,7 @@ async def example(kernel: DistributedKernel, execution_request: dict[str, any]):
         notification: ExecutionCompleteNotification = execution_done_future.result()
         unit_test_logger.debug(f"Got ExecutionCompleteNotification: {notification}")
 
-        raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), notification.id)
+        commit_value(raftLog, notification, value_id = notification.id)
 
         try:
             # We'll wait up to 5 seconds, but it should happen very quickly.
@@ -584,7 +602,7 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request
             assert proposal.attempt_number == 1
             assert proposal.is_lead
 
-        raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), notification.id)
+        commit_value(raftLog, notification, value_id = notification.id)
 
         try:
             # We'll wait up to 5 seconds, but it should happen very quickly.
@@ -745,7 +763,7 @@ async def test_propose_lead_and_lose(kernel: DistributedKernel, execution_reques
 
         notification: ExecutionCompleteNotification = ExecutionCompleteNotification(proposer_id=2, election_term=1)
 
-        raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), "")
+        commit_value(raftLog, notification)
 
         try:
             # We'll wait up to 5 seconds, but it should happen very quickly.
@@ -909,7 +927,7 @@ async def test_propose_yield_and_lose(kernel: DistributedKernel, execution_reque
 
         notification: ExecutionCompleteNotification = ExecutionCompleteNotification(proposer_id=2, election_term=1)
 
-        raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), "")
+        commit_value(raftLog, notification)
 
         try:
             # We'll wait up to 5 seconds, but it should happen very quickly.
@@ -1333,7 +1351,7 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
             assert proposal.attempt_number == 2
             assert proposal.is_lead
 
-        raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), notification.id)
+        commit_value(raftLog, notification, value_id = notification.id)
 
         try:
             # We'll wait up to 5 seconds, but it should happen very quickly.
@@ -1624,7 +1642,7 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
             assert proposal.attempt_number == NUM_FAILURES + 1
             assert proposal.is_lead
 
-        raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), notification.id)
+        commit_value(raftLog, notification, value_id = notification.id)
 
         try:
             # We'll wait up to 5 seconds, but it should happen very quickly.
@@ -1778,7 +1796,7 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
             assert proposal.attempt_number == 1
             assert proposal.is_lead
 
-        raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), notification.id)
+        commit_value(raftLog, notification, value_id = notification.id)
 
         try:
             # We'll wait up to 5 seconds, but it should happen very quickly.
@@ -1837,7 +1855,7 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
                                                                            election_term=1,
                                                                            attempt_number=1)
 
-    raftLog._valueCommittedCallback(leadProposalFromNode2, sys.getsizeof(leadProposalFromNode2), "")
+    commit_value(raftLog, leadProposalFromNode2)
 
     assert raftLog._buffered_proposals is not None
     assert len(raftLog._buffered_proposals) == 1
@@ -1961,7 +1979,7 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
 
         notification: ExecutionCompleteNotification = ExecutionCompleteNotification(proposer_id=2, election_term=1)
 
-        raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), "")
+        commit_value(raftLog, notification)
 
         try:
             # We'll wait up to 5 seconds, but it should happen very quickly.
@@ -2018,7 +2036,7 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
                                                                            election_term=1,
                                                                            attempt_number=1)
 
-    raftLog._valueCommittedCallback(leadProposalFromNode2, sys.getsizeof(leadProposalFromNode2), "")
+    commit_value(raftLog, leadProposalFromNode2)
 
     assert raftLog._buffered_proposals is not None
     assert len(raftLog._buffered_proposals) == 1
@@ -2172,7 +2190,7 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
         assert num_lead == 2
         assert num_yield == 1
 
-        raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), notification.id)
+        commit_value(raftLog, notification, value_id = notification.id)
 
         try:
             # We'll wait up to 5 seconds, but it should happen very quickly.
@@ -2211,6 +2229,8 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
     """
     The election succeeds like normal after buffering two of the proposals.
     """
+    global CommittedValues
+
     unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
 
@@ -2280,6 +2300,7 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         unit_test_logger.debug(f"Mocked RaftLog::retrieve_serialized_state_from_remote_storage called with args {args} and kwargs {kwargs}")
         return serialized_state
 
+    new_raft_log_future: asyncio.Future[RaftLog] = loop.create_future()
     append_catchup_value_future: asyncio.Future[SynchronizedValue] = loop.create_future()
     async def mock_append_catchup_value(*args, **kwargs):
         unit_test_logger.debug(f"Mocked RaftLog::_append_catchup_value called with args {args} and kwargs {kwargs}")
@@ -2293,6 +2314,9 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         assert catchup_val.election_term == args[0]._leader_term_before_migration
 
         append_catchup_value_future.set_result(args[1])
+        new_raft_log_future.set_result(args[0])
+
+    unit_test_logger.debug("Creating next kernel...\n\n\n\n\n\n\n\n\n\n")
 
     # with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "catchup_with_peers", catchup_with_peers_future):
     with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
@@ -2300,32 +2324,16 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
                              _append_catchup_value=mock_append_catchup_value), \
             mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "create_log_node", mock_create_log_node):
         # TODO: Apply serialized state. Recreate Kernel.
-        new_kernel: DistributedKernel = await create_kernel(init_persistent_store = False, call_start=False)
+        new_kernel: DistributedKernel = await create_kernel(
+            persistent_id=FakePersistentStorePath,
+            init_persistent_store = False,
+            call_start=True)
         assert new_kernel is not None
 
         # with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "create_log_node", mock_create_log_node):
-        init_persistent_store_task: asyncio.Task[str] = asyncio.create_task(kernel.init_persistent_store_with_persistent_id(FakePersistentStorePath), name = "Initialize Persistent Store")
+        # init_persistent_store_task: asyncio.Task[str] = asyncio.create_task(kernel.init_persistent_store_with_persistent_id(FakePersistentStorePath), name = "Initialize Persistent Store")
 
         assert new_kernel != kernel
-
-        await new_kernel.init_raft_log_event.wait()
-        unit_test_logger.debug("New RaftLog created.")
-
-        new_raft_log: RaftLog = new_kernel.synclog
-        assert new_raft_log != kernel.synclog
-
-        assert new_kernel.kernel_id == kernel.kernel_id
-        assert new_kernel.smr_node_id == kernel.smr_node_id
-
-        assert new_raft_log._kernel_id == kernel.kernel_id
-        assert new_raft_log.node_id == kernel.smr_node_id
-
-        await new_kernel.init_synchronizer_event.wait()
-        unit_test_logger.debug("New Synchronizer created.")
-        await new_kernel.start_synchronizer_event.wait()
-        unit_test_logger.debug("New Synchronizer started.")
-        await new_kernel.init_persistent_store_event.wait()
-        unit_test_logger.debug("New Persistent Store initialized.")
 
         try:
             unit_test_logger.debug("Waiting for 'catchup' future.")
@@ -2342,3 +2350,39 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         assert append_catchup_value_future.done()
         catchup_value: SynchronizedValue = append_catchup_value_future.result()
         assert catchup_value.key == KEY_CATCHUP
+
+        assert new_raft_log_future.done()
+        new_raft_log_from_future: RaftLog = new_raft_log_future.result()
+        assert new_raft_log_from_future is not None
+        assert new_raft_log_from_future._node_id == 1
+
+        for val in CommittedValues:
+            val_id:str = ""
+            if val.proposer_id == 1:
+                val_id = val.id
+
+            commit_value(new_raft_log_from_future, val, value_id = val_id, record = False)
+
+        commit_value(new_raft_log_from_future, catchup_value, value_id = catchup_value.id, record = True)
+
+        # unit_test_logger.debug("Created 'init persistent store' task.")
+        await new_kernel.init_raft_log_event.wait()
+        unit_test_logger.debug("New RaftLog created.")
+
+        new_raft_log: RaftLog = new_kernel.synclog
+        assert new_raft_log != kernel.synclog
+
+        assert new_kernel.kernel_id == kernel.kernel_id
+        assert new_kernel.smr_node_id == kernel.smr_node_id
+
+        assert new_raft_log._kernel_id == kernel.kernel_id
+        assert new_raft_log.node_id == kernel.smr_node_id
+
+        await new_kernel.init_synchronizer_event.wait()
+        unit_test_logger.debug("New Synchronizer created.")
+        await new_kernel.start_synchronizer_event.wait()
+        unit_test_logger.debug("New Synchronizer started.")
+
+        await new_kernel.init_persistent_store_event.wait()
+        unit_test_logger.debug("New Persistent Store initialized.")
+
