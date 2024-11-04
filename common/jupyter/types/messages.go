@@ -6,6 +6,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	"log"
 	"strings"
 	"time"
@@ -350,6 +351,35 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket
 	msg.RequestTrace = requestTrace
 
 	return requestTrace, added, nil
+}
+
+// ExecuteRequestMetadata includes all the metadata entries we might expect to find in the metadata frame
+// of an "execute_request" message.
+type ExecuteRequestMetadata struct {
+	// TargetReplicaId is the SMR node ID of the replica of the kernel associated with this message (or more accurately,
+	// the kernel associated with the message in which this ExecuteRequestMetadata is contained) that should lead
+	// the execution of the code included in the "execute_request".
+	TargetReplicaId int32 `json:"target_replica" mapstructure:"target_replica"`
+
+	// WorkloadId is the identifier of the workload in which this code execution is taking place.
+	// Workloads are a construct of the workload orchestrator/cluster dashboard.
+	WorkloadId string `json:"workload_id" mapstructure:"workload_id"`
+
+	// ResourceRequest is an updated types.Spec for the kernel targeted by the containing "execute_request".
+	ResourceRequest types.Spec `json:"resource_request" mapstructure:"resource_request,omitempty"`
+
+	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
+	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.
+	OtherMetadata map[string]interface{} `mapstructure:",remain"`
+}
+
+func (m *ExecuteRequestMetadata) String() string {
+	s, err := json.Marshal(m)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(s)
 }
 
 // JupyterMessage is a wrapper around ZMQ4 messages, specifically Jupyter ZMQ4 messages.

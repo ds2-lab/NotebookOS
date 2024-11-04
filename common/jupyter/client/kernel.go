@@ -27,7 +27,8 @@ import (
 var (
 	heartbeatInterval = time.Second
 
-	ErrDeadlineExceeded = errors.New("deadline for parent context has already been exceeded")
+	ErrInvalidResourceSpec = errors.New("resource spec contains one or more invalid resource quantities")
+	ErrDeadlineExceeded    = errors.New("deadline for parent context has already been exceeded")
 	//ErrResourceSpecAlreadySet = errors.New("kernel already has a resource spec set")
 )
 
@@ -253,12 +254,49 @@ func (c *KernelReplicaClient) WaitForTrainingToStop() {
 	}
 }
 
-// WaitForRepliesToPendingExecuteRequests blocks until all outstanding/pending "execute_request" messages sent to the kernel
+// UpdateResourceSpec updates the resource spec of the target KernelReplicaClient to the resource
+// quantities of the specified commonTypes.Spec.
+//
+// An error is returned if any of the resource quantities in the provided commonTypes.Spec are negative.
+//
+// On success, nil is returned.
+//
+// Note for internal usage: this method is thread safe. Do not call this method if the lock for the kernel
+// is already held. If the lock is already held, then call the unsafeUpdateResourceSpec method instead.
+func (c *KernelReplicaClient) UpdateResourceSpec(spec commonTypes.Spec) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.unsafeUpdateResourceSpec(spec)
+}
+
+// UpdateResourceSpec updates the resource spec of the target KernelReplicaClient to the resource
+// quantities of the specified commonTypes.Spec.
+//
+// An error is returned if any of the resource quantities in the provided commonTypes.Spec are negative.
+//
+// On success, nil is returned.
+//
+// Note: this method is thread safe. Do not call this method if the lock for the kernel is already held.
+func (c *KernelReplicaClient) unsafeUpdateResourceSpec(spec commonTypes.Spec) error {
+	if spec.GPU() < 0 || spec.CPU() < 0 || spec.VRAM() < 0 || spec.MemoryMB() < 0 {
+		return fmt.Errorf("%w: %s", ErrInvalidResourceSpec, spec.String())
+	}
+
+	c.spec.ResourceSpec.Gpu = int32(spec.GPU())
+	c.spec.ResourceSpec.Cpu = int32(spec.CPU())
+	c.spec.ResourceSpec.Vram = float32(spec.VRAM())
+	c.spec.ResourceSpec.Memory = float32(spec.MemoryMB())
+
+	return nil
+}
+
+// WaitForPendingExecuteRequests blocks until all outstanding/pending "execute_request" messages sent to the kernel
 // have received their "execute_reply" response.
 //
 // If there are no outstanding/pending "execute_request" messages WaitForRepliesToPendingExecuteRequests is called, then
 // WaitForRepliesToPendingExecuteRequests will return immediately.
-func (c *KernelReplicaClient) WaitForRepliesToPendingExecuteRequests() {
+func (c *KernelReplicaClient) WaitForPendingExecuteRequests() {
 	gid := goid.Get()
 
 	// The trainingFinishedCond field of the KernelReplicaClient uses the trainingFinishedMu mutex.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/mitchellh/mapstructure"
 	"github.com/opentracing/opentracing-go"
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -2581,6 +2582,52 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	return nil /* will be nil on success */
 }
 
+// updateKernelResourceSpec attempts to update the resource spec of the specified kernel.
+//
+// updateKernelResourceSpec will return nil on success. updateKernelResourceSpec will return an error if the kernel
+// presently has resources committed to it, and the adjustment cannot occur due to resource contention.
+func (d *SchedulerDaemonImpl) updateKernelResourceSpec(kernel client.AbstractKernelClient, newSpec types.Spec) error {
+
+}
+
+// processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.
+//
+// Returns the target replica ID, if there is one, or -1 if there is not, along with the decoded metadata dictionary
+// if the dictionary was decoded successfully. If the dictionary was not decoded successfully, then an empty map
+// will be returned.
+func (d *SchedulerDaemonImpl) processExecuteRequestMetadata(msg *jupyter.JupyterMessage, kernel client.AbstractKernelClient) (int32, map[string]interface{}, error) {
+	// If there is nothing in the message's metadata frame, then we just return immediately.
+	if len(*msg.JupyterFrames.MetadataFrame()) == 0 {
+		return -1, make(map[string]interface{}), nil
+	}
+
+	var metadataDict map[string]interface{}
+	if err := msg.JupyterFrames.DecodeMetadata(&metadataDict); err != nil {
+		d.log.Error("Failed to decode metadata frame of \"execute_request\" message \"%s\" with JSON: %v", msg.JupyterMessageId(), err)
+		return -1, make(map[string]interface{}), err
+	}
+
+	var requestMetadata *jupyter.ExecuteRequestMetadata
+	if err := mapstructure.Decode(metadataDict, &requestMetadata); err != nil {
+		d.log.Error("Failed to parse decoded metadata frame of \"execute_request\" message \"%s\" with mapstructure: %v", msg.JupyterMessageId(), err)
+		return -1, metadataDict, err
+	}
+
+	d.log.Debug("Decoded metadata of \"execute_request\" message \"%s\": %s", msg.JupyterMessageId(), requestMetadata.String())
+
+	if requestMetadata.ResourceRequest != nil {
+		d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
+			kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
+
+		if err := kernel.UpdateResourceSpec(requestMetadata.ResourceRequest); err != nil {
+			d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
+			return requestMetadata.TargetReplicaId, metadataDict, err
+		}
+	}
+
+	return requestMetadata.TargetReplicaId, metadataDict, nil
+}
+
 // processExecuteRequest performs some scheduling logic, such as verifying that there are sufficient resources available
 // for the locally-running kernel replica to train (if it were to win its leader election).
 //
@@ -2597,45 +2644,18 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel client.AbstractKernelClient) *jupyter.JupyterMessage {
 	gid := goid.Get()
 
-	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
-	var targetReplicaId int32 = -1
+	// This ensures that we send "execute_request" messages one-at-a-time.
+	// We wait until any pending "execute_request" messages receive an "execute_reply"
+	// response before we can forward this next "execute_request".
+	kernel.WaitForPendingExecuteRequests()
+
+	d.log.Debug("[gid=%d] Processing `execute_request` for idle kernel %s now.", gid, kernel.ID())
 
 	// If there are insufficient GPUs available, then we'll modify the message to be a "yield_request" message.
 	// This will force the replica to necessarily yield the execution to the other replicas.
 	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
-	var metadataDict map[string]interface{}
-
-	// This ensures that we send "execute_request" messages one-at-a-time.
-	// We wait until any pending "execute_request" messages receive an "execute_reply"
-	// response before we can forward this next "execute_request".
-	kernel.WaitForRepliesToPendingExecuteRequests()
-	d.log.Debug("[gid=%d] Processing `execute_request` for idle kernel %s now.", gid, kernel.ID())
-
-	// Don't try to unmarshal the metadata frame unless the size of the frame is non-zero.
-	if len(*msg.JupyterFrames.MetadataFrame()) > 0 {
-		// Unmarshal the frame.
-		err := msg.JupyterFrames.DecodeMetadata(&metadataDict)
-		if err != nil {
-			d.log.Error("[gid=%d] Error unmarshalling metadata frame for 'execute_request' message: %v", gid, err)
-		} else {
-			d.log.Debug("[gid=%d] Unmarshalled metadata frame for 'execute_request' message: %v", gid, metadataDict)
-
-			// See if there are any notable custom arguments, such as a target replica.
-			if val, ok := metadataDict[domain.TargetReplicaArg]; ok {
-				targetReplicaAsFloat64, ok := val.(float64)
-				if !ok {
-					d.log.Error("[gid=%d] Could not parse target replica ID in metadata ('%v') for 'execute_request' message: %v", gid, val, err)
-					targetReplicaId = -1
-				} else {
-					targetReplicaId = int32(targetReplicaAsFloat64)
-					d.log.Debug("[gid=%d] Found target replica argument for 'execute_request' message. Target replica: %d.", gid, targetReplicaId)
-				}
-			}
-		}
-	} else {
-		// If we're not retrieving the map from the message, then we'll create a new map here.
-		metadataDict = make(map[string]interface{})
-	}
+	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
+	targetReplicaId, metadataDict, _ := d.processExecuteRequestMetadata(msg, kernel)
 
 	// Extract the workload ID (which may or may not be included in the metadata of the request),
 	// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
@@ -2699,6 +2719,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	metadataDict["required-gpus"] = kernel.ResourceSpec().GPU()
 	metadataDict["required-millicpus"] = kernel.ResourceSpec().CPU()
 	metadataDict["required-memory-mb"] = kernel.ResourceSpec().MemoryMB()
+
 	d.log.Debug("[gid=%d] Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %s.",
 		gid, idleResourcesBeforeReservation.Millicpus.StringFixed(0), idleResourcesBeforeReservation.MemoryMb.StringFixed(4), idleResourcesBeforeReservation.GPUs.StringFixed(0))
 

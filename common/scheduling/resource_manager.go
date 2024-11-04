@@ -115,6 +115,48 @@ type ResourceAllocation struct {
 	cachedAllocationKey string
 }
 
+// CloneAndReturnedAdjusted returns a copy of the target ResourceAllocation with its resource quantities
+// adjusted to patch the given types.Spec.
+//
+// If the given types.Spec is nil, then the cloned/copied ResourceAllocation struct contains the same resource
+// quantities as the original, target ResourceAllocation struct.
+func (a *ResourceAllocation) CloneAndReturnedAdjusted(spec types.Spec) *ResourceAllocation {
+	var (
+		gpus decimal.Decimal
+		vram decimal.Decimal
+		mem  decimal.Decimal
+		cpus decimal.Decimal
+	)
+
+	if spec == nil {
+		gpus = a.GPUs.Copy()
+		vram = a.VramGB.Copy()
+		mem = a.MemoryMB.Copy()
+		cpus = a.Millicpus.Copy()
+	} else {
+		gpus = decimal.NewFromFloat(spec.GPU())
+		vram = decimal.NewFromFloat(spec.VRAM())
+		mem = decimal.NewFromFloat(spec.MemoryMB())
+		cpus = decimal.NewFromFloat(spec.CPU())
+	}
+
+	clonedResourceAllocation := &ResourceAllocation{
+		AllocationId:        a.AllocationId,
+		GPUs:                gpus,
+		VramGB:              vram,
+		Millicpus:           cpus,
+		MemoryMB:            mem,
+		ReplicaId:           a.ReplicaId,
+		KernelId:            a.KernelId,
+		Timestamp:           a.Timestamp,
+		AllocationType:      a.AllocationType,
+		IsReservation:       a.IsReservation,
+		cachedAllocationKey: a.cachedAllocationKey,
+	}
+
+	return clonedResourceAllocation
+}
+
 // String returns a string representation of the ResourceAllocation suitable for logging.
 func (a *ResourceAllocation) String() string {
 	o, err := json.Marshal(a)
@@ -767,6 +809,78 @@ func (m *ResourceManager) PromoteReservation(replicaId int32, kernelId string) e
 	return nil
 }
 
+// AdjustPendingResources will attempt to adjust the resources committed to a particular kernel.
+//
+// On success, nil is returned.
+//
+// If the specified kernel replica does not already have an associated pending resource allocation, then
+// an ErrAllocationNotFound error is returned.
+//
+// If the requested resource adjustment cannot be applied, then an ErrInvalidOperation error is returned.
+//
+// Note: if the rollback fails for any reason, then this will panic.
+func (m *ResourceManager) AdjustPendingResources(replicaId int32, kernelId string, updatedSpec types.Spec) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// To do this, we'll just release the existing pending resource request, attempt to reserve the new request,
+	// and re-reserve the old request if the new request fails.
+	var (
+		key              string
+		allocation       *ResourceAllocation
+		allocationExists bool
+	)
+
+	// Verify that there already exists an allocation associated with the specified kernel replica.
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		m.log.Error("Cannot adjust pending resources of replica %d of kernel %s: could not found existing resource "+
+			"allocation associated with that kernel replica: %s", replicaId, kernelId, allocation.String())
+		return fmt.Errorf("%w: could not find existing pending resource allocation for replica %d of kernel %s",
+			ErrAllocationNotFound, replicaId, kernelId)
+	}
+
+	if allocation.IsCommitted() {
+		m.log.Error("Cannot adjust resources of replica %d of kernel %s, "+
+			"as resources are already committed to that kernel replica: %s", replicaId, kernelId, allocation.String())
+		return fmt.Errorf("%w: could not find existing pending resource allocation for replica %d of kernel %s",
+			ErrInvalidOperation, replicaId, kernelId)
+	}
+
+	// First, release the original amount of pending resources.
+	originalAllocatedResources := allocation.ToDecimalSpec()
+	err := m.unsafeUnsubscribePendingResources(originalAllocatedResources, key)
+	if err != nil {
+		m.log.Error("Failed to release original amount of pending resources during resource adjustment of replica %d of kernel %s because: %v",
+			replicaId, kernelId, err)
+		return err
+	}
+
+	decimalSpec := types.ToDecimalSpec(updatedSpec)
+	adjustedAllocation := allocation.CloneAndReturnedAdjusted(decimalSpec)
+
+	// Next, attempt to reserve the updated amount (which could be more or less than the original amount).
+	err = m.unsafeAllocatePendingResources(decimalSpec, adjustedAllocation, key, replicaId, kernelId)
+	if err != nil {
+		m.log.Warn("Failed to allocate updated pending resources %s during resource adjustment of replica %d of kernel %s because: %v",
+			decimalSpec.String(), replicaId, kernelId, err)
+
+		// Rollback.
+		rollbackErr := m.unsafeAllocatePendingResources(originalAllocatedResources, allocation, key, replicaId, kernelId)
+		if rollbackErr != nil {
+			m.log.Error("Failed to rollback pending resource allocation of %s for replica %d of kernel %s because: %v",
+				originalAllocatedResources.String(), replicaId, kernelId, err)
+			panic(err)
+		}
+
+		m.log.Debug("Successfully rolled back pending resource adjustment to %s for replica %d of kernel %s.",
+			originalAllocatedResources, replicaId, kernelId)
+		return err
+	}
+
+	return nil
+}
+
 // CommitResources commits/binds Resources to a particular kernel replica, such that the Resources are reserved for
 // exclusive use by that kernel replica until the kernel replica releases them (or another entity releases them
 // on behalf of the kernel replica).
@@ -786,7 +900,7 @@ func (m *ResourceManager) PromoteReservation(replicaId int32, kernelId string) e
 //
 // This operation is performed atomically by acquiring the ResourceManager::mu sync.Mutex.
 // The sync.Mutex is released before the function returns.
-func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adjustedResourceRequest types.Spec, isReservation bool) error {
+func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -814,9 +928,9 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 	}
 
 	var requestedResources *types.DecimalSpec
-	if adjustedResourceRequest != nil {
-		m.log.Debug("Converting adjusted resource request to a decimal spec. Request: %s", adjustedResourceRequest.String())
-		requestedResources = types.ToDecimalSpec(adjustedResourceRequest)
+	if resourceRequestArg != nil {
+		m.log.Debug("Converting adjusted resource request to a decimal spec. Request: %s", resourceRequestArg.String())
+		requestedResources = types.ToDecimalSpec(resourceRequestArg)
 		m.log.Debug("Converted decimal spec: %s", requestedResources.String())
 	} else {
 		requestedResources = allocation.ToDecimalSpec()
@@ -866,7 +980,7 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 
 	// Finally, we'll update the ResourceAllocation struct associated with this request.
 	// This involves updating the resource amounts stored in the ResourceAllocation as well as its AllocationType field.
-	// The resource amounts may already match what was allocated, depending on if the adjustedResourceRequest parameter
+	// The resource amounts may already match what was allocated, depending on if the resourceRequestArg parameter
 	// was nil or not.
 	//
 	// Once updated, we'll remove it from the pending allocation maps and add it to the committed allocation maps.
@@ -1078,6 +1192,31 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 	// Convert the given types.Spec argument to a *types.DecimalSpec struct.
 	decimalSpec := types.ToDecimalSpec(spec)
 
+	err := m.unsafeAllocatePendingResources(decimalSpec, allocation, key, replicaId, kernelId)
+	if err != nil {
+		m.log.Error("Failed to allocate pending resources %s to replica %d of kernel %s: %v",
+			decimalSpec.String(), replicaId, kernelId, err)
+		return err
+	}
+
+	m.log.Debug("Successfully subscribed the following pending Resources to replica %d of kernel %s: %v",
+		replicaId, kernelId, decimalSpec.String())
+
+	// Update Prometheus metrics.
+	// m.resourceMetricsCallback(m.ResourcesWrapper)
+	m.unsafeUpdatePrometheusResourceMetrics()
+
+	// Make sure everything is OK with respect to our internal state/bookkeeping.
+	err = m.unsafePerformConsistencyCheck()
+	if err != nil {
+		m.log.Error("Discovered an inconsistency: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func (m *ResourceManager) unsafeAllocatePendingResources(decimalSpec *types.DecimalSpec, allocation *ResourceAllocation, key string, replicaId int32, kernelId string) error {
 	// First, validate against this scheduling.Host's spec.
 	if err := m.resourcesWrapper.specResources.ValidateWithError(decimalSpec); err != nil {
 		m.log.Error("Could not subscribe the following pending Resources to replica %d of kernel %s due "+
@@ -1091,7 +1230,7 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 	if err := m.resourcesWrapper.pendingResources.Add(decimalSpec); err != nil {
 		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
 		// as we passed all the validation checks up above.
-		panic(err)
+		return err
 	}
 
 	// Store the allocation in the mapping.
@@ -1099,20 +1238,6 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 
 	// Update the pending/committed allocation counters.
 	m.numPendingAllocations.Incr()
-
-	m.log.Debug("Successfully subscribed the following pending Resources to replica %d of kernel %s: %v",
-		replicaId, kernelId, decimalSpec.String())
-
-	// Update Prometheus metrics.
-	// m.resourceMetricsCallback(m.ResourcesWrapper)
-	m.unsafeUpdatePrometheusResourceMetrics()
-
-	// Make sure everything is OK with respect to our internal state/bookkeeping.
-	err := m.unsafePerformConsistencyCheck()
-	if err != nil {
-		m.log.Error("Discovered an inconsistency: %v", err)
-		return err
-	}
 
 	return nil
 }
@@ -1161,8 +1286,27 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 	}
 
 	// Next, unsubscribe the pending Resources.
+	err := m.unsafeUnsubscribePendingResources(allocatedResources, key)
+	if err != nil {
+		m.log.Error("Failed to unsubscribe pending resources %s from replica %d of kernel %s because: %v",
+			allocatedResources.String(), replicaId, kernelId, err)
+		return err
+	}
+
+	m.log.Debug("Evicted replica %d of kernel %s, releasing the following pending Resources: %v.",
+		replicaId, kernelId, allocation.ToSpecString())
+	m.log.Debug("After removal: %s.", m.resourcesWrapper.pendingResources.String())
+
+	// Update Prometheus metrics.
+	// m.resourceMetricsCallback(m.ResourcesWrapper)
+	m.unsafeUpdatePrometheusResourceMetrics()
+
+	return nil
+}
+
+func (m *ResourceManager) unsafeUnsubscribePendingResources(allocatedResources *types.DecimalSpec, key string) error {
 	if err := m.resourcesWrapper.pendingResources.Subtract(allocatedResources); err != nil {
-		panic(err)
+		return err
 	}
 
 	m.numPendingAllocations.Decr()
@@ -1176,14 +1320,6 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 		m.log.Error("Discovered an inconsistency: %v", err)
 		return err
 	}
-
-	m.log.Debug("Evicted replica %d of kernel %s, releasing the following pending Resources: %v.",
-		replicaId, kernelId, allocation.ToSpecString())
-	m.log.Debug("After removal: %s.", m.resourcesWrapper.pendingResources.String())
-
-	// Update Prometheus metrics.
-	// m.resourceMetricsCallback(m.ResourcesWrapper)
-	m.unsafeUpdatePrometheusResourceMetrics()
 
 	return nil
 }

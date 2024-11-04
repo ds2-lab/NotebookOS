@@ -1313,15 +1313,15 @@ func (mr *MockAbstractKernelClientMockRecorder) Validate() *gomock.Call {
 }
 
 // WaitForRepliesToPendingExecuteRequests mocks base method.
-func (m *MockAbstractKernelClient) WaitForRepliesToPendingExecuteRequests() {
+func (m *MockAbstractKernelClient) WaitForPendingExecuteRequests() {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "WaitForRepliesToPendingExecuteRequests")
+	m.ctrl.Call(m, "WaitForPendingExecuteRequests")
 }
 
 // WaitForRepliesToPendingExecuteRequests indicates an expected call of WaitForRepliesToPendingExecuteRequests.
 func (mr *MockAbstractKernelClientMockRecorder) WaitForRepliesToPendingExecuteRequests() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WaitForRepliesToPendingExecuteRequests", reflect.TypeOf((*MockAbstractKernelClient)(nil).WaitForRepliesToPendingExecuteRequests))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WaitForPendingExecuteRequests", reflect.TypeOf((*MockAbstractKernelClient)(nil).WaitForPendingExecuteRequests))
 }
 
 // WaitForTrainingToStop mocks base method.

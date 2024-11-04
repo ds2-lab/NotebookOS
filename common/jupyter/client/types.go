@@ -72,7 +72,7 @@ type AbstractKernelClient interface {
 	SetContainer(container *scheduling.Container)
 	IsTraining() bool
 	WaitForTrainingToStop()
-	WaitForRepliesToPendingExecuteRequests()
+	WaitForPendingExecuteRequests()
 	SetLastTrainingTimePrometheusUpdate()
 	LastTrainingTimePrometheusUpdate() time.Time
 	NumPendingExecuteRequests() int
@@ -102,6 +102,7 @@ type AbstractKernelClient interface {
 	KernelSpec() *proto.KernelSpec
 	Address() string
 	String() string
+	UpdateResourceSpec(types.Spec) error
 	IsReady() bool
 	HostId() string
 	SetReady()
