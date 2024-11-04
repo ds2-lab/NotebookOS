@@ -2587,7 +2587,25 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 // updateKernelResourceSpec will return nil on success. updateKernelResourceSpec will return an error if the kernel
 // presently has resources committed to it, and the adjustment cannot occur due to resource contention.
 func (d *SchedulerDaemonImpl) updateKernelResourceSpec(kernel client.AbstractKernelClient, newSpec types.Spec) error {
+	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
+		d.log.Error("Requested updated resource spec for kernel %s is invalid, as one or more quantities are negative: %s",
+			kernel.ID(), newSpec.String())
+		return fmt.Errorf("%w: %s", client.ErrInvalidResourceSpec, newSpec.String())
+	}
 
+	d.log.Debug("Attempting to pending resource allocation for kernel %s to %s.", kernel.ID(), newSpec.String())
+	err := d.resourceManager.AdjustPendingResources(kernel.ReplicaID(), kernel.ID(), newSpec)
+	if err != nil {
+		d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
+		return err
+	}
+
+	err = kernel.UpdateResourceSpec(newSpec)
+	if err != nil {
+		panic(err)
+	}
+
+	return nil
 }
 
 // processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.
@@ -2619,7 +2637,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequestMetadata(msg *jupyter.Jupyter
 		d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
 			kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
 
-		if err := kernel.UpdateResourceSpec(requestMetadata.ResourceRequest); err != nil {
+		if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
 			d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
 			return requestMetadata.TargetReplicaId, metadataDict, err
 		}
