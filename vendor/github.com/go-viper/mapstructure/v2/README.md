@@ -1,7 +1,7 @@
 # mapstructure
 
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/go-viper/mapstructure/ci.yaml?branch=main&style=flat-square)](https://github.com/go-viper/mapstructure/actions?query=workflow%3ACI)
-[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/mod/github.com/go-viper/mapstructure)
+[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white&style=flat-square)](https://pkg.go.dev/mod/github.com/go-viper/mapstructure/v2)
 ![Go Version](https://img.shields.io/badge/go%20version-%3E=1.18-61CFDD.svg?style=flat-square)
 
 mapstructure is a Go library for decoding generic map values to structures
@@ -15,17 +15,34 @@ structure.
 
 ## Installation
 
-For the time being, you can use this library as a drop-in replacement for the original library:
+```shell
+go get github.com/go-viper/mapstructure/v2
+```
+
+## Migrating from `github.com/mitchellh/mapstructure`
+
+[@mitchehllh](https://github.com/mitchellh) announced his intent to archive some of his unmaintained projects (see [here](https://gist.github.com/mitchellh/90029601268e59a29e64e55bab1c5bdc) and [here](https://github.com/mitchellh/mapstructure/issues/349)). This is a repository achieved the "blessed fork" status.
+
+You can migrate to this package by changing your import paths in your Go files to `github.com/go-viper/mapstructure/v2`.
+The API is the same, so you don't need to change anything else.
+
+Here is a script that can help you with the migration:
 
 ```shell
-go get github.com/mitchellh/mapstructure
-go mod edit -replace github.com/mitchellh/mapstructure=github.com/go-viper/mapstructure
-go mod tidy
+sed -i 's/github.com\/mitchellh\/mapstructure/github.com\/go-viper\/mapstructure\/v2/g' $(find . -type f -name '*.go')
+```
+
+If you need more time to migrate your code, that is absolutely fine.
+
+Some of the latest fixes are backported to the v1 release branch of this package, so you can use the Go modules `replace` feature until you are ready to migrate:
+
+```shell
+replace github.com/mitchellh/mapstructure => github.com/go-viper/mapstructure v1.6.0
 ```
 
 ## Usage & Example
 
-For usage and examples see the [documentation](https://pkg.go.dev/mod/github.com/go-viper/mapstructure).
+For usage and examples see the [documentation](https://pkg.go.dev/mod/github.com/go-viper/mapstructure/v2).
 
 The `Decode` function has examples associated with it there.
 
