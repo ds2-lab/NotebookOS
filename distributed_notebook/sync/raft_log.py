@@ -799,7 +799,7 @@ class RaftLog(object):
             if committedValue.key == KEY_CATCHUP and committedValue.proposer_id == self._node_id and committedValue.id == self._catchup_value.id:
                 self.logger.debug(
                     f"Received our catch-up value (ID={committedValue.id}, timestamp={committedValue.timestamp}, "
-                    f"election term={committedValue.election_term}). We must be caught up!\n\n\n")
+                    f"election term={committedValue.election_term}). We must be caught up!\n\n")
                 sys.stderr.flush()
                 sys.stdout.flush()
 

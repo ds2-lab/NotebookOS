@@ -2147,10 +2147,11 @@ class DistributedKernel(IPythonKernel):
         """
         Send an error report/message to our local daemon via our IOPub socket.
         """
+        if self.kernel_notification_service_stub is None:
+            self.log.error(f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup.")
+            return
+
         self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now...")
-        # err_msg = self.session.send(self.iopub_socket, "error_report",
-        #                             {"error": error_title, "message": error_message, "kernel_id": self.kernel_id},
-        #                             ident=self._topic("error_report"))
         self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
             title=error_title,
             message=error_message,
@@ -2162,6 +2163,10 @@ class DistributedKernel(IPythonKernel):
     def send_notification(self, notification_title: str = "", notification_body: str = "", notification_type: int = 2):
         if notification_type < 0 or notification_type > 3:
             raise ValueError(f"Invalid notification type specified: \"%d\"", notification_type)
+
+        if self.kernel_notification_service_stub is None:
+            self.log.error(f"Cannot send '{notification_type}' notification '{notification_title}' as our gRPC connection was never setup.")
+            return
 
         self.log.debug(f"Sending \"{notification_title}\" notification of type {notification_type} now...")
         self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(

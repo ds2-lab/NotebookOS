@@ -4,7 +4,7 @@ import shutil
 import pickle
 import sys
 from collections import OrderedDict
-from typing import Optional
+from typing import Optional, Awaitable
 from unittest import mock
 
 import pytest
@@ -2305,16 +2305,26 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
     async def mock_append_catchup_value(*args, **kwargs):
         unit_test_logger.debug(f"Mocked RaftLog::_append_catchup_value called with args {args} and kwargs {kwargs}")
 
-        catchup_val: SynchronizedValue = args[1]
-        assert isinstance(catchup_val, SynchronizedValue)
-        assert catchup_val.proposer_id == 1
-        assert catchup_val.key == KEY_CATCHUP
-        assert catchup_val.should_end_execution == False
-        assert catchup_val.operation == KEY_CATCHUP
-        assert catchup_val.election_term == args[0]._leader_term_before_migration
+        def set_append_catchup_value_future_result():
+            unit_test_logger.debug(f"Setting result of append_catchup_value_future to {args[1]}")
+            append_catchup_value_future.set_result(args[1])
+            unit_test_logger.debug(f"Set result of append_catchup_value_future to {args[1]}")
 
-        append_catchup_value_future.set_result(args[1])
-        new_raft_log_future.set_result(args[0])
+        def set_new_raft_log_future_result():
+            unit_test_logger.debug(f"Setting result of new_raft_log_future to {args[0]}")
+            new_raft_log_future.set_result(args[0])
+            unit_test_logger.debug(f"Set result of new_raft_log_future to {args[0]}")
+
+        if asyncio.get_running_loop() != loop:
+            # This is generally what should happen, assuming the configuration/setup of the test(s) does not change.
+            # Specifically, the mock_append_catchup_value function will be called from the "control thread", which
+            # is running a separate IO loop than the one running the unit test(s).
+            loop.call_soon_threadsafe(append_catchup_value_future.set_result, args[1])
+            loop.call_soon_threadsafe(new_raft_log_future.set_result, args[0])
+        else:
+            # This branch is not likely.
+            set_append_catchup_value_future_result()
+            set_new_raft_log_future_result()
 
     unit_test_logger.debug("Creating next kernel...\n\n\n\n\n\n\n\n\n\n")
 
@@ -2337,7 +2347,19 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
 
         try:
             unit_test_logger.debug("Waiting for 'catchup' future.")
-            await asyncio.wait_for(append_catchup_value_future, 5)
+            await asyncio.wait_for(append_catchup_value_future, timeout = 5)
+        except TimeoutError:
+            unit_test_logger.debug("[ERROR] Future for appending 'catchup' value timed-out.")
+
+            for task in asyncio.all_tasks():
+                asyncio.Task.print_stack(task)
+                unit_test_logger.debug("\n\n\n")
+
+            assert False # fail the test
+
+        try:
+            unit_test_logger.debug("Waiting for 'catchup' future.")
+            await asyncio.wait_for(new_raft_log_future, timeout = 5)
         except TimeoutError:
             unit_test_logger.debug("[ERROR] Future for appending 'catchup' value timed-out.")
 
@@ -2349,12 +2371,20 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
 
         assert append_catchup_value_future.done()
         catchup_value: SynchronizedValue = append_catchup_value_future.result()
+        assert isinstance(catchup_value, SynchronizedValue)
+        assert catchup_value.proposer_id == 1
         assert catchup_value.key == KEY_CATCHUP
+        assert catchup_value.should_end_execution == False
+        assert catchup_value.operation == KEY_CATCHUP
 
         assert new_raft_log_future.done()
         new_raft_log_from_future: RaftLog = new_raft_log_future.result()
         assert new_raft_log_from_future is not None
         assert new_raft_log_from_future._node_id == 1
+        assert catchup_value.election_term == new_raft_log_from_future._leader_term_before_migration
+
+        catchup_future: asyncio.Future[SynchronizedValue] = new_raft_log_from_future._catchup_future
+        assert catchup_future is not None
 
         for val in CommittedValues:
             val_id:str = ""
@@ -2367,10 +2397,10 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
 
         # unit_test_logger.debug("Created 'init persistent store' task.")
         await new_kernel.init_raft_log_event.wait()
-        unit_test_logger.debug("New RaftLog created.")
 
         new_raft_log: RaftLog = new_kernel.synclog
         assert new_raft_log != kernel.synclog
+        assert new_raft_log == new_raft_log_from_future
 
         assert new_kernel.kernel_id == kernel.kernel_id
         assert new_kernel.smr_node_id == kernel.smr_node_id
@@ -2379,9 +2409,38 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         assert new_raft_log.node_id == kernel.smr_node_id
 
         await new_kernel.init_synchronizer_event.wait()
-        unit_test_logger.debug("New Synchronizer created.")
         await new_kernel.start_synchronizer_event.wait()
-        unit_test_logger.debug("New Synchronizer started.")
+
+        catchup_awaitable: asyncio.Future[SynchronizedValue] = catchup_future
+        if catchup_future.get_loop() != loop:
+            catchup_awaitable = loop.create_future()
+            async def wait_target():
+                try:
+                    catchup_result = await catchup_future
+                except Exception as e:
+                    loop.call_soon_threadsafe(catchup_awaitable.set_exception, e)
+                else:
+                    loop.call_soon_threadsafe(catchup_awaitable.set_result, catchup_result)
+            asyncio.run_coroutine_threadsafe(wait_target(), catchup_future.get_loop())
+
+        try:
+            await asyncio.wait_for(catchup_awaitable, 5)
+        except TimeoutError:
+            unit_test_logger.debug("[ERROR] New RaftLog's '_catchup_future' timed-out.")
+
+            unit_test_logger.debug("Current thread's IO loop tasks:")
+            for task in asyncio.all_tasks(loop = asyncio.get_running_loop()):
+                asyncio.Task.print_stack(task)
+                unit_test_logger.debug("\n\n")
+
+            unit_test_logger.debug("Control thread's IO loop tasks:")
+            for task in asyncio.all_tasks(loop = new_kernel.control_thread.io_loop.asyncio_loop):
+                asyncio.Task.print_stack(task)
+                unit_test_logger.debug("\n\n")
+
+            unit_test_logger.debug(f"New kernel's control thread is alive: {new_kernel.control_thread.is_alive()}")
+
+            assert False # fail the test
 
         await new_kernel.init_persistent_store_event.wait()
         unit_test_logger.debug("New Persistent Store initialized.")
