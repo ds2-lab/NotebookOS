@@ -21,6 +21,15 @@ from distributed_notebook.tests.utils.lognode import SpoofedLogNode
 from distributed_notebook.tests.utils.session import SpoofedSession
 from distributed_notebook.tests.utils.stream import SpoofedStream
 
+import logging
+unit_test_logger = logging.getLogger(__name__)
+unit_test_logger.setLevel(logging.DEBUG)
+ch = logging.StreamHandler()
+fm = logging.Formatter(fmt = "%(asctime)s [%(levelname)s] %(name)s [%(threadName)s (%(thread)d)]: %(message)s ")
+ch.setLevel(logging.DEBUG)
+ch.setFormatter(fm)
+unit_test_logger.addHandler(ch)
+
 DefaultKernelId: str = "8a275c45-52fc-4390-8a79-9d8e86066a65"
 DefaultDate: str = "2024-11-01T15:32:45.123456789Z"
 FakePersistentStorePath:str = "unit-test-persistent-store"
@@ -40,24 +49,24 @@ def remove_persistent_store_directory():
     """
     # Ensure the persistent store directory does not already exist.
     try:
-        print(f"Removing persistent store directory \"{FullFakePersistentStorePath}\".")
+        unit_test_logger.debug(f"Removing persistent store directory \"{FullFakePersistentStorePath}\".")
         shutil.rmtree(FullFakePersistentStorePath)
-        print(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
+        unit_test_logger.debug(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
     except FileNotFoundError:
-        print(f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
+        unit_test_logger.debug(f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
 
     yield
 
     # Remove the persistent store directory if it was created.
     try:
-        print(f"Removing persistent store directory \"{FullFakePersistentStorePath}\".")
+        unit_test_logger.debug(f"Removing persistent store directory \"{FullFakePersistentStorePath}\".")
         shutil.rmtree(FullFakePersistentStorePath)
-        print(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
+        unit_test_logger.debug(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
     except FileNotFoundError:
-        print(f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
+        unit_test_logger.debug(f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
 
 def mock_create_log_node(*args, **mock_kwargs):
-    print(f"Mocked RaftLog::create_log_node called with args {args} and kwargs {mock_kwargs}.")
+    unit_test_logger.debug(f"Mocked RaftLog::create_log_node called with args {args} and kwargs {mock_kwargs}.")
 
     return SpoofedLogNode(**mock_kwargs)
 
@@ -129,7 +138,7 @@ async def create_kernel(
     if init_persistent_store:
         with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "create_log_node", mock_create_log_node):
             # await kernel.init_persistent_store_with_persistent_id(FakePersistentStorePath)
-            print("Calling init_persistent_store from create_kernel fixture.")
+            unit_test_logger.debug("Calling init_persistent_store from create_kernel fixture.")
             code = "persistent_id = \"%s\"" % FakePersistentStorePath
             await kernel.init_persistent_store(code)
 
@@ -195,7 +204,7 @@ def execution_request():
 
 async def mocked_sync(execution_ast, source: Optional[str] = None,
                       checkpointer: Optional[Checkpointer] = None) -> bool:
-    print(
+    unit_test_logger.debug(
         f"\nMocked Synchronizer::sync called with execution_ast={execution_ast}, source={source}, checkpointer={checkpointer}")
     await asyncio.sleep(0.25)
     return True
@@ -297,7 +306,7 @@ async def example(kernel: DistributedKernel, execution_request: dict[str, any]):
     """
     propose_lead_and_win_no_asserts
     """
-    print(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
+    unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
     synchronizer: Synchronizer = kernel.synchronizer
     raftLog: RaftLog = kernel.synclog
@@ -310,7 +319,7 @@ async def example(kernel: DistributedKernel, execution_request: dict[str, any]):
     election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
@@ -335,7 +344,7 @@ async def example(kernel: DistributedKernel, execution_request: dict[str, any]):
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
     async def mocked_append_election_vote(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
         vote_proposal_future.set_result(args[1])
 
     election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = raftLog.election_decision_future
@@ -343,7 +352,7 @@ async def example(kernel: DistributedKernel, execution_request: dict[str, any]):
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(
+        unit_test_logger.debug(
             f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
@@ -360,15 +369,15 @@ async def example(kernel: DistributedKernel, execution_request: dict[str, any]):
         try:
             proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
         except TimeoutError:
-            print("[ERROR] LeaderElectionVote was not proposed.")
+            unit_test_logger.debug("[ERROR] LeaderElectionVote was not proposed.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
-        print(f"Got proposed vote: {proposedVote}")
+        unit_test_logger.debug(f"Got proposed vote: {proposedVote}")
 
         propose_vote(raftLog, proposedVote, leading_future, election, election_decision_future)
 
@@ -376,27 +385,27 @@ async def example(kernel: DistributedKernel, execution_request: dict[str, any]):
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(leading_future, 5)
         except TimeoutError:
-            print("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
+            unit_test_logger.debug("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
 
-        print("\"Leading\" future should be done now.")
+        unit_test_logger.debug("\"Leading\" future should be done now.")
         wait, leading = raftLog._is_leading(1)
 
         try:
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execution_done_future, 5)
         except TimeoutError:
-            print("[ERROR] \"execution_done\" future was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execution_done\" future was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
         assert execution_done_future.done()
 
         notification: ExecutionCompleteNotification = execution_done_future.result()
-        print(f"Got ExecutionCompleteNotification: {notification}")
+        unit_test_logger.debug(f"Got ExecutionCompleteNotification: {notification}")
 
         raftLog._valueCommittedCallback(notification, sys.getsizeof(notification), notification.id)
 
@@ -404,11 +413,11 @@ async def example(kernel: DistributedKernel, execution_request: dict[str, any]):
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execute_request_task, 5)
         except TimeoutError:
-            print("[ERROR] \"execute_request\" task was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execute_request\" task was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
@@ -419,7 +428,7 @@ async def example(kernel: DistributedKernel, execution_request: dict[str, any]):
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
 async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request: dict[str, any]):
-    print(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
+    unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
     synchronizer: Synchronizer = kernel.synchronizer
     raftLog: RaftLog = kernel.synclog
@@ -432,7 +441,7 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request
     election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
@@ -482,7 +491,7 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
     async def mocked_append_election_vote(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
         vote_proposal_future.set_result(args[1])
 
     election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = raftLog.election_decision_future
@@ -491,7 +500,7 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(
+        unit_test_logger.debug(
             f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
@@ -512,15 +521,15 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request
         try:
             proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
         except TimeoutError:
-            print("[ERROR] LeaderElectionVote was not proposed.")
+            unit_test_logger.debug("[ERROR] LeaderElectionVote was not proposed.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
-        print(f"Got proposed vote: {proposedVote}")
+        unit_test_logger.debug(f"Got proposed vote: {proposedVote}")
 
         assert (raftLog._leading_future.done() == False)
         assert (election.num_proposals_received == 3)
@@ -539,10 +548,10 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(leading_future, 5)
         except TimeoutError:
-            print("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
+            unit_test_logger.debug("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
             assert False  # Fail the test.
 
-        print("\"Leading\" future should be done now.")
+        unit_test_logger.debug("\"Leading\" future should be done now.")
         assert leading_future.done() == True
         assert raftLog.leader_id == 1
         assert raftLog.leader_term == 1
@@ -554,18 +563,18 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execution_done_future, 5)
         except TimeoutError:
-            print("[ERROR] \"execution_done\" future was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execution_done\" future was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
         assert execution_done_future.done()
 
         notification: ExecutionCompleteNotification = execution_done_future.result()
-        print(f"Got ExecutionCompleteNotification: {notification}")
+        unit_test_logger.debug(f"Got ExecutionCompleteNotification: {notification}")
         assert notification is not None
         assert notification.proposer_id == 1
         assert notification.election_term == 1
@@ -581,11 +590,11 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execute_request_task, 5)
         except TimeoutError:
-            print("[ERROR] \"execute_request\" task was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execute_request\" task was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
@@ -599,8 +608,8 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request
     assert 'smr_lead_task' in spoofed_session.message_types_sent
     assert 'status' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
+    unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
     assert spoofed_session.num_send_calls == 5
     assert len(spoofed_session.message_types_sent) == 5
@@ -609,7 +618,7 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
 async def test_propose_lead_and_lose(kernel: DistributedKernel, execution_request: dict[str, any]):
-    print(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
+    unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
     synchronizer: Synchronizer = kernel.synchronizer
     raftLog: RaftLog = kernel.synclog
@@ -622,7 +631,7 @@ async def test_propose_lead_and_lose(kernel: DistributedKernel, execution_reques
     election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
@@ -672,7 +681,7 @@ async def test_propose_lead_and_lose(kernel: DistributedKernel, execution_reques
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
     async def mocked_append_election_vote(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
         vote_proposal_future.set_result(args[1])
 
     election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = raftLog.election_decision_future
@@ -694,15 +703,15 @@ async def test_propose_lead_and_lose(kernel: DistributedKernel, execution_reques
         try:
             proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
         except TimeoutError:
-            print("[ERROR] LeaderElectionVote was not proposed.")
+            unit_test_logger.debug("[ERROR] LeaderElectionVote was not proposed.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
-        print(f"Got proposed vote: {proposedVote}")
+        unit_test_logger.debug(f"Got proposed vote: {proposedVote}")
 
         assert (raftLog._leading_future.done() == False)
         assert (election.num_proposals_received == 3)
@@ -721,10 +730,10 @@ async def test_propose_lead_and_lose(kernel: DistributedKernel, execution_reques
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(leading_future, 5)
         except TimeoutError:
-            print("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
+            unit_test_logger.debug("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
             assert False  # Fail the test.
 
-        print("\"Leading\" future should be done now.")
+        unit_test_logger.debug("\"Leading\" future should be done now.")
         assert leading_future.done() == True
         assert raftLog.leader_id == 2
         assert raftLog.leader_term == 1
@@ -742,11 +751,11 @@ async def test_propose_lead_and_lose(kernel: DistributedKernel, execution_reques
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execute_request_task, 5)
         except TimeoutError:
-            print("[ERROR] \"execute_request\" task was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execute_request\" task was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
@@ -764,8 +773,8 @@ async def test_propose_lead_and_lose(kernel: DistributedKernel, execution_reques
     assert 'smr_ready' in spoofed_session.message_types_sent
     assert 'status' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
+    unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
     assert spoofed_session.num_send_calls == 4
     assert len(spoofed_session.message_types_sent) == 4
@@ -774,7 +783,7 @@ async def test_propose_lead_and_lose(kernel: DistributedKernel, execution_reques
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
 async def test_propose_yield_and_lose(kernel: DistributedKernel, execution_request: dict[str, any]):
-    print(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
+    unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
     synchronizer: Synchronizer = kernel.synchronizer
     raftLog: RaftLog = kernel.synclog
@@ -787,7 +796,7 @@ async def test_propose_yield_and_lose(kernel: DistributedKernel, execution_reque
     election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
@@ -836,7 +845,7 @@ async def test_propose_yield_and_lose(kernel: DistributedKernel, execution_reque
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
     async def mocked_append_election_vote(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
         vote_proposal_future.set_result(args[1])
 
     election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = raftLog.election_decision_future
@@ -858,15 +867,15 @@ async def test_propose_yield_and_lose(kernel: DistributedKernel, execution_reque
         try:
             proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
         except TimeoutError:
-            print("[ERROR] LeaderElectionVote was not proposed.")
+            unit_test_logger.debug("[ERROR] LeaderElectionVote was not proposed.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
-        print(f"Got proposed vote: {proposedVote}")
+        unit_test_logger.debug(f"Got proposed vote: {proposedVote}")
 
         assert (raftLog._leading_future.done() == False)
         assert (election.num_proposals_received == 3)
@@ -885,10 +894,10 @@ async def test_propose_yield_and_lose(kernel: DistributedKernel, execution_reque
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(leading_future, 5)
         except TimeoutError:
-            print("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
+            unit_test_logger.debug("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
             assert False  # Fail the test.
 
-        print("\"Leading\" future should be done now.")
+        unit_test_logger.debug("\"Leading\" future should be done now.")
         assert leading_future.done() == True
         assert raftLog.leader_id == 2
         assert raftLog.leader_term == 1
@@ -906,11 +915,11 @@ async def test_propose_yield_and_lose(kernel: DistributedKernel, execution_reque
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execute_request_task, 5)
         except TimeoutError:
-            print("[ERROR] \"execute_request\" task was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execute_request\" task was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
@@ -922,8 +931,8 @@ async def test_propose_yield_and_lose(kernel: DistributedKernel, execution_reque
     assert 'smr_ready' in spoofed_session.message_types_sent
     assert 'status' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
+    unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
     assert spoofed_session.num_send_calls == 4
     assert len(spoofed_session.message_types_sent) == 4
@@ -952,10 +961,10 @@ def assert_election_failed(
     assert election.winner_id == -1
     assert election.completion_reason == AllReplicasProposedYield
 
-    print(f"Election {election.term_number} has current attempt number = {election.current_attempt_number}.")
-    print(f"Election proposals (quantity: {len(election.proposals)}):")
+    unit_test_logger.debug(f"Election {election.term_number} has current attempt number = {election.current_attempt_number}.")
+    unit_test_logger.debug(f"Election proposals (quantity: {len(election.proposals)}):")
     for _, proposal in election.proposals.items():
-        print(f"Proposal: {proposal}")
+        unit_test_logger.debug(f"Proposal: {proposal}")
         assert proposal.election_term == expected_term_number
         assert proposal.attempt_number == expected_attempt_number
         assert proposal.is_yield
@@ -973,7 +982,7 @@ def assert_election_failed(
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
 async def test_election_fails_when_all_propose_yield(kernel: DistributedKernel, execution_request: dict[str, any]):
-    print(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
+    unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
     synchronizer: Synchronizer = kernel.synchronizer
     raftLog: RaftLog = kernel.synclog
@@ -986,7 +995,7 @@ async def test_election_fails_when_all_propose_yield(kernel: DistributedKernel, 
     election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
@@ -1055,11 +1064,11 @@ async def test_election_fails_when_all_propose_yield(kernel: DistributedKernel, 
     try:
         await asyncio.wait_for(election_decision_future, 5)
     except TimeoutError:
-        print("[ERROR] \"election_decision\" future was not resolved.")
+        unit_test_logger.debug("[ERROR] \"election_decision\" future was not resolved.")
 
         for task in asyncio.all_tasks():
             asyncio.Task.print_stack(task)
-            print("\n\n\n")
+            unit_test_logger.debug("\n\n\n")
 
         assert False
 
@@ -1082,8 +1091,8 @@ async def test_election_fails_when_all_propose_yield(kernel: DistributedKernel, 
     assert 'smr_ready' in spoofed_session.message_types_sent
     assert 'status' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
+    unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
     assert spoofed_session.num_send_calls == 4
     assert len(spoofed_session.message_types_sent) == 4
@@ -1098,7 +1107,7 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
 
     Note: we are NOT simulating the actual migration in this unit test
     """
-    print(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
+    unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
     ###############
     # FIRST ROUND #
@@ -1111,7 +1120,7 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
     election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
@@ -1144,11 +1153,11 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
     try:
         await asyncio.wait_for(election_decision_future, 5)
     except TimeoutError:
-        print("[ERROR] \"election_decision\" future was not resolved.")
+        unit_test_logger.debug("[ERROR] \"election_decision\" future was not resolved.")
 
         for task in asyncio.all_tasks():
             asyncio.Task.print_stack(task)
-            print("\n\n\n")
+            unit_test_logger.debug("\n\n\n")
 
         assert False
 
@@ -1161,8 +1170,8 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
     assert 'smr_ready' in spoofed_session.message_types_sent
     assert 'status' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
+    unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
     assert spoofed_session.num_send_calls == 4
     assert len(spoofed_session.message_types_sent) == 4
@@ -1176,7 +1185,7 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
     election_proposal_future = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
@@ -1230,7 +1239,7 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
     async def mocked_append_election_vote(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
         vote_proposal_future.set_result(args[1])
 
     election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = raftLog.election_decision_future
@@ -1239,7 +1248,7 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(
+        unit_test_logger.debug(
             f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
@@ -1260,15 +1269,15 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
         try:
             proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
         except TimeoutError:
-            print("[ERROR] LeaderElectionVote was not proposed.")
+            unit_test_logger.debug("[ERROR] LeaderElectionVote was not proposed.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
-        print(f"Got proposed vote: {proposedVote}")
+        unit_test_logger.debug(f"Got proposed vote: {proposedVote}")
 
         assert (raftLog._leading_future.done() == False)
         assert (election.num_proposals_received == 3)
@@ -1288,10 +1297,10 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(leading_future, 5)
         except TimeoutError:
-            print("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
+            unit_test_logger.debug("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
             assert False  # Fail the test.
 
-        print("\"Leading\" future should be done now.")
+        unit_test_logger.debug("\"Leading\" future should be done now.")
         assert leading_future.done() == True
         assert raftLog.leader_id == 1
         assert raftLog.leader_term == 1
@@ -1303,18 +1312,18 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execution_done_future, 5)
         except TimeoutError:
-            print("[ERROR] \"execution_done\" future was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execution_done\" future was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
         assert execution_done_future.done()
 
         notification: ExecutionCompleteNotification = execution_done_future.result()
-        print(f"Got ExecutionCompleteNotification: {notification}")
+        unit_test_logger.debug(f"Got ExecutionCompleteNotification: {notification}")
         assert notification is not None
         assert notification.proposer_id == 1
         assert notification.election_term == 1
@@ -1330,11 +1339,11 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execute_request_task, 5)
         except TimeoutError:
-            print("[ERROR] \"execute_request\" task was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execute_request\" task was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
@@ -1348,8 +1357,8 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
     assert 'status' in spoofed_session.message_types_sent
     assert 'smr_lead_task' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}", flush = True)
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}", flush = True)
+    unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
     assert spoofed_session.num_send_calls == 7
     assert len(spoofed_session.message_types_sent) == 7
@@ -1386,25 +1395,25 @@ async def fail_election(
     election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
                            mocked_append_election_proposal):
-        print("Creating yield task")
+        unit_test_logger.debug("Creating yield task")
         execute_request_task: asyncio.Task[any] = loop.create_task(kernel.yield_request(None, [], execution_request))
-        print("Awaiting election proposal")
+        unit_test_logger.debug("Awaiting election proposal")
 
         try:
             proposedValue: LeaderElectionProposal = await asyncio.wait_for(election_proposal_future, 5)
         except TimeoutError:
-            print("[ERROR] Timed out.")
+            unit_test_logger.debug("[ERROR] Timed out.")
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
             exit(1)
 
-        print("Awaited election proposal")
+        unit_test_logger.debug("Awaited election proposal")
 
     # Check that the kernel created an election, but that no proposals were received yet.
     election: Election = kernel.synclog.get_election(1)
@@ -1430,11 +1439,11 @@ async def fail_election(
     try:
         await asyncio.wait_for(election_decision_future, 5)
     except TimeoutError:
-        print("[ERROR] \"election_decision\" future was not resolved.")
+        unit_test_logger.debug("[ERROR] \"election_decision\" future was not resolved.")
 
         for task in asyncio.all_tasks():
             asyncio.Task.print_stack(task)
-            print("\n\n\n")
+            unit_test_logger.debug("\n\n\n")
 
         assert False
 
@@ -1453,7 +1462,7 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
     NUM_FAILURES: int = 9
 
     for i in range(0, NUM_FAILURES):
-        print(f"\n\n\nElection Round #{i}\n")
+        unit_test_logger.debug(f"\n\n\nElection Round #{i}\n")
         await fail_election(kernel, execution_request, loop,
                             current_election_term=1,
                             current_attempt_number=1+i)
@@ -1465,7 +1474,7 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
     election_proposal_future = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
@@ -1520,7 +1529,7 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
     async def mocked_append_election_vote(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
         vote_proposal_future.set_result(args[1])
 
     election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = raftLog.election_decision_future
@@ -1529,7 +1538,7 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(
+        unit_test_logger.debug(
             f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
@@ -1551,15 +1560,15 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
         try:
             proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
         except TimeoutError:
-            print("[ERROR] LeaderElectionVote was not proposed.")
+            unit_test_logger.debug("[ERROR] LeaderElectionVote was not proposed.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
-        print(f"Got proposed vote: {proposedVote}")
+        unit_test_logger.debug(f"Got proposed vote: {proposedVote}")
 
         assert (raftLog._leading_future.done() == False)
         assert (election.num_proposals_received == 3)
@@ -1579,10 +1588,10 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(leading_future, 5)
         except TimeoutError:
-            print("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
+            unit_test_logger.debug("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
             assert False  # Fail the test.
 
-        print("\"Leading\" future should be done now.")
+        unit_test_logger.debug("\"Leading\" future should be done now.")
         assert leading_future.done() == True
         assert raftLog.leader_id == 1
         assert raftLog.leader_term == 1
@@ -1594,18 +1603,18 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execution_done_future, 5)
         except TimeoutError:
-            print("[ERROR] \"execution_done\" future was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execution_done\" future was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
         assert execution_done_future.done()
 
         notification: ExecutionCompleteNotification = execution_done_future.result()
-        print(f"Got ExecutionCompleteNotification: {notification}")
+        unit_test_logger.debug(f"Got ExecutionCompleteNotification: {notification}")
         assert notification is not None
         assert notification.proposer_id == 1
         assert notification.election_term == 1
@@ -1621,11 +1630,11 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execute_request_task, 5)
         except TimeoutError:
-            print("[ERROR] \"execute_request\" task was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execute_request\" task was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
@@ -1639,8 +1648,8 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
     assert "smr_lead_task" in spoofed_session.message_types_sent
     assert "status" in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}", flush = True)
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}", flush = True)
+    unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
     assert spoofed_session.num_send_calls == 23
     assert len(spoofed_session.message_types_sent) == 23
@@ -1671,7 +1680,7 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
     election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
@@ -1689,7 +1698,7 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
     async def mocked_append_election_vote(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
         vote_proposal_future.set_result(args[1])
 
     election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = raftLog.election_decision_future
@@ -1698,7 +1707,7 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(
+        unit_test_logger.debug(
             f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
@@ -1708,15 +1717,15 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
         try:
             proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
         except TimeoutError:
-            print("[ERROR] LeaderElectionVote was not proposed.")
+            unit_test_logger.debug("[ERROR] LeaderElectionVote was not proposed.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
-        print(f"Got proposed vote: {proposedVote}")
+        unit_test_logger.debug(f"Got proposed vote: {proposedVote}")
 
         assert (raftLog._leading_future.done() == False)
         assert (election.num_proposals_received == 1)
@@ -1733,10 +1742,10 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(leading_future, 5)
         except TimeoutError:
-            print("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
+            unit_test_logger.debug("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
             assert False  # Fail the test.
 
-        print("\"Leading\" future should be done now.")
+        unit_test_logger.debug("\"Leading\" future should be done now.")
         assert leading_future.done() == True
         assert raftLog.leader_id == 1
         assert raftLog.leader_term == 1
@@ -1748,18 +1757,18 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execution_done_future, 5)
         except TimeoutError:
-            print("[ERROR] \"execution_done\" future was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execution_done\" future was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
         assert execution_done_future.done()
 
         notification: ExecutionCompleteNotification = execution_done_future.result()
-        print(f"Got ExecutionCompleteNotification: {notification}")
+        unit_test_logger.debug(f"Got ExecutionCompleteNotification: {notification}")
         assert notification is not None
         assert notification.proposer_id == 1
         assert notification.election_term == 1
@@ -1775,11 +1784,11 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execute_request_task, 5)
         except TimeoutError:
-            print("[ERROR] \"execute_request\" task was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execute_request\" task was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
@@ -1793,8 +1802,8 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
     assert "smr_lead_task" in spoofed_session.message_types_sent
     assert 'status' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}", flush = True)
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}", flush = True)
+    unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
     assert spoofed_session.num_send_calls == 5
     assert len(spoofed_session.message_types_sent) == 5
@@ -1812,7 +1821,7 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
 
     Node #1 does not win the election, though. Node #2 wins the election in this test.
     """
-    print(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
+    unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
     synchronizer: Synchronizer = kernel.synchronizer
     raftLog: RaftLog = kernel.synclog
@@ -1836,7 +1845,7 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
     election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
@@ -1880,7 +1889,7 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
     async def mocked_append_election_vote(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
         vote_proposal_future.set_result(args[1])
 
     election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = raftLog.election_decision_future
@@ -1889,7 +1898,7 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(
+        unit_test_logger.debug(
             f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
@@ -1910,15 +1919,15 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
         try:
             proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
         except TimeoutError:
-            print("[ERROR] LeaderElectionVote was not proposed.")
+            unit_test_logger.debug("[ERROR] LeaderElectionVote was not proposed.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
-        print(f"Got proposed vote: {proposedVote}")
+        unit_test_logger.debug(f"Got proposed vote: {proposedVote}")
 
         assert (raftLog._leading_future.done() == False)
         assert (election.num_proposals_received == 3)
@@ -1937,10 +1946,10 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(leading_future, 5)
         except TimeoutError:
-            print("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
+            unit_test_logger.debug("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
             assert False  # Fail the test.
 
-        print("\"Leading\" future should be done now.")
+        unit_test_logger.debug("\"Leading\" future should be done now.")
         assert leading_future.done() == True
         assert raftLog.leader_id == 2
         assert raftLog.leader_term == 1
@@ -1958,11 +1967,11 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execute_request_task, 5)
         except TimeoutError:
-            print("[ERROR] \"execute_request\" task was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execute_request\" task was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
@@ -1977,8 +1986,8 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
     assert 'smr_ready' in spoofed_session.message_types_sent
     assert 'status' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
+    unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
     assert spoofed_session.num_send_calls == 4
     assert len(spoofed_session.message_types_sent) == 4
@@ -1993,7 +2002,7 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
 
     Node #1 wins the election, as the buffered proposal is a YIELD proposal.
     """
-    print(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
+    unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
     synchronizer: Synchronizer = kernel.synchronizer
     raftLog: RaftLog = kernel.synclog
@@ -2017,7 +2026,7 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
     election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_proposal called with args {args} and kwargs {kwargs}.")
         election_proposal_future.set_result(args[1])
 
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
@@ -2061,7 +2070,7 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
     async def mocked_append_election_vote(*args, **kwargs):
-        print(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
+        unit_test_logger.debug(f"\nMocked RaftLog::_append_election_vote called with args {args} and kwargs {kwargs}.")
         vote_proposal_future.set_result(args[1])
 
     election_decision_future: Optional[asyncio.Future[LeaderElectionVote]] = raftLog.election_decision_future
@@ -2070,7 +2079,7 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
     execution_done_future: asyncio.Future[ExecutionCompleteNotification] = loop.create_future()
 
     async def mocked_raftlog_append_execution_end_notification(*args, **kwargs):
-        print(
+        unit_test_logger.debug(
             f"\n\nMocked RaftLog::_append_execution_end_notification called with args {args} and kwargs {kwargs}.")
         execution_done_future.set_result(args[1])
 
@@ -2091,15 +2100,15 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
         try:
             proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
         except TimeoutError:
-            print("[ERROR] LeaderElectionVote was not proposed.")
+            unit_test_logger.debug("[ERROR] LeaderElectionVote was not proposed.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
-        print(f"Got proposed vote: {proposedVote}")
+        unit_test_logger.debug(f"Got proposed vote: {proposedVote}")
 
         assert (raftLog._leading_future.done() == False)
         assert (election.num_proposals_received == 3)
@@ -2118,10 +2127,10 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(leading_future, 5)
         except TimeoutError:
-            print("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
+            unit_test_logger.debug("[ERROR] \"Leading\" future was not resolved. It should've been resolved by now.")
             assert False  # Fail the test.
 
-        print("\"Leading\" future should be done now.")
+        unit_test_logger.debug("\"Leading\" future should be done now.")
         assert leading_future.done() == True
         assert raftLog.leader_id == 1
         assert raftLog.leader_term == 1
@@ -2133,18 +2142,18 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execution_done_future, 5)
         except TimeoutError:
-            print("[ERROR] \"execution_done\" future was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execution_done\" future was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
         assert execution_done_future.done()
 
         notification: ExecutionCompleteNotification = execution_done_future.result()
-        print(f"Got ExecutionCompleteNotification: {notification}")
+        unit_test_logger.debug(f"Got ExecutionCompleteNotification: {notification}")
         assert notification is not None
         assert notification.proposer_id == 1
         assert notification.election_term == 1
@@ -2169,11 +2178,11 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
             # We'll wait up to 5 seconds, but it should happen very quickly.
             await asyncio.wait_for(execute_request_task, 5)
         except TimeoutError:
-            print("[ERROR] \"execute_request\" task was not resolved.")
+            unit_test_logger.debug("[ERROR] \"execute_request\" task was not resolved.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False
 
@@ -2190,8 +2199,8 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
     assert 'smr_lead_task' in spoofed_session.message_types_sent
     assert 'status' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
+    unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
     assert spoofed_session.num_send_calls == 5
     assert len(spoofed_session.message_types_sent) == 5
@@ -2202,27 +2211,27 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
     """
     The election succeeds like normal after buffering two of the proposals.
     """
-    print(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
+    unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
 
-    print("FAILING ELECTION")
+    unit_test_logger.debug("FAILING ELECTION")
 
     # Get to a failed election
     await fail_election(kernel, execution_request, loop=loop)
 
-    print("ELECTION FAILED")
+    unit_test_logger.debug("ELECTION FAILED")
 
     # Now perform the migration, spoofing some aspects of it
     close_future: asyncio.Future[int] = loop.create_future()
 
     def mocked_raftlog_close(*args, **kwargs):
-        print(f"\nMocked RaftLog::close called with args {args} and kwargs {kwargs}.", flush=True)
+        unit_test_logger.debug(f"\nMocked RaftLog::close called with args {args} and kwargs {kwargs}.")
         close_future.set_result(1)
 
     write_data_dir_to_hdfs_future: asyncio.Future[bytes] = loop.create_future()
 
     async def mocked_raftlog_write_data_dir_to_hdfs(*args, **kwargs):
-        print(f"\nMocked RaftLog::write_data_dir_to_hdfs called with args {args} and kwargs {kwargs}.", flush=True)
+        unit_test_logger.debug(f"\nMocked RaftLog::write_data_dir_to_hdfs called with args {args} and kwargs {kwargs}.")
 
         assert isinstance(args[0], RaftLog)
 
@@ -2252,8 +2261,8 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
     assert "execute_reply" in spoofed_session.message_types_sent
     assert 'smr_ready' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
+    unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
     assert spoofed_session.num_send_calls == 5
     assert len(spoofed_session.message_types_sent) == 5
@@ -2264,16 +2273,16 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
 
     catchup_with_peers_future: asyncio.Future[int] = loop.create_future()
     async def mock_catchup_with_peers(*args, **kwargs):
-        print(f"Mocked RaftLog::catchup_with_peers called with args {args} and kwargs {kwargs}")
+        unit_test_logger.debug(f"Mocked RaftLog::catchup_with_peers called with args {args} and kwargs {kwargs}")
         catchup_with_peers_future.set_result(1)
 
     def mock_retrieve_serialized_state_from_remote_storage(*args, **kwargs):
-        print(f"Mocked RaftLog::retrieve_serialized_state_from_remote_storage called with args {args} and kwargs {kwargs}")
+        unit_test_logger.debug(f"Mocked RaftLog::retrieve_serialized_state_from_remote_storage called with args {args} and kwargs {kwargs}")
         return serialized_state
 
     append_catchup_value_future: asyncio.Future[SynchronizedValue] = loop.create_future()
     async def mock_append_catchup_value(*args, **kwargs):
-        print(f"Mocked RaftLog::_append_catchup_value called with args {args} and kwargs {kwargs}")
+        unit_test_logger.debug(f"Mocked RaftLog::_append_catchup_value called with args {args} and kwargs {kwargs}")
 
         catchup_val: SynchronizedValue = args[1]
         assert isinstance(catchup_val, SynchronizedValue)
@@ -2300,7 +2309,7 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         assert new_kernel != kernel
 
         await new_kernel.init_raft_log_event.wait()
-        print("New RaftLog created.")
+        unit_test_logger.debug("New RaftLog created.")
 
         new_raft_log: RaftLog = new_kernel.synclog
         assert new_raft_log != kernel.synclog
@@ -2312,21 +2321,21 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         assert new_raft_log.node_id == kernel.smr_node_id
 
         await new_kernel.init_synchronizer_event.wait()
-        print("New Synchronizer created.")
+        unit_test_logger.debug("New Synchronizer created.")
         await new_kernel.start_synchronizer_event.wait()
-        print("New Synchronizer started.")
+        unit_test_logger.debug("New Synchronizer started.")
         await new_kernel.init_persistent_store_event.wait()
-        print("New Persistent Store initialized.")
+        unit_test_logger.debug("New Persistent Store initialized.")
 
         try:
-            print("Waiting for 'catchup' future.")
+            unit_test_logger.debug("Waiting for 'catchup' future.")
             await asyncio.wait_for(append_catchup_value_future, 5)
         except TimeoutError:
-            print("[ERROR] Future for appending 'catchup' value timed-out.")
+            unit_test_logger.debug("[ERROR] Future for appending 'catchup' value timed-out.")
 
             for task in asyncio.all_tasks():
                 asyncio.Task.print_stack(task)
-                print("\n\n\n")
+                unit_test_logger.debug("\n\n\n")
 
             assert False # fail the test
 
