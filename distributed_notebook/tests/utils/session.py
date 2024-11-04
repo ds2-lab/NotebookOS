@@ -4,6 +4,7 @@ import typing as t
 import zmq
 import os
 from zmq.eventloop.zmqstream import ZMQStream
+from collections import defaultdict
 
 
 class SpoofedSession(Session):
@@ -14,6 +15,7 @@ class SpoofedSession(Session):
 
         self.num_send_calls: int = 0
         self.message_types_sent: list[str] = []
+        self.message_types_sent_counts: defaultdict[str, int] = defaultdict(int)
 
     def send(
             self,
@@ -49,6 +51,9 @@ class SpoofedSession(Session):
             header = msg["header"]
 
         if isinstance(header, dict) and "msg_type" in header:
-            self.message_types_sent.append(header["msg_type"])
+            msg_type:str = header["msg_type"]
+            self.message_types_sent.append(msg_type)
+            count: int = self.message_types_sent_counts[msg_type]
+            self.message_types_sent_counts[msg_type] = count + 1
 
         return msg
