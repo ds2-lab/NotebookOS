@@ -177,9 +177,9 @@ class Election(object):
         del state["election_finished_condition_waiter_loop"]
         del state["logger"]
 
-        self.logger.debug(f"Returning state dictionary containing {len(state)} entries:")
+        self.logger.debug(f"Election {self.term_number} returning state dictionary containing {len(state)} entries:")
         for key, val in state.items():
-            self.logger.debug(f"\"{key}\": {type(val).__name__}")
+            self.logger.debug(f"\"{key}\" ({type(val).__name__}): {val}")
 
         return state
 

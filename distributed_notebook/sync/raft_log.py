@@ -263,6 +263,16 @@ class RaftLog(object):
         sys.stdout.flush()
 
     @property
+    def election_decision_future(self)->Optional[asyncio.Future[LeaderElectionVote]]:
+        """
+        Future that is resolved when we propose that somebody win the current election.
+
+        This future returns the `LeaderElectionVote` that we will propose to nominate/synchronize
+        the winner of the election with our peers.
+        """
+        return self._election_decision_future
+
+    @property
     def node_id(self)->int:
         """
         Return this node's SMR node ID.
@@ -968,6 +978,10 @@ class RaftLog(object):
             "current_election": self._current_election,  # Election object
             "last_completed_election": self._last_completed_election,  # Election object
         }
+
+        self.logger.debug(f"RaftLog {self._node_id} returning state dictionary containing {len(data_dict)} entries:")
+        for key, val in data_dict.items():
+            self.logger.debug(f"\"{key}\" ({type(val).__name__}): {val}")
 
         try:
             serialized_data: bytes = pickle.dumps(data_dict)
