@@ -6,7 +6,7 @@ import os
 from zmq.eventloop.zmqstream import ZMQStream
 
 
-class TestSession(Session):
+class SpoofedSession(Session):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 

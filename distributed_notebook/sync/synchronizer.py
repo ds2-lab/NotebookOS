@@ -53,15 +53,22 @@ class Synchronizer:
         self._log.debug("Finished setting callbacks for Synclog (within Synchronizer).")
 
         self._async_loop = asyncio.get_running_loop()
+
+        self._log.debug("Got asyncio io loop")
+
         self._tags = {}
         self._ast = SyncAST()
+        self._log.debug("Created SyncAST")
         self._referer = SyncReferer()
+        self._log.debug("Created SyncReferer")
         self._opts = opts
         self._syncing = False  # Avoid checkpoint in the middle of syncing.
 
         self._synclog: SyncLog = sync_log
+        self._log.debug("Finished creating Synchronizer")
 
     def start(self):
+        self._log.debug("Starting Synchronizer")
         self._async_loop = asyncio.get_running_loop()
         self._synclog.start(self.change_handler)
 

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import shutil
 import pickle
 import sys
 from collections import OrderedDict
@@ -15,16 +16,43 @@ from distributed_notebook.sync import Synchronizer, CHECKPOINT_AUTO, RaftLog
 from distributed_notebook.sync.election import Election, ExecutionCompleted, AllReplicasProposedYield
 from distributed_notebook.sync.log import ElectionProposalKey, LeaderElectionProposal, \
     LeaderElectionVote, Checkpointer, ExecutionCompleteNotification
-from distributed_notebook.tests.utils.session import TestSession
+from distributed_notebook.tests.utils.session import SpoofedSession
 
 DefaultKernelId: str = "8a275c45-52fc-4390-8a79-9d8e86066a65"
 DefaultDate: str = "2024-11-01T15:32:45.123456789Z"
+FakePersistentStorePath:str = "unit-test-persistent-store"
 
+# The /store/ prefix is automatically added by kernels and whatnot.
+FullFakePersistentStorePath: str = f"./store/{FakePersistentStorePath}"
 
 # TODO (create the following unit tests):
 # - Receiving vote(s) for future election before receiving own call to yield_request or execute_request
 # - Receiving additional vote(s) doesn't cause anything to break (after the first vote is received)
 # - Migration-related unit tests
+
+@pytest.fixture(autouse=True)
+def remove_persistent_store_directory():
+    """
+    pytest fixture that will run before and after each unit test.
+    """
+    # Ensure the persistent store directory does not already exist.
+    try:
+        print(f"Removing persistent store directory \"{FullFakePersistentStorePath}\".")
+        shutil.rmtree(FullFakePersistentStorePath)
+        print(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
+    except FileNotFoundError:
+        print(f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
+
+    yield
+
+    # Remove the persistent store directory if it was created.
+    try:
+        print(f"Removing persistent store directory \"{FullFakePersistentStorePath}\".")
+        shutil.rmtree(FullFakePersistentStorePath)
+        print(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
+    except FileNotFoundError:
+        print(f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
+
 
 async def create_kernel(
         hdfs_namenode_hostname: str = "127.0.0.1:10000",
@@ -37,6 +65,7 @@ async def create_kernel(
         pod_name: str = "TestPod",
         node_name: str = "TestNode",
         debug_port: int = -1,
+        storage_base:str = "./",
         **kwargs
 ) -> DistributedKernel:
     keyword_args = {
@@ -50,6 +79,7 @@ async def create_kernel(
         "pod_name": pod_name,
         "node_name": node_name,
         "debug_port": debug_port,
+        "storage_base": storage_base,
     }
 
     keyword_args.update(kwargs)
@@ -59,30 +89,32 @@ async def create_kernel(
     kernel.num_replicas = 3
     kernel.should_read_data_from_hdfs = False
     kernel.deployment_mode = "DOCKER_SWARM"
-    kernel.session = TestSession()
-    kernel.store = "/"
+    kernel.session = SpoofedSession()
+    kernel.store = FakePersistentStorePath
     kernel.prometheus_port = -1
     kernel.debug_port = -1
     kernel.kernel_id = DefaultKernelId
 
-    kernel.synclog = RaftLog(kernel.smr_node_id,
-                             base_path=kernel.store,
-                             kernel_id=kernel.kernel_id,
-                             num_replicas=kernel.num_replicas,
-                             hdfs_hostname=kernel.hdfs_namenode_hostname,
-                             should_read_data_from_hdfs=kernel.should_read_data_from_hdfs,
-                             peer_addrs=[],
-                             peer_ids=[],
-                             join=kernel.smr_join,
-                             debug_port=kernel.debug_port,
-                             report_error_callback=kernel.report_error,
-                             send_notification_func=kernel.send_notification,
-                             hdfs_read_latency_callback=kernel.hdfs_read_latency_callback,
-                             deploymentMode=kernel.deployment_mode)
+    await kernel.init_persistent_store_with_persistent_id(FakePersistentStorePath)
 
-    kernel.synchronizer = Synchronizer(kernel.synclog, module=None, opts=CHECKPOINT_AUTO)
+    # kernel.synclog = RaftLog(kernel.smr_node_id,
+    #                          base_path=kernel.store,
+    #                          kernel_id=kernel.kernel_id,
+    #                          num_replicas=kernel.num_replicas,
+    #                          hdfs_hostname=kernel.hdfs_namenode_hostname,
+    #                          should_read_data_from_hdfs=kernel.should_read_data_from_hdfs,
+    #                          peer_addrs=[],
+    #                          peer_ids=[],
+    #                          join=kernel.smr_join,
+    #                          debug_port=kernel.debug_port,
+    #                          report_error_callback=kernel.report_error,
+    #                          send_notification_func=kernel.send_notification,
+    #                          hdfs_read_latency_callback=kernel.hdfs_read_latency_callback,
+    #                          deploymentMode=kernel.deployment_mode)
+    #
+    # kernel.synchronizer = Synchronizer(kernel.synclog, module=None, opts=CHECKPOINT_AUTO)
 
-    await kernel.override_shell()
+    # await kernel.override_shell()
 
     # Need to yield here rather than return, or else we'll go out-of-scope,
     # and the mock that happens above won't work.
@@ -244,8 +276,10 @@ def propose_vote(
     assert election.voting_phase_completed_successfully == True
     assert election.winner == expected_winner_id
 
-
-async def test_propose_lead_and_win_no_asserts(kernel: DistributedKernel, execution_request: dict[str, any]):
+async def example(kernel: DistributedKernel, execution_request: dict[str, any]):
+    """
+    propose_lead_and_win_no_asserts
+    """
     print(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
     synchronizer: Synchronizer = kernel.synchronizer
@@ -2031,7 +2065,7 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
 
         write_data_dir_to_hdfs_future.set_result(raftlog_state_serialized)
 
-        return "/mocked/hdfs/path/does/not/actually/exist"
+        return FakePersistentStorePath
 
     # with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "close", mocked_raftlog_close):
     with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
@@ -2044,9 +2078,9 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
 
     assert write_data_dir_to_hdfs_future.done()
 
-    test_session: TestSession = kernel.session
+    test_session: SpoofedSession = kernel.session
     assert test_session is not None
-    assert isinstance(test_session, TestSession)
+    assert isinstance(test_session, SpoofedSession)
 
     assert "prepare_to_migrate_reply" in test_session.message_types_sent
     assert "execute_input" in test_session.message_types_sent
@@ -2069,19 +2103,33 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
     assert state is not None
     assert isinstance(state, dict)
 
-    # TODO: Apply serialized state. Recreate Kernel.
-    new_kernel: DistributedKernel = await create_kernel(**state)
+    catchup_with_peers_future: asyncio.Future[int] = loop.create_future()
+    async def mock_catchup_with_peers(*args, **kwargs):
+        print(f"Mocked RaftLog::catchup_with_peers called with args {args} and kwargs {kwargs}")
+        catchup_with_peers_future.set_result(1)
 
-    assert new_kernel is not None
-    new_raft_log: RaftLog = new_kernel.synclog
+    def mock_retrieve_serialized_state_from_remote_storage(*args, **kwargs):
+        print(f"Mocked RaftLog::retrieve_serialized_state_from_remote_storage called with args {args} and kwargs {kwargs}")
+        return serialized_state
 
-    assert new_kernel != kernel
-    assert new_raft_log != kernel.synclog
+    # with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "catchup_with_peers", catchup_with_peers_future):
+    with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog,
+                           "retrieve_serialized_state_from_remote_storage",
+                           mock_retrieve_serialized_state_from_remote_storage):
+        # TODO: Apply serialized state. Recreate Kernel.
+        new_kernel: DistributedKernel = await create_kernel(**state)
 
-    assert new_kernel.kernel_id == kernel.kernel_id
-    assert new_kernel.smr_node_id == kernel.smr_node_id
+        print("Created kernel")
 
-    assert new_raft_log._kernel_id == kernel.kernel_id
-    assert new_raft_log.node_id == kernel.smr_node_id
+        assert new_kernel is not None
+        new_raft_log: RaftLog = new_kernel.synclog
 
-    # TODO: Finish this unit test.
+        assert new_kernel != kernel
+        assert new_raft_log != kernel.synclog
+
+        assert new_kernel.kernel_id == kernel.kernel_id
+        assert new_kernel.smr_node_id == kernel.smr_node_id
+
+        assert new_raft_log._kernel_id == kernel.kernel_id
+        assert new_raft_log.node_id == kernel.smr_node_id
+

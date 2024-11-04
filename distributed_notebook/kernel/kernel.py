@@ -1098,7 +1098,7 @@ class DistributedKernel(IPythonKernel):
             self.log.debug("Calling `notify_all` on the Persistent Store condition variable.")
             self.persistent_store_cv.notify_all()
 
-        return store
+        return store_path
 
     async def check_persistent_store(self):
         """Check if persistent store is ready. If initializing, wait. The future return True if ready."""

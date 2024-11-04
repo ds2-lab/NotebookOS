@@ -237,7 +237,7 @@ class RaftLog(object):
         sys.stdout.flush()
 
         # This will just do nothing if there's no serialized state to be loaded.
-        self._needs_to_catch_up: bool = self._load_and_apply_serialized_state()
+        self._needs_to_catch_up: bool = self.load_and_apply_serialized_state()
 
         # If we do need to catch up, then we'll create the state necessary to do so now. 
         # As soon as we call `RaftLog::start`, we could begin receiving proposals, so we need this state to exist now.
@@ -287,6 +287,10 @@ class RaftLog(object):
             self.logger.debug(f"Creating persistent store directory: \"{path}\"")
             os.makedirs(path, 0o750, exist_ok=True)  # It's OK if it already exists.
             self.logger.debug(f"Created persistent store directory \"{path}\" (or it already exists).")
+        elif path == "":
+            self.logger.warning("Persistent store specified as empty string. Skipping directory creation.")
+        elif os.path.exists(path):
+            self.logger.warning(f"Persistent store path \"{path}\" already exists. Skipping directory creation.")
 
     def __buffer_vote(self, vote: LeaderElectionVote, received_at: float = time.time()) -> bytes:
         # Save the vote in the "buffered votes" dictionary.
@@ -997,7 +1001,31 @@ class RaftLog(object):
 
         return serialized_data
 
-    def _load_and_apply_serialized_state(self) -> bool:
+    def retrieve_serialized_state_from_remote_storage(self)->bytes:
+        """
+        Retrieve our serialized state from remote storage (via the Golang-level LogNode).
+
+        If there is no serialized state, then the returned bytes object will be empty.
+        """
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.GetSerializedState)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+        val: Slice_byte = self._log_node.GetSerializedState()
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.GetSerializedState)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+        self.logger.debug(f"Retrieved serialized state from LogNode: {val}")
+
+        try:
+            serialized_state_bytes: bytes = bytes(val)  # Convert the Go bytes (Slice_byte) to Python bytes.
+            return serialized_state_bytes
+        except Exception as ex:
+            self.logger.error(f"Failed to convert Golang Slice_bytes to Python bytes because: {ex}")
+            sys.stderr.flush()
+            sys.stdout.flush()
+            raise ex
+
+    def load_and_apply_serialized_state(self) -> bool:
         """
         Retrieve the serialized state read by the Go-level LogNode. 
         This state is read from HDFS during migration/error recovery.
@@ -1015,25 +1043,9 @@ class RaftLog(object):
             sys.stdout.flush()
             raise ValueError("LogNode is None while trying to retrieve and apply serialized state")
 
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.GetSerializedState)")
-        sys.stderr.flush()
-        sys.stdout.flush()
-        val: Slice_byte = self._log_node.GetSerializedState()
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.GetSerializedState)")
-        sys.stderr.flush()
-        sys.stdout.flush()
-        self.logger.debug(f"Retrieved serialized state from LogNode: {val}")
-
-        try:
-            serialized_state_bytes: bytes = bytes(val)  # Convert the Go bytes (Slice_byte) to Python bytes.
-        except Exception as ex:
-            self.logger.error(f"Failed to convert Golang Slice_bytes to Python bytes because: {ex}")
-            sys.stderr.flush()
-            sys.stdout.flush()
-            raise ex
+        serialized_state_bytes: bytes = self.retrieve_serialized_state_from_remote_storage()
 
         self.logger.debug("Successfully converted Golang Slice_bytes to Python bytes.")
-        # self.logger.debug("Python bytes: ", serialized_state_bytes)
 
         if len(serialized_state_bytes) == 0:
             self.logger.debug("No serialized state found. Nothing to load and apply.")
