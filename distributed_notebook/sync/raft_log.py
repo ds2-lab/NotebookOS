@@ -71,7 +71,7 @@ class RaftLog(object):
             send_notification_func: Callable[[str, str, int], None] = None,
             hdfs_read_latency_callback: Optional[Callable[[int], None]] = None,
             election_timeout_seconds: float = 10,
-            deploymentMode: str = "LOCAL",
+            deployment_mode: str = "LOCAL",
     ):
         self._shouldSnapshotCallback = None
         if len(hdfs_hostname) == 0:
@@ -107,6 +107,8 @@ class RaftLog(object):
         self._last_winner_id: int = -1
         self._report_error_callback = report_error_callback
         self._send_notification_func = send_notification_func
+        self._deployment_mode = deployment_mode
+        self._leader_term_before_migration: int = -1
 
         # How long to wait to receive other proposals before making a decision (if we can, like if we
         # have at least received one LEAD proposal).
@@ -129,28 +131,16 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        self._log_node = NewLogNode(self._persistent_store_path, node_id, hdfs_hostname, should_read_data_from_hdfs,
-                                    Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port, deploymentMode)
-        self.logger.info("<< RETURNED FROM GO CODE (NewLogNode)")
-        sys.stderr.flush()
-        sys.stdout.flush()
-
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.ConnectedToHDFS)")
-        sys.stderr.flush()
-        sys.stdout.flush()
-        if self._log_node is None:
-            self.logger.error("Failed to create LogNode.")
-            sys.stderr.flush()
-            sys.stdout.flush()
-            raise RuntimeError("Failed to create LogNode.")
-        elif not self._log_node.ConnectedToHDFS():
-            self.logger.error("The LogNode failed to connect to HDFS.")
-            sys.stderr.flush()
-            sys.stdout.flush()
-            raise RuntimeError("The LogNode failed to connect to HDFS")
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.ConnectedToHDFS)")
-        sys.stderr.flush()
-        sys.stdout.flush()
+        self._log_node = self.create_log_node(
+            node_id=node_id,
+            hdfs_hostname=hdfs_hostname,
+            should_read_data_from_hdfs=should_read_data_from_hdfs,
+            peer_addrs=peer_addrs,
+            peer_ids=peer_ids,
+            join=join,
+            debug_port=debug_port,
+            deployment_mode=deployment_mode
+        )
 
         self.logger.info(f"Successfully created LogNode {node_id}.")
 
@@ -262,8 +252,44 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
+    def create_log_node(
+            self,
+            node_id: int,
+            hdfs_hostname: str = "172.17.0.1:9000",
+            should_read_data_from_hdfs: bool = False,
+            peer_addrs: Iterable[str] = [],
+            peer_ids: Iterable[int] = [],
+            join: bool = False,
+            debug_port: int = 8464,
+            deployment_mode: str = "LOCAL",
+    ) -> LogNode:
+        log_node: LogNode = NewLogNode(self._persistent_store_path, node_id, hdfs_hostname, should_read_data_from_hdfs,
+                                       Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port, deployment_mode)
+        self.logger.info("<< RETURNED FROM GO CODE (NewLogNode)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.ConnectedToHDFS)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+        if log_node is None:
+            self.logger.error("Failed to create LogNode.")
+            sys.stderr.flush()
+            sys.stdout.flush()
+            raise RuntimeError("Failed to create LogNode.")
+        elif not log_node.ConnectedToHDFS():
+            self.logger.error("The LogNode failed to connect to HDFS.")
+            sys.stderr.flush()
+            sys.stdout.flush()
+            raise RuntimeError("The LogNode failed to connect to HDFS")
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.ConnectedToHDFS)")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
+        return log_node
+
     @property
-    def election_decision_future(self)->Optional[asyncio.Future[LeaderElectionVote]]:
+    def election_decision_future(self) -> Optional[asyncio.Future[LeaderElectionVote]]:
         """
         Future that is resolved when we propose that somebody win the current election.
 
@@ -273,7 +299,7 @@ class RaftLog(object):
         return self._election_decision_future
 
     @property
-    def node_id(self)->int:
+    def node_id(self) -> int:
         """
         Return this node's SMR node ID.
         """
@@ -850,25 +876,25 @@ class RaftLog(object):
         reader = readCloser(ReadCloser(handle=rc), sz)
         unpickler = pickle.Unpickler(reader)
 
-        syncval = None
+        synchronizedValue: Optional[SynchronizedValue] = None
         try:
-            syncval = unpickler.load()
+            synchronizedValue = unpickler.load()
         except Exception:
             pass
 
         # Recount _ignore_changes
         self._ignore_changes = 0
         restored = 0
-        while syncval is not None:
+        while synchronizedValue is not None:
             try:
                 assert self._change_handler is not None
-                self._change_handler(self._load_value(syncval))
+                self._change_handler(self._load_value(synchronizedValue))
                 restored = restored + 1
 
-                syncval = None
-                syncval = unpickler.load()
+                synchronizedValue = None
+                synchronizedValue = unpickler.load()
             except SyncError as se:
-                self.logger.error("Error on restoreing snapshot: {}".format(se))
+                self.logger.error("Error on restoring snapshot: {}".format(se))
                 return GoError(se)
             except Exception:
                 pass
@@ -889,9 +915,9 @@ class RaftLog(object):
         reader = readCloser(ReadCloser(handle=goObject), size=aggregate_size)
         unpickler = pickle.Unpickler(reader)
 
-        syncval = None
+        synchronizedValue: Optional[SynchronizedValue] = None
         try:
-            syncval = unpickler.load()
+            synchronizedValue = unpickler.load()
         except Exception as ex:
             self.logger.error(
                 f"Could not load first synchronized value to restore (aggregate_size = {aggregate_size}) because: {ex}")
@@ -900,13 +926,13 @@ class RaftLog(object):
         self._ignore_changes = 0
         restored: int = 0
         # TODO: Debug why, when reading from a read closer and we get to the end, it automatically loops back to the beginning.
-        while syncval is not None:
+        while synchronizedValue is not None:
             assert self._change_handler is not None
             # self.logger.debug("Loading next SynchronizedValue to restore.")
             try:
-                loaded_value: Optional[SynchronizedValue] = self._load_value(syncval)
+                loaded_value: Optional[SynchronizedValue] = self._load_value(synchronizedValue)
             except Exception as ex:
-                self.logger.error(f"Unexpected exception encountered while loading SynchronizedValue {syncval}: {ex}")
+                self.logger.error(f"Unexpected exception encountered while loading SynchronizedValue {synchronizedValue}: {ex}")
                 return GoError(ex)
 
             if loaded_value.id in restored_sync_values:
@@ -936,14 +962,14 @@ class RaftLog(object):
 
             restored_sync_values.add(loaded_value.id)
 
-            syncval = None
+            synchronizedValue = None
             loaded_value = None
             # self.logger.debug(f"syncval before calling load: {syncval}")
-            syncval = unpickler.load()
+            synchronizedValue = unpickler.load()
             # self.logger.debug(f"syncval after calling load: {syncval}")
 
-            if syncval is not None:
-                self.logger.debug(f"Read next Synchronized Value from recovery data: {syncval}")
+            if synchronizedValue is not None:
+                self.logger.debug(f"Read next Synchronized Value from recovery data: {synchronizedValue}")
             else:
                 self.logger.debug(f"Got 'None' from recovery data. We're done processing recovered state.")
 
@@ -1001,7 +1027,7 @@ class RaftLog(object):
 
         return serialized_data
 
-    def retrieve_serialized_state_from_remote_storage(self)->bytes:
+    def retrieve_serialized_state_from_remote_storage(self) -> bytes:
         """
         Retrieve our serialized state from remote storage (via the Golang-level LogNode).
 
@@ -1063,7 +1089,7 @@ class RaftLog(object):
             raise ValueError("Invalid serialized state; could not be unpickled.")
 
         for key, entry in data_dict.items():
-            self.logger.debug(f"Retrived state \"{key}\": {str(entry)}")
+            self.logger.debug(f"Retrieved state \"{key}\": {str(entry)}")
 
         sys.stderr.flush()
         sys.stdout.flush()
@@ -1303,6 +1329,21 @@ class RaftLog(object):
         rather than mocking the more generic _serialize_and_append_value method.
         """
         await self._serialize_and_append_value(proposal)
+
+    async def _append_catchup_value(self, value: SynchronizedValue):
+        """
+        Explicitly propose and append (to the synchronized Raft log) a SynchronizedValue object, which will
+        serve as an indicator that we've "caught up" to our peers when we're replaying the raft log during
+        following migration.
+
+        That is, we call our "value committed" callback for all the previously-committed values in the raft
+        cluster. Before we do that though, we commit this "catchup value", so that we know we're done replaying
+        once we see the catchup value passed as an argument to our "value committed" callback.
+
+        This function exists so that we can mock proposals of ExecutionCompleteNotification objects specifically,
+        rather than mocking the more generic _serialize_and_append_value method.
+        """
+        await self._serialize_and_append_value(value)
 
     async def _append_execution_end_notification(self, value: ExecutionCompleteNotification):
         """
@@ -1593,10 +1634,18 @@ class RaftLog(object):
 
         self.logger.debug("Proposing & appending our \"catch up\" value now.")
 
-        await self.append(self._catchup_value)
+        await self._append_catchup_value(self._catchup_value)
 
         self.logger.debug("We've successfully proposed & appended our \"catch up\" value.")
 
+        await self.wait_until_we_have_caught_up()
+
+    async def wait_until_we_have_caught_up(self):
+        """
+        Called by catchup_with_peers. Exists as a separate function so we can mock it while unit testing.
+
+        Basically just awaits the self._catchup_future variable and then sets a bunch of state to None afterwards.
+        """
         await self._catchup_future  # Wait for the value to be committed.
 
         if self._send_notification_func is not None:

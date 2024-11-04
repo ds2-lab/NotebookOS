@@ -1,21 +1,34 @@
+import logging
+from types import CodeType
+
 from jupyter_client.session import Session, Message
 
 import typing as t
 import zmq
-import os
+import inspect
 from zmq.eventloop.zmqstream import ZMQStream
 from collections import defaultdict
+
+from distributed_notebook.tests.utils.util import extract_last_two_parts
 
 
 class SpoofedSession(Session):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        print("Created new Test Session")
-
         self.num_send_calls: int = 0
         self.message_types_sent: list[str] = []
         self.message_types_sent_counts: defaultdict[str, int] = defaultdict(int)
+
+        self.log = logging.getLogger(__class__.__name__)
+        self.log.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        fm = logging.Formatter(fmt = "%(asctime)s [%(levelname)s] %(name)s [%(threadName)s (%(thread)d)]: %(message)s ")
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(fm)
+        self.log.addHandler(ch)
+
+        self.log.debug(f"SpoofedSession::__init__ called with kwargs={kwargs}.")
 
     def send(
             self,
@@ -29,8 +42,10 @@ class SpoofedSession(Session):
             header: dict[str, t.Any] | None = None,
             metadata: dict[str, t.Any] | None = None,
     ):
-        print(f"TestSession::send called with msg_or_type={msg_or_type}, content={content}, parent={parent}, "
-              f"ident={ident}, buffers={buffers}, metadata={metadata}, and header={header}.")
+        f_code: CodeType = inspect.currentframe().f_back.f_code
+        self.log.debug(f"TestSession::send called by function '{f_code.co_name}' from "
+              f"{extract_last_two_parts(f_code.co_filename)}::{f_code.co_firstlineno} with msg_or_type={msg_or_type}, content={content}, "
+              f"parent={parent}, ident={ident}, buffers={buffers}, metadata={metadata}, and header={header}.")
 
         self.num_send_calls += 1
 

@@ -9,14 +9,17 @@ from unittest import mock
 
 import pytest
 import pytest_asyncio
+from ipykernel.control import ControlThread
 
 import distributed_notebook.sync.raft_log
 from distributed_notebook.kernel.kernel import DistributedKernel
 from distributed_notebook.sync import Synchronizer, CHECKPOINT_AUTO, RaftLog
 from distributed_notebook.sync.election import Election, ExecutionCompleted, AllReplicasProposedYield
 from distributed_notebook.sync.log import ElectionProposalKey, LeaderElectionProposal, \
-    LeaderElectionVote, Checkpointer, ExecutionCompleteNotification
+    LeaderElectionVote, Checkpointer, ExecutionCompleteNotification, SynchronizedValue, KEY_CATCHUP
+from distributed_notebook.tests.utils.lognode import SpoofedLogNode
 from distributed_notebook.tests.utils.session import SpoofedSession
+from distributed_notebook.tests.utils.stream import SpoofedStream
 
 DefaultKernelId: str = "8a275c45-52fc-4390-8a79-9d8e86066a65"
 DefaultDate: str = "2024-11-01T15:32:45.123456789Z"
@@ -53,6 +56,10 @@ def remove_persistent_store_directory():
     except FileNotFoundError:
         print(f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
 
+def mock_create_log_node(*args, **mock_kwargs):
+    print(f"Mocked RaftLog::create_log_node called with args {args} and kwargs {mock_kwargs}.")
+
+    return SpoofedLogNode(**mock_kwargs)
 
 async def create_kernel(
         hdfs_namenode_hostname: str = "127.0.0.1:10000",
@@ -66,6 +73,8 @@ async def create_kernel(
         node_name: str = "TestNode",
         debug_port: int = -1,
         storage_base:str = "./",
+        init_persistent_store: bool = True,
+        call_start: bool = True,
         **kwargs
 ) -> DistributedKernel:
     keyword_args = {
@@ -86,16 +95,16 @@ async def create_kernel(
 
     os.environ.setdefault("PROMETHEUS_METRICS_PORT", "-1")
     kernel: DistributedKernel = DistributedKernel(**keyword_args)
+    kernel.control_thread = ControlThread(daemon=True)
+    kernel.control_stream = SpoofedStream()
     kernel.num_replicas = 3
     kernel.should_read_data_from_hdfs = False
     kernel.deployment_mode = "DOCKER_SWARM"
     kernel.session = SpoofedSession()
-    kernel.store = FakePersistentStorePath
+    # kernel.store = FakePersistentStorePath
     kernel.prometheus_port = -1
     kernel.debug_port = -1
     kernel.kernel_id = DefaultKernelId
-
-    await kernel.init_persistent_store_with_persistent_id(FakePersistentStorePath)
 
     # kernel.synclog = RaftLog(kernel.smr_node_id,
     #                          base_path=kernel.store,
@@ -114,7 +123,15 @@ async def create_kernel(
     #
     # kernel.synchronizer = Synchronizer(kernel.synclog, module=None, opts=CHECKPOINT_AUTO)
 
-    # await kernel.override_shell()
+    if call_start:
+        kernel.start()
+
+    if init_persistent_store:
+        with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "create_log_node", mock_create_log_node):
+            # await kernel.init_persistent_store_with_persistent_id(FakePersistentStorePath)
+            print("Calling init_persistent_store from create_kernel fixture.")
+            code = "persistent_id = \"%s\"" % FakePersistentStorePath
+            await kernel.init_persistent_store(code)
 
     # Need to yield here rather than return, or else we'll go out-of-scope,
     # and the mock that happens above won't work.
@@ -580,12 +597,13 @@ async def test_propose_lead_and_win(kernel: DistributedKernel, execution_request
     assert "execute_reply" in spoofed_session.message_types_sent
     assert 'smr_ready' in spoofed_session.message_types_sent
     assert 'smr_lead_task' in spoofed_session.message_types_sent
+    assert 'status' in spoofed_session.message_types_sent
 
     print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
     print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
-    assert spoofed_session.num_send_calls == 4
-    assert len(spoofed_session.message_types_sent) == 4
+    assert spoofed_session.num_send_calls == 5
+    assert len(spoofed_session.message_types_sent) == 5
 
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
@@ -744,12 +762,13 @@ async def test_propose_lead_and_lose(kernel: DistributedKernel, execution_reques
     assert "execute_input" in spoofed_session.message_types_sent
     assert "execute_reply" in spoofed_session.message_types_sent
     assert 'smr_ready' in spoofed_session.message_types_sent
+    assert 'status' in spoofed_session.message_types_sent
 
     print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
     print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
-    assert spoofed_session.num_send_calls == 3
-    assert len(spoofed_session.message_types_sent) == 3
+    assert spoofed_session.num_send_calls == 4
+    assert len(spoofed_session.message_types_sent) == 4
 
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
@@ -901,12 +920,13 @@ async def test_propose_yield_and_lose(kernel: DistributedKernel, execution_reque
     assert "execute_input" in spoofed_session.message_types_sent
     assert "execute_reply" in spoofed_session.message_types_sent
     assert 'smr_ready' in spoofed_session.message_types_sent
+    assert 'status' in spoofed_session.message_types_sent
 
     print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
     print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
-    assert spoofed_session.num_send_calls == 3
-    assert len(spoofed_session.message_types_sent) == 3
+    assert spoofed_session.num_send_calls == 4
+    assert len(spoofed_session.message_types_sent) == 4
 
 
 def assert_election_failed(
@@ -1060,12 +1080,13 @@ async def test_election_fails_when_all_propose_yield(kernel: DistributedKernel, 
     assert "execute_input" in spoofed_session.message_types_sent
     assert "execute_reply" in spoofed_session.message_types_sent
     assert 'smr_ready' in spoofed_session.message_types_sent
+    assert 'status' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}", flush = True)
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}", flush = True)
+    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
-    assert spoofed_session.num_send_calls == 3
-    assert len(spoofed_session.message_types_sent) == 3
+    assert spoofed_session.num_send_calls == 4
+    assert len(spoofed_session.message_types_sent) == 4
 
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
@@ -1138,12 +1159,13 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
     assert "execute_input" in spoofed_session.message_types_sent
     assert "execute_reply" in spoofed_session.message_types_sent
     assert 'smr_ready' in spoofed_session.message_types_sent
+    assert 'status' in spoofed_session.message_types_sent
 
-    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}", flush = True)
-    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}", flush = True)
+    print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
+    print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
-    assert spoofed_session.num_send_calls == 3
-    assert len(spoofed_session.message_types_sent) == 3
+    assert spoofed_session.num_send_calls == 4
+    assert len(spoofed_session.message_types_sent) == 4
 
     ################
     # SECOND ROUND #
@@ -1323,15 +1345,19 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
     assert "execute_input" in spoofed_session.message_types_sent
     assert "execute_reply" in spoofed_session.message_types_sent
     assert 'smr_ready' in spoofed_session.message_types_sent
+    assert 'status' in spoofed_session.message_types_sent
+    assert 'smr_lead_task' in spoofed_session.message_types_sent
 
     print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}", flush = True)
     print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}", flush = True)
 
-    assert spoofed_session.num_send_calls == 6
-    assert len(spoofed_session.message_types_sent) == 6
+    assert spoofed_session.num_send_calls == 7
+    assert len(spoofed_session.message_types_sent) == 7
     assert spoofed_session.message_types_sent_counts["execute_input"] == 2
     assert spoofed_session.message_types_sent_counts["execute_reply"] == 2
-    assert spoofed_session.message_types_sent_counts["smr_ready"] == 2
+    assert spoofed_session.message_types_sent_counts["smr_ready"] == 1
+    assert spoofed_session.message_types_sent_counts["status"] == 1
+    assert spoofed_session.message_types_sent_counts["smr_lead_task"] == 1
 
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
@@ -1611,16 +1637,18 @@ async def test_fail_election_nine_times_then_win(kernel: DistributedKernel, exec
     assert "execute_reply" in spoofed_session.message_types_sent
     assert "smr_ready" in spoofed_session.message_types_sent
     assert "smr_lead_task" in spoofed_session.message_types_sent
+    assert "status" in spoofed_session.message_types_sent
 
     print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}", flush = True)
     print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}", flush = True)
 
-    assert spoofed_session.num_send_calls == 22
-    assert len(spoofed_session.message_types_sent) == 22
+    assert spoofed_session.num_send_calls == 23
+    assert len(spoofed_session.message_types_sent) == 23
     assert spoofed_session.message_types_sent_counts["execute_input"] == (NUM_FAILURES + 1)
     assert spoofed_session.message_types_sent_counts["execute_reply"] == (NUM_FAILURES + 1)
     assert spoofed_session.message_types_sent_counts["smr_ready"] == 1
     assert spoofed_session.message_types_sent_counts["smr_lead_task"] == 1
+    assert spoofed_session.message_types_sent_counts["status"] == 1
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
@@ -1763,16 +1791,18 @@ async def test_election_success_after_timing_out(kernel: DistributedKernel, exec
     assert "execute_reply" in spoofed_session.message_types_sent
     assert "smr_ready" in spoofed_session.message_types_sent
     assert "smr_lead_task" in spoofed_session.message_types_sent
+    assert 'status' in spoofed_session.message_types_sent
 
     print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}", flush = True)
     print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}", flush = True)
 
-    assert spoofed_session.num_send_calls == 4
-    assert len(spoofed_session.message_types_sent) == 4
+    assert spoofed_session.num_send_calls == 5
+    assert len(spoofed_session.message_types_sent) == 5
     assert spoofed_session.message_types_sent_counts["execute_input"] == 1
     assert spoofed_session.message_types_sent_counts["execute_reply"] == 1
     assert spoofed_session.message_types_sent_counts["smr_ready"] == 1
     assert spoofed_session.message_types_sent_counts["smr_lead_task"] == 1
+    assert spoofed_session.message_types_sent_counts["status"] == 1
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
@@ -1945,12 +1975,13 @@ async def test_election_loss_buffer_one_lead_proposal(kernel: DistributedKernel,
     assert "execute_input" in spoofed_session.message_types_sent
     assert "execute_reply" in spoofed_session.message_types_sent
     assert 'smr_ready' in spoofed_session.message_types_sent
+    assert 'status' in spoofed_session.message_types_sent
 
     print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
     print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
-    assert spoofed_session.num_send_calls == 3
-    assert len(spoofed_session.message_types_sent) == 3
+    assert spoofed_session.num_send_calls == 4
+    assert len(spoofed_session.message_types_sent) == 4
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 
@@ -2157,12 +2188,13 @@ async def test_election_win_buffer_one_yield_proposal(kernel: DistributedKernel,
     assert "execute_reply" in spoofed_session.message_types_sent
     assert 'smr_ready' in spoofed_session.message_types_sent
     assert 'smr_lead_task' in spoofed_session.message_types_sent
+    assert 'status' in spoofed_session.message_types_sent
 
     print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
     print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
-    assert spoofed_session.num_send_calls == 4
-    assert len(spoofed_session.message_types_sent) == 4
+    assert spoofed_session.num_send_calls == 5
+    assert len(spoofed_session.message_types_sent) == 5
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
@@ -2223,22 +2255,12 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
     print(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
     print(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
-    assert spoofed_session.num_send_calls == 4
-    assert len(spoofed_session.message_types_sent) == 4
+    assert spoofed_session.num_send_calls == 5
+    assert len(spoofed_session.message_types_sent) == 5
 
     serialized_state: bytes = write_data_dir_to_hdfs_future.result()
     assert serialized_state is not None
     assert isinstance(serialized_state, bytes)
-
-    state: Optional[dict[str, any]] = None
-    try:
-        state = pickle.loads(serialized_state)
-    except Exception as ex:
-        print(f"Failed to unpickle serialized state: {ex}")
-        assert ex is None  # Will necessarily fail
-
-    assert state is not None
-    assert isinstance(state, dict)
 
     catchup_with_peers_future: asyncio.Future[int] = loop.create_future()
     async def mock_catchup_with_peers(*args, **kwargs):
@@ -2249,19 +2271,38 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         print(f"Mocked RaftLog::retrieve_serialized_state_from_remote_storage called with args {args} and kwargs {kwargs}")
         return serialized_state
 
+    append_catchup_value_future: asyncio.Future[SynchronizedValue] = loop.create_future()
+    async def mock_append_catchup_value(*args, **kwargs):
+        print(f"Mocked RaftLog::_append_catchup_value called with args {args} and kwargs {kwargs}")
+
+        catchup_val: SynchronizedValue = args[1]
+        assert isinstance(catchup_val, SynchronizedValue)
+        assert catchup_val.proposer_id == 1
+        assert catchup_val.key == KEY_CATCHUP
+        assert catchup_val.should_end_execution == False
+        assert catchup_val.operation == KEY_CATCHUP
+        assert catchup_val.election_term == args[0]._leader_term_before_migration
+
+        append_catchup_value_future.set_result(args[1])
+
     # with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "catchup_with_peers", catchup_with_peers_future):
-    with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog,
-                           "retrieve_serialized_state_from_remote_storage",
-                           mock_retrieve_serialized_state_from_remote_storage):
+    with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
+                             retrieve_serialized_state_from_remote_storage=mock_retrieve_serialized_state_from_remote_storage,
+                             _append_catchup_value=mock_append_catchup_value), \
+            mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "create_log_node", mock_create_log_node):
         # TODO: Apply serialized state. Recreate Kernel.
-        new_kernel: DistributedKernel = await create_kernel(**state)
-
-        print("Created kernel")
-
+        new_kernel: DistributedKernel = await create_kernel(init_persistent_store = False, call_start=False)
         assert new_kernel is not None
-        new_raft_log: RaftLog = new_kernel.synclog
+
+        # with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "create_log_node", mock_create_log_node):
+        init_persistent_store_task: asyncio.Task[str] = asyncio.create_task(kernel.init_persistent_store_with_persistent_id(FakePersistentStorePath), name = "Initialize Persistent Store")
 
         assert new_kernel != kernel
+
+        await new_kernel.init_raft_log_event.wait()
+        print("New RaftLog created.")
+
+        new_raft_log: RaftLog = new_kernel.synclog
         assert new_raft_log != kernel.synclog
 
         assert new_kernel.kernel_id == kernel.kernel_id
@@ -2270,3 +2311,25 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         assert new_raft_log._kernel_id == kernel.kernel_id
         assert new_raft_log.node_id == kernel.smr_node_id
 
+        await new_kernel.init_synchronizer_event.wait()
+        print("New Synchronizer created.")
+        await new_kernel.start_synchronizer_event.wait()
+        print("New Synchronizer started.")
+        await new_kernel.init_persistent_store_event.wait()
+        print("New Persistent Store initialized.")
+
+        try:
+            print("Waiting for 'catchup' future.")
+            await asyncio.wait_for(append_catchup_value_future, 5)
+        except TimeoutError:
+            print("[ERROR] Future for appending 'catchup' value timed-out.")
+
+            for task in asyncio.all_tasks():
+                asyncio.Task.print_stack(task)
+                print("\n\n\n")
+
+            assert False # fail the test
+
+        assert append_catchup_value_future.done()
+        catchup_value: SynchronizedValue = append_catchup_value_future.result()
+        assert catchup_value.key == KEY_CATCHUP

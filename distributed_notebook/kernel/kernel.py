@@ -21,6 +21,7 @@ from threading import Lock
 from typing import Union, Optional, Dict, Any
 from concurrent import futures
 
+import debugpy
 import grpc
 import zmq
 from ipykernel import jsonutil
@@ -320,6 +321,10 @@ class DistributedKernel(IPythonKernel):
         self.run_training_code_mutex: Lock = Lock()
         self.run_training_code: bool = False
 
+        # If true, then we create a debugpy server.
+        self.debugpy_enabled: bool = False
+        self.debugpy_wait_for_client: bool = False
+
         # The time at which we were created (i.e., the time at which the DistributedKernel object was instantiated)
         self.created_at: float = time.time()
 
@@ -329,6 +334,12 @@ class DistributedKernel(IPythonKernel):
         # By default, we do not want to remove the replica from the raft SMR cluster on shutdown.
         # We'll only do this if we're explicitly told to do so.
         self.remove_on_shutdown = False
+
+        # asyncio.Event objects for initialization steps
+        self.init_raft_log_event: asyncio.Event = asyncio.Event()
+        self.init_synchronizer_event: asyncio.Event = asyncio.Event()
+        self.start_synchronizer_event: asyncio.Event = asyncio.Event()
+        self.init_persistent_store_event: asyncio.Event = asyncio.Event()
 
         # How long to wait to receive other proposals before making a decision (if we can, like if we
         # have at least received one LEAD proposal).
@@ -462,6 +473,10 @@ class DistributedKernel(IPythonKernel):
             # self.start()
 
     def __init_tcp_server(self):
+        if self.local_tcp_server_port == 0:
+            self.log.warning(f"Local TCP server port set to {self.local_tcp_server_port}. Returning immediately.")
+            return
+
         self.local_tcp_server_queue: Queue = Queue()
         self.local_tcp_server_process: Process = Process(target=self.server_process,
                                                          args=(self.local_tcp_server_queue,))
@@ -473,6 +488,11 @@ class DistributedKernel(IPythonKernel):
     # TODO(Ben): Is this actually being used right now?
     def server_process(self, queue: Queue):
         faulthandler.enable()
+
+        if self.local_tcp_server_port == 0:
+            self.log.warning(f"[Local TCP Server] Port set to {self.local_tcp_server_port}. Returning immediately.")
+            return
+
         self.log.info(f"[Local TCP Server] Starting. Port: {self.local_tcp_server_port}")
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(('127.0.0.1', self.local_tcp_server_port))
@@ -639,26 +659,28 @@ class DistributedKernel(IPythonKernel):
 
         self.daemon_registration_socket.close()
 
+    def init_debugpy(self):
+        if not self.debugpy_enabled or self.debug_port < 0:
+            self.log.debug("debugpy server is disabled or server port is set to a negative number.")
+            return
+
+        debugpy_port:int = self.debug_port + 1000
+        self.log.debug(f"Starting debugpy server on 0.0.0.0:{debugpy_port}")
+        debugpy.listen(("0.0.0.0", debugpy_port))
+
+        if self.debugpy_wait_for_client:
+            self.log.debug("Waiting for debugpy client to connect before proceeding.")
+            debugpy.wait_for_client()
+            self.log.debug("Debugpy client has connected. We may now proceed.")
+            debugpy.breakpoint()
+            self.log.debug("Should have broken on the previous line!")
+
     def start(self):
         self.log.info("DistributedKernel is starting. Persistent ID = \"%s\"" % self.persistent_id)
 
         super().start()
 
-        # debugpy_port:int = self.debug_port + 1000
-        # self.log.debug(f"Starting debugpy server on 0.0.0.0:{debugpy_port}")
-        # debugpy.listen(("0.0.0.0", debugpy_port))
-
-        # We use 'should_read_data_from_hdfs' as the criteria here, as only replicas that are started after
-        # a migration will have should_read_data_from_hdfs equal to True.
-        # if self.should_read_data_from_hdfs:
-        # self.log.debug("Sleeping for 15 seconds to allow for attaching of a debugger.")
-        # time.sleep(15)
-        # self.log.debug("Done sleeping.")
-        # self.log.debug("Waiting for debugpy client to connect before proceeding.")
-        # debugpy.wait_for_client()
-        # self.log.debug("Debugpy client has connected. We may now proceed.")
-        # debugpy.breakpoint()
-        # self.log.debug("Should have broken on the previous line!")
+        self.init_debugpy()
 
         if self.persistent_id != Undefined and self.persistent_id != "":
             assert isinstance(self.persistent_id, str)
@@ -1063,18 +1085,18 @@ class DistributedKernel(IPythonKernel):
         # Get synclog for synchronization.
         sync_log = await self.get_synclog(store_path)
 
-        self.log.info("Creating Synchronizer now.")
+        self.init_raft_log_event.set()
 
         # Start the synchronizer.
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
         self.synchronizer = Synchronizer(
             sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO)  # type: ignore
 
-        self.log.info("Created Synchronizer. Starting Synchronizer now.")
+        self.init_synchronizer_event.set()
 
         self.synchronizer.start()
 
-        self.log.debug("Started synchronizer.")
+        self.start_synchronizer_event.set()
 
         sys.stderr.flush()
         sys.stdout.flush()
@@ -1091,6 +1113,8 @@ class DistributedKernel(IPythonKernel):
         await self.smr_ready()
 
         self.log.info("Started Synchronizer.")
+
+        self.init_persistent_store_event.set()
 
         # TODO(Ben): Should this go before the "smr_ready" send?
         # It probably shouldn't matter -- or if it does, then more synchronization is required.
@@ -2204,7 +2228,7 @@ class DistributedKernel(IPythonKernel):
                                    report_error_callback=self.report_error,
                                    send_notification_func=self.send_notification,
                                    hdfs_read_latency_callback=self.hdfs_read_latency_callback,
-                                   deploymentMode = self.deployment_mode,
+                                   deployment_mode= self.deployment_mode,
                                    election_timeout_seconds = self.election_timeout_seconds)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
@@ -2258,7 +2282,7 @@ class DistributedKernel(IPythonKernel):
     def toggle_outstream(self, override=False, enable=True):
         # Is sys.stdout has attribute 'disable'?
         if not hasattr(sys.stdout, 'disable'):
-            self.log.error(
+            self.log.warning(
                 "sys.stdout didn't initialized with kernel.OutStream.")
             return
 
