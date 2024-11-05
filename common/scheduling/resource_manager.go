@@ -394,6 +394,18 @@ func (m *ResourceManager) ResourcesSnapshot() *ResourceWrapperSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	containers := make([]types.ContainerInfo, 0, m.numPendingAllocations)
+	m.allocationKernelReplicaMap.Range(func(_ string, allocation *ResourceAllocation) (contd bool) {
+		container := &proto.ReplicaInfo{
+			KernelId:  allocation.KernelId,
+			ReplicaId: allocation.ReplicaId,
+		}
+
+		containers = append(containers, container)
+
+		return true
+	})
+
 	snapshotId := m.resourceSnapshotCounter.Add(1)
 	snapshot := &ResourceWrapperSnapshot{
 		SnapshotId:         snapshotId,
@@ -404,6 +416,7 @@ func (m *ResourceManager) ResourcesSnapshot() *ResourceWrapperSnapshot {
 		PendingResources:   m.resourcesWrapper.pendingResourcesSnapshot(snapshotId),
 		CommittedResources: m.resourcesWrapper.committedResourcesSnapshot(snapshotId),
 		SpecResources:      m.resourcesWrapper.specResourcesSnapshot(snapshotId),
+		Containers:         containers,
 	}
 
 	return snapshot

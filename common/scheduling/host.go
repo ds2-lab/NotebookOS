@@ -495,7 +495,12 @@ func (h *Host) SynchronizeResourceInformation() error {
 	h.LockScheduling()
 	defer h.UnlockScheduling()
 
-	err = unsafeApplyResourceSnapshotToHost(h, &ProtoNodeResourcesSnapshotWrapper{NodeResourcesSnapshot: snapshotWithContainers.ResourceSnapshot})
+	// Wrapper around the protobuf struct so that it satisfies the required interface.
+	protoSnapshotWrapper := &ProtoNodeResourcesSnapshotWrapper{
+		NodeResourcesSnapshotWithContainers: snapshotWithContainers,
+	}
+
+	err = unsafeApplyResourceSnapshotToHost(h, protoSnapshotWrapper)
 	if err != nil {
 		h.log.Error(utils.OrangeStyle.Render("Failed to apply retrieved Resource Snapshot from remote node %s (ID=%s) because: %v"),
 			h.NodeName, h.ID, err)
@@ -728,7 +733,35 @@ func (h *Host) Disable() error {
 // If there's an error while updating the local view of the resource counts of the Host, then we attempt to
 // synchronize with the remote Host and try again. If that fails, then we just return an error.
 func (h *Host) doContainerRemovedResourceUpdate(container *Container) {
-	err := h.resourcesWrapper.pendingResources.Subtract(types.ToDecimalSpec(container.outstandingResources))
+	// TODO: Check for deadlock.
+	h.syncMutex.Lock()
+
+	// If our last snapshot from the remote host was received after the container started, and that last snapshot
+	// does not show the container as being scheduled on the host, then we can skip updating the state locally,
+	// as we've already synchronized with the remote host post-removal.
+	var err error
+	if h.lastSnapshot != nil && h.lastSnapshot.GetGoTimestamp().After(container.StartedAt()) {
+
+		containers := h.lastSnapshot.GetContainers()
+
+		// Check the containers. If the container being removed is one of 'em, then we'll update the local view
+		// of the resources on the remote host. If the container is not one of 'em, then the host had already
+		// removed it when we last synchronized with the host, so we can skip the local resource count update
+		// (or else we'll be applying it twice).
+		for _, containerOnHost := range containers {
+			if containerOnHost.GetReplicaId() == container.ReplicaID() && containerOnHost.GetKernelId() == container.KernelID() {
+				// Found the host in the snapshot, so the removal of its resources hasn't already been applied.
+				// TODO: Race condition (unless we have the locking of syncMutex up above).
+				err = h.resourcesWrapper.pendingResources.Subtract(types.ToDecimalSpec(container.outstandingResources))
+				break
+			}
+		}
+	} else {
+		// We either don't have a snapshot at all, or we don't have a recent-enough snapshot.
+		err = h.resourcesWrapper.pendingResources.Subtract(types.ToDecimalSpec(container.outstandingResources))
+	}
+
+	h.syncMutex.Unlock()
 
 	if err == nil {
 		h.log.Debug("Cleanly updated resources after removing container for replica %d of kernel %s from host %s (ID=%s)",

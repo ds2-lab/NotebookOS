@@ -1168,6 +1168,9 @@ type ResourceWrapperSnapshot struct {
 	PendingResources   *ResourceSnapshot `json:"pending_resources"`
 	CommittedResources *ResourceSnapshot `json:"committed_resources"`
 	SpecResources      *ResourceSnapshot `json:"spec_resources"`
+
+	// Containers are the Containers presently running on the Host.
+	Containers []types.ContainerInfo
 }
 
 // MetadataResourceWrapperSnapshot is a simpel wrapper around a ResourceWrapperSnapshot struct so that
@@ -1175,6 +1178,10 @@ type ResourceWrapperSnapshot struct {
 // is typically a map[string]interface{}.
 type MetadataResourceWrapperSnapshot struct {
 	ResourceWrapperSnapshot *ResourceWrapperSnapshot `json:"resource_snapshot"`
+}
+
+func (s *ResourceWrapperSnapshot) GetContainers() []types.ContainerInfo {
+	return s.Containers
 }
 
 ////////////////////////////////////////////////////
@@ -1272,21 +1279,53 @@ func (s *ResourceWrapperSnapshot) GetSpecResources() types.ArbitraryResourceSnap
 // ProtoNodeResourcesSnapshotWrapper is a wrapper around the proto.NodeResourcesSnapshot struct that
 // provides a way for a proto.NodeResourcesSnapshot struct to satisfy the types.HostResourceSnapshot interface.
 type ProtoNodeResourcesSnapshotWrapper struct {
-	*proto.NodeResourcesSnapshot
+	*proto.NodeResourcesSnapshotWithContainers
 }
 
 func (w *ProtoNodeResourcesSnapshotWrapper) GetIdleResources() types.ArbitraryResourceSnapshot {
-	return w.IdleResources
+	return w.ResourceSnapshot.IdleResources
 }
 
 func (w *ProtoNodeResourcesSnapshotWrapper) GetPendingResources() types.ArbitraryResourceSnapshot {
-	return w.PendingResources
+	return w.ResourceSnapshot.PendingResources
 }
 
 func (w *ProtoNodeResourcesSnapshotWrapper) GetCommittedResources() types.ArbitraryResourceSnapshot {
-	return w.CommittedResources
+	return w.ResourceSnapshot.CommittedResources
 }
 
 func (w *ProtoNodeResourcesSnapshotWrapper) GetSpecResources() types.ArbitraryResourceSnapshot {
-	return w.SpecResources
+	return w.ResourceSnapshot.SpecResources
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetContainers() []types.ContainerInfo {
+	containerInfo := make([]types.ContainerInfo, 0, len(w.Containers))
+	for _, container := range w.Containers {
+		containerInfo = append(containerInfo, container)
+	}
+	return containerInfo
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) String() string {
+	return w.NodeResourcesSnapshotWithContainers.String()
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetSnapshotId() int32 {
+	return w.NodeResourcesSnapshotWithContainers.ResourceSnapshot.SnapshotId
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetNodeId() string {
+	return w.NodeResourcesSnapshotWithContainers.ResourceSnapshot.NodeId
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetManagerId() string {
+	return w.NodeResourcesSnapshotWithContainers.ResourceSnapshot.ManagerId
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetGoTimestamp() time.Time {
+	return w.NodeResourcesSnapshotWithContainers.ResourceSnapshot.GetGoTimestamp()
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) Compare(obj interface{}) float64 {
+	return w.NodeResourcesSnapshotWithContainers.ResourceSnapshot.Compare(obj)
 }
