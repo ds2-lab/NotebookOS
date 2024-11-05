@@ -269,6 +269,96 @@ var _ = Describe("ResourceManager Standard Tests", func() {
 		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
 	})
 
+	It("Will correctly handle evicting a kernel replica", func() {
+		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.SpecResources().Equals(resourceManagerSpec)).To(BeTrue())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1Spec))
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+
+		err = resourceManager.ReplicaEvicted(1, "Kernel1")
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
+		Expect(resourceManager.NumAllocations()).To(Equal(0))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+	})
+
+	It("Will correctly return an error when trying to evict a non-existent kernel replica", func() {
+		err := resourceManager.ReplicaEvicted(1, "Kernel1")
+		Expect(err).ToNot(BeNil())
+		Expect(errors.Is(err, scheduling.ErrInvalidAllocationRequest)).To(BeTrue())
+	})
+
+	It("Will correctly handle deallocating committed resources from a kernel replica", func() {
+		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
+		Expect(err).To(BeNil())
+
+		err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
+
+		Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec.Subtract(kernel1Spec))).To(BeTrue())
+		Expect(resourceManager.CommittedResources().Equals(kernel1Spec)).To(BeTrue())
+
+		err = resourceManager.ReleaseCommittedResources(1, "Kernel1")
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1Spec)).To(BeTrue())
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+	})
+
+	It("Will correctly return an error when trying to release committed resources from a non-existent kernel replica", func() {
+		err := resourceManager.ReleaseCommittedResources(1, "Kernel1")
+		Expect(err).ToNot(BeNil())
+		Expect(errors.Is(err, scheduling.ErrInvalidAllocationRequest)).To(BeTrue())
+	})
+
+	It("Will correctly return an error when trying to release committed resources from a kernel replica that has only pending resources allocated to it", func() {
+		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.SpecResources().Equals(resourceManagerSpec)).To(BeTrue())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1Spec))
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+
+		err = resourceManager.ReleaseCommittedResources(1, "Kernel1")
+		Expect(err).ToNot(BeNil())
+		Expect(errors.Is(err, scheduling.ErrInvalidAllocationType)).To(BeTrue())
+	})
+
 	It("Will correctly adjust a lone pending resource reservation to a smaller reservation", func() {
 		kernel1SpecV1 := types.NewDecimalSpec(4000, 16000, 2, 8)
 
