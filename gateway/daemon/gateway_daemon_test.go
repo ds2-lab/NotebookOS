@@ -141,14 +141,14 @@ func NewResourceSpoofer(nodeName string, hostId string, hostSpec types.Spec) *Re
 	return spoofer
 }
 
-func (s *ResourceSpoofer) ResourcesSnapshot(_ context.Context, _ *proto.Void, _ ...grpc.CallOption) (*proto.NodeResourcesSnapshot, error) {
+func (s *ResourceSpoofer) ResourcesSnapshot(_ context.Context, _ *proto.Void, _ ...grpc.CallOption) (*proto.NodeResourcesSnapshotWithContainers, error) {
 	snapshotId := s.snapshotId.Add(1)
-	snapshot := &proto.NodeResourcesSnapshot{
+	resourceSnapshot := &proto.NodeResourcesSnapshot{
 		// SnapshotId uniquely identifies the NodeResourcesSnapshot and defines a total order amongst all NodeResourcesSnapshot
 		// structs originating from the same node. Each newly-created NodeResourcesSnapshot is assigned an ID from a
 		// monotonically-increasing counter by the ResourceManager.
 		SnapshotId: snapshotId,
-		// NodeId is the ID of the node from which the snapshot originates.
+		// NodeId is the ID of the node from which the resourceSnapshot originates.
 		NodeId: s.hostId,
 		// ManagerId is the unique ID of the ResourceManager struct from which the NodeResourcesSnapshot was constructed.
 		ManagerId: s.managerId,
@@ -159,8 +159,15 @@ func (s *ResourceSpoofer) ResourcesSnapshot(_ context.Context, _ *proto.Void, _ 
 		CommittedResources: s.wrapper.CommittedProtoResourcesSnapshot(snapshotId),
 		SpecResources:      s.wrapper.SpecProtoResourcesSnapshot(snapshotId),
 	}
-	fmt.Printf("Spoofing resources for Host \"%s\" (ID=\"%s\") with SnapshotID=%d now: %v\n", s.nodeName, s.hostId, snapshotId, snapshot.String())
-	return snapshot, nil
+
+	snapshotWithContainers := &proto.NodeResourcesSnapshotWithContainers{
+		Id:               uuid.NewString(),
+		ResourceSnapshot: resourceSnapshot,
+		Containers:       make([]*proto.ReplicaInfo, 0), // TODO: Incorporate this field into ResourceSpoofer.
+	}
+
+	fmt.Printf("Spoofing resources for Host \"%s\" (ID=\"%s\") with SnapshotID=%d now: %v\n", s.nodeName, s.hostId, snapshotId, resourceSnapshot.String())
+	return snapshotWithContainers, nil
 }
 
 // NewHostWithSpoofedGRPC creates a new scheduling.Host struct with a spoofed proto.LocalGatewayClient.

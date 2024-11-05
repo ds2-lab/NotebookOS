@@ -21,7 +21,7 @@ type AbstractDistributedKernelClient interface {
 	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*scheduling.ActiveExecution, bool)
 	ExecutionFailedCallback() ExecutionFailedCallback
 	SetActiveExecution(activeExecution *scheduling.ActiveExecution)
-	ExecutionComplete(snapshot types.HostResourceSnapshot[*scheduling.ResourceSnapshot], msg *jupyterTypes.JupyterMessage) (bool, error)
+	ExecutionComplete(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot], msg *jupyterTypes.JupyterMessage) (bool, error)
 	EnqueueActiveExecution(attemptId int, msg *jupyterTypes.JupyterMessage) *scheduling.ActiveExecution
 	ResetID(id string)
 	PersistentID() string
@@ -78,7 +78,7 @@ type AbstractKernelClient interface {
 	NumPendingExecuteRequests() int
 	SentExecuteRequest(msg *jupyterTypes.JupyterMessage)
 	ReceivedExecuteReply(msg *jupyterTypes.JupyterMessage)
-	KernelStoppedTraining(snapshot types.HostResourceSnapshot[*scheduling.ResourceSnapshot]) error
+	KernelStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
 	TrainingStartedAt() time.Time
 	WorkloadId() string
 	SetWorkloadId(workloadId string)

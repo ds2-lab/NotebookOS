@@ -336,7 +336,7 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 // of DistributedKernelClient.
 //
 // DistributedKernelClient::handleSmrLeadTaskMessage --> KernelReplicaClient::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
-func SessionStartedTraining[T types.ArbitraryResourceSnapshot](s *Session, container *Container, snapshot types.HostResourceSnapshot[T]) promise.Promise {
+func SessionStartedTraining(s *Session, container *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
 	s.log.Debug("Training starting. Current state: %s.", s.sessionState.String())
 
 	s.mu.Lock()
@@ -386,7 +386,7 @@ func SessionStartedTraining[T types.ArbitraryResourceSnapshot](s *Session, conta
 // This should be called by the KernelReplicaClient's KernelStoppedTraining method.
 //
 // Note: this method is thread-safe.
-func SessionStoppedTraining[T types.ArbitraryResourceSnapshot](s *Session, snapshot types.HostResourceSnapshot[T]) promise.Promise {
+func SessionStoppedTraining(s *Session, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -397,7 +397,7 @@ func SessionStoppedTraining[T types.ArbitraryResourceSnapshot](s *Session, snaps
 // SessionStopped, after the Session's mutex has already been acquired.
 //
 // Note: this method is NOT thread-safe.
-func UnsafeTrainingStopped[T types.ArbitraryResourceSnapshot](s *Session, snapshot types.HostResourceSnapshot[T]) promise.Promise {
+func UnsafeTrainingStopped(s *Session, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
 	s.log.Debug("Training stopping. Current state: %s.", s.sessionState.String())
 
 	if err := s.transition(SessionStateIdle); err != nil {
@@ -502,7 +502,7 @@ func (s *Session) SessionStopped() promise.Promise {
 
 	if s.IsTraining() {
 		s.log.Debug("Currently training. Stopping training before stopping scheduling.Session.")
-		p := UnsafeTrainingStopped[*ResourceSnapshot](s, nil) // Call UnsafeTrainingStopped directly, as we already have the mutex.
+		p := UnsafeTrainingStopped(s, nil) // Call UnsafeTrainingStopped directly, as we already have the mutex.
 		if err := p.Error(); err != nil {
 			return promise.Resolved(nil, err)
 		}
@@ -517,7 +517,7 @@ func (s *Session) SessionStopped() promise.Promise {
 	// Stop each replica of the Session, collecting any errors that we encounter.
 	errs := make([]error, 0)
 	for i, container := range s.containers {
-		s.log.Debug("Stopping replica %d/%d of scheduling.Session.", i+1, len(s.containers))
+		s.log.Debug("Stopping replica %d/%d of scheduling.Session.", i, len(s.containers))
 		if err := container.ContainedStopped(); err != nil {
 			s.log.Error("Failed to stop scheduling.Container %s (%d/%d) because: %v",
 				container.ContainerID(), i+1, len(s.containers), err)

@@ -2645,17 +2645,22 @@ func (d *SchedulerDaemonImpl) processExecuteRequestMetadata(msg *jupyter.Jupyter
 
 	d.log.Debug("Decoded metadata of \"execute_request\" message \"%s\": %s", msg.JupyterMessageId(), requestMetadata.String())
 
+	var targetReplicaId int32 = -1
+	if requestMetadata.TargetReplicaId != nil {
+		targetReplicaId = *requestMetadata.TargetReplicaId
+	}
+
 	if requestMetadata.ResourceRequest != nil && d.resourceRequestAdjustmentEnabled() {
 		d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
 			kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
 
 		if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
 			d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
-			return requestMetadata.TargetReplicaId, metadataDict, err
+			return targetReplicaId, metadataDict, err
 		}
 	}
 
-	return requestMetadata.TargetReplicaId, metadataDict, nil
+	return targetReplicaId, metadataDict, nil
 }
 
 // processExecuteRequest performs some scheduling logic, such as verifying that there are sufficient resources available
@@ -2910,9 +2915,30 @@ func (d *SchedulerDaemonImpl) setTotalVirtualGPUsKubernetes(ctx context.Context,
 }
 
 // ResourcesSnapshot returns a *proto.NodeResourcesSnapshot struct encoding a snapshot of the current resource quantities on the node.
-func (d *SchedulerDaemonImpl) ResourcesSnapshot(_ context.Context, _ *proto.Void) (*proto.NodeResourcesSnapshot, error) {
-	snapshot := d.resourceManager.ProtoResourcesSnapshot()
-	return snapshot, nil
+func (d *SchedulerDaemonImpl) ResourcesSnapshot(_ context.Context, _ *proto.Void) (*proto.NodeResourcesSnapshotWithContainers, error) {
+	resourceSnapshot := d.resourceManager.ProtoResourcesSnapshot()
+
+	containers := make([]*proto.ReplicaInfo, 0)
+
+	d.kernels.Range(func(s string, replicaClient *client.KernelReplicaClient) (contd bool) {
+		replicaInfo := &proto.ReplicaInfo{
+			ReplicaId:    replicaClient.ReplicaID(),
+			KernelId:     replicaClient.ID(),
+			PersistentId: replicaClient.PersistentID(), // Probably don't need to include this here.
+		}
+
+		containers = append(containers, replicaInfo)
+
+		return true
+	})
+
+	snapshotWithContainers := &proto.NodeResourcesSnapshotWithContainers{
+		Id:               uuid.NewString(),
+		ResourceSnapshot: resourceSnapshot,
+		Containers:       containers,
+	}
+
+	return snapshotWithContainers, nil
 }
 
 // convertExecuteRequestToYieldExecute converts the given message to a "yield_request" message.

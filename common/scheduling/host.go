@@ -143,11 +143,11 @@ func (p *cachedPenalty) Candidates() ContainerList {
 // target Host, then an error is returned.
 //
 // If either of the arguments are nil, then this method will panic.
-func ApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Host, snapshot types.HostResourceSnapshot[T]) error {
+func ApplyResourceSnapshotToHost(h *Host, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
 	h.syncMutex.Lock()
 	defer h.syncMutex.Unlock()
 
-	return unsafeApplyResourceSnapshotToHost[T](h, snapshot)
+	return unsafeApplyResourceSnapshotToHost(h, snapshot)
 }
 
 // unsafeApplyResourceSnapshotToHost does the actual work of the ApplyResourceSnapshotToHost function, but
@@ -155,7 +155,7 @@ func ApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Host, sna
 //
 // unsafeApplyResourceSnapshotToHost should only be called if both the syncMutex and schedulingMutex of the specified
 // Host are already held.
-func unsafeApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Host, snapshot types.HostResourceSnapshot[T]) error {
+func unsafeApplyResourceSnapshotToHost(h *Host, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
 	if h == nil {
 		log.Fatalf(utils.RedStyle.Render("Attempted to apply (possibly nil) resource snapshot to nil Host."))
 	}
@@ -172,7 +172,16 @@ func unsafeApplyResourceSnapshotToHost[T types.ArbitraryResourceSnapshot](h *Hos
 			ErrOldSnapshot, h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
 	}
 
-	return ApplySnapshotToResourceWrapper(h.resourcesWrapper, snapshot)
+	err := ApplySnapshotToResourceWrapper(h.resourcesWrapper, snapshot)
+	if err != nil {
+		h.log.Error("Failed to apply snapshot %s to host %s (ID=%s) because: %v",
+			snapshot.String(), h.NodeName, h.ID, err)
+		return err
+	}
+
+	h.lastSnapshot = snapshot
+
+	return nil
 }
 
 type Host struct {
@@ -476,7 +485,7 @@ func (h *Host) SynchronizeResourceInformation() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
-	snapshot, err := h.LocalGatewayClient.ResourcesSnapshot(ctx, &proto.Void{})
+	snapshotWithContainers, err := h.LocalGatewayClient.ResourcesSnapshot(ctx, &proto.Void{})
 	if err != nil {
 		h.log.Error(utils.OrangeStyle.Render("Failed to retrieve Resource Snapshot from remote node %s (ID=%s) because: %v"),
 			h.NodeName, h.ID, err)
@@ -486,7 +495,7 @@ func (h *Host) SynchronizeResourceInformation() error {
 	h.LockScheduling()
 	defer h.UnlockScheduling()
 
-	err = unsafeApplyResourceSnapshotToHost[*proto.ResourcesSnapshot](h, snapshot)
+	err = unsafeApplyResourceSnapshotToHost(h, &ProtoNodeResourcesSnapshotWrapper{NodeResourcesSnapshot: snapshotWithContainers.ResourceSnapshot})
 	if err != nil {
 		h.log.Error(utils.OrangeStyle.Render("Failed to apply retrieved Resource Snapshot from remote node %s (ID=%s) because: %v"),
 			h.NodeName, h.ID, err)
@@ -713,6 +722,58 @@ func (h *Host) Disable() error {
 	return nil
 }
 
+// doContainerRemovedResourceUpdate updates the local resource counts of the target Host following (or as a part of)
+// the removal of the parameterized Container.
+//
+// If there's an error while updating the local view of the resource counts of the Host, then we attempt to
+// synchronize with the remote Host and try again. If that fails, then we just return an error.
+func (h *Host) doContainerRemovedResourceUpdate(container *Container) {
+	err := h.resourcesWrapper.pendingResources.Subtract(types.ToDecimalSpec(container.outstandingResources))
+
+	if err == nil {
+		h.log.Debug("Cleanly updated resources after removing container for replica %d of kernel %s from host %s (ID=%s)",
+			container.ReplicaID(), container.KernelID(), h.NodeName, h.ID)
+		return
+	}
+
+	h.log.Warn("Could not cleanly remove Container %s from Host %s due to resource-related issue (though the container WAS still removed): %v",
+		container.ContainerID(), h.ID, err)
+
+	doneChan := make(chan interface{}, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	// Synchronize with remote and try again.
+	go func() {
+		syncError := h.SynchronizeResourceInformation()
+		if syncError != nil {
+			doneChan <- syncError
+		} else {
+			doneChan <- struct{}{}
+		}
+	}()
+
+	select {
+	case v := <-doneChan:
+		{
+			if syncError := v.(error); syncError != nil {
+				h.log.Error("Failed to retrieve resource info from remote host %s (ID=%s) because: %v", h.NodeName, h.ID, syncError)
+				h.log.Warn("Could not cleanly remove Container %s from Host %s due to resource-related issue (though the container WAS still removed): %v",
+					container.ContainerID(), h.ID, err)
+			} else {
+				h.log.Debug("Container %s was cleanly removed from Host %s.", container.String(), h.ID)
+			}
+		}
+	case <-ctx.Done():
+		{
+			h.log.Warn("Timed-out while attempting to synchronize resources of host %s (ID=%s) during removal of container for replica %d of kernel %s.",
+				h.NodeName, h.ID, container.ReplicaID(), container.KernelID())
+			h.log.Warn("Could not cleanly remove Container %s from Host %s due to resource-related issue (though the container WAS still removed): %v",
+				container.ContainerID(), h.ID, err)
+		}
+	}
+}
+
 // ContainerRemoved is to be called when a Container is stopped and removed from the Host.
 func (h *Host) ContainerRemoved(container *Container) error {
 	if _, ok := h.containers.Load(container.ContainerID()); !ok {
@@ -724,13 +785,7 @@ func (h *Host) ContainerRemoved(container *Container) error {
 
 	h.pendingContainers.Sub(1)
 
-	if err := h.resourcesWrapper.pendingResources.Subtract(types.ToDecimalSpec(container.outstandingResources)); err != nil {
-		h.log.Warn("Could not cleanly remove Container %s from Host %s due to resource-related issue: %v",
-			container.ContainerID(), h.ID, err)
-		return err
-	}
-
-	h.log.Debug("Container %s was removed from Host %s.", container.String(), h.ID)
+	h.doContainerRemovedResourceUpdate(container)
 
 	h.RecomputeSubscribedRatio()
 

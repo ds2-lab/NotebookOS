@@ -542,7 +542,7 @@ service LocalGateway {
 
   // ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of
   // the current resource quantities on the node.
-  rpc ResourcesSnapshot(Void) returns (NodeResourcesSnapshot) {}
+  rpc ResourcesSnapshot(Void) returns (NodeResourcesSnapshotWithContainers) {}
 
   // Return the current GPU resource metrics on the node.
   // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
@@ -576,6 +576,17 @@ message ReconnectToGatewayRequest {
   // If true, then wait until after returning from the ReconnectToGateway gRPC call to initiate the reconnection
   // procedure (which necessarily terminates the existing connection).
   bool delay = 1;
+}
+
+// NodeResourcesSnapshotWithContainers encapsulates a NodeResourcesSnapshot struct as well as information about the
+// Containers that are actively scheduled/running on the Host.
+message NodeResourcesSnapshotWithContainers {
+    // Id is a unique identifier for the NodeResourcesSnapshotWithContainers struct/message.
+    string id = 1;
+    // ResourceSnapshot is the NodeResourcesSnapshot.
+    NodeResourcesSnapshot resourceSnapshot = 2;
+    // Containers encodes the containers that are presently scheduled on the Host.
+    repeated ReplicaInfo containers = 3;
 }
 
 // NodeResourcesSnapshot encodes a snapshot of the current resource quantities on a particular node.

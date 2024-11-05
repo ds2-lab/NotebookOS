@@ -1250,21 +1250,43 @@ func (s *ResourceWrapperSnapshot) GetGoTimestamp() time.Time {
 }
 
 // GetIdleResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetIdleResources() *ResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetIdleResources() types.ArbitraryResourceSnapshot {
 	return s.IdleResources
 }
 
 // GetPendingResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetPendingResources() *ResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetPendingResources() types.ArbitraryResourceSnapshot {
 	return s.PendingResources
 }
 
 // GetCommittedResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetCommittedResources() *ResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetCommittedResources() types.ArbitraryResourceSnapshot {
 	return s.CommittedResources
 }
 
 // GetSpecResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetSpecResources() *ResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetSpecResources() types.ArbitraryResourceSnapshot {
 	return s.SpecResources
+}
+
+// ProtoNodeResourcesSnapshotWrapper is a wrapper around the proto.NodeResourcesSnapshot struct that
+// provides a way for a proto.NodeResourcesSnapshot struct to satisfy the types.HostResourceSnapshot interface.
+type ProtoNodeResourcesSnapshotWrapper struct {
+	*proto.NodeResourcesSnapshot
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetIdleResources() types.ArbitraryResourceSnapshot {
+	return w.IdleResources
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetPendingResources() types.ArbitraryResourceSnapshot {
+	return w.PendingResources
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetCommittedResources() types.ArbitraryResourceSnapshot {
+	return w.CommittedResources
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetSpecResources() types.ArbitraryResourceSnapshot {
+	return w.SpecResources
 }

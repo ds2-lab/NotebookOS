@@ -258,11 +258,11 @@ func (c *Container) ScaleOutPriority() float64 {
 }
 
 // TrainingStartedInContainer should be called when the Container begins training.
-func TrainingStartedInContainer[T types.ArbitraryResourceSnapshot](c *Container, snapshot types.HostResourceSnapshot[T]) error {
+func TrainingStartedInContainer(c *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
 	c.lastSpec = c.spec
 
 	if snapshot != nil {
-		err := ApplyResourceSnapshotToHost[T](c.host, snapshot)
+		err := ApplyResourceSnapshotToHost(c.host, snapshot)
 		if err != nil {
 			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
 		}
@@ -297,7 +297,7 @@ func TrainingStartedInContainer[T types.ArbitraryResourceSnapshot](c *Container,
 // ContainerStoppedTraining should be called when the Container stops training.
 //
 // This should be called by the Session's SessionStoppedTraining method.
-func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, snapshot types.HostResourceSnapshot[T]) error {
+func ContainerStoppedTraining(c *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
 	if err := c.transition(ContainerStateIdle); err != nil {
 		c.log.Error("Failed to transition Container to state %v because: %v", ContainerStateIdle, err)
 		return err
@@ -322,7 +322,7 @@ func ContainerStoppedTraining[T types.ArbitraryResourceSnapshot](c *Container, s
 	c.spec = c.lastSpec
 
 	if snapshot != nil {
-		err := ApplyResourceSnapshotToHost[T](c.host, snapshot)
+		err := ApplyResourceSnapshotToHost(c.host, snapshot)
 		if err != nil {
 			c.log.Warn("Failed to apply Resource Snapshot: %v", err)
 		} else {

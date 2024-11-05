@@ -359,14 +359,18 @@ type ExecuteRequestMetadata struct {
 	// TargetReplicaId is the SMR node ID of the replica of the kernel associated with this message (or more accurately,
 	// the kernel associated with the message in which this ExecuteRequestMetadata is contained) that should lead
 	// the execution of the code included in the "execute_request".
-	TargetReplicaId int32 `json:"target_replica" mapstructure:"target_replica"`
+	TargetReplicaId *int32 `json:"target_replica" mapstructure:"target_replica,omitempty"`
 
 	// WorkloadId is the identifier of the workload in which this code execution is taking place.
 	// Workloads are a construct of the workload orchestrator/cluster dashboard.
-	WorkloadId string `json:"workload_id" mapstructure:"workload_id"`
+	WorkloadId *string `json:"workload_id" mapstructure:"workload_id,omitempty"`
 
 	// ResourceRequest is an updated types.Spec for the kernel targeted by the containing "execute_request".
-	ResourceRequest types.Spec `json:"resource_request" mapstructure:"resource_request,omitempty"`
+	ResourceRequest *types.Float64Spec `json:"resource_request" mapstructure:"resource_request,omitempty"`
+
+	// SentAtUnixTimestamp is the Unix epoch time (milliseconds) at which the "execute_request" message
+	// was originally sent by the Jupyter client.
+	SentAtUnixTimestamp *float64 `json:"send-timestamp-unix-milli,omitempty"`
 
 	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
 	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.

@@ -250,7 +250,7 @@ func (c *DistributedKernelClient) SetActiveExecution(activeExecution *scheduling
 // ExecutionComplete returns true.
 //
 // If there are no ActiveExecution structs enqueued, then ExecutionComplete returns false.
-func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot], msg *types.JupyterMessage) (bool, error) {
+func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostResourceSnapshot[commonTypes.ArbitraryResourceSnapshot], msg *types.JupyterMessage) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

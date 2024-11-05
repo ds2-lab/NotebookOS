@@ -2572,7 +2572,7 @@ func (d *ClusterGatewayImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.Ju
 			p := session.SessionStopped()
 			err := p.Error()
 			if err != nil {
-				d.log.Error("Error while descheduling kernel \"%s\" associated with session \"%s\"", kernel.ID(), sessionId)
+				d.log.Error("Error while de-scheduling kernel \"%s\" associated with session \"%s\"", kernel.ID(), sessionId)
 				go d.notifyDashboardOfError(fmt.Sprintf("Error while Descheduling Session \"%s\"", kernel.ID()), err.Error())
 				return err
 			}

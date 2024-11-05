@@ -1737,7 +1737,7 @@ class LocalGatewayStub(object):
         self.ResourcesSnapshot = channel.unary_unary(
                 '/gateway.LocalGateway/ResourcesSnapshot',
                 request_serializer=gateway__pb2.Void.SerializeToString,
-                response_deserializer=gateway__pb2.NodeResourcesSnapshot.FromString,
+                response_deserializer=gateway__pb2.NodeResourcesSnapshotWithContainers.FromString,
                 _registered_method=True)
         self.GetActualGpuInfo = channel.unary_unary(
                 '/gateway.LocalGateway/GetActualGpuInfo',
@@ -1987,7 +1987,7 @@ def add_LocalGatewayServicer_to_server(servicer, server):
             'ResourcesSnapshot': grpc.unary_unary_rpc_method_handler(
                     servicer.ResourcesSnapshot,
                     request_deserializer=gateway__pb2.Void.FromString,
-                    response_serializer=gateway__pb2.NodeResourcesSnapshot.SerializeToString,
+                    response_serializer=gateway__pb2.NodeResourcesSnapshotWithContainers.SerializeToString,
             ),
             'GetActualGpuInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.GetActualGpuInfo,
@@ -2371,7 +2371,7 @@ class LocalGateway(object):
             target,
             '/gateway.LocalGateway/ResourcesSnapshot',
             gateway__pb2.Void.SerializeToString,
-            gateway__pb2.NodeResourcesSnapshot.FromString,
+            gateway__pb2.NodeResourcesSnapshotWithContainers.FromString,
             options,
             channel_credentials,
             insecure,
