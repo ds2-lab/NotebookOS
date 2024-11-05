@@ -58,6 +58,12 @@ const (
 	// the order in which the messages are enqueued is non-deterministic. (Once enqueued, the messages will be served in
 	// a FCFS manner.)
 	DefaultExecuteRequestQueueSize = 128
+
+	SchedulingPolicyDefault   string = "default"
+	SchedulingPolicyStatic    string = "static"
+	SchedulingPolicyDynamicV3 string = "dynamic-v3"
+	SchedulingPolicyDynamicV4 string = "dynamic-v4"
+	SchedulingPolicyFcfsBatch string = "fcfs_batch"
 )
 
 var (
@@ -346,24 +352,24 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	}
 
 	switch localDaemonOptions.SchedulingPolicy {
-	case "default":
+	case SchedulingPolicyDefault:
 		{
 			daemon.schedulingPolicy = "default"
 			daemon.log.Debug("Using the 'DEFAULT' scheduling policy.")
 		}
-	case "static":
+	case SchedulingPolicyStatic:
 		{
 			daemon.schedulingPolicy = "static"
 			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
 		}
-	case "dynamic-v3":
+	case SchedulingPolicyDynamicV3:
 		{
 			daemon.schedulingPolicy = "dynamic-v3"
 			daemon.log.Debug("Using the 'DYNAMIC v3' scheduling policy.")
 
 			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 		}
-	case "dynamic-v4":
+	case SchedulingPolicyDynamicV4:
 		{
 			daemon.schedulingPolicy = "dynamic-v4"
 			daemon.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
@@ -2608,6 +2614,12 @@ func (d *SchedulerDaemonImpl) updateKernelResourceSpec(kernel client.AbstractKer
 	return nil
 }
 
+// resourceRequestAdjustmentEnabled returns true if dynamically adjusting resource requests is enabled
+// based on the configured scheduling policy used by the cluster.
+func (d *SchedulerDaemonImpl) resourceRequestAdjustmentEnabled() bool {
+	return d.schedulingPolicy == SchedulingPolicyDefault || d.schedulingPolicy == SchedulingPolicyStatic || d.schedulingPolicy == SchedulingPolicyDynamicV3 || d.schedulingPolicy == SchedulingPolicyDynamicV4
+}
+
 // processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.
 //
 // Returns the target replica ID, if there is one, or -1 if there is not, along with the decoded metadata dictionary
@@ -2633,7 +2645,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequestMetadata(msg *jupyter.Jupyter
 
 	d.log.Debug("Decoded metadata of \"execute_request\" message \"%s\": %s", msg.JupyterMessageId(), requestMetadata.String())
 
-	if requestMetadata.ResourceRequest != nil {
+	if requestMetadata.ResourceRequest != nil && d.resourceRequestAdjustmentEnabled() {
 		d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
 			kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
 
