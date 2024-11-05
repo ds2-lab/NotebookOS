@@ -84,7 +84,7 @@ var _ = Describe("ResourceManager Standard Tests", func() {
 		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
 		err := resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, scheduling.ErrAllocationNotFound)).To(BeTrue())
+		Expect(errors.Is(err, scheduling.ErrInvalidAllocationRequest)).To(BeTrue())
 	})
 
 	It("Will correctly handle scheduling multiple committed resources", func() {
