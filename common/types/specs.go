@@ -98,6 +98,28 @@ func NewDecimalSpec(millicpus float64, memoryMb float64, gpus float64, vramGb fl
 	}
 }
 
+func (d *DecimalSpec) IsZero() bool {
+	return d.GPUs.IsZero() && d.Millicpus.IsZero() && d.MemoryMb.IsZero() && d.VRam.IsZero()
+}
+
+func (d *DecimalSpec) Subtract(d2 *DecimalSpec) *DecimalSpec {
+	return &DecimalSpec{
+		GPUs:      d.GPUs.Sub(d2.GPUs),
+		VRam:      d.VRam.Sub(d2.VRam),
+		MemoryMb:  d.MemoryMb.Sub(d2.MemoryMb),
+		Millicpus: d.Millicpus.Sub(d2.Millicpus),
+	}
+}
+
+func (d *DecimalSpec) Add(d2 *DecimalSpec) *DecimalSpec {
+	return &DecimalSpec{
+		GPUs:      d.GPUs.Add(d2.GPUs),
+		VRam:      d.VRam.Add(d2.VRam),
+		MemoryMb:  d.MemoryMb.Add(d2.MemoryMb),
+		Millicpus: d.Millicpus.Add(d2.Millicpus),
+	}
+}
+
 func (d *DecimalSpec) Equals(other Spec) bool {
 	d2 := ToDecimalSpec(other)
 
