@@ -265,7 +265,7 @@ def generate_commit(targetCommitKernel: Kernel, currentOutcome: Outcome, current
 
     print(
         '\tGinkgoWriter.Printf("resourceManager.CommittedResources(): %s\\n", resourceManager.CommittedResources().String())')
-    print(f"\tExpect(resourceManager.NumAllocations()).To(Equal(4))")
+    print(f"\tExpect(resourceManager.NumAllocations()).To(Equal({num_commit + num_pending}))")
     print(f"\tExpect(resourceManager.NumCommittedAllocations()).To(Equal({num_commit}))")
     print(f"\tExpect(resourceManager.NumPendingAllocations()).To(Equal({num_pending}))")
     print(
@@ -275,7 +275,7 @@ def generate_commit(targetCommitKernel: Kernel, currentOutcome: Outcome, current
 
     out.write(
         '\tGinkgoWriter.Printf("resourceManager.CommittedResources(): %s\\n", resourceManager.CommittedResources().String())\n')
-    out.write(f"\tExpect(resourceManager.NumAllocations()).To(Equal(4))\n")
+    out.write(f"\tExpect(resourceManager.NumAllocations()).To(Equal({num_commit + num_pending}))\n")
     out.write(f"\tExpect(resourceManager.NumCommittedAllocations()).To(Equal({num_commit}))\n")
     out.write(f"\tExpect(resourceManager.NumPendingAllocations()).To(Equal({num_pending}))\n")
     out.write(
@@ -297,7 +297,7 @@ def generate_dealloc(targetDeallocKernel: Kernel, currentResources: Resources, n
         f"\tExpect(resourceManager.IdleResources().Equals(types.NewDecimalSpec({currentResources.CPU},{currentResources.MEM},{currentResources.GPU},{currentResources.VRAM}))).To(BeTrue())")
     print(
         f"\tExpect(resourceManager.CommittedResources().Equals(types.NewDecimalSpec({currentResources.committed_cpu},{currentResources.committed_mem},{currentResources.committed_gpu},{currentResources.committed_vram}))).To(BeTrue())")
-    print(f"\tExpect(resourceManager.NumAllocations()).To(Equal(4))")
+    print(f"\tExpect(resourceManager.NumAllocations()).To(Equal({num_commit + num_pending}))")
     print(f"\tExpect(resourceManager.NumCommittedAllocations()).To(Equal({num_commit}))")
     print(f"\tExpect(resourceManager.NumPendingAllocations()).To(Equal({num_pending}))")
 
@@ -305,7 +305,7 @@ def generate_dealloc(targetDeallocKernel: Kernel, currentResources: Resources, n
         f"\tExpect(resourceManager.IdleResources().Equals(types.NewDecimalSpec({currentResources.CPU},{currentResources.MEM},{currentResources.GPU},{currentResources.VRAM}))).To(BeTrue())\n")
     out.write(
         f"\tExpect(resourceManager.CommittedResources().Equals(types.NewDecimalSpec({currentResources.committed_cpu},{currentResources.committed_mem},{currentResources.committed_gpu},{currentResources.committed_vram}))).To(BeTrue())\n")
-    out.write(f"\tExpect(resourceManager.NumAllocations()).To(Equal(4))\n")
+    out.write(f"\tExpect(resourceManager.NumAllocations()).To(Equal({num_commit + num_pending}))\n")
     out.write(f"\tExpect(resourceManager.NumCommittedAllocations()).To(Equal({num_commit}))\n")
     out.write(f"\tExpect(resourceManager.NumPendingAllocations()).To(Equal({num_pending}))\n")
 
