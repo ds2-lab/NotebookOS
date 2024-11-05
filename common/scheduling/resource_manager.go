@@ -661,13 +661,28 @@ func (m *ResourceManager) AdjustSpecGPUs(numGpus float64) error {
 	defer m.mu.Unlock()
 
 	numGpusDecimal := decimal.NewFromFloat(numGpus)
-	if numGpusDecimal.LessThan(m.resourcesWrapper.specResources.gpus) {
+	if numGpusDecimal.LessThan(m.resourcesWrapper.committedResources.gpus) {
 		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s", ErrIllegalGpuAdjustment, m.CommittedGPUs().StringFixed(0), numGpusDecimal.StringFixed(0))
 	}
+
+	difference := m.SpecGPUs().Sub(numGpusDecimal)
 
 	oldSpecGPUs := m.SpecGPUs()
 	m.resourcesWrapper.specResources.SetGpus(numGpusDecimal)
 	m.log.Debug("Adjusted Spec GPUs from %s to %s.", oldSpecGPUs.StringFixed(0), numGpusDecimal.StringFixed(0))
+
+	// If ORIGINAL - NEW > 0, then we're decreasing the total number of GPUs available.
+	// So, we'll need to decrement the idle GPUs value.
+	if difference.GreaterThan(decimal.Zero) {
+		newIdleGPUs := m.IdleGPUs().Sub(difference)
+		m.resourcesWrapper.idleResources.SetGpus(newIdleGPUs)
+	} else {
+		// ORIGINAL - NEW < 0, so we're adding GPUs.
+		// We'll call difference.Abs(), as difference is negative.
+		// Alternatively, we could do idleGPUs - difference, since we'd be subtracting a negative and thus adding.
+		newIdleGPUs := m.IdleGPUs().Add(difference.Abs())
+		m.resourcesWrapper.idleResources.SetGpus(newIdleGPUs)
+	}
 
 	return nil
 }

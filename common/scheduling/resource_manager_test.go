@@ -332,6 +332,98 @@ var _ = Describe("ResourceManager Standard Tests", func() {
 		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
 	})
 
+	It("Will fail to allocate pending resources for a request it cannot satisfy", func() {
+		kernel1Spec := types.NewDecimalSpec(4000, 16000, 10, 8)
+
+		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
+		Expect(err).ToNot(BeNil())
+
+		var insufficientResourcesError *scheduling.InsufficientResourcesError
+		Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
+		Expect(insufficientResourcesError).ToNot(BeNil())
+		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
+		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.GPU))
+		Expect(resourceManagerSpec.Equals(insufficientResourcesError.AvailableResources)).To(BeTrue())
+		Expect(kernel1Spec.Equals(insufficientResourcesError.RequestedResources)).To(BeTrue())
+	})
+
+	It("Will correctly handle adjusting its spec GPUs and then successfully scheduling a kernel", func() {
+		kernel1Spec := types.NewDecimalSpec(4000, 16000, 10, 8)
+
+		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
+		Expect(err).ToNot(BeNil())
+
+		var insufficientResourcesError *scheduling.InsufficientResourcesError
+		Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
+		Expect(insufficientResourcesError).ToNot(BeNil())
+		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
+		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.GPU))
+		Expect(resourceManagerSpec.Equals(insufficientResourcesError.AvailableResources)).To(BeTrue())
+		Expect(kernel1Spec.Equals(insufficientResourcesError.RequestedResources)).To(BeTrue())
+
+		err = resourceManager.AdjustSpecGPUs(10)
+		Expect(err).To(BeNil())
+
+		err = resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
+		Expect(err).To(BeNil())
+
+		updatedResourceManagerSpec := resourceManagerSpec.CloneDecimalSpec()
+		updatedResourceManagerSpec.UpdateSpecGPUs(10)
+
+		Expect(resourceManager.SpecResources().Equals(updatedResourceManagerSpec)).To(BeTrue())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1Spec))
+		Expect(resourceManager.IdleResources().Equals(updatedResourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+	})
+
+	It("Will correctly handle adjusting its spec GPUs and then failing to schedule a kernel", func() {
+		kernel1Spec := types.NewDecimalSpec(4000, 16000, 5, 8)
+		err := resourceManager.AdjustSpecGPUs(4)
+		Expect(err).To(BeNil())
+
+		updatedResourceManagerSpec := resourceManagerSpec.CloneDecimalSpec()
+		updatedResourceManagerSpec.UpdateSpecGPUs(4)
+		Expect(resourceManager.IdleResources().Equals(updatedResourceManagerSpec)).To(BeTrue())
+
+		err = resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
+		Expect(err).ToNot(BeNil())
+
+		var insufficientResourcesError *scheduling.InsufficientResourcesError
+		Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
+		Expect(insufficientResourcesError).ToNot(BeNil())
+		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
+		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.GPU))
+		Expect(updatedResourceManagerSpec.Equals(insufficientResourcesError.AvailableResources)).To(BeTrue())
+		Expect(kernel1Spec.Equals(insufficientResourcesError.RequestedResources)).To(BeTrue())
+	})
+
+	It("Will correctly fail to adjust its spec GPUs when doing so would decrease them below the number of committed GPUs", func() {
+		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
+		Expect(err).To(BeNil())
+
+		err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
+
+		Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec.Subtract(kernel1Spec))).To(BeTrue())
+		Expect(resourceManager.CommittedResources().Equals(kernel1Spec)).To(BeTrue())
+
+		err = resourceManager.AdjustSpecGPUs(1)
+		Expect(err).ToNot(BeNil())
+		Expect(errors.Is(err, scheduling.ErrIllegalGpuAdjustment)).To(BeTrue())
+	})
+
 	It("Will correctly return an error when trying to release committed resources from a non-existent kernel replica", func() {
 		err := resourceManager.ReleaseCommittedResources(1, "Kernel1")
 		Expect(err).ToNot(BeNil())
