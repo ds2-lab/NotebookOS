@@ -88,6 +88,22 @@ type DecimalSpec struct {
 	MemoryMb  decimal.Decimal `json:"memory_mb"` // Amount of memory in megabytes (MB).
 }
 
+// NewDecimalSpec creates a new DecimalSpec struct and returns a pointer to it.
+func NewDecimalSpec(millicpus float64, memoryMb float64, gpus float64, vramGb float64) *DecimalSpec {
+	return &DecimalSpec{
+		Millicpus: decimal.NewFromFloat(millicpus),
+		MemoryMb:  decimal.NewFromFloat(memoryMb),
+		GPUs:      decimal.NewFromFloat(gpus),
+		VRam:      decimal.NewFromFloat(vramGb),
+	}
+}
+
+func (d *DecimalSpec) Equals(other Spec) bool {
+	d2 := ToDecimalSpec(other)
+
+	return d.GPUs.Equal(d2.GPUs) && d.Millicpus.Equals(d2.Millicpus) && d.VRam.Equal(d2.VRam) && d.MemoryMb.Equal(d2.MemoryMb)
+}
+
 // VRAM is the amount of GPU memory required in GB.
 func (d *DecimalSpec) VRAM() float64 {
 	return d.VRam.InexactFloat64()

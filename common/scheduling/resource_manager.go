@@ -1082,75 +1082,6 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 	return nil
 }
 
-// unsafeDemoteCommittedAllocationToPendingAllocation performs any necessary state adjustments to the given
-// ResourceAllocation in order to demote it from a CommittedAllocation to a PendingAllocation.
-//
-// unsafeDemoteCommittedAllocationToPendingAllocation does NOT acquire the ResourceManager's mutex and thus must be
-// called from a context in which said mutex is already held.
-//
-// unsafeDemoteCommittedAllocationToPendingAllocation also does not perform any checks to verify that the given
-// ResourceAllocation is of the correct type (i.e., CommittedAllocation, at the time of being passed to this method).
-//
-// unsafeDemoteCommittedAllocationToPendingAllocation does not perform any resource count modification to the
-// ResourceManager. This is expected to have already been performed prior to calling this method.
-func (m *ResourceManager) unsafeDemoteCommittedAllocationToPendingAllocation(allocation *ResourceAllocation) {
-	// Set the AllocationType of the ResourceAllocation to PendingAllocation.
-	allocation.AllocationType = PendingAllocation
-
-	// Update the pending/committed allocation counters.
-	m.numPendingAllocations.Incr()
-	m.numCommittedAllocations.Decr()
-}
-
-// unsafeReleaseCommittedResources releases committed/bound Resources from the kernel replica associated with
-// the given ResourceAllocation.
-//
-// This function does NOT acquire the ResourceManager's mutex, nor does it perform any validation checks whatsoever.
-// It is meant to be called from a context in which the ResourceManager's mutex is held and any appropriate
-// checks are performed before the call to unsafeReleaseCommittedResources and after unsafeReleaseCommittedResources
-// returns.
-//
-// The allocatedResources argument is optional. If it is passed as nil, then it will be assigned a value automatically
-// by calling allocation.ToDecimalSpec(). If allocatedResources is non-nil, then it is necessarily expected to be
-// the return value of allocation.ToDecimalSpec() (generated/called RIGHT before this function is called).
-//
-// If any of the resource modifications performed by this method return an error, then this method will panic.
-//
-// The only check that this method performs is whether the given *ResourceAllocation is nil.
-// If the given *ResourceAllocation is nil, then this method will panic.
-func (m *ResourceManager) unsafeReleaseCommittedResources(allocation *ResourceAllocation, allocatedResources *types.DecimalSpec) {
-	if allocation == nil {
-		panic("The provided ResourceAllocation cannot be nil.")
-	}
-
-	// If allocatedResources is nil, then call allocation.ToDecimalSpec() to populate allocatedResources with a value.
-	if allocatedResources == nil {
-		allocatedResources = allocation.ToDecimalSpec()
-	}
-
-	// If we've gotten this far, then we have enough Resources available to commit the requested Resources
-	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle Resources.
-	if err := m.resourcesWrapper.idleResources.Add(allocatedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
-	}
-
-	// Next, we'll increment the pending Resources (since we're releasing committed Resources).
-	if err := m.resourcesWrapper.pendingResources.Add(allocatedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
-	}
-
-	// Next, we'll decrement the committed Resources (since we're releasing committed Resources).
-	if err := m.resourcesWrapper.committedResources.Subtract(allocatedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
-	}
-}
-
 // KernelReplicaScheduled is to be called whenever a kernel replica is scheduled onto this scheduling.Host.
 // KernelReplicaScheduled creates a ResourceAllocation of type PendingAllocation that is then associated with the
 // newly-scheduled kernel replica.
@@ -1216,32 +1147,6 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 	return nil
 }
 
-func (m *ResourceManager) unsafeAllocatePendingResources(decimalSpec *types.DecimalSpec, allocation *ResourceAllocation, key string, replicaId int32, kernelId string) error {
-	// First, validate against this scheduling.Host's spec.
-	if err := m.resourcesWrapper.specResources.ValidateWithError(decimalSpec); err != nil {
-		m.log.Error("Could not subscribe the following pending Resources to replica %d of kernel %s due "+
-			"to insufficient host spec: %s. Specific reason for subscription failure: %v.",
-			replicaId, kernelId, decimalSpec.String(), err)
-		return err
-	}
-
-	// If we've gotten this far, then we have enough Resources available to subscribe the requested Resources
-	// to the specified kernel replica. So, let's do that now.
-	if err := m.resourcesWrapper.pendingResources.Add(decimalSpec); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		return err
-	}
-
-	// Store the allocation in the mapping.
-	m.allocationKernelReplicaMap.Store(key, allocation)
-
-	// Update the pending/committed allocation counters.
-	m.numPendingAllocations.Incr()
-
-	return nil
-}
-
 // ReplicaEvicted is to be called whenever a kernel replica is stopped/evicted from this scheduling.Host.
 // ReplicaEvicted releases any ResourceAllocation associated with the evicted/stopped kernel replica.
 //
@@ -1300,26 +1205,6 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 	// Update Prometheus metrics.
 	// m.resourceMetricsCallback(m.ResourcesWrapper)
 	m.unsafeUpdatePrometheusResourceMetrics()
-
-	return nil
-}
-
-func (m *ResourceManager) unsafeUnsubscribePendingResources(allocatedResources *types.DecimalSpec, key string) error {
-	if err := m.resourcesWrapper.pendingResources.Subtract(allocatedResources); err != nil {
-		return err
-	}
-
-	m.numPendingAllocations.Decr()
-
-	// Delete the allocation, since the replica was evicted.
-	m.allocationKernelReplicaMap.Delete(key)
-
-	// Make sure everything is OK with respect to our internal state/bookkeeping.
-	err := m.unsafePerformConsistencyCheck()
-	if err != nil {
-		m.log.Error("Discovered an inconsistency: %v", err)
-		return err
-	}
 
 	return nil
 }
@@ -1512,4 +1397,119 @@ func (m *ResourceManager) unsafePerformConsistencyCheck() error {
 	}
 
 	return nil
+}
+
+func (m *ResourceManager) unsafeUnsubscribePendingResources(allocatedResources *types.DecimalSpec, key string) error {
+	if err := m.resourcesWrapper.pendingResources.Subtract(allocatedResources); err != nil {
+		return err
+	}
+
+	m.numPendingAllocations.Decr()
+
+	// Delete the allocation, since the replica was evicted.
+	m.allocationKernelReplicaMap.Delete(key)
+
+	// Make sure everything is OK with respect to our internal state/bookkeeping.
+	err := m.unsafePerformConsistencyCheck()
+	if err != nil {
+		m.log.Error("Discovered an inconsistency: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func (m *ResourceManager) unsafeAllocatePendingResources(decimalSpec *types.DecimalSpec, allocation *ResourceAllocation, key string, replicaId int32, kernelId string) error {
+	// First, validate against this scheduling.Host's spec.
+	if err := m.resourcesWrapper.specResources.ValidateWithError(decimalSpec); err != nil {
+		m.log.Error("Could not subscribe the following pending Resources to replica %d of kernel %s due "+
+			"to insufficient host spec: %s. Specific reason for subscription failure: %v.",
+			replicaId, kernelId, decimalSpec.String(), err)
+		return err
+	}
+
+	// If we've gotten this far, then we have enough Resources available to subscribe the requested Resources
+	// to the specified kernel replica. So, let's do that now.
+	if err := m.resourcesWrapper.pendingResources.Add(decimalSpec); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		return err
+	}
+
+	// Store the allocation in the mapping.
+	m.allocationKernelReplicaMap.Store(key, allocation)
+
+	// Update the pending/committed allocation counters.
+	m.numPendingAllocations.Incr()
+
+	return nil
+}
+
+// unsafeDemoteCommittedAllocationToPendingAllocation performs any necessary state adjustments to the given
+// ResourceAllocation in order to demote it from a CommittedAllocation to a PendingAllocation.
+//
+// unsafeDemoteCommittedAllocationToPendingAllocation does NOT acquire the ResourceManager's mutex and thus must be
+// called from a context in which said mutex is already held.
+//
+// unsafeDemoteCommittedAllocationToPendingAllocation also does not perform any checks to verify that the given
+// ResourceAllocation is of the correct type (i.e., CommittedAllocation, at the time of being passed to this method).
+//
+// unsafeDemoteCommittedAllocationToPendingAllocation does not perform any resource count modification to the
+// ResourceManager. This is expected to have already been performed prior to calling this method.
+func (m *ResourceManager) unsafeDemoteCommittedAllocationToPendingAllocation(allocation *ResourceAllocation) {
+	// Set the AllocationType of the ResourceAllocation to PendingAllocation.
+	allocation.AllocationType = PendingAllocation
+
+	// Update the pending/committed allocation counters.
+	m.numPendingAllocations.Incr()
+	m.numCommittedAllocations.Decr()
+}
+
+// unsafeReleaseCommittedResources releases committed/bound Resources from the kernel replica associated with
+// the given ResourceAllocation.
+//
+// This function does NOT acquire the ResourceManager's mutex, nor does it perform any validation checks whatsoever.
+// It is meant to be called from a context in which the ResourceManager's mutex is held and any appropriate
+// checks are performed before the call to unsafeReleaseCommittedResources and after unsafeReleaseCommittedResources
+// returns.
+//
+// The allocatedResources argument is optional. If it is passed as nil, then it will be assigned a value automatically
+// by calling allocation.ToDecimalSpec(). If allocatedResources is non-nil, then it is necessarily expected to be
+// the return value of allocation.ToDecimalSpec() (generated/called RIGHT before this function is called).
+//
+// If any of the resource modifications performed by this method return an error, then this method will panic.
+//
+// The only check that this method performs is whether the given *ResourceAllocation is nil.
+// If the given *ResourceAllocation is nil, then this method will panic.
+func (m *ResourceManager) unsafeReleaseCommittedResources(allocation *ResourceAllocation, allocatedResources *types.DecimalSpec) {
+	if allocation == nil {
+		panic("The provided ResourceAllocation cannot be nil.")
+	}
+
+	// If allocatedResources is nil, then call allocation.ToDecimalSpec() to populate allocatedResources with a value.
+	if allocatedResources == nil {
+		allocatedResources = allocation.ToDecimalSpec()
+	}
+
+	// If we've gotten this far, then we have enough Resources available to commit the requested Resources
+	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle Resources.
+	if err := m.resourcesWrapper.idleResources.Add(allocatedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
+
+	// Next, we'll increment the pending Resources (since we're releasing committed Resources).
+	if err := m.resourcesWrapper.pendingResources.Add(allocatedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
+
+	// Next, we'll decrement the committed Resources (since we're releasing committed Resources).
+	if err := m.resourcesWrapper.committedResources.Subtract(allocatedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
 }
