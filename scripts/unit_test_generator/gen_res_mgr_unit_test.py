@@ -59,7 +59,7 @@ class Resources:
     def committed_vram(self) -> float:
         return self.initial_vram - self.VRAM
 
-    def validate(self)->bool:
+    def validate(self) -> bool:
         return self.CPU >= 0 and self.MEM >= 0 and self.GPU >= 0 and self.VRAM >= 0 and self.committed_cpu >= 0 and self.committed_mem >= 0 and self.committed_gpu >= 0 and self.committed_vram >= 0
 
     def copy(self):
@@ -339,7 +339,8 @@ def main():
 
     print(dealloc)
 
-    resources: Resources = Resources(cpu = args.allocatable_cpus, mem = args.allocatable_memory, gpu = args.allocatable_gpus, vram = args.allocatable_vram)
+    resources: Resources = Resources(cpu=args.allocatable_cpus, mem=args.allocatable_memory, gpu=args.allocatable_gpus,
+                                     vram=args.allocatable_vram)
     alloc = []
 
     NUM_OPERATIONS = args.num_operations
@@ -355,6 +356,28 @@ def main():
         output_file.write("\tvar err error\n")
         output_file.write("\tvar ok bool\n")
         output_file.write("\tvar insufficientResourcesError *scheduling.InsufficientResourcesError\n")
+
+        print(
+            f"\tresourceManagerSpec := types.NewDecimalSpec({args.allocatable_cpus}, {args.allocatable_memory}, {args.allocatable_gpus}, {args.allocatable_vram})")
+        print("\tresourceManager = scheduling.NewResourceManager(resourceManagerSpec)")
+
+        output_file.write(
+            f"\tresourceManagerSpec := types.NewDecimalSpec({args.allocatable_cpus}, {args.allocatable_memory}, {args.allocatable_gpus}, {args.allocatable_vram})\n")
+        output_file.write("\tresourceManager = scheduling.NewResourceManager(resourceManagerSpec)\n")
+
+        for kernel in kernels:
+            print(
+                f"\tkernel{kernel.kernel_id}Spec := types.NewDecimalSpec({kernel.cpu}, {kernel.mem}, {kernel.gpu}, {kernel.vram})")
+            output_file.write(
+                f"\tkernel{kernel.kernel_id}Spec := types.NewDecimalSpec({kernel.cpu}, {kernel.mem}, {kernel.gpu}, {kernel.vram})\n")
+
+            print(f'\terr = resourceManager.KernelReplicaScheduled(1, "Kernel{kernel.kernel_id}", kernel{kernel.kernel_id}Spec)')
+            print("\tExpect(err).To(BeNil())")
+            print(f"\tExpect(resourceManager.NumPendingAllocations()).To(Equal({kernel.kernel_id}))")
+
+            output_file.write(f'\terr = resourceManager.KernelReplicaScheduled(1, "Kernel{kernel.kernel_id}", kernel{kernel.kernel_id}Spec)\n')
+            output_file.write("\tExpect(err).To(BeNil())\n")
+            output_file.write(f"\tExpect(resourceManager.NumPendingAllocations()).To(Equal({kernel.kernel_id}))\n")
 
         num_pendings = args.num_kernels
         num_commits = 0
@@ -386,6 +409,7 @@ def main():
             if num_commits < 0:
                 print(f"\n\nERROR: num_commits={num_pendings}")
                 exit(1)
+
 
 if __name__ == "__main__":
     main()
