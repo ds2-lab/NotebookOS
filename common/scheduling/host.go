@@ -783,6 +783,8 @@ func (h *Host) doContainerRemovedResourceUpdate(container *Container) {
 		return
 	}
 
+	// TODO: Should we bother forcing a synchronization here?
+
 	h.log.Warn("Could not cleanly remove Container %s from Host %s due to resource-related issue (though the container WAS still removed): %v",
 		container.ContainerID(), h.ID, err)
 

@@ -1153,24 +1153,24 @@ type ResourceWrapperSnapshot struct {
 	// SnapshotId uniquely identifies the ResourceWrapperSnapshot and defines a total order amongst all ResourceWrapperSnapshot
 	// structs originating from the same node. Each newly-created ResourceWrapperSnapshot is assigned an ID from a
 	// monotonically-increasing counter by the ResourceManager.
-	SnapshotId int32 `json:"snapshot_id"`
+	SnapshotId int32 `json:"snapshot_id" mapstructure:"snapshot_id"`
 
 	// NodeId is the ID of the node from which the snapshot originates.
-	NodeId string `json:"host_id"`
+	NodeId string `json:"host_id" mapstructure:"host_id"`
 
 	// ManagerId is the unique ID of the ResourceManager struct from which the ResourceWrapperSnapshot was constructed.
-	ManagerId string `json:"manager_id"`
+	ManagerId string `json:"manager_id" mapstructure:"manager_id"`
 
 	// Timestamp is the time at which the ResourceWrapperSnapshot was taken/created.
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp time.Time `json:"timestamp" mapstructure:"timestamp"`
 
-	IdleResources      *ResourceSnapshot `json:"idle_resources"`
-	PendingResources   *ResourceSnapshot `json:"pending_resources"`
-	CommittedResources *ResourceSnapshot `json:"committed_resources"`
-	SpecResources      *ResourceSnapshot `json:"spec_resources"`
+	IdleResources      *ResourceSnapshot `json:"idle_resources" mapstructure:"idle_resources"`
+	PendingResources   *ResourceSnapshot `json:"pending_resources" mapstructure:"pending_resources"`
+	CommittedResources *ResourceSnapshot `json:"committed_resources" mapstructure:"committed_resources"`
+	SpecResources      *ResourceSnapshot `json:"spec_resources" mapstructure:"spec_resources"`
 
 	// Containers are the Containers presently running on the Host.
-	Containers []types.ContainerInfo
+	Containers []types.ContainerInfo `json:"containers,omitempty" mapstructure:"containers,omitempty"`
 }
 
 // MetadataResourceWrapperSnapshot is a simpel wrapper around a ResourceWrapperSnapshot struct so that

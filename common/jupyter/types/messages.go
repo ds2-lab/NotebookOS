@@ -6,6 +6,7 @@ import (
 	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"log"
 	"strings"
@@ -371,6 +372,9 @@ type ExecuteRequestMetadata struct {
 	// SentAtUnixTimestamp is the Unix epoch time (milliseconds) at which the "execute_request" message
 	// was originally sent by the Jupyter client.
 	SentAtUnixTimestamp *float64 `json:"send-timestamp-unix-milli,omitempty"`
+
+	// ResourceWrapperSnapshot is a snapshot of the resources available on the Local Daemon.
+	ResourceWrapperSnapshot *scheduling.ResourceWrapperSnapshot `json:"resource_snapshot" mapstructure:"resource_request,omitempty"`
 
 	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
 	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.
