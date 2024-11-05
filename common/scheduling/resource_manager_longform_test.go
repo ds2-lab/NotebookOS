@@ -19,7 +19,7 @@ func containsOffendingResourceKind(lst []scheduling.ResourceKind, target schedul
 	return false
 }
 
-var _ = Describe("ResourceManager", func() {
+var _ = Describe("ResourceManager Longform Tests", func() {
 	var resourceManager *scheduling.ResourceManager
 
 	Context("Standard ResourceManager resource spec", func() {

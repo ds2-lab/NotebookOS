@@ -8,7 +8,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
-var _ = Describe("ResourceManager", func() {
+var _ = Describe("ResourceManager Standard Tests", func() {
 	var resourceManager *scheduling.ResourceManager
 	resourceManagerSpec := types.NewDecimalSpec(8000, 64000, 8, 32)
 
@@ -16,7 +16,7 @@ var _ = Describe("ResourceManager", func() {
 		resourceManager = scheduling.NewResourceManager(resourceManagerSpec)
 	})
 
-	It("Will correctly handle the scheduling of a pending resource request", func() {
+	It("Will correctly handle the scheduling of a single pending resource request", func() {
 		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
 
 		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
@@ -29,6 +29,35 @@ var _ = Describe("ResourceManager", func() {
 		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
 
 		Expect(resourceManager.PendingResources().Equals(kernel1Spec))
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+	})
+
+	It("Will correctly handle the scheduling of multiple pending resource request", func() {
+		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+		kernel2Spec := types.NewDecimalSpec(3250, 12345, 5, 3)
+
+		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.SpecResources().Equals(resourceManagerSpec)).To(BeTrue())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1Spec))
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+
+		err = resourceManager.KernelReplicaScheduled(1, "Kernel2", kernel2Spec)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(2))
+		Expect(resourceManager.NumAllocations()).To(Equal(2))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1Spec.Add(kernel2Spec)))
 		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
 		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
 	})
@@ -49,6 +78,13 @@ var _ = Describe("ResourceManager", func() {
 		Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
 		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec.Subtract(kernel1Spec))).To(BeTrue())
 		Expect(resourceManager.CommittedResources().Equals(kernel1Spec)).To(BeTrue())
+	})
+
+	It("Will fail to promote a pending allocation to a committed allocation for a non-existent pending allocation", func() {
+		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+		err := resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+		Expect(err).ToNot(BeNil())
+		Expect(errors.Is(err, scheduling.ErrAllocationNotFound)).To(BeTrue())
 	})
 
 	It("Will correctly handle scheduling multiple committed resources", func() {
@@ -201,5 +237,129 @@ var _ = Describe("ResourceManager", func() {
 
 		Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel7spec))
 		Expect(insufficientResourcesError.AvailableResources).To(Equal(resourceManager.IdleResources()))
+	})
+
+	It("Will correctly adjust a lone pending resource reservation to a larger reservation", func() {
+		kernel1SpecV1 := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1SpecV1)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.SpecResources().Equals(resourceManagerSpec)).To(BeTrue())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1SpecV1))
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+
+		kernel1SpecV2 := types.NewDecimalSpec(8000, 32000, 4, 16)
+
+		err = resourceManager.AdjustPendingResources(1, "Kernel1", kernel1SpecV2)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1SpecV2))
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+	})
+
+	It("Will correctly adjust a lone pending resource reservation to a smaller reservation", func() {
+		kernel1SpecV1 := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1SpecV1)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.SpecResources().Equals(resourceManagerSpec)).To(BeTrue())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1SpecV1))
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+
+		kernel1SpecV2 := types.NewDecimalSpec(2000, 8000, 1, 4)
+
+		err = resourceManager.AdjustPendingResources(1, "Kernel1", kernel1SpecV2)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1SpecV2))
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+	})
+
+	It("Will correctly adjust a pending resource reservation to a larger reservation", func() {
+		kernel1SpecV1 := types.NewDecimalSpec(4000, 16000, 2, 8)
+		kernel2Spec := types.NewDecimalSpec(3000, 1532, 3, 18)
+
+		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1SpecV1)
+		Expect(err).To(BeNil())
+		err = resourceManager.KernelReplicaScheduled(1, "Kernel2", kernel2Spec)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.SpecResources().Equals(resourceManagerSpec)).To(BeTrue())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(2))
+		Expect(resourceManager.NumAllocations()).To(Equal(2))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1SpecV1.Add(kernel2Spec)))
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+
+		kernel1SpecV2 := types.NewDecimalSpec(8000, 32000, 4, 16)
+
+		err = resourceManager.AdjustPendingResources(1, "Kernel1", kernel1SpecV2)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(2))
+		Expect(resourceManager.NumAllocations()).To(Equal(2))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+		Expect(resourceManager.PendingResources().Equals(kernel1SpecV2.Add(kernel2Spec)))
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
+		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+	})
+
+	It("Will fail to adjust a resource request that is already committed", func() {
+		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+
+		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
+		Expect(err).To(BeNil())
+
+		err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+		Expect(err).To(BeNil())
+
+		Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
+		Expect(resourceManager.NumAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
+
+		Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
+		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec.Subtract(kernel1Spec))).To(BeTrue())
+		Expect(resourceManager.CommittedResources().Equals(kernel1Spec)).To(BeTrue())
+
+		kernel1SpecV2 := types.NewDecimalSpec(8000, 32000, 4, 16)
+
+		err = resourceManager.AdjustPendingResources(1, "Kernel1", kernel1SpecV2)
+		Expect(err).ToNot(BeNil())
+		Expect(errors.Is(err, scheduling.ErrInvalidOperation)).To(BeTrue())
+	})
+
+	It("Will fail to adjust a resource request that does not exist", func() {
+		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
+		err := resourceManager.AdjustPendingResources(1, "Kernel1", kernel1Spec)
+		Expect(err).ToNot(BeNil())
+		Expect(errors.Is(err, scheduling.ErrAllocationNotFound)).To(BeTrue())
 	})
 })
