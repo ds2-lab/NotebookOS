@@ -1,5 +1,6 @@
 import argparse
 import random
+from math import floor
 from typing import TextIO
 
 from scipy.stats import truncnorm
@@ -31,24 +32,35 @@ class Resources:
         self.GPU: float = gpu
         self.VRAM: float = vram
 
+        self.initial_cpu: float = cpu
+        self.initial_mem: float = mem
+        self.initial_gpu: float = gpu
+        self.initial_vram: float = vram
+
+    def __repr__(self):
+        return self.__str__()
+
     def __str__(self):
-        return f"CPU:{self.CPU}, MEM:{self.MEM}, GPU:{self.GPU}, VRAM:{self.VRAM}"
+        return f"CPU:{self.committed_cpu}/{self.CPU}, MEM:{self.committed_mem}/{self.MEM}, GPU:{self.committed_gpu}/{self.GPU}, VRAM:{self.committed_vram}/{self.VRAM}"
 
     @property
     def committed_cpu(self) -> float:
-        return 8000 - self.CPU
+        return self.initial_cpu - self.CPU
 
     @property
     def committed_mem(self) -> float:
-        return 64000 - self.MEM
+        return self.initial_mem - self.MEM
 
     @property
     def committed_gpu(self) -> float:
-        return 8 - self.GPU
+        return self.initial_gpu - self.GPU
 
     @property
     def committed_vram(self) -> float:
-        return 32 - self.VRAM
+        return self.initial_vram - self.VRAM
+
+    def validate(self)->bool:
+        return self.CPU >= 0 and self.MEM >= 0 and self.GPU >= 0 and self.VRAM >= 0 and self.committed_cpu >= 0 and self.committed_mem >= 0 and self.committed_gpu >= 0 and self.committed_vram >= 0
 
     def copy(self):
         r: Resources = Resources()
@@ -56,6 +68,10 @@ class Resources:
         r.MEM = self.MEM
         r.GPU = self.GPU
         r.VRAM = self.VRAM
+        r.initial_cpu = self.initial_cpu
+        r.initial_mem = self.initial_mem
+        r.initial_gpu = self.initial_gpu
+        r.initial_vram = self.initial_vram
 
         return r
 
@@ -91,7 +107,7 @@ def generate_kernels(num_kernels: int = 4) -> tuple[list[Kernel], list[Kernel]]:
     k: list[Kernel] = []
     d: list[Kernel] = []
     for i in range(0, num_kernels):
-        kernel = Kernel(i + 1, cpu_vals[i], mem_vals[i], num_gpus_vals[i], vram_vals[i])
+        kernel = Kernel(i + 1, floor(cpu_vals[i]), floor(mem_vals[i]), floor(num_gpus_vals[i]), floor(vram_vals[i]))
         k.append(kernel)
         d.append(kernel)
 
@@ -175,7 +191,8 @@ def generate_operations(
         k: int = 4,
         n: int = 8
 ):
-    for _ in range(0, n):
+    for i in range(0, n):
+        print(f"\nOperation #{i}")
         if len(alloc) == 0:
             target = random.choice(dealloc)
             try_allocate(target, resources, alloc, dealloc, targets, operations, outcomes)
@@ -200,12 +217,15 @@ def generate_operations(
         if len(alloc) > k:
             print(f"Alloc already has {len(alloc)} kernels: {alloc}")
             exit(1)
-        elif len(dealloc) > k:
+        if len(dealloc) > k:
             print(f"Deallocated already has {len(dealloc)} kernels: {dealloc}")
+            exit(1)
+        if not resources.validate():
+            print(f"\n\nERROR: Invalid resources during operation generation: {resources}")
             exit(1)
 
 
-def generate_commit(targetCommitKernel: Kernel, currentOutcome: Outcome, res: Resources, num_commit: int,
+def generate_commit(targetCommitKernel: Kernel, currentOutcome: Outcome, currentResources: Resources, num_commit: int,
                     num_pending: int, out: TextIO):
     target_id: int = targetCommitKernel.kernel_id
     print(f'\n\terr = resourceManager.CommitResources(1, "Kernel{target_id}", kernel{target_id}Spec, false)')
@@ -249,9 +269,9 @@ def generate_commit(targetCommitKernel: Kernel, currentOutcome: Outcome, res: Re
     print(f"\tExpect(resourceManager.NumCommittedAllocations()).To(Equal({num_commit}))")
     print(f"\tExpect(resourceManager.NumPendingAllocations()).To(Equal({num_pending}))")
     print(
-        f"\tExpect(resourceManager.IdleResources().Equals(types.NewDecimalSpec({res.CPU},{res.MEM},{res.GPU},{res.VRAM}))).To(BeTrue())")
+        f"\tExpect(resourceManager.IdleResources().Equals(types.NewDecimalSpec({currentResources.CPU},{currentResources.MEM},{currentResources.GPU},{currentResources.VRAM}))).To(BeTrue())")
     print(
-        f"\tExpect(resourceManager.CommittedResources().Equals(types.NewDecimalSpec({res.committed_cpu},{res.committed_mem},{res.committed_gpu},{res.committed_vram}))).To(BeTrue())")
+        f"\tExpect(resourceManager.CommittedResources().Equals(types.NewDecimalSpec({currentResources.committed_cpu},{currentResources.committed_mem},{currentResources.committed_gpu},{currentResources.committed_vram}))).To(BeTrue())")
 
     out.write(
         '\tGinkgoWriter.Printf("resourceManager.CommittedResources(): %s\\n", resourceManager.CommittedResources().String())\n')
@@ -259,9 +279,9 @@ def generate_commit(targetCommitKernel: Kernel, currentOutcome: Outcome, res: Re
     out.write(f"\tExpect(resourceManager.NumCommittedAllocations()).To(Equal({num_commit}))\n")
     out.write(f"\tExpect(resourceManager.NumPendingAllocations()).To(Equal({num_pending}))\n")
     out.write(
-        f"\tExpect(resourceManager.IdleResources().Equals(types.NewDecimalSpec({res.CPU},{res.MEM},{res.GPU},{res.VRAM}))).To(BeTrue())\n")
+        f"\tExpect(resourceManager.IdleResources().Equals(types.NewDecimalSpec({currentResources.CPU},{currentResources.MEM},{currentResources.GPU},{currentResources.VRAM}))).To(BeTrue())\n")
     out.write(
-        f"\tExpect(resourceManager.CommittedResources().Equals(types.NewDecimalSpec({res.committed_cpu},{res.committed_mem},{res.committed_gpu},{res.committed_vram}))).To(BeTrue())\n")
+        f"\tExpect(resourceManager.CommittedResources().Equals(types.NewDecimalSpec({currentResources.committed_cpu},{currentResources.committed_mem},{currentResources.committed_gpu},{currentResources.committed_vram}))).To(BeTrue())\n")
 
 
 def generate_dealloc(targetDeallocKernel: Kernel, currentResources: Resources, num_commit: int, num_pending: int,
@@ -345,6 +365,10 @@ def main():
             outcome = outcomes[i]
             currentRes = resources_list[i]
 
+            if not currentRes.validate():
+                print(f"\n\nERROR: Invalid resources while outputting Golang code: {currentRes}")
+                exit(1)
+
             if operation == OP_COMMIT:
                 if outcome.success:
                     num_commits += 1
@@ -362,7 +386,6 @@ def main():
             if num_commits < 0:
                 print(f"\n\nERROR: num_commits={num_pendings}")
                 exit(1)
-
 
 if __name__ == "__main__":
     main()
