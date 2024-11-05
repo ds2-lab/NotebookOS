@@ -91,10 +91,10 @@ def try_allocate(kernel: Kernel, resources: Resources)->bool:
     targets.append(kernel)
     operations.append(OP_COMMIT)
 
-    enough_cpu: bool  = resources.CPU > kernel.cpu
-    enough_mem: bool  = resources.MEM > kernel.mem
-    enough_gpu: bool  = resources.GPU > kernel.gpu
-    enough_vram: bool = resources.VRAM > kernel.vram
+    enough_cpu: bool  = resources.CPU >= kernel.cpu
+    enough_mem: bool  = resources.MEM >= kernel.mem
+    enough_gpu: bool  = resources.GPU >= kernel.gpu
+    enough_vram: bool = resources.VRAM >= kernel.vram
     if enough_cpu and enough_mem and enough_gpu and enough_vram:
         alloc.append(kernel)
         dealloc.remove(kernel)
