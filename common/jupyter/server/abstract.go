@@ -17,9 +17,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/petermattis/goid"
 
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"

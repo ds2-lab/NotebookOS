@@ -13,8 +13,8 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/Scusemua/go-utils/config"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/muesli/termenv"
 
 	"github.com/zhangjyr/distributed-notebook/local_daemon/daemon"

@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/pkg/errors"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"

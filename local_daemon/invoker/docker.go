@@ -16,8 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Scusemua/go-utils/config"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/config"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
@@ -555,7 +555,7 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 
 	startTime := time.Now()
 	if err := cmd.Run(); err != nil {
-		ivk.log.Debug("Failed to launch container/kernel %s: %v", name, err)
+		ivk.log.Error("Failed to launch container/kernel %s: %v", name, err)
 		ivk.log.Error("STDOUT: %s", outb.String())
 
 		stderrOutput := errb.String()

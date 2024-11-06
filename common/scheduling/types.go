@@ -2,7 +2,7 @@ package scheduling
 
 import (
 	"context"
-	"github.com/mason-leap-lab/go-utils/promise"
+	"github.com/Scusemua/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"time"

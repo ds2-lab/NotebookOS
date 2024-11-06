@@ -1,7 +1,7 @@
 package scheduling
 
 import (
-	"github.com/mason-leap-lab/go-utils/cache"
+	"github.com/Scusemua/go-utils/cache"
 	"time"
 )
 

@@ -4,6 +4,13 @@
 ## explicit; go 1.12
 github.com/Microsoft/go-winio
 github.com/Microsoft/go-winio/pkg/guid
+# github.com/Scusemua/go-utils v0.1.1
+## explicit; go 1.18
+github.com/Scusemua/go-utils/cache
+github.com/Scusemua/go-utils/config
+github.com/Scusemua/go-utils/logger
+github.com/Scusemua/go-utils/promise
+github.com/Scusemua/go-utils/sync
 # github.com/armon/go-metrics v0.4.1
 ## explicit; go 1.12
 github.com/armon/go-metrics
@@ -382,13 +389,6 @@ github.com/lucasb-eyer/go-colorful
 github.com/mailru/easyjson/buffer
 github.com/mailru/easyjson/jlexer
 github.com/mailru/easyjson/jwriter
-# github.com/mason-leap-lab/go-utils v1.3.3
-## explicit; go 1.18
-github.com/mason-leap-lab/go-utils/cache
-github.com/mason-leap-lab/go-utils/config
-github.com/mason-leap-lab/go-utils/logger
-github.com/mason-leap-lab/go-utils/promise
-github.com/mason-leap-lab/go-utils/sync
 # github.com/mattn/go-colorable v0.1.13
 ## explicit; go 1.15
 github.com/mattn/go-colorable

@@ -54,7 +54,7 @@ func (s KernelStatus) String() string {
 // This is not used by Kernels directly, as it has two fields `IOPubPort` and `IOSubPort`
 // that are used to configure other components, such as the Gateway and LocalDaemons.
 // We convert this struct to a `ConnectionInfoForKernel` when we want to pass configuration to a kernel.
-// The definition is compatible with github.com/mason-leap-lab/go-utils/config.Options
+// The definition is compatible with github.com/Scusemua/go-utils/config.Options
 type ConnectionInfo struct {
 	IP                   string `json:"ip" name:"ip" description:"The IP address of the kernel."`
 	ControlPort          int    `json:"control_port" name:"control-port" description:"The port for control messages."`
@@ -126,7 +126,7 @@ func (info *ConnectionInfo) ToConnectionInfoForKernel() *ConnectionInfoForKernel
 }
 
 // ConnectionInfoForKernel stores the contents of the kernel connection info.
-// The definition is compatible with github.com/mason-leap-lab/go-utils/config.Options
+// The definition is compatible with github.com/Scusemua/go-utils/config.Options
 type ConnectionInfoForKernel struct {
 	IP              string `json:"ip" name:"ip" description:"The IP address of the kernel."`
 	ControlPort     int    `json:"control_port" name:"control-port" description:"The port for control messages."`

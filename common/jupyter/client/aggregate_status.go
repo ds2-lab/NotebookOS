@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mason-leap-lab/go-utils/promise"
+	"github.com/Scusemua/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 

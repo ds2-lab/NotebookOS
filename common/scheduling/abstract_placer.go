@@ -3,7 +3,7 @@ package scheduling
 import (
 	"context"
 	"errors"
-	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/Scusemua/go-utils/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
@@ -11,11 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/Scusemua/go-utils/logger"
 )
 
 var (
-	ErrNilHost = errors.New("host is nil when attempting to place kernel")
+	ErrNilHost           = errors.New("host is nil when attempting to place kernel")
+	ErrNilConnectionInfo = errors.New("host returned no error and no connection info after starting kernel replica")
 )
 
 // AbstractPlacer implements basic place/reclaim functionality.
@@ -117,7 +118,31 @@ func (placer *AbstractPlacer) Place(host *Host, in *proto.KernelReplicaSpec) (*p
 		return nil, ErrNilHost
 	}
 
-	return host.StartKernelReplica(context.Background(), in)
+	placer.log.Debug("Starting replica %d of kernel %s on host %s (ID=%s) now...",
+		in.ReplicaId, in.Kernel.Id, host.NodeName, host.ID)
+
+	connInfo, err := host.StartKernelReplica(context.Background(), in)
+
+	if err != nil {
+		placer.log.Error("Host %s (ID=%s) returned an error after trying to start replica %d of kernel %s: %v",
+			host.NodeName, host.ID, in.ReplicaId, in.Kernel.Id, err)
+
+		return nil, err
+	}
+
+	if connInfo != nil {
+		placer.log.Debug("Host %s (ID=%s) returned the following connection info for replica %d of kernel %s: %v",
+			host.NodeName, host.ID, in.ReplicaId, in.Kernel.Id, connInfo)
+	} else {
+		placer.log.Error(
+			utils.RedStyle.Render(
+				"Host %s (ID=%s) returned no error and no connection info after trying to start replica %d of kernel %s..."),
+			host.NodeName, host.ID, in.ReplicaId, in.Kernel.Id)
+
+		return nil, ErrNilConnectionInfo
+	}
+
+	return connInfo, err
 }
 
 // Reclaim atomically reclaims a replica from a host.

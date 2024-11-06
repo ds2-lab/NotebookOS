@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	promise "github.com/mason-leap-lab/go-utils/promise"
+	promise "github.com/Scusemua/go-utils/promise"
 	decimal "github.com/shopspring/decimal"
 	metrics "github.com/zhangjyr/distributed-notebook/common/metrics"
 	scheduling "github.com/zhangjyr/distributed-notebook/common/scheduling"

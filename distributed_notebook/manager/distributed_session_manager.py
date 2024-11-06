@@ -71,7 +71,7 @@ class DistributedSessionManager(SessionManager):
         session_id: str,
         path: Optional[str],
         name: Optional[ModelName],
-        type: Optional[str],
+        typ: Optional[str],
         kernel_name: Optional[KernelName],
         kernel_id: Optional[str] = None, 
         resource_spec: Optional[dict[str, float|int]] = None,
@@ -87,7 +87,7 @@ class DistributedSessionManager(SessionManager):
         name : str
             Usually the model name, like the filename associated with current
             kernel.
-        type : str
+        typ : str
             the type of the session
         kernel_name : str
             the name of the kernel specification to use.  The default kernel name will be used if not provided.
@@ -96,7 +96,7 @@ class DistributedSessionManager(SessionManager):
         resource_spec : dict[str, int]
             the resource specification for the new session. kernels of this session will be created with these resource limits within Kubernetes.
         """
-        self.log.info("DistributedSessionManager is starting a new Kernel for Session %s: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, ResourceSpec=%s" % (session_id, path, name, type, kernel_name, kernel_id, str(resource_spec)))
+        self.log.info("DistributedSessionManager is starting a new Kernel for Session %s: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, ResourceSpec=%s" % (session_id, path, name, typ, kernel_name, kernel_id, str(resource_spec)))
         
         # Allow contents manager to specify kernels cwd
         kernel_path = await ensure_async(self.contents_manager.get_kernel_path(path=path))

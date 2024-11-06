@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/Scusemua/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"strings"
 	"time"

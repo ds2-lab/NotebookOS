@@ -20,7 +20,7 @@ require (
 	github.com/hashicorp/yamux v0.1.1
 	github.com/ianlancetaylor/cgosymbolizer v0.0.0-20240718183735-925f0b3ad234
 	github.com/jackpal/gateway v1.0.15
-	github.com/mason-leap-lab/go-utils v1.3.3
+	github.com/Scusemua/go-utils v0.1.1
 	github.com/onsi/ginkgo/v2 v2.19.0
 	github.com/onsi/gomega v1.34.1
 	github.com/opentracing-contrib/go-stdlib v1.0.0

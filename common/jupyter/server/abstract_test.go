@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"

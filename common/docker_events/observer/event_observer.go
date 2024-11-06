@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 )
 
 const (

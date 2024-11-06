@@ -2,8 +2,8 @@ package forwarder
 
 import (
 	"encoding/json"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 )
 
 // DecodedEventConsumer defines the interface of an entity that consumes decoded Docker events from an EventDecoder.

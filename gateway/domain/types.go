@@ -2,7 +2,7 @@ package domain
 
 import (
 	"encoding/json"
-	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/Scusemua/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"

@@ -20,12 +20,12 @@ import (
 
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	"github.com/hashicorp/yamux"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/petermattis/goid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -1577,6 +1577,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		SignatureScheme: kernel.KernelSpec().SignatureScheme,
 		Key:             kernel.KernelSpec().Key,
 	}
+
 	d.log.Info("Kernel(%s) started after %v: %v", kernel.ID(), time.Since(startTime), info)
 
 	session, ok := d.cluster.Sessions().Load(kernel.ID())
@@ -1595,6 +1596,8 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	}
 
 	d.newKernelCreated(startTime, kernel.ID())
+
+	d.log.Info("Returning from ClusterGatewayImpl::StartKernel for kernel %s after %v.", kernel.ID(), time.Since(startTime))
 
 	return info, nil
 }

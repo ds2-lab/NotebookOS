@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Scusemua/go-utils/config"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
-	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/opentracing/opentracing-go"
 	"github.com/zhangjyr/distributed-notebook/common/consul"
 	"github.com/zhangjyr/distributed-notebook/common/tracing"

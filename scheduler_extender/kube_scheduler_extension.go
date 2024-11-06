@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/gin-gonic/contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	scheduler "k8s.io/kube-scheduler/extender/v1"
 )
 

@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/fsnotify/fsnotify"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/pkg/errors"
 	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
 	"google.golang.org/grpc"

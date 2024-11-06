@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Scusemua/go-utils/logger"
+	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/mason-leap-lab/go-utils/promise"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
@@ -24,8 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Scusemua/go-utils/config"
 	"github.com/go-zeromq/zmq4"
-	"github.com/mason-leap-lab/go-utils/config"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/mock_client"
@@ -61,7 +61,6 @@ var (
   },
   "cluster_daemon_options": {
     "cluster_scheduler_options": {
-      "gpus-per-host": 8,
       "num-virtual-gpus-per-node": 72,
       "subscribed-ratio-update-interval": 1,
       "scaling-factor": 1.05,
@@ -77,23 +76,24 @@ var (
       "max-subscribed-ratio": 7,
       "execution-time-sampling-window": 10,
       "migration-time-sampling-window": 10,
-      "scheduler-http-port": 8078
-    },
-    "common_options": {
-      "deployment_mode": "docker-compose",
-      "using-wsl": true,
-      "docker_network_name": "distributed_cluster_default",
-      "prometheus_interval": 15,
-      "prometheus_port": 8089,
-      "num_resend_attempts": 1,
-      "acks_enabled": false,
-      "scheduling-policy": "static",
-      "hdfs-namenode-endpoint": "host.docker.internal:10000",
-      "smr-port": 8080,
-      "debug_mode": true,
-      "debug_port": 9996,
-      "simulate_checkpointing_latency": true,
-      "disable_prometheus_metrics_publishing": false
+      "scheduler-http-port": 8078,
+		"common_options": {
+          "gpus-per-host": 8,
+		  "deployment_mode": "docker-compose",
+		  "using-wsl": true,
+		  "docker_network_name": "distributed_cluster_default",
+		  "prometheus_interval": 15,
+		  "prometheus_port": 8089,
+		  "num_resend_attempts": 1,
+		  "acks_enabled": false,
+		  "scheduling-policy": "static",
+		  "hdfs-namenode-endpoint": "host.docker.internal:10000",
+		  "smr-port": 8080,
+		  "debug_mode": true,
+		  "debug_port": 9996,
+		  "simulate_checkpointing_latency": true,
+		  "disable_prometheus_metrics_publishing": false
+		}
     },
     "local-daemon-service-name": "local-daemon-network",
     "local-daemon-service-port": 8075,
@@ -104,7 +104,7 @@ var (
     "notebook-image-name": "scusemua/jupyter",
     "notebook-image-tag": "latest",
     "distributed-cluster-service-port": 8079,
-	"remote-docker-event-aggregator-port": 5821,
+	"remote-docker-event-aggregator-port": 5821
   },
   "port": 8080,
   "provisioner_port": 8081,
@@ -137,6 +137,8 @@ func NewResourceSpoofer(nodeName string, hostId string, hostSpec types.Spec) *Re
 		hostSpec:  hostSpec,
 		wrapper:   scheduling.NewResourcesWrapper(hostSpec),
 	}
+
+	GinkgoWriter.Printf("Created new ResourceSpoofer for host %s (ID=%s) with spec=%s\n", nodeName, hostId, hostSpec.String())
 
 	return spoofer
 }
@@ -760,6 +762,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				host3, localGatewayClient3, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
 				Expect(err).To(BeNil())
 
+				By("Correctly registering the first Host")
+
 				// Add first host.
 				cluster.NewHostAddedOrConnected(host1)
 
@@ -768,6 +772,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(placer.NumHostsInIndex()).To(Equal(1))
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(1))
 
+				By("Correctly registering the second Host")
+
 				// Add second host.
 				cluster.NewHostAddedOrConnected(host2)
 
@@ -775,6 +781,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(index.Len()).To(Equal(2))
 				Expect(placer.NumHostsInIndex()).To(Equal(2))
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(2))
+
+				By("Correctly registering the third Host")
 
 				// Add third host.
 				cluster.NewHostAddedOrConnected(host3)
@@ -808,38 +816,72 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				startKernelReturnValChan3 := make(chan *proto.KernelConnectionInfo)
 
 				localGatewayClient1.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					GinkgoWriter.Printf("LocalGateway #1 has called spoofed StartKernelReplica\n")
+
+					defer GinkgoRecover()
+
 					err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
 					Expect(err).To(BeNil())
 					err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 					Expect(err).To(BeNil())
 
 					startKernelReplicaCalled.Done()
 
+					GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #1 to be passed via channel.\n")
 					ret := <-startKernelReturnValChan1
+
+					GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #1: %v\n", ret)
+
 					return ret, nil
 				})
 
 				localGatewayClient2.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					GinkgoWriter.Printf("LocalGateway #2 has called spoofed StartKernelReplica\n")
+
+					defer GinkgoRecover()
+
 					err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
 					Expect(err).To(BeNil())
 					err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 					Expect(err).To(BeNil())
 
 					startKernelReplicaCalled.Done()
+
+					GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #2 to be passed via channel.\n")
 					ret := <-startKernelReturnValChan2
+
+					GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #2: %v\n", ret)
+
 					return ret, nil
 				})
 
 				localGatewayClient3.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+					GinkgoWriter.Printf("LocalGateway #3 has called spoofed StartKernelReplica\n")
+
+					defer GinkgoRecover()
+
 					err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
 					Expect(err).To(BeNil())
 					err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 					Expect(err).To(BeNil())
 
 					startKernelReplicaCalled.Done()
+
+					GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #3 to be passed via channel.\n")
 					ret := <-startKernelReturnValChan3
+
+					GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #3: %v\n", ret)
+
 					return ret, nil
 				})
+
+				By("Correctly initiating the creation of a new kernel")
 
 				startKernelReturnValChan := make(chan *proto.KernelConnectionInfo)
 				go func() {
@@ -851,7 +893,27 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					startKernelReturnValChan <- connInfo
 				}()
-				startKernelReplicaCalled.Wait()
+
+				doneChan := make(chan interface{}, 1)
+				go func() {
+					startKernelReplicaCalled.Wait()
+					doneChan <- struct{}{}
+				}()
+
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+				defer cancel()
+
+				select {
+				case <-ctx.Done():
+					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on Local Daemons by Placer.\n")
+					Expect(false).To(BeTrue())
+				case <-doneChan:
+					{
+						// Do nothing / continue with the unit test
+					}
+				}
+
+				By("Correctly handling the KernelConnectionInfo")
 
 				startKernelReturnValChan1 <- &proto.KernelConnectionInfo{
 					Ip:              "0.0.0.0",
@@ -895,6 +957,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				var notifyKernelRegisteredCalled sync.WaitGroup
 				notifyKernelRegisteredCalled.Add(3)
 
+				By("Correctly notifying that the kernel registered")
+
 				sleepIntervals := make(chan time.Duration, 3)
 				notifyKernelRegistered := func(replicaId int32) {
 					defer GinkgoRecover()
@@ -923,6 +987,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						KernelIp:           "0.0.0.0",
 						PodOrContainerName: "kernel1pod",
 						NodeName:           node1Name,
+						NotificationId:     uuid.NewString(),
 					})
 					Expect(resp).ToNot(BeNil())
 					Expect(err).To(BeNil())
@@ -966,6 +1031,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				sleepIntervals <- time.Millisecond * 500
 				sleepIntervals <- time.Millisecond * 1500
 
+				By("Correctly calling SMR ready and handling that correctly")
+
 				go callSmrReady(1)
 				go callSmrReady(2)
 				go callSmrReady(3)
@@ -976,6 +1043,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(connInfo).ToNot(BeNil())
 
 				go func() {
+					defer GinkgoRecover()
 					_ = clusterGateway.Close()
 				}()
 			})
@@ -1091,10 +1159,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				startKernelReturnValChan3 := make(chan *proto.KernelConnectionInfo)
 
 				localGatewayClient1.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
-					//err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
-					//Expect(err).To(BeNil())
-					//err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
-					//Expect(err).To(BeNil())
+					GinkgoWriter.Printf("LocalGateway #1 has called spoofed StartKernelReplica\n")
 
 					startKernelReplicaCalled.Done()
 
@@ -1103,10 +1168,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 
 				localGatewayClient2.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
-					//err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
-					//Expect(err).To(BeNil())
-					//err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
-					//Expect(err).To(BeNil())
+					GinkgoWriter.Printf("LocalGateway #2 has called spoofed StartKernelReplica\n")
 
 					startKernelReplicaCalled.Done()
 					ret := <-startKernelReturnValChan2
@@ -1114,10 +1176,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 
 				localGatewayClient3.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
-					//err := host1Spoofer.wrer.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
-					//					//Expect(err).To(BeNil())
-					//					//err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
-					//					//Expect(err).To(BeNil())app
+					GinkgoWriter.Printf("LocalGateway #3 has called spoofed StartKernelReplica\n")
+
 					startKernelReplicaCalled.Done()
 					ret := <-startKernelReturnValChan3
 					return ret, nil

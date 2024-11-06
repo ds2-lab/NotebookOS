@@ -2,7 +2,7 @@ package scheduling
 
 import (
 	"fmt"
-	"github.com/mason-leap-lab/go-utils/promise"
+	"github.com/Scusemua/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )

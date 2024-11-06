@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/pkg/errors"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"

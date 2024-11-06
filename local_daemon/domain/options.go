@@ -6,7 +6,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/configuration"
 	"strings"
 
-	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/Scusemua/go-utils/config"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )

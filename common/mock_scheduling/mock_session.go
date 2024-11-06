@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
-	promise "github.com/mason-leap-lab/go-utils/promise"
+	promise "github.com/Scusemua/go-utils/promise"
 	proto "github.com/zhangjyr/distributed-notebook/common/proto"
 	scheduling "github.com/zhangjyr/distributed-notebook/common/scheduling"
 	types "github.com/zhangjyr/distributed-notebook/common/types"

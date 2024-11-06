@@ -8,6 +8,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc/connectivity"
+	"net"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -22,6 +23,17 @@ type DockerScheduler struct {
 
 	// Used in Docker mode. Assigned to individual kernel replicas, incremented after each assignment.
 	dockerModeKernelDebugPort atomic.Int32
+}
+
+// checkIfPortIsAvailable checks if the specified port is presently available, returning true if so and false if not.
+func checkIfPortIsAvailable(port int32) bool {
+	address := fmt.Sprintf("localhost:%d", port)
+	ln, err := net.Listen("tcp", address)
+	if err != nil {
+		return false // Port is not available
+	}
+	_ = ln.Close() // Close the listener if successful
+	return true    // Port is available
 }
 
 func NewDockerScheduler(gateway ClusterGateway, cluster clusterInternal, placer Placer, hostSpec types.Spec, opts *ClusterSchedulerOptions) (*DockerScheduler, error) {
@@ -121,6 +133,9 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 	// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
 	if replicaSpec.DockerModeKernelDebugPort <= 1023 {
 		replicaSpec.DockerModeKernelDebugPort = s.dockerModeKernelDebugPort.Add(1)
+
+		s.log.Debug("Assigned docker mode kernel replica debug port to %d for replica %d of kernel %s.",
+			replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, kernelId)
 	}
 
 	s.log.Debug("Launching replica %d of kernel %s on targetHost %v now.", replicaSpec.ReplicaId, kernelId, targetHost)
@@ -157,6 +172,8 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 				NumReplicas:               int32(s.opts.NumReplicas),
 				DockerModeKernelDebugPort: s.dockerModeKernelDebugPort.Add(1),
 			}
+			s.log.Debug("Assigned docker mode kernel replica debug port to %d for replica %d of kernel %s.",
+				replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, in.Id)
 
 			// Only 1 of arguments 2 and 3 can be non-nil.
 			var schedulingError error
