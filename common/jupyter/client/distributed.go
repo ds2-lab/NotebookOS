@@ -52,7 +52,7 @@ type SessionManager interface {
 type ExecutionLatencyCallback func(latency time.Duration, workloadId string, kernelId string)
 
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
-type ExecutionFailedCallback func(c *DistributedKernelClient) error
+type ExecutionFailedCallback func(c AbstractDistributedKernelClient) error
 
 // ReplicaRemover is a function that removes a replica from a kernel.
 // If noop is specified, it is the caller's responsibility to stop the replica.
@@ -70,6 +70,13 @@ func (r *ReplicaKernelInfo) ReplicaID() int32 {
 
 func (r *ReplicaKernelInfo) String() string {
 	return r.replica.String()
+}
+
+type DistributedClientProvider interface {
+	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
+		connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
+		debugMode bool, executionFailedCallback ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
+		messagingMetricsProvider metrics.MessagingMetricsProvider) AbstractDistributedKernelClient
 }
 
 // DistributedKernelClient is a client of a Distributed Jupyter Kernel that is used by the Gateway daemon.
@@ -141,10 +148,15 @@ type DistributedKernelClient struct {
 	cleaned chan struct{}
 }
 
-func NewDistributedKernel(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
+// DistributedKernelClientProvider enables the creation of DistributedKernelClient structs.
+type DistributedKernelClientProvider struct{}
+
+// NewDistributedKernelClient creates a new DistributedKernelClient struct and returns
+// a pointer to it in the form of an AbstractDistributedKernelClient interface.
+func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
 	connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
 	debugMode bool, executionFailedCallback ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
-	messagingMetricsProvider metrics.MessagingMetricsProvider) *DistributedKernelClient {
+	messagingMetricsProvider metrics.MessagingMetricsProvider) AbstractDistributedKernelClient {
 
 	kernel := &DistributedKernelClient{
 		id:                       spec.Id,

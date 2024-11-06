@@ -29,7 +29,6 @@ type KubeClient interface {
 	ContainerWatcher
 
 	KubeClientset() *kubernetes.Clientset // Get the Kubernetes client.
-	ClusterGateway() ClusterGateway       // Get the associated Gateway daemon.
 
 	// DeployDistributedKernels creates a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
 	DeployDistributedKernels(context.Context, *proto.KernelSpec) (*types.ConnectionInfo, error)

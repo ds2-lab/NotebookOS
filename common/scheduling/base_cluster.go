@@ -109,10 +109,6 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		config.InitLogger(&cluster.log, loggerPrefix)
 	}
 
-	if clusterMetricsProvider == nil {
-		cluster.log.Warn("Cluster Metrics Provider is nil.")
-	}
-
 	go func() {
 		cluster.log.Debug("Sleeping for %v before periodically validating Cluster capacity.", cluster.validateCapacityInterval)
 
@@ -258,8 +254,8 @@ func (c *BaseCluster) onHostAdded(host *Host) {
 	})
 
 	c.unsafeCheckIfScaleOperationIsComplete(host)
-	if c.clusterMetricsProvider != nil {
-		c.log.Debug("ClusterMetricsProvider is not nil, apparently.")
+
+	if c.clusterMetricsProvider.GetNumHostsGauge() != nil {
 		c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 	}
 }
@@ -277,7 +273,7 @@ func (c *BaseCluster) onHostRemoved(host *Host) {
 	defer c.scalingOpMutex.Unlock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)
 
-	if c.clusterMetricsProvider != nil {
+	if c.clusterMetricsProvider.GetNumHostsGauge() != nil {
 		c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 	}
 }

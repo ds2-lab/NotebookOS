@@ -16,7 +16,7 @@ type KubernetesCluster struct {
 // NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
 // This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
-func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, hostSpec types.Spec,
+func NewKubernetesCluster(kubeClient KubeClient, hostSpec types.Spec, hostMapper HostMapper,
 	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *KubernetesCluster {
 
 	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "KubernetesCluster")
@@ -31,7 +31,7 @@ func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, h
 	}
 	kubernetesCluster.placer = placer
 
-	scheduler, err := NewKubernetesScheduler(gatewayDaemon, kubernetesCluster, placer, hostSpec, kubeClient, opts)
+	scheduler, err := NewKubernetesScheduler(kubernetesCluster, placer, hostMapper, hostSpec, kubeClient, opts)
 	if err != nil {
 		kubernetesCluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
 		panic(err)

@@ -36,12 +36,8 @@ func checkIfPortIsAvailable(port int32) bool {
 	return true    // Port is available
 }
 
-func NewDockerScheduler(gateway ClusterGateway, cluster clusterInternal, placer Placer, hostSpec types.Spec, opts *ClusterSchedulerOptions) (*DockerScheduler, error) {
-	if !gateway.DockerMode() {
-		return nil, types.ErrIncompatibleDeploymentMode
-	}
-
-	baseScheduler := NewBaseScheduler(gateway, cluster, placer, hostSpec, opts)
+func NewDockerScheduler(cluster clusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, opts *ClusterSchedulerOptions) (*DockerScheduler, error) {
+	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, opts)
 
 	dockerScheduler := &DockerScheduler{
 		BaseScheduler: baseScheduler,
@@ -76,7 +72,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 		blacklist = append(blacklist, blacklistedHost.GetMeta(HostMetaRandomIndex))
 	}
 
-	replicaHosts, err := s.gateway.GetHostsOfKernel(kernelId)
+	replicaHosts, err := s.hostMapper.GetHostsOfKernel(kernelId)
 	if err != nil {
 		return nil, err
 	}

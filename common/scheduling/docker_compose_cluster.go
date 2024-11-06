@@ -26,7 +26,7 @@ type DockerComposeCluster struct {
 // NewDockerComposeCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
-func NewDockerComposeCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
+func NewDockerComposeCluster(hostSpec types.Spec, hostMapper HostMapper,
 	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *DockerComposeCluster {
 
 	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerComposeCluster")
@@ -43,7 +43,7 @@ func NewDockerComposeCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
 	}
 	dockerCluster.placer = placer
 
-	scheduler, err := NewDockerScheduler(gatewayDaemon, dockerCluster, placer, hostSpec, opts)
+	scheduler, err := NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Docker Compose Scheduler: %v", err)
 		panic(err)
@@ -104,7 +104,7 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 
 	c.onHostRemoved(host)
 
-	if c.clusterMetricsProvider != nil {
+	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumDisabledHostsGauge() != nil {
 		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Add(1)
 	}
 
@@ -140,7 +140,7 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 	}
 	c.hosts.Store(id, disabledHost)
 
-	if c.clusterMetricsProvider != nil {
+	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumDisabledHostsGauge() != nil {
 		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Sub(1)
 	}
 

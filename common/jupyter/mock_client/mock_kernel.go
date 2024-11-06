@@ -123,6 +123,18 @@ func (mr *MockAbstractDistributedKernelClientMockRecorder) BindSession(sess any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BindSession", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).BindSession), sess)
 }
 
+// ClearSessions mocks base method.
+func (m *MockAbstractDistributedKernelClient) ClearSessions() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ClearSessions")
+}
+
+// ClearSessions indicates an expected call of ClearSessions.
+func (mr *MockAbstractDistributedKernelClientMockRecorder) ClearSessions() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearSessions", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).ClearSessions))
+}
+
 // Close mocks base method.
 func (m *MockAbstractDistributedKernelClient) Close() error {
 	m.ctrl.T.Helper()
@@ -541,6 +553,20 @@ func (mr *MockAbstractDistributedKernelClientMockRecorder) ResourceSpec() *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceSpec", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).ResourceSpec))
 }
 
+// Sessions mocks base method.
+func (m *MockAbstractDistributedKernelClient) Sessions() []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Sessions")
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// Sessions indicates an expected call of Sessions.
+func (mr *MockAbstractDistributedKernelClientMockRecorder) Sessions() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sessions", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).Sessions))
+}
+
 // SetActiveExecution mocks base method.
 func (m *MockAbstractDistributedKernelClient) SetActiveExecution(activeExecution *scheduling.ActiveExecution) {
 	m.ctrl.T.Helper()
@@ -607,6 +633,20 @@ func (mr *MockAbstractDistributedKernelClientMockRecorder) Size() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Size", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).Size))
 }
 
+// Socket mocks base method.
+func (m *MockAbstractDistributedKernelClient) Socket(typ types.MessageType) *types.Socket {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Socket", typ)
+	ret0, _ := ret[0].(*types.Socket)
+	return ret0
+}
+
+// Socket indicates an expected call of Socket.
+func (mr *MockAbstractDistributedKernelClientMockRecorder) Socket(typ any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Socket", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).Socket), typ)
+}
+
 // SourceKernelID mocks base method.
 func (m *MockAbstractDistributedKernelClient) SourceKernelID() string {
 	m.ctrl.T.Helper()
@@ -647,6 +687,18 @@ func (m *MockAbstractDistributedKernelClient) String() string {
 func (mr *MockAbstractDistributedKernelClientMockRecorder) String() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "String", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).String))
+}
+
+// UnbindSession mocks base method.
+func (m *MockAbstractDistributedKernelClient) UnbindSession(sess string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "UnbindSession", sess)
+}
+
+// UnbindSession indicates an expected call of UnbindSession.
+func (mr *MockAbstractDistributedKernelClientMockRecorder) UnbindSession(sess any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnbindSession", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).UnbindSession), sess)
 }
 
 // Validate mocks base method.

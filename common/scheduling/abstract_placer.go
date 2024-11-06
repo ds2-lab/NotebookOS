@@ -66,13 +66,18 @@ func (placer *AbstractPlacer) FindHosts(spec types.Spec) []*Host {
 		placer.log.Warn(utils.OrangeStyle.Render("Failed to identify the %d required hosts for kernel %s. Found only %d/%d. Time elapsed: %v."),
 			placer.opts.NumReplicas, len(hosts), placer.opts.NumReplicas, latency)
 
-		placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-			With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
+		if placer.cluster.ClusterMetricsProvider() != nil && placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
+			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+				With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
+		}
 	} else {
 		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts after %v."),
 			len(hosts), numReplicas, latency)
-		placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-			With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
+
+		if placer.cluster.ClusterMetricsProvider() != nil && placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
+			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+				With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
+		}
 	}
 
 	return hosts
@@ -99,12 +104,18 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, spec types.Spec)
 
 	if host == nil {
 		placer.log.Warn(utils.OrangeStyle.Render("Failed to identify single viable hosts. Time elapsed: %v."), latency)
-		placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-			With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
+
+		if placer.cluster.ClusterMetricsProvider() != nil && placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
+			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+				With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
+		}
 	} else {
 		placer.log.Debug(utils.GreenStyle.Render("Successfully identified single viable host after %v."), latency)
-		placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-			With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
+
+		if placer.cluster.ClusterMetricsProvider() != nil && placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
+			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+				With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
+		}
 	}
 
 	// The Host could not satisfy the resourceSpec, so return nil.

@@ -122,6 +122,10 @@ func NewGatewayPrometheusManager(port int, localDaemonNodeProvider LocalDaemonNo
 
 // InitMetrics creates a Prometheus endpoint and
 func (m *GatewayPrometheusManager) initMetrics() error {
+	if m == nil {
+		return nil
+	}
+
 	m.JupyterTrainingStartLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "distributed_cluster",
 		Subsystem: "jupyter",
@@ -281,6 +285,10 @@ func (m *GatewayPrometheusManager) initMetrics() error {
 
 // HandleVariablesRequest handles query requests from Grafana for variables that are required to create Dashboards.
 func (m *GatewayPrometheusManager) HandleVariablesRequest(c *gin.Context) {
+	if m == nil {
+		return
+	}
+
 	variable := c.Param("variable_name")
 	m.log.Debug("Received query for variable: \"%s\"", variable)
 
@@ -332,25 +340,49 @@ func (m *GatewayPrometheusManager) GetContainerMetricsProvider() ContainerMetric
 }
 
 func (m *GatewayPrometheusManager) GetScaleOutLatencyMillisecondsHistogram() prometheus.Histogram {
+	if m == nil {
+		return nil
+	}
+
 	return m.ScaleOutLatencyMillisecondsHistogram
 }
 
 func (m *GatewayPrometheusManager) GetScaleInLatencyMillisecondsHistogram() prometheus.Histogram {
+	if m == nil {
+		return nil
+	}
+
 	return m.ScaleInLatencyMillisecondsHistogram
 }
 
 func (m *GatewayPrometheusManager) GetPlacerFindHostLatencyMicrosecondsHistogram() *prometheus.HistogramVec {
+	if m == nil {
+		return nil
+	}
+
 	return m.PlacerFindHostLatencyMicrosecondsHistogramVec
 }
 
 func (m *GatewayPrometheusManager) GetNumDisabledHostsGauge() prometheus.Gauge {
+	if m == nil {
+		return nil
+	}
+
 	return m.NumDisabledHostsGauge
 }
 
 func (m *GatewayPrometheusManager) GetNumHostsGauge() prometheus.Gauge {
+	if m == nil {
+		return nil
+	}
+
 	return m.NumHostsGauge
 }
 
 func (m *GatewayPrometheusManager) GetHostRemoteSyncLatencyMicrosecondsHistogram() prometheus.Histogram {
+	if m == nil {
+		return nil
+	}
+
 	return m.HostRemoteSyncLatencyMicrosecondsHistogram
 }

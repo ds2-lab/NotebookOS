@@ -8,13 +8,14 @@ import (
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/mock_proto"
 	"github.com/zhangjyr/distributed-notebook/common/mock_scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	types "github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -116,6 +117,39 @@ var (
 func TestProxy(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Daemon Suite")
+}
+
+type MockedDistributedKernelClientProvider struct {
+	ctrl *gomock.Controller
+
+	// expectedKernels are registered ahead of time and returned when a call to NewDistributedKernelClient
+	// is passed a proto.KernelSpec whose ID is a key to expectedKernels.
+	expectedKernels map[string]*mock_client.MockAbstractDistributedKernelClient
+}
+
+func NewMockedDistributedKernelClientProvider(ctrl *gomock.Controller) *MockedDistributedKernelClientProvider {
+	return &MockedDistributedKernelClientProvider{
+		ctrl:            ctrl,
+		expectedKernels: make(map[string]*mock_client.MockAbstractDistributedKernelClient),
+	}
+}
+
+func (p *MockedDistributedKernelClientProvider) RegisterExpectedKernel(kernelId string) *mock_client.MockAbstractDistributedKernelClient {
+	kernel := mock_client.NewMockAbstractDistributedKernelClient(p.ctrl)
+	p.expectedKernels[kernelId] = kernel
+	return kernel
+}
+
+func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
+	connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
+	debugMode bool, executionFailedCallback client.ExecutionFailedCallback, executionLatencyCallback client.ExecutionLatencyCallback,
+	messagingMetricsProvider metrics.MessagingMetricsProvider) client.AbstractDistributedKernelClient {
+
+	if kernel, ok := p.expectedKernels[spec.Id]; ok {
+		return kernel
+	}
+
+	panic(fmt.Sprintf("No mocked kernel registered with ID=\"%s\"\n", spec.Id))
 }
 
 // ResourceSpoofer is used to provide spoofed resources to be used by mock_proto.MockLocalGatewayClient
@@ -719,13 +753,20 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}
 
 				// fmt.Printf("Gateway options:\n%s\n", options.PrettyString(2))
-				clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv scheduling.ClusterGateway) {
+				clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
 					globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
 					srv.SetClusterOptions(&options.ClusterSchedulerOptions)
+					srv.SetDistributedClientProvider(NewMockedDistributedKernelClientProvider(mockCtrl))
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
 				Expect(clusterGateway.gatewayPrometheusManager).To(BeNil())
+			})
+
+			AfterEach(func() {
+				if clusterGateway != nil {
+					_ = clusterGateway.Close()
+				}
 			})
 
 			It("Will correctly schedule a new kernel", func() {

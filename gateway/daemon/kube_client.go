@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,7 +64,7 @@ var (
 type BasicKubeClient struct {
 	kubeClientset          *kubernetes.Clientset                      // Clientset contains the clients for groups. Each group has exactly one version included in a Clientset.
 	dynamicClient          *dynamic.DynamicClient                     // Dynamic client for working with unstructured components. We use this for the custom CloneSet.
-	gatewayDaemon          scheduling.ClusterGateway                  // Associated Gateway daemon.
+	gatewayDaemon          ClusterGateway                             // Associated Gateway daemon.
 	configDir              string                                     // Where to write config files. This is also where they'll be found on the kernel nodes.
 	ipythonConfigPath      string                                     // Where the IPython config is located.
 	nodeLocalMountPoint    string                                     // The mount of the shared PVC for all kernel nodes.
@@ -82,11 +81,11 @@ type BasicKubeClient struct {
 	schedulingPolicy       string                                     // Scheduling policy.
 	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
 	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
-	checkpointingEnabled   bool                                       // checkpointingEnabled controls whether the kernels should perform checkpointing after a migration and after executing code.
+	checkpointingEnabled   bool                                       // checkpointingEnabled controls whether the newKernels should perform checkpointing after a migration and after executing code.
 	log                    logger.Logger
 }
 
-func NewKubeClient(gatewayDaemon scheduling.ClusterGateway, clusterDaemonOptions *domain.ClusterDaemonOptions) *BasicKubeClient {
+func NewKubeClient(gatewayDaemon ClusterGateway, clusterDaemonOptions *domain.ClusterDaemonOptions) *BasicKubeClient {
 	scaleUpChannels := cmap.New[[]chan string]()
 	scaleDownChannels := cmap.New[chan struct{}]()
 
@@ -388,11 +387,6 @@ func (c *BasicKubeClient) KubeClientset() *kubernetes.Clientset {
 // 	return c.migrationManager.CheckIfMigrationCompleted(op)
 // }
 
-// ClusterGateway returns the associated Gateway daemon.
-func (c *BasicKubeClient) ClusterGateway() scheduling.ClusterGateway {
-	return c.gatewayDaemon
-}
-
 // DeleteCloneset deletes the Cloneset for the kernel identified by the given ID.
 func (c *BasicKubeClient) DeleteCloneset(kernelId string) error {
 	clonesetId := fmt.Sprintf("kernel-%s", kernelId)
@@ -459,7 +453,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 	if c.useStatefulSet {
 		panic("This is not supported anymore (out of date implementation).")
 		// c.log.Debug("Creating StatefulSet for replicas of kernel \"%s\" now.", kernel.Id)
-		// c.log.Warn("Using StatefulSets for deploying kernels is deprecated and is unlikely to work going forward...")
+		// c.log.Warn("Using StatefulSets for deploying newKernels is deprecated and is unlikely to work going forward...")
 		// err = c.createKernelStatefulSet(ctx, kernel, connectionInfo, headlessServiceName)
 	} else {
 		c.log.Debug("Creating CloneSet for replicas of kernel \"%s\" now.", kernel.Id)
@@ -539,7 +533,7 @@ func (c *BasicKubeClient) ScaleOutCloneSet(kernelId string) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	// The CloneSet resources for distributed kernels are named "kernel-<kernel ID>".
+	// The CloneSet resources for distributed newKernels are named "kernel-<kernel ID>".
 	clonesetId := fmt.Sprintf("kernel-%s", kernelId)
 
 	// This is the same as retry.DefaultRetry according to:
@@ -733,7 +727,7 @@ func (c *BasicKubeClient) createKernelStatefulSet(ctx context.Context, kernel *p
 					{
 						MatchExpressions: []corev1.NodeSelectorRequirement{
 							{
-								Key:      "schedule-kernels",
+								Key:      "schedule-newKernels",
 								Operator: corev1.NodeSelectorOpIn,
 								Values: []string{
 									kernel.Id,
@@ -1316,7 +1310,7 @@ func (c *BasicKubeClient) createKernelCloneSet(ctx context.Context, kernel *prot
 	return err
 }
 
-// Create a Kubernetes ConfigMap containing the configuration information for a particular deployment of distributed kernels.
+// Create a Kubernetes ConfigMap containing the configuration information for a particular deployment of distributed newKernels.
 // Both the connectionInfoJson and configJson arguments should be values returned by the json.Marshal function.
 func (c *BasicKubeClient) createConfigMap(ctx context.Context, connectionInfoJson []byte, configJson []byte, kernel *proto.KernelSpec) error {
 	// Construct the ConfigMap. We'll mount this to the Pods.

@@ -58,11 +58,10 @@ type schedulingNotification struct {
 }
 
 type BaseScheduler struct {
-	gateway ClusterGateway
-
-	instance ClusterScheduler
-	cluster  clusterInternal
-	placer   Placer
+	instance   ClusterScheduler
+	cluster    clusterInternal
+	hostMapper HostMapper
+	placer     Placer
 
 	remoteSynchronizationInterval time.Duration // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
 
@@ -99,10 +98,10 @@ type BaseScheduler struct {
 	log logger.Logger
 }
 
-func NewBaseScheduler(gateway ClusterGateway, cluster clusterInternal, placer Placer, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BaseScheduler {
+func NewBaseScheduler(cluster clusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BaseScheduler {
 	clusterScheduler := &BaseScheduler{
-		gateway:                       gateway,
 		cluster:                       cluster,
+		hostMapper:                    hostMapper,
 		gpusPerHost:                   float64(opts.GpusPerHost),
 		virtualGpusPerHost:            int32(opts.VirtualGpusPerHost),
 		scalingFactor:                 opts.ScalingFactor,
@@ -246,11 +245,6 @@ func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpe
 // the Host instances within the Cluster with their remote nodes.
 func (s *BaseScheduler) RemoteSynchronizationInterval() time.Duration {
 	return s.remoteSynchronizationInterval
-}
-
-// ClusterGateway returns the associated ClusterGateway.
-func (s *BaseScheduler) ClusterGateway() ClusterGateway {
-	return s.gateway
 }
 
 // MinimumCapacity returns the minimum number of nodes we must have available at any time.

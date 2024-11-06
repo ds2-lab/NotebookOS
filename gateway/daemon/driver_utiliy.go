@@ -2,8 +2,8 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"log"
 	"net"
@@ -123,9 +123,10 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	globalLogger.Debug("Cluster Gateway Options:\n%s", options.PrettyString(2))
 
 	// Initialize daemon
-	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv scheduling.ClusterGateway) {
+	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
 		globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
 		srv.SetClusterOptions(&options.ClusterSchedulerOptions)
+		srv.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 	})
 
 	distributedCluster := NewDistributedCluster(srv)

@@ -12,27 +12,27 @@ import (
 )
 
 type AddReplicaOperation struct {
-	id                    string                               // Unique identifier of the add operation.
-	kernelId              string                               // ID of the kernel for which a replica is being added.
-	client                *client.DistributedKernelClient      // distributedKernelClientImpl of the kernel for which we're migrating a replica.
-	smrNodeId             int32                                // The SMR Node ID of the replica that is being added.
-	podOrContainerStarted bool                                 // True if a new Pod has been started for the replica that is being added. Otherwise, false.
-	replicaJoinedSMR      bool                                 // True if the new replica has joined the SMR cluster. Otherwise, false.
-	podOrContainerName    string                               // Name of the new Pod that was started to host the added replica. As of right now, this field is just used for logging/debugging.
-	replicaRegistered     bool                                 // If true, then new replica has registered with the Gateway.
-	persistentId          string                               // Persistent ID of replica.
-	replicaHostname       string                               // The IP address of the new replica.
-	spec                  *proto.KernelReplicaSpec             // Spec for the new replica that is created during the add operation.
-	dataDirectory         string                               // Path to etcd-raft data directory in HDFS.
-	metadata              hashmap.HashMap[string, interface{}] // Arbitrary metadata associated with this domain.AddReplicaOperation.
-	createdAt             time.Time                            // createdAt is the time at which the AddReplicaOperation struct was created.
+	id                    string                                 // Unique identifier of the add operation.
+	kernelId              string                                 // ID of the kernel for which a replica is being added.
+	client                client.AbstractDistributedKernelClient // distributedKernelClientImpl of the kernel for which we're migrating a replica.
+	smrNodeId             int32                                  // The SMR Node ID of the replica that is being added.
+	podOrContainerStarted bool                                   // True if a new Pod has been started for the replica that is being added. Otherwise, false.
+	replicaJoinedSMR      bool                                   // True if the new replica has joined the SMR cluster. Otherwise, false.
+	podOrContainerName    string                                 // Name of the new Pod that was started to host the added replica. As of right now, this field is just used for logging/debugging.
+	replicaRegistered     bool                                   // If true, then new replica has registered with the Gateway.
+	persistentId          string                                 // Persistent ID of replica.
+	replicaHostname       string                                 // The IP address of the new replica.
+	spec                  *proto.KernelReplicaSpec               // Spec for the new replica that is created during the add operation.
+	dataDirectory         string                                 // Path to etcd-raft data directory in HDFS.
+	metadata              hashmap.HashMap[string, interface{}]   // Arbitrary metadata associated with this domain.AddReplicaOperation.
+	createdAt             time.Time                              // createdAt is the time at which the AddReplicaOperation struct was created.
 
 	podOrContainerStartedChannel chan string   // Used to notify that the new Pod has started.
 	replicaRegisteredChannel     chan struct{} // Used to notify that the new replica has registered with the Gateway.
 	replicaJoinedSmrChannel      chan struct{} // Used to notify that the new replica has joined its SMR cluster.
 }
 
-func NewAddReplicaOperation(client *client.DistributedKernelClient, spec *proto.KernelReplicaSpec, dataDirectory string) *AddReplicaOperation {
+func NewAddReplicaOperation(client client.AbstractDistributedKernelClient, spec *proto.KernelReplicaSpec, dataDirectory string) *AddReplicaOperation {
 	op := &AddReplicaOperation{
 		id:                           uuid.New().String(),
 		client:                       client,
@@ -115,7 +115,7 @@ func (op *AddReplicaOperation) OperationID() string {
 }
 
 // KernelReplicaClient returns the *client.DistributedKernelClient of the kernel for which we're migrating a replica.
-func (op *AddReplicaOperation) KernelReplicaClient() *client.DistributedKernelClient {
+func (op *AddReplicaOperation) KernelReplicaClient() client.AbstractDistributedKernelClient {
 	return op.client
 }
 
