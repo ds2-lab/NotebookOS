@@ -83,7 +83,7 @@ var (
 		  "using-wsl": true,
 		  "docker_network_name": "distributed_cluster_default",
 		  "prometheus_interval": 15,
-		  "prometheus_port": 8089,
+		  "prometheus_port": -1,
 		  "num_resend_attempts": 1,
 		  "acks_enabled": false,
 		  "scheduling-policy": "static",

@@ -300,10 +300,14 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false,
 		metrics.ClusterGateway, clusterGateway.DebugMode)
 
-	clusterGateway.gatewayPrometheusManager = metrics.NewGatewayPrometheusManager(clusterDaemonOptions.PrometheusPort, clusterGateway)
-	err := clusterGateway.gatewayPrometheusManager.Start()
-	if err != nil {
-		panic(err)
+	if clusterDaemonOptions.PrometheusPort > 0 {
+		clusterGateway.gatewayPrometheusManager = metrics.NewGatewayPrometheusManager(clusterDaemonOptions.PrometheusPort, clusterGateway)
+		err := clusterGateway.gatewayPrometheusManager.Start()
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		clusterGateway.log.Warn("PrometheusPort is set to a negative number. Skipping initialization of Prometheus-related components.")
 	}
 
 	if !clusterDaemonOptions.DisablePrometheusMetricsPublishing {
@@ -313,14 +317,16 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.log.Warn("\"Prometheus Metrics Publisher\" goroutine is disabled. Skipping initialization.")
 	}
 
-	clusterGateway.router.AssignPrometheusManager(clusterGateway.gatewayPrometheusManager)
 	clusterGateway.router.SetComponentId(clusterGateway.id)
+	if clusterDaemonOptions.PrometheusPort > 0 {
+		clusterGateway.router.AssignPrometheusManager(clusterGateway.gatewayPrometheusManager)
 
-	// Initial values for these metrics.
-	clusterGateway.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
-		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Set(0)
-	clusterGateway.gatewayPrometheusManager.DemandGpusGauge.Set(0)
-	clusterGateway.gatewayPrometheusManager.BusyGpusGauge.Set(0)
+		// Initial values for these metrics.
+		clusterGateway.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
+			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Set(0)
+		clusterGateway.gatewayPrometheusManager.DemandGpusGauge.Set(0)
+		clusterGateway.gatewayPrometheusManager.BusyGpusGauge.Set(0)
+	}
 
 	if clusterGateway.ip == "" {
 		ip, err := utils.GetIP()
@@ -460,7 +466,9 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
-	clusterGateway.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())
+	if clusterGateway.gatewayPrometheusManager != nil {
+		clusterGateway.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())
+	}
 
 	return clusterGateway
 }
