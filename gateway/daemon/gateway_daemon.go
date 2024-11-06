@@ -283,6 +283,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		numResendAttempts:                        clusterDaemonOptions.NumResendAttempts,
 		MessageAcknowledgementsEnabled:           clusterDaemonOptions.MessageAcknowledgementsEnabled,
 		prometheusInterval:                       time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
+		gatewayPrometheusManager:                 nil,
 	}
 	for _, configFunc := range configs {
 		configFunc(clusterGateway)
@@ -310,7 +311,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.log.Warn("PrometheusPort is set to a negative number. Skipping initialization of Prometheus-related components.")
 	}
 
-	if !clusterDaemonOptions.DisablePrometheusMetricsPublishing {
+	if !clusterDaemonOptions.CommonOptions.DisablePrometheusMetricsPublishing {
 		clusterGateway.log.Debug("Initializing \"Prometheus Metrics Publisher\" goroutine now.")
 		clusterGateway.publishPrometheusMetrics()
 	} else {

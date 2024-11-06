@@ -117,7 +117,6 @@ func (o *ClusterDaemonOptions) IsKubernetesMode() bool {
 }
 
 func (o *ClusterDaemonOptions) String() string {
-	//return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d, SMRPort: %d, KubeNamespace: %s, UseStatefulSet: %v, HdfsNameNodeEndpoint: %s", o.LocalDaemonServiceName, o.LocalDaemonServicePort, o.SMRPort, o.KubeNamespace, o.UseStatefulSet, o.HdfsNameNodeEndpoint)
 	out, err := json.Marshal(o)
 	if err != nil {
 		panic(err)

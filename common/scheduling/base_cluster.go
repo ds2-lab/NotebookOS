@@ -258,8 +258,8 @@ func (c *BaseCluster) onHostAdded(host *Host) {
 	})
 
 	c.unsafeCheckIfScaleOperationIsComplete(host)
-
 	if c.clusterMetricsProvider != nil {
+		c.log.Debug("ClusterMetricsProvider is not nil, apparently.")
 		c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 	}
 }
