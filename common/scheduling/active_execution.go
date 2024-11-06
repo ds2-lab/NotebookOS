@@ -111,7 +111,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 		// Attempt to decode it this way.
 		var requestMetadata *types.ExecuteRequestMetadata
 		err = mapstructure.Decode(metadataDict, &requestMetadata)
-		if err != nil {
+		if err == nil {
 			if requestMetadata.SentAtUnixTimestamp != nil {
 				activeExecution.originallySentAt = time.UnixMilli(int64(*requestMetadata.SentAtUnixTimestamp))
 				activeExecution.originallySentAtDecoded = true
@@ -126,7 +126,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 			// Fallback if the mapstructure way is broken.
 			log.Printf(utils.OrangeStyle.Render("Failed to decode request metadata via mapstructure: %v\n"), err)
 
-			sentAtVal, ok := metadataDict["send-timestamp-unix-milli"]
+			sentAtVal, ok := metadataDict["send_timestamp_unix_milli"]
 			if ok {
 				unixTimestamp := sentAtVal.(float64)
 				activeExecution.originallySentAt = time.UnixMilli(int64(unixTimestamp))
@@ -144,7 +144,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 
 	//metadata, err := msg.DecodeMetadata()
 	//if err == nil {
-	//	sentAtVal, ok := metadata["send-timestamp-unix-milli"]
+	//	sentAtVal, ok := metadata["send_timestamp_unix_milli"]
 	//	if ok {
 	//		unixTimestamp := sentAtVal.(float64)
 	//		activeExecution.originallySentAt = time.UnixMilli(int64(unixTimestamp))

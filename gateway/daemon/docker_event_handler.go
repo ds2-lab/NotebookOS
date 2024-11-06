@@ -12,7 +12,7 @@ import (
 type ContainerStartedNotification struct {
 	FullContainerId  string `json:"full-container-id"`  // FullContainerId is the full, non-truncated Docker container ID.
 	ShortContainerId string `json:"short-container-id"` // ShortContainerId is the first 12 characters of the FullContainerId.
-	KernelId         string `json:"kernel-id"`          // KernelId is the associated KernelId.
+	KernelId         string `json:"kernel_id"`          // KernelId is the associated KernelId.
 }
 
 type DockerEventHandler struct {

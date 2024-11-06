@@ -2651,7 +2651,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 			return err
 		}
 	} else {
-		d.log.Debug("Forwarding shell message to kernel %s: %s", msg.DestinationId, msg)
+		d.log.Debug("Forwarding shell message to kernel %s: %s", msg.DestinationId, msg.StringFormatted())
 	}
 
 	if err := d.forwardRequest(kernel, jupyter.ShellMessage, msg); err != nil {
@@ -2748,7 +2748,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 
 func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel client.AbstractDistributedKernelClient) error {
 	kernelId := kernel.ID()
-	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg)
+	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg.StringFormatted())
 
 	// activeExecution := scheduling.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
 	_ = kernel.EnqueueActiveExecution(1, msg)

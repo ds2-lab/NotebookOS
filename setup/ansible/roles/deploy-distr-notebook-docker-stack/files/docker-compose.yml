@@ -122,8 +122,9 @@ services:
     labels:
       traefik.enable: "true"
     environment:
-      - GF_SECURITY_ADMIN_USER=scusemua
-      - GF_SECURITY_ADMIN_PASSWORD=grafana
+      - "GF_SECURITY_ADMIN_USER=grafana"
+      - "GF_SECURITY_ADMIN_PASSWORD=12345"
+      - "GF_INSTALL_PLUGINS=yesoreyeram-infinity-datasource,sebastiangunreben-cdf-panel"
     volumes:
       - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini

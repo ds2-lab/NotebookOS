@@ -365,12 +365,14 @@ type ExecuteRequestMetadata struct {
 	// Workloads are a construct of the workload orchestrator/cluster dashboard.
 	WorkloadId *string `json:"workload_id" mapstructure:"workload_id,omitempty"`
 
+	KernelId *string `json:"kernel_id" mapstrcture:"kernel_id,omitempty"`
+
 	// ResourceRequest is an updated types.Spec for the kernel targeted by the containing "execute_request".
 	ResourceRequest *types.Float64Spec `json:"resource_request" mapstructure:"resource_request,omitempty"`
 
 	// SentAtUnixTimestamp is the Unix epoch time (milliseconds) at which the "execute_request" message
 	// was originally sent by the Jupyter client.
-	SentAtUnixTimestamp *float64 `json:"send-timestamp-unix-milli,omitempty"`
+	SentAtUnixTimestamp *float64 `json:"send_timestamp_unix_milli,omitempty" mapstructure:"send_timestamp_unix_milli,omitempty"`
 
 	// ResourceWrapperSnapshot is a snapshot of the resources available on the Local Daemon.
 	ResourceWrapperSnapshot types.ArbitraryResourceSnapshot `json:"resource_snapshot" mapstructure:"resource_request,omitempty"`
@@ -824,4 +826,8 @@ func (m *JupyterMessage) JupyterParentMessageId() string {
 
 func (m *JupyterMessage) String() string {
 	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.String())
+}
+
+func (m *JupyterMessage) StringFormatted() string {
+	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.StringFormatted())
 }

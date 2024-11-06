@@ -40,6 +40,28 @@ var (
 // JupyterFrame is a simple wrapper around a byte slice to provide a simple interface for encoding/decoding.
 type JupyterFrame []byte
 
+// GetFrameName returns the string name of a Jupyter frame given the index.
+func GetFrameName(frameIndex int) string {
+	switch frameIndex {
+	case JupyterFrameStart:
+		return "Start"
+	case JupyterFrameSignature:
+		return "Signature"
+	case JupyterFrameHeader:
+		return "Header"
+	case JupyterFrameParentHeader:
+		return "ParentHeader"
+	case JupyterFrameMetadata:
+		return "Metadata"
+	case JupyterFrameContent:
+		return "Content"
+	case JupyterFrameBuffers:
+		return "Buffers"
+	default:
+		return fmt.Sprintf("Unknown(index=%d)", frameIndex)
+	}
+}
+
 func jupyterFrame(frame []byte) *JupyterFrame {
 	jFrame := JupyterFrame(frame)
 	return &jFrame
@@ -170,6 +192,25 @@ func (frames *JupyterFrames) String() string {
 	}
 
 	s += "]"
+
+	return s
+}
+
+func (frames *JupyterFrames) StringFormatted() string {
+	if frames.Len() == 0 {
+		return "[]"
+	}
+
+	s := "[\n"
+	for i, frame := range frames.Frames {
+		s += "\t" + GetFrameName(i) + ":\"" + string(frame) + "\""
+
+		if i+1 < frames.Len() {
+			s += ",\n"
+		}
+	}
+
+	s += "\n]"
 
 	return s
 }

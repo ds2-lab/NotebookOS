@@ -1170,7 +1170,7 @@ type ResourceWrapperSnapshot struct {
 	SpecResources      *ResourceSnapshot `json:"spec_resources" mapstructure:"spec_resources"`
 
 	// Containers are the Containers presently running on the Host.
-	Containers []types.ContainerInfo `json:"containers,omitempty" mapstructure:"containers,omitempty"`
+	Containers []*proto.ReplicaInfo `json:"containers,omitempty" mapstructure:"containers,omitempty"`
 }
 
 // MetadataResourceWrapperSnapshot is a simpel wrapper around a ResourceWrapperSnapshot struct so that
@@ -1181,7 +1181,13 @@ type MetadataResourceWrapperSnapshot struct {
 }
 
 func (s *ResourceWrapperSnapshot) GetContainers() []types.ContainerInfo {
-	return s.Containers
+	containers := make([]types.ContainerInfo, 0, len(s.Containers))
+
+	for _, container := range s.Containers {
+		containers = append(containers, container)
+	}
+
+	return containers
 }
 
 ////////////////////////////////////////////////////
