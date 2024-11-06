@@ -60,6 +60,7 @@ const (
 	SchedulingPolicyStatic    SchedulingPolicy = "static"
 	SchedulingPolicyDynamicV3 SchedulingPolicy = "dynamic-v3"
 	SchedulingPolicyDynamicV4 SchedulingPolicy = "dynamic-v4"
+	SchedulingPolicyFcfsBatch SchedulingPolicy = "fcfs-batch"
 
 	// SkipValidationKey is passed in Context of NotifyKernelRegistered to skip the connection validation step.
 	SkipValidationKey string = "SkipValidationKey"
@@ -354,6 +355,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.schedulingPolicy = SchedulingPolicyDynamicV4
 			clusterGateway.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
 			clusterGateway.failureHandler = clusterGateway.dynamicV4FailureHandler
+		}
+	case string(SchedulingPolicyFcfsBatch):
+		{
+			clusterGateway.schedulingPolicy = SchedulingPolicyFcfsBatch
+			clusterGateway.log.Debug("Using the 'FCFS Batch' scheduling policy.")
+			clusterGateway.failureHandler = clusterGateway.fcfsBatchSchedulingFailureHandler
 		}
 	default:
 		{
@@ -1178,8 +1185,13 @@ func (d *ClusterGatewayImpl) executionFailed(c *client.DistributedKernelClient) 
 }
 
 func (d *ClusterGatewayImpl) defaultFailureHandler(_ *client.DistributedKernelClient) error {
-	d.log.Warn("There is no failure handler for the DEFAULT policy.")
-	return fmt.Errorf("there is no failure handler for the DEFAULT policy; cannot handle error")
+	d.log.Warn("There is no failure handler for the DEFAULT scheduling policy.")
+	return fmt.Errorf("there is no failure handler for the DEFAULT scheduling policy; cannot handle error")
+}
+
+func (d *ClusterGatewayImpl) fcfsBatchSchedulingFailureHandler(_ *client.DistributedKernelClient) error {
+	d.log.Warn("There is no failure handler for the FCFS Batch scheduling policy.")
+	return fmt.Errorf("there is no failure handler for the FCFS Batch policy; cannot handle error")
 }
 
 func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ jupyter.NotificationType) {

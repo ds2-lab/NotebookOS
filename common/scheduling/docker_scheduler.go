@@ -207,7 +207,15 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
 func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*Host) error {
 	st := time.Now()
-	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.", s.opts.NumReplicas, in.Id, in.ResourceSpec.String())
+
+	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.",
+		s.opts.NumReplicas, in.Id, in.ResourceSpec.String())
+
+	deadline, ok := ctx.Deadline()
+	if ok {
+		s.log.Debug("Context (for deploying replicas of kernel %s) has deadline of %v, which is in %v.",
+			in.Id, deadline, deadline.Sub(time.Now()))
+	}
 
 	// Retrieve a slice of viable Hosts onto which we can schedule replicas of the specified kernel.
 	hosts, candidateError := s.getCandidateHosts(ctx, in)
@@ -290,10 +298,16 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 				}
 
 				// TODO: kill orphaned replicas so that they don't just sit there, taking up Resources unnecessarily.
-				s.log.Error("Scheduling of kernel %s has failed after %v. Only managed to schedule replicas %s (%d/%d).",
-					in.Id, time.Since(st), replicasScheduledBuilder.String(), len(responsesReceived), responsesRequired)
-				s.log.Error("As such, the following Hosts have orphaned replicas of kernel %s scheduled onto them: %s",
-					in.Id, hostsWithOrphanedReplicaBuilder.String())
+				if len(responsesReceived) > 0 {
+					s.log.Error("Scheduling of kernel %s has failed after %v. Only managed to schedule replicas %s (%d/%d).",
+						in.Id, time.Since(st), replicasScheduledBuilder.String(), len(responsesReceived), responsesRequired)
+
+					s.log.Error("As such, the following Hosts have orphaned replicas of kernel %s scheduled onto them: %s",
+						in.Id, hostsWithOrphanedReplicaBuilder.String())
+				} else {
+					s.log.Error("Scheduling of kernel %s has failed after %v. Failed to schedule any of the %d replicas.",
+						in.Id, time.Since(st), responsesRequired)
+				}
 
 				// Make sure to unlock all the Hosts.
 				for _, host := range hosts {

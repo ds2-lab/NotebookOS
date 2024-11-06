@@ -354,27 +354,32 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	switch localDaemonOptions.SchedulingPolicy {
 	case SchedulingPolicyDefault:
 		{
-			daemon.schedulingPolicy = "default"
+			daemon.schedulingPolicy = SchedulingPolicyDefault
 			daemon.log.Debug("Using the 'DEFAULT' scheduling policy.")
 		}
 	case SchedulingPolicyStatic:
 		{
-			daemon.schedulingPolicy = "static"
+			daemon.schedulingPolicy = SchedulingPolicyStatic
 			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
 		}
 	case SchedulingPolicyDynamicV3:
 		{
-			daemon.schedulingPolicy = "dynamic-v3"
+			daemon.schedulingPolicy = SchedulingPolicyDynamicV3
 			daemon.log.Debug("Using the 'DYNAMIC v3' scheduling policy.")
 
 			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 		}
 	case SchedulingPolicyDynamicV4:
 		{
-			daemon.schedulingPolicy = "dynamic-v4"
+			daemon.schedulingPolicy = SchedulingPolicyDynamicV4
 			daemon.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
 
 			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
+		}
+	case SchedulingPolicyFcfsBatch:
+		{
+			daemon.schedulingPolicy = SchedulingPolicyFcfsBatch
+			daemon.log.Debug("Using the 'FCFS Batch' scheduling policy.")
 		}
 	default:
 		{
