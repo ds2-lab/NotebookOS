@@ -11,6 +11,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -63,28 +64,28 @@ type BaseScheduler struct {
 	hostMapper HostMapper
 	placer     Placer
 
-	remoteSynchronizationInterval time.Duration // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
-
-	lastNodeRefreshTime time.Time // The time at which the nodes were last refreshed.
+	candidateHostMutex sync.Mutex
 
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
 	//-//-//-//-//-//-//-//-//-//
-	gpusPerHost                  float64                  // The number of actual GPUs that are available for use on each node/host.
-	virtualGpusPerHost           int32                    // The number of virtual GPUs per host.
-	scalingFactor                float64                  // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
-	maximumHostsToReleaseAtOnce  int32                    // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	scalingIntervalSec           int32                    // How often to call UpdateRatio in seconds.
-	scalingInterval              time.Duration            // How often to call UpdateRatio .
-	scalingLimit                 float64                  // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
-	canScaleIn                   bool                     // Can the Cluster/Placer scale-in?
-	shouldUpdateRatio            bool                     // Should the Placer update its subscription ratio?
-	predictiveAutoscalingEnabled bool                     // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
-	scalingBufferSize            int32                    // How many extra hosts we provision so that we can quickly scale if needed.
-	minimumCapacity              int32                    // The minimum number of nodes we must have available at any time.
-	maximumCapacity              int32                    // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
-	opts                         *ClusterSchedulerOptions // Configuration options.
-	hostSpec                     types.Spec               // The types.Spec used when creating new Host instances.
+	gpusPerHost                   float64                  // The number of actual GPUs that are available for use on each node/host.
+	virtualGpusPerHost            int32                    // The number of virtual GPUs per host.
+	scalingFactor                 float64                  // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	maximumHostsToReleaseAtOnce   int32                    // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	scalingIntervalSec            int32                    // How often to call UpdateRatio in seconds.
+	scalingInterval               time.Duration            // How often to call UpdateRatio .
+	scalingLimit                  float64                  // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
+	canScaleIn                    bool                     // Can the Cluster/Placer scale-in?
+	shouldUpdateRatio             bool                     // Should the Placer update its subscription ratio?
+	predictiveAutoscalingEnabled  bool                     // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
+	scalingBufferSize             int32                    // How many extra hosts we provision so that we can quickly scale if needed.
+	minimumCapacity               int32                    // The minimum number of nodes we must have available at any time.
+	maximumCapacity               int32                    // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+	opts                          *ClusterSchedulerOptions // Configuration options.
+	hostSpec                      types.Spec               // The types.Spec used when creating new Host instances.
+	remoteSynchronizationInterval time.Duration            // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
+	lastNodeRefreshTime           time.Time                // The time at which the nodes were last refreshed.
 
 	lastCapacityValidation time.Time         // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
 	stRatio                *types.MovingStat // session/training ratio
@@ -181,18 +182,26 @@ func (s *BaseScheduler) Placer() Placer {
 // This function is NOT idempotent. This locks the Hosts that are returned.
 func (s *BaseScheduler) getCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error) {
 	var (
-		numTries     = 0
-		maxAttempts  = 3
-		bestAttempt  = -1
-		resourceSpec = kernelSpec.DecimalSpecFromKernelSpec()
-		hosts        []*Host
+		numTries    = 0
+		maxAttempts = 3
+		bestAttempt = -1
+		hosts       []*Host
 	)
 	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {
-		// Identify the hosts onto which we will place replicas of the kernel.
-		hosts = s.placer.FindHosts(resourceSpec)
+		s.candidateHostMutex.Lock()
 
+		// Identify the hosts onto which we will place replicas of the kernel.
+		numHostsRequired := s.opts.NumReplicas - len(hosts)
+		hostBatch := s.placer.FindHosts(kernelSpec, numHostsRequired)
+
+		// Add all the hosts returned by FindHosts to our running slice of hosts.
+		for _, host := range hostBatch {
+			hosts = append(hosts, host)
+		}
+
+		s.candidateHostMutex.Unlock()
 		if len(hosts) < s.opts.NumReplicas {
-			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s.",
+			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
 				len(hosts), s.opts.NumReplicas, kernelSpec.Id)
 
 			numHostsRequired := s.opts.NumReplicas - len(hosts)
@@ -225,10 +234,14 @@ func (s *BaseScheduler) getCandidateHosts(ctx context.Context, kernelSpec *proto
 		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...",
 			s.opts.NumReplicas, kernelSpec.Id, numTries)
 
-		// We need to release the scheduling lock on any of the hosts that we did find,
-		// since we're aborting this scheduling operation.
+		// Release any resource reservations that we created, since we're aborting the scheduling
+		// of the replicas of the kernel.
 		for _, host := range hosts {
-			host.UnlockScheduling()
+			err := host.ReleaseReservation(kernelSpec)
+			if err != nil {
+				s.log.Error("Failed to release resource reservation for kernel %s on host %s (ID=%s): %v",
+					kernelSpec.Id, host.NodeName, host.ID, err)
+			}
 		}
 
 		return nil, fmt.Errorf("%w: could only find at-most %d/%d required hosts to serve replicas of kernel %s",

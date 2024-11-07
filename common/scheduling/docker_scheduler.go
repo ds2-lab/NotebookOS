@@ -197,23 +197,6 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 					Successful:            true,
 				}
 			}
-
-			// Commented out:
-			// We handle the unlocking in the other method (the one that calls scheduleKernelReplicas).
-			//
-			// Unlock scheduling for the host. We've finished the current scheduling operation, and we've synchronized
-			// its resource state (we'll only have done that in the case where the scheduling of the replica succeeded).
-			if _, loaded := unlockedHosts.LoadOrStore(targetHost.ID, targetHost); !loaded {
-				targetHost.UnlockScheduling()
-			}
-
-			// Synchronize the resource information for the Host.
-			if schedulingError == nil /* i.e., if we scheduled successfully up above */ {
-				if syncError := targetHost.SynchronizeResourceInformation(); syncError != nil {
-					s.log.Error("Failed to synchronize resource info for host %s after scheduling replica of kernel %s onto it because: %v",
-						targetHost.ID, in.Id, syncError)
-				}
-			}
 		}(int32(i+1), host)
 	}
 
@@ -222,8 +205,6 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
 func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*Host) error {
-	s.deployKernelMutex.Lock()
-
 	st := time.Now()
 
 	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.",
@@ -243,8 +224,6 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 
 	// Keep track of the hosts that we've unlocked so that we don't unlock them multiple times.
 	unlockedHosts := hashmap.NewCornelkMap[string, *Host](len(hosts))
-
-	s.deployKernelMutex.Unlock()
 
 	// Schedule a replica of the kernel on each of the candidate hosts.
 	resultChan := s.scheduleKernelReplicas(in, hosts, unlockedHosts, blacklistedHosts)
@@ -324,16 +303,11 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 
 					s.log.Error("As such, the following Hosts have orphaned replicas of kernel %s scheduled onto them: %s",
 						in.Id, hostsWithOrphanedReplicaBuilder.String())
+
+					// TODO: Kill orphaned replicas.
 				} else {
 					s.log.Error("Scheduling of kernel %s has failed after %v. Failed to schedule any of the %d replicas.",
 						in.Id, time.Since(st), responsesRequired)
-				}
-
-				// Make sure to unlock all the Hosts.
-				for _, host := range hosts {
-					if _, loaded := unlockedHosts.LoadOrStore(host.ID, host); !loaded {
-						host.UnlockScheduling()
-					}
 				}
 
 				return &ErrorDuringScheduling{
@@ -358,10 +332,6 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 					return notification.Error
 				}
 
-				if _, loaded := unlockedHosts.LoadOrStore(notification.Host.ID, notification.Host); !loaded {
-					notification.Host.UnlockScheduling()
-				}
-
 				responsesReceived = append(responsesReceived, notification)
 				s.log.Debug("Successfully scheduled replica %d of kernel %s on host %s. %d/%d replicas scheduled. Time elapsed: %v.",
 					notification.ReplicaId, in.Id, notification.Host.ID, len(responsesReceived), responsesRequired, time.Since(st))
@@ -371,13 +341,6 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 
 	s.log.Debug("Successfully scheduled all %d replica(s) of kernel %s in %v.",
 		s.opts.NumReplicas, in.Id, time.Since(st))
-
-	// Make sure to unlock all the Hosts.
-	for _, host := range hosts {
-		if _, loaded := unlockedHosts.LoadOrStore(host.ID, host); !loaded {
-			host.UnlockScheduling()
-		}
-	}
 
 	return nil
 }

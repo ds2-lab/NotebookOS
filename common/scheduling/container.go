@@ -58,8 +58,10 @@ type Container struct {
 	interactivePriorityBase        float64
 	interactivePriority            cache.InlineCache
 	interactivePriorityExplanation string
+}
 
-	// dockerId             string         // The Docker container ID of the Container.
+type PlaceholderContainer struct {
+	*Container
 }
 
 // NewContainer creates and returns a new *Container.

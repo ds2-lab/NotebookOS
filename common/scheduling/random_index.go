@@ -21,15 +21,15 @@ const (
 // RandomClusterIndex is a simple Cluster that seeks hosts randomly.
 // RandomClusterIndex uses CategoryClusterIndex and all hosts are qualified.
 type RandomClusterIndex struct {
-	hosts       []*Host
-	len         int32
+	// The permutation of the hosts. Collection of indices that gets shuffled. We use these to index the hosts field.
+	perm        []int
 	freeStart   int32        // The first freed index.
-	perm        []int        // The permutation of the hosts.
 	seekStart   int32        // The start index of the seek.
 	numShuffles atomic.Int32 // The number of times the index has been shuffled to a new random permutation.
+	hosts       []*Host      // The Host instances contained within the RandomClusterIndex.
+	len         int32
 	mu          sync.Mutex
-
-	log logger.Logger
+	log         logger.Logger
 }
 
 func NewRandomClusterIndex(size int) *RandomClusterIndex {
@@ -170,14 +170,30 @@ func (index *RandomClusterIndex) GetMetrics(_ *Host) []float64 {
 	return nil
 }
 
-// unsafeSeek does the actual work of the Seek method.
-// unsafeSeek does not acquire the mutex. It should be called from a function that has already acquired the mutex.
-func (index *RandomClusterIndex) unsafeSeek(blacklist []interface{}, metrics ...[]float64) (ret *Host, pos interface{}) {
-	if index.len == 0 {
-		return nil, nil
-	}
+// reshuffle shuffles the Host permutation of the target RandomClusterIndex.
+func (index *RandomClusterIndex) reshuffle() {
+	index.perm = rand.Perm(len(index.hosts))
+	index.seekStart = 0
+	index.numShuffles.Add(1)
+}
 
-	// Convert the blacklist into a slice of a concrete type; in this case, []int32.
+// reshuffleIfNecessary will reshuffle the permutation of Host instances of the target RandomClusterIndex
+// if the RandomClusterIndex is in a state in which a reshuffle is required.
+func (index *RandomClusterIndex) reshuffleIfNecessary() {
+	if index.reshuffleRequired() {
+		index.reshuffle()
+	}
+}
+
+// reshuffleRequired returns true if the RandomClusterIndex should reshuffle its permutation of Host instances.
+func (index *RandomClusterIndex) reshuffleRequired() bool {
+	return index.seekStart == 0 || index.seekStart >= int32(len(index.perm))
+}
+
+// getBlacklist converts the list of interface{} to a list of []int32 containing
+// the indices of blacklisted Host instances within a RandomClusterIndex.
+func (index *RandomClusterIndex) getBlacklist(blacklist []interface{}) []int32 {
+
 	__blacklist := make([]int32, 0)
 	for i, meta := range blacklist {
 		if meta == nil {
@@ -188,36 +204,53 @@ func (index *RandomClusterIndex) unsafeSeek(blacklist []interface{}, metrics ...
 		__blacklist = append(__blacklist, meta.(int32))
 	}
 
-	hostsSeen := 0
+	return __blacklist
+}
 
-	index.log.Debug("Searching for host. Len of blacklist: %d. Number of hosts in index: %d.", len(__blacklist), index.Len())
+// isHostBlacklisted is a helper function that returns true if the given Host is contained within the blacklist,
+// based on the HostMetaRandomIndex metadata of the specified Host.
+func isHostBlacklisted(host *Host, blacklist []int32) bool {
+	return slices.Contains(blacklist, host.GetMeta(HostMetaRandomIndex).(int32))
+}
+
+// unsafeSeek does the actual work of the Seek method.
+// unsafeSeek does not acquire the mutex. It should be called from a function that has already acquired the mutex.
+func (index *RandomClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics ...[]float64) (*Host, interface{}) {
+	if index.len == 0 {
+		return nil, nil
+	}
+
+	// Convert the blacklistArg parameter into a slice of a concrete type; in this case, []int32.
+	blacklist := index.getBlacklist(blacklistArg)
+	hostsSeen := 0
+	var host *Host
 
 	// Keep iterating as long as:
 	// (a) we have not found a Host, and
 	// (b) we've not yet looked at every slot in the index and found that it is blacklisted.
-	for ret == nil && hostsSeen < index.Len() {
+	index.log.Debug("Searching for host. Len of blacklist: %d. Number of hosts in index: %d.", len(blacklist), index.Len())
+	for host == nil && hostsSeen < index.Len() {
 		// Generate a new permutation if seekStart is invalid.
-		if index.seekStart == 0 || index.seekStart >= int32(len(index.perm)) {
-			index.perm = rand.Perm(len(index.hosts))
-			index.seekStart = 0
-			index.numShuffles.Add(1)
-		}
-		ret = index.hosts[index.perm[index.seekStart]]
-		index.seekStart++
-		pos = index.seekStart
+		index.reshuffleIfNecessary()
 
-		// If the given host is blacklisted, then look for a different host.
-		if slices.Contains(__blacklist, ret.GetMeta(HostMetaRandomIndex).(int32)) {
-			ret = nil
+		host = index.hosts[index.perm[index.seekStart]]
+		index.seekStart++
+		if host != nil {
 			hostsSeen += 1
 		}
 
-		if hostsSeen >= index.Len() {
-			index.log.Error("All hosts within index have been inspected. One should have been found by now.")
-			return
+		// If the given host is blacklisted, then look for a different host.
+		if isHostBlacklisted(host, blacklist) {
+			// Set to nil so that we have to continue searching.
+			host = nil
 		}
 	}
-	return
+
+	if host == nil {
+		index.log.Warn("Exhausted remaining hosts in index; failed to find non-blacklisted host.")
+	}
+
+	return host, index.seekStart
 }
 
 func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret *Host, pos interface{}) {
@@ -247,10 +280,13 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 
 	st := time.Now()
 
-	if int32(n) > index.len {
-		index.log.Error("Index contains just %d hosts. Cannot seek %d hosts.", index.len, n)
-		return []*Host{}, nil
-	}
+	// Commented out:
+	// We should try to find as many as we can, per the method's spec.
+	//
+	// if int32(n) > index.len {
+	//	 index.log.Error("Index contains just %d hosts. Cannot seek %d hosts.", index.len, n)
+	//	 return []*Host{}, nil
+	// }
 
 	var (
 		candidateHost *Host

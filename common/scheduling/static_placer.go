@@ -1,6 +1,7 @@
 package scheduling
 
 import (
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"sync"
 )
@@ -36,7 +37,7 @@ func (placer *StaticPlacer) getIndex() ClusterIndex {
 }
 
 // FindHosts returns a single host that can satisfy the resourceSpec.
-func (placer *StaticPlacer) findHosts(spec types.Spec) []*Host {
+func (placer *StaticPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int) []*Host {
 	var (
 		pos   interface{}
 		host  *Host
@@ -45,7 +46,7 @@ func (placer *StaticPlacer) findHosts(spec types.Spec) []*Host {
 	for i := 0; i < len(hosts); i++ {
 		host, pos = placer.index.SeekFrom(pos)
 
-		if host.ResourceSpec().Validate(spec) {
+		if host.ResourceSpec().Validate(kernelSpec.DecimalSpecFromKernelSpec()) {
 			// The Host can satisfy the resourceSpec, so append it to the slice.
 			hosts = append(hosts, host)
 		}

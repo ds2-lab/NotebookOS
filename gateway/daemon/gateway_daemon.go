@@ -1759,8 +1759,8 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		d.log.Info("Container name: %v", kernelPodOrContainerName)
 	}
 
-	d.log.Info("Host ID: %v", hostId)
-	d.log.Info("Node ID: %v", nodeName)
+	d.log.Info("Node ID: %v", hostId)
+	d.log.Info("Node Name: %v", nodeName)
 	d.log.Info("Notification ID: %v", in.NotificationId)
 
 	d.Lock()

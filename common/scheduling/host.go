@@ -34,6 +34,7 @@ var (
 
 	ErrRestoreRequired     = errors.New("restore required")
 	ErrNodeNameUnspecified = errors.New("no kubernetes node name returned for LocalDaemonClient")
+	ErrReservationNotFound = errors.New("no resource reservation found for the specified kernel")
 	ErrOldSnapshot         = errors.New("the given snapshot is older than the last snapshot applied to the target host")
 )
 
@@ -199,7 +200,8 @@ type Host struct {
 	Cluster                Cluster                              // Cluster is a reference to the Cluster interface that manages this Host.
 	metricsProvider        metrics.ClusterMetricsProvider       // Provides access to metrics relevant to the Host.
 	ID                     string                               // ID is the unique ID of this host.
-	containers             hashmap.HashMap[string, *Container]  // containers is a map of all the kernel replicas scheduled onto this host.
+	containers             hashmap.HashMap[string, *Container]  // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
+	reservations           hashmap.HashMap[string, time.Time]   // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
 	trainingContainers     []*Container                         // trainingContainers are the actively-training kernel replicas.
 	seenSessions           []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
 	resourceSpec           *types.DecimalSpec                   // resourceSpec is the spec describing the total Resources available on the Host, not impacted by allocations.
@@ -340,6 +342,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		metricsProvider:                 metricsProvider,
 		log:                             config.GetLogger(fmt.Sprintf("Host %s ", id)),
 		containers:                      hashmap.NewCornelkMap[string, *Container](5),
+		reservations:                    hashmap.NewCornelkMap[string, time.Time](5),
 		trainingContainers:              make([]*Container, 0, int(resourceSpec.GPU())),
 		penalties:                       make([]cachedPenalty, int(resourceSpec.GPU())),
 		seenSessions:                    make([]string, int(resourceSpec.GPU())),
@@ -629,6 +632,70 @@ func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 	return h.resourcesWrapper.idleResources.Validate(types.ToDecimalSpec(resourceRequest))
 }
 
+// ReleaseReservation is to be called when a resource reservation should be released because the
+// scheduling of the associated replica of the associated kernel is being aborted.
+func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
+	_, loadedReservation := h.reservations.LoadAndDelete(spec.Id)
+	if !loadedReservation {
+		h.log.Error("Cannot release resource reservation associated with kernel %s; no reservations found.", spec.Id)
+		return fmt.Errorf("%w: kernel %s", ErrReservationNotFound, spec.Id)
+	}
+
+	return nil
+}
+
+// ReserveResources attempts to reserve the resources required by the specified kernel, returning
+// a boolean flag indicating whether the resource reservation was completed successfully.
+//
+// If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
+func (h *Host) ReserveResources(spec *proto.KernelSpec) (bool, error) {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	// Check if we're already hosting a replica of the target kernel.
+	container, containerLoaded := h.containers.Load(spec.Id)
+	if containerLoaded {
+		h.log.Debug("Cannot reserve resources for a replica of kernel %s; already hosting replica %d of kernel %s.",
+			spec.Id, container.ReplicaID(), spec.Id)
+		return false, nil
+	}
+
+	// Check if there's already a reservation for some (not-yet-scheduled) replica of the target kernel.
+	// TODO: If there's an error creating the container, we need to release the resource reservation on the Host.
+	reservationCreationTimestamp, reservationLoaded := h.reservations.Load(spec.Id)
+	if reservationLoaded {
+		h.log.Debug("Cannot reserve resources for a replica of kernel %s; have existing reservation for that kernel created %v ago.", spec.Id, time.Since(reservationCreationTimestamp))
+		return false, nil
+	}
+
+	// Check if the Host could satisfy the resource request for the target kernel.
+	if !h.CanServeContainer(spec.ResourceSpec.ToDecimalSpec()) {
+		h.log.Debug("Cannot reserve resources for a replica of kernel %s. Kernel is requesting more resources than we have allocatable.", spec.Id)
+		return false, nil
+	}
+
+	if h.WillBecomeTooOversubscribed(spec.ResourceSpec.ToDecimalSpec()) {
+		h.log.Debug("Cannot reserve resources for a replica of kernel %s; host would become too oversubscribed.", spec.Id)
+		return false, nil
+	}
+
+	// Increment the pending resources on the host, which represents the reservation.
+	// TODO: Synchronizing will erase this.
+	if err := h.resourcesWrapper.pendingResources.Add(spec.DecimalSpecFromKernelSpec()); err != nil {
+		h.log.Error("Cannot reserve resources for a replica of kernel %s; error encountered while incrementing host's pending resources: %v.", spec.Id, err)
+		return false, err
+	}
+
+	oldSubscribedRatio := h.subscribedRatio
+	h.RecomputeSubscribedRatio()
+	h.reservations.Store(spec.Id, time.Now())
+
+	h.log.Debug("Successfully reserved resources for new replica of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
+		spec.Id, oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
+
+	return true, nil
+}
+
 // updateLocalGpuInfoFromRemote updates the local info pertaining to GPU usage information
 // with the "actual" GPU usage retrieved from the remote host associated with this Host struct.
 func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
@@ -669,19 +736,21 @@ func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
 
 // ContainerScheduled is to be called when a Container is scheduled onto the Host.
 func (h *Host) ContainerScheduled(container *Container) error {
-	h.containers.Store(container.ContainerID(), container)
-
+	h.containers.Store(container.KernelID(), container)
 	h.pendingContainers.Add(1)
 
-	if err := h.resourcesWrapper.pendingResources.Add(types.ToDecimalSpec(container.outstandingResources)); err != nil {
-		h.log.Error("Could not schedule Container %s onto Host %s due to resource-related issue: %v",
-			container.ContainerID(), h.ID, err)
-		return err
+	// Delete the reservation. Log an error message if there is no reservation.
+	reservation, loadedReservation := h.reservations.LoadAndDelete(container.KernelID())
+	if !loadedReservation {
+		h.log.Error("No reservation found for replica of kernel %s; "+
+			"however, we just received a notification that replica %d of kernel %s has started on host %s (ID=%s)...",
+			container.KernelID(), container.ReplicaID(), container.KernelID(), h.ID, h.NodeName)
+
+		return fmt.Errorf("%w: kernel %s", ErrReservationNotFound, container.KernelID())
 	}
 
-	h.log.Debug("Container %s was scheduled onto Host %s.", container.String(), h.ID)
-
-	h.RecomputeSubscribedRatio()
+	h.log.Debug("Container %s was officially started on onto Host %s %v after reservation was created.",
+		container.String(), h.ID, time.Since(reservation))
 
 	return nil
 }
@@ -825,12 +894,12 @@ func (h *Host) doContainerRemovedResourceUpdate(container *Container) {
 
 // ContainerRemoved is to be called when a Container is stopped and removed from the Host.
 func (h *Host) ContainerRemoved(container *Container) error {
-	if _, ok := h.containers.Load(container.ContainerID()); !ok {
+	if _, ok := h.containers.Load(container.KernelID()); !ok {
 		h.log.Error("Cannot remove specified Container from Host. Container is not on specified Host.")
 		return ErrInvalidContainer
 	}
 
-	h.containers.Delete(container.ContainerID())
+	h.containers.Delete(container.KernelID())
 
 	h.pendingContainers.Sub(1)
 

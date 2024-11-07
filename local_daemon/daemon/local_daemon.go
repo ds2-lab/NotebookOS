@@ -1192,6 +1192,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		KernelIp:           remoteIp,
 		PodOrContainerName: registrationPayload.PodOrContainerName,
 		NodeName:           d.nodeName,
+		NodeId:             d.id,
 		NotificationId:     uuid.NewString(),
 	}
 

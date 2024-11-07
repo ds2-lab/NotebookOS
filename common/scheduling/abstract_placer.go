@@ -43,41 +43,38 @@ func newAbstractPlacer(cluster clusterInternal, opts *ClusterSchedulerOptions) *
 // The number of hosts returned is determined by the placer.
 //
 // The core logic of FindHosts is implemented by the AbstractPlacer's internalPlacer instance/field.
-func (placer *AbstractPlacer) FindHosts(spec types.Spec) []*Host {
+func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []*Host {
 	placer.mu.Lock()
 	st := time.Now()
 	numReplicas := placer.opts.NumReplicas
 
 	// The following checks make sense/apply for all concrete implementations of Placer.
 	// If the Placer's index is empty, or if the index has too few hosts in it, then we simply return an empty slice.
-	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", numReplicas, spec.String(), placer.instance.getIndex().Len())
-	if placer.instance.getIndex().Len() == 0 {
-		placer.log.Warn(utils.OrangeStyle.Render("Index is empty... returning empty slice of Hosts."))
-		return make([]*Host, 0)
-	} else if placer.instance.getIndex().Len() < numReplicas {
-		placer.log.Warn("Index has just %d hosts (%d are required).", placer.instance.getIndex().Len(), numReplicas)
+	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", numReplicas, kernelSpec.ResourceSpec.String(), placer.instance.getIndex().Len())
+	if placer.instance.getIndex().Len() < numReplicas {
+		placer.log.Warn("Index has insufficient number of hosts: %d. Required: %d.", placer.instance.getIndex().Len(), numReplicas)
 		return make([]*Host, 0)
 	}
 
 	// Invoke internalPlacer's implementation of the findHosts method for the core logic of FindHosts.
-	hosts := placer.instance.findHosts(spec)
+	hosts := placer.instance.findHosts(kernelSpec, numHosts)
+
 	latency := time.Since(st)
+
+	var successLabel string
 	if hosts == nil || len(hosts) < numReplicas {
 		placer.log.Warn(utils.OrangeStyle.Render("Failed to identify the %d required hosts for kernel %s. Found only %d/%d. Time elapsed: %v."),
 			placer.opts.NumReplicas, len(hosts), placer.opts.NumReplicas, latency)
-
-		if placer.cluster.ClusterMetricsProvider() != nil && placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
-			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-				With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
-		}
+		successLabel = "false"
 	} else {
 		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts after %v."),
 			len(hosts), numReplicas, latency)
+		successLabel = "true"
+	}
 
-		if placer.cluster.ClusterMetricsProvider() != nil && placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
-			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-				With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
-		}
+	if placer.cluster.ClusterMetricsProvider() != nil && placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
+		placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+			With(prometheus.Labels{"successful": successLabel}).Observe(float64(latency.Microseconds()))
 	}
 
 	return hosts
