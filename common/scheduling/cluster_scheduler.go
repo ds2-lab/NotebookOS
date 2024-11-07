@@ -85,10 +85,6 @@ type ClusterScheduler interface {
 	// the Host instances within the Cluster with their remote nodes.
 	RemoteSynchronizationInterval() time.Duration
 
-	// RefreshClusterNodes Updates the cached list of Cluster nodes.
-	// Returns nil on success; returns an error on failure.
-	RefreshClusterNodes() error
-
 	// RefreshAll refreshes all metrics maintained/cached/required by the Cluster Scheduler,
 	// including the list of current kubernetes nodes, actual and virtual GPU usage information, etc.
 	//

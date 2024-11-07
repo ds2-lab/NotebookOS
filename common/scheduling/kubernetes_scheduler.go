@@ -37,7 +37,7 @@ func NewKubernetesScheduler(cluster clusterInternal, placer Placer, hostMapper H
 
 	baseScheduler.instance = kubernetesScheduler
 
-	err := kubernetesScheduler.RefreshClusterNodes()
+	err := kubernetesScheduler.refreshClusterNodes()
 	if err != nil {
 		kubernetesScheduler.log.Error("Initial retrieval of Kubernetes nodes failed: %v", err)
 	}
@@ -78,9 +78,9 @@ func (s *KubernetesScheduler) DeployNewKernel(ctx context.Context, in *proto.Ker
 	return nil
 }
 
-// RefreshClusterNodes updates the cached list of Kubernetes nodes.
+// refreshClusterNodes updates the cached list of Kubernetes nodes.
 // Returns nil on success; returns an error on failure.
-func (s *KubernetesScheduler) RefreshClusterNodes() error {
+func (s *KubernetesScheduler) refreshClusterNodes() error {
 	nodes, err := s.kubeClient.GetKubernetesNodes()
 	if err != nil {
 		s.log.Error("Failed to refresh Kubernetes nodes.") // The error is printed by the KubeClient. We don't need to print it again here.

@@ -50,7 +50,7 @@ func NewDockerScheduler(cluster clusterInternal, placer Placer, hostMapper HostM
 
 	baseScheduler.instance = dockerScheduler
 
-	err := dockerScheduler.RefreshClusterNodes()
+	err := dockerScheduler.refreshClusterNodes()
 	if err != nil {
 		dockerScheduler.log.Error("Initial retrieval of Docker nodes failed: %v", err)
 	}
@@ -466,10 +466,10 @@ func (s *DockerScheduler) pollForResourceData() {
 	}
 }
 
-// RefreshClusterNodes updates the cached list of Host nodes.
+// refreshClusterNodes updates the cached list of Host nodes.
 // Returns nil on success; returns an error on one or more failures.
 // If there are multiple failures, then their associated errors will be joined together via errors.Join(...).
-func (s *DockerScheduler) RefreshClusterNodes() error {
+func (s *DockerScheduler) refreshClusterNodes() error {
 	s.cluster.ReadLockHosts()
 	hosts := make([]*Host, 0, s.cluster.Len())
 	s.cluster.RangeOverHosts(func(_ string, host *Host) (contd bool) {
