@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"net"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -23,6 +24,8 @@ type DockerScheduler struct {
 
 	// Used in Docker mode. Assigned to individual kernel replicas, incremented after each assignment.
 	dockerModeKernelDebugPort atomic.Int32
+
+	deployKernelMutex sync.Mutex
 }
 
 // checkIfPortIsAvailable checks if the specified port is presently available, returning true if so and false if not.
@@ -219,6 +222,8 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
 func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*Host) error {
+	s.deployKernelMutex.Lock()
+
 	st := time.Now()
 
 	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.",
@@ -238,6 +243,8 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 
 	// Keep track of the hosts that we've unlocked so that we don't unlock them multiple times.
 	unlockedHosts := hashmap.NewCornelkMap[string, *Host](len(hosts))
+
+	s.deployKernelMutex.Unlock()
 
 	// Schedule a replica of the kernel on each of the candidate hosts.
 	resultChan := s.scheduleKernelReplicas(in, hosts, unlockedHosts, blacklistedHosts)

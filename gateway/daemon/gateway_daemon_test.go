@@ -221,8 +221,95 @@ func (s *ResourceSpoofer) ResourcesSnapshot(_ context.Context, _ *proto.Void, _ 
 	return snapshotWithContainers, nil
 }
 
-// NewHostWithSpoofedGRPC creates a new scheduling.Host struct with a spoofed proto.LocalGatewayClient.
-func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string, resourceSpoofer *ResourceSpoofer) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, error) {
+// addHost creates and returns a new Host whose LocalGatewayClient is mocked.
+func addHost(idx int, clusterGateway *ClusterGatewayImpl, mockCtrl *gomock.Controller) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, *ResourceSpoofer, error) {
+	hostId := uuid.NewString()
+	nodeName := fmt.Sprintf("TestNode%d", idx)
+	resourceSpoofer := NewResourceSpoofer(nodeName, hostId, clusterGateway.hostSpec)
+	host, localGatewayClient, err := newHostWithSpoofedGRPC(mockCtrl, clusterGateway.cluster, hostId, nodeName, resourceSpoofer)
+
+	return host, localGatewayClient, resourceSpoofer, err
+}
+
+// initMockedKernelForCreation creates and returns a new MockAbstractDistributedKernelClient that is
+// set up for use in a unit test that involves creating a new kernel.
+func initMockedKernelForCreation(mockCtrl *gomock.Controller, kernelId string, kernelKey string, resourceSpec *proto.ResourceSpec) (*mock_client.MockAbstractDistributedKernelClient, *proto.KernelSpec) {
+	persistentId := uuid.NewString()
+
+	kernelSpec := &proto.KernelSpec{
+		Id:              kernelId,
+		Session:         kernelId,
+		Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+		SignatureScheme: jupyter.JupyterSignatureScheme,
+		Key:             kernelKey,
+		ResourceSpec:    resourceSpec,
+	}
+
+	kernel := mock_client.NewMockAbstractDistributedKernelClient(mockCtrl)
+	var currentSize atomic.Int32
+	var sessionId string
+
+	kernel.EXPECT().InitializeShellForwarder(gomock.Any()).Times(1)
+	kernel.EXPECT().InitializeIOForwarder().Times(1)
+	kernel.EXPECT().ID().Return(kernelId).AnyTimes()
+	kernel.EXPECT().SetSession(gomock.Any()).MaxTimes(1).DoAndReturn(func(session *scheduling.Session) {
+		sessionId = session.ID()
+	})
+	kernel.EXPECT().AddReplica(gomock.Any(), gomock.Any()).Times(3).DoAndReturn(func(r scheduling.KernelReplica, host *scheduling.Host) error {
+		currentSize.Add(1)
+
+		return nil
+	})
+	kernel.EXPECT().PersistentID().AnyTimes().Return(persistentId)
+	kernel.EXPECT().NumActiveMigrationOperations().Times(3).Return(0)
+	kernel.EXPECT().Size().AnyTimes().DoAndReturn(func() int {
+		return int(currentSize.Load())
+	})
+	kernel.EXPECT().Sessions().Times(1).Return([]string{sessionId})
+	kernel.EXPECT().GetSocketPort(jupyter.ShellMessage).Times(1).Return(9001)
+	kernel.EXPECT().GetSocketPort(jupyter.IOMessage).Times(2).Return(9004)
+	kernel.EXPECT().KernelSpec().Times(2).Return(kernelSpec)
+	kernel.EXPECT().String().AnyTimes().Return("SPOOFED KERNEL " + kernelId + " STRING")
+
+	return kernel, kernelSpec
+}
+
+// prepareMockedGatewayForStartKernel prepares the given *mock_proto.MockLocalGatewayClient to have its StartKernelReplica
+// method called during the creation of a new kernel.
+func prepareMockedGatewayForStartKernel(localGatewayClient *mock_proto.MockLocalGatewayClient, resourceSpoofer *ResourceSpoofer, resourceSpec *proto.ResourceSpec, startKernelReturnValChan chan *proto.KernelConnectionInfo, startKernelReplicaCalled *sync.WaitGroup, numKernels int) {
+	localGatewayClient.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+		GinkgoWriter.Printf("LocalGateway #1 has called spoofed StartKernelReplica\n")
+
+		// defer GinkgoRecover()
+
+		err := resourceSpoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+
+		if err != nil {
+			GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
+		}
+
+		Expect(err).To(BeNil())
+		err = resourceSpoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+
+		if err != nil {
+			GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
+		}
+
+		Expect(err).To(BeNil())
+
+		startKernelReplicaCalled.Done()
+
+		GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #1 to be passed via channel.\n")
+		ret := <-startKernelReturnValChan
+
+		GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #1: %v\n", ret)
+
+		return ret, nil
+	}).Times(numKernels)
+}
+
+// newHostWithSpoofedGRPC creates a new scheduling.Host struct with a spoofed proto.LocalGatewayClient.
+func newHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string, resourceSpoofer *ResourceSpoofer) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, error) {
 	gpuSchedulerId := uuid.NewString()
 
 	localGatewayClient := mock_proto.NewMockLocalGatewayClient(ctrl)
@@ -797,36 +884,16 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			It("Will correctly schedule a new kernel", func() {
 				kernelId := uuid.NewString()
-				persistentId := uuid.NewString()
 
-				kernel := mock_client.NewMockAbstractDistributedKernelClient(mockCtrl)
-				var currentSize atomic.Int32
-				var sessionId string
+				resourceSpec := &proto.ResourceSpec{
+					Gpu:    2,
+					Vram:   2,
+					Cpu:    1250,
+					Memory: 2048,
+				}
 
-				kernel.EXPECT().InitializeShellForwarder(gomock.Any()).Times(1)
-				kernel.EXPECT().InitializeIOForwarder().Times(1)
-				kernel.EXPECT().ID().Return(kernelId).AnyTimes()
-				kernel.EXPECT().SetSession(gomock.Any()).MaxTimes(1).DoAndReturn(func(session *scheduling.Session) {
-					sessionId = session.ID()
-				})
-				kernel.EXPECT().AddReplica(gomock.Any(), gomock.Any()).Times(3).DoAndReturn(func(r scheduling.KernelReplica, host *scheduling.Host) error {
-					currentSize.Add(1)
-
-					return nil
-				})
-				kernel.EXPECT().PersistentID().Times(6).Return(persistentId)
-				kernel.EXPECT().NumActiveMigrationOperations().Times(3).Return(0)
-				kernel.EXPECT().Size().AnyTimes().DoAndReturn(func() int {
-					return int(currentSize.Load())
-				})
-				kernel.EXPECT().Sessions().Times(1).Return([]string{sessionId})
-				kernel.EXPECT().GetSocketPort(jupyter.ShellMessage).Times(1).Return(9001)
-				kernel.EXPECT().GetSocketPort(jupyter.IOMessage).Times(2).Return(9004)
-				kernel.EXPECT().KernelSpec().Times(2).Return(&proto.KernelSpec{
-					SignatureScheme: signatureScheme,
-					Key:             kernelKey,
-				})
-				kernel.EXPECT().String().AnyTimes().Return("SPOOFED KERNEL " + kernelId + " STRING")
+				kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec)
+				mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
 
 				mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
 
@@ -849,19 +916,19 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				host1Id := uuid.NewString()
 				node1Name := "TestNode1"
 				host1Spoofer := NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
-				host1, localGatewayClient1, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
+				host1, localGatewayClient1, err := newHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
 				Expect(err).To(BeNil())
 
 				host2Id := uuid.NewString()
 				node2Name := "TestNode2"
 				host2Spoofer := NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
-				host2, localGatewayClient2, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
+				host2, localGatewayClient2, err := newHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
 				Expect(err).To(BeNil())
 
 				host3Id := uuid.NewString()
 				node3Name := "TestNode3"
 				host3Spoofer := NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
-				host3, localGatewayClient3, err := NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
+				host3, localGatewayClient3, err := newHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
 				Expect(err).To(BeNil())
 
 				By("Correctly registering the first Host")
@@ -893,22 +960,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(index.Len()).To(Equal(3))
 				Expect(placer.NumHostsInIndex()).To(Equal(3))
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(3))
-
-				resourceSpec := &proto.ResourceSpec{
-					Gpu:    2,
-					Vram:   2,
-					Cpu:    1250,
-					Memory: 2048,
-				}
-
-				kernelSpec := &proto.KernelSpec{
-					Id:              kernelId,
-					Session:         kernelId,
-					Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-					SignatureScheme: jupyter.JupyterSignatureScheme,
-					Key:             kernelKey,
-					ResourceSpec:    resourceSpec,
-				}
 
 				var startKernelReplicaCalled sync.WaitGroup
 				startKernelReplicaCalled.Add(3)
@@ -1160,6 +1211,157 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						}
 					}
 				}()
+			})
+
+			It("Will correctly schedule multiple kernel replicas at the same time", func() {
+				numKernels := 3
+				numHosts := 3
+
+				kernels := make(map[string]*mock_client.MockAbstractDistributedKernelClient)
+				kernelSpecs := make(map[string]*proto.KernelSpec)
+
+				kernelsByIdx := make(map[int]*mock_client.MockAbstractDistributedKernelClient)
+				kernelSpecsByIdx := make(map[int]*proto.KernelSpec)
+
+				resourceSpec := &proto.ResourceSpec{
+					Gpu:    2,
+					Vram:   2,
+					Cpu:    1250,
+					Memory: 2048,
+				}
+
+				for i := 0; i < numKernels; i++ {
+					kernelId := uuid.NewString()
+					kernelKey := uuid.NewString()
+					kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec)
+					mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
+
+					kernels[kernelId] = kernel
+					kernelSpecs[kernelId] = kernelSpec
+
+					kernelsByIdx[i] = kernel
+					kernelSpecsByIdx[i] = kernelSpec
+				}
+
+				hosts := make(map[int]*scheduling.Host)
+				localGatewayClients := make(map[int]*mock_proto.MockLocalGatewayClient)
+				resourceSpoofers := make(map[int]*ResourceSpoofer)
+
+				cluster := clusterGateway.cluster
+				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+				Expect(ok).To(BeTrue())
+				Expect(index).ToNot(BeNil())
+
+				placer := cluster.Placer()
+				Expect(placer).ToNot(BeNil())
+
+				scheduler := cluster.ClusterScheduler()
+				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
+
+				Expect(cluster.Len()).To(Equal(0))
+				Expect(index.Len()).To(Equal(0))
+				Expect(placer.NumHostsInIndex()).To(Equal(0))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
+
+				for i := 0; i < numHosts; i++ {
+					host, localGatewayClient, resourceSpoofer, err := addHost(i, clusterGateway, mockCtrl)
+					Expect(err).To(BeNil())
+					Expect(host).ToNot(BeNil())
+					Expect(localGatewayClient).ToNot(BeNil())
+					Expect(resourceSpoofer).ToNot(BeNil())
+
+					hosts[i] = host
+					localGatewayClients[i] = localGatewayClient
+					resourceSpoofers[i] = resourceSpoofer
+				}
+
+				size := 0
+				for i, host := range hosts {
+					By(fmt.Sprintf("Correctly registering Host %d (%d/%d)", i, size+1, len(hosts)))
+					cluster.NewHostAddedOrConnected(host)
+					size += 1
+
+					Expect(cluster.Len()).To(Equal(size))
+					Expect(index.Len()).To(Equal(size))
+					Expect(placer.NumHostsInIndex()).To(Equal(size))
+					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(size))
+				}
+
+				var startKernelReplicaCalled sync.WaitGroup
+				startKernelReplicaCalled.Add(3 * numKernels)
+
+				startKernelReturnValChannels := make(map[int]chan *proto.KernelConnectionInfo)
+
+				for i := 0; i < numHosts; i++ {
+					startKernelReturnValChan := make(chan *proto.KernelConnectionInfo, 3)
+					startKernelReturnValChannels[i] = startKernelReturnValChan
+
+					By(fmt.Sprintf("Preparing mocked LocalGatewayClient %d/%d to expect a call to StartKernelReplica.", i+1, numHosts))
+					localGatewayClient := localGatewayClients[i]
+					resourceSpoofer := resourceSpoofers[i]
+					prepareMockedGatewayForStartKernel(localGatewayClient, resourceSpoofer, resourceSpec, startKernelReturnValChan, &startKernelReplicaCalled, numKernels)
+				}
+
+				By(fmt.Sprintf("Correctly initiating the creation of %d new kernels", numKernels))
+
+				startKernelReturnValChan := make(chan *proto.KernelConnectionInfo, numKernels)
+				for i := 0; i < numKernels; i++ {
+					index := i
+					go func() {
+						connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpecsByIdx[index])
+						Expect(err).To(BeNil())
+						Expect(connInfo).ToNot(BeNil())
+
+						startKernelReturnValChan <- connInfo
+					}()
+				}
+
+				doneChan := make(chan interface{}, 1)
+				go func() {
+					startKernelReplicaCalled.Wait()
+					doneChan <- struct{}{}
+				}()
+
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+				defer cancel()
+
+				select {
+				case <-ctx.Done():
+					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on Local Daemons by Placer.\n")
+					Expect(false).To(BeTrue())
+				case <-doneChan:
+					{
+						// Do nothing / continue with the unit test
+					}
+				}
+
+				By("Correctly handling the KernelConnectionInfo")
+				for _, channel := range startKernelReturnValChannels {
+					for i := 0; i < numKernels; i++ {
+						kernelSpec := kernelSpecsByIdx[i]
+
+						channel <- &proto.KernelConnectionInfo{
+							Ip:              "0.0.0.0",
+							Transport:       "tcp",
+							ControlPort:     9000,
+							ShellPort:       9001,
+							StdinPort:       9002,
+							HbPort:          9003,
+							IopubPort:       9004,
+							IosubPort:       9005,
+							SignatureScheme: jupyter.JupyterSignatureScheme,
+							Key:             kernelSpec.Key,
+						}
+					}
+				}
+
+				time.Sleep(time.Millisecond * 1250)
+
+				var notifyKernelRegisteredCalled sync.WaitGroup
+				notifyKernelRegisteredCalled.Add(3)
+
+				By("Correctly notifying that the kernel registered")
+
 			})
 		})
 	})
