@@ -23,14 +23,14 @@ var (
 // AbstractPlacer should not be used directly. Instead, embed it in your placer implementation.
 type AbstractPlacer struct {
 	mu       sync.Mutex
-	cluster  clusterInternal
+	cluster  ClusterInternal
 	opts     *ClusterSchedulerOptions
 	log      logger.Logger
 	instance internalPlacer
 }
 
 // newAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.
-func newAbstractPlacer(cluster clusterInternal, opts *ClusterSchedulerOptions) *AbstractPlacer {
+func newAbstractPlacer(cluster ClusterInternal, opts *ClusterSchedulerOptions) *AbstractPlacer {
 	placer := &AbstractPlacer{
 		cluster: cluster,
 		opts:    opts,
@@ -64,11 +64,11 @@ func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts i
 	var successLabel string
 	if hosts == nil || len(hosts) < numReplicas {
 		placer.log.Warn(utils.OrangeStyle.Render("Failed to identify the %d required hosts for kernel %s. Found only %d/%d. Time elapsed: %v."),
-			placer.opts.NumReplicas, len(hosts), placer.opts.NumReplicas, latency)
+			placer.opts.NumReplicas, kernelSpec.Id, len(hosts), placer.opts.NumReplicas, latency)
 		successLabel = "false"
 	} else {
-		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts after %v."),
-			len(hosts), numReplicas, latency)
+		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts for kernel %s after %v."),
+			len(hosts), numReplicas, kernelSpec.Id, latency)
 		successLabel = "true"
 	}
 

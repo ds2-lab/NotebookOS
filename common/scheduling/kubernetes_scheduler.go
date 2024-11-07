@@ -24,7 +24,7 @@ type KubernetesScheduler struct {
 	kubeClient KubeClient // Kubernetes client.
 }
 
-func NewKubernetesScheduler(cluster clusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec,
+func NewKubernetesScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec,
 	kubeClient KubeClient, opts *ClusterSchedulerOptions) (*KubernetesScheduler, error) {
 
 	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, opts)

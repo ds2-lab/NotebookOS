@@ -5,6 +5,15 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
+func NewResourceSpec(cpu int32, memory float32, gpu int32, vram float32) *ResourceSpec {
+	return &ResourceSpec{
+		Cpu:    cpu,
+		Memory: memory,
+		Gpu:    gpu,
+		Vram:   vram,
+	}
+}
+
 // GPU returns the number of GPUs required.
 //
 // Although the return type is float64, this is merely because it is often compared to other float64s and rarely
@@ -59,6 +68,27 @@ func (s *ResourceSpec) ToDecimalSpec() *types.DecimalSpec {
 		GPUs:      decimal.NewFromFloat(float64(s.Gpu)),
 		VRam:      decimal.NewFromFloat(float64(s.Vram)),
 	}
+}
+
+func (s *ResourceSpec) Add(other types.Spec) types.Spec {
+	return &ResourceSpec{
+		Cpu:    s.Cpu + int32(other.CPU()),
+		Memory: s.Memory + float32(other.MemoryMB()),
+		Gpu:    s.Gpu + int32(other.GPU()),
+		Vram:   s.Vram + float32(other.VRAM()),
+	}
+}
+
+// IsZero returns true of the resource quantities are all zero.
+func (s *ResourceSpec) IsZero() bool {
+	return s.Cpu == 0 && s.Memory == 0 && s.Gpu == 0 && s.Vram == 0
+}
+
+func (s *ResourceSpec) Equals(other types.Spec) bool {
+	d1 := types.ToDecimalSpec(s)
+	d2 := types.ToDecimalSpec(other)
+
+	return d1.GPUs.Equal(d2.GPUs) && d1.Millicpus.Equals(d2.Millicpus) && d1.VRam.Equal(d2.VRam) && d1.MemoryMb.Equal(d2.MemoryMb)
 }
 
 // Validate checks that "this" Spec could "satisfy" the parameterized Spec.

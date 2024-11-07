@@ -15,10 +15,9 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/mock_scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	distNbTesting "github.com/zhangjyr/distributed-notebook/common/testing"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
-	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
 	"math/rand"
 	"sync"
@@ -167,66 +166,12 @@ func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx c
 	panic(fmt.Sprintf("No mocked kernel registered with ID=\"%s\"\n", spec.Id))
 }
 
-// ResourceSpoofer is used to provide spoofed resources to be used by mock_proto.MockLocalGatewayClient
-// instances when spoofing calls to proto.LocalGatewayClient.ResourcesSnapshot.
-type ResourceSpoofer struct {
-	snapshotId atomic.Int32
-	hostId     string
-	nodeName   string
-	managerId  string
-	hostSpec   types.Spec
-	wrapper    *scheduling.ResourcesWrapper
-}
-
-func NewResourceSpoofer(nodeName string, hostId string, hostSpec types.Spec) *ResourceSpoofer {
-	spoofer := &ResourceSpoofer{
-		hostId:    hostId,
-		nodeName:  nodeName,
-		managerId: uuid.NewString(),
-		hostSpec:  hostSpec,
-		wrapper:   scheduling.NewResourcesWrapper(hostSpec),
-	}
-
-	GinkgoWriter.Printf("Created new ResourceSpoofer for host %s (ID=%s) with spec=%s\n", nodeName, hostId, hostSpec.String())
-
-	return spoofer
-}
-
-func (s *ResourceSpoofer) ResourcesSnapshot(_ context.Context, _ *proto.Void, _ ...grpc.CallOption) (*proto.NodeResourcesSnapshotWithContainers, error) {
-	snapshotId := s.snapshotId.Add(1)
-	resourceSnapshot := &proto.NodeResourcesSnapshot{
-		// SnapshotId uniquely identifies the NodeResourcesSnapshot and defines a total order amongst all NodeResourcesSnapshot
-		// structs originating from the same node. Each newly-created NodeResourcesSnapshot is assigned an ID from a
-		// monotonically-increasing counter by the ResourceManager.
-		SnapshotId: snapshotId,
-		// NodeId is the ID of the node from which the resourceSnapshot originates.
-		NodeId: s.hostId,
-		// ManagerId is the unique ID of the ResourceManager struct from which the NodeResourcesSnapshot was constructed.
-		ManagerId: s.managerId,
-		// Timestamp is the time at which the NodeResourcesSnapshot was taken/created.
-		Timestamp:          timestamppb.New(time.Now()),
-		IdleResources:      s.wrapper.IdleProtoResourcesSnapshot(snapshotId),
-		PendingResources:   s.wrapper.PendingProtoResourcesSnapshot(snapshotId),
-		CommittedResources: s.wrapper.CommittedProtoResourcesSnapshot(snapshotId),
-		SpecResources:      s.wrapper.SpecProtoResourcesSnapshot(snapshotId),
-	}
-
-	snapshotWithContainers := &proto.NodeResourcesSnapshotWithContainers{
-		Id:               uuid.NewString(),
-		ResourceSnapshot: resourceSnapshot,
-		Containers:       make([]*proto.ReplicaInfo, 0), // TODO: Incorporate this field into ResourceSpoofer.
-	}
-
-	// fmt.Printf("Spoofing resources for Host \"%s\" (ID=\"%s\") with SnapshotID=%d now: %v\n", s.nodeName, s.hostId, snapshotId, resourceSnapshot.String())
-	return snapshotWithContainers, nil
-}
-
 // addHost creates and returns a new Host whose LocalGatewayClient is mocked.
-func addHost(idx int, clusterGateway *ClusterGatewayImpl, mockCtrl *gomock.Controller) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, *ResourceSpoofer, error) {
+func addHost(idx int, clusterGateway *ClusterGatewayImpl, mockCtrl *gomock.Controller) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
 	hostId := uuid.NewString()
 	nodeName := fmt.Sprintf("TestNode%d", idx)
-	resourceSpoofer := NewResourceSpoofer(nodeName, hostId, clusterGateway.hostSpec)
-	host, localGatewayClient, err := newHostWithSpoofedGRPC(mockCtrl, clusterGateway.cluster, hostId, nodeName, resourceSpoofer)
+	resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, clusterGateway.hostSpec)
+	host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, clusterGateway.cluster, hostId, nodeName, resourceSpoofer)
 
 	return host, localGatewayClient, resourceSpoofer, err
 }
@@ -276,20 +221,20 @@ func initMockedKernelForCreation(mockCtrl *gomock.Controller, kernelId string, k
 
 // prepareMockedGatewayForStartKernel prepares the given *mock_proto.MockLocalGatewayClient to have its StartKernelReplica
 // method called during the creation of a new kernel.
-func prepareMockedGatewayForStartKernel(localGatewayClient *mock_proto.MockLocalGatewayClient, idx int, resourceSpoofer *ResourceSpoofer, resourceSpec *proto.ResourceSpec, startKernelReturnValChan chan *proto.KernelConnectionInfo, startKernelReplicaCalled *sync.WaitGroup, numKernels int) {
+func prepareMockedGatewayForStartKernel(localGatewayClient *mock_proto.MockLocalGatewayClient, idx int, resourceSpoofer *distNbTesting.ResourceSpoofer, resourceSpec *proto.ResourceSpec, startKernelReturnValChan chan *proto.KernelConnectionInfo, startKernelReplicaCalled *sync.WaitGroup, numKernels int) {
 	localGatewayClient.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
 		GinkgoWriter.Printf("LocalGateway #%d has called spoofed StartKernelReplica\n", idx)
 
 		// defer GinkgoRecover()
 
-		err := resourceSpoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+		err := resourceSpoofer.Wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
 
 		if err != nil {
 			GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
 		}
 
 		Expect(err).To(BeNil())
-		err = resourceSpoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+		err = resourceSpoofer.Wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
 
 		if err != nil {
 			GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
@@ -306,48 +251,6 @@ func prepareMockedGatewayForStartKernel(localGatewayClient *mock_proto.MockLocal
 
 		return ret, nil
 	}).Times(numKernels)
-}
-
-// newHostWithSpoofedGRPC creates a new scheduling.Host struct with a spoofed proto.LocalGatewayClient.
-func newHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string, resourceSpoofer *ResourceSpoofer) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, error) {
-	gpuSchedulerId := uuid.NewString()
-
-	localGatewayClient := mock_proto.NewMockLocalGatewayClient(ctrl)
-
-	localGatewayClient.EXPECT().SetID(
-		gomock.Any(),
-		&proto.HostId{
-			Id: hostId,
-		},
-	).Return(&proto.HostId{
-		Id:       hostId,
-		NodeName: nodeName,
-	}, nil)
-
-	localGatewayClient.EXPECT().GetActualGpuInfo(
-		gomock.Any(),
-		&proto.Void{},
-	).Return(&proto.GpuInfo{
-		SpecGPUs:              8,
-		IdleGPUs:              8,
-		CommittedGPUs:         0,
-		PendingGPUs:           0,
-		NumPendingAllocations: 0,
-		NumAllocations:        0,
-		GpuSchedulerID:        gpuSchedulerId,
-		LocalDaemonID:         hostId,
-	}, nil)
-
-	localGatewayClient.EXPECT().ResourcesSnapshot(
-		gomock.Any(),
-		gomock.Any(),
-	).DoAndReturn(resourceSpoofer.ResourcesSnapshot).AnyTimes()
-
-	host, err := scheduling.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
-		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, cluster, nil, localGatewayClient,
-		func(_ string, _ string, _ string, _ string) error { return nil })
-
-	return host, localGatewayClient, err
 }
 
 var _ = Describe("Cluster Gateway Tests", func() {
@@ -915,20 +818,20 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				host1Id := uuid.NewString()
 				node1Name := "TestNode1"
-				host1Spoofer := NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
-				host1, localGatewayClient1, err := newHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
+				host1Spoofer := distNbTesting.NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
+				host1, localGatewayClient1, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
 				Expect(err).To(BeNil())
 
 				host2Id := uuid.NewString()
 				node2Name := "TestNode2"
-				host2Spoofer := NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
-				host2, localGatewayClient2, err := newHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
+				host2Spoofer := distNbTesting.NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
+				host2, localGatewayClient2, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
 				Expect(err).To(BeNil())
 
 				host3Id := uuid.NewString()
 				node3Name := "TestNode3"
-				host3Spoofer := NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
-				host3, localGatewayClient3, err := newHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
+				host3Spoofer := distNbTesting.NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
+				host3, localGatewayClient3, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
 				Expect(err).To(BeNil())
 
 				By("Correctly registering the first Host")
@@ -973,10 +876,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					// defer GinkgoRecover()
 
-					err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					err := host1Spoofer.Wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
 					GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
 					Expect(err).To(BeNil())
-					err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					err = host1Spoofer.Wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
 					GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 					Expect(err).To(BeNil())
 
@@ -995,10 +898,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					// defer GinkgoRecover()
 
-					err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					err := host1Spoofer.Wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
 					GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
 					Expect(err).To(BeNil())
-					err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					err = host1Spoofer.Wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
 					GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 					Expect(err).To(BeNil())
 
@@ -1017,10 +920,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					// defer GinkgoRecover()
 
-					err := host1Spoofer.wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
+					err := host1Spoofer.Wrapper.IdleResources().(*scheduling.Resources).Subtract(resourceSpec.ToDecimalSpec())
 					GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
 					Expect(err).To(BeNil())
-					err = host1Spoofer.wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
+					err = host1Spoofer.Wrapper.PendingResources().(*scheduling.Resources).Add(resourceSpec.ToDecimalSpec())
 					GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 					Expect(err).To(BeNil())
 
@@ -1105,7 +1008,26 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Key:             kernelKey,
 				}
 
-				time.Sleep(time.Millisecond * 1250)
+				// Ensure that the resource counts of the hosts are correct.
+				Expect(host1.NumContainers()).To(Equal(0))
+				Expect(host1.NumReservations()).To(Equal(1))
+				Expect(host1.PendingResources().Equals(kernelSpec.DecimalSpecFromKernelSpec()))
+				Expect(host1.IdleResources().Equals(host1.ResourceSpec()))
+				Expect(host1.CommittedResources().IsZero()).To(BeTrue())
+
+				Expect(host2.NumContainers()).To(Equal(0))
+				Expect(host2.NumReservations()).To(Equal(1))
+				Expect(host2.PendingResources().Equals(kernelSpec.DecimalSpecFromKernelSpec()))
+				Expect(host2.IdleResources().Equals(host2.ResourceSpec()))
+				Expect(host2.CommittedResources().IsZero()).To(BeTrue())
+
+				Expect(host3.NumContainers()).To(Equal(0))
+				Expect(host3.NumReservations()).To(Equal(1))
+				Expect(host3.PendingResources().Equals(kernelSpec.DecimalSpecFromKernelSpec()))
+				Expect(host3.IdleResources().Equals(host3.ResourceSpec()))
+				Expect(host3.CommittedResources().IsZero()).To(BeTrue())
+
+				time.Sleep(time.Millisecond * 500)
 
 				var notifyKernelRegisteredCalled sync.WaitGroup
 				notifyKernelRegisteredCalled.Add(3)
@@ -1151,9 +1073,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					notifyKernelRegisteredCalled.Done()
 				}
 
-				sleepIntervals <- time.Millisecond * 500
-				sleepIntervals <- time.Millisecond * 1000
-				sleepIntervals <- time.Millisecond * 1500
+				sleepIntervals <- time.Millisecond * 250
+				sleepIntervals <- time.Millisecond * 250
+				sleepIntervals <- time.Millisecond * 750
 
 				go notifyKernelRegistered(1, host1)
 				go notifyKernelRegistered(2, host2)
@@ -1161,7 +1083,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				notifyKernelRegisteredCalled.Wait()
 
-				time.Sleep(time.Millisecond * 2500)
+				time.Sleep(time.Millisecond * 250)
 
 				var smrReadyCalled sync.WaitGroup
 				smrReadyCalled.Add(3)
@@ -1182,9 +1104,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					smrReadyCalled.Done()
 				}
 
-				sleepIntervals <- time.Millisecond * 1000
 				sleepIntervals <- time.Millisecond * 500
-				sleepIntervals <- time.Millisecond * 1500
+				sleepIntervals <- time.Millisecond * 250
+				sleepIntervals <- time.Millisecond * 750
 
 				By("Correctly calling SMR ready and handling that correctly")
 
@@ -1211,6 +1133,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						}
 					}
 				}()
+
+				Expect(host1.PendingResources().Equals(kernelSpec.ResourceSpec.ToDecimalSpec()))
+				Expect(host1.IdleResources().Equals(host1.ResourceSpec()))
+				Expect(host1.CommittedResources().IsZero()).To(BeTrue())
 			})
 
 			It("Will correctly schedule multiple kernel replicas at the same time", func() {
@@ -1245,7 +1171,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				hosts := make(map[int]*scheduling.Host)
 				localGatewayClients := make(map[int]*mock_proto.MockLocalGatewayClient)
-				resourceSpoofers := make(map[int]*ResourceSpoofer)
+				resourceSpoofers := make(map[int]*distNbTesting.ResourceSpoofer)
 
 				cluster := clusterGateway.cluster
 				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
@@ -1355,6 +1281,25 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					}
 				}
 
+				// Ensure that the resource counts of the hosts are correct.
+				for _, host := range hosts {
+					var combinedSpec types.Spec
+
+					for _, kernelSpec := range kernelSpecsByIdx {
+						if combinedSpec == nil {
+							combinedSpec = kernelSpec.ResourceSpec.ToDecimalSpec()
+						} else {
+							combinedSpec = combinedSpec.Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+						}
+					}
+
+					Expect(host.NumContainers()).To(Equal(0))
+					Expect(host.NumReservations()).To(Equal(numKernels))
+					Expect(host.PendingResources().Equals(combinedSpec))
+					Expect(host.IdleResources().Equals(host.ResourceSpec()))
+					Expect(host.CommittedResources().IsZero()).To(BeTrue())
+				}
+
 				time.Sleep(time.Millisecond * 1250)
 
 				var notifyKernelRegisteredCalled sync.WaitGroup
@@ -1404,9 +1349,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}
 
 				for i := 0; i < numKernels; i++ {
+					sleepIntervals <- time.Millisecond * 250
 					sleepIntervals <- time.Millisecond * 500
-					sleepIntervals <- time.Millisecond * 1000
-					sleepIntervals <- time.Millisecond * 1500
+					sleepIntervals <- time.Millisecond * 750
 				}
 
 				for i := 0; i < numKernels; i++ {
@@ -1419,7 +1364,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				notifyKernelRegisteredCalled.Wait()
 
-				time.Sleep(time.Millisecond * 500)
+				time.Sleep(time.Millisecond * 250)
 
 				var smrReadyCalled sync.WaitGroup
 				smrReadyCalled.Add(3 * numKernels)
@@ -1475,6 +1420,25 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						}
 					}
 				}()
+
+				// Ensure that the resource counts of the hosts are still correct.
+				for _, host := range hosts {
+					var combinedSpec types.Spec
+
+					for _, kernelSpec := range kernelSpecsByIdx {
+						if combinedSpec == nil {
+							combinedSpec = kernelSpec.ResourceSpec.ToDecimalSpec()
+						} else {
+							combinedSpec = combinedSpec.Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+						}
+					}
+
+					Expect(host.NumContainers()).To(Equal(numKernels))
+					Expect(host.NumReservations()).To(Equal(0))
+					Expect(host.PendingResources().Equals(combinedSpec))
+					Expect(host.IdleResources().Equals(host.ResourceSpec()))
+					Expect(host.CommittedResources().IsZero()).To(BeTrue())
+				}
 			})
 		})
 	})

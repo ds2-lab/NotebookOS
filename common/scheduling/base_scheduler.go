@@ -60,7 +60,7 @@ type schedulingNotification struct {
 
 type BaseScheduler struct {
 	instance   ClusterScheduler
-	cluster    clusterInternal
+	cluster    ClusterInternal
 	hostMapper HostMapper
 	placer     Placer
 
@@ -99,7 +99,7 @@ type BaseScheduler struct {
 	log logger.Logger
 }
 
-func NewBaseScheduler(cluster clusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BaseScheduler {
+func NewBaseScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BaseScheduler {
 	clusterScheduler := &BaseScheduler{
 		cluster:                       cluster,
 		hostMapper:                    hostMapper,
@@ -169,6 +169,26 @@ func (s *BaseScheduler) Placer() Placer {
 	return s.placer
 }
 
+// TryGetCandidateHosts performs a single attempt/pass of searching for candidate Host instances.
+//
+// TryGetCandidateHosts is exported so that it can be unit tested.
+func (s *BaseScheduler) TryGetCandidateHosts(hosts []*Host, kernelSpec *proto.KernelSpec) []*Host {
+	s.candidateHostMutex.Lock()
+
+	// Identify the hosts onto which we will place replicas of the kernel.
+	numHostsRequired := s.opts.NumReplicas - len(hosts)
+	hostBatch := s.placer.FindHosts(kernelSpec, numHostsRequired)
+
+	// Add all the hosts returned by FindHosts to our running slice of hosts.
+	for _, host := range hostBatch {
+		hosts = append(hosts, host)
+	}
+
+	s.candidateHostMutex.Unlock()
+
+	return hosts
+}
+
 // GetCandidateHosts returns a slice of *Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -180,7 +200,7 @@ func (s *BaseScheduler) Placer() Placer {
 // The size of the returned slice will be equal to the configured number of replicas for each kernel (usually 3).
 //
 // This function is NOT idempotent. This locks the Hosts that are returned.
-func (s *BaseScheduler) getCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error) {
+func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error) {
 	var (
 		numTries    = 0
 		maxAttempts = 3
@@ -188,18 +208,8 @@ func (s *BaseScheduler) getCandidateHosts(ctx context.Context, kernelSpec *proto
 		hosts       []*Host
 	)
 	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {
-		s.candidateHostMutex.Lock()
+		hosts = s.TryGetCandidateHosts(hosts, kernelSpec)
 
-		// Identify the hosts onto which we will place replicas of the kernel.
-		numHostsRequired := s.opts.NumReplicas - len(hosts)
-		hostBatch := s.placer.FindHosts(kernelSpec, numHostsRequired)
-
-		// Add all the hosts returned by FindHosts to our running slice of hosts.
-		for _, host := range hostBatch {
-			hosts = append(hosts, host)
-		}
-
-		s.candidateHostMutex.Unlock()
 		if len(hosts) < s.opts.NumReplicas {
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
 				len(hosts), s.opts.NumReplicas, kernelSpec.Id)

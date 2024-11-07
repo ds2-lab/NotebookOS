@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	mapstructure "github.com/go-viper/mapstructure/v2"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/uuid"
 	"github.com/opentracing/opentracing-go"
 	"github.com/petermattis/goid"
@@ -798,7 +798,7 @@ func (d *SchedulerDaemonImpl) initializeConsulAndTracer() {
 func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize LocalDaemonFinalizer) error {
 	// We use this finalize function to ensure we don't needlessly terminate the Local Daemon process/container
 	// when we're purposefully reconnecting to the Cluster Gateway (as doing so necessarily requires that we
-	// shutdown the existing gRPC server and whatnot, and ordinarily that causes use to panic).
+	// shut down the existing gRPC server and whatnot, and ordinarily that causes use to panic).
 	wrappedFinalizeFunction := func(currentRpcServer *GRPCServerWrapper) {
 		// If the server was purposefully shutdown, then we shouldn't terminate.
 		// That is, if we shut it down because we're attempting to reconnect to the Cluster Gateway,
@@ -1192,7 +1192,6 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		KernelIp:           remoteIp,
 		PodOrContainerName: registrationPayload.PodOrContainerName,
 		NodeName:           d.nodeName,
-		NodeId:             d.id,
 		NotificationId:     uuid.NewString(),
 	}
 
@@ -1252,7 +1251,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 				d.notifyClusterGatewayOfError(notifyCtx, &proto.Notification{
 					Id:    uuid.NewString(),
 					Title: "Local Daemon Sent Duplicate \"Kernel Registered\" Message",
-					Message: fmt.Sprintf("Local daemon %s (ID=%S) sent a duplicate \"kernel registered\" notification for replica %d of kernel %s.",
+					Message: fmt.Sprintf("Local daemon %s (ID=%s) sent a duplicate \"kernel registered\" notification for replica %d of kernel %s.",
 						d.nodeName, d.id, registrationPayload.ReplicaId, kernel.ID()),
 					NotificationType: 0,
 					Panicked:         true,
@@ -1758,7 +1757,7 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 }
 
 // smrNodeAddedCallback is a callback passed to the KernelReplicaClient of a kernel such that, when the kernel
-// client receives an "smr_node_added" IOPub message, it will call the smrNodeAddedCallback method so that
+// client receives a "smr_node_added" IOPub message, it will call the smrNodeAddedCallback method so that
 // the Local Daemon can notify the Cluster Gateway.
 //
 // NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
@@ -2195,7 +2194,12 @@ func (d *SchedulerDaemonImpl) startKernelRegistryService() {
 	if err != nil {
 		log.Fatalf("Failed to listen for kernel registry: %v", err)
 	}
-	defer registryListener.Close()
+	defer func() {
+		err := registryListener.Close()
+		if err != nil {
+			d.log.Error("Failed to cleanly shut down kernel registry listener: %v", err)
+		}
+	}()
 	d.log.Info("Scheduler listening for kernel registrations at %v", registryListener.Addr())
 
 	for {

@@ -20,7 +20,7 @@ import (
 
 // BaseCluster encapsulates the core state and logic required to operate a Cluster.
 type BaseCluster struct {
-	instance clusterInternal
+	instance ClusterInternal
 
 	// hosts is a map from host ID to *Host containing all the Host instances provisioned within the Cluster.
 	hosts hashmap.HashMap[string, *Host]
@@ -255,7 +255,7 @@ func (c *BaseCluster) onHostAdded(host *Host) {
 
 	c.unsafeCheckIfScaleOperationIsComplete(host)
 
-	if c.clusterMetricsProvider.GetNumHostsGauge() != nil {
+	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumHostsGauge() != nil {
 		c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 	}
 }
@@ -273,7 +273,7 @@ func (c *BaseCluster) onHostRemoved(host *Host) {
 	defer c.scalingOpMutex.Unlock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)
 
-	if c.clusterMetricsProvider.GetNumHostsGauge() != nil {
+	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumHostsGauge() != nil {
 		c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 	}
 }
@@ -319,11 +319,12 @@ func (c *BaseCluster) RangeOverHosts(f func(key string, value *Host) bool) {
 // RemoveHost removes the Host with the specified ID.
 func (c *BaseCluster) RemoveHost(hostId string) {
 	c.scalingOpMutex.Lock()
-	defer c.scalingOpMutex.Unlock()
 
 	c.hostMutex.Lock()
 	removedHost, loaded := c.hosts.LoadAndDelete(hostId)
 	c.hostMutex.Unlock()
+
+	c.scalingOpMutex.Unlock()
 
 	if loaded {
 		c.onHostRemoved(removedHost)

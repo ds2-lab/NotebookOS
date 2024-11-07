@@ -39,7 +39,7 @@ func checkIfPortIsAvailable(port int32) bool {
 	return true    // Port is available
 }
 
-func NewDockerScheduler(cluster clusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, opts *ClusterSchedulerOptions) (*DockerScheduler, error) {
+func NewDockerScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, opts *ClusterSchedulerOptions) (*DockerScheduler, error) {
 	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, opts)
 
 	dockerScheduler := &DockerScheduler{
@@ -55,7 +55,7 @@ func NewDockerScheduler(cluster clusterInternal, placer Placer, hostMapper HostM
 		dockerScheduler.log.Error("Initial retrieval of Docker nodes failed: %v", err)
 	}
 
-	go dockerScheduler.pollForResourceData()
+	// go dockerScheduler.pollForResourceData()
 
 	return dockerScheduler, nil
 }
@@ -105,11 +105,7 @@ func (s *DockerScheduler) MigrateContainer(container *Container, host *Host, b b
 
 // ScheduleKernelReplica schedules a particular replica onto the given Host.
 //
-// If targetHost is nil, then a candidate Host is identified automatically by the ClusterScheduler. This Host will have
-// Host.UnlockScheduling called on it automatically.
-//
-// If a non-nil Host is passed to ScheduleKernelReplica, then that Host will NOT have Host.UnlockScheduling called on
-// it automatically. That is, it is the responsibility of the caller to unlock scheduling on the Host in that case.
+// If targetHost is nil, then a candidate Host is identified automatically by the ClusterScheduler.
 func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost *Host, blacklistedHosts []*Host) (err error) {
 	kernelId := replicaSpec.Kernel.Id // We'll use this a lot.
 
@@ -124,7 +120,6 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 			return err
 		}
 
-		defer targetHost.UnlockScheduling()
 		s.log.Debug("Found viable target host for replica %d of kernel %s at scheduling time: host %s",
 			replicaSpec.ReplicaId, kernelId, targetHost.ID)
 	}
@@ -217,7 +212,7 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 	}
 
 	// Retrieve a slice of viable Hosts onto which we can schedule replicas of the specified kernel.
-	hosts, candidateError := s.getCandidateHosts(ctx, in)
+	hosts, candidateError := s.GetCandidateHosts(ctx, in)
 	if candidateError != nil {
 		return candidateError
 	}
@@ -321,14 +316,6 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 			{
 				if !notification.Successful {
 					s.log.Error("Error while launching at least one of the replicas of kernel %s: %v", in.Id, notification.Error)
-
-					// Make sure to unlock all the Hosts.
-					for _, host := range hosts {
-						if _, loaded := unlockedHosts.LoadOrStore(host.ID, host); !loaded {
-							host.UnlockScheduling()
-						}
-					}
-
 					return notification.Error
 				}
 

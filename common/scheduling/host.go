@@ -136,21 +136,6 @@ func (p *cachedPenalty) Candidates() ContainerList {
 	return p.preemptions[:]
 }
 
-// ApplyResourceSnapshotToHost applies the given HostResourceSnapshot to the given Host's local resource quantities.
-//
-// ApplyResourceSnapshotToHost returns nil on success.
-//
-// If the given HostResourceSnapshot has a SnapshotID that is less than the last HostResourceSnapshot applied to the
-// target Host, then an error is returned.
-//
-// If either of the arguments are nil, then this method will panic.
-func ApplyResourceSnapshotToHost(h *Host, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
-	h.syncMutex.Lock()
-	defer h.syncMutex.Unlock()
-
-	return unsafeApplyResourceSnapshotToHost(h, snapshot)
-}
-
 // unsafeApplyResourceSnapshotToHost does the actual work of the ApplyResourceSnapshotToHost function, but
 // no locks are acquired.
 //
@@ -315,8 +300,6 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		return newHostForRestoration(localGatewayClient, confirmedId, millicpus, memMb, vramGb)
 	}
 
-	log.Printf("Registering brand new Local Daemon %s (ID=%s).", confirmedId.NodeName, confirmedId.Id)
-
 	// Get the initial GPU info. If this fails, the creation of a new host scheduler fails.
 	gpuInfoResp, err := localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
 	if err != nil {
@@ -330,6 +313,9 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		MemoryMb:  decimal.NewFromFloat(float64(memMb)),
 		VRam:      decimal.NewFromFloat(vramGb),
 	}
+
+	log.Printf("Registering brand new Local Daemon %s (ID=%s) with the following resource spec: %s.",
+		confirmedId.NodeName, confirmedId.Id, resourceSpec.String())
 
 	host := &Host{
 		LocalGatewayClient:              localGatewayClient,
@@ -405,28 +391,6 @@ func (h *Host) RecomputeSubscribedRatio() decimal.Decimal {
 	return h.subscribedRatio
 }
 
-func (h *Host) LockScheduling() {
-	h.schedulingMutex.Lock()
-	//h.log.Debug("Locked scheduling for Host %s (ID=%s).", h.NodeName, h.ID)
-}
-
-func (h *Host) TryLockScheduling() bool {
-	//if h.schedulingMutex.TryLock() {
-	//	h.log.Debug("Tried and successfully locked scheduling for Host %s (ID=%s).", h.NodeName, h.ID)
-	//	return true
-	//} else {
-	//	h.log.Debug("Tried and UNsuccessfully locked scheduling for Host %s (ID=%s).", h.NodeName, h.ID)
-	//	return false
-	//}
-
-	return h.schedulingMutex.TryLock()
-}
-
-func (h *Host) UnlockScheduling() {
-	//h.log.Debug("Unlocking scheduling for Host %s (ID=%s).", h.NodeName, h.ID)
-	h.schedulingMutex.Unlock()
-}
-
 // LastResourcesSnapshot returns the last HostResourceSnapshot to have been applied successfully to this Host.
 //
 // If the target Host has had no HostResourceSnapshot instances applied successfully, then this method returns nil.
@@ -474,6 +438,11 @@ func (h *Host) NumContainers() int {
 	return h.containers.Len()
 }
 
+// NumReservations returns the number of active reservations on the Host.
+func (h *Host) NumReservations() int {
+	return h.reservations.Len()
+}
+
 // SynchronizeResourceInformation queries the remote host via gRPC to request update-to-date resource usage information.
 //
 // This method is thread-safe. Only one goroutine at a time may execute this method.
@@ -495,8 +464,8 @@ func (h *Host) SynchronizeResourceInformation() error {
 		return err
 	}
 
-	h.LockScheduling()
-	defer h.UnlockScheduling()
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
 
 	// Wrapper around the protobuf struct so that it satisfies the required interface.
 	protoSnapshotWrapper := &ProtoNodeResourcesSnapshotWrapper{
@@ -734,27 +703,6 @@ func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
 	h.latestGpuInfo = remoteInfo
 }
 
-// ContainerScheduled is to be called when a Container is scheduled onto the Host.
-func (h *Host) ContainerScheduled(container *Container) error {
-	h.containers.Store(container.KernelID(), container)
-	h.pendingContainers.Add(1)
-
-	// Delete the reservation. Log an error message if there is no reservation.
-	reservation, loadedReservation := h.reservations.LoadAndDelete(container.KernelID())
-	if !loadedReservation {
-		h.log.Error("No reservation found for replica of kernel %s; "+
-			"however, we just received a notification that replica %d of kernel %s has started on host %s (ID=%s)...",
-			container.KernelID(), container.ReplicaID(), container.KernelID(), h.ID, h.NodeName)
-
-		return fmt.Errorf("%w: kernel %s", ErrReservationNotFound, container.KernelID())
-	}
-
-	h.log.Debug("Container %s was officially started on onto Host %s %v after reservation was created.",
-		container.String(), h.ID, time.Since(reservation))
-
-	return nil
-}
-
 // Restore restores the state of a Host from another Host.
 func (h *Host) Restore(restoreFrom *Host, callback ErrorCallback) error {
 	h.SetErrorCallback(callback)
@@ -825,7 +773,7 @@ func (h *Host) doContainerRemovedResourceUpdate(container *Container) {
 				if containerOnHost.GetReplicaId() == container.ReplicaID() && containerOnHost.GetKernelId() == container.KernelID() {
 					// Found the host in the snapshot, so the removal of its resources hasn't already been applied.
 					// TODO: Race condition (unless we have the locking of syncMutex up above).
-					err = h.resourcesWrapper.pendingResources.Subtract(types.ToDecimalSpec(container.outstandingResources))
+					err = h.resourcesWrapper.pendingResources.Subtract(container.ResourceSpec())
 					found = true
 					break
 				}
@@ -837,7 +785,7 @@ func (h *Host) doContainerRemovedResourceUpdate(container *Container) {
 			}
 		} else {
 			// We either don't have a snapshot at all, or we don't have a recent-enough snapshot.
-			err = h.resourcesWrapper.pendingResources.Subtract(types.ToDecimalSpec(container.outstandingResources))
+			err = h.resourcesWrapper.pendingResources.Subtract(container.ResourceSpec())
 		}
 
 		h.syncMutex.Unlock()
@@ -856,44 +804,61 @@ func (h *Host) doContainerRemovedResourceUpdate(container *Container) {
 
 	h.log.Warn("Could not cleanly remove Container %s from Host %s due to resource-related issue (though the container WAS still removed): %v",
 		container.ContainerID(), h.ID, err)
+}
 
-	doneChan := make(chan interface{}, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
+// ContainerStoppedTraining is to be called when a Container stops training on a Host.
+func (h *Host) ContainerStoppedTraining(container *Container) error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
 
-	// Synchronize with remote and try again.
-	go func() {
-		syncError := h.SynchronizeResourceInformation()
-		if syncError != nil {
-			doneChan <- syncError
-		} else {
-			doneChan <- struct{}{}
-		}
-	}()
-
-	select {
-	case v := <-doneChan:
-		{
-			if syncError := v.(error); syncError != nil {
-				h.log.Error("Failed to retrieve resource info from remote host %s (ID=%s) because: %v", h.NodeName, h.ID, syncError)
-				h.log.Warn("Could not cleanly remove Container %s from Host %s due to resource-related issue (though the container WAS still removed): %v",
-					container.ContainerID(), h.ID, err)
-			} else {
-				h.log.Debug("Container %s was cleanly removed from Host %s.", container.String(), h.ID)
-			}
-		}
-	case <-ctx.Done():
-		{
-			h.log.Warn("Timed-out while attempting to synchronize resources of host %s (ID=%s) during removal of container for replica %d of kernel %s.",
-				h.NodeName, h.ID, container.ReplicaID(), container.KernelID())
-			h.log.Warn("Could not cleanly remove Container %s from Host %s due to resource-related issue (though the container WAS still removed): %v",
-				container.ContainerID(), h.ID, err)
-		}
+	if _, ok := h.containers.Load(container.KernelID()); !ok {
+		h.log.Error("Cannot find container for replica %d of kernel %s on host %s (ID=%s).",
+			container.ReplicaID(), container.KernelReplica, h.NodeName, h.ID)
+		return ErrInvalidContainer
 	}
+
+	if err := h.resourcesWrapper.committedResources.Subtract(container.ResourceSpec()); err != nil {
+		return err
+	}
+	if err := h.resourcesWrapper.pendingResources.Add(container.ResourceSpec()); err != nil {
+		return err
+	}
+	if err := h.resourcesWrapper.idleResources.Add(container.ResourceSpec()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ContainerStartedTraining is to be called when a Container begins training on a Host.
+func (h *Host) ContainerStartedTraining(container *Container) error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	if _, ok := h.containers.Load(container.KernelID()); !ok {
+		h.log.Error("Cannot find container for replica %d of kernel %s on host %s (ID=%s).",
+			container.ReplicaID(), container.KernelReplica, h.NodeName, h.ID)
+		return ErrInvalidContainer
+	}
+
+	if err := h.resourcesWrapper.committedResources.Add(container.ResourceSpec()); err != nil {
+		return err
+	}
+	if err := h.resourcesWrapper.pendingResources.Subtract(container.ResourceSpec()); err != nil {
+		return err
+	}
+	if err := h.resourcesWrapper.idleResources.Subtract(container.ResourceSpec()); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // ContainerRemoved is to be called when a Container is stopped and removed from the Host.
 func (h *Host) ContainerRemoved(container *Container) error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
 	if _, ok := h.containers.Load(container.KernelID()); !ok {
 		h.log.Error("Cannot remove specified Container from Host. Container is not on specified Host.")
 		return ErrInvalidContainer
@@ -906,6 +871,30 @@ func (h *Host) ContainerRemoved(container *Container) error {
 	h.doContainerRemovedResourceUpdate(container)
 
 	h.RecomputeSubscribedRatio()
+
+	return nil
+}
+
+// ContainerScheduled is to be called when a Container is scheduled onto the Host.
+func (h *Host) ContainerScheduled(container *Container) error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	h.containers.Store(container.KernelID(), container)
+	h.pendingContainers.Add(1)
+
+	// Delete the reservation. Log an error message if there is no reservation.
+	reservation, loadedReservation := h.reservations.LoadAndDelete(container.KernelID())
+	if !loadedReservation {
+		h.log.Error("No reservation found for replica of kernel %s; "+
+			"however, we just received a notification that replica %d of kernel %s has started on host %s (ID=%s)...",
+			container.KernelID(), container.ReplicaID(), container.KernelID(), h.ID, h.NodeName)
+
+		return fmt.Errorf("%w: kernel %s", ErrReservationNotFound, container.KernelID())
+	}
+
+	h.log.Debug("Container %s was officially started on onto Host %s %v after reservation was created.",
+		container.String(), h.ID, time.Since(reservation))
 
 	return nil
 }
@@ -1176,17 +1165,17 @@ func (h *Host) CurrentResourcesToString() string {
 }
 
 // IdleResources returns a types.Spec encapsulating the IdleResources on the Host.
-func (h *Host) IdleResources() types.Spec {
+func (h *Host) IdleResources() *types.DecimalSpec {
 	return h.resourcesWrapper.idleResources.ToDecimalSpec()
 }
 
 // PendingResources returns a types.Spec encapsulating the PendingResources on the Host.
-func (h *Host) PendingResources() types.Spec {
+func (h *Host) PendingResources() *types.DecimalSpec {
 	return h.resourcesWrapper.pendingResources.ToDecimalSpec()
 }
 
 // CommittedResources returns a types.Spec encapsulating the idle Resources on the Host.
-func (h *Host) CommittedResources() types.Spec {
+func (h *Host) CommittedResources() *types.DecimalSpec {
 	return h.resourcesWrapper.committedResources.ToDecimalSpec()
 }
 

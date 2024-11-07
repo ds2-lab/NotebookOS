@@ -77,9 +77,9 @@ type ClusterScheduler interface {
 	// Error will be nil on success and non-nil if some sort of failure is encountered.
 	ReleaseIdleHosts(n int32) (int, error)
 
-	// RefreshActualGpuInfo Refreshes the actual GPU usage information.
-	// Returns nil on success; returns an error on failure.
-	// RefreshActualGpuInfo() error
+	// GetCandidateHosts identifies candidate hosts for a particular kernel, reserving resources on hosts
+	// before returning them.
+	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error)
 
 	// RemoteSynchronizationInterval returns the interval at which the ClusterScheduler synchronizes
 	// the Host instances within the Cluster with their remote nodes.

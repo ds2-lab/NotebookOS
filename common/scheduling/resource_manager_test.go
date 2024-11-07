@@ -5,6 +5,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	distNbTesting "github.com/zhangjyr/distributed-notebook/common/testing"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
@@ -230,10 +231,10 @@ var _ = Describe("ResourceManager Standard Tests", func() {
 
 		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(4))
 
-		Expect(containsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.CPU)).To(BeTrue())
-		Expect(containsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.Memory)).To(BeTrue())
-		Expect(containsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.GPU)).To(BeTrue())
-		Expect(containsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.VRAM)).To(BeTrue())
+		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.CPU)).To(BeTrue())
+		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.Memory)).To(BeTrue())
+		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.GPU)).To(BeTrue())
+		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.VRAM)).To(BeTrue())
 
 		Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel7spec))
 		Expect(insufficientResourcesError.AvailableResources).To(Equal(resourceManager.IdleResources()))

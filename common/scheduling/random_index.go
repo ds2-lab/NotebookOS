@@ -237,12 +237,12 @@ func (index *RandomClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics 
 		index.seekStart++
 		if host != nil {
 			hostsSeen += 1
-		}
 
-		// If the given host is blacklisted, then look for a different host.
-		if isHostBlacklisted(host, blacklist) {
-			// Set to nil so that we have to continue searching.
-			host = nil
+			// If the given host is blacklisted, then look for a different host.
+			if isHostBlacklisted(host, blacklist) {
+				// Set to nil so that we have to continue searching.
+				host = nil
+			}
 		}
 	}
 

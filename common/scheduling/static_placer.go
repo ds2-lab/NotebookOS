@@ -16,7 +16,7 @@ type StaticPlacer struct {
 }
 
 // NewStaticPlacer creates a new StaticPlacer.
-func NewStaticPlacer(cluster clusterInternal, opts *ClusterSchedulerOptions) (*StaticPlacer, error) {
+func NewStaticPlacer(cluster ClusterInternal, opts *ClusterSchedulerOptions) (*StaticPlacer, error) {
 	basePlacer := newAbstractPlacer(cluster, opts)
 
 	staticPlacer := &StaticPlacer{

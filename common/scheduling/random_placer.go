@@ -13,7 +13,7 @@ type RandomPlacer struct {
 }
 
 // NewRandomPlacer creates a new RandomPlacer.
-func NewRandomPlacer(cluster clusterInternal, opts *ClusterSchedulerOptions) (*RandomPlacer, error) {
+func NewRandomPlacer(cluster ClusterInternal, opts *ClusterSchedulerOptions) (*RandomPlacer, error) {
 	basePlacer := newAbstractPlacer(cluster, opts)
 	randomPlacer := &RandomPlacer{
 		AbstractPlacer: basePlacer,

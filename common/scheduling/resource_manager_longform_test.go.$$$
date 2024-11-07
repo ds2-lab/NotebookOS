@@ -41,7 +41,8 @@ var _ = Describe("ResourceManager Longform Tests", func() {
 				sumSpec := types.NewDecimalSpec(0, 0, 0, 0)
 
 				for i := 0; i < n; i++ {
-					sumSpec = sumSpec.Add(specs[i])
+					tmpSpec := sumSpec.Add(specs[i])
+					sumSpec = types.ToDecimalSpec(tmpSpec)
 				}
 
 				return sumSpec
@@ -730,7 +731,8 @@ var _ = Describe("ResourceManager Longform Tests", func() {
 				sumSpec := types.NewDecimalSpec(0, 0, 0, 0)
 
 				for i := 0; i < n; i++ {
-					sumSpec = sumSpec.Add(specs[i])
+					tmpSpec := sumSpec.Add(specs[i])
+					sumSpec = types.ToDecimalSpec(tmpSpec)
 				}
 
 				return sumSpec

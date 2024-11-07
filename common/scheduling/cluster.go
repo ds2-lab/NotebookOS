@@ -83,8 +83,8 @@ type ClusterIndex interface {
 	ClusterIndexQuerier
 }
 
-// clusterInternal defines a non-exported API that must be provided by all Cluster implementations.
-type clusterInternal interface {
+// ClusterInternal defines a non-exported API that must be provided by all Cluster implementations.
+type ClusterInternal interface {
 	Cluster
 
 	// GetScaleOutCommand returns the function to be executed to perform a scale-out.
