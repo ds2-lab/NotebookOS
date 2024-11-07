@@ -278,6 +278,20 @@ func (mr *MockAbstractDistributedKernelClientMockRecorder) GetSession() *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSession", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).GetSession))
 }
 
+// GetSocketPort mocks base method.
+func (m *MockAbstractDistributedKernelClient) GetSocketPort(typ types.MessageType) int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSocketPort", typ)
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// GetSocketPort indicates an expected call of GetSocketPort.
+func (mr *MockAbstractDistributedKernelClientMockRecorder) GetSocketPort(typ any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSocketPort", reflect.TypeOf((*MockAbstractDistributedKernelClient)(nil).GetSocketPort), typ)
+}
+
 // ID mocks base method.
 func (m *MockAbstractDistributedKernelClient) ID() string {
 	m.ctrl.T.Helper()

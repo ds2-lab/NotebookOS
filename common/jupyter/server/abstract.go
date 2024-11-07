@@ -189,6 +189,17 @@ func (s *AbstractServer) Socket(typ types.MessageType) *types.Socket {
 	return s.Sockets.All[typ]
 }
 
+// GetSocketPort returns the port of a particular Socket.
+func (s *AbstractServer) GetSocketPort(typ types.MessageType) int {
+	socket := s.Socket(typ)
+
+	if socket != nil {
+		return socket.Port
+	}
+
+	return -1
+}
+
 // String implements types.JupyterServerInfo.
 func (s *AbstractServer) String() string {
 	return "AbstractServer"

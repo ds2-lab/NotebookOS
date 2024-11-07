@@ -53,6 +53,7 @@ type AbstractDistributedKernelClient interface {
 	GetReadyReplica() scheduling.KernelReplica
 	IsReady() bool
 	Socket(typ jupyterTypes.MessageType) *jupyterTypes.Socket
+	GetSocketPort(typ jupyterTypes.MessageType) int
 	IsReplicaReady(replicaId int32) (bool, error)
 	RequestWithHandler(ctx context.Context, _ string, typ jupyterTypes.MessageType, msg *jupyterTypes.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error
 	RequestWithHandlerAndReplicas(ctx context.Context, typ jupyterTypes.MessageType, jMsg *jupyterTypes.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error

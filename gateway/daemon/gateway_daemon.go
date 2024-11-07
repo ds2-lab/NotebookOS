@@ -1496,11 +1496,11 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		Ip:              d.ip,
 		Transport:       d.transport,
 		ControlPort:     int32(d.router.Socket(jupyter.ControlMessage).Port),
-		ShellPort:       int32(kernel.Socket(jupyter.ShellMessage).Port),
+		ShellPort:       int32(kernel.GetSocketPort(jupyter.ShellMessage)),
 		StdinPort:       int32(d.router.Socket(jupyter.StdinMessage).Port),
 		HbPort:          int32(d.router.Socket(jupyter.HBMessage).Port),
-		IopubPort:       int32(kernel.Socket(jupyter.IOMessage).Port),
-		IosubPort:       int32(kernel.Socket(jupyter.IOMessage).Port),
+		IopubPort:       int32(kernel.GetSocketPort(jupyter.IOMessage)),
+		IosubPort:       int32(kernel.GetSocketPort(jupyter.IOMessage)),
 		SignatureScheme: kernel.KernelSpec().SignatureScheme,
 		Key:             kernel.KernelSpec().Key,
 	}
@@ -1825,6 +1825,8 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		// In Docker mode, we'll just use the Host ID as the node name.
 		nodeName = host.ID
 	}
+
+	d.log.Debug("Creating new Kernel Client for replica %d of kernel %s now...", in.ReplicaId, in.KernelId)
 
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec, jupyter.ConnectionInfoFromKernelConnectionInfo(connectionInfo), d.id,

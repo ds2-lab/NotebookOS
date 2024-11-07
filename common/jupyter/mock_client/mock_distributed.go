@@ -10,8 +10,13 @@
 package mock_client
 
 import (
+	context "context"
 	reflect "reflect"
 
+	client "github.com/zhangjyr/distributed-notebook/common/jupyter/client"
+	types "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	metrics "github.com/zhangjyr/distributed-notebook/common/metrics"
+	proto "github.com/zhangjyr/distributed-notebook/common/proto"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -86,4 +91,41 @@ func (m *MockSessionManager) UnbindSession(sess string) {
 func (mr *MockSessionManagerMockRecorder) UnbindSession(sess any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnbindSession", reflect.TypeOf((*MockSessionManager)(nil).UnbindSession), sess)
+}
+
+// MockDistributedClientProvider is a mock of DistributedClientProvider interface.
+type MockDistributedClientProvider struct {
+	ctrl     *gomock.Controller
+	recorder *MockDistributedClientProviderMockRecorder
+}
+
+// MockDistributedClientProviderMockRecorder is the mock recorder for MockDistributedClientProvider.
+type MockDistributedClientProviderMockRecorder struct {
+	mock *MockDistributedClientProvider
+}
+
+// NewMockDistributedClientProvider creates a new mock instance.
+func NewMockDistributedClientProvider(ctrl *gomock.Controller) *MockDistributedClientProvider {
+	mock := &MockDistributedClientProvider{ctrl: ctrl}
+	mock.recorder = &MockDistributedClientProviderMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockDistributedClientProvider) EXPECT() *MockDistributedClientProviderMockRecorder {
+	return m.recorder
+}
+
+// NewDistributedKernelClient mocks base method.
+func (m *MockDistributedClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string, connectionInfo *types.ConnectionInfo, shellListenPort, iopubListenPort int, persistentId string, debugMode bool, executionFailedCallback client.ExecutionFailedCallback, executionLatencyCallback client.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider) client.AbstractDistributedKernelClient {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewDistributedKernelClient", ctx, spec, numReplicas, hostId, connectionInfo, shellListenPort, iopubListenPort, persistentId, debugMode, executionFailedCallback, executionLatencyCallback, messagingMetricsProvider)
+	ret0, _ := ret[0].(client.AbstractDistributedKernelClient)
+	return ret0
+}
+
+// NewDistributedKernelClient indicates an expected call of NewDistributedKernelClient.
+func (mr *MockDistributedClientProviderMockRecorder) NewDistributedKernelClient(ctx, spec, numReplicas, hostId, connectionInfo, shellListenPort, iopubListenPort, persistentId, debugMode, executionFailedCallback, executionLatencyCallback, messagingMetricsProvider any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewDistributedKernelClient", reflect.TypeOf((*MockDistributedClientProvider)(nil).NewDistributedKernelClient), ctx, spec, numReplicas, hostId, connectionInfo, shellListenPort, iopubListenPort, persistentId, debugMode, executionFailedCallback, executionLatencyCallback, messagingMetricsProvider)
 }
