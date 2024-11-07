@@ -74,7 +74,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		}).AnyTimes()
 		kernel.EXPECT().ReplicaID().Return(int32(1)).AnyTimes()
 		kernel.EXPECT().ID().Return("66902bac-9386-432e-b1b9-21ac853fa1c9").AnyTimes()
-		kernel.EXPECT().WaitForRepliesToPendingExecuteRequests().AnyTimes()
+		kernel.EXPECT().WaitForPendingExecuteRequests().AnyTimes()
 	})
 
 	Context("Processing 'execute_request' messages", func() {

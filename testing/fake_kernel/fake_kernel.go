@@ -206,7 +206,10 @@ func (k *FakeKernel) Serve(socket *SocketWrapper, sendAcks bool, sendReplies boo
 				copy(messageFrames[i], identity_frame)
 			}
 
-			jFrames := types.JupyterFrames(msg.Frames[delimIndex:])
+			jFrames := types.JupyterFrames{
+				Frames: msg.Frames,
+				Offset: delimIndex,
+			}
 			var header map[string]interface{}
 			if err := jFrames.DecodeHeader(&header); err != nil {
 				panic(err)
@@ -234,7 +237,10 @@ func (k *FakeKernel) Serve(socket *SocketWrapper, sendAcks bool, sendReplies boo
 		}
 
 		if sendReplies {
-			jFrames := types.JupyterFrames(msg.Frames[delimIndex:])
+			jFrames := types.JupyterFrames{
+				Frames: msg.Frames,
+				Offset: delimIndex,
+			}
 			var header map[string]interface{}
 			if err := jFrames.DecodeHeader(&header); err != nil {
 				panic(err)
