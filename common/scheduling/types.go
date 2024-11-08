@@ -42,4 +42,7 @@ type AbstractSession interface {
 	PreemptionPriority() float64
 	StartedAt() time.Time
 	Duration() time.Duration
+	SessionStartedTraining(container *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise
+	SessionStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise
+	GetReplicaContainer(replicaId int32) (*Container, bool)
 }

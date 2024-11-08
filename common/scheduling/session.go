@@ -336,8 +336,8 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 // of DistributedKernelClient.
 //
 // DistributedKernelClient::handleSmrLeadTaskMessage --> KernelReplicaClient::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
-func SessionStartedTraining(s *Session, container *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
-	s.log.Debug("Training starting. Current state: %s.", s.sessionState.String())
+func (s *Session) SessionStartedTraining(container *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
+	s.log.Debug("Training starting. Current state: %s.", s.GetState().String())
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -386,7 +386,7 @@ func SessionStartedTraining(s *Session, container *Container, snapshot types.Hos
 // This should be called by the KernelReplicaClient's KernelStoppedTraining method.
 //
 // Note: this method is thread-safe.
-func SessionStoppedTraining(s *Session, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
+func (s *Session) SessionStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

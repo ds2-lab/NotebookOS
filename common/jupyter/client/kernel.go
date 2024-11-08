@@ -369,7 +369,7 @@ func KernelStartedTraining(c *KernelReplicaClient, snapshot commonTypes.HostReso
 	// The following code is only executed within the internalCluster Gateway.
 	container := c.Container()
 	if container != nil { // Container will be nil on Local Daemons; they don't track resources this way.
-		p := scheduling.SessionStartedTraining(container.Session(), container, snapshot)
+		p := container.Session().SessionStartedTraining(container, snapshot)
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to start training for session %s: %v", container.Session().ID(), err)
 			return err
@@ -482,7 +482,7 @@ func unsafeKernelStoppedTraining(c *KernelReplicaClient, snapshot commonTypes.Ho
 	// If the Container is actively-training, then we need to call SessionStoppedTraining
 	// before removing it so that the resources are all returned appropriately.
 	if container := c.Container(); container != nil {
-		p := scheduling.SessionStoppedTraining(container.Session(), snapshot)
+		p := container.Session().SessionStoppedTraining(snapshot)
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v",
 				c.ID(), c.ReplicaID(), err)

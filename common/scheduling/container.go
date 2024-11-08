@@ -41,14 +41,14 @@ type Container struct {
 
 	log logger.Logger
 
-	session           *Session       // The Session associated with the Container.
-	host              *Host          // The Host on which the Container is currently scheduled.
-	id                string         // The kernel ID of the Container.
-	containerState    ContainerState // The current state of the Container.
-	executions        atomic.Int32   // The number of training events processed by the Container.
-	trainingStartedAt time.Time      // The time at which the Container started training.
-	startedAt         time.Time      // The time at which the Container was created.
-	addr              string         // The address of the Container.
+	session           AbstractSession // The Session associated with the Container.
+	host              *Host           // The Host on which the Container is currently scheduled.
+	id                string          // The kernel ID of the Container.
+	containerState    ContainerState  // The current state of the Container.
+	executions        atomic.Int32    // The number of training events processed by the Container.
+	trainingStartedAt time.Time       // The time at which the Container started training.
+	startedAt         time.Time       // The time at which the Container was created.
+	addr              string          // The address of the Container.
 
 	spec     *types.DecimalSpec
 	lastSpec *types.DecimalSpec
@@ -63,7 +63,7 @@ type PlaceholderContainer struct {
 }
 
 // NewContainer creates and returns a new *Container.
-func NewContainer(session *Session, kernelReplica KernelReplica, host *Host, kernelIp string) *Container {
+func NewContainer(session AbstractSession, kernelReplica KernelReplica, host *Host, kernelIp string) *Container {
 	id := session.ID()
 	container := &Container{
 		KernelReplica:  kernelReplica,
@@ -143,7 +143,7 @@ func (c *Container) String() string {
 		c.id, c.KernelReplica.ReplicaID(), c.containerState, c.startedAt, c.host)
 }
 
-func (c *Container) Session() *Session {
+func (c *Container) Session() AbstractSession {
 	return c.session
 }
 
