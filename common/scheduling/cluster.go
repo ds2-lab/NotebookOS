@@ -153,6 +153,9 @@ type Cluster interface {
 	// Sessions returns a mapping from session ID to Session.
 	Sessions() hashmap.HashMap[string, *Session]
 
+	// AddSession adds a Session to the Cluster.
+	AddSession(sessionId string, session *Session)
+
 	// GetIndex returns the ClusterIndexProvider whose key is created with the given category and expected values.
 	// The category and expected values are returned by the ClusterIndexProvider.Category method.
 	GetIndex(category string, expected interface{}) (ClusterIndexProvider, bool)
@@ -191,6 +194,39 @@ type Cluster interface {
 	// If there is no active scaling operation, then ActiveScaleOperation returns nil.
 	ActiveScaleOperation() *ScaleOperation
 
+	// NumScalingOperationsSucceeded returns the number of scale-in and scale-out operations that have been
+	// completed successfully.
+	NumScalingOperationsSucceeded() int
+
+	// NumScaleOutOperationsSucceeded returns the number of scale-out operations that have been
+	// completed successfully.
+	NumScaleOutOperationsSucceeded() int
+
+	// NumScaleInOperationsSucceeded returns the number of scale-in operations that have been
+	// completed successfully.
+	NumScaleInOperationsSucceeded() int
+
+	// NumScalingOperationsAttempted returns the number of scale-in and scale-out operations that have been
+	// attempted (i.e., count of both successful and failed operations).
+	NumScalingOperationsAttempted() int
+
+	// NumScaleOutOperationsAttempted returns the number of scale-out operations that have been
+	// attempted (i.e., count of both successful and failed operations).
+	NumScaleOutOperationsAttempted() int
+
+	// NumScaleInOperationsAttempted returns the number of scale-in operations that have been
+	// attempted (i.e., count of both successful and failed operations).
+	NumScaleInOperationsAttempted() int
+
+	// NumScalingOperationsFailed returns the number of scale-in and scale-out operations that have failed.
+	NumScalingOperationsFailed() int
+
+	// NumScaleOutOperationsFailed returns the number of scale-out operations that have failed.
+	NumScaleOutOperationsFailed() int
+
+	// NumScaleInOperationsFailed returns the number of scale-in operations that have failed.
+	NumScaleInOperationsFailed() int
+
 	// ClusterScheduler returns the ClusterScheduler used by the Cluster.
 	ClusterScheduler() ClusterScheduler
 
@@ -206,7 +242,7 @@ type Cluster interface {
 	// NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
 	// NewHostAddedOrConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
 	// task of locking the required structures during scaling operations.
-	NewHostAddedOrConnected(host *Host)
+	NewHostAddedOrConnected(host *Host) error
 
 	// RemoveHost removes the Host with the specified ID.
 	// This is called when a Local Daemon loses connection.
@@ -214,6 +250,9 @@ type Cluster interface {
 
 	// Len returns the current size of the Cluster (i.e., the number of Host instances within the Cluster).
 	Len() int
+
+	// NumDisabledHosts returns the number of Host instances in the Cluster that are in the "disabled" state.
+	NumDisabledHosts() int
 
 	// GetHost returns the Host with the given ID, if one exists.
 	GetHost(hostId string) (*Host, bool)

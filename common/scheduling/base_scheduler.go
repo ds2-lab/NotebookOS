@@ -177,6 +177,9 @@ func (s *BaseScheduler) TryGetCandidateHosts(hosts []*Host, kernelSpec *proto.Ke
 
 	// Identify the hosts onto which we will place replicas of the kernel.
 	numHostsRequired := s.opts.NumReplicas - len(hosts)
+	s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
+		numHostsRequired, kernelSpec.Id, len(hosts))
+
 	hostBatch := s.placer.FindHosts(kernelSpec, numHostsRequired)
 
 	// Add all the hosts returned by FindHosts to our running slice of hosts.
@@ -305,7 +308,7 @@ func (s *BaseScheduler) RemoveNode(hostId string) error {
 
 // UpdateRatio updates the Cluster's subscription ratio.
 // UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
-func (s *BaseScheduler) UpdateRatio() bool {
+func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 	var ratio float64
 	if s.cluster.BusyGPUs() == 0 {
 		// Technically if the number of committed GPUs is zero, then the ratio is infinite (undefined).
@@ -335,7 +338,7 @@ func (s *BaseScheduler) UpdateRatio() bool {
 		s.log.Debug("Recomputed subscription ratio as %s.", s.subscriptionRatio.StringFixed(4))
 		s.rebalance(avg)
 
-		if s.scalingIntervalSec > 0 && time.Since(s.lastCapacityValidation) >= s.scalingInterval {
+		if !skipValidateCapacity && s.scalingIntervalSec > 0 && time.Since(s.lastCapacityValidation) >= s.scalingInterval {
 			s.ValidateCapacity()
 		}
 

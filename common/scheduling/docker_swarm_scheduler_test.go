@@ -334,5 +334,135 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				}
 			}
 		})
+
+		It("Will try to scale out if necessary", func() {
+			initialSize := len(hosts)
+
+			// First, add two new hosts, so that there are 5 hosts.
+			for i := initialSize; i < initialSize+2; i++ {
+				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, cluster, mockCtrl)
+				Expect(err).To(BeNil())
+				Expect(host).ToNot(BeNil())
+				Expect(localGatewayClient).ToNot(BeNil())
+				Expect(resourceSpoofer).ToNot(BeNil())
+
+				hosts[i] = host
+				localGatewayClients[i] = localGatewayClient
+				resourceSpoofers[i] = resourceSpoofer
+			}
+
+			Expect(cluster.Len()).To(Equal(5))
+
+			// Add a sixth host, but set it to be disabled initially.
+			hostId := uuid.NewString()
+			nodeName := fmt.Sprintf("TestNode%d", 5)
+			resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, hostSpec)
+			Expect(resourceSpoofer).ToNot(BeNil())
+
+			host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, nodeName, resourceSpoofer)
+			Expect(err).To(BeNil())
+			Expect(host).ToNot(BeNil())
+			Expect(localGatewayClient).ToNot(BeNil())
+
+			err = host.Disable()
+			Expect(err).To(BeNil())
+
+			err = cluster.NewHostAddedOrConnected(host)
+			Expect(err).To(BeNil())
+
+			hosts[5] = host
+			localGatewayClients[5] = localGatewayClient
+			resourceSpoofers[5] = resourceSpoofer
+
+			Expect(cluster.Len()).To(Equal(5))
+			Expect(cluster.NumDisabledHosts()).To(Equal(1))
+
+			By("First scheduling a bunch of sessions into/onto the cluster")
+
+			// Schedule a bunch of sessions so that, when we try to schedule another one, it'll oversubscribe one or more hosts.
+			for i := 0; i < 21; i++ {
+				kernelId := uuid.NewString()
+				kernelKey := uuid.NewString()
+				resourceSpec := proto.NewResourceSpec(1250, 2000, 8, 4)
+				decimalSpec := resourceSpec.ToDecimalSpec()
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+					SignatureScheme: jupyter.JupyterSignatureScheme,
+					Key:             kernelKey,
+					ResourceSpec:    resourceSpec,
+				}
+
+				session := scheduling.NewUserSession(context.Background(), kernelId, kernelSpec,
+					scheduling.NewResourceUtilization(1.0, 2000, []float64{1.0, 1.0}, 4), cluster, &opts.ClusterSchedulerOptions)
+				cluster.AddSession(kernelId, session)
+				cluster.ClusterScheduler().UpdateRatio(true)
+
+				Expect(cluster.Sessions().Len()).To(Equal(i + 1))
+
+				for j := 0; j < 3; j++ {
+					host := hosts[j]
+
+					fmt.Printf("Cluster subscribed ratio: %f, Host %s (ID=%s) subscription ratio: %f, oversubscription factor: %s\n",
+						cluster.SubscriptionRatio(), host.NodeName, host.ID, host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
+
+					err := host.AddToPendingResources(decimalSpec)
+					Expect(err).To(BeNil())
+
+					cluster.ClusterScheduler().UpdateRatio(true)
+
+					fmt.Printf("Cluster subscribed ratio: %f, Host %s (ID=%s) subscription ratio: %f, oversubscription factor: %s\n\n",
+						cluster.SubscriptionRatio(), host.NodeName, host.ID, host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
+				}
+			}
+
+			kernelId := uuid.NewString()
+			kernelKey := uuid.NewString()
+			resourceSpec := proto.NewResourceSpec(1250, 2000, 2, 4)
+
+			kernelSpec := &proto.KernelSpec{
+				Id:              kernelId,
+				Session:         kernelId,
+				Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+				SignatureScheme: jupyter.JupyterSignatureScheme,
+				Key:             kernelKey,
+				ResourceSpec:    resourceSpec,
+			}
+
+			By("Correctly returning only 2 candidate hosts due to the other hosts becoming too oversubscribed")
+
+			candidateHosts := make([]*scheduling.Host, 0)
+			candidateHosts = scheduler.TryGetCandidateHosts(candidateHosts, kernelSpec)
+			Expect(candidateHosts).ToNot(BeNil())
+			Expect(len(candidateHosts)).To(Equal(2))
+
+			By("Releasing the reservations on the 2 candidate hosts without any errors")
+
+			for _, host := range candidateHosts {
+				Expect(host.NumReservations()).To(Equal(1))
+				err = host.ReleaseReservation(kernelSpec)
+				Expect(err).To(BeNil())
+			}
+
+			Expect(cluster.Len()).To(Equal(5))
+			Expect(cluster.NumScalingOperationsAttempted()).To(Equal(0))
+			Expect(cluster.NumScaleOutOperationsAttempted()).To(Equal(0))
+			Expect(cluster.NumScaleOutOperationsSucceeded()).To(Equal(0))
+
+			candidateHosts, err = scheduler.GetCandidateHosts(context.Background(), kernelSpec)
+			Expect(err).To(BeNil())
+			Expect(candidateHosts).ToNot(BeNil())
+			Expect(len(candidateHosts)).To(Equal(3))
+
+			Expect(cluster.Len()).To(Equal(6))
+			Expect(cluster.NumScalingOperationsAttempted()).To(Equal(1))
+			Expect(cluster.NumScaleOutOperationsAttempted()).To(Equal(1))
+			Expect(cluster.NumScaleOutOperationsSucceeded()).To(Equal(1))
+
+			for _, host := range candidateHosts {
+				Expect(host.NumReservations()).To(Equal(1))
+			}
+		})
 	})
 })

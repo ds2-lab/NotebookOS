@@ -403,6 +403,12 @@ func (h *Host) SubscribedRatio() float64 {
 	return h.subscribedRatio.InexactFloat64()
 }
 
+// OversubscriptionFactor returns the result of passing the Host's current subscribedRatio
+// to its OversubscriptionQuerierFunction field/function.
+func (h *Host) OversubscriptionFactor() decimal.Decimal {
+	return h.OversubscriptionQuerierFunction(h.subscribedRatio)
+}
+
 // ToVirtualDockerNode converts a Host struct to a proto.VirtualDockerNode struct and
 // returns a pointer to the new proto.VirtualDockerNode.
 func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
@@ -1184,23 +1190,37 @@ func (h *Host) ScaleInPriority() float64 {
 }
 
 func (h *Host) AddToPendingResources(spec *types.DecimalSpec) error {
-	return h.resourcesWrapper.pendingResources.Add(spec)
+	err := h.resourcesWrapper.pendingResources.Add(spec)
+	h.RecomputeSubscribedRatio()
+	return err
 }
 
 func (h *Host) AddToIdleResources(spec *types.DecimalSpec) error {
-	return h.resourcesWrapper.idleResources.Add(spec)
+	err := h.resourcesWrapper.idleResources.Add(spec)
+	h.RecomputeSubscribedRatio()
+	return err
 }
+
 func (h *Host) AddToCommittedResources(spec *types.DecimalSpec) error {
-	return h.resourcesWrapper.committedResources.Add(spec)
+	err := h.resourcesWrapper.committedResources.Add(spec)
+	h.RecomputeSubscribedRatio()
+	return err
 }
 
 func (h *Host) SubtractFromPendingResources(spec *types.DecimalSpec) error {
-	return h.resourcesWrapper.pendingResources.Subtract(spec)
+	err := h.resourcesWrapper.pendingResources.Subtract(spec)
+	h.RecomputeSubscribedRatio()
+	return err
 }
 
 func (h *Host) SubtractFromIdleResources(spec *types.DecimalSpec) error {
-	return h.resourcesWrapper.idleResources.Subtract(spec)
+	err := h.resourcesWrapper.idleResources.Subtract(spec)
+	h.RecomputeSubscribedRatio()
+	return err
 }
+
 func (h *Host) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
-	return h.resourcesWrapper.committedResources.Subtract(spec)
+	err := h.resourcesWrapper.committedResources.Subtract(spec)
+	h.RecomputeSubscribedRatio()
+	return err
 }

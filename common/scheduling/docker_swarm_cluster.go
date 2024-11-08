@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"log"
 	"strings"
 )
@@ -19,9 +18,6 @@ var (
 // but simply toggled "off" and "on".
 type DockerSwarmCluster struct {
 	*BaseCluster
-
-	// DisabledHosts is a map from host ID to *Host containing all the Host instances that are currently set to "off".
-	DisabledHosts hashmap.HashMap[string, *Host]
 }
 
 // NewDockerSwarmCluster creates a new DockerSwarmCluster struct and returns a pointer to it.
@@ -36,8 +32,7 @@ func NewDockerSwarmCluster(hostSpec types.Spec, hostMapper HostMapper,
 	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerSwarmCluster")
 
 	dockerCluster := &DockerSwarmCluster{
-		BaseCluster:   baseCluster,
-		DisabledHosts: hashmap.NewConcurrentMap[*Host](256),
+		BaseCluster: baseCluster,
 	}
 
 	placer, err := NewRandomPlacer(dockerCluster, opts)
@@ -211,6 +206,13 @@ func (c *DockerSwarmCluster) getScaleOutCommand(targetScale int32, coreLogicDone
 
 		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker swarm clusters", ErrUnsupportedOperation)
 	}
+}
+
+// DisableHost attempts to disable the specified Host.
+//
+// This method is typically not called during regular operation; it typically occurs just while unit testing.
+func (c *DockerSwarmCluster) DisableHost(hostId string) error {
+	panic("not implemented")
 }
 
 // canPossiblyScaleOut returns true if the Cluster could possibly scale-out.

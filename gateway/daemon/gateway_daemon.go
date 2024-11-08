@@ -1414,7 +1414,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (client.Abstrac
 		WithMemoryUsageMb(in.ResourceSpec.MemoryMB()).
 		WithNGpuUtilizationValues(in.ResourceSpec.Gpu, 0)
 	session := scheduling.NewUserSession(context.Background(), kernel.ID(), in, resourceUtil, d.cluster, d.ClusterOptions)
-	d.cluster.Sessions().Store(kernel.ID(), session)
+	d.cluster.AddSession(kernel.ID(), session)
 
 	// Assign the Session to the DistributedKernelClient.
 	kernel.SetSession(session)
@@ -1507,7 +1507,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	d.log.Info("Kernel(%s) started after %v: %v", kernel.ID(), time.Since(startTime), info)
 
-	session, ok := d.cluster.Sessions().Load(kernel.ID())
+	session, ok := d.cluster.GetSession(kernel.ID())
 	if ok {
 		p := session.SessionStarted()
 		err = p.Error()
@@ -1612,7 +1612,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		panic(fmt.Sprintf("Validation error for new replica %d of kernel %s.", addReplicaOp.ReplicaId(), in.KernelId))
 	}
 
-	session, ok := d.cluster.Sessions().Load(in.KernelId)
+	session, ok := d.cluster.GetSession(in.KernelId)
 	if !ok {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", in.SessionId)
 		d.log.Error(errorMessage)
@@ -1835,7 +1835,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		true, true, d.DebugMode, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
 		d.kernelRequestResubmissionFailedAfterReconnection)
 
-	session, ok := d.cluster.Sessions().Load(kernelId)
+	session, ok := d.cluster.GetSession(kernelId)
 	if !ok {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", kernelId)
 		d.log.Error(errorMessage)
@@ -2507,7 +2507,7 @@ func (d *ClusterGatewayImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.Ju
 			return err
 		}
 
-		session, ok := d.cluster.Sessions().Load(kernel.ID())
+		session, ok := d.cluster.GetSession(kernel.ID())
 		if !ok || session == nil {
 			errorMessage := fmt.Sprintf("Could not find scheduling.Session %s associated with kernel %s, which is being shutdown", sessionId, kernel.ID())
 			d.log.Error(errorMessage)
@@ -3194,7 +3194,7 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) (*s
 
 	oldPodName := replica.GetPodOrContainerName()
 
-	session, loaded := d.cluster.Sessions().Load(kernelId)
+	session, loaded := d.cluster.GetSession(kernelId)
 	if !loaded {
 		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
 		return nil, fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)

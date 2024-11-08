@@ -451,7 +451,9 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 				NodesTerminated:    op.NodesAffected,
 			}
 
-			op.Cluster.ClusterMetricsProvider().GetScaleInLatencyMillisecondsHistogram().Observe(float64(timeElapsed.Milliseconds()))
+			if op.Cluster.ClusterMetricsProvider() != nil && op.Cluster.ClusterMetricsProvider().GetScaleInLatencyMillisecondsHistogram() != nil {
+				op.Cluster.ClusterMetricsProvider().GetScaleInLatencyMillisecondsHistogram().Observe(float64(timeElapsed.Milliseconds()))
+			}
 		} else {
 			result = &ScaleOutOperationResult{
 				BaseScaleOperationResult: &BaseScaleOperationResult{
@@ -462,7 +464,9 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 				NodesCreated:    op.NodesAffected,
 			}
 
-			op.Cluster.ClusterMetricsProvider().GetScaleOutLatencyMillisecondsHistogram().Observe(float64(timeElapsed.Milliseconds()))
+			if op.Cluster.ClusterMetricsProvider() != nil && op.Cluster.ClusterMetricsProvider().GetScaleOutLatencyMillisecondsHistogram() != nil {
+				op.Cluster.ClusterMetricsProvider().GetScaleOutLatencyMillisecondsHistogram().Observe(float64(timeElapsed.Milliseconds()))
+			}
 		}
 
 		return result, nil

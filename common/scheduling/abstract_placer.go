@@ -46,14 +46,13 @@ func newAbstractPlacer(cluster ClusterInternal, opts *ClusterSchedulerOptions) *
 func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []*Host {
 	placer.mu.Lock()
 	st := time.Now()
-	numReplicas := placer.opts.NumReplicas
 
 	// The following checks make sense/apply for all concrete implementations of Placer.
-	// If the Placer's index is empty, or if the index has too few hosts in it, then we simply return an empty slice.
-	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", numReplicas, kernelSpec.ResourceSpec.String(), placer.instance.getIndex().Len())
-	if placer.instance.getIndex().Len() < numReplicas {
-		placer.log.Warn("Index has insufficient number of hosts: %d. Required: %d.", placer.instance.getIndex().Len(), numReplicas)
-		return make([]*Host, 0)
+	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", numHosts, kernelSpec.ResourceSpec.String(), placer.instance.getIndex().Len())
+	if placer.instance.getIndex().Len() < numHosts {
+		placer.log.Warn("Index has insufficient number of hosts: %d. Required: %d. "+
+			"We won't find enough hosts on this pass, but we can try to scale-out afterwards.",
+			placer.instance.getIndex().Len(), numHosts)
 	}
 
 	// Invoke internalPlacer's implementation of the findHosts method for the core logic of FindHosts.
@@ -62,13 +61,13 @@ func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts i
 	latency := time.Since(st)
 
 	var successLabel string
-	if hosts == nil || len(hosts) < numReplicas {
+	if hosts == nil || len(hosts) < numHosts {
 		placer.log.Warn(utils.OrangeStyle.Render("Failed to identify the %d required hosts for kernel %s. Found only %d/%d. Time elapsed: %v."),
 			placer.opts.NumReplicas, kernelSpec.Id, len(hosts), placer.opts.NumReplicas, latency)
 		successLabel = "false"
 	} else {
 		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts for kernel %s after %v."),
-			len(hosts), numReplicas, kernelSpec.Id, latency)
+			len(hosts), numHosts, kernelSpec.Id, latency)
 		successLabel = "true"
 	}
 

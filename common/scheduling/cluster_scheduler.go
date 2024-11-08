@@ -50,7 +50,7 @@ type ClusterScheduler interface {
 
 	// UpdateRatio updates the Cluster's subscription ratio.
 	// UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
-	UpdateRatio() bool
+	UpdateRatio(skipValidateCapacity bool) bool
 
 	// AddNode adds a new node to the kubernetes Cluster.
 	// We simulate this using node taints.
