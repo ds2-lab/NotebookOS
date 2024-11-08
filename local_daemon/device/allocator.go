@@ -46,7 +46,7 @@ type virtualGpuAllocatorImpl struct {
 	allocations map[string]*proto.VirtualGpuAllocation
 }
 
-// Creates a new virtualGpuAllocator using an out-of-cluster config for its Kubernetes client.
+// NewVirtualGpuAllocatorForTesting creates a new virtualGpuAllocator using an out-of-cluster config for its Kubernetes client.
 func NewVirtualGpuAllocatorForTesting(opts *domain.VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
 	var kubeconfig string
 	if home := homedir.HomeDir(); home != "" {
