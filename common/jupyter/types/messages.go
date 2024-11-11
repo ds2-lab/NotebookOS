@@ -353,6 +353,56 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket
 	return requestTrace, added, nil
 }
 
+// ElectionLeaderProposalMetadata encodes the fields of a "leader proposal", an object used by the kernel
+// replicas when selecting a replica to execute code.
+type ElectionLeaderProposalMetadata struct {
+	Key           string `json:"key"`
+	Op            string `json:"op"`
+	End           bool   `json:"end"`
+	Tag           any    `json:"tag"`
+	Proposer      int    `json:"proposer"`
+	ElectionTerm  int    `json:"election_term"`
+	AttemptNumber int    `json:"attempt_number"`
+	Timestamp     string `json:"timestamp"`
+	ID            string `json:"id"`
+}
+
+// ElectionVoteProposalMetadata encodes the fields of a "vote proposal", an object used by the kernel
+// replicas when selecting a replica to execute code.
+type ElectionVoteProposalMetadata struct {
+	Key            string `json:"key"`
+	Op             string `json:"op"`
+	End            bool   `json:"end"`
+	Tag            any    `json:"tag"`
+	Proposer       int    `json:"proposer"`
+	ElectionTerm   int    `json:"election_term"`
+	AttemptNumber  int    `json:"attempt_number"`
+	Timestamp      string `json:"timestamp"`
+	ID             string `json:"id"`
+	ProposedNodeID int    `json:"proposed_node_id"`
+}
+
+// ElectionMetadata is metadata from the Python Election that took place to determine which
+// replica would execute the code. This is only sent on the return (i.e., "execute_reply").
+type ElectionMetadata struct {
+	TermNumber                int                                     `json:"term_number"`
+	ElectionState             int                                     `json:"election_state"`
+	ElectionStateString       int                                     `json:"election_state_string"`
+	WinnerSelected            bool                                    `json:"winner_selected"`
+	WinnerID                  int                                     `json:"winner_id"`
+	Proposals                 map[int]*ElectionLeaderProposalMetadata `json:"proposals"`
+	VoteProposals             map[int]*ElectionVoteProposalMetadata   `json:"vote_proposals"`
+	DiscardedProposals        map[int]*ElectionLeaderProposalMetadata `json:"discarded_proposals"`
+	NumDiscardedProposals     int                                     `json:"num_discarded_proposals"`
+	NumDiscardedVoteProposals int                                     `json:"num_discarded_vote_proposals"`
+	NumLeadProposalsReceived  int                                     `json:"num_lead_proposals_received"`
+	NumYieldProposalsReceived int                                     `json:"num_yield_proposals_received"`
+	NumRestarts               int                                     `json:"num_restarts"`
+	CurrentAttemptNumber      int                                     `json:"current_attempt_number"`
+	CompletionReason          string                                  `json:"completion_reason"`
+	MissingProposals          []int                                   `json:"missing_proposals"`
+}
+
 // ExecuteRequestMetadata includes all the metadata entries we might expect to find in the metadata frame
 // of an "execute_request" message.
 type ExecuteRequestMetadata struct {
@@ -376,6 +426,10 @@ type ExecuteRequestMetadata struct {
 
 	// ResourceWrapperSnapshot is a snapshot of the resources available on the Local Daemon.
 	ResourceWrapperSnapshot types.ArbitraryResourceSnapshot `json:"resource_snapshot" mapstructure:"resource_snapshot,omitempty"`
+
+	// ElectionMetadata is metadata from the Python Election that took place to determine which
+	// replica would execute the code. This is only sent on the return (i.e., "execute_reply").
+	ElectionMetadata *ElectionMetadata `json:"election_metadata" mapstructure:"resource_snapshot,omitempty"`
 
 	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
 	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.
