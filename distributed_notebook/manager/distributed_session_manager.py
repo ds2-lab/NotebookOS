@@ -13,6 +13,8 @@ class DistributedSessionManager(SessionManager):
         self.log.info("DistributedSessionManager is using a KernelManager of type %s." % str(type(self.kernel_manager)))
         self.log.info("self.kernel_manager.start_kernel: %s" % str(self.kernel_manager.start_kernel))
 
+        self.num_sessions_creating: int = 0
+
     async def create_session(
         self,
         path: Optional[str] = None,
@@ -38,7 +40,8 @@ class DistributedSessionManager(SessionManager):
             :param name:
             :param path:
         """
-        self.log.info("DistributedSessionManager is creating new Session: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, SessionId=%s, ResourceSpec=%s" % (path, name, type, kernel_name, kernel_id, session_id, str(resource_spec)))
+        self.num_sessions_creating += 1
+        self.log.info("DistributedSessionManager is creating new Session: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, SessionId=%s, ResourceSpec=%s, NumSessionsCreating=%d" % (path, name, type, kernel_name, kernel_id, session_id, str(resource_spec), self.num_sessions_creating))
        
         if session_id is None:
             session_id = self.new_session_id()
@@ -63,6 +66,8 @@ class DistributedSessionManager(SessionManager):
             session_id, path=path, name=name, type=type, kernel_id=kernel_id
         )
         self._pending_sessions.remove(record)
+
+        self.num_sessions_creating -= 1
         
         return cast(Dict[str, Any], result)
 
@@ -117,7 +122,9 @@ class DistributedSessionManager(SessionManager):
         # If the caller didn't specify a particular kernel ID, then that's fine.
         # If they did, then the returned kernel ID should necessarily be equal to whatever was passed by the caller.
         if kernel_id is not None:
-            assert(returned_kernel_id == kernel_id)
+            if kernel_id != returned_kernel_id:
+                self.log.error(f"Returned kernel ID is \"{returned_kernel_id}\", whereas kernel ID was supposed to be \"{kernel_id}\".")
+                raise ValueError(f"Returned kernel ID of \"{returned_kernel_id}\" is not equal to specified kernel ID of \"{kernel_id}\"")
         else:
             kernel_id = returned_kernel_id
             

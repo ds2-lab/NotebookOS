@@ -471,11 +471,7 @@ func (frames *JupyterFrames) RemoveDestFrame(forceRecomputeOffsetBeforeRemoval b
 		if reqID == "" {
 			return frames.Frames
 		}
-
-		fmt.Printf("RequestID: \"%s\"\n", reqID)
 	}
-
-	fmt.Printf("Removing dest frame at offset %d.\n", frames.Offset)
 
 	// Remove dest frame.
 	if frames.Offset > 0 {

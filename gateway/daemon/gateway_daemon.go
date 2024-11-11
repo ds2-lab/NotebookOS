@@ -1425,8 +1425,8 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (client.Abstrac
 // StartKernel launches a new kernel.
 func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
 	startTime := time.Now()
-	d.log.Info("ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v].", in.Id, in.Session, in.ResourceSpec)
-	d.log.Debug("KernelSpec: %v", in)
+	d.log.Info("ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v.",
+		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in)
 
 	var (
 		kernel client.AbstractDistributedKernelClient
@@ -1468,9 +1468,11 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	// Wait for all replicas to be created.
 	// Note that creation just means that the Container/Pod was created.
 	// It does not mean that the Container/Pod has entered the active/running state.
-	d.log.Debug("Waiting for replicas of new kernel %s to register.", in.Id)
+	d.log.Debug("Waiting for replicas of new kernel %s to register. Number of kernels starting: %d.",
+		in.Id, d.kernelsStarting.Len())
 	created.Wait()
-	d.log.Debug("All %d replicas of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster now.", d.ClusterOptions.NumReplicas, in.Id)
+	d.log.Debug("All %d replicas of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster now.",
+		d.ClusterOptions.NumReplicas, in.Id)
 
 	// Wait until all replicas have started.
 	for i := 0; i < d.ClusterOptions.NumReplicas; i++ {
@@ -1479,7 +1481,8 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	// Clean up.
 	d.kernelsStarting.Delete(in.Id)
-	d.log.Debug("All %d replicas of new kernel %s have registered and joined their SMR cluster.", d.ClusterOptions.NumReplicas, in.Id)
+	d.log.Debug("All %d replicas of new kernel %s have registered and joined their SMR cluster. Number of kernels starting: %d.",
+		d.ClusterOptions.NumReplicas, in.Id, d.kernelsStarting.Len())
 
 	// Sanity check.
 	if kernel.Size() == 0 {
@@ -1534,7 +1537,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 // newKernelCreated pushes some metrics to Kubernetes and sends a notification to the Dashboard.
 func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId string) {
 	// Tell the Dashboard that the kernel has successfully started running.
-	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running. Launch took approximately %v.",
+	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running. Launch took approximately %v from when the Cluster Gateway began processing the 'create kernel' request.",
 		kernelId, time.Since(startTime)), jupyter.SuccessNotification)
 
 	if d.gatewayPrometheusManager != nil {

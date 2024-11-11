@@ -124,7 +124,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 			}
 		} else {
 			// Fallback if the mapstructure way is broken.
-			log.Printf(utils.OrangeStyle.Render("Failed to decode request metadata via mapstructure: %v\n"), err)
+			log.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode request metadata via mapstructure: %v\n"), err)
 
 			sentAtVal, ok := metadataDict["send_timestamp_unix_milli"]
 			if ok {

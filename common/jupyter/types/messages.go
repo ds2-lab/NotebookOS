@@ -375,7 +375,7 @@ type ExecuteRequestMetadata struct {
 	SentAtUnixTimestamp *float64 `json:"send_timestamp_unix_milli,omitempty" mapstructure:"send_timestamp_unix_milli,omitempty"`
 
 	// ResourceWrapperSnapshot is a snapshot of the resources available on the Local Daemon.
-	ResourceWrapperSnapshot types.ArbitraryResourceSnapshot `json:"resource_snapshot" mapstructure:"resource_request,omitempty"`
+	ResourceWrapperSnapshot types.ArbitraryResourceSnapshot `json:"resource_snapshot" mapstructure:"resource_snapshot,omitempty"`
 
 	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
 	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.
