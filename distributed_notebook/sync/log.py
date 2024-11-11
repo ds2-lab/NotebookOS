@@ -1,9 +1,11 @@
+import asyncio
 import datetime
 import time
 import uuid
-import asyncio
 from enum import Enum
+from json import JSONEncoder
 from typing import Tuple, Optional, Any
+
 from typing_extensions import Protocol, runtime_checkable
 
 KEY_FAILURE = "_failure_"  # We cannot execute this request...
@@ -20,6 +22,12 @@ class ElectionProposalKey(Enum):
     YIELD = "_yield_"  # Propose to yield the execution to another replica.
     LEAD = "_lead_"  # Propose to lead the execution term (i.e., execute the user's code).
     SYNC = "_sync_"  # Synchronize to confirm decision about who is executing the code.
+
+
+class SynchronizedValueJsonEncoder(JSONEncoder):
+    def default(self, o):
+        print(f"SynchronizedValueJsonEncoder called with obj o={o}")
+        return o.__dict__
 
 
 class SynchronizedValue(object):
@@ -54,6 +62,22 @@ class SynchronizedValue(object):
         self._should_end_execution: bool = should_end_execution
         self._prmap: Optional[list[str]] = prmap
         self._key: str = key
+
+    def get_metadata(self) -> dict[str, any]:
+        """
+        Returns a dictionary containing this SynchronizedValue's fields, suitable for JSON serialization.
+        """
+        return {
+            "key": self._key,
+            "op": self._operation,
+            "end": self._should_end_execution,
+            "tag": self._tag,
+            "proposer": self.proposer_id,
+            "election_term": self.election_term,
+            "attempt_number": self._attempt_number,
+            "timestamp": datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f'),
+            "id": self._id
+        }
 
     def __str__(self):
         return f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},Tag={self._tag},Proposer=Node{self.proposer_id},ElectionTerm={self.election_term},AttemptNumber={self._attempt_number},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')},ID={self._id}]"
@@ -195,25 +219,28 @@ class LeaderElectionProposal(SynchronizedValue):
         """
         return self._key
 
+
 class BufferedLeaderElectionProposal(object):
     """
     This simply wraps a LeaderElectionProposal along with the timestamp at which the proposal was originally received.
     The purpose is so we can pass the correct timestamp when we eventually process the buffered proposal.
     """
+
     def __init__(self, proposal: LeaderElectionProposal, received_at: float = time.time()):
         self._proposal: LeaderElectionProposal = proposal
         self._received_at: float = received_at
 
     @property
-    def proposal(self)->LeaderElectionProposal:
+    def proposal(self) -> LeaderElectionProposal:
         """
         :return: the `LeaderElectionProposal` that is wrapped by this `BufferedLeaderElectionProposal` instance.
         """
         return self._proposal
 
     @property
-    def received_at(self)->float:
+    def received_at(self) -> float:
         return self._received_at
+
 
 class LeaderElectionVote(SynchronizedValue):
     """
@@ -238,6 +265,15 @@ class LeaderElectionVote(SynchronizedValue):
 
         # The SMR node ID of the node being voted for
         self._proposed_node_id: int = proposed_node_id
+
+    def get_metadata(self) -> dict[str, any]:
+        """
+        Returns a dictionary containing this SynchronizedValue's fields, suitable for JSON serialization.
+        """
+        metadata:dict[str,any] = super().get_metadata()
+        metadata["proposed_node_id"] = self._proposed_node_id
+
+        return metadata
 
     def __str__(self):
         return f"LeaderElectionVote[Proposer=Node{self.proposer_id},Proposed=Node{self.proposed_node_id},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%c')},ElectionTerm={self.election_term},AttemptNumber={self._attempt_number}]"
@@ -265,22 +301,25 @@ class LeaderElectionVote(SynchronizedValue):
         """
         return self._proposed_node_id == -1
 
+
 class BufferedLeaderElectionVote(object):
     """
     This simply wraps a LeaderElectionVote along with the timestamp at which the vote was originally received.
     The purpose is so we can pass the correct timestamp when we eventually process the buffered vote.
     """
+
     def __init__(self, vote: LeaderElectionVote, received_at: float = time.time()):
         self._vote: LeaderElectionVote = vote
         self._received_at: float = received_at
 
     @property
-    def vote(self)->LeaderElectionVote:
+    def vote(self) -> LeaderElectionVote:
         return self._vote
 
     @property
-    def received_at(self)->float:
+    def received_at(self) -> float:
         return self._received_at
+
 
 class SyncValue:
     """A value for log proposal."""
@@ -304,7 +343,7 @@ class SyncValue:
     def __str__(self) -> str:
         ts: str = datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
         return "SyncValue[Key='%s',Term=%d,Timestamp='%s',Tag='%s',Val='%s']" % (
-        self.key, self.term, ts, str(self.tag), str(self.val)[0:25])
+            self.key, self.term, ts, str(self.tag), str(self.val)[0:25])
 
     @property
     def reset(self):
@@ -390,6 +429,7 @@ class SyncLog(Protocol):
 
     def close(self):
         """Ensure all async coroutines end and clean up."""
+
 
 @runtime_checkable
 class Checkpointer(Protocol):

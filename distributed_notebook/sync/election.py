@@ -25,6 +25,7 @@ class ElectionState(IntEnum):
     FAILED = 4  # Failed, as in all nodes proposed 'YIELD', and the election has not been restarted yet.
     EXECUTION_COMPLETE = 5  # The execution of the associated user-submitted code has completed for this election.
 
+
 class Election(object):
     """
     Encapsulates the information about the current election term.
@@ -166,7 +167,7 @@ class Election(object):
                 f"NumProposalsAccepted={self.num_proposals_accepted}"
                 f"]")
 
-    def get_election_metadata(self)->dict[str, any]:
+    def get_election_metadata(self) -> dict[str, any]:
         """
         Returns: a dictionary of JSON-serializable metadata to be embedded in the "execute_reply" message
         that is sent back to the client following the conclusion of this election.
@@ -179,9 +180,9 @@ class Election(object):
             "election_state_string": self._election_state.value,
             "winner_selected": self._winner_selected,
             "winner_id": self.winner_id,
-            "proposals": self._proposals,
-            "vote_proposals": self._vote_proposals,
-            "discarded_proposals": self._discarded_proposals,
+            "proposals": {k: v.get_metadata() for k, v in self._proposals.items()},
+            "vote_proposals": {k: v.get_metadata() for k, v in self._vote_proposals.items()},
+            "discarded_proposals": {k: v.get_metadata() for k, v in self._discarded_proposals.items()},
             "num_discarded_proposals": self._num_discarded_proposals,
             "num_discarded_vote_proposals": self._num_discarded_vote_proposals,
             "num_lead_proposals_received": self._num_lead_proposals_received,

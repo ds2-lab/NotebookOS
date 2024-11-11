@@ -4,6 +4,7 @@ import shutil
 import pickle
 import sys
 from collections import OrderedDict
+from textwrap import indent
 from typing import Optional, Awaitable
 from unittest import mock
 
@@ -16,7 +17,8 @@ from distributed_notebook.kernel.kernel import DistributedKernel
 from distributed_notebook.sync import Synchronizer, CHECKPOINT_AUTO, RaftLog
 from distributed_notebook.sync.election import Election, ExecutionCompleted, AllReplicasProposedYield
 from distributed_notebook.sync.log import ElectionProposalKey, LeaderElectionProposal, \
-    LeaderElectionVote, Checkpointer, ExecutionCompleteNotification, SynchronizedValue, KEY_CATCHUP
+    LeaderElectionVote, Checkpointer, ExecutionCompleteNotification, SynchronizedValue, KEY_CATCHUP, \
+    SynchronizedValueJsonEncoder
 from distributed_notebook.tests.utils.lognode import SpoofedLogNode
 from distributed_notebook.tests.utils.session import SpoofedSession
 from distributed_notebook.tests.utils.stream import SpoofedStream
@@ -2582,7 +2584,7 @@ async def test_get_election_metadata(kernel: DistributedKernel, execution_reques
     import json
     metadata_json: Optional[str] = None
     try:
-        metadata_json = json.dumps(metadata, default=str)
+        metadata_json = json.dumps(metadata, indent=2)
     except Exception as ex:
         unit_test_logger.error(f"Failed to serialize Election metadata because: {ex}")
 
