@@ -60,8 +60,8 @@ class RaftLog(object):
             hdfs_hostname: str = "172.17.0.1:9000",
             # data_directory: str = "/storage",
             should_read_data_from_hdfs: bool = False,
-            peer_addrs: Iterable[str] = [],
-            peer_ids: Iterable[int] = [],
+            peer_addresses: Optional[Iterable[int]] = None,
+            peer_ids: Optional[Iterable[int]] = None,
             num_replicas: int = 3,
             join: bool = False,
             debug_port: int = 8464,
@@ -76,6 +76,12 @@ class RaftLog(object):
         self._shouldSnapshotCallback = None
         if len(hdfs_hostname) == 0:
             raise ValueError("HDFS hostname is empty.")
+
+        if peer_addresses is None:
+            peer_addresses = []
+
+        if peer_ids is None:
+            peer_ids = []
 
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(node_id))
         self.logger.setLevel(logging.DEBUG)
@@ -122,8 +128,8 @@ class RaftLog(object):
         self.logger.info("persistent store path: %s" % self._persistent_store_path)
         self.logger.info("hdfs_hostname: \"%s\"" % hdfs_hostname)
         self.logger.info("should read data from HDFS: \"%s\"" % should_read_data_from_hdfs)
-        self.logger.info("peer_addrs: %s" % peer_addrs)
-        self.logger.info("peer_ids: %s" % peer_ids)
+        self.logger.info("peer addresses: %s" % peer_addresses)
+        self.logger.info("peer smr node IDs: %s" % peer_ids)
         self.logger.info("join: %s" % join)
         self.logger.info("debug_port: %d" % debug_port)
 
@@ -135,7 +141,7 @@ class RaftLog(object):
             node_id=node_id,
             hdfs_hostname=hdfs_hostname,
             should_read_data_from_hdfs=should_read_data_from_hdfs,
-            peer_addrs=peer_addrs,
+            peer_addrs=peer_addresses,
             peer_ids=peer_ids,
             join=join,
             debug_port=debug_port,
@@ -168,6 +174,9 @@ class RaftLog(object):
 
         # TBD
         self._change_handler: Optional[Callable[[SynchronizedValue], None]] = None
+
+        # The number of elections we've skipped.
+        self._num_elections_skipped: int = 0
 
         # If we receive a proposal with a larger term number than our current election, then it is possible
         # that we simply received the proposal before receiving the associated "execute_request" or "yield_request" message 
@@ -460,6 +469,93 @@ class RaftLog(object):
         sys.stdout.flush()
         return GoNilError()
 
+    def __fast_forward_to_future_election(self, notification: ExecutionCompleteNotification) -> bytes:
+        """
+        Fast-forward to a future election upon receiving an ExecutionCompleteNotification with term number
+        greater than that of the local, current election.
+
+        For example, if our local election is for term 5, and we receive an ExecutionCompleteNotification for
+        term 6 (or 7, or 10, or 1,000,000), then we will mark our current, local election as having finished.
+        Then, we'll create a new election object for the term number specified in the ExecutionCompleteNotification,
+        and we'll mark that as complete.
+        """
+
+        # Make sure that we actually need to fast-forward.
+        if self.current_election is not None and notification.election_term <= self.current_election.term_number:
+            self.logger.warning(f"Instructed to fast-forward, however ExecutionCompleteNotification has term number "
+                                f"{notification.election_term} and current, local election has term number "
+                                f"{self.current_election.term_number}, so no fast-forward is required...")
+
+            return GoNilError()
+
+        # If our local election is non-null, then we can compute how many terms we're skipping and print a log
+        # message indicating as such. We can also be sure to skip the current election.
+        current_term_number: int = 0
+        if self.current_election is not None:
+            current_term_number = self.current_election.term_number
+            num_terms_to_skip: int = notification.election_term - current_term_number
+            self.logger.debug(f"Fast-forwarding from election term {current_term_number} to election term "
+                          f"{notification.election_term}. Skipping ahead by {num_terms_to_skip} term number(s).")
+
+            # If our local election hasn't been started yet, then start it.
+            if self._current_election.is_inactive:
+                self._current_election.start()
+
+            # If we've not finished the voting phase in our current election, then do that next.
+            if not self._current_election.voting_phase_completed_successfully:
+                self._current_election.set_election_vote_completed(notification.proposer_id)
+
+            # Now designate the current election as complete (skipped, specifically, in this case).
+            self._current_election.set_execution_complete(fast_forwarding = True)
+            self._num_elections_skipped += 1
+        else:
+            self.logger.debug(f"Fast-forwarding from election term {current_term_number} to election term "
+                              f"{notification.election_term}. Skipping ahead by {notification.election_term} term number(s).")
+
+        # Define a function to create and skip elections so we can skip ahead as far as is necessary.
+        def create_and_skip_election(election_term: int = -1, set_election_complete: bool = True):
+            """
+            Create an election for the specified term, optionally skipping it immediately.
+            """
+            if election_term < 0:
+                raise ValueError(f"Invalid term number while creating and skipping election: {election_term}")
+
+            self.logger.debug(f"Creating election {election_term} during fast-forward. set_election_complete={set_election_complete}.")
+
+            # Create a new election.
+            election: Election = Election(election_term, self._num_replicas, self._election_timeout_seconds)
+            self._elections[election_term] = election
+
+            # Elections contain a sort of (singly-)linked list between themselves.
+            # We're performing an append-to-end-of-linked-list operation here.
+            self._last_completed_election = self._current_election
+            self._current_election = election
+
+            # Start the election.
+            self._current_election.start()
+
+            # We know who won the voting in the election for which we received the "execute complete" notification --
+            # it's whichever node proposed/appended the "execution complete" notification.
+            self._current_election.set_election_vote_completed(notification.proposer_id)
+
+            if set_election_complete:
+                self.current_election.set_execution_complete(fast_forwarding = True)
+                self._num_elections_skipped += 1
+
+        # Create and entirely skip any elections between the current one and the election right before the
+        # one for which we just received the "execution complete" notification.
+        #
+        # So, if we're on term 5, and we just got an "execute complete" notification for term 10, then we'll create
+        # and immediately skip elections 6, 7, 8, and 9. We'll handle the election for term 10 after the for-loop.
+        for term_number in range(current_term_number + 1, notification.election_term):
+            create_and_skip_election(term_number, set_election_complete=True)
+
+        # We call this one more time outside the for-loop so that we can pass set_election_complete as False instead of True.
+        create_and_skip_election(notification.election_term, set_election_complete=False)
+
+        self._leader_id = notification.proposer_id
+        self._leader_term = notification.election_term
+
     def __handle_execution_complete_notification(self, notification: ExecutionCompleteNotification) -> bytes:
         """
         Handles a ExecutionCompleteNotification indicating that code execution has completed for a particular election.
@@ -490,39 +586,40 @@ class RaftLog(object):
                 return GoNilError()
 
         with self._election_lock:
+            fast_forwarding: bool = False
+
             if self.current_election is None:
-                self.logger.error(f"We just received a notification that code execution has completed for "
+                self.logger.warning(f"We just received a notification that code execution has completed for "
                                   f"election {notification.election_term}; however, our current election is nil...")
-                raise ValueError(f"We just received a notification that code execution has completed for "
-                                 f"election {notification.election_term}; however, our current election is nil...")
+                self.__fast_forward_to_future_election(notification)
+                fast_forwarding = True
 
             if self.current_election.term_number != notification.election_term:
-                # TODO: We could handle this by just assuming that we haven't received messages from our Local Daemon.
-                #       We could abandon the current election and whatnot. We probably should, since otherwise we are
-                #       just going to be stuck in this out-of-sync state.
-                self.logger.error(f"Current election is for term {self.current_election.term_number}, "
-                                  f"but we just received a notification that election {notification.election_term} has finished...")
-                raise InconsistentTermNumberError(
-                    f"Inconsistent term numbers. Current election: {self.current_election.term_number}. "
-                    f"Notification: {notification.election_term}.", election=self.current_election, value=notification)
+                self.logger.warning(f"Current election is for term {self.current_election.term_number}, "
+                                    f"but we just received a notification that election {notification.election_term} has finished...")
+
+                if notification.election_term > self.current_election.term_number:
+                    self.__fast_forward_to_future_election(notification)
+                    fast_forwarding = True
+                else:
+                    raise InconsistentTermNumberError(
+                        f"Inconsistent term numbers. Current election: {self.current_election.term_number}. "
+                        f"Notification: {notification.election_term}.", election=self.current_election,
+                        value=notification)
 
             if self.leader_id != notification.proposer_id:
                 self.logger.error(f"Current leader ID is {self.leader_id}, but we just received an "
                                   f"\"election finished\" notification with proposer ID = {notification.proposer_id}...")
-                raise ValueError(f"Inconsistent leader ID and \"election finished\" notification proposer ID. "
+                raise ValueError(f"Inconsistency detected between our local leader ID and the proposer ID of \"election finished\" notification. "
                                  f"Leader ID: {self.leader_id}. \"Election finished\" notification proposer ID: "
                                  f"{notification.proposer_id}.")
 
-            self.current_election.set_execution_complete()
+            self.current_election.set_execution_complete(fast_forwarding = fast_forwarding, fast_forwarded_winner_id = notification.proposer_id)
+
+            if fast_forwarding:
+                self._num_elections_skipped += 1
 
         return GoNilError()
-
-    @property
-    def created_first_election(self):
-        """
-        :return: return a boolean indicating whether we've created the first election yet.
-        """
-        return self.__created_first_election
 
     def __buffer_proposal(self, proposal: LeaderElectionProposal, received_at: float = time.time()) -> bytes:
         # Save the proposal in the "buffered proposals" mapping.
@@ -1752,6 +1849,22 @@ class RaftLog(object):
         # await future 
         # res = future.result()
         self.logger.info("Result of RemoveNode: %s" % str(res))
+
+    @property
+    def num_elections_skipped(self) -> int:
+        """
+        The number of elections we've skipped.
+
+        Returns: The number of elections we've skipped.
+        """
+        return self._num_elections_skipped
+
+    @property
+    def created_first_election(self) -> bool:
+        """
+        :return: return a boolean indicating whether we've created the first election yet.
+        """
+        return self.__created_first_election
 
     @property
     def needs_to_catch_up(self) -> bool:

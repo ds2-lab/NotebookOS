@@ -2245,7 +2245,7 @@ class DistributedKernel(IPythonKernel):
                                    hdfs_hostname=self.hdfs_namenode_hostname,
                                    should_read_data_from_hdfs=self.should_read_data_from_hdfs,
                                    # data_directory = self.hdfs_data_directory,
-                                   peer_addrs=peer_addresses,
+                                   peer_addresses=peer_addresses,
                                    peer_ids=ids,
                                    join=self.smr_join,
                                    debug_port=self.debug_port,

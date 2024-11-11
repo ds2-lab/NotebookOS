@@ -17,6 +17,11 @@ ExecutionCompleted = "execution_completed"
 # an election successfully finishes executing the user-submitted code.
 AllReplicasProposedYield = "all_proposed_yield"
 
+# Indicates that the election was simply skipped locally.
+# This occurs if messages from our Local Daemon are dropped or delayed long enough for the election
+# to be orchestrated by our peers, without our participation.
+ElectionSkipped = "election_skipped"
+
 
 class ElectionState(IntEnum):
     INACTIVE = 1  # Created, but not yet started.
@@ -24,6 +29,7 @@ class ElectionState(IntEnum):
     VOTE_COMPLETE = 3  # The voting phase finished successfully, as in some node proposed 'LEAD' and was elected.
     FAILED = 4  # Failed, as in all nodes proposed 'YIELD', and the election has not been restarted yet.
     EXECUTION_COMPLETE = 5  # The execution of the associated user-submitted code has completed for this election.
+    SKIPPED = 6  # Skipped because messages from our Local Daemon were delayed, and the election was orchestrated to its conclusion by our peers.
 
 
 class Election(object):
@@ -355,6 +361,10 @@ class Election(object):
         return self._election_state == ElectionState.ACTIVE
 
     @property
+    def was_skipped(self) -> bool:
+        return self._election_state == ElectionState.SKIPPED
+
+    @property
     def is_inactive(self) -> bool:
         return self._election_state == ElectionState.INACTIVE
 
@@ -638,9 +648,15 @@ class Election(object):
 
         await self.election_finished_event.wait()
 
-    def set_execution_complete(self):
+    def set_execution_complete(self, fast_forwarding: bool = False, fast_forwarded_winner_id: int = -1):
         """
         Records that the elected leader of this election successfully finished executing the user-submitted code.
+
+        If fast_forwarding is True, then we don't care if the election_finished_condition_waiter_loop instance
+        variable is None, as we're presumably just creating and completing elections one-after-another in order to
+        catch up to whatever term number was specified in a "execution complete" notification that we just received
+        "out of the blue" (i.e., before receiving the "execute_request" or "yield_request" for that election from
+        our Local Daemon). If we're fast-forwarding, then we expect the condition to be None.
 
         State Transition:
         VOTE_COMPLETE --> EXECUTION_COMPLETE
@@ -649,11 +665,19 @@ class Election(object):
             raise ValueError(f"election for term {self.term_number} is not in voting-complete state "
                              f"(current state: {self._election_state}); cannot transition to execution-complete state")
 
-        self._election_state = ElectionState.EXECUTION_COMPLETE
+        if fast_forwarding:
+            self.logger.warning(f"Skipping election {self.term_number}.")
 
-        self.completion_reason = ExecutionCompleted
+            self._election_state = ElectionState.SKIPPED
+            self._winner_id = fast_forwarded_winner_id
+            self.completion_reason = ElectionSkipped
+        else:
+            self._election_state = ElectionState.EXECUTION_COMPLETE
+            self.completion_reason = ExecutionCompleted
 
-        if self.election_finished_condition_waiter_loop is None:
+        # As mentioned above, we only care if the condition is None if fast_forwarding is False.
+        # If we're fast-forwarding, then we expect the condition to be None.
+        if self.election_finished_condition_waiter_loop is None and not fast_forwarding:
             raise ValueError("Reference to EventLoop on which someone should be waiting on the "
                              "Election Finished condition is None...")
 
@@ -667,12 +691,15 @@ class Election(object):
         # then we can call self.election_finished_event.set() directly.
         #
         # Otherwise, we have to use call_soon_threadsafe to call the self.election_finished_event.set method.
-        if current_event_loop != self.election_finished_condition_waiter_loop:
+        if self.election_finished_condition_waiter_loop is not None and current_event_loop != self.election_finished_condition_waiter_loop:
             self.election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_event.set)
-        else:
+        elif self.election_finished_event is not None:
             self.election_finished_event.set()
 
-        self.logger.debug(f"The code execution phase for election {self.term_number} has completed.")
+        if fast_forwarding:
+            self.logger.debug(f"Election {self.term_number} has successfully been skipped.")
+        else:
+            self.logger.debug(f"The code execution phase for election {self.term_number} has completed.")
 
     def set_election_vote_completed(self, winner_id: int):
         """
