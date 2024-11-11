@@ -1246,6 +1246,13 @@ class DistributedKernel(IPythonKernel):
         reply_content = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
 
+        # Schedule task to wait until this current election either fails (due to all replicas yielding)
+        # or until the leader finishes executing the user-submitted code.
+        current_election: Election = self.synchronizer.current_election
+        term_number: int = current_election.term_number
+
+        metadata["election_metadata"] = current_election.get_election_metadata()
+
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
@@ -1261,11 +1268,6 @@ class DistributedKernel(IPythonKernel):
 
         if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
             self._abort_queues()
-
-        # Schedule task to wait until this current election either fails (due to all replicas yielding)
-        # or until the leader finishes executing the user-submitted code.
-        current_election: Election = self.synchronizer.current_election
-        term_number: int = current_election.term_number
         task: asyncio.Task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(term_number))
 
         # We need to save a reference to this task to prevent it from being garbage collected mid-execution.

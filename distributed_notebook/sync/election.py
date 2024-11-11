@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import logging
 import time
-from enum import Enum
+from enum import IntEnum
 from typing import Dict, Optional, List, MutableMapping, Any
 
 from .log import LeaderElectionVote, LeaderElectionProposal
@@ -18,13 +18,12 @@ ExecutionCompleted = "execution_completed"
 AllReplicasProposedYield = "all_proposed_yield"
 
 
-class ElectionState(Enum):
+class ElectionState(IntEnum):
     INACTIVE = 1  # Created, but not yet started.
     ACTIVE = 2  # Active, in progress
     VOTE_COMPLETE = 3  # The voting phase finished successfully, as in some node proposed 'LEAD' and was elected.
     FAILED = 4  # Failed, as in all nodes proposed 'YIELD', and the election has not been restarted yet.
     EXECUTION_COMPLETE = 5  # The execution of the associated user-submitted code has completed for this election.
-
 
 class Election(object):
     """
@@ -166,6 +165,34 @@ class Election(object):
                 f"NumProposalsDiscarded={self.num_discarded_vote_proposals},"
                 f"NumProposalsAccepted={self.num_proposals_accepted}"
                 f"]")
+
+    def get_election_metadata(self)->dict[str, any]:
+        """
+        Returns: a dictionary of JSON-serializable metadata to be embedded in the "execute_reply" message
+        that is sent back to the client following the conclusion of this election.
+        """
+
+        # Update "test_get_election_metadata" unit test if any fields are added/removed.
+        metadata: dict[str, any] = {
+            "term_number": self._term_number,
+            "election_state": self._election_state,
+            "election_state_string": self._election_state.value,
+            "winner_selected": self._winner_selected,
+            "winner_id": self.winner_id,
+            "proposals": self._proposals,
+            "vote_proposals": self._vote_proposals,
+            "discarded_proposals": self._discarded_proposals,
+            "num_discarded_proposals": self._num_discarded_proposals,
+            "num_discarded_vote_proposals": self._num_discarded_vote_proposals,
+            "num_lead_proposals_received": self._num_lead_proposals_received,
+            "num_yield_proposals_received": self._num_yield_proposals_received,
+            "num_restarts": self._num_restarts,
+            "current_attempt_number": self._current_attempt_number,
+            "completion_reason": self.completion_reason,
+            "missing_proposals": list(self._missing_proposals),
+        }
+
+        return metadata
 
     def __getstate__(self):
         """

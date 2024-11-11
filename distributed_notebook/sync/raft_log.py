@@ -15,7 +15,7 @@ import debugpy
 
 from .checkpoint import Checkpoint
 from .election import Election
-from .errors import print_trace, SyncError, GoError, GoNilError
+from .errors import print_trace, SyncError, GoError, GoNilError, InconsistentTermNumberError
 from .file_log import FileLog
 from .future import Future
 from .log import SynchronizedValue, LeaderElectionVote, BufferedLeaderElectionVote, LeaderElectionProposal, \
@@ -497,10 +497,14 @@ class RaftLog(object):
                                  f"election {notification.election_term}; however, our current election is nil...")
 
             if self.current_election.term_number != notification.election_term:
+                # TODO: We could handle this by just assuming that we haven't received messages from our Local Daemon.
+                #       We could abandon the current election and whatnot. We probably should, since otherwise we are
+                #       just going to be stuck in this out-of-sync state.
                 self.logger.error(f"Current election is for term {self.current_election.term_number}, "
                                   f"but we just received a notification that election {notification.election_term} has finished...")
-                raise ValueError(f"Inconsistent term numbers. Current election: {self.current_election.term_number}. "
-                                 f"Notification: {notification.election_term}.")
+                raise InconsistentTermNumberError(
+                    f"Inconsistent term numbers. Current election: {self.current_election.term_number}. "
+                    f"Notification: {notification.election_term}.", election=self.current_election, value=notification)
 
             if self.leader_id != notification.proposer_id:
                 self.logger.error(f"Current leader ID is {self.leader_id}, but we just received an "
@@ -763,7 +767,7 @@ class RaftLog(object):
 
         return ret
 
-    def __deserialize_goObject(self, goObject, value_size: int, value_id: str) -> SynchronizedValue:
+    def __deserialize_go_object(self, goObject) -> SynchronizedValue:
         reader = readCloser(ReadCloser(handle=goObject))
 
         try:
@@ -789,7 +793,7 @@ class RaftLog(object):
         if isinstance(goObject, SynchronizedValue):
             committedValue: SynchronizedValue = goObject
         else:
-            committedValue: SynchronizedValue = self.__deserialize_goObject(goObject, value_size, value_id)
+            committedValue: SynchronizedValue = self.__deserialize_go_object(goObject)
 
         if self.needs_to_catch_up:
             assert self._catchup_value is not None
@@ -932,7 +936,8 @@ class RaftLog(object):
             try:
                 loaded_value: Optional[SynchronizedValue] = self._load_value(synchronizedValue)
             except Exception as ex:
-                self.logger.error(f"Unexpected exception encountered while loading SynchronizedValue {synchronizedValue}: {ex}")
+                self.logger.error(
+                    f"Unexpected exception encountered while loading SynchronizedValue {synchronizedValue}: {ex}")
                 return GoError(ex)
 
             if loaded_value.id in restored_sync_values:
