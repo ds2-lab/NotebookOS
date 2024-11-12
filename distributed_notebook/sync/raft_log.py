@@ -167,6 +167,7 @@ class RaftLog(object):
 
         # Mapping from term number to the election associated with that term. 
         self._elections: Dict[int, Election] = {}
+        self._elections_by_jupyter_message_id: Dict[str, Election] = {}
         # The current/active election.
         self._current_election: Optional[Election] = None
         # The most recent election to have been completed successfully.
@@ -519,7 +520,7 @@ class RaftLog(object):
                               f"{notification.election_term}. Skipping ahead by {notification.election_term} term number(s).")
 
         # Define a function to create and skip elections so we can skip ahead as far as is necessary.
-        def create_and_skip_election(election_term: int = -1, set_election_complete: bool = True):
+        def create_and_skip_election(election_term: int = -1, set_election_complete: bool = True, jupyter_message_id: str = ""):
             """
             Create an election for the specified term, optionally skipping it immediately.
             """
@@ -527,11 +528,15 @@ class RaftLog(object):
                 raise ValueError(f"Invalid term number while creating and skipping election: {election_term}")
 
             self.logger.debug(
-                f"Creating election {election_term} during fast-forward. set_election_complete={set_election_complete}.")
+                f"Creating election {election_term} during fast-forward. "
+                f"set_election_complete={set_election_complete}, jupyter_message_id={jupyter_message_id}")
 
             # Create a new election.
-            election: Election = Election(election_term, self._num_replicas, "N/A", timeout_seconds = self._election_timeout_sec)
+            election: Election = Election(election_term, self._num_replicas, jupyter_message_id, timeout_seconds = self._election_timeout_sec)
             self._elections[election_term] = election
+
+            if jupyter_message_id != "":
+                self._elections_by_jupyter_message_id[jupyter_message_id] = election
 
             # Elections contain a sort of (singly-)linked list between themselves.
             # We're performing an append-to-end-of-linked-list operation here.
@@ -559,7 +564,7 @@ class RaftLog(object):
             create_and_skip_election(term_number, set_election_complete=True)
 
         # We call this one more time outside the for-loop so that we can pass set_election_complete as False instead of True.
-        create_and_skip_election(notification.election_term, set_election_complete=False)
+        create_and_skip_election(notification.election_term, set_election_complete=False, jupyter_message_id =notification.jupyter_message_id)
 
         self._leader_id = notification.proposer_id
         self._leader_term = notification.election_term
@@ -1338,6 +1343,7 @@ class RaftLog(object):
         This function exists so that we can mock proposals of LeaderElectionProposal objects specifically,
         rather than mocking the more generic _serialize_and_append_value method.
         """
+        self.logger.debug(f"Serializing and appending election vote: {vote}")
         await self._serialize_and_append_value(vote)
 
     async def _append_election_proposal(
@@ -1350,6 +1356,7 @@ class RaftLog(object):
         This function exists so that we can mock proposals of LeaderElectionProposal objects specifically,
         rather than mocking the more generic _serialize_and_append_value method.
         """
+        self.logger.debug(f"Serializing and appending election proposal: {proposal}")
         await self._serialize_and_append_value(proposal)
 
     async def _append_catchup_value(self, value: SynchronizedValue):
@@ -1365,9 +1372,10 @@ class RaftLog(object):
         This function exists so that we can mock proposals of ExecutionCompleteNotification objects specifically,
         rather than mocking the more generic _serialize_and_append_value method.
         """
+        self.logger.debug(f"Serializing and appending \"catch-up\" value: {value}")
         await self._serialize_and_append_value(value)
 
-    async def _append_execution_end_notification(self, value: ExecutionCompleteNotification):
+    async def _append_execution_end_notification(self, notification: ExecutionCompleteNotification):
         """
         Explicitly propose and append (to the synchronized Raft log) a ExecutionCompleteNotification object to
         signify that we've finished executing code in the current election.
@@ -1375,7 +1383,8 @@ class RaftLog(object):
         This function exists so that we can mock proposals of ExecutionCompleteNotification objects specifically,
         rather than mocking the more generic _serialize_and_append_value method.
         """
-        await self._serialize_and_append_value(value)
+        self.logger.debug(f"Serializing and appending \"execution complete\" notification: {notification}")
+        await self._serialize_and_append_value(notification)
 
     async def _serialize_and_append_value(self, value: SynchronizedValue):
         """
@@ -1416,6 +1425,7 @@ class RaftLog(object):
         # Create a new election. We don't have an existing election to restart/use.
         election: Election = Election(term_number, self._num_replicas, jupyter_message_id, timeout_seconds = self._election_timeout_sec)
         self._elections[term_number] = election
+        self._elections_by_jupyter_message_id[jupyter_message_id] = election
 
         # Elections contain a sort of (singly-)linked list between themselves.
         # We're performing an append-to-end-of-linked-list operation here.
@@ -1540,16 +1550,31 @@ class RaftLog(object):
             # If the current election field is None, then we've never had an election before, and
             # so we create the election and return.
             if self._current_election is None:
+                self.logger.debug(f"Current election is None. Creating new election for term {target_term_number} "
+                                  f"with Jupyter message ID = {jupyter_message_id}.")
                 self._create_new_election(term_number=target_term_number, jupyter_message_id=jupyter_message_id)
                 return True
 
             if target_term_number == self.current_election_term and (self._current_election.is_active or self._current_election.is_in_failed_state):
+                self.logger.debug(f"Validating or restarting existing/current election for term {target_term_number}.")
                 self._validate_or_restart_current_election(term_number=target_term_number,
                                                            jupyter_message_id=jupyter_message_id,
                                                            expected_attempt_number=expected_attempt_number)
                 return True
 
             target_election: Optional[Election] = self._elections.get(target_term_number)
+            if target_election is None:
+                self.logger.debug(f"Could not find existing election with term number {target_term_number}. "
+                                  f"Trying to look up by jupyter message ID of {jupyter_message_id}.")
+                target_election = self._elections_by_jupyter_message_id.get(jupyter_message_id)
+
+                if target_election is None:
+                    self.logger.debug(f"Failed to find existing election associated with Jupyter message ID {jupyter_message_id}.")
+                else:
+                    self.logger.debug(f"Found existing election associated with Jupyter message ID {jupyter_message_id}. "
+                                      f"Election has term {target_election.term_number} and is in state "
+                                      f"{target_election.election_state.get_name()}.")
+
             if target_election is not None:
                 if target_election.was_skipped:
                     self.logger.warning(f"Requested preparation of election {target_term_number}; "
@@ -1591,6 +1616,8 @@ class RaftLog(object):
         assert self._current_election is not None  # The current election field must be non-null.
 
         if not should_handle_election:
+            # Erase the proposed value we created for this term.
+            self._proposed_values.pop(target_term_number)
             raise DiscardMessageError(f"Message received by replica {self._node_id} of kernel {self._kernel_id}"
                                       f"for election {target_term_number} should be discarded, "
                                       f"as that election was skipped.")
@@ -2238,7 +2265,8 @@ class RaftLog(object):
         self.logger.debug("RaftLog %d is proposing to lead term %d." % (self._node_id, term_number))
 
         # Create a 'LEAD' proposal.
-        proposal: LeaderElectionProposal = await self._create_election_proposal(ElectionProposalKey.LEAD, term_number,
+        proposal: LeaderElectionProposal = await self._create_election_proposal(ElectionProposalKey.LEAD,
+                                                                                term_number,
                                                                                 jupyter_message_id)
 
         # Orchestrate/carry out the election.

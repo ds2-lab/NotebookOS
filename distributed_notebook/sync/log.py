@@ -203,6 +203,10 @@ class ExecutionCompleteNotification(SynchronizedValue):
 
         self._jupyter_message_id: str = jupyter_message_id
 
+    @property
+    def jupyter_message_id(self):
+        return self._jupyter_message_id
+
 
 class LeaderElectionProposal(SynchronizedValue):
     """
@@ -218,6 +222,10 @@ class LeaderElectionProposal(SynchronizedValue):
         super().__init__(None, None, **kwargs)
 
         self._jupyter_message_id: str = jupyter_message_id
+
+    @property
+    def jupyter_message_id(self):
+        return self._jupyter_message_id
 
     @property
     def is_lead(self) -> bool:
@@ -247,6 +255,10 @@ class BufferedLeaderElectionProposal(object):
         self._proposal: LeaderElectionProposal = proposal
         self._received_at: float = received_at
         self._jupyter_message_id: str = jupyter_message_id
+
+    @property
+    def jupyter_message_id(self):
+        return self._jupyter_message_id
 
     @property
     def proposal(self) -> LeaderElectionProposal:
@@ -284,6 +296,10 @@ class LeaderElectionVote(SynchronizedValue):
         # The SMR node ID of the node being voted for
         self._proposed_node_id: int = proposed_node_id
         self._jupyter_message_id: str = jupyter_message_id
+
+    @property
+    def jupyter_message_id(self):
+        return self._jupyter_message_id
 
     def get_metadata(self) -> dict[str, any]:
         """
@@ -332,6 +348,10 @@ class BufferedLeaderElectionVote(object):
         self._vote: LeaderElectionVote = vote
         self._received_at: float = received_at
         self._jupyter_message_id = jupyter_message_id
+
+    @property
+    def jupyter_message_id(self):
+        return self._jupyter_message_id
 
     @property
     def vote(self) -> LeaderElectionVote:

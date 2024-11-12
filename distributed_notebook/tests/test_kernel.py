@@ -6,6 +6,7 @@ import sys
 from collections import OrderedDict
 from typing import Optional
 from unittest import mock
+import uuid
 
 import pytest
 import pytest_asyncio
@@ -212,15 +213,14 @@ def assert_election_success(election: Election):
     assert election.completion_reason == ExecutionCompleted
 
 
-@pytest.fixture
-def execution_request():
+def create_execution_request(kernel_id:str = DefaultKernelId, message_id: str = "70d1412e-f937-416e-99fe-a48eed8dc8a4"):
     return {
         "header": {
-            "msg_id": "70d1412e-f937-416e-99fe-a48eed8dc8a4",
+            "msg_id": message_id,
             "msg_type": "execute_request",
             "date": DefaultDate,
-            "username": DefaultKernelId,
-            "session": DefaultKernelId,
+            "username": kernel_id,
+            "session": kernel_id,
             "version": 1
         },
         "parent_header": {},
@@ -230,6 +230,10 @@ def execution_request():
         },
         "metadata": {}
     }
+
+@pytest.fixture
+def execution_request():
+    return create_execution_request()
 
 
 async def mocked_sync(synchronizer: Synchronizer,
@@ -864,6 +868,9 @@ async def test_lead_multiple_elections_in_a_row(kernel: DistributedKernel, execu
         assert synchronizer.execution_count == term
 
         await asyncio.sleep(1)
+
+        # Generate a new "execute_request".
+        execution_request = create_execution_request(message_id = str(uuid.uuid4()))
 
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
@@ -2990,6 +2997,7 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
     assert raftLog.num_elections_skipped == 1
 
     # Now let's see what happens upon receiving the "execute_request" for election #1 late.
+    # It should just be discarded/ignored.
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
 
     execute_request_task: asyncio.Task[any] = loop.create_task(kernel.execute_request(None, [], execution_request))
@@ -3002,6 +3010,9 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
 
     assert execute_request_task.done()
 
+    # Now let's try to submit a NEW "execute_request" message.
+    new_execute_request: dict[str, any] = create_execution_request(message_id = "f12bbdb3-a8df-493b-94e4-18b3110f0160")
+
     election_proposal_future: asyncio.Future[LeaderElectionProposal] = loop.create_future()
 
     async def mocked_append_election_proposal(*args, **kwargs):
@@ -3012,46 +3023,46 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
     with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_append_election_proposal",
                            mocked_append_election_proposal):
         execute_request_task: asyncio.Task[any] = loop.create_task(
-            kernel.execute_request(None, [], execution_request))
+            kernel.execute_request(None, [], new_execute_request))
         proposedValue: LeaderElectionProposal = await election_proposal_future
 
-    # Check that the kernel proposed a LEAD value.
-    assert (proposedValue.key == str(ElectionProposalKey.LEAD))
-    assert (proposedValue.proposer_id == kernel.smr_node_id)
-    assert (proposedValue.election_term == 2)
+        # Check that the kernel proposed a LEAD value.
+        assert (proposedValue.key == str(ElectionProposalKey.LEAD))
+        assert (proposedValue.proposer_id == kernel.smr_node_id)
+        assert (proposedValue.election_term == 2)
 
-    # Check that the kernel created an election, but that no proposals were received yet.
-    election: Election = kernel.synclog.get_election(1)
-    assert (election is not None)
-    assert (election.term_number == 2)
-    assert (election.num_proposals_received == 0)
-    assert (raftLog._future_io_loop is not None)
-    assert (raftLog.election_decision_future is not None)
-    assert (raftLog._leading_future is not None)
-    assert (raftLog.election_decision_future.done() == False)
-    assert (raftLog._leading_future.done() == False)
+        # Check that the kernel created an election, but that no proposals were received yet.
+        election: Election = kernel.synclog.get_election(2)
+        assert (election is not None)
+        assert (election.term_number == 2)
+        assert (election.num_proposals_received == 0)
+        assert (raftLog._future_io_loop is not None)
+        assert (raftLog.election_decision_future is not None)
+        assert (raftLog._leading_future is not None)
+        assert (raftLog.election_decision_future.done() == False)
+        assert (raftLog._leading_future.done() == False)
 
-    # We've proposed it, so the RaftLog knows about it, even though the value hasn't been committed yet.
-    assert (len(raftLog._proposed_values) == 1)
+        # We've proposed it, so the RaftLog knows about it, even though the value hasn't been committed yet.
+        assert (len(raftLog._proposed_values) == 1)
 
-    innerMap: OrderedDict[int, LeaderElectionProposal] = raftLog._proposed_values.get(election.term_number)
-    assert (innerMap is not None)
-    assert (len(innerMap) == 1)
-    assert (1 in innerMap)
-    assert (innerMap[1] == proposedValue)
+        innerMap: OrderedDict[int, LeaderElectionProposal] = raftLog._proposed_values.get(election.term_number)
+        assert (innerMap is not None)
+        assert (len(innerMap) == 1)
+        assert (1 in innerMap)
+        assert (innerMap[1] == proposedValue)
 
-    leading_future: asyncio.Future[int] = raftLog._leading_future
-    assert leading_future is not None
-    assert leading_future.done() == False
+        leading_future: asyncio.Future[int] = raftLog._leading_future
+        assert leading_future is not None
+        assert leading_future.done() == False
 
-    propose(raftLog, proposedValue, election, execute_request_task)
+        propose(raftLog, proposedValue, election, execute_request_task)
 
-    # Call "value committed" handler again for the 2nd proposal.
-    leadProposalFromNode2: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.LEAD),
-                                                                           proposer_id=2,
-                                                                           election_term=2,
-                                                                           attempt_number=1)
-    propose(raftLog, leadProposalFromNode2, election, execute_request_task)
+        # Call "value committed" handler again for the 2nd proposal.
+        leadProposalFromNode2: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.LEAD),
+                                                                               proposer_id=2,
+                                                                               election_term=2,
+                                                                               attempt_number=1)
+        propose(raftLog, leadProposalFromNode2, election, execute_request_task)
 
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
@@ -3072,7 +3083,6 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
     with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
                              _append_election_vote=mocked_append_election_vote,
                              _append_execution_end_notification=mocked_raftlog_append_execution_end_notification):
-
         assert raftLog._append_execution_end_notification is not None
         assert kernel.synclog._append_execution_end_notification is not None
         assert kernel.synchronizer._synclog._append_execution_end_notification is not None
@@ -3120,7 +3130,7 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
         assert leading_future.done() == True
         assert raftLog.leader_id == 1
         assert raftLog.leader_term == 2
-        wait, leading = raftLog._is_leading(1)
+        wait, leading = raftLog._is_leading(2)
         assert wait == False
         assert leading == True
 
@@ -3176,5 +3186,5 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
     unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
     unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
-    assert spoofed_session.num_send_calls == 5
-    assert len(spoofed_session.message_types_sent) == 5
+    assert spoofed_session.num_send_calls == 7
+    assert len(spoofed_session.message_types_sent) == 7
