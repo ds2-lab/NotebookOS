@@ -31,6 +31,21 @@ class ElectionState(IntEnum):
     EXECUTION_COMPLETE = 5  # The execution of the associated user-submitted code has completed for this election.
     SKIPPED = 6  # Skipped because messages from our Local Daemon were delayed, and the election was orchestrated to its conclusion by our peers.
 
+    def get_name(self)->str:
+        if self.value == 1:
+            return "INACTIVE"
+        elif self.value == 2:
+            return "ACTIVE"
+        elif self.value == 3:
+            return "VOTE_COMPLETE"
+        elif self.value == 4:
+            return "FAILED"
+        elif self.value == 5:
+            return "EXECUTION_COMPLETE"
+        elif self.value == 6:
+            return "SKIPPED"
+        else:
+            raise ValueError(f"Unknown or unsupported Enum value for ElectionState: {self.value}")
 
 class Election(object):
     """

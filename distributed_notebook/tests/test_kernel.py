@@ -672,7 +672,7 @@ async def test_lead_multiple_elections_in_a_row(kernel: DistributedKernel, execu
     assert (raftLog is not None)
 
     kernel.election_timeout_seconds = 0.5
-    raftLog._election_timeout_sec = 0.5 
+    raftLog._election_timeout_sec = 0.5
 
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
 

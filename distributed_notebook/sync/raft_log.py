@@ -1485,7 +1485,7 @@ class RaftLog(object):
             assert self._current_election.is_in_failed_state
             self.logger.debug(
                 f"Restarting existing election {self._current_election.term_number}. "
-                f"Current state: {self._current_election.election_state.value}.")
+                f"Current state: {self._current_election.election_state.get_name()}.")
             self._current_election.restart(latest_attempt_number=expected_attempt_number)
 
     def _handle_unexpected_election(
@@ -1507,10 +1507,10 @@ class RaftLog(object):
         else:
             self.logger.error(
                 f"Current election with term number {self._current_election.term_number} is in unexpected state "
-                f"{self._current_election.election_state.name}.")
+                f"{self._current_election.election_state.get_name()}.")
             raise ValueError(
                 f"Current election (term number: {self._current_election.term_number}) is in unexpected state: "
-                f"{self._current_election.election_state.name}")
+                f"{self._current_election.election_state.get_name()}")
 
     async def _prepare_election(
             self,
@@ -1543,6 +1543,12 @@ class RaftLog(object):
                 self._create_new_election(term_number=target_term_number, jupyter_message_id=jupyter_message_id)
                 return True
 
+            if target_term_number == self.current_election_term and (self._current_election.is_active or self._current_election.is_in_failed_state):
+                self._validate_or_restart_current_election(term_number=target_term_number,
+                                                           jupyter_message_id=jupyter_message_id,
+                                                           expected_attempt_number=expected_attempt_number)
+                return True
+
             target_election: Optional[Election] = self._elections.get(target_term_number)
             if target_election is not None:
                 if target_election.was_skipped:
@@ -1551,16 +1557,13 @@ class RaftLog(object):
                     return False
                 else:
                     raise ValueError(f"Attempting to prepare election {target_term_number}, "
-                                     f"which is in state {target_election.election_state.value}. "
+                                     f"which is in state {target_election.election_state.get_name()}. "
                                      f"Current local election {self.current_election_term} "
-                                     f"is in state {self._current_election.election_state.value}.")
+                                     f"is in state {self._current_election.election_state.get_name()}.")
 
-            if self._current_election.is_active or self._current_election.is_in_failed_state:
-                self._validate_or_restart_current_election(term_number=target_term_number,
-                                                           jupyter_message_id=jupyter_message_id,
-                                                           expected_attempt_number=expected_attempt_number)
-            elif not self._current_election.voting_phase_completed_successfully and not self._current_election.code_execution_completed_successfully:
+            if not self._current_election.voting_phase_completed_successfully and not self._current_election.code_execution_completed_successfully:
                 self._handle_unexpected_election(term_number=target_term_number)
+                return False # The above method raises an exception, so we won't actually return.
 
             self._create_new_election(term_number=target_term_number, jupyter_message_id=jupyter_message_id)
             return True

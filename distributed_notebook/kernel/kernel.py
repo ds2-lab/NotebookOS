@@ -1384,16 +1384,16 @@ class DistributedKernel(IPythonKernel):
             if not first_election.is_in_failed_state:
                 self.log.error(f"Current term number is 0, and we've created the first election, "
                                f"but the election is not in failed state. Instead, it is in state "
-                               f"{first_election.election_state.value}.")
+                               f"{first_election.election_state.get_name()}.")
                 self.report_error(
                     "Election State Error",
                     f"Replica {self.smr_node_id} of kernel {self.kernel_id} has current term number of 0, "
                     f"and it has created the first election, but the election is not in failed state. "
-                    f"Instead, it is in state {first_election.election_state.value}."
+                    f"Instead, it is in state {first_election.election_state.get_name()}."
                 )
                 raise ValueError(f"Current term number is 0, and we've created the first election, "
                                  f"but the election is not in failed state. Instead, it is in state "
-                                 f"{first_election.election_state.value}.")
+                                 f"{first_election.election_state.get_name()}.")
 
             term_number = 1
 
