@@ -312,6 +312,10 @@ func (c *KernelReplicaClient) WaitForPendingExecuteRequests() {
 	for c.pendingExecuteRequestIds.Len() > 0 {
 		c.log.Debug("[gid=%d] Replica %d of kernel %s currently has %d outstanding \"execute_request\" message(s). "+
 			"Waiting for \"execute_reply\" responses to be received.", gid, c.replicaId, c.id, c.pendingExecuteRequestIds.Len())
+		c.pendingExecuteRequestIds.Range(func(s string, message *types.JupyterMessage) (contd bool) {
+			c.log.Debug("Waiting on pending \"execute_request\" message \"%s\".", s)
+			return true
+		})
 		c.pendingExecuteRequestCond.Wait()
 	}
 }

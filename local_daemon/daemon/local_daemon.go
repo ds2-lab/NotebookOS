@@ -2516,8 +2516,22 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 	var msgErr jupyter.MessageError
 	err := msg.JupyterFrames.DecodeContent(&msgErr)
 	if err != nil {
-		d.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v", kernelClient.ReplicaID(), kernelClient.ID(), err)
-		return err
+		errorMessage := fmt.Sprintf("Failed to unmarshal shell message received from replica %d of kernel %s because: %v",
+			kernelClient.ReplicaID(), kernelClient.ID(), err)
+		d.log.Error(errorMessage)
+
+		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
+			Title:            "Failed to Unmarshal Shell \"execute_reply\" Message",
+			Message:          errorMessage,
+			NotificationType: 0,
+			Panicked:         false,
+		})
+
+		// Still need to release the pending message...
+		// kernelClient.ReceivedExecuteReply(msg)
+
+		// return err
 	}
 
 	var (
@@ -3296,7 +3310,7 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *jupyter.
 	}
 
 	d.log.Debug("Added snapshot to Jupyter \"%s\" message: %s", jMsg.JupyterMessageType(), snapshot.String())
-	d.log.Debug("Framed after adding snapshot: %s", jMsg.JupyterFrames.String())
+	d.log.Debug("Message frames after adding snapshot: %s", jMsg.JupyterFrames.String())
 	return snapshot, nil
 }
 
