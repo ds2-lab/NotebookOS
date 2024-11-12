@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import logging
 import time
-from enum import Enum
+from enum import IntEnum, Enum
 from typing import Dict, Optional, List, MutableMapping, Any
 
 from .log import LeaderElectionVote, LeaderElectionProposal
@@ -17,14 +17,35 @@ ExecutionCompleted = "execution_completed"
 # an election successfully finishes executing the user-submitted code.
 AllReplicasProposedYield = "all_proposed_yield"
 
+# Indicates that the election was simply skipped locally.
+# This occurs if messages from our Local Daemon are dropped or delayed long enough for the election
+# to be orchestrated by our peers, without our participation.
+ElectionSkipped = "election_skipped"
 
-class ElectionState(Enum):
+
+class ElectionState(IntEnum):
     INACTIVE = 1  # Created, but not yet started.
     ACTIVE = 2  # Active, in progress
     VOTE_COMPLETE = 3  # The voting phase finished successfully, as in some node proposed 'LEAD' and was elected.
     FAILED = 4  # Failed, as in all nodes proposed 'YIELD', and the election has not been restarted yet.
     EXECUTION_COMPLETE = 5  # The execution of the associated user-submitted code has completed for this election.
+    SKIPPED = 6  # Skipped because messages from our Local Daemon were delayed, and the election was orchestrated to its conclusion by our peers.
 
+    def get_name(self)->str:
+        if self.value == 1:
+            return "INACTIVE"
+        elif self.value == 2:
+            return "ACTIVE"
+        elif self.value == 3:
+            return "VOTE_COMPLETE"
+        elif self.value == 4:
+            return "FAILED"
+        elif self.value == 5:
+            return "EXECUTION_COMPLETE"
+        elif self.value == 6:
+            return "SKIPPED"
+        else:
+            raise ValueError(f"Unknown or unsupported Enum value for ElectionState: {self.value}")
 
 class Election(object):
     """
@@ -35,14 +56,18 @@ class Election(object):
             self,
             term_number: int,
             num_replicas: int,
+            jupyter_message_id: str,
+            timeout_seconds: float = 10,
     ):
+        self._jupyter_message_id: str = jupyter_message_id
+
         # The term number of the election.
         # Each election has a unique term number.
         # Term numbers monotonically increase over time.
-        self._term_number = term_number
+        self._term_number: int = term_number
 
         # The number of replicas in the SMR cluster, so we know how many proposals to expect.
-        self._num_replicas = num_replicas
+        self._num_replicas: int = num_replicas
 
         # Mapping from SMR Node ID to the LeaderElectionProposal that it proposed during this election term.
         self._proposals: Dict[int, LeaderElectionProposal] = {}
@@ -111,7 +136,7 @@ class Election(object):
         self._discard_after: float = -1
 
         # The duration of time that must elapse before we start discarding new proposals.
-        self._timeout: float = -1
+        self._timeout: float = timeout_seconds
 
         # The SMR node ID Of the winner of the last election.
         # A value of -1 indicates that the winner has not been chosen/identified yet.
@@ -166,6 +191,34 @@ class Election(object):
                 f"NumProposalsAccepted={self.num_proposals_accepted}"
                 f"]")
 
+    def get_election_metadata(self) -> dict[str, any]:
+        """
+        Returns: a dictionary of JSON-serializable metadata to be embedded in the "execute_reply" message
+        that is sent back to the client following the conclusion of this election.
+        """
+
+        # Update "test_get_election_metadata" unit test if any fields are added/removed.
+        metadata: dict[str, any] = {
+            "term_number": self._term_number,
+            "election_state": self._election_state,
+            "election_state_string": self._election_state.value,
+            "winner_selected": self._winner_selected,
+            "winner_id": self.winner_id,
+            "proposals": {k: v.get_metadata() for k, v in self._proposals.items()},
+            "vote_proposals": {k: v.get_metadata() for k, v in self._vote_proposals.items()},
+            "discarded_proposals": {k: v.get_metadata() for k, v in self._discarded_proposals.items()},
+            "num_discarded_proposals": self._num_discarded_proposals,
+            "num_discarded_vote_proposals": self._num_discarded_vote_proposals,
+            "num_lead_proposals_received": self._num_lead_proposals_received,
+            "num_yield_proposals_received": self._num_yield_proposals_received,
+            "num_restarts": self._num_restarts,
+            "current_attempt_number": self._current_attempt_number,
+            "completion_reason": self.completion_reason,
+            "missing_proposals": list(self._missing_proposals),
+        }
+
+        return metadata
+
     def __getstate__(self):
         """
         Override so that we can omit any non-pickle-able fields, such as the `_pick_and_propose_winner_future` field.
@@ -174,10 +227,11 @@ class Election(object):
         del state["_pick_and_propose_winner_future"]
         del state["election_finished_event"]
         del state["election_finished_condition_waiter_loop"]
+        del state["logger"]
 
-        self.logger.debug(f"Returning state dictionary containing {len(state)} entries:")
+        self.logger.debug(f"Election {self.term_number} returning state dictionary containing {len(state)} entries:")
         for key, val in state.items():
-            self.logger.debug(f"\"{key}\": {type(val).__name__}")
+            self.logger.debug(f"\"{key}\" ({type(val).__name__}): {val}")
 
         return state
 
@@ -193,6 +247,27 @@ class Election(object):
             getattr(self, "election_finished_condition_waiter_loop")
         except AttributeError:
             self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    @property
+    def jupyter_message_id(self) -> str:
+        """
+        Return the Jupyter message ID from the "execute_request" (or "yield_request") associated with this election.
+        """
+        return self._jupyter_message_id
+
+    @property
+    def num_lead_proposals_received(self) -> int:
+        """
+        The number of 'LEAD' proposals received.
+        """
+        return self._num_lead_proposals_received
+
+    @property
+    def num_yield_proposals_received(self) -> int:
+        """
+        The number of 'YIELD' proposals received.
+        """
+        return self._num_yield_proposals_received
 
     @property
     def num_discarded_vote_proposals(self) -> int:
@@ -311,6 +386,10 @@ class Election(object):
         return self._election_state == ElectionState.ACTIVE
 
     @property
+    def was_skipped(self) -> bool:
+        return self._election_state == ElectionState.SKIPPED
+
+    @property
     def is_inactive(self) -> bool:
         return self._election_state == ElectionState.INACTIVE
 
@@ -408,7 +487,6 @@ class Election(object):
                 if prop == self._first_lead_proposal:
                     self._first_lead_proposal = None
                     self._discard_after = -1
-                    self._timeout = -1
 
                     # Cancel this future if it exists. (It should probably exist, if the first 'LEAD' proposal also exists.)
                     if self._pick_and_propose_winner_future is not None:
@@ -536,7 +614,7 @@ class Election(object):
         self._proposals.clear()
         self._vote_proposals.clear()
 
-    def election_failed(self):
+    def set_election_failed(self):
         """
         Record that the election has failed. This transitions the election to the FAILED state.
 
@@ -595,9 +673,15 @@ class Election(object):
 
         await self.election_finished_event.wait()
 
-    def set_execution_complete(self):
+    def set_execution_complete(self, fast_forwarding: bool = False, fast_forwarded_winner_id: int = -1):
         """
         Records that the elected leader of this election successfully finished executing the user-submitted code.
+
+        If fast_forwarding is True, then we don't care if the election_finished_condition_waiter_loop instance
+        variable is None, as we're presumably just creating and completing elections one-after-another in order to
+        catch up to whatever term number was specified in a "execution complete" notification that we just received
+        "out of the blue" (i.e., before receiving the "execute_request" or "yield_request" for that election from
+        our Local Daemon). If we're fast-forwarding, then we expect the condition to be None.
 
         State Transition:
         VOTE_COMPLETE --> EXECUTION_COMPLETE
@@ -606,11 +690,19 @@ class Election(object):
             raise ValueError(f"election for term {self.term_number} is not in voting-complete state "
                              f"(current state: {self._election_state}); cannot transition to execution-complete state")
 
-        self._election_state = ElectionState.EXECUTION_COMPLETE
+        if fast_forwarding:
+            self.logger.warning(f"Skipping election {self.term_number}.")
 
-        self.completion_reason = ExecutionCompleted
+            self._election_state = ElectionState.SKIPPED
+            self._winner_id = fast_forwarded_winner_id
+            self.completion_reason = ElectionSkipped
+        else:
+            self._election_state = ElectionState.EXECUTION_COMPLETE
+            self.completion_reason = ExecutionCompleted
 
-        if self.election_finished_condition_waiter_loop is None:
+        # As mentioned above, we only care if the condition is None if fast_forwarding is False.
+        # If we're fast-forwarding, then we expect the condition to be None.
+        if self.election_finished_condition_waiter_loop is None and not fast_forwarding:
             raise ValueError("Reference to EventLoop on which someone should be waiting on the "
                              "Election Finished condition is None...")
 
@@ -624,12 +716,15 @@ class Election(object):
         # then we can call self.election_finished_event.set() directly.
         #
         # Otherwise, we have to use call_soon_threadsafe to call the self.election_finished_event.set method.
-        if current_event_loop != self.election_finished_condition_waiter_loop:
+        if self.election_finished_condition_waiter_loop is not None and current_event_loop != self.election_finished_condition_waiter_loop:
             self.election_finished_condition_waiter_loop.call_soon_threadsafe(self.election_finished_event.set)
-        else:
+        elif self.election_finished_event is not None:
             self.election_finished_event.set()
 
-        self.logger.debug(f"The code execution phase for election {self.term_number} has completed.")
+        if fast_forwarding:
+            self.logger.debug(f"Election {self.term_number} has successfully been skipped.")
+        else:
+            self.logger.debug(f"The code execution phase for election {self.term_number} has completed.")
 
     def set_election_vote_completed(self, winner_id: int):
         """
@@ -640,7 +735,7 @@ class Election(object):
         """
         if self._election_state != ElectionState.ACTIVE:
             raise ValueError(f"election for term {self.term_number} is not active "
-                             f"(current state: {self._election_state}); cannot complete election")
+                             f"(current state: {self._election_state.get_name()}); cannot complete election")
 
         self._winner_id = winner_id
         self._election_state = ElectionState.VOTE_COMPLETE
@@ -900,7 +995,7 @@ class Election(object):
                 self._expecting_failure = True
                 self.logger.warning(
                     "Received third 'YIELD' proposal. Election is doomed to fail! Automatically transitioning to the 'FAILED' state.")
-                self.election_failed()
+                self.set_election_failed()
                 self._auto_failed = True
 
         self.logger.debug(
@@ -911,7 +1006,6 @@ class Election(object):
         # If so, we'll return a future that can be used to ensure we make a decision after the timeout period, even if we've not received all other proposals.
         if self._first_lead_proposal is None and proposal.is_lead:
             self._first_lead_proposal = proposal
-            self._timeout = 10
             self._discard_after = time.time() + self._timeout
 
             self._pick_and_propose_winner_future = asyncio.Future(loop=future_io_loop)

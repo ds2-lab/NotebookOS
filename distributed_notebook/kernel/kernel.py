@@ -9,18 +9,18 @@ import math
 import os
 import signal
 import socket
-import concurrent
 import sys
 import time
 import traceback
 import typing as t
 import uuid
+from concurrent import futures
 from hmac import compare_digest
 from multiprocessing import Process, Queue
 from threading import Lock
 from typing import Union, Optional, Dict, Any
-from concurrent import futures
 
+import debugpy
 import grpc
 import zmq
 from ipykernel import jsonutil
@@ -28,7 +28,7 @@ from ipykernel.ipkernel import IPythonKernel
 from jupyter_client.jsonutil import extract_dates
 from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
-from traitlets import List, Integer, Unicode, Bool, Undefined
+from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
 from .execution_yield_error import ExecutionYieldError
 from .util import extract_header
@@ -37,6 +37,7 @@ from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
 from ..logging import ColoredLogFormatter
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.election import Election
+from ..sync.errors import DiscardMessageError
 
 
 # from traitlets.traitlets import Set
@@ -72,9 +73,10 @@ signal.signal(signal.SIGABRT, sigabrt_handler)
 signal.signal(signal.SIGINT, sigint_handler)
 signal.signal(signal.SIGTERM, sigterm_handler)
 
-DeploymentMode_Kubernetes: str = "kubernetes"
-DeploymentMode_Docker: str = "docker"
-DeploymentMode_Local: str = "local"
+DeploymentMode_Kubernetes: str = "KUBERNETES"
+DeploymentMode_DockerSwarm: str = "DOCKER-SWARM"
+DeploymentMode_DockerCompose: str = "DOCKER-COMPOSE"
+DeploymentMode_Local: str = "LOCAL"
 
 SMR_LEAD_TASK: str = "smr_lead_task"
 
@@ -144,7 +146,7 @@ class DistributedKernel(IPythonKernel):
 
     local_tcp_server_port = Integer(5555, help="Port for local TCP server.").tag(config=True)
 
-    persistent_id: Union[str, Unicode] = Unicode(help="""Persistent id for storage""").tag(config=True)
+    persistent_id: Union[str, Unicode] = Unicode(help="""Persistent id for storage""", allow_none=True).tag(config=True)
 
     pod_name: Union[str, Unicode] = Unicode(
         help="""Kubernetes name of the Pod encapsulating this distributed kernel replica""").tag(config=False)
@@ -163,6 +165,10 @@ class DistributedKernel(IPythonKernel):
     # data_directory: Union[str, Unicode] = Unicode(help="""The etcd-raft WAL/data directory. This will always be equal to the empty string unless we're created during a migration operation.""").tag(config=False)
 
     debug_port: Integer = Integer(8464, help="""Port of debug HTTP server.""").tag(config=False)
+
+    election_timeout_seconds: Float = Float(10.0,
+                                            help="""How long to wait to receive other proposals before making a decision (if we can, like if we have at least received one LEAD proposal). """).tag(
+        config=True)
 
     implementation = 'Distributed Python 3'
     implementation_version = '0.2'
@@ -222,61 +228,6 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
 
-        # Prometheus metrics.
-        self.num_yield_proposals: Counter = Counter(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_yield_proposals_total",
-            documentation="Total number of 'YIELD' proposals.")
-        self.num_lead_proposals: Counter = Counter(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_lead_proposals_total",
-            documentation="Total number of 'LEAD' proposals.")
-        self.hdfs_read_latency_milliseconds: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_hdfs_read_latency_milliseconds",
-            documentation="The amount of time the kernel spent reading data from HDFS.",
-            unit="milliseconds",
-            buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
-        self.hdfs_write_latency_milliseconds: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_hdfs_write_latency_milliseconds",
-            documentation="The amount of time the kernel spent writing data to HDFS.",
-            unit="milliseconds",
-            buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
-        self.registration_time_milliseconds: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_registration_latency_milliseconds",
-            documentation="The latency of a new kernel replica registering with its Local Daemon.",
-            unit="milliseconds",
-            buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
-        self.execute_request_latency: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="kernel_execute_request_latency_milliseconds",
-            documentation="Execution time of the kernels' execute_request method in milliseconds.",
-            unit="milliseconds",
-            buckets=[10, 100, 250, 500, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
-                     6e9])
-        self.checkpointing_write_latency_milliseconds: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="checkpointing_write_latency_milliseconds",
-            documentation="Latency in milliseconds of writing checkpointed state to external storage.",
-            unit="milliseconds",
-            buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
-        self.checkpointing_read_latency_milliseconds: Histogram = Histogram(
-            namespace="distributed_cluster",
-            subsystem="jupyter",
-            name="checkpointing_read_latency_milliseconds",
-            documentation="Latency in milliseconds of reading checkpointed state from external storage.",
-            unit="milliseconds",
-            buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8, 6e9])
-
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
         self.log.setLevel(logging.DEBUG)
@@ -284,6 +235,89 @@ class DistributedKernel(IPythonKernel):
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
+
+        if "local_tcp_server_port" in kwargs:
+            self.log.warning(f"Overriding default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
+                             f"value from keyword arguments: {kwargs['local_tcp_server_port']}")
+            self.local_tcp_server_port = kwargs["local_tcp_server_port"]
+
+        self.prometheus_enabled: bool = True
+        prometheus_port_str: str | int = os.environ.get("PROMETHEUS_METRICS_PORT", 8089)
+
+        try:
+            self.prometheus_port: int = int(prometheus_port_str)
+        except ValueError as ex:
+            self.log.error(
+                f"Failed to parse \"PROMETHEUS_METRICS_PORT\" environment variable value \"{prometheus_port_str}\": {ex}")
+            self.log.error("Will use default prometheus metrics port of 8089.")
+            self.prometheus_port: int = 8089
+
+        if self.prometheus_port > 0:
+            self.log.debug(f"Starting Prometheus HTTP server on port {self.prometheus_port}.")
+            self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
+        else:
+            self.log.warning(f"Prometheus Port is configured as {self.prometheus_port}. "
+                             f"Skipping creation of Prometheus HTTP server.")
+            self.prometheus_enabled = False
+
+        if self.prometheus_enabled:
+            # Prometheus metrics.
+            self.num_yield_proposals: Counter = Counter(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_yield_proposals_total",
+                documentation="Total number of 'YIELD' proposals.")
+            self.num_lead_proposals: Counter = Counter(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_lead_proposals_total",
+                documentation="Total number of 'LEAD' proposals.")
+            self.hdfs_read_latency_milliseconds: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_hdfs_read_latency_milliseconds",
+                documentation="The amount of time the kernel spent reading data from HDFS.",
+                unit="milliseconds",
+                buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+            self.hdfs_write_latency_milliseconds: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_hdfs_write_latency_milliseconds",
+                documentation="The amount of time the kernel spent writing data to HDFS.",
+                unit="milliseconds",
+                buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+            self.registration_time_milliseconds: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_registration_latency_milliseconds",
+                documentation="The latency of a new kernel replica registering with its Local Daemon.",
+                unit="milliseconds",
+                buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+            self.execute_request_latency: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="kernel_execute_request_latency_milliseconds",
+                documentation="Execution time of the kernels' execute_request method in milliseconds.",
+                unit="milliseconds",
+                buckets=[10, 100, 250, 500, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7,
+                         6e8,
+                         6e9])
+            self.checkpointing_write_latency_milliseconds: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="checkpointing_write_latency_milliseconds",
+                documentation="Latency in milliseconds of writing checkpointed state to external storage.",
+                unit="milliseconds",
+                buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
+                         6e9])
+            self.checkpointing_read_latency_milliseconds: Histogram = Histogram(
+                namespace="distributed_cluster",
+                subsystem="jupyter",
+                name="checkpointing_read_latency_milliseconds",
+                documentation="Latency in milliseconds of reading checkpointed state from external storage.",
+                unit="milliseconds",
+                buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
+                         6e9])
 
         from ipykernel.debugger import _is_debugpy_available
         if _is_debugpy_available:
@@ -298,6 +332,10 @@ class DistributedKernel(IPythonKernel):
         self.run_training_code_mutex: Lock = Lock()
         self.run_training_code: bool = False
 
+        # If true, then we create a debugpy server.
+        self.debugpy_enabled: bool = False
+        self.debugpy_wait_for_client: bool = False
+
         # The time at which we were created (i.e., the time at which the DistributedKernel object was instantiated)
         self.created_at: float = time.time()
 
@@ -307,6 +345,16 @@ class DistributedKernel(IPythonKernel):
         # By default, we do not want to remove the replica from the raft SMR cluster on shutdown.
         # We'll only do this if we're explicitly told to do so.
         self.remove_on_shutdown = False
+
+        # asyncio.Event objects for initialization steps
+        self.init_raft_log_event: asyncio.Event = asyncio.Event()
+        self.init_synchronizer_event: asyncio.Event = asyncio.Event()
+        self.start_synchronizer_event: asyncio.Event = asyncio.Event()
+        self.init_persistent_store_event: asyncio.Event = asyncio.Event()
+
+        # How long to wait to receive other proposals before making a decision (if we can, like if we
+        # have at least received one LEAD proposal).
+        self.election_timeout_seconds: float = 10
 
         # Single node mode
         if not isinstance(self.smr_nodes, list) or len(self.smr_nodes) == 0:
@@ -327,7 +375,7 @@ class DistributedKernel(IPythonKernel):
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
 
-        self.deployment_mode: str = os.environ.get("DEPLOYMENT_MODE", "local")
+        self.deployment_mode: str = os.environ.get("DEPLOYMENT_MODE", DeploymentMode_Local)
         if len(self.deployment_mode) == 0:
             raise ValueError("Could not determine deployment mode.")
         else:
@@ -340,7 +388,7 @@ class DistributedKernel(IPythonKernel):
             self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
             self.docker_container_id: str = "N/A"
-        elif self.deployment_mode == DeploymentMode_Docker:
+        elif self.deployment_mode == DeploymentMode_DockerSwarm or self.deployment_mode == DeploymentMode_DockerCompose:
             self.docker_container_id: str = socket.gethostname()
             self.pod_name = os.environ.get("POD_NAME", default=self.docker_container_id)
             self.node_name = os.environ.get("NODE_NAME", default="DockerNode")
@@ -419,7 +467,10 @@ class DistributedKernel(IPythonKernel):
             registration_start: float = time.time()
             self.register_with_local_daemon(connection_info, session_id)
             registration_duration: float = (time.time() - registration_start) * 1.0e3
-            self.registration_time_milliseconds.observe(registration_duration)
+
+            if self.prometheus_enabled:
+                self.registration_time_milliseconds.observe(registration_duration)
+
             self.__init_tcp_server()
         else:
             self.log.warning("Skipping registration step with local daemon.")
@@ -427,26 +478,21 @@ class DistributedKernel(IPythonKernel):
             self.smr_node_id: int = int(os.environ.get("smr_node_id", "1"))
             self.hostname = os.environ.get("hostname", str(socket.gethostname()))
             self.num_replicas: int = 1
-            self.persistent_id = os.environ.get("persistent_id", str(uuid.uuid4()))
             self.smr_nodes_map = {1: str(self.hostname) + ":" + str(self.smr_port)}
             self.debug_port: int = int(os.environ.get("debug_port", "31000"))
+
+            if "persistent_id" in kwargs:
+                self.persistent_id: str = kwargs["persistent_id"]
+            else:
+                self.persistent_id = os.environ.get("persistent_id", str(uuid.uuid4()))
+
             # self.start()
 
-        # TODO: Remove this after finish debugging the ACK stuff.
-        # self.auth = None
-
-        prometheus_port_str: str | int = os.environ.get("PROMETHEUS_METRICS_PORT", 8089)
-
-        try:
-            self.prometheus_port: int = int(prometheus_port_str)
-        except ValueError as ex:
-            self.log.error(f"Failed to parse \"PROMETHEUS_METRICS_PORT\" environment variable value \"{prometheus_port_str}\": {ex}")
-            self.log.error("Will use default prometheus metrics port of 8089.")
-            self.prometheus_port: int = 8089
-
-        self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
-
     def __init_tcp_server(self):
+        if self.local_tcp_server_port < 0:
+            self.log.warning(f"Local TCP server port set to {self.local_tcp_server_port}. Returning immediately.")
+            return
+
         self.local_tcp_server_queue: Queue = Queue()
         self.local_tcp_server_process: Process = Process(target=self.server_process,
                                                          args=(self.local_tcp_server_queue,))
@@ -458,6 +504,11 @@ class DistributedKernel(IPythonKernel):
     # TODO(Ben): Is this actually being used right now?
     def server_process(self, queue: Queue):
         faulthandler.enable()
+
+        if self.local_tcp_server_port < 0:
+            self.log.warning(f"[Local TCP Server] Port set to {self.local_tcp_server_port}. Returning immediately.")
+            return
+
         self.log.info(f"[Local TCP Server] Starting. Port: {self.local_tcp_server_port}")
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.bind(('127.0.0.1', self.local_tcp_server_port))
@@ -624,28 +675,30 @@ class DistributedKernel(IPythonKernel):
 
         self.daemon_registration_socket.close()
 
+    def init_debugpy(self):
+        if not self.debugpy_enabled or self.debug_port < 0:
+            self.log.debug("debugpy server is disabled or server port is set to a negative number.")
+            return
+
+        debugpy_port: int = self.debug_port + 1000
+        self.log.debug(f"Starting debugpy server on 0.0.0.0:{debugpy_port}")
+        debugpy.listen(("0.0.0.0", debugpy_port))
+
+        if self.debugpy_wait_for_client:
+            self.log.debug("Waiting for debugpy client to connect before proceeding.")
+            debugpy.wait_for_client()
+            self.log.debug("Debugpy client has connected. We may now proceed.")
+            debugpy.breakpoint()
+            self.log.debug("Should have broken on the previous line!")
+
     def start(self):
         self.log.info("DistributedKernel is starting. Persistent ID = \"%s\"" % self.persistent_id)
 
         super().start()
 
-        # debugpy_port:int = self.debug_port + 1000
-        # self.log.debug(f"Starting debugpy server on 0.0.0.0:{debugpy_port}")
-        # debugpy.listen(("0.0.0.0", debugpy_port))
+        self.init_debugpy()
 
-        # We use 'should_read_data_from_hdfs' as the criteria here, as only replicas that are started after
-        # a migration will have should_read_data_from_hdfs equal to True.
-        # if self.should_read_data_from_hdfs:
-        # self.log.debug("Sleeping for 15 seconds to allow for attaching of a debugger.")
-        # time.sleep(15)
-        # self.log.debug("Done sleeping.")
-        # self.log.debug("Waiting for debugpy client to connect before proceeding.")
-        # debugpy.wait_for_client()
-        # self.log.debug("Debugpy client has connected. We may now proceed.")
-        # debugpy.breakpoint()
-        # self.log.debug("Should have broken on the previous line!")
-
-        if self.persistent_id != Undefined and self.persistent_id != "":
+        if self.persistent_id != Undefined and self.persistent_id != "" and self.persistent_id is not None:
             assert isinstance(self.persistent_id, str)
 
             def init_persistent_store_done_callback(f: futures.Future):
@@ -656,12 +709,15 @@ class DistributedKernel(IPythonKernel):
                     self.log.error("Initialization of Persistent Store on-start has been cancelled...")
 
                     try:
-                        self.log.error(f"Initialization of Persistent Store apparently raised an exception: {f.exception()}")
-                    except: # noqa
+                        self.log.error(
+                            f"Initialization of Persistent Store apparently raised an exception: {f.exception()}")
+                    except:  # noqa
                         self.log.error(f"No exception associated with cancelled initialization of Persistent Store.")
                 elif f.done():
                     self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
 
+            self.log.debug(
+                f"Scheduling creation of init_persistent_store_on_start_future. Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}")
             self.init_persistent_store_on_start_future: futures.Future = asyncio.run_coroutine_threadsafe(
                 self.init_persistent_store_on_start(self.persistent_id), self.control_thread.io_loop.asyncio_loop)
             self.init_persistent_store_on_start_future.add_done_callback(init_persistent_store_done_callback)
@@ -1024,11 +1080,11 @@ class DistributedKernel(IPythonKernel):
     async def init_persistent_store_with_persistent_id(self, persistent_id: str) -> str:
         """Initialize persistent store with persistent id. Return store path."""
         assert isinstance(self.storage_base, str)
-        store = os.path.join(self.storage_base, "store", persistent_id)
+        store_path = os.path.join(self.storage_base, "store", persistent_id)
 
         self.log.info(
             "Initializing the Persistent Store with Persistent ID: \"%s\"" % persistent_id)
-        self.log.debug("Full path of Persistent Store: \"%s\"" % store)
+        self.log.debug("Full path of Persistent Store: \"%s\"" % store_path)
         self.log.debug("Disabling `outstream` now.")
 
         sys.stderr.flush()
@@ -1041,12 +1097,45 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Overriding shell hooks now.")
 
         # Override shell hooks
-        await self.override_shell(store)
+        await self.override_shell()
 
         self.log.debug("Overrode shell hooks.")
 
-        # Notify the client that the SMR is ready.
-        # await self.smr_ready() 
+        # Get synclog for synchronization.
+        sync_log: RaftLog = await self.get_synclog(store_path)
+
+        self.init_raft_log_event.set()
+
+        # Start the synchronizer.
+        # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
+        self.synchronizer = Synchronizer(
+            sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO, node_id = self.smr_node_id)  # type: ignore
+
+        sync_log.set_fast_forward_executions_handler(self.synchronizer.fast_forward_execution_count)
+
+        self.init_synchronizer_event.set()
+
+        self.synchronizer.start()
+
+        self.start_synchronizer_event.set()
+
+        sys.stderr.flush()
+        sys.stdout.flush()
+
+        # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be started before we attempt to catch-up.
+        # The catch-up process involves appending a new value and waiting until it gets committed. This cannot be done until the RaftLog has started.
+        # And the RaftLog is started by the Synchronizer, within Synchronizer::start.
+        if self.synclog.needs_to_catch_up:
+            self.log.debug("RaftLog will need to propose a \"catch up\" value "
+                           "so that it can tell when it has caught up with its peers.")
+            await self.synclog.catchup_with_peers()
+
+        # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
+        await self.smr_ready()
+
+        self.log.info("Started Synchronizer.")
+
+        self.init_persistent_store_event.set()
 
         # TODO(Ben): Should this go before the "smr_ready" send?
         # It probably shouldn't matter -- or if it does, then more synchronization is required.
@@ -1054,7 +1143,7 @@ class DistributedKernel(IPythonKernel):
             self.log.debug("Calling `notify_all` on the Persistent Store condition variable.")
             self.persistent_store_cv.notify_all()
 
-        return store
+        return store_path
 
     async def check_persistent_store(self):
         """Check if persistent store is ready. If initializing, wait. The future return True if ready."""
@@ -1101,6 +1190,7 @@ class DistributedKernel(IPythonKernel):
         self._associate_new_top_level_threads_with(parent_header)
 
         if not self.session:
+            self.log.error("We don't have a Session. Cannot process 'execute_request'.")
             return
         try:
             content = parent["content"]
@@ -1160,6 +1250,13 @@ class DistributedKernel(IPythonKernel):
         reply_content = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
 
+        # Schedule task to wait until this current election either fails (due to all replicas yielding)
+        # or until the leader finishes executing the user-submitted code.
+        current_election: Election = self.synchronizer.current_election
+        term_number: int = current_election.term_number
+
+        metadata["election_metadata"] = current_election.get_election_metadata()
+
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
@@ -1171,15 +1268,10 @@ class DistributedKernel(IPythonKernel):
             buffers=buffers,
         )
 
-        self.log.debug("%s", reply_msg)
+        self.log.debug(f"Sent \"execute_reply\" message: {reply_msg}")
 
         if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
             self._abort_queues()
-
-        # Schedule task to wait until this current election either fails (due to all replicas yielding)
-        # or until the leader finishes executing the user-submitted code.
-        current_election: Election = self.synchronizer.current_election
-        term_number: int = current_election.term_number
         task: asyncio.Task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(term_number))
 
         # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
@@ -1202,7 +1294,9 @@ class DistributedKernel(IPythonKernel):
 
         end_time: float = time.time()
         duration_ms: float = (end_time - start_time) * 1.0e3
-        self.execute_request_latency.observe(duration_ms)
+
+        if self.prometheus_enabled:
+            self.execute_request_latency.observe(duration_ms)
 
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
         """ Respond to a 'ping kernel' Control request. """
@@ -1271,6 +1365,37 @@ class DistributedKernel(IPythonKernel):
         # If we've not yet created/held the first election, then we have nothing to check. 
         if not self.synchronizer.created_first_election():
             return
+
+        # If the term number is 0, but we've created the first election, then the first election must have failed.
+        if term_number == 0:
+            first_election: Election = self.synchronizer.get_election(1)
+
+            if first_election is None:
+                self.log.error("We've supposedly created the first election, "
+                               "but cannot find election with term number equal to 1.")
+                self.report_error(
+                    "Cannot Find First Election",
+                    f"Replica {self.smr_node_id} of kernel {self.kernel_id} thinks it created the first "
+                    "election, but it cannot find any record of that election..."
+                )
+                raise ValueError("We've supposedly created the first election, "
+                                 "but cannot find election with term number equal to 1.")
+
+            if not first_election.is_in_failed_state:
+                self.log.error(f"Current term number is 0, and we've created the first election, "
+                               f"but the election is not in failed state. Instead, it is in state "
+                               f"{first_election.election_state.get_name()}.")
+                self.report_error(
+                    "Election State Error",
+                    f"Replica {self.smr_node_id} of kernel {self.kernel_id} has current term number of 0, "
+                    f"and it has created the first election, but the election is not in failed state. "
+                    f"Instead, it is in state {first_election.election_state.get_name()}."
+                )
+                raise ValueError(f"Current term number is 0, and we've created the first election, "
+                                 f"but the election is not in failed state. Instead, it is in state "
+                                 f"{first_election.election_state.get_name()}.")
+
+            term_number = 1
 
         try:
             if not self.synchronizer.is_election_finished(term_number):
@@ -1364,12 +1489,14 @@ class DistributedKernel(IPythonKernel):
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchronized.
             # type: ignore
-            self.shell.execution_count = await self.synchronizer.ready(current_term_number, False)
+            self.shell.execution_count = await self.synchronizer.ready(parent_header["msg_id"], current_term_number,
+                                                                       False)
 
             self.log.info(f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
                           f"shell.execution_count: {self.shell.execution_count}")
 
-            self.num_yield_proposals.inc()
+            if self.prometheus_enabled:
+                self.num_yield_proposals.inc()
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
@@ -1457,6 +1584,8 @@ class DistributedKernel(IPythonKernel):
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
+            cell_meta:
+            cell_id:
             code (str): The code to be executed.
             silent (bool): Whether to display output.
             store_history (bool, optional): Whether to record this code in history and increase the execution count. If silent is True, this is implicitly False. Defaults to True.
@@ -1491,6 +1620,7 @@ class DistributedKernel(IPythonKernel):
         # Check the status of the last election before proceeding.
         await self.check_previous_election()
 
+        term_number: int = -1
         try:
             self.toggle_outstream(override=True, enable=False)
 
@@ -1498,7 +1628,7 @@ class DistributedKernel(IPythonKernel):
             if not await self.check_persistent_store():
                 raise err_wait_persistent_store
 
-            term_number: int = self.synchronizer.execution_count + 1
+            term_number = self.synchronizer.execution_count + 1
             self.log.info(f"Calling synchronizer.ready({term_number}) now with LEAD proposal.")
 
             # Pass 'True' for the 'lead' parameter to propose LEAD.
@@ -1508,12 +1638,14 @@ class DistributedKernel(IPythonKernel):
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchronized.
             # type: ignore
-            self.shell.execution_count = await self.synchronizer.ready(term_number, True)
+            self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id, term_number,
+                                                                       True)
 
             self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
                           f"shell.execution_count: {self.shell.execution_count}")
 
-            self.num_lead_proposals.inc()
+            if self.prometheus_enabled:
+                self.num_lead_proposals.inc()
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
@@ -1574,32 +1706,49 @@ class DistributedKernel(IPythonKernel):
             assert self.execution_count is not None
             self.log.info("Synchronized. End of sync execution: {}".format(term_number))
 
-            # Add task to the set. This creates a strong reference.
-            # We don't await this here so that we can go ahead and send the shell response back.
-            # We'll notify our peer replicas in time.
-            #
-            # TODO: Is this okay, or should we await this before returning?
-            task: asyncio.Task = asyncio.create_task(self.synchronizer.notify_execution_complete(term_number))
-
-            # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
-            # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
-            self.background_tasks.add(task)
-
-            # To prevent keeping references to finished tasks forever, we make each task remove its own reference
-            # from the "background tasks" set after completion.
-            task.add_done_callback(self.background_tasks.discard)
+            await self.schedule_notify_execution_complete(term_number)
 
             return reply_content
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
 
             return gen_error_response(eye)
+        except DiscardMessageError as dme:
+            self.log.warning(f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
+                             f"as election for term {term_number} was skipped: {dme}")
+
+            self.send_notification(
+                notification_title=f"Election {term_number} Skipped by Replica {self.smr_node_id} of Kernel {self.kernel_id}",
+                notification_body=f"\"execute_request\" message {self.next_execute_request_msg_id} was dropped by replica "
+                                  f"{self.smr_node_id} of kernel {self.kernel_id}, as associated election (term={term_number}) was skipped.",
+                notification_type=WarningNotification,
+            )
+
+            return gen_error_response(dme)
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
 
             self.report_error("Execution Error", str(e))
 
             return gen_error_response(e)
+
+    async def schedule_notify_execution_complete(self, term_number: int):
+        """
+        Schedule the proposal of an "execution complete" notification for this election.
+        """
+
+        # Add task to the set. This creates a strong reference.
+        # We don't await this here so that we can go ahead and send the shell response back.
+        # We'll notify our peer replicas in time.
+        task: asyncio.Task = asyncio.create_task(self.synchronizer.notify_execution_complete(term_number))
+
+        # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
+        # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
+        self.background_tasks.add(task)
+
+        # To prevent keeping references to finished tasks forever, we make each task remove its own reference
+        # from the "background tasks" set after completion.
+        task.add_done_callback(self.background_tasks.discard)
 
     async def do_shutdown(self, restart):
         self.log.info("Replica %d of kernel %s is shutting down.",
@@ -1678,6 +1827,7 @@ class DistributedKernel(IPythonKernel):
             "Closing the SyncLog (and therefore the etcd-Raft process) now.")
         try:
             self.synclog.close()
+
             self.synclog_stopped = True
             self.log.info(
                 "SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
@@ -1702,7 +1852,8 @@ class DistributedKernel(IPythonKernel):
             write_start: float = time.time()
             waldir_path: str = await self.synclog.write_data_dir_to_hdfs()
             write_duration_ms: float = (time.time() - write_start) * 1.0e3
-            self.hdfs_write_latency_milliseconds.observe(write_duration_ms)
+            if self.prometheus_enabled:
+                self.hdfs_write_latency_milliseconds.observe(write_duration_ms)
             self.log.info(
                 "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % waldir_path)
         except Exception as e:
@@ -1787,7 +1938,7 @@ class DistributedKernel(IPythonKernel):
         sent_message = self.session.send(stream, "prepare_to_migrate_reply", content, parent, ident=ident,
                                          buffers=buffers)
 
-        self.log.debug("Sent 'prepare_to_migrate_reply message: %s" % str(sent_message))
+        self.log.debug("Sent 'prepare_to_migrate_reply' message: %s" % str(sent_message))
 
     async def do_add_replica(self, replicaId, addr) -> tuple[dict, bool]:
         """Add a replica to the SMR cluster"""
@@ -2023,10 +2174,12 @@ class DistributedKernel(IPythonKernel):
         """
         Send an error report/message to our local daemon via our IOPub socket.
         """
+        if self.kernel_notification_service_stub is None:
+            self.log.error(
+                f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup.")
+            return
+
         self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now...")
-        # err_msg = self.session.send(self.iopub_socket, "error_report",
-        #                             {"error": error_title, "message": error_message, "kernel_id": self.kernel_id},
-        #                             ident=self._topic("error_report"))
         self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
             title=error_title,
             message=error_message,
@@ -2038,6 +2191,11 @@ class DistributedKernel(IPythonKernel):
     def send_notification(self, notification_title: str = "", notification_body: str = "", notification_type: int = 2):
         if notification_type < 0 or notification_type > 3:
             raise ValueError(f"Invalid notification type specified: \"%d\"", notification_type)
+
+        if self.kernel_notification_service_stub is None:
+            self.log.error(
+                f"Cannot send '{notification_type}' notification '{notification_title}' as our gRPC connection was never setup.")
+            return
 
         self.log.debug(f"Sending \"{notification_title}\" notification of type {notification_type} now...")
         self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
@@ -2056,48 +2214,11 @@ class DistributedKernel(IPythonKernel):
                 'user_expressions': {},
                 }
 
-    async def override_shell(self, store_path):
+    async def override_shell(self):
         """Override IPython Core"""
         self.old_run_cell = self.shell.run_cell  # type: ignore
         self.shell.run_cell = self.run_cell  # type: ignore
         self.shell.transform_ast = self.transform_ast  # type: ignore
-
-        # Get synclog for synchronization.
-        sync_log = await self.get_synclog(store_path)
-
-        self.log.info("Creating Synchronizer now.")
-
-        # Start the synchronizer.
-        # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
-        self.synchronizer = Synchronizer(
-            sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO)  # type: ignore
-
-        self.log.info("Created Synchronizer. Starting Synchronizer now.")
-
-        # if self.control_thread:
-        #     control_loop = self.control_thread.io_loop
-        # else:
-        #     control_loop = self.io_loop
-        # asyncio.run_coroutine_threadsafe(self.synchronizer.start(), control_loop.asyncio_loop)
-        self.synchronizer.start()
-
-        self.log.debug("Started synchronizer.")
-
-        sys.stderr.flush()
-        sys.stdout.flush()
-
-        # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be started before we attempt to catch-up.
-        # The catch-up process involves appending a new value and waiting until it gets committed. This cannot be done until the RaftLog has started.
-        # And the RaftLog is started by the Synchronizer, within Synchronizer::start.
-        if self.synclog.needs_to_catch_up:
-            self.log.debug("RaftLog will need to propose a \"catch up\" value "
-                           "so that it can tell when it has caught up with its peers.")
-            await self.synclog.catchup_with_peers()
-
-        # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
-        await self.smr_ready()
-
-        self.log.info("Started Synchronizer.")
 
     async def smr_ready(self) -> None:
         """
@@ -2151,13 +2272,15 @@ class DistributedKernel(IPythonKernel):
                                    hdfs_hostname=self.hdfs_namenode_hostname,
                                    should_read_data_from_hdfs=self.should_read_data_from_hdfs,
                                    # data_directory = self.hdfs_data_directory,
-                                   peer_addrs=peer_addresses,
+                                   peer_addresses=peer_addresses,
                                    peer_ids=ids,
                                    join=self.smr_join,
                                    debug_port=self.debug_port,
                                    report_error_callback=self.report_error,
                                    send_notification_func=self.send_notification,
-                                   hdfs_read_latency_callback=self.hdfs_read_latency_callback)
+                                   hdfs_read_latency_callback=self.hdfs_read_latency_callback,
+                                   deployment_mode=self.deployment_mode,
+                                   election_timeout_seconds=self.election_timeout_seconds)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
 
@@ -2189,7 +2312,8 @@ class DistributedKernel(IPythonKernel):
         if latency_ms < 0:
             return
 
-        self.hdfs_read_latency_milliseconds.observe(latency_ms)
+        if self.prometheus_enabled:
+            self.hdfs_read_latency_milliseconds.observe(latency_ms)
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):
         self.log.debug("Running cell: %s" % str(raw_cell))
@@ -2209,7 +2333,7 @@ class DistributedKernel(IPythonKernel):
     def toggle_outstream(self, override=False, enable=True):
         # Is sys.stdout has attribute 'disable'?
         if not hasattr(sys.stdout, 'disable'):
-            self.log.error(
+            self.log.warning(
                 "sys.stdout didn't initialized with kernel.OutStream.")
             return
 

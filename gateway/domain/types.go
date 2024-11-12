@@ -2,7 +2,7 @@ package domain
 
 import (
 	"encoding/json"
-	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/Scusemua/go-utils/config"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
@@ -18,8 +18,8 @@ const (
 	// then the value of this const must be updated so that it matches the "name" field.
 	DockerProjectName = "distributed_cluster"
 
-	DockerContainerFullId  MetadataKey = "docker-container-full-id"
-	DockerContainerShortId MetadataKey = "docker-container-short-id"
+	//DockerContainerFullId  MetadataKey = "docker-container-full-id"
+	//DockerContainerShortId MetadataKey = "docker-container-short-id"
 
 	// DefaultNumResendAttempts is the default number of attempts we'll resend a message before giving up.
 	DefaultNumResendAttempts = 3
@@ -39,15 +39,16 @@ func (k MetadataKey) String() string {
 type ClusterDaemonOptions struct {
 	scheduling.ClusterSchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
 
-	LocalDaemonServiceName        string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
-	LocalDaemonServicePort        int    `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
-	GlobalDaemonServiceName       string `name:"global-daemon-service-name"       json:"global-daemon-service-name"        yaml:"global-daemon-service-name"          description:"Name of the Kubernetes service that manages the global networking of local daemons."`
-	GlobalDaemonServicePort       int    `name:"global-daemon-service-port"       json:"global-daemon-service-port"        yaml:"global-daemon-service-port"          description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
-	KubeNamespace                 string `name:"kubernetes-namespace"             json:"kubernetes-namespace"              yaml:"kubernetes-namespace"                description:"Kubernetes namespace that all of these components reside in."`
-	UseStatefulSet                bool   `name:"use-stateful-set"                 json:"use-stateful-set"                  yaml:"use-stateful-set"                    description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
-	NotebookImageName             string `name:"notebook-image-name"              json:"notebook-image-name"               yaml:"notebook-image-name"                 description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
-	NotebookImageTag              string `name:"notebook-image-tag"               json:"notebook-image-tag"                yaml:"notebook-image-tag"                  description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`  // Tag to use for the jupyter notebook/kernel image
-	DistributedClusterServicePort int    `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
+	LocalDaemonServiceName          string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
+	LocalDaemonServicePort          int    `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
+	GlobalDaemonServiceName         string `name:"global-daemon-service-name"       json:"global-daemon-service-name"        yaml:"global-daemon-service-name"          description:"Name of the Kubernetes service that manages the global networking of local daemons."`
+	GlobalDaemonServicePort         int    `name:"global-daemon-service-port"       json:"global-daemon-service-port"        yaml:"global-daemon-service-port"          description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
+	KubeNamespace                   string `name:"kubernetes-namespace"             json:"kubernetes-namespace"              yaml:"kubernetes-namespace"                description:"Kubernetes namespace that all of these components reside in."`
+	UseStatefulSet                  bool   `name:"use-stateful-set"                 json:"use-stateful-set"                  yaml:"use-stateful-set"                    description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
+	NotebookImageName               string `name:"notebook-image-name"              json:"notebook-image-name"               yaml:"notebook-image-name"                 description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-name"` // Name of the docker image to use for the jupyter notebook/kernel image
+	NotebookImageTag                string `name:"notebook-image-tag"               json:"notebook-image-tag"                yaml:"notebook-image-tag"                  description:"Name of the docker image to use for the jupyter notebook/kernel image" json:"notebook-image-tag"`  // Tag to use for the jupyter notebook/kernel image
+	DistributedClusterServicePort   int    `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
+	RemoteDockerEventAggregatorPort int    `name:"remote-docker-event-aggregator-port" json:"remote-docker-event-aggregator-port" yaml:"remote-docker-event-aggregator-port" description:"The port to be used by the Docker Remote Event Aggregator when running in Docker Swarm mode."`
 }
 
 // PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
@@ -116,7 +117,6 @@ func (o *ClusterDaemonOptions) IsKubernetesMode() bool {
 }
 
 func (o *ClusterDaemonOptions) String() string {
-	//return fmt.Sprintf("LocalDaemonServiceName: %s, LocalDaemonServicePort: %d, SMRPort: %d, KubeNamespace: %s, UseStatefulSet: %v, HdfsNameNodeEndpoint: %s", o.LocalDaemonServiceName, o.LocalDaemonServicePort, o.SMRPort, o.KubeNamespace, o.UseStatefulSet, o.HdfsNameNodeEndpoint)
 	out, err := json.Marshal(o)
 	if err != nil {
 		panic(err)

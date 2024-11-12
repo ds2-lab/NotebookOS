@@ -1,8 +1,8 @@
 package main
 
 import (
+	"github.com/Scusemua/go-utils/config"
 	"github.com/gin-gonic/gin"
-	"github.com/mason-leap-lab/go-utils/config"
 )
 
 type SchedulerExtension interface {

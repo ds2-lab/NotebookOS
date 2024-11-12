@@ -71,6 +71,11 @@ class ClusterGatewayStub(object):
                 request_serializer=gateway__pb2.Notification.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 _registered_method=True)
+        self.PingGateway = channel.unary_unary(
+                '/gateway.ClusterGateway/PingGateway',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                _registered_method=True)
 
 
 class ClusterGatewayServicer(object):
@@ -130,6 +135,13 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def PingGateway(self, request, context):
+        """PingGateway is a no-op for testing connectivity.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ClusterGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -166,6 +178,11 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
             'Notify': grpc.unary_unary_rpc_method_handler(
                     servicer.Notify,
                     request_deserializer=gateway__pb2.Notification.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'PingGateway': grpc.unary_unary_rpc_method_handler(
+                    servicer.PingGateway,
+                    request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
@@ -359,6 +376,33 @@ class ClusterGateway(object):
             target,
             '/gateway.ClusterGateway/Notify',
             gateway__pb2.Notification.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PingGateway(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.ClusterGateway/PingGateway',
+            gateway__pb2.Void.SerializeToString,
             gateway__pb2.Void.FromString,
             options,
             channel_credentials,
@@ -1693,7 +1737,7 @@ class LocalGatewayStub(object):
         self.ResourcesSnapshot = channel.unary_unary(
                 '/gateway.LocalGateway/ResourcesSnapshot',
                 request_serializer=gateway__pb2.Void.SerializeToString,
-                response_deserializer=gateway__pb2.NodeResourcesSnapshot.FromString,
+                response_deserializer=gateway__pb2.NodeResourcesSnapshotWithContainers.FromString,
                 _registered_method=True)
         self.GetActualGpuInfo = channel.unary_unary(
                 '/gateway.LocalGateway/GetActualGpuInfo',
@@ -1943,7 +1987,7 @@ def add_LocalGatewayServicer_to_server(servicer, server):
             'ResourcesSnapshot': grpc.unary_unary_rpc_method_handler(
                     servicer.ResourcesSnapshot,
                     request_deserializer=gateway__pb2.Void.FromString,
-                    response_serializer=gateway__pb2.NodeResourcesSnapshot.SerializeToString,
+                    response_serializer=gateway__pb2.NodeResourcesSnapshotWithContainers.SerializeToString,
             ),
             'GetActualGpuInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.GetActualGpuInfo,
@@ -2327,7 +2371,7 @@ class LocalGateway(object):
             target,
             '/gateway.LocalGateway/ResourcesSnapshot',
             gateway__pb2.Void.SerializeToString,
-            gateway__pb2.NodeResourcesSnapshot.FromString,
+            gateway__pb2.NodeResourcesSnapshotWithContainers.FromString,
             options,
             channel_credentials,
             insecure,

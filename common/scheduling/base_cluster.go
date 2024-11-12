@@ -3,10 +3,10 @@ package scheduling
 import (
 	"context"
 	"fmt"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
+	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/mason-leap-lab/go-utils/promise"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
@@ -20,7 +20,10 @@ import (
 
 // BaseCluster encapsulates the core state and logic required to operate a Cluster.
 type BaseCluster struct {
-	instance clusterInternal
+	instance ClusterInternal
+
+	// DisabledHosts is a map from host ID to *Host containing all the Host instances that are currently set to "off".
+	DisabledHosts hashmap.HashMap[string, *Host]
 
 	// hosts is a map from host ID to *Host containing all the Host instances provisioned within the Cluster.
 	hosts hashmap.HashMap[string, *Host]
@@ -36,6 +39,11 @@ type BaseCluster struct {
 	// If activeScaleOperation is nil, then there is no active scale-out or scale-in operation.
 	activeScaleOperation *ScaleOperation
 	scaleOperationCond   *sync.Cond
+
+	numFailedScaleInOps      int
+	numFailedScaleOutOps     int
+	numSuccessfulScaleInOps  int
+	numSuccessfulScaleOutOps int
 
 	// gpusPerHost is the number of GPUs available on each host.
 	gpusPerHost int
@@ -88,6 +96,11 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		sessions:                 hashmap.NewCornelkMap[string, *Session](128),
 		indexes:                  hashmap.NewSyncMap[string, ClusterIndexProvider](),
 		validateCapacityInterval: time.Second * time.Duration(opts.ScalingInterval),
+		DisabledHosts:            hashmap.NewConcurrentMap[*Host](256),
+		numFailedScaleInOps:      0,
+		numFailedScaleOutOps:     0,
+		numSuccessfulScaleInOps:  0,
+		numSuccessfulScaleOutOps: 0,
 	}
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
 
@@ -109,10 +122,6 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		config.InitLogger(&cluster.log, loggerPrefix)
 	}
 
-	if clusterMetricsProvider == nil {
-		cluster.log.Warn("Cluster Metrics Provider is nil.")
-	}
-
 	go func() {
 		cluster.log.Debug("Sleeping for %v before periodically validating Cluster capacity.", cluster.validateCapacityInterval)
 
@@ -120,12 +129,63 @@ func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metric
 		time.Sleep(cluster.validateCapacityInterval)
 
 		for {
-			cluster.scheduler.UpdateRatio()
+			cluster.scheduler.UpdateRatio(false)
 			time.Sleep(cluster.validateCapacityInterval)
 		}
 	}()
 
 	return cluster
+}
+
+// NumScalingOperationsSucceeded returns the number of scale-in and scale-out operations that have been
+// completed successfully.
+func (c *BaseCluster) NumScalingOperationsSucceeded() int {
+	return c.numSuccessfulScaleInOps + c.numSuccessfulScaleOutOps
+}
+
+// NumScaleOutOperationsSucceeded returns the number of scale-out operations that have been
+// completed successfully.
+func (c *BaseCluster) NumScaleOutOperationsSucceeded() int {
+	return c.numSuccessfulScaleOutOps
+}
+
+// NumScaleInOperationsSucceeded returns the number of scale-in operations that have been
+// completed successfully.
+func (c *BaseCluster) NumScaleInOperationsSucceeded() int {
+	return c.numSuccessfulScaleInOps
+}
+
+// NumScalingOperationsAttempted returns the number of scale-in and scale-out operations that have been
+// attempted (i.e., count of both successful and failed operations).
+func (c *BaseCluster) NumScalingOperationsAttempted() int {
+	return c.numSuccessfulScaleInOps + c.numSuccessfulScaleOutOps + c.numFailedScaleOutOps + c.numFailedScaleInOps
+}
+
+// NumScaleOutOperationsAttempted returns the number of scale-out operations that have been
+// attempted (i.e., count of both successful and failed operations).
+func (c *BaseCluster) NumScaleOutOperationsAttempted() int {
+	return c.numSuccessfulScaleOutOps + c.numFailedScaleOutOps
+}
+
+// NumScaleInOperationsAttempted returns the number of scale-in operations that have been
+// attempted (i.e., count of both successful and failed operations).
+func (c *BaseCluster) NumScaleInOperationsAttempted() int {
+	return c.numSuccessfulScaleInOps + c.numFailedScaleInOps
+}
+
+// NumScalingOperationsFailed returns the number of scale-in and scale-out operations that have failed.
+func (c *BaseCluster) NumScalingOperationsFailed() int {
+	return c.numFailedScaleOutOps + c.numFailedScaleInOps
+}
+
+// NumScaleOutOperationsFailed returns the number of scale-out operations that have failed.
+func (c *BaseCluster) NumScaleOutOperationsFailed() int {
+	return c.numFailedScaleOutOps
+}
+
+// NumScaleInOperationsFailed returns the number of scale-in operations that have failed.
+func (c *BaseCluster) NumScaleInOperationsFailed() int {
+	return c.numFailedScaleInOps
 }
 
 // GetSession returns the Session with the specified ID.
@@ -135,9 +195,21 @@ func (c *BaseCluster) GetSession(sessionID string) (AbstractSession, bool) {
 	return c.sessions.Load(sessionID)
 }
 
+// AddSession adds a Session to the Cluster.
+func (c *BaseCluster) AddSession(sessionId string, session *Session) {
+	c.sessions.Store(sessionId, session)
+}
+
 // Sessions returns a mapping from session ID to Session.
 func (c *BaseCluster) Sessions() hashmap.HashMap[string, *Session] {
 	return c.sessions
+}
+
+// canPossiblyScaleOut returns true if the Cluster could possibly scale-out.
+// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
+// it is currently not supported unless there is at least one disabled host already within the cluster.
+func (c *BaseCluster) canPossiblyScaleOut() bool {
+	return c.instance.canPossiblyScaleOut()
 }
 
 // NumReplicasAsDecimal returns the numer of replicas that each Jupyter kernel has associated with it as
@@ -225,6 +297,13 @@ func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host *Host) {
 				activeScaleOp.OperationType, activeScaleOp.OperationId, err)
 		}
 		activeScaleOp.NotificationChan <- struct{}{}
+
+		if c.activeScaleOperation.IsScaleInOperation() {
+			c.numSuccessfulScaleInOps += 1
+		} else {
+			c.numSuccessfulScaleOutOps += 1
+		}
+
 		activeScaleOp = nil
 		c.scaleOperationCond.Broadcast()
 	} else {
@@ -232,6 +311,22 @@ func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host *Host) {
 			activeScaleOp.OperationType, activeScaleOp.OperationId, c.Len(), activeScaleOp.TargetScale,
 			len(activeScaleOp.NodesAffected), activeScaleOp.ExpectedNumAffectedNodes)
 	}
+}
+
+// onDisabledHostAdded when a new Host is added to the Cluster in a disabled state,
+// meaning that it is intended to be unavailable unless we explicitly scale-out.
+func (c *BaseCluster) onDisabledHostAdded(host *Host) error {
+	if host.Enabled() {
+		return fmt.Errorf("host %s (ID=%s) is not disabled", host.NodeName, host.ID)
+	}
+
+	c.DisabledHosts.Store(host.ID, host)
+
+	if c.clusterMetricsProvider != nil {
+		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Add(1)
+	}
+
+	return nil
 }
 
 // onHostAdded is called when a host is added to the BaseCluster.
@@ -252,7 +347,7 @@ func (c *BaseCluster) onHostAdded(host *Host) {
 
 	c.unsafeCheckIfScaleOperationIsComplete(host)
 
-	if c.clusterMetricsProvider != nil {
+	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumHostsGauge() != nil {
 		c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 	}
 }
@@ -270,7 +365,7 @@ func (c *BaseCluster) onHostRemoved(host *Host) {
 	defer c.scalingOpMutex.Unlock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)
 
-	if c.clusterMetricsProvider != nil {
+	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumHostsGauge() != nil {
 		c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 	}
 }
@@ -316,20 +411,22 @@ func (c *BaseCluster) RangeOverHosts(f func(key string, value *Host) bool) {
 // RemoveHost removes the Host with the specified ID.
 func (c *BaseCluster) RemoveHost(hostId string) {
 	c.scalingOpMutex.Lock()
-	defer c.scalingOpMutex.Unlock()
 
 	c.hostMutex.Lock()
 	removedHost, loaded := c.hosts.LoadAndDelete(hostId)
 	c.hostMutex.Unlock()
+
+	c.scalingOpMutex.Unlock()
 
 	if loaded {
 		c.onHostRemoved(removedHost)
 	}
 }
 
-////////////////////////////
-// Hashmap implementation //
-////////////////////////////
+// NumDisabledHosts returns the number of Host instances in the Cluster that are in the "disabled" state.
+func (c *BaseCluster) NumDisabledHosts() int {
+	return c.DisabledHosts.Len()
+}
 
 // Len returns the number of *Host instances in the Cluster.
 func (c *BaseCluster) Len() int {
@@ -339,79 +436,6 @@ func (c *BaseCluster) Len() int {
 
 	return c.hosts.Len()
 }
-
-//func (c *BaseCluster) Load(key string) (*Host, bool) {
-//	c.hostMutex.RLock()
-//	defer c.hostMutex.RUnlock()
-//
-//	return c.hosts.Load(key)
-//}
-
-//func (c *BaseCluster) Store(key string, value *Host) {
-//	log.Fatalf("The Store method should not be called directly. Arguments[key=%s, host=%v]", key, value)
-//}
-
-//func (c *BaseCluster) LoadOrStore(key string, value *Host) (*Host, bool) {
-//	c.hostMutex.Lock()
-//	defer c.hostMutex.Unlock()
-//
-//	host, ok := c.hosts.LoadOrStore(key, value)
-//	if !ok {
-//		c.onHostAdded(value)
-//	}
-//	return host, ok
-//}
-
-// CompareAndSwap is not supported in host provisioning and will always return false.
-//func (c *BaseCluster) CompareAndSwap(_ string, oldValue, _ *Host) (*Host, bool) {
-//	c.hostMutex.Lock()
-//	defer c.hostMutex.Unlock()
-//
-//	return oldValue, false
-//}
-
-//func (c *BaseCluster) LoadAndDelete(key string) (*Host, bool) {
-//	c.hostMutex.Lock()
-//	defer c.hostMutex.Unlock()
-//
-//	host, ok := c.hosts.LoadAndDelete(key)
-//	if ok {
-//		c.onHostRemoved(host)
-//	}
-//	return host, ok
-//}
-
-//func (c *BaseCluster) Delete(key string) {
-//	c.hostMutex.Lock()
-//	defer c.hostMutex.Unlock()
-//
-//	c.hosts.LoadAndDelete(key)
-//}
-
-// Range executes the provided function on each Host in the Cluster.
-//
-// Importantly, this function does NOT lock the hostsMutex.
-//func (c *BaseCluster) Range(f func(key string, value *Host) bool) {
-//	c.hosts.Range(f)
-//}
-
-// RangeUnsafe executes the provided function on each Host in the Cluster.
-// This is an alias for the Range function.
-//
-// Importantly, this function does NOT lock the hostsMutex.
-//func (c *BaseCluster) RangeUnsafe(f func(key string, value *Host) bool) {
-//	c.hosts.Range(f)
-//}
-
-// RangeLocked executes the provided function on each Host in the Cluster.
-//
-// Importantly, this function DOES lock the hostsMutex.
-//func (c *BaseCluster) RangeLocked(f func(key string, value *Host) bool) {
-//	c.hostMutex.RLock()
-//	defer c.hostMutex.RUnlock()
-//
-//	c.hosts.Range(f)
-//}
 
 // RegisterScaleOperation registers a non-specific type of ScaleOperation.
 // Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation
@@ -753,11 +777,22 @@ func (c *BaseCluster) ClusterMetricsProvider() metrics.ClusterMetricsProvider {
 // NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
 // NewHostAddedOrConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
 // task of locking the required structures during scaling operations.
-func (c *BaseCluster) NewHostAddedOrConnected(host *Host) {
+func (c *BaseCluster) NewHostAddedOrConnected(host *Host) error {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
-	c.log.Debug("Host %s has just connected to the Cluster or is being re-enabled", host.ID)
+	if !host.Enabled() {
+		c.log.Debug("Attempting to add disabled host %s (ID=%s) to the cluster now.", host.NodeName, host.ID)
+		err := c.onDisabledHostAdded(host)
+		if err != nil {
+			c.log.Error("Failed to add disabled Host %s (ID=%s) to cluster because: %v", host.NodeName, host.ID, err)
+			return err
+		}
+		c.log.Debug("Successfully added disabled host %s (ID=%s) to the cluster.", host.NodeName, host.ID)
+		return nil
+	}
+
+	c.log.Debug("Host %s (ID=%s) has just connected to the Cluster or is being re-enabled", host.NodeName, host.ID)
 
 	c.hostMutex.Lock()
 	// The host mutex is already locked if we're performing a scaling operation.
@@ -766,7 +801,9 @@ func (c *BaseCluster) NewHostAddedOrConnected(host *Host) {
 
 	c.onHostAdded(host)
 
-	c.log.Debug("Finished handling scheduling.Cluster-level registration of newly-added host %s", host.ID)
+	c.log.Debug("Finished handling scheduling.Cluster-level registration of newly-added host %s (ID=%s)", host.NodeName, host.ID)
+
+	return nil
 }
 
 // GetHost returns the Host with the given ID, if one exists.

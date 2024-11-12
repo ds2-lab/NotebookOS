@@ -60,6 +60,17 @@ func (s *BaseServer) Socket(typ types.MessageType) *types.Socket {
 	return s.server.Sockets.All[typ]
 }
 
+// GetSocketPort returns the port of a particular Socket.
+func (s *BaseServer) GetSocketPort(typ types.MessageType) int {
+	socket := s.Socket(typ)
+
+	if socket != nil {
+		return socket.Port
+	}
+
+	return -1
+}
+
 // SetIOPubSocket sets the IOPub socket for the server.
 // SetIOPubSocket returns an error if the Socket is already set, as it should only be set once when the IO socket is nil.
 func (s *BaseServer) SetIOPubSocket(iopub *types.Socket) error {

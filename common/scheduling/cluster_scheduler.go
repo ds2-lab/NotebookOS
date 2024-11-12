@@ -50,7 +50,7 @@ type ClusterScheduler interface {
 
 	// UpdateRatio updates the Cluster's subscription ratio.
 	// UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
-	UpdateRatio() bool
+	UpdateRatio(skipValidateCapacity bool) bool
 
 	// AddNode adds a new node to the kubernetes Cluster.
 	// We simulate this using node taints.
@@ -77,17 +77,13 @@ type ClusterScheduler interface {
 	// Error will be nil on success and non-nil if some sort of failure is encountered.
 	ReleaseIdleHosts(n int32) (int, error)
 
-	// RefreshActualGpuInfo Refreshes the actual GPU usage information.
-	// Returns nil on success; returns an error on failure.
-	// RefreshActualGpuInfo() error
+	// GetCandidateHosts identifies candidate hosts for a particular kernel, reserving resources on hosts
+	// before returning them.
+	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error)
 
 	// RemoteSynchronizationInterval returns the interval at which the ClusterScheduler synchronizes
 	// the Host instances within the Cluster with their remote nodes.
 	RemoteSynchronizationInterval() time.Duration
-
-	// RefreshClusterNodes Updates the cached list of Cluster nodes.
-	// Returns nil on success; returns an error on failure.
-	RefreshClusterNodes() error
 
 	// RefreshAll refreshes all metrics maintained/cached/required by the Cluster Scheduler,
 	// including the list of current kubernetes nodes, actual and virtual GPU usage information, etc.

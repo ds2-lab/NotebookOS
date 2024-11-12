@@ -1,9 +1,11 @@
+import asyncio
 import datetime
 import time
 import uuid
-import asyncio
 from enum import Enum
+from json import JSONEncoder
 from typing import Tuple, Optional, Any
+
 from typing_extensions import Protocol, runtime_checkable
 
 KEY_FAILURE = "_failure_"  # We cannot execute this request...
@@ -20,6 +22,12 @@ class ElectionProposalKey(Enum):
     YIELD = "_yield_"  # Propose to yield the execution to another replica.
     LEAD = "_lead_"  # Propose to lead the execution term (i.e., execute the user's code).
     SYNC = "_sync_"  # Synchronize to confirm decision about who is executing the code.
+
+
+class SynchronizedValueJsonEncoder(JSONEncoder):
+    def default(self, o):
+        print(f"SynchronizedValueJsonEncoder called with obj o={o}")
+        return o.__dict__
 
 
 class SynchronizedValue(object):
@@ -55,8 +63,37 @@ class SynchronizedValue(object):
         self._prmap: Optional[list[str]] = prmap
         self._key: str = key
 
+    def get_metadata(self) -> dict[str, any]:
+        """
+        Returns a dictionary containing this SynchronizedValue's fields, suitable for JSON serialization.
+        """
+        metadata: dict[str, any] = {
+            "key": self._key,
+            "op": self._operation,
+            "end": self._should_end_execution,
+            "tag": self._tag,
+            "proposer": self.proposer_id,
+            "election_term": self.election_term,
+            "attempt_number": self._attempt_number,
+            "timestamp": datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f'),
+            "id": self._id
+        }
+
+        if hasattr(self, "_jupyter_message_id"):
+            metadata["jupyter_message_id"] = getattr(self, "_jupyter_message_id")
+
+        return metadata
+
     def __str__(self):
-        return f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},Tag={self._tag},Proposer=Node{self.proposer_id},ElectionTerm={self.election_term},AttemptNumber={self._attempt_number},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')},ID={self._id}]"
+        string: str = f"SynchronizedValue[Key={self._key},Op={self._operation},End={self._should_end_execution},Tag={self._tag},ProposerID={self.proposer_id},ElectionTerm={self.election_term},AttemptNumber={self._attempt_number},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')},ID={self._id}"
+
+        if hasattr(self, "_jupyter_message_id"):
+            jupyter_message_id: Optional[str] = getattr(self, "_jupyter_message_id")
+            string += f",JupyterMsgId={jupyter_message_id}]"
+        else:
+            string += "]"
+
+        return string
 
     @property
     def tag(self) -> Any:
@@ -161,8 +198,14 @@ class ExecutionCompleteNotification(SynchronizedValue):
     code by the leader replica has completed for a particular election term.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, jupyter_message_id: str, **kwargs):
         super().__init__(None, None, **kwargs)
+
+        self._jupyter_message_id: str = jupyter_message_id
+
+    @property
+    def jupyter_message_id(self):
+        return self._jupyter_message_id
 
 
 class LeaderElectionProposal(SynchronizedValue):
@@ -170,13 +213,19 @@ class LeaderElectionProposal(SynchronizedValue):
     A special type of SynchronizedValue encapsulating a "LEAD" or "YIELD" proposal during a leader election.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, jupyter_message_id: str = "", **kwargs):
         if "key" not in kwargs:
             raise ValueError(
                 "Must specify a \"key\" keyword argument when creating an instance of `LeaderElectionProposal`")
 
         # LeaderElectionProposals cannot have data.
         super().__init__(None, None, **kwargs)
+
+        self._jupyter_message_id: str = jupyter_message_id
+
+    @property
+    def jupyter_message_id(self):
+        return self._jupyter_message_id
 
     @property
     def is_lead(self) -> bool:
@@ -195,25 +244,33 @@ class LeaderElectionProposal(SynchronizedValue):
         """
         return self._key
 
+
 class BufferedLeaderElectionProposal(object):
     """
     This simply wraps a LeaderElectionProposal along with the timestamp at which the proposal was originally received.
     The purpose is so we can pass the correct timestamp when we eventually process the buffered proposal.
     """
-    def __init__(self, proposal: LeaderElectionProposal, received_at: float = time.time()):
+
+    def __init__(self, proposal: LeaderElectionProposal, received_at: float = time.time(), jupyter_message_id: str = ""):
         self._proposal: LeaderElectionProposal = proposal
         self._received_at: float = received_at
+        self._jupyter_message_id: str = jupyter_message_id
 
     @property
-    def proposal(self)->LeaderElectionProposal:
+    def jupyter_message_id(self):
+        return self._jupyter_message_id
+
+    @property
+    def proposal(self) -> LeaderElectionProposal:
         """
         :return: the `LeaderElectionProposal` that is wrapped by this `BufferedLeaderElectionProposal` instance.
         """
         return self._proposal
 
     @property
-    def received_at(self)->float:
+    def received_at(self) -> float:
         return self._received_at
+
 
 class LeaderElectionVote(SynchronizedValue):
     """
@@ -224,7 +281,7 @@ class LeaderElectionVote(SynchronizedValue):
     This used to be 'SYNC' in the original RaftLog implementation.
     """
 
-    def __init__(self, proposed_node_id: int, **kwargs):
+    def __init__(self, proposed_node_id: int, jupyter_message_id:str = "", **kwargs):
         if "key" in kwargs:
             _key = kwargs.pop("key")
 
@@ -238,9 +295,24 @@ class LeaderElectionVote(SynchronizedValue):
 
         # The SMR node ID of the node being voted for
         self._proposed_node_id: int = proposed_node_id
+        self._jupyter_message_id: str = jupyter_message_id
+
+    @property
+    def jupyter_message_id(self):
+        return self._jupyter_message_id
+
+    def get_metadata(self) -> dict[str, any]:
+        """
+        Returns a dictionary containing this SynchronizedValue's fields, suitable for JSON serialization.
+        """
+        metadata: dict[str, any] = super().get_metadata()
+        metadata["proposed_node_id"] = self._proposed_node_id
+        metadata["jupyter_message_id"] = self._jupyter_message_id
+
+        return metadata
 
     def __str__(self):
-        return f"LeaderElectionVote[Proposer=Node{self.proposer_id},Proposed=Node{self.proposed_node_id},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%c')},ElectionTerm={self.election_term},AttemptNumber={self._attempt_number}]"
+        return f"LeaderElectionVote[Proposer=Node{self.proposer_id},Proposed=Node{self.proposed_node_id},Timestamp={datetime.datetime.fromtimestamp(self.timestamp).strftime('%c')},ElectionTerm={self.election_term},AttemptNumber={self._attempt_number},JupyterMessageId={self._jupyter_message_id}]"
 
     @property
     def proposed_node_id(self) -> int:
@@ -265,22 +337,30 @@ class LeaderElectionVote(SynchronizedValue):
         """
         return self._proposed_node_id == -1
 
+
 class BufferedLeaderElectionVote(object):
     """
     This simply wraps a LeaderElectionVote along with the timestamp at which the vote was originally received.
     The purpose is so we can pass the correct timestamp when we eventually process the buffered vote.
     """
-    def __init__(self, vote: LeaderElectionVote, received_at: float = time.time()):
+
+    def __init__(self, vote: LeaderElectionVote, received_at: float = time.time(), jupyter_message_id:str = ""):
         self._vote: LeaderElectionVote = vote
         self._received_at: float = received_at
+        self._jupyter_message_id = jupyter_message_id
 
     @property
-    def vote(self)->LeaderElectionVote:
+    def jupyter_message_id(self):
+        return self._jupyter_message_id
+
+    @property
+    def vote(self) -> LeaderElectionVote:
         return self._vote
 
     @property
-    def received_at(self)->float:
+    def received_at(self) -> float:
         return self._received_at
+
 
 class SyncValue:
     """A value for log proposal."""
@@ -304,7 +384,7 @@ class SyncValue:
     def __str__(self) -> str:
         ts: str = datetime.datetime.fromtimestamp(self.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')
         return "SyncValue[Key='%s',Term=%d,Timestamp='%s',Tag='%s',Val='%s']" % (
-        self.key, self.term, ts, str(self.tag), str(self.val)[0:25])
+            self.key, self.term, ts, str(self.tag), str(self.val)[0:25])
 
     @property
     def reset(self):
@@ -350,10 +430,10 @@ class SyncLog(Protocol):
         """Set the callback that will be called when the SyncLog decides to checkpoint.
           callback will be in the form callback(Checkpointer)."""
 
-    async def try_yield_execution(self, term_number: int) -> bool:
+    async def try_yield_execution(self, jupyter_message_id: str, term_number: int) -> bool:
         """Request yield the update of a term to another replica."""
 
-    async def try_lead_execution(self, term_number: int) -> bool:
+    async def try_lead_execution(self, jupyter_message_id: str, term_number: int) -> bool:
         """Request to lead the update of a term. A following append call
            without leading status will fail."""
 
@@ -390,6 +470,7 @@ class SyncLog(Protocol):
 
     def close(self):
         """Ensure all async coroutines end and clean up."""
+
 
 @runtime_checkable
 class Checkpointer(Protocol):

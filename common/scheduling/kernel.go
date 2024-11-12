@@ -73,7 +73,7 @@ type Kernel interface {
 	Close() error
 
 	// KernelStoppedTraining should be called when the kernel associated with this client stops actively training.
-	KernelStoppedTraining(snapshot types.HostResourceSnapshot[*ResourceSnapshot]) error
+	KernelStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
 
 	// SessionStartedTraining should be called when the kernel associated with this client begins actively training.
 	// TrainingStartedInContainer(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
@@ -86,8 +86,8 @@ type KernelReplica interface {
 	// ReplicaID returns the replica ID.
 	ReplicaID() int32
 
-	// PodName returns the name of the Kubernetes Pod hosting the replica.
-	PodName() string
+	// GetPodOrContainerName returns the name of the Kubernetes Pod/Docker container hosting the replica.
+	GetPodOrContainerName() string
 
 	// NodeName returns the name of the node that the Pod is running on.
 	NodeName() string

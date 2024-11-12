@@ -3,8 +3,11 @@ package scheduling
 import (
 	"errors"
 	"fmt"
+	mapstructure "github.com/go-viper/mapstructure/v2"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"log"
 	"sync"
 	"time"
 
@@ -102,22 +105,59 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 		CreatedAt:               time.Now(),
 	}
 
-	metadata, err := msg.DecodeMetadata()
+	var metadataDict map[string]interface{}
+	err := msg.JupyterFrames.DecodeMetadata(&metadataDict)
 	if err == nil {
-		sentAtVal, ok := metadata["send-timestamp-unix-milli"]
-		if ok {
-			unixTimestamp := sentAtVal.(float64)
-			activeExecution.originallySentAt = time.UnixMilli(int64(unixTimestamp))
-			activeExecution.originallySentAtDecoded = true
-		}
+		// Attempt to decode it this way.
+		var requestMetadata *types.ExecuteRequestMetadata
+		err = mapstructure.Decode(metadataDict, &requestMetadata)
+		if err == nil {
+			if requestMetadata.SentAtUnixTimestamp != nil {
+				activeExecution.originallySentAt = time.UnixMilli(int64(*requestMetadata.SentAtUnixTimestamp))
+				activeExecution.originallySentAtDecoded = true
+			}
 
-		workloadIdVal, ok := metadata["workload_id"]
-		if ok {
-			workloadId := workloadIdVal.(string)
-			activeExecution.WorkloadId = workloadId
-			activeExecution.workloadIdSet = true
+			if requestMetadata.WorkloadId != nil {
+				workloadId := *requestMetadata.WorkloadId
+				activeExecution.WorkloadId = workloadId
+				activeExecution.workloadIdSet = true
+			}
+		} else {
+			// Fallback if the mapstructure way is broken.
+			log.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode request metadata via mapstructure: %v\n"), err)
+
+			sentAtVal, ok := metadataDict["send_timestamp_unix_milli"]
+			if ok {
+				unixTimestamp := sentAtVal.(float64)
+				activeExecution.originallySentAt = time.UnixMilli(int64(unixTimestamp))
+				activeExecution.originallySentAtDecoded = true
+			}
+
+			workloadIdVal, ok := metadataDict["workload_id"]
+			if ok {
+				workloadId := workloadIdVal.(string)
+				activeExecution.WorkloadId = workloadId
+				activeExecution.workloadIdSet = true
+			}
 		}
 	}
+
+	//metadata, err := msg.DecodeMetadata()
+	//if err == nil {
+	//	sentAtVal, ok := metadata["send_timestamp_unix_milli"]
+	//	if ok {
+	//		unixTimestamp := sentAtVal.(float64)
+	//		activeExecution.originallySentAt = time.UnixMilli(int64(unixTimestamp))
+	//		activeExecution.originallySentAtDecoded = true
+	//	}
+	//
+	//	workloadIdVal, ok := metadata["workload_id"]
+	//	if ok {
+	//		workloadId := workloadIdVal.(string)
+	//		activeExecution.WorkloadId = workloadId
+	//		activeExecution.workloadIdSet = true
+	//	}
+	//}
 
 	return activeExecution
 }

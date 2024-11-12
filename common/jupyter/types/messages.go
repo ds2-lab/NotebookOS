@@ -3,9 +3,10 @@ package types
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/types"
 	"log"
 	"strings"
 	"time"
@@ -350,6 +351,98 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket
 	msg.RequestTrace = requestTrace
 
 	return requestTrace, added, nil
+}
+
+// ElectionLeaderProposalMetadata encodes the fields of a "leader proposal", an object used by the kernel
+// replicas when selecting a replica to execute code.
+type ElectionLeaderProposalMetadata struct {
+	Key           string `json:"key"`
+	Op            string `json:"op"`
+	End           bool   `json:"end"`
+	Tag           any    `json:"tag"`
+	Proposer      int    `json:"proposer"`
+	ElectionTerm  int    `json:"election_term"`
+	AttemptNumber int    `json:"attempt_number"`
+	Timestamp     string `json:"timestamp"`
+	ID            string `json:"id"`
+}
+
+// ElectionVoteProposalMetadata encodes the fields of a "vote proposal", an object used by the kernel
+// replicas when selecting a replica to execute code.
+type ElectionVoteProposalMetadata struct {
+	Key            string `json:"key"`
+	Op             string `json:"op"`
+	End            bool   `json:"end"`
+	Tag            any    `json:"tag"`
+	Proposer       int    `json:"proposer"`
+	ElectionTerm   int    `json:"election_term"`
+	AttemptNumber  int    `json:"attempt_number"`
+	Timestamp      string `json:"timestamp"`
+	ID             string `json:"id"`
+	ProposedNodeID int    `json:"proposed_node_id"`
+}
+
+// ElectionMetadata is metadata from the Python Election that took place to determine which
+// replica would execute the code. This is only sent on the return (i.e., "execute_reply").
+type ElectionMetadata struct {
+	TermNumber                int                                     `json:"term_number"`
+	ElectionState             int                                     `json:"election_state"`
+	ElectionStateString       int                                     `json:"election_state_string"`
+	WinnerSelected            bool                                    `json:"winner_selected"`
+	WinnerID                  int                                     `json:"winner_id"`
+	Proposals                 map[int]*ElectionLeaderProposalMetadata `json:"proposals"`
+	VoteProposals             map[int]*ElectionVoteProposalMetadata   `json:"vote_proposals"`
+	DiscardedProposals        map[int]*ElectionLeaderProposalMetadata `json:"discarded_proposals"`
+	NumDiscardedProposals     int                                     `json:"num_discarded_proposals"`
+	NumDiscardedVoteProposals int                                     `json:"num_discarded_vote_proposals"`
+	NumLeadProposalsReceived  int                                     `json:"num_lead_proposals_received"`
+	NumYieldProposalsReceived int                                     `json:"num_yield_proposals_received"`
+	NumRestarts               int                                     `json:"num_restarts"`
+	CurrentAttemptNumber      int                                     `json:"current_attempt_number"`
+	CompletionReason          string                                  `json:"completion_reason"`
+	MissingProposals          []int                                   `json:"missing_proposals"`
+}
+
+// ExecuteRequestMetadata includes all the metadata entries we might expect to find in the metadata frame
+// of an "execute_request" message.
+type ExecuteRequestMetadata struct {
+	// TargetReplicaId is the SMR node ID of the replica of the kernel associated with this message (or more accurately,
+	// the kernel associated with the message in which this ExecuteRequestMetadata is contained) that should lead
+	// the execution of the code included in the "execute_request".
+	TargetReplicaId *int32 `json:"target_replica" mapstructure:"target_replica,omitempty"`
+
+	// WorkloadId is the identifier of the workload in which this code execution is taking place.
+	// Workloads are a construct of the workload orchestrator/cluster dashboard.
+	WorkloadId *string `json:"workload_id" mapstructure:"workload_id,omitempty"`
+
+	KernelId *string `json:"kernel_id" mapstrcture:"kernel_id,omitempty"`
+
+	// ResourceRequest is an updated types.Spec for the kernel targeted by the containing "execute_request".
+	ResourceRequest *types.Float64Spec `json:"resource_request" mapstructure:"resource_request,omitempty"`
+
+	// SentAtUnixTimestamp is the Unix epoch time (milliseconds) at which the "execute_request" message
+	// was originally sent by the Jupyter client.
+	SentAtUnixTimestamp *float64 `json:"send_timestamp_unix_milli,omitempty" mapstructure:"send_timestamp_unix_milli,omitempty"`
+
+	// ResourceWrapperSnapshot is a snapshot of the resources available on the Local Daemon.
+	ResourceWrapperSnapshot types.ArbitraryResourceSnapshot `json:"resource_snapshot" mapstructure:"resource_snapshot,omitempty"`
+
+	// ElectionMetadata is metadata from the Python Election that took place to determine which
+	// replica would execute the code. This is only sent on the return (i.e., "execute_reply").
+	ElectionMetadata *ElectionMetadata `json:"election_metadata" mapstructure:"resource_snapshot,omitempty"`
+
+	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
+	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.
+	OtherMetadata map[string]interface{} `mapstructure:",remain"`
+}
+
+func (m *ExecuteRequestMetadata) String() string {
+	s, err := json.Marshal(m)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(s)
 }
 
 // JupyterMessage is a wrapper around ZMQ4 messages, specifically Jupyter ZMQ4 messages.
@@ -787,4 +880,8 @@ func (m *JupyterMessage) JupyterParentMessageId() string {
 
 func (m *JupyterMessage) String() string {
 	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.String())
+}
+
+func (m *JupyterMessage) StringFormatted() string {
+	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.StringFormatted())
 }

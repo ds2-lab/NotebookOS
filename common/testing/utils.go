@@ -1,0 +1,61 @@
+package testing
+
+import (
+	"github.com/google/uuid"
+	"github.com/zhangjyr/distributed-notebook/common/mock_proto"
+	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"go.uber.org/mock/gomock"
+)
+
+func ContainsOffendingResourceKind(lst []scheduling.ResourceKind, target scheduling.ResourceKind) bool {
+	for _, elem := range lst {
+		if elem == target {
+			return true
+		}
+	}
+
+	return false
+}
+
+// NewHostWithSpoofedGRPC creates a new scheduling.Host struct with a spoofed proto.LocalGatewayClient.
+func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string, resourceSpoofer *ResourceSpoofer) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, error) {
+	gpuSchedulerId := uuid.NewString()
+
+	localGatewayClient := mock_proto.NewMockLocalGatewayClient(ctrl)
+
+	localGatewayClient.EXPECT().SetID(
+		gomock.Any(),
+		&proto.HostId{
+			Id: hostId,
+		},
+	).Return(&proto.HostId{
+		Id:       hostId,
+		NodeName: nodeName,
+	}, nil)
+
+	localGatewayClient.EXPECT().GetActualGpuInfo(
+		gomock.Any(),
+		&proto.Void{},
+	).Return(&proto.GpuInfo{
+		SpecGPUs:              int32(resourceSpoofer.Wrapper.SpecResources().GPUs()),
+		IdleGPUs:              int32(resourceSpoofer.Wrapper.SpecResources().GPUs()),
+		CommittedGPUs:         0,
+		PendingGPUs:           0,
+		NumPendingAllocations: 0,
+		NumAllocations:        0,
+		GpuSchedulerID:        gpuSchedulerId,
+		LocalDaemonID:         hostId,
+	}, nil)
+
+	localGatewayClient.EXPECT().ResourcesSnapshot(
+		gomock.Any(),
+		gomock.Any(),
+	).DoAndReturn(resourceSpoofer.ResourcesSnapshot).AnyTimes()
+
+	host, err := scheduling.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
+		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, cluster, nil, localGatewayClient,
+		func(_ string, _ string, _ string, _ string) error { return nil })
+
+	return host, localGatewayClient, err
+}

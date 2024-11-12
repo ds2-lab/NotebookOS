@@ -1,33 +1,41 @@
 package scheduling
 
+import (
+	"encoding/json"
+)
+
 type ResourceUtilization struct {
 	// CpuUsage is the % CPU utilization.
 	// This value will be between 0 and 100.
-	CpuUtilization float64
+	CpuUtilization float64 `json:"cpu_utilization"`
 
 	// MemoryUsageMb is the amount of RAM used in megabytes, with a minimum value of 0.
-	MemoryUsageMb float64
+	MemoryUsageMb float64 `json:"memory_utilization_mb"`
+
+	// Vram usage is the amount of VRAM being used in gigabytes, with a minimum value of 0.
+	VramUsageGb float64 `json:"vram_utilization_gb"`
 
 	// AggregateGpuUtilization is the aggregate % GPU utilization across all GPUs.
 	// The minimum value of AggregateGpuUtilization is 0.
 	// The maximum value of AggregateGpuUtilization is NumGpus * 100.
-	AggregateGpuUtilization float64
+	AggregateGpuUtilization float64 `json:"aggregate_gpu_utilization"`
 
 	// IndividualGpuUtilizationValues is a []float64 containing the individual GPU utilization values for each GPU.
 	// The length of IndividualGpuUtilizationValues is equal to NumGpus.
 	// The maximum value of IndividualGpuUtilizationValues[i] for i in range 0 to NumGpus is 100.
-	IndividualGpuUtilizationValues []float64
+	IndividualGpuUtilizationValues []float64 `json:"individual_gpu_utilization_values"`
 
 	// The number of GPUs currently in-use.
-	NumGpus int
+	NumGpus int `json:"num_gpus"`
 }
 
-func NewResourceUtilization(cpuUtil float64, memUsageMb float64, gpuUtils []float64) *ResourceUtilization {
+func NewResourceUtilization(cpuUtil float64, memUsageMb float64, gpuUtils []float64, vramGb float64) *ResourceUtilization {
 	util := &ResourceUtilization{
 		CpuUtilization:                 cpuUtil,
 		MemoryUsageMb:                  memUsageMb,
 		NumGpus:                        len(gpuUtils),
 		IndividualGpuUtilizationValues: gpuUtils,
+		VramUsageGb:                    vramGb,
 	}
 
 	util.AggregateGpuUtilization = 0.0
@@ -53,6 +61,11 @@ func (u *ResourceUtilization) WithCpuUtilization(util float64) *ResourceUtilizat
 
 func (u *ResourceUtilization) WithMemoryUsageMb(mb float64) *ResourceUtilization {
 	u.MemoryUsageMb = mb
+	return u
+}
+
+func (u *ResourceUtilization) WithVramUtilizationGb(gb float64) *ResourceUtilization {
+	u.VramUsageGb = gb
 	return u
 }
 
@@ -84,4 +97,22 @@ func (u *ResourceUtilization) WithGpuUtilizationValues(utils []float64) *Resourc
 	}
 
 	return u
+}
+
+func (u *ResourceUtilization) String() string {
+	m, err := json.Marshal(u)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
+func (u *ResourceUtilization) StringFormatted() string {
+	m, err := json.MarshalIndent(u, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
 }

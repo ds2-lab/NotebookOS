@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
@@ -113,6 +113,48 @@ type ResourceAllocation struct {
 
 	// cachedAllocationKey is the cached return value of getKey(ResourceAllocation.ReplicaId, ResourceAllocation.KernelId).
 	cachedAllocationKey string
+}
+
+// CloneAndReturnedAdjusted returns a copy of the target ResourceAllocation with its resource quantities
+// adjusted to patch the given types.Spec.
+//
+// If the given types.Spec is nil, then the cloned/copied ResourceAllocation struct contains the same resource
+// quantities as the original, target ResourceAllocation struct.
+func (a *ResourceAllocation) CloneAndReturnedAdjusted(spec types.Spec) *ResourceAllocation {
+	var (
+		gpus decimal.Decimal
+		vram decimal.Decimal
+		mem  decimal.Decimal
+		cpus decimal.Decimal
+	)
+
+	if spec == nil {
+		gpus = a.GPUs.Copy()
+		vram = a.VramGB.Copy()
+		mem = a.MemoryMB.Copy()
+		cpus = a.Millicpus.Copy()
+	} else {
+		gpus = decimal.NewFromFloat(spec.GPU())
+		vram = decimal.NewFromFloat(spec.VRAM())
+		mem = decimal.NewFromFloat(spec.MemoryMB())
+		cpus = decimal.NewFromFloat(spec.CPU())
+	}
+
+	clonedResourceAllocation := &ResourceAllocation{
+		AllocationId:        a.AllocationId,
+		GPUs:                gpus,
+		VramGB:              vram,
+		Millicpus:           cpus,
+		MemoryMB:            mem,
+		ReplicaId:           a.ReplicaId,
+		KernelId:            a.KernelId,
+		Timestamp:           a.Timestamp,
+		AllocationType:      a.AllocationType,
+		IsReservation:       a.IsReservation,
+		cachedAllocationKey: a.cachedAllocationKey,
+	}
+
+	return clonedResourceAllocation
 }
 
 // String returns a string representation of the ResourceAllocation suitable for logging.
@@ -352,6 +394,18 @@ func (m *ResourceManager) ResourcesSnapshot() *ResourceWrapperSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	containers := make([]*proto.ReplicaInfo, 0, m.numPendingAllocations)
+	m.allocationKernelReplicaMap.Range(func(_ string, allocation *ResourceAllocation) (contd bool) {
+		container := &proto.ReplicaInfo{
+			KernelId:  allocation.KernelId,
+			ReplicaId: allocation.ReplicaId,
+		}
+
+		containers = append(containers, container)
+
+		return true
+	})
+
 	snapshotId := m.resourceSnapshotCounter.Add(1)
 	snapshot := &ResourceWrapperSnapshot{
 		SnapshotId:         snapshotId,
@@ -362,6 +416,7 @@ func (m *ResourceManager) ResourcesSnapshot() *ResourceWrapperSnapshot {
 		PendingResources:   m.resourcesWrapper.pendingResourcesSnapshot(snapshotId),
 		CommittedResources: m.resourcesWrapper.committedResourcesSnapshot(snapshotId),
 		SpecResources:      m.resourcesWrapper.specResourcesSnapshot(snapshotId),
+		Containers:         containers,
 	}
 
 	return snapshot
@@ -389,15 +444,21 @@ func (m *ResourceManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapshot 
 	defer m.mu.Unlock()
 
 	snapshotId := m.resourceSnapshotCounter.Add(1)
+
+	idleSnapshot := m.resourcesWrapper.IdleProtoResourcesSnapshot(snapshotId)
+	pendingSnapshot := m.resourcesWrapper.PendingProtoResourcesSnapshot(snapshotId)
+	committedSnapshot := m.resourcesWrapper.CommittedProtoResourcesSnapshot(snapshotId)
+	specSnapshot := m.resourcesWrapper.SpecProtoResourcesSnapshot(snapshotId)
+
 	snapshot := &proto.NodeResourcesSnapshot{
 		SnapshotId:         snapshotId,
 		Timestamp:          timestamppb.Now(),
 		NodeId:             m.NodeID,
 		ManagerId:          m.ID,
-		IdleResources:      m.resourcesWrapper.IdleProtoResourcesSnapshot(snapshotId),
-		PendingResources:   m.resourcesWrapper.PendingProtoResourcesSnapshot(snapshotId),
-		CommittedResources: m.resourcesWrapper.CommittedProtoResourcesSnapshot(snapshotId),
-		SpecResources:      m.resourcesWrapper.SpecProtoResourcesSnapshot(snapshotId),
+		IdleResources:      idleSnapshot,
+		PendingResources:   pendingSnapshot,
+		CommittedResources: committedSnapshot,
+		SpecResources:      specSnapshot,
 	}
 
 	return snapshot
@@ -478,9 +539,6 @@ func (m *ResourceManager) SpecMemoryMB() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) SpecVRAM() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.SpecResources().VRAMAsDecimal().Copy()
 }
 
@@ -494,9 +552,6 @@ func (m *ResourceManager) SpecResources() *types.DecimalSpec {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) IdleGPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.IdleResources().GPUsAsDecimal().Copy()
 }
 
@@ -504,9 +559,6 @@ func (m *ResourceManager) IdleGPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) IdleCPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.IdleResources().MillicpusAsDecimal().Copy()
 }
 
@@ -514,9 +566,6 @@ func (m *ResourceManager) IdleCPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) IdleMemoryMB() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.IdleResources().MemoryMbAsDecimal().Copy()
 }
 
@@ -524,9 +573,6 @@ func (m *ResourceManager) IdleMemoryMB() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) IdleVRamGB() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.IdleResources().VRAMAsDecimal().Copy()
 }
 
@@ -540,9 +586,6 @@ func (m *ResourceManager) IdleResources() *types.DecimalSpec {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) CommittedGPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.CommittedResources().GPUsAsDecimal().Copy()
 }
 
@@ -550,9 +593,6 @@ func (m *ResourceManager) CommittedGPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) CommittedCPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.CommittedResources().MillicpusAsDecimal().Copy()
 }
 
@@ -560,9 +600,6 @@ func (m *ResourceManager) CommittedCPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) CommittedMemoryMB() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.CommittedResources().MemoryMbAsDecimal().Copy()
 }
 
@@ -570,9 +607,6 @@ func (m *ResourceManager) CommittedMemoryMB() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) CommittedVRamGB() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.CommittedResources().VRAMAsDecimal().Copy()
 }
 
@@ -589,9 +623,6 @@ func (m *ResourceManager) CommittedResources() *types.DecimalSpec {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) PendingGPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.PendingResources().GPUsAsDecimal().Copy()
 }
 
@@ -602,9 +633,6 @@ func (m *ResourceManager) PendingGPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) PendingCPUs() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.PendingResources().MillicpusAsDecimal().Copy()
 }
 
@@ -615,9 +643,6 @@ func (m *ResourceManager) PendingCPUs() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) PendingMemoryMB() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.PendingResources().MemoryMbAsDecimal().Copy()
 }
 
@@ -629,9 +654,6 @@ func (m *ResourceManager) PendingMemoryMB() decimal.Decimal {
 //
 // This returns a copy of the decimal.Decimal used internally.
 func (m *ResourceManager) PendingVRAM() decimal.Decimal {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	return m.resourcesWrapper.PendingResources().VRAMAsDecimal().Copy()
 }
 
@@ -652,13 +674,28 @@ func (m *ResourceManager) AdjustSpecGPUs(numGpus float64) error {
 	defer m.mu.Unlock()
 
 	numGpusDecimal := decimal.NewFromFloat(numGpus)
-	if numGpusDecimal.LessThan(m.resourcesWrapper.specResources.gpus) {
+	if numGpusDecimal.LessThan(m.resourcesWrapper.committedResources.gpus) {
 		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s", ErrIllegalGpuAdjustment, m.CommittedGPUs().StringFixed(0), numGpusDecimal.StringFixed(0))
 	}
+
+	difference := m.SpecGPUs().Sub(numGpusDecimal)
 
 	oldSpecGPUs := m.SpecGPUs()
 	m.resourcesWrapper.specResources.SetGpus(numGpusDecimal)
 	m.log.Debug("Adjusted Spec GPUs from %s to %s.", oldSpecGPUs.StringFixed(0), numGpusDecimal.StringFixed(0))
+
+	// If ORIGINAL - NEW > 0, then we're decreasing the total number of GPUs available.
+	// So, we'll need to decrement the idle GPUs value.
+	if difference.GreaterThan(decimal.Zero) {
+		newIdleGPUs := m.IdleGPUs().Sub(difference)
+		m.resourcesWrapper.idleResources.SetGpus(newIdleGPUs)
+	} else {
+		// ORIGINAL - NEW < 0, so we're adding GPUs.
+		// We'll call difference.Abs(), as difference is negative.
+		// Alternatively, we could do idleGPUs - difference, since we'd be subtracting a negative and thus adding.
+		newIdleGPUs := m.IdleGPUs().Add(difference.Abs())
+		m.resourcesWrapper.idleResources.SetGpus(newIdleGPUs)
+	}
 
 	return nil
 }
@@ -800,6 +837,78 @@ func (m *ResourceManager) PromoteReservation(replicaId int32, kernelId string) e
 	return nil
 }
 
+// AdjustPendingResources will attempt to adjust the resources committed to a particular kernel.
+//
+// On success, nil is returned.
+//
+// If the specified kernel replica does not already have an associated pending resource allocation, then
+// an ErrAllocationNotFound error is returned.
+//
+// If the requested resource adjustment cannot be applied, then an ErrInvalidOperation error is returned.
+//
+// Note: if the rollback fails for any reason, then this will panic.
+func (m *ResourceManager) AdjustPendingResources(replicaId int32, kernelId string, updatedSpec types.Spec) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// To do this, we'll just release the existing pending resource request, attempt to reserve the new request,
+	// and re-reserve the old request if the new request fails.
+	var (
+		key              string
+		allocation       *ResourceAllocation
+		allocationExists bool
+	)
+
+	// Verify that there already exists an allocation associated with the specified kernel replica.
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		m.log.Error("Cannot adjust pending resources of replica %d of kernel %s: could not found existing resource "+
+			"allocation associated with that kernel replica: %s", replicaId, kernelId, allocation.String())
+		return fmt.Errorf("%w: could not find existing pending resource allocation for replica %d of kernel %s",
+			ErrAllocationNotFound, replicaId, kernelId)
+	}
+
+	if allocation.IsCommitted() {
+		m.log.Error("Cannot adjust resources of replica %d of kernel %s, "+
+			"as resources are already committed to that kernel replica: %s", replicaId, kernelId, allocation.String())
+		return fmt.Errorf("%w: could not find existing pending resource allocation for replica %d of kernel %s",
+			ErrInvalidOperation, replicaId, kernelId)
+	}
+
+	// First, release the original amount of pending resources.
+	originalAllocatedResources := allocation.ToDecimalSpec()
+	err := m.unsafeUnsubscribePendingResources(originalAllocatedResources, key)
+	if err != nil {
+		m.log.Error("Failed to release original amount of pending resources during resource adjustment of replica %d of kernel %s because: %v",
+			replicaId, kernelId, err)
+		return err
+	}
+
+	decimalSpec := types.ToDecimalSpec(updatedSpec)
+	adjustedAllocation := allocation.CloneAndReturnedAdjusted(decimalSpec)
+
+	// Next, attempt to reserve the updated amount (which could be more or less than the original amount).
+	err = m.unsafeAllocatePendingResources(decimalSpec, adjustedAllocation, key, replicaId, kernelId)
+	if err != nil {
+		m.log.Warn("Failed to allocate updated pending resources %s during resource adjustment of replica %d of kernel %s because: %v",
+			decimalSpec.String(), replicaId, kernelId, err)
+
+		// Rollback.
+		rollbackErr := m.unsafeAllocatePendingResources(originalAllocatedResources, allocation, key, replicaId, kernelId)
+		if rollbackErr != nil {
+			m.log.Error("Failed to rollback pending resource allocation of %s for replica %d of kernel %s because: %v",
+				originalAllocatedResources.String(), replicaId, kernelId, err)
+			panic(err)
+		}
+
+		m.log.Debug("Successfully rolled back pending resource adjustment to %s for replica %d of kernel %s.",
+			originalAllocatedResources, replicaId, kernelId)
+		return err
+	}
+
+	return nil
+}
+
 // CommitResources commits/binds Resources to a particular kernel replica, such that the Resources are reserved for
 // exclusive use by that kernel replica until the kernel replica releases them (or another entity releases them
 // on behalf of the kernel replica).
@@ -819,7 +928,7 @@ func (m *ResourceManager) PromoteReservation(replicaId int32, kernelId string) e
 //
 // This operation is performed atomically by acquiring the ResourceManager::mu sync.Mutex.
 // The sync.Mutex is released before the function returns.
-func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adjustedResourceRequest types.Spec, isReservation bool) error {
+func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -847,9 +956,9 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 	}
 
 	var requestedResources *types.DecimalSpec
-	if adjustedResourceRequest != nil {
-		m.log.Debug("Converting adjusted resource request to a decimal spec. Request: %s", adjustedResourceRequest.String())
-		requestedResources = types.ToDecimalSpec(adjustedResourceRequest)
+	if resourceRequestArg != nil {
+		m.log.Debug("Converting adjusted resource request to a decimal spec. Request: %s", resourceRequestArg.String())
+		requestedResources = types.ToDecimalSpec(resourceRequestArg)
 		m.log.Debug("Converted decimal spec: %s", requestedResources.String())
 	} else {
 		requestedResources = allocation.ToDecimalSpec()
@@ -899,7 +1008,7 @@ func (m *ResourceManager) CommitResources(replicaId int32, kernelId string, adju
 
 	// Finally, we'll update the ResourceAllocation struct associated with this request.
 	// This involves updating the resource amounts stored in the ResourceAllocation as well as its AllocationType field.
-	// The resource amounts may already match what was allocated, depending on if the adjustedResourceRequest parameter
+	// The resource amounts may already match what was allocated, depending on if the resourceRequestArg parameter
 	// was nil or not.
 	//
 	// Once updated, we'll remove it from the pending allocation maps and add it to the committed allocation maps.
@@ -1001,75 +1110,6 @@ func (m *ResourceManager) ReleaseCommittedResources(replicaId int32, kernelId st
 	return nil
 }
 
-// unsafeDemoteCommittedAllocationToPendingAllocation performs any necessary state adjustments to the given
-// ResourceAllocation in order to demote it from a CommittedAllocation to a PendingAllocation.
-//
-// unsafeDemoteCommittedAllocationToPendingAllocation does NOT acquire the ResourceManager's mutex and thus must be
-// called from a context in which said mutex is already held.
-//
-// unsafeDemoteCommittedAllocationToPendingAllocation also does not perform any checks to verify that the given
-// ResourceAllocation is of the correct type (i.e., CommittedAllocation, at the time of being passed to this method).
-//
-// unsafeDemoteCommittedAllocationToPendingAllocation does not perform any resource count modification to the
-// ResourceManager. This is expected to have already been performed prior to calling this method.
-func (m *ResourceManager) unsafeDemoteCommittedAllocationToPendingAllocation(allocation *ResourceAllocation) {
-	// Set the AllocationType of the ResourceAllocation to PendingAllocation.
-	allocation.AllocationType = PendingAllocation
-
-	// Update the pending/committed allocation counters.
-	m.numPendingAllocations.Incr()
-	m.numCommittedAllocations.Decr()
-}
-
-// unsafeReleaseCommittedResources releases committed/bound Resources from the kernel replica associated with
-// the given ResourceAllocation.
-//
-// This function does NOT acquire the ResourceManager's mutex, nor does it perform any validation checks whatsoever.
-// It is meant to be called from a context in which the ResourceManager's mutex is held and any appropriate
-// checks are performed before the call to unsafeReleaseCommittedResources and after unsafeReleaseCommittedResources
-// returns.
-//
-// The allocatedResources argument is optional. If it is passed as nil, then it will be assigned a value automatically
-// by calling allocation.ToDecimalSpec(). If allocatedResources is non-nil, then it is necessarily expected to be
-// the return value of allocation.ToDecimalSpec() (generated/called RIGHT before this function is called).
-//
-// If any of the resource modifications performed by this method return an error, then this method will panic.
-//
-// The only check that this method performs is whether the given *ResourceAllocation is nil.
-// If the given *ResourceAllocation is nil, then this method will panic.
-func (m *ResourceManager) unsafeReleaseCommittedResources(allocation *ResourceAllocation, allocatedResources *types.DecimalSpec) {
-	if allocation == nil {
-		panic("The provided ResourceAllocation cannot be nil.")
-	}
-
-	// If allocatedResources is nil, then call allocation.ToDecimalSpec() to populate allocatedResources with a value.
-	if allocatedResources == nil {
-		allocatedResources = allocation.ToDecimalSpec()
-	}
-
-	// If we've gotten this far, then we have enough Resources available to commit the requested Resources
-	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle Resources.
-	if err := m.resourcesWrapper.idleResources.Add(allocatedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
-	}
-
-	// Next, we'll increment the pending Resources (since we're releasing committed Resources).
-	if err := m.resourcesWrapper.pendingResources.Add(allocatedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
-	}
-
-	// Next, we'll decrement the committed Resources (since we're releasing committed Resources).
-	if err := m.resourcesWrapper.committedResources.Subtract(allocatedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
-	}
-}
-
 // KernelReplicaScheduled is to be called whenever a kernel replica is scheduled onto this scheduling.Host.
 // KernelReplicaScheduled creates a ResourceAllocation of type PendingAllocation that is then associated with the
 // newly-scheduled kernel replica.
@@ -1111,27 +1151,12 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 	// Convert the given types.Spec argument to a *types.DecimalSpec struct.
 	decimalSpec := types.ToDecimalSpec(spec)
 
-	// First, validate against this scheduling.Host's spec.
-	if err := m.resourcesWrapper.specResources.ValidateWithError(decimalSpec); err != nil {
-		m.log.Error("Could not subscribe the following pending Resources to replica %d of kernel %s due "+
-			"to insufficient host spec: %s. Specific reason for subscription failure: %v.",
-			replicaId, kernelId, decimalSpec.String(), err)
+	err := m.unsafeAllocatePendingResources(decimalSpec, allocation, key, replicaId, kernelId)
+	if err != nil {
+		m.log.Error("Failed to allocate pending resources %s to replica %d of kernel %s: %v",
+			decimalSpec.String(), replicaId, kernelId, err)
 		return err
 	}
-
-	// If we've gotten this far, then we have enough Resources available to subscribe the requested Resources
-	// to the specified kernel replica. So, let's do that now.
-	if err := m.resourcesWrapper.pendingResources.Add(decimalSpec); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
-	}
-
-	// Store the allocation in the mapping.
-	m.allocationKernelReplicaMap.Store(key, allocation)
-
-	// Update the pending/committed allocation counters.
-	m.numPendingAllocations.Incr()
 
 	m.log.Debug("Successfully subscribed the following pending Resources to replica %d of kernel %s: %v",
 		replicaId, kernelId, decimalSpec.String())
@@ -1141,7 +1166,7 @@ func (m *ResourceManager) KernelReplicaScheduled(replicaId int32, kernelId strin
 	m.unsafeUpdatePrometheusResourceMetrics()
 
 	// Make sure everything is OK with respect to our internal state/bookkeeping.
-	err := m.unsafePerformConsistencyCheck()
+	err = m.unsafePerformConsistencyCheck()
 	if err != nil {
 		m.log.Error("Discovered an inconsistency: %v", err)
 		return err
@@ -1194,19 +1219,10 @@ func (m *ResourceManager) ReplicaEvicted(replicaId int32, kernelId string) error
 	}
 
 	// Next, unsubscribe the pending Resources.
-	if err := m.resourcesWrapper.pendingResources.Subtract(allocatedResources); err != nil {
-		panic(err)
-	}
-
-	m.numPendingAllocations.Decr()
-
-	// Delete the allocation, since the replica was evicted.
-	m.allocationKernelReplicaMap.Delete(key)
-
-	// Make sure everything is OK with respect to our internal state/bookkeeping.
-	err := m.unsafePerformConsistencyCheck()
+	err := m.unsafeUnsubscribePendingResources(allocatedResources, key)
 	if err != nil {
-		m.log.Error("Discovered an inconsistency: %v", err)
+		m.log.Error("Failed to unsubscribe pending resources %s from replica %d of kernel %s because: %v",
+			allocatedResources.String(), replicaId, kernelId, err)
 		return err
 	}
 
@@ -1409,4 +1425,119 @@ func (m *ResourceManager) unsafePerformConsistencyCheck() error {
 	}
 
 	return nil
+}
+
+func (m *ResourceManager) unsafeUnsubscribePendingResources(allocatedResources *types.DecimalSpec, key string) error {
+	if err := m.resourcesWrapper.pendingResources.Subtract(allocatedResources); err != nil {
+		return err
+	}
+
+	m.numPendingAllocations.Decr()
+
+	// Delete the allocation, since the replica was evicted.
+	m.allocationKernelReplicaMap.Delete(key)
+
+	// Make sure everything is OK with respect to our internal state/bookkeeping.
+	err := m.unsafePerformConsistencyCheck()
+	if err != nil {
+		m.log.Error("Discovered an inconsistency: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func (m *ResourceManager) unsafeAllocatePendingResources(decimalSpec *types.DecimalSpec, allocation *ResourceAllocation, key string, replicaId int32, kernelId string) error {
+	// First, validate against this scheduling.Host's spec.
+	if err := m.resourcesWrapper.specResources.ValidateWithError(decimalSpec); err != nil {
+		m.log.Error("Could not subscribe the following pending Resources to replica %d of kernel %s due "+
+			"to insufficient host spec: %s. Specific reason for subscription failure: %v.",
+			replicaId, kernelId, decimalSpec.String(), err)
+		return err
+	}
+
+	// If we've gotten this far, then we have enough Resources available to subscribe the requested Resources
+	// to the specified kernel replica. So, let's do that now.
+	if err := m.resourcesWrapper.pendingResources.Add(decimalSpec); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		return err
+	}
+
+	// Store the allocation in the mapping.
+	m.allocationKernelReplicaMap.Store(key, allocation)
+
+	// Update the pending/committed allocation counters.
+	m.numPendingAllocations.Incr()
+
+	return nil
+}
+
+// unsafeDemoteCommittedAllocationToPendingAllocation performs any necessary state adjustments to the given
+// ResourceAllocation in order to demote it from a CommittedAllocation to a PendingAllocation.
+//
+// unsafeDemoteCommittedAllocationToPendingAllocation does NOT acquire the ResourceManager's mutex and thus must be
+// called from a context in which said mutex is already held.
+//
+// unsafeDemoteCommittedAllocationToPendingAllocation also does not perform any checks to verify that the given
+// ResourceAllocation is of the correct type (i.e., CommittedAllocation, at the time of being passed to this method).
+//
+// unsafeDemoteCommittedAllocationToPendingAllocation does not perform any resource count modification to the
+// ResourceManager. This is expected to have already been performed prior to calling this method.
+func (m *ResourceManager) unsafeDemoteCommittedAllocationToPendingAllocation(allocation *ResourceAllocation) {
+	// Set the AllocationType of the ResourceAllocation to PendingAllocation.
+	allocation.AllocationType = PendingAllocation
+
+	// Update the pending/committed allocation counters.
+	m.numPendingAllocations.Incr()
+	m.numCommittedAllocations.Decr()
+}
+
+// unsafeReleaseCommittedResources releases committed/bound Resources from the kernel replica associated with
+// the given ResourceAllocation.
+//
+// This function does NOT acquire the ResourceManager's mutex, nor does it perform any validation checks whatsoever.
+// It is meant to be called from a context in which the ResourceManager's mutex is held and any appropriate
+// checks are performed before the call to unsafeReleaseCommittedResources and after unsafeReleaseCommittedResources
+// returns.
+//
+// The allocatedResources argument is optional. If it is passed as nil, then it will be assigned a value automatically
+// by calling allocation.ToDecimalSpec(). If allocatedResources is non-nil, then it is necessarily expected to be
+// the return value of allocation.ToDecimalSpec() (generated/called RIGHT before this function is called).
+//
+// If any of the resource modifications performed by this method return an error, then this method will panic.
+//
+// The only check that this method performs is whether the given *ResourceAllocation is nil.
+// If the given *ResourceAllocation is nil, then this method will panic.
+func (m *ResourceManager) unsafeReleaseCommittedResources(allocation *ResourceAllocation, allocatedResources *types.DecimalSpec) {
+	if allocation == nil {
+		panic("The provided ResourceAllocation cannot be nil.")
+	}
+
+	// If allocatedResources is nil, then call allocation.ToDecimalSpec() to populate allocatedResources with a value.
+	if allocatedResources == nil {
+		allocatedResources = allocation.ToDecimalSpec()
+	}
+
+	// If we've gotten this far, then we have enough Resources available to commit the requested Resources
+	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle Resources.
+	if err := m.resourcesWrapper.idleResources.Add(allocatedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
+
+	// Next, we'll increment the pending Resources (since we're releasing committed Resources).
+	if err := m.resourcesWrapper.pendingResources.Add(allocatedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
+
+	// Next, we'll decrement the committed Resources (since we're releasing committed Resources).
+	if err := m.resourcesWrapper.committedResources.Subtract(allocatedResources); err != nil {
+		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
+		// as we passed all the validation checks up above.
+		panic(err)
+	}
 }

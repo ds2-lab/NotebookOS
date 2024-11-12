@@ -52,3 +52,4 @@ num_resend_attempts: 1
 run_kernels_in_gdb: true
 acks_enabled: false
 checkpointing_enabled: true
+docker_app_name: distributed_notebook

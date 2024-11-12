@@ -2,7 +2,7 @@ package scheduling
 
 import (
 	"fmt"
-	"github.com/mason-leap-lab/go-utils/promise"
+	"github.com/Scusemua/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
@@ -16,7 +16,7 @@ type KubernetesCluster struct {
 // NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
 // This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
-func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, hostSpec types.Spec,
+func NewKubernetesCluster(kubeClient KubeClient, hostSpec types.Spec, hostMapper HostMapper,
 	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *KubernetesCluster {
 
 	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "KubernetesCluster")
@@ -31,7 +31,7 @@ func NewKubernetesCluster(gatewayDaemon ClusterGateway, kubeClient KubeClient, h
 	}
 	kubernetesCluster.placer = placer
 
-	scheduler, err := NewKubernetesScheduler(gatewayDaemon, kubernetesCluster, placer, hostSpec, kubeClient, opts)
+	scheduler, err := NewKubernetesScheduler(kubernetesCluster, placer, hostMapper, hostSpec, kubeClient, opts)
 	if err != nil {
 		kubernetesCluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
 		panic(err)
@@ -50,6 +50,14 @@ func (c *KubernetesCluster) NodeType() string {
 
 func (c *KubernetesCluster) RequestHost(spec types.Spec) promise.Promise {
 	return promise.Resolved(nil, promise.ErrNotImplemented)
+}
+
+// canPossiblyScaleOut returns true if the Cluster could possibly scale-out.
+// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
+// it is currently not supported unless there is at least one disabled host already within the cluster.
+func (c *KubernetesCluster) canPossiblyScaleOut() bool {
+	// For now, this is never supported for Kubernetes clusters.
+	return false
 }
 
 func (c *KubernetesCluster) ReleaseHost(id string) promise.Promise {

@@ -1,10 +1,8 @@
 package scheduling
 
 import (
-	"time"
-
+	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
 
 // RandomPlacer is a simple placer that places sessions randomly.
@@ -15,7 +13,7 @@ type RandomPlacer struct {
 }
 
 // NewRandomPlacer creates a new RandomPlacer.
-func NewRandomPlacer(cluster clusterInternal, opts *ClusterSchedulerOptions) (*RandomPlacer, error) {
+func NewRandomPlacer(cluster ClusterInternal, opts *ClusterSchedulerOptions) (*RandomPlacer, error) {
 	basePlacer := newAbstractPlacer(cluster, opts)
 	randomPlacer := &RandomPlacer{
 		AbstractPlacer: basePlacer,
@@ -40,141 +38,38 @@ func (placer *RandomPlacer) NumHostsInIndex() int {
 	return placer.index.Len()
 }
 
-// hostIsViable returns a tuple (bool, bool).
-// First bool represents whether the host is viable.
-// Second bool indicates whether the host was successfully locked. This does not mean that it is still locked.
-// Merely that we were able to lock it when we tried. If we locked it and found that the host wasn't viable,
-// then we'll have unlocked it before hostIsViable returns.
-func (placer *RandomPlacer) hostIsViable(candidateHost *Host, spec types.Spec) (bool, bool) {
-	// Attempt to lock the host for our scheduling operation.
-	// If we fail to lock it, then we'll make note if that and try again later (if necessary).
-	// It is currently involved in another scheduling operation and may be available once that operation completes.
-	if locked := candidateHost.TryLockScheduling(); !locked {
-		placer.log.Warn("Failed to scheduling-lock host %s due to concurrent scheduling operation.", candidateHost.ID)
-		return false, false
+// tryReserveResourcesOnHost attempts to reserve resources for a future replica of the specified kernel
+// on the specified host, returning true if the reservation was created successfully.
+func (placer *RandomPlacer) tryReserveResourcesOnHost(candidateHost *Host, kernelSpec *proto.KernelSpec) bool {
+	reserved, err := candidateHost.ReserveResources(kernelSpec)
+
+	if err != nil {
+		placer.log.Error("Error while attempting to reserve resources for replica of kernel %s on host %s (ID=%s): %v",
+			kernelSpec.Id, candidateHost.NodeName, candidateHost.ID, err)
+
+		// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
+		if reserved {
+			panic("We successfully reserved resources on a Host despite ReserveResources also returning an error...")
+		}
 	}
 
-	// If the Host can satisfy the resourceSpec, then add it to the slice of Host instances being returned.
-	//canServeContainer, serveError := candidateHost.CanServeContainerWithError(spec)
-	canServeContainer := candidateHost.CanServeContainer(spec)
-	willBecomeTooOversubscribed := candidateHost.WillBecomeTooOversubscribed(spec)
-	if canServeContainer && !willBecomeTooOversubscribed {
-		// The Host can satisfy the resource request. Keep the host locked and return true.
-		placer.log.Debug(utils.GreenStyle.Render("Found viable candidate host: %v."), candidateHost)
-		return true, true
-	} else {
-		placer.log.Warn(utils.OrangeStyle.Render("Host %s (ID=%s) cannot satisfy request %v. CanServeContainer=%v, WillBecomeTooOversubscribed=%v, Host's Resources=%v.)"),
-			candidateHost.NodeName, candidateHost.ID, spec, canServeContainer, willBecomeTooOversubscribed, candidateHost.ResourceSpec().String())
-
-		candidateHost.UnlockScheduling()
-		return false, true
-	}
+	return reserved
 }
 
-// FindHosts returns a slice of Host instances that can satisfy the resourceSpec.
-func (placer *RandomPlacer) findHosts(spec types.Spec) []*Host {
-	numReplicas := placer.opts.NumReplicas
-
+// findHosts iterates over the Host instances in the index, attempting to reserve the requested resources
+// on each Host until either the requested number of Host instances has been found, or until all Host
+// instances have been checked.
+func (placer *RandomPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int) []*Host {
 	var (
-		pos          interface{} = nil
-		hosts        []*Host     = nil
-		failedToLock             = make(map[string]*Host)
+		pos   interface{} = nil
+		hosts []*Host     = nil
 	)
 
-	// Seek `numReplicas` Hosts from the Placer's index.
-	hosts, _ = placer.index.SeekMultipleFrom(pos, numReplicas, func(candidateHost *Host) bool {
-		// Check if the host is viable.
-		viable, locked := placer.hostIsViable(candidateHost, spec)
-		if viable {
-			// It's viable, so return true.
-			return true
-		}
-
-		// It wasn't viable. Did we simply fail to lock it (and therefore couldn't check its viability)?
-		if !locked {
-			// Simply couldn't check the host's viability. We'll try again later (if we need to).
-			failedToLock[candidateHost.ID] = candidateHost
-		}
-
-		// Return false because the host ultimately wasn't viable for one reason (truly not viable) or another (we
-		// simply couldn't lock the host and check if it is viable or not).
-		return false
+	// Seek `numHosts` Hosts from the Placer's index.
+	hosts, _ = placer.index.SeekMultipleFrom(pos, numHosts, func(candidateHost *Host) bool {
+		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec)
 	}, make([]interface{}, 0))
 	placer.mu.Unlock()
-
-	// If we failed to find enough hosts, then we'll first check if there were any hosts that we couldn't lock due to a
-	// concurrent scheduling operation. If so, then we'll wait for ~30 seconds to see if they become available, and we'll
-	// try to schedule onto them if they do become available.
-	if len(hosts) < numReplicas {
-		placer.log.Warn(utils.OrangeStyle.Render("Failed to find %d viable hosts. Found %d/%d."), numReplicas, len(hosts), numReplicas)
-
-		// Were there any hosts we couldn't test due to their being involved in a separate, concurrent scheduling operation?
-		if len(failedToLock) > 0 {
-			// There were some hosts we couldn't check before.
-			// We'll spend up to a minute trying to lock them for our scheduling operation before aborting.
-			interval := time.Second * 60
-			placer.log.Debug("Failed to scheduling-lock %d candidateHost(s). "+
-				"Will spend %v waiting to see if they become available...", interval)
-
-			// Try for the next `interval` to use any of the hosts that we failed to scheduling-lock.
-			st := time.Now()
-			for time.Since(st) < interval && len(hosts) < numReplicas {
-				placer.mu.Lock()
-				// If we succeed in locking one of the hosts, then we'll remove it from the mapping so that
-				// we don't recheck it (in either case -- that it can serve our new kernel replica or if it cannot).
-				removeFromFailedToLock := make([]*Host, 0)
-
-				// Iterate over each of the hosts that we failed to scheduling-lock and retry.
-				for _, host := range failedToLock {
-					if !host.IsContainedWithinIndex {
-						placer.log.Warn("Host %s is no longer in a ClusterIndex. Must have been removed.", host.ID)
-						removeFromFailedToLock = append(removeFromFailedToLock, host)
-						continue
-					}
-
-					// Try to scheduling-lock the host.
-					if locked := host.TryLockScheduling(); locked {
-						// If we locked it, then check if it is viable. If it is, then we'll use it.
-						if host.CanServeContainer(spec) && !host.WillBecomeTooOversubscribed(spec) {
-							hosts = append(hosts, host)
-							removeFromFailedToLock = append(removeFromFailedToLock, host)
-							placer.log.Debug(utils.GreenStyle.Render("Locked and found viable candidate host: %s. Identified hosts: %d."), host.ID, len(hosts))
-
-							// If we've found enough hosts, then we can stop iterating now.
-							if len(hosts) == numReplicas {
-								placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts after retrying hosts we originally failed to lock."), len(hosts), numReplicas)
-								break
-							}
-						} else {
-							// Host wasn't viable. Unlock it, and remove it from the mapping.
-							placer.log.Warn(utils.OrangeStyle.Render("Finally locked host %s, but host cannot satisfy request %v. (Host Resources: %v.)"), host.ID, host.ResourceSpec().String(), spec.String())
-							host.UnlockScheduling()
-							removeFromFailedToLock = append(removeFromFailedToLock, host)
-						}
-					} else {
-						// TODO: Remove this eventually; it'll print way too many times.
-						placer.log.Warn("Once again failed to scheduling-lock host %s due to concurrent scheduling operation.", host.ID)
-					}
-				}
-
-				// Remove any hosts that we either locked and found that they could serve our kernel replica,
-				// or we locked them and found they couldn't serve our kernel replica.
-				//
-				// We only bother with this step if we've still not found enough hosts.
-				// If len(hosts) >= numReplicas, then we're going to return, so we don't need to bother
-				// with cleaning up the `removeFromFailedToLock` hosts.
-				if len(hosts) < numReplicas {
-					// Iterate over each of the hosts that we were able to lock and remove it from the mapping.
-					for _, host := range removeFromFailedToLock {
-						delete(failedToLock, host.ID)
-					}
-				}
-
-				placer.mu.Unlock()
-				time.Sleep(time.Millisecond * 500)
-			}
-		}
-	}
 
 	return hosts
 }

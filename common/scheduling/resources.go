@@ -374,6 +374,15 @@ func (res *Resources) ToDecimalSpec() *types.DecimalSpec {
 	res.Lock()
 	defer res.Unlock()
 
+	return res.unsafeToDecimalSpec()
+}
+
+// unsafeToDecimalSpec returns a pointer to a types.DecimalSpec struct that encapsulates a snapshot of
+// the current quantities of Resources encoded/maintained by the target Resources struct.
+//
+// This method is not thread-safe and should be called only by the ToDecimalSpec method, unless
+// the Resources' lock is already held.
+func (res *Resources) unsafeToDecimalSpec() *types.DecimalSpec {
 	return &types.DecimalSpec{
 		GPUs:      res.gpus.Copy(),
 		Millicpus: res.millicpus.Copy(),
@@ -896,7 +905,7 @@ func (res *Resources) ValidateWithError(spec types.Spec) error {
 	}
 
 	if len(offendingKinds) > 0 {
-		return NewInsufficientResourcesError(res.ToDecimalSpec(), spec, offendingKinds)
+		return NewInsufficientResourcesError(res.unsafeToDecimalSpec(), spec, offendingKinds)
 	} else {
 		return nil
 	}
@@ -1144,21 +1153,24 @@ type ResourceWrapperSnapshot struct {
 	// SnapshotId uniquely identifies the ResourceWrapperSnapshot and defines a total order amongst all ResourceWrapperSnapshot
 	// structs originating from the same node. Each newly-created ResourceWrapperSnapshot is assigned an ID from a
 	// monotonically-increasing counter by the ResourceManager.
-	SnapshotId int32 `json:"snapshot_id"`
+	SnapshotId int32 `json:"snapshot_id" mapstructure:"snapshot_id"`
 
 	// NodeId is the ID of the node from which the snapshot originates.
-	NodeId string `json:"host_id"`
+	NodeId string `json:"host_id" mapstructure:"host_id"`
 
 	// ManagerId is the unique ID of the ResourceManager struct from which the ResourceWrapperSnapshot was constructed.
-	ManagerId string `json:"manager_id"`
+	ManagerId string `json:"manager_id" mapstructure:"manager_id"`
 
 	// Timestamp is the time at which the ResourceWrapperSnapshot was taken/created.
-	Timestamp time.Time `json:"timestamp"`
+	Timestamp time.Time `json:"timestamp" mapstructure:"timestamp"`
 
-	IdleResources      *ResourceSnapshot `json:"idle_resources"`
-	PendingResources   *ResourceSnapshot `json:"pending_resources"`
-	CommittedResources *ResourceSnapshot `json:"committed_resources"`
-	SpecResources      *ResourceSnapshot `json:"spec_resources"`
+	IdleResources      *ResourceSnapshot `json:"idle_resources" mapstructure:"idle_resources"`
+	PendingResources   *ResourceSnapshot `json:"pending_resources" mapstructure:"pending_resources"`
+	CommittedResources *ResourceSnapshot `json:"committed_resources" mapstructure:"committed_resources"`
+	SpecResources      *ResourceSnapshot `json:"spec_resources" mapstructure:"spec_resources"`
+
+	// Containers are the Containers presently running on the Host.
+	Containers []*proto.ReplicaInfo `json:"containers,omitempty" mapstructure:"containers,omitempty"`
 }
 
 // MetadataResourceWrapperSnapshot is a simpel wrapper around a ResourceWrapperSnapshot struct so that
@@ -1166,6 +1178,16 @@ type ResourceWrapperSnapshot struct {
 // is typically a map[string]interface{}.
 type MetadataResourceWrapperSnapshot struct {
 	ResourceWrapperSnapshot *ResourceWrapperSnapshot `json:"resource_snapshot"`
+}
+
+func (s *ResourceWrapperSnapshot) GetContainers() []types.ContainerInfo {
+	containers := make([]types.ContainerInfo, 0, len(s.Containers))
+
+	for _, container := range s.Containers {
+		containers = append(containers, container)
+	}
+
+	return containers
 }
 
 ////////////////////////////////////////////////////
@@ -1241,21 +1263,75 @@ func (s *ResourceWrapperSnapshot) GetGoTimestamp() time.Time {
 }
 
 // GetIdleResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetIdleResources() *ResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetIdleResources() types.ArbitraryResourceSnapshot {
 	return s.IdleResources
 }
 
 // GetPendingResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetPendingResources() *ResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetPendingResources() types.ArbitraryResourceSnapshot {
 	return s.PendingResources
 }
 
 // GetCommittedResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetCommittedResources() *ResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetCommittedResources() types.ArbitraryResourceSnapshot {
 	return s.CommittedResources
 }
 
 // GetSpecResources is part of the HostResourceSnapshot interface implementation.
-func (s *ResourceWrapperSnapshot) GetSpecResources() *ResourceSnapshot {
+func (s *ResourceWrapperSnapshot) GetSpecResources() types.ArbitraryResourceSnapshot {
 	return s.SpecResources
+}
+
+// ProtoNodeResourcesSnapshotWrapper is a wrapper around the proto.NodeResourcesSnapshot struct that
+// provides a way for a proto.NodeResourcesSnapshot struct to satisfy the types.HostResourceSnapshot interface.
+type ProtoNodeResourcesSnapshotWrapper struct {
+	*proto.NodeResourcesSnapshotWithContainers
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetIdleResources() types.ArbitraryResourceSnapshot {
+	return w.ResourceSnapshot.IdleResources
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetPendingResources() types.ArbitraryResourceSnapshot {
+	return w.ResourceSnapshot.PendingResources
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetCommittedResources() types.ArbitraryResourceSnapshot {
+	return w.ResourceSnapshot.CommittedResources
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetSpecResources() types.ArbitraryResourceSnapshot {
+	return w.ResourceSnapshot.SpecResources
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetContainers() []types.ContainerInfo {
+	containerInfo := make([]types.ContainerInfo, 0, len(w.Containers))
+	for _, container := range w.Containers {
+		containerInfo = append(containerInfo, container)
+	}
+	return containerInfo
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) String() string {
+	return w.NodeResourcesSnapshotWithContainers.String()
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetSnapshotId() int32 {
+	return w.NodeResourcesSnapshotWithContainers.ResourceSnapshot.SnapshotId
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetNodeId() string {
+	return w.NodeResourcesSnapshotWithContainers.ResourceSnapshot.NodeId
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetManagerId() string {
+	return w.NodeResourcesSnapshotWithContainers.ResourceSnapshot.ManagerId
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) GetGoTimestamp() time.Time {
+	return w.NodeResourcesSnapshotWithContainers.ResourceSnapshot.GetGoTimestamp()
+}
+
+func (w *ProtoNodeResourcesSnapshotWrapper) Compare(obj interface{}) float64 {
+	return w.NodeResourcesSnapshotWithContainers.ResourceSnapshot.Compare(obj)
 }

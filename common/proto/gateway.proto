@@ -35,6 +35,9 @@ service ClusterGateway {
 
   // Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
   rpc Notify(Notification) returns (Void) {}
+
+  // PingGateway is a no-op for testing connectivity.
+  rpc PingGateway(Void) returns (Void) {}
 }
 
 // gRPC service provided by the Cluster Gateway and "used" by the Dashboard
@@ -471,6 +474,7 @@ message HostSpec {
 message HostId {
   string id = 1;
   string nodeName = 2; // The name of the Kubernetes node that the Host is running on.
+  bool existing = 3; // Indicates whether the node is starting for the first time or not.
 }
 
 // KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
@@ -538,7 +542,7 @@ service LocalGateway {
 
   // ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of
   // the current resource quantities on the node.
-  rpc ResourcesSnapshot(Void) returns (NodeResourcesSnapshot) {}
+  rpc ResourcesSnapshot(Void) returns (NodeResourcesSnapshotWithContainers) {}
 
   // Return the current GPU resource metrics on the node.
   // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
@@ -572,6 +576,17 @@ message ReconnectToGatewayRequest {
   // If true, then wait until after returning from the ReconnectToGateway gRPC call to initiate the reconnection
   // procedure (which necessarily terminates the existing connection).
   bool delay = 1;
+}
+
+// NodeResourcesSnapshotWithContainers encapsulates a NodeResourcesSnapshot struct as well as information about the
+// Containers that are actively scheduled/running on the Host.
+message NodeResourcesSnapshotWithContainers {
+    // Id is a unique identifier for the NodeResourcesSnapshotWithContainers struct/message.
+    string id = 1;
+    // ResourceSnapshot is the NodeResourcesSnapshot.
+    NodeResourcesSnapshot resourceSnapshot = 2;
+    // Containers encodes the containers that are presently scheduled on the Host.
+    repeated ReplicaInfo containers = 3;
 }
 
 // NodeResourcesSnapshot encodes a snapshot of the current resource quantities on a particular node.
@@ -757,12 +772,14 @@ message KernelRegistrationNotification {
   string hostId = 4; // The ID of the LocalDaemonClient associated with this Host. It's basically the ID of the LocalDaemon.
   int32 replicaId = 5; // The SMR replica ID.
   string kernelIp = 6; // The hostname of the kernel itself (not its LocalDaemon).
-  string podName = 7; // The name of the Pod hosting the kernel container.
+  string podOrContainerName = 7; // The name of the Pod hosting the kernel container.
   string nodeName = 8; // Name of the node that the Pod is running on.
   ResourceSpec resourceSpec = 9; // ResourceSpec of the kernel.
   int32 cpu = 10;  // In 1/100 core.
   int32 memory = 11; // In MB.
   int32 gpu = 12; // Number of GPUs.
+  string dockerContainerId=13; // Docker ID of the container. Only populated in Docker mode.
+  string notificationId = 14;
 }
 
 // Returned by the Cluster Gateway for the NotifyKernelRegistered RPC.

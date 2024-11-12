@@ -22,9 +22,15 @@ type internalPlacer interface {
 	// This is the Placer-implementation-specific logic of the Placer.FindHost method.
 	findHost(blacklist []interface{}, metrics types.Spec) *Host
 
-	// FindHosts returns a slice of Host instances that can satisfy the resourceSpec.
+	// findHosts iterates over the Host instances in the index, attempting to reserve the requested resources
+	// on each Host until either the requested number of Host instances has been found, or until all Host
+	// instances have been checked.
+	//
+	// If findHosts cannot find the requested number of viable Host instances, then it returns as many as it could
+	// find. These Host instances will have the resources reserved on them.
+	//
 	// This is the Placer-implementation-specific logic of the Placer.FindHosts method.
-	findHosts(spec types.Spec) []*Host
+	findHosts(kernelSpec *proto.KernelSpec, numHosts int) []*Host
 
 	// hostIsViable returns a tuple (bool, bool).
 	// First bool represents whether the host is viable.
@@ -47,7 +53,7 @@ type internalPlacer interface {
 type Placer interface {
 	// FindHosts returns a list of hosts that can satisfy the resourceSpec.
 	// The number of hosts returned is determined by the placer.
-	FindHosts(types.Spec) []*Host
+	FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []*Host
 
 	// FindHost returns a host that can satisfy the resourceSpec.
 	// This method is provided for development. Implementation are not required to implement this method.

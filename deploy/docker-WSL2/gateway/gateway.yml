@@ -53,3 +53,4 @@ gpu_poll_interval: 5
 num_resend_attempts: 1
 acks_enabled: false
 checkpointing_enabled: true
+remote-docker-event-aggregator-port: 5821

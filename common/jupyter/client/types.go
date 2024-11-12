@@ -12,6 +12,8 @@ import (
 // AbstractDistributedKernelClient is just an extraction of the public/exported methods of the
 // DistributedKernelClient struct into an interface so that we can mock the interface for unit tests.
 type AbstractDistributedKernelClient interface {
+	SessionManager
+
 	SetSession(session *scheduling.Session)
 	GetSession() *scheduling.Session
 	GetContainers() []*scheduling.Container
@@ -21,7 +23,7 @@ type AbstractDistributedKernelClient interface {
 	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*scheduling.ActiveExecution, bool)
 	ExecutionFailedCallback() ExecutionFailedCallback
 	SetActiveExecution(activeExecution *scheduling.ActiveExecution)
-	ExecutionComplete(snapshot types.HostResourceSnapshot[*scheduling.ResourceSnapshot], msg *jupyterTypes.JupyterMessage) (bool, error)
+	ExecutionComplete(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot], msg *jupyterTypes.JupyterMessage) (bool, error)
 	EnqueueActiveExecution(attemptId int, msg *jupyterTypes.JupyterMessage) *scheduling.ActiveExecution
 	ResetID(id string)
 	PersistentID() string
@@ -39,7 +41,7 @@ type AbstractDistributedKernelClient interface {
 	AddOperationStarted()
 	AddOperationCompleted()
 	Replicas() []scheduling.KernelReplica
-	PodName(id int32) (string, error)
+	PodOrContainerName(id int32) (string, error)
 	PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec
 	AddReplica(r scheduling.KernelReplica, host *scheduling.Host) error
 	RemoveReplica(r scheduling.KernelReplica, remover ReplicaRemover, noop bool) (*scheduling.Host, error)
@@ -50,6 +52,8 @@ type AbstractDistributedKernelClient interface {
 	InitializeIOForwarder() (*jupyterTypes.Socket, error)
 	GetReadyReplica() scheduling.KernelReplica
 	IsReady() bool
+	Socket(typ jupyterTypes.MessageType) *jupyterTypes.Socket
+	GetSocketPort(typ jupyterTypes.MessageType) int
 	IsReplicaReady(replicaId int32) (bool, error)
 	RequestWithHandler(ctx context.Context, _ string, typ jupyterTypes.MessageType, msg *jupyterTypes.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error
 	RequestWithHandlerAndReplicas(ctx context.Context, typ jupyterTypes.MessageType, jMsg *jupyterTypes.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error
@@ -72,19 +76,19 @@ type AbstractKernelClient interface {
 	SetContainer(container *scheduling.Container)
 	IsTraining() bool
 	WaitForTrainingToStop()
-	WaitForRepliesToPendingExecuteRequests()
+	WaitForPendingExecuteRequests()
 	SetLastTrainingTimePrometheusUpdate()
 	LastTrainingTimePrometheusUpdate() time.Time
 	NumPendingExecuteRequests() int
 	SentExecuteRequest(msg *jupyterTypes.JupyterMessage)
 	ReceivedExecuteReply(msg *jupyterTypes.JupyterMessage)
-	KernelStoppedTraining(snapshot types.HostResourceSnapshot[*scheduling.ResourceSnapshot]) error
+	KernelStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
 	TrainingStartedAt() time.Time
 	WorkloadId() string
 	SetWorkloadId(workloadId string)
 	WorkloadIdSet() bool
 	ShouldAckMessages() bool
-	PodName() string
+	GetPodOrContainerName() string
 	NodeName() string
 	ShellListenPort() int
 	IOPubListenPort() int
@@ -102,6 +106,7 @@ type AbstractKernelClient interface {
 	KernelSpec() *proto.KernelSpec
 	Address() string
 	String() string
+	UpdateResourceSpec(types.Spec) error
 	IsReady() bool
 	HostId() string
 	SetReady()

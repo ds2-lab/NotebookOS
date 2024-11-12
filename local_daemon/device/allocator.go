@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
@@ -46,7 +46,7 @@ type virtualGpuAllocatorImpl struct {
 	allocations map[string]*proto.VirtualGpuAllocation
 }
 
-// Creates a new virtualGpuAllocator using an out-of-cluster config for its Kubernetes client.
+// NewVirtualGpuAllocatorForTesting creates a new virtualGpuAllocator using an out-of-cluster config for its Kubernetes client.
 func NewVirtualGpuAllocatorForTesting(opts *domain.VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
 	var kubeconfig string
 	if home := homedir.HomeDir(); home != "" {

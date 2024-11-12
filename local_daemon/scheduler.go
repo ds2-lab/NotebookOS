@@ -8,11 +8,13 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime/debug"
+	"runtime/pprof"
 	"sync"
 	"syscall"
 
+	"github.com/Scusemua/go-utils/config"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/muesli/termenv"
 
 	"github.com/zhangjyr/distributed-notebook/local_daemon/daemon"
@@ -75,7 +77,10 @@ func createAndStartDebugHttpServer() {
 }
 
 func main() {
-	defer finalize(false)
+	defer func() {
+		logger.Warn("Main goroutine for Local Daemon process is calling finalize(false) now...")
+		finalize(false)
+	}()
 
 	var done sync.WaitGroup
 
@@ -94,14 +99,23 @@ func main() {
 
 func finalize(fix bool) {
 	if !fix {
+		logger.Warn("Finalize called, but `fix` is false, so we'll just return (rather than terminate the process).")
 		return
 	}
 
 	if err := recover(); err != nil {
-		logger.Error("%v", err)
+		logger.Error("Finalize called, then recover() called. Got back the following error: %v", err)
 	}
 
-	log.Println("Finalize called. Will be terminating.")
+	logger.Error("Finalize called. Will be terminating.")
+	logger.Error("Stack trace of CURRENT goroutine:")
+	debug.PrintStack()
+
+	logger.Error("Stack traces of ALL active goroutines:")
+	err := pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+	if err != nil {
+		logger.Error("Failed to output call stacks of all active goroutines: %v", err)
+	}
 
 	sig <- syscall.SIGINT
 }

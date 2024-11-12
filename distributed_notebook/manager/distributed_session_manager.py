@@ -13,6 +13,8 @@ class DistributedSessionManager(SessionManager):
         self.log.info("DistributedSessionManager is using a KernelManager of type %s." % str(type(self.kernel_manager)))
         self.log.info("self.kernel_manager.start_kernel: %s" % str(self.kernel_manager.start_kernel))
 
+        self.num_sessions_creating: int = 0
+
     async def create_session(
         self,
         path: Optional[str] = None,
@@ -38,7 +40,8 @@ class DistributedSessionManager(SessionManager):
             :param name:
             :param path:
         """
-        self.log.info("DistributedSessionManager is creating new Session: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, SessionId=%s, ResourceSpec=%s" % (path, name, type, kernel_name, kernel_id, session_id, str(resource_spec)))
+        self.num_sessions_creating += 1
+        self.log.info("DistributedSessionManager is creating new Session: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, SessionId=%s, ResourceSpec=%s, NumSessionsCreating=%d" % (path, name, type, kernel_name, kernel_id, session_id, str(resource_spec), self.num_sessions_creating))
        
         if session_id is None:
             session_id = self.new_session_id()
@@ -63,6 +66,8 @@ class DistributedSessionManager(SessionManager):
             session_id, path=path, name=name, type=type, kernel_id=kernel_id
         )
         self._pending_sessions.remove(record)
+
+        self.num_sessions_creating -= 1
         
         return cast(Dict[str, Any], result)
 
@@ -71,7 +76,7 @@ class DistributedSessionManager(SessionManager):
         session_id: str,
         path: Optional[str],
         name: Optional[ModelName],
-        type: Optional[str],
+        typ: Optional[str],
         kernel_name: Optional[KernelName],
         kernel_id: Optional[str] = None, 
         resource_spec: Optional[dict[str, float|int]] = None,
@@ -87,7 +92,7 @@ class DistributedSessionManager(SessionManager):
         name : str
             Usually the model name, like the filename associated with current
             kernel.
-        type : str
+        typ : str
             the type of the session
         kernel_name : str
             the name of the kernel specification to use.  The default kernel name will be used if not provided.
@@ -96,7 +101,7 @@ class DistributedSessionManager(SessionManager):
         resource_spec : dict[str, int]
             the resource specification for the new session. kernels of this session will be created with these resource limits within Kubernetes.
         """
-        self.log.info("DistributedSessionManager is starting a new Kernel for Session %s: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, ResourceSpec=%s" % (session_id, path, name, type, kernel_name, kernel_id, str(resource_spec)))
+        self.log.info("DistributedSessionManager is starting a new Kernel for Session %s: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, ResourceSpec=%s" % (session_id, path, name, typ, kernel_name, kernel_id, str(resource_spec)))
         
         # Allow contents manager to specify kernels cwd
         kernel_path = await ensure_async(self.contents_manager.get_kernel_path(path=path))
@@ -117,7 +122,9 @@ class DistributedSessionManager(SessionManager):
         # If the caller didn't specify a particular kernel ID, then that's fine.
         # If they did, then the returned kernel ID should necessarily be equal to whatever was passed by the caller.
         if kernel_id is not None:
-            assert(returned_kernel_id == kernel_id)
+            if kernel_id != returned_kernel_id:
+                self.log.error(f"Returned kernel ID is \"{returned_kernel_id}\", whereas kernel ID was supposed to be \"{kernel_id}\".")
+                raise ValueError(f"Returned kernel ID of \"{returned_kernel_id}\" is not equal to specified kernel ID of \"{kernel_id}\"")
         else:
             kernel_id = returned_kernel_id
             

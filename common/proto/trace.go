@@ -2,8 +2,8 @@ package proto
 
 import (
 	"encoding/json"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/logger"
 )
 
 const (

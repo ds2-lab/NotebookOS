@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"log"
 	"strings"
+)
+
+var (
+	ErrUnsupportedOperation = errors.New("the requested operation is not supported")
 )
 
 // DockerSwarmCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
@@ -15,9 +18,6 @@ import (
 // but simply toggled "off" and "on".
 type DockerSwarmCluster struct {
 	*BaseCluster
-
-	// DisabledHosts is a map from host ID to *Host containing all the Host instances that are currently set to "off".
-	DisabledHosts hashmap.HashMap[string, *Host]
 }
 
 // NewDockerSwarmCluster creates a new DockerSwarmCluster struct and returns a pointer to it.
@@ -26,14 +26,13 @@ type DockerSwarmCluster struct {
 //
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally by the
 // DockerSwarmCluster for scheduling decisions.
-func NewDockerSwarmCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
+func NewDockerSwarmCluster(hostSpec types.Spec, hostMapper HostMapper,
 	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *DockerSwarmCluster {
 
 	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerSwarmCluster")
 
 	dockerCluster := &DockerSwarmCluster{
-		BaseCluster:   baseCluster,
-		DisabledHosts: hashmap.NewConcurrentMap[*Host](256),
+		BaseCluster: baseCluster,
 	}
 
 	placer, err := NewRandomPlacer(dockerCluster, opts)
@@ -43,7 +42,7 @@ func NewDockerSwarmCluster(gatewayDaemon ClusterGateway, hostSpec types.Spec,
 	}
 	dockerCluster.placer = placer
 
-	scheduler, err := NewDockerScheduler(gatewayDaemon, dockerCluster, placer, hostSpec, opts)
+	scheduler, err := NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Docker Swarm Cluster Scheduler: %v", err)
 		panic(err)
@@ -204,8 +203,23 @@ func (c *DockerSwarmCluster) getScaleOutCommand(targetScale int32, coreLogicDone
 
 		c.log.Error("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.", targetScale)
 		c.log.Error("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.", numDisabledHostsUsed, targetScale-int32(currentScale))
-		coreLogicDoneChan <- fmt.Errorf("cannot scale-out; adding additional nodes is not supported by docker swarm clusters")
+
+		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker swarm clusters", ErrUnsupportedOperation)
 	}
+}
+
+// DisableHost attempts to disable the specified Host.
+//
+// This method is typically not called during regular operation; it typically occurs just while unit testing.
+func (c *DockerSwarmCluster) DisableHost(hostId string) error {
+	panic("not implemented")
+}
+
+// canPossiblyScaleOut returns true if the Cluster could possibly scale-out.
+// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
+// it is currently not supported unless there is at least one disabled host already within the cluster.
+func (c *DockerSwarmCluster) canPossiblyScaleOut() bool {
+	return c.DisabledHosts.Len() > 0
 }
 
 // unsafeGetTargetedScaleInCommand returns a function that, when executed, will terminate the hosts specified in the targetHosts parameter.

@@ -14,9 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/go-zeromq/zmq4"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
@@ -27,7 +27,8 @@ import (
 var (
 	heartbeatInterval = time.Second
 
-	ErrDeadlineExceeded = errors.New("deadline for parent context has already been exceeded")
+	ErrInvalidResourceSpec = errors.New("resource spec contains one or more invalid resource quantities")
+	ErrDeadlineExceeded    = errors.New("deadline for parent context has already been exceeded")
 	//ErrResourceSpecAlreadySet = errors.New("kernel already has a resource spec set")
 )
 
@@ -79,7 +80,7 @@ type KernelReplicaClient struct {
 	numResendAttempts                int                                            // Number of times to try resending a message before giving up.
 	shellListenPort                  int                                            // Port that the KernelReplicaClient::shell socket listens on.
 	iopubListenPort                  int                                            // Port that the KernelReplicaClient::iopub socket listens on.
-	podOrContainerName               string                                         // Name of the Pod or Container housing the associated distributed kernel replica container.
+	PodOrContainerName               string                                         // Name of the Pod or Container housing the associated distributed kernel replica container.
 	nodeName                         string                                         // Name of the node that the Pod or Container is running on.
 	ready                            bool                                           // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
 	yieldNextExecutionRequest        bool                                           // If true, then we will yield the next 'execute_request'.
@@ -155,7 +156,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		shellListenPort:                      shellListenPort,
 		messagingMetricsProvider:             messagingMetricsProvider,
 		iopubListenPort:                      iopubListenPort,
-		podOrContainerName:                   podOrContainerName,
+		PodOrContainerName:                   podOrContainerName,
 		nodeName:                             nodeName,
 		smrNodeReadyCallback:                 smrNodeReadyCallback,
 		smrNodeAddedCallback:                 smrNodeAddedCallback,
@@ -253,12 +254,49 @@ func (c *KernelReplicaClient) WaitForTrainingToStop() {
 	}
 }
 
-// WaitForRepliesToPendingExecuteRequests blocks until all outstanding/pending "execute_request" messages sent to the kernel
+// UpdateResourceSpec updates the resource spec of the target KernelReplicaClient to the resource
+// quantities of the specified commonTypes.Spec.
+//
+// An error is returned if any of the resource quantities in the provided commonTypes.Spec are negative.
+//
+// On success, nil is returned.
+//
+// Note for internal usage: this method is thread safe. Do not call this method if the lock for the kernel
+// is already held. If the lock is already held, then call the unsafeUpdateResourceSpec method instead.
+func (c *KernelReplicaClient) UpdateResourceSpec(spec commonTypes.Spec) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.unsafeUpdateResourceSpec(spec)
+}
+
+// UpdateResourceSpec updates the resource spec of the target KernelReplicaClient to the resource
+// quantities of the specified commonTypes.Spec.
+//
+// An error is returned if any of the resource quantities in the provided commonTypes.Spec are negative.
+//
+// On success, nil is returned.
+//
+// Note: this method is thread safe. Do not call this method if the lock for the kernel is already held.
+func (c *KernelReplicaClient) unsafeUpdateResourceSpec(spec commonTypes.Spec) error {
+	if spec.GPU() < 0 || spec.CPU() < 0 || spec.VRAM() < 0 || spec.MemoryMB() < 0 {
+		return fmt.Errorf("%w: %s", ErrInvalidResourceSpec, spec.String())
+	}
+
+	c.spec.ResourceSpec.Gpu = int32(spec.GPU())
+	c.spec.ResourceSpec.Cpu = int32(spec.CPU())
+	c.spec.ResourceSpec.Vram = float32(spec.VRAM())
+	c.spec.ResourceSpec.Memory = float32(spec.MemoryMB())
+
+	return nil
+}
+
+// WaitForPendingExecuteRequests blocks until all outstanding/pending "execute_request" messages sent to the kernel
 // have received their "execute_reply" response.
 //
 // If there are no outstanding/pending "execute_request" messages WaitForRepliesToPendingExecuteRequests is called, then
 // WaitForRepliesToPendingExecuteRequests will return immediately.
-func (c *KernelReplicaClient) WaitForRepliesToPendingExecuteRequests() {
+func (c *KernelReplicaClient) WaitForPendingExecuteRequests() {
 	gid := goid.Get()
 
 	// The trainingFinishedCond field of the KernelReplicaClient uses the trainingFinishedMu mutex.
@@ -305,7 +343,7 @@ func (c *KernelReplicaClient) LastTrainingTimePrometheusUpdate() time.Time {
 // In the Local Daemon, this is called in the handleSMRLeadTask method.
 //
 // In the internalCluster Gateway, this is called in the handleSmrLeadTaskMessage method of DistributedKernelClient.
-func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[T]) error {
+func KernelStartedTraining(c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[commonTypes.ArbitraryResourceSnapshot]) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -316,7 +354,7 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 			"Will discard future \"execute_reply\" message if we do end up receiving it...", c.replicaId, c.id, c.trainingStartedAt)
 
 		// We already locked the kernel above, so we can call the unsafe method directly here.
-		err := unsafeKernelStoppedTraining[T](c, snapshot)
+		err := unsafeKernelStoppedTraining(c, snapshot)
 		if err != nil {
 			c.log.Error("Couldn't cleanly stop training for replica %d of kernel %s: %v", c.replicaId, c.id, err)
 			return err
@@ -331,7 +369,7 @@ func KernelStartedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelRep
 	// The following code is only executed within the internalCluster Gateway.
 	container := c.Container()
 	if container != nil { // Container will be nil on Local Daemons; they don't track resources this way.
-		p := scheduling.SessionStartedTraining(container.Session(), container, snapshot)
+		p := container.Session().SessionStartedTraining(container, snapshot)
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to start training for session %s: %v", container.Session().ID(), err)
 			return err
@@ -426,7 +464,7 @@ func (c *KernelReplicaClient) ReceivedExecuteReply(msg *types.JupyterMessage) {
 // KernelReplicaClient struct.
 //
 // If the kernel is already not training, then this method just returns immediately (without an error).
-func unsafeKernelStoppedTraining[T commonTypes.ArbitraryResourceSnapshot](c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[T]) error {
+func unsafeKernelStoppedTraining(c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[commonTypes.ArbitraryResourceSnapshot]) error {
 	c.trainingFinishedMu.Lock()
 	if !c.isTraining {
 		c.log.Warn("Cannot stop training; already not training.")
@@ -444,7 +482,7 @@ func unsafeKernelStoppedTraining[T commonTypes.ArbitraryResourceSnapshot](c *Ker
 	// If the Container is actively-training, then we need to call SessionStoppedTraining
 	// before removing it so that the resources are all returned appropriately.
 	if container := c.Container(); container != nil {
-		p := scheduling.SessionStoppedTraining[T](container.Session(), snapshot)
+		p := container.Session().SessionStoppedTraining(snapshot)
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v",
 				c.ID(), c.ReplicaID(), err)
@@ -459,11 +497,11 @@ func unsafeKernelStoppedTraining[T commonTypes.ArbitraryResourceSnapshot](c *Ker
 }
 
 // KernelStoppedTraining should be called when the kernel associated with this client stops actively training.
-func (c *KernelReplicaClient) KernelStoppedTraining(snapshot commonTypes.HostResourceSnapshot[*scheduling.ResourceSnapshot]) error {
+func (c *KernelReplicaClient) KernelStoppedTraining(snapshot commonTypes.HostResourceSnapshot[commonTypes.ArbitraryResourceSnapshot]) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return unsafeKernelStoppedTraining[*scheduling.ResourceSnapshot](c, snapshot)
+	return unsafeKernelStoppedTraining(c, snapshot)
 }
 
 // TrainingStartedAt returns the time at which the kernel associated with this client began actively training.
@@ -620,9 +658,17 @@ func (c *KernelReplicaClient) updateLogPrefix() {
 	c.client.Log.(*logger.ColorLogger).Prefix = fmt.Sprintf("Replica %s:%d ", c.id, c.replicaId)
 }
 
-// PodName returns the name of the Kubernetes Pod hosting the replica.
-func (c *KernelReplicaClient) PodName() string {
-	return c.podOrContainerName
+// GetPodOrContainerName returns the name of the Kubernetes Pod hosting the replica.
+func (c *KernelReplicaClient) GetPodOrContainerName() string {
+	return c.PodOrContainerName
+}
+
+func (c *KernelReplicaClient) SetPodOrContainerName(name string) {
+	c.PodOrContainerName = name
+}
+
+func (c *KernelReplicaClient) SetNodeName(name string) {
+	c.nodeName = name
 }
 
 // NodeName returns the name of the node that the Pod is running on.
@@ -1196,26 +1242,6 @@ func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames *
 	// Return nil so that we forward the message to the client.
 	return nil
 }
-
-// func (c *KernelReplicaClient) handleIOKernelSMRNodeRemoved(kernel scheduling.Kernel, frames types.JupyterFrames, msg *types.JupyterMessage) error {
-// 	c.log.Debug("Handling IO Kernel SMR Node-Removed message...")
-// 	var node_removed_message types.MessageSMRNodeUpdated
-// 	if err := frames.Validate(); err != nil {
-// 		return err
-// 	}
-// 	err := frames.DecodeContent(&node_removed_message)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	c.log.Debug("Handling IO Kernel SMR Node-Removed message for replica %d of kernel %s.", node_removed_message.NodeID, node_removed_message.KernelId)
-
-// 	if c.smrNodeRemovedCallback != nil {
-// 		c.smrNodeRemovedCallback(&node_removed_message)
-// 	}
-
-// 	return types.ErrStopPropagation
-// }
 
 // handleIOKernelSMRNodeAdded is the handler for "smr_node_added" IOPub messages.
 //

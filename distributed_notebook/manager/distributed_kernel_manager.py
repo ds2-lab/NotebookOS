@@ -12,6 +12,8 @@ class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
         """Initialize a kernel manager."""
         super().__init__(**kwargs)
         self.log.info("Created a new instance of DistributedKernelManager.")
+
+        self.num_kernels_starting: int = 0
     
     def new_kernel_id(self, **kwargs) -> str:
         """
@@ -25,7 +27,9 @@ class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
     async def _async_start_kernel(  # type:ignore[override]
             self, *, kernel_id: str | None = None, path: ApiPath | None = None, **kwargs: str
         ):
-        self.log.info("_async_start_kernel() called. kernel_id = %s, path = %s" % (kernel_id, str(path)))
+        self.num_kernels_starting += 1
+
+        self.log.info("_async_start_kernel() called. kernel_id = %s, path = %s, num_kernels_starting = %d" % (kernel_id, str(path), self.num_kernels_starting))
         returned_kernel_id:str = await super()._async_start_kernel(kernel_id = kernel_id, path = path, **kwargs)
         
         # If the caller didn't specify a particular kernel ID, then that's fine.
@@ -34,7 +38,13 @@ class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
         
         self.log.info(f"Started kernel {returned_kernel_id}. Number of kernels: {len(self._kernels)}.")
         self.log.info(f"Kernels: {str(self._kernels.keys())}")
-    
+
+        self.num_kernels_starting -= 1
+
+        return returned_kernel_id
+
+    start_kernel = _async_start_kernel
+
     def kernel_model(self, kernel_id):
         """Return a JSON-safe dict representing a kernel
 

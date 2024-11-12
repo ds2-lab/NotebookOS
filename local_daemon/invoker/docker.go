@@ -16,8 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Scusemua/go-utils/config"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/config"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 )
@@ -61,6 +61,7 @@ const (
 	VarDebugPort                      = "{kernel_debug_port}"
 	VarPrometheusMetricsPort          = "{prometheus_metrics_port}"
 	VarKernelDebugPyPort              = "{kernel_debugpy_port}"
+	VarDeploymentMode                 = "{deployment_mode}"
 	VarMaybeFlags                     = "{maybe_flags}"
 	VarMaybeGdbFlag                   = "{maybe_gdb}"
 	VarMaybeSimCheckPtLatency         = "{maybe_sim_checkpoint_latency}"
@@ -77,7 +78,7 @@ var (
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
 	dockerMaybeFlags  = "{maybe_gdb}{maybe_sim_checkpoint_latency}{docker_swarm_node_constraint}"
-	dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e PROMETHEUS_METRICS_PORT={prometheus_metrics_port} -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SPEC_VRAM={spec_vram} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE=docker {maybe_flags} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label prometheus.metrics.port={prometheus_metrics_port} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster {image}"
+	dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e PROMETHEUS_METRICS_PORT={prometheus_metrics_port} -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SPEC_VRAM={spec_vram} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE={deployment_mode} {maybe_flags} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label prometheus.metrics.port={prometheus_metrics_port} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
 
@@ -201,10 +202,14 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	}
 
 	if invoker.isInDockerSwarm {
+		invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarDeploymentMode, "DOCKER_SWARM")
+
 		schedulingConstraint := fmt.Sprintf(" -e constraint:node==%s", "")
 		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeDockerSwarmNodeConstraint, schedulingConstraint)
 		maybeFlagCmd = strings.TrimSpace(maybeFlagCmd)
 	} else {
+		invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarDeploymentMode, "DOCKER_COMPOSE")
+
 		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeDockerSwarmNodeConstraint, "")
 	}
 
@@ -550,7 +555,7 @@ func (ivk *DockerInvoker) launchKernel(ctx context.Context, name string, argv []
 
 	startTime := time.Now()
 	if err := cmd.Run(); err != nil {
-		ivk.log.Debug("Failed to launch container/kernel %s: %v", name, err)
+		ivk.log.Error("Failed to launch container/kernel %s: %v", name, err)
 		ivk.log.Error("STDOUT: %s", outb.String())
 
 		stderrOutput := errb.String()

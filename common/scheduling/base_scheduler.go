@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/container"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -58,34 +59,33 @@ type schedulingNotification struct {
 }
 
 type BaseScheduler struct {
-	gateway ClusterGateway
+	instance   ClusterScheduler
+	cluster    ClusterInternal
+	hostMapper HostMapper
+	placer     Placer
 
-	instance ClusterScheduler
-	cluster  Cluster
-	placer   Placer
-
-	remoteSynchronizationInterval time.Duration // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
-
-	lastNodeRefreshTime time.Time // The time at which the nodes were last refreshed.
+	candidateHostMutex sync.Mutex
 
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
 	//-//-//-//-//-//-//-//-//-//
-	gpusPerHost                  float64                  // The number of actual GPUs that are available for use on each node/host.
-	virtualGpusPerHost           int32                    // The number of virtual GPUs per host.
-	scalingFactor                float64                  // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
-	maximumHostsToReleaseAtOnce  int32                    // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	scalingIntervalSec           int32                    // How often to call UpdateRatio in seconds.
-	scalingInterval              time.Duration            // How often to call UpdateRatio .
-	scalingLimit                 float64                  // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
-	canScaleIn                   bool                     // Can the Cluster/Placer scale-in?
-	shouldUpdateRatio            bool                     // Should the Placer update its subscription ratio?
-	predictiveAutoscalingEnabled bool                     // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
-	scalingBufferSize            int32                    // How many extra hosts we provision so that we can quickly scale if needed.
-	minimumCapacity              int32                    // The minimum number of nodes we must have available at any time.
-	maximumCapacity              int32                    // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
-	opts                         *ClusterSchedulerOptions // Configuration options.
-	hostSpec                     types.Spec               // The types.Spec used when creating new Host instances.
+	gpusPerHost                   float64                  // The number of actual GPUs that are available for use on each node/host.
+	virtualGpusPerHost            int32                    // The number of virtual GPUs per host.
+	scalingFactor                 float64                  // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	maximumHostsToReleaseAtOnce   int32                    // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	scalingIntervalSec            int32                    // How often to call UpdateRatio in seconds.
+	scalingInterval               time.Duration            // How often to call UpdateRatio .
+	scalingLimit                  float64                  // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
+	canScaleIn                    bool                     // Can the Cluster/Placer scale-in?
+	shouldUpdateRatio             bool                     // Should the Placer update its subscription ratio?
+	predictiveAutoscalingEnabled  bool                     // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
+	scalingBufferSize             int32                    // How many extra hosts we provision so that we can quickly scale if needed.
+	minimumCapacity               int32                    // The minimum number of nodes we must have available at any time.
+	maximumCapacity               int32                    // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+	opts                          *ClusterSchedulerOptions // Configuration options.
+	hostSpec                      types.Spec               // The types.Spec used when creating new Host instances.
+	remoteSynchronizationInterval time.Duration            // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
+	lastNodeRefreshTime           time.Time                // The time at which the nodes were last refreshed.
 
 	lastCapacityValidation time.Time         // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
 	stRatio                *types.MovingStat // session/training ratio
@@ -99,10 +99,10 @@ type BaseScheduler struct {
 	log logger.Logger
 }
 
-func NewBaseScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BaseScheduler {
+func NewBaseScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BaseScheduler {
 	clusterScheduler := &BaseScheduler{
-		gateway:                       gateway,
 		cluster:                       cluster,
+		hostMapper:                    hostMapper,
 		gpusPerHost:                   float64(opts.GpusPerHost),
 		virtualGpusPerHost:            int32(opts.VirtualGpusPerHost),
 		scalingFactor:                 opts.ScalingFactor,
@@ -169,6 +169,29 @@ func (s *BaseScheduler) Placer() Placer {
 	return s.placer
 }
 
+// TryGetCandidateHosts performs a single attempt/pass of searching for candidate Host instances.
+//
+// TryGetCandidateHosts is exported so that it can be unit tested.
+func (s *BaseScheduler) TryGetCandidateHosts(hosts []*Host, kernelSpec *proto.KernelSpec) []*Host {
+	s.candidateHostMutex.Lock()
+
+	// Identify the hosts onto which we will place replicas of the kernel.
+	numHostsRequired := s.opts.NumReplicas - len(hosts)
+	s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
+		numHostsRequired, kernelSpec.Id, len(hosts))
+
+	hostBatch := s.placer.FindHosts(kernelSpec, numHostsRequired)
+
+	// Add all the hosts returned by FindHosts to our running slice of hosts.
+	for _, host := range hostBatch {
+		hosts = append(hosts, host)
+	}
+
+	s.candidateHostMutex.Unlock()
+
+	return hosts
+}
+
 // GetCandidateHosts returns a slice of *Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -180,20 +203,18 @@ func (s *BaseScheduler) Placer() Placer {
 // The size of the returned slice will be equal to the configured number of replicas for each kernel (usually 3).
 //
 // This function is NOT idempotent. This locks the Hosts that are returned.
-func (s *BaseScheduler) getCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error) {
+func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error) {
 	var (
-		numTries     = 0
-		maxAttempts  = 3
-		bestAttempt  = -1
-		resourceSpec = kernelSpec.DecimalSpecFromKernelSpec()
-		hosts        []*Host
+		numTries    = 0
+		maxAttempts = 3
+		bestAttempt = -1
+		hosts       []*Host
 	)
 	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {
-		// Identify the hosts onto which we will place replicas of the kernel.
-		hosts = s.placer.FindHosts(resourceSpec)
+		hosts = s.TryGetCandidateHosts(hosts, kernelSpec)
 
 		if len(hosts) < s.opts.NumReplicas {
-			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s.",
+			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
 				len(hosts), s.opts.NumReplicas, kernelSpec.Id)
 
 			numHostsRequired := s.opts.NumReplicas - len(hosts)
@@ -220,14 +241,20 @@ func (s *BaseScheduler) getCandidateHosts(ctx context.Context, kernelSpec *proto
 		}
 	}
 
+	// Check if we were able to reserve the requested number of hosts.
+	// If not, then we need to release any hosts we did reserve.
 	if len(hosts) < s.opts.NumReplicas {
 		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...",
 			s.opts.NumReplicas, kernelSpec.Id, numTries)
 
-		// We need to release the scheduling lock on any of the hosts that we did find,
-		// since we're aborting this scheduling operation.
+		// Release any resource reservations that we created, since we're aborting the scheduling
+		// of the replicas of the kernel.
 		for _, host := range hosts {
-			host.UnlockScheduling()
+			err := host.ReleaseReservation(kernelSpec)
+			if err != nil {
+				s.log.Error("Failed to release resource reservation for kernel %s on host %s (ID=%s): %v",
+					kernelSpec.Id, host.NodeName, host.ID, err)
+			}
 		}
 
 		return nil, fmt.Errorf("%w: could only find at-most %d/%d required hosts to serve replicas of kernel %s",
@@ -246,11 +273,6 @@ func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpe
 // the Host instances within the Cluster with their remote nodes.
 func (s *BaseScheduler) RemoteSynchronizationInterval() time.Duration {
 	return s.remoteSynchronizationInterval
-}
-
-// ClusterGateway returns the associated ClusterGateway.
-func (s *BaseScheduler) ClusterGateway() ClusterGateway {
-	return s.gateway
 }
 
 // MinimumCapacity returns the minimum number of nodes we must have available at any time.
@@ -284,71 +306,9 @@ func (s *BaseScheduler) RemoveNode(hostId string) error {
 	return nil
 }
 
-// RefreshAll refreshes all metrics maintained/cached/required by the Cluster Scheduler,
-// including the list of current kubernetes nodes, actual and virtual GPU usage information, etc.
-//
-// Return a slice of any errors that occurred. If an error occurs while refreshing a particular piece of information,
-// then the error is recorded, and the refresh proceeds, attempting all refreshes (even if an error occurs during one refresh).
-//func (s *BaseScheduler) RefreshAll() []error {
-//	errs := make([]error, 0)
-//	var err error
-//
-//	if s.ClusterGateway().KubernetesMode() {
-//		err = s.RefreshClusterNodes()
-//		if err != nil {
-//			errs = append(errs, err)
-//		}
-//	}
-//
-//	err = s.RefreshActualGpuInfo()
-//	if err != nil {
-//		errs = append(errs, err)
-//	}
-//
-//	if len(errs) > 0 {
-//		s.log.Error("%d error(s) occurred while refreshing all metrics.", len(errs))
-//	}
-//
-//	return errs
-//}
-//
-//// RefreshActualGpuInfo refreshes the actual GPU usage information.
-//// Returns nil on success; returns an error on failure.
-//func (s *BaseScheduler) RefreshActualGpuInfo() error {
-//	clusterGpuInfo, err := s.gateway.GetClusterActualGpuInfo(context.TODO(), &proto.Void{})
-//	if err != nil {
-//		s.log.Error("Error while to retrieving 'actual' GPU info: %v", err)
-//	} else {
-//		gpuInfo := &aggregateGpuInfo{
-//			ClusterActualGpuInfo: clusterGpuInfo,
-//		}
-//
-//		for _, info := range clusterGpuInfo.GpuInfo {
-//			gpuInfo.TotalSpecGPUs += info.SpecGPUs
-//			gpuInfo.TotalIdleGPUs += info.IdleGPUs
-//			gpuInfo.TotalCommittedGPUs += info.CommittedGPUs
-//			gpuInfo.TotalPendingGPUs += info.PendingGPUs
-//			gpuInfo.TotalNumPendingAllocations += info.NumPendingAllocations
-//			gpuInfo.TotalNumAllocations += info.NumAllocations
-//		}
-//
-//		s.gpuInfo = gpuInfo
-//		s.lastGpuInfoRefresh = time.Now()
-//		s.log.Debug("Successfully refreshed 'actual' GPU info.")
-//	}
-//
-//	return err // Will be nil if there was no error.
-//}
-
-// RefreshClusterNodes updates the cached list of Cluster nodes.
-// Returns nil on success; returns an error on failure.
-func (s *BaseScheduler) RefreshClusterNodes() error {
-	return s.instance.RefreshClusterNodes()
-}
-
 // UpdateRatio updates the Cluster's subscription ratio.
 // UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
-func (s *BaseScheduler) UpdateRatio() bool {
+func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 	var ratio float64
 	if s.cluster.BusyGPUs() == 0 {
 		// Technically if the number of committed GPUs is zero, then the ratio is infinite (undefined).
@@ -378,7 +338,7 @@ func (s *BaseScheduler) UpdateRatio() bool {
 		s.log.Debug("Recomputed subscription ratio as %s.", s.subscriptionRatio.StringFixed(4))
 		s.rebalance(avg)
 
-		if s.scalingIntervalSec > 0 && time.Since(s.lastCapacityValidation) >= s.scalingInterval {
+		if !skipValidateCapacity && s.scalingIntervalSec > 0 && time.Since(s.lastCapacityValidation) >= s.scalingInterval {
 			s.ValidateCapacity()
 		}
 
@@ -436,13 +396,13 @@ func (s *BaseScheduler) ValidateCapacity() {
 	}
 	oldNumHosts := int32(s.cluster.Len())
 	// Only scale-out if that feature is enabled.
-	if s.predictiveAutoscalingEnabled && oldNumHosts < scaledOutNumHosts {
+	if s.predictiveAutoscalingEnabled && s.cluster.canPossiblyScaleOut() && oldNumHosts < scaledOutNumHosts {
 		// Scaling out
 		numProvisioned := 0
 		targetNumProvisioned := scaledOutNumHosts - oldNumHosts
 
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Scaling-out by %d hosts (from %d to %d).", targetNumProvisioned, oldNumHosts, scaledOutNumHosts)
+			s.log.Debug("Scaling out by %d hosts (from %d to %d).", targetNumProvisioned, oldNumHosts, scaledOutNumHosts)
 		}
 
 		// This is such a minor optimization, but we cache the size of the active host pool locally so that we don't have to grab it everytime.
@@ -457,6 +417,9 @@ func (s *BaseScheduler) ValidateCapacity() {
 				if numFailures > 3 {
 					s.log.Error("We've failed three times to provision a new host. Aborting automated operation.")
 					return
+				} else if errors.Is(err, ErrUnsupportedOperation) {
+					s.log.Warn("Aborting scale-out operation as we lack sufficient disabled hosts to scale-out, and adding additional hosts directly is not supported by the current cluster type.")
+					return
 				} else {
 					continue
 				}
@@ -470,6 +433,8 @@ func (s *BaseScheduler) ValidateCapacity() {
 		if (numProvisioned > 0 || targetNumProvisioned > 0) && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
 			s.log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %d. Current #hosts: %d. #FailedProvisions: %d.", numProvisioned, load, oldNumHosts, s.cluster.Len(), numFailures)
 		}
+	} else if !s.cluster.canPossiblyScaleOut() { // If this was the reason the first if-statement evaluated to false, then we'll log a warning message.
+		s.log.Warn("Would like to scale out by %d hosts (from %d to %d); however, cluster cannot possibly scale-out right now.", scaledOutNumHosts-oldNumHosts, oldNumHosts, scaledOutNumHosts)
 	}
 
 	// Should we scale in?

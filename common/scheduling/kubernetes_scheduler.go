@@ -24,12 +24,10 @@ type KubernetesScheduler struct {
 	kubeClient KubeClient // Kubernetes client.
 }
 
-func NewKubernetesScheduler(gateway ClusterGateway, cluster Cluster, placer Placer, hostSpec types.Spec, kubeClient KubeClient, opts *ClusterSchedulerOptions) (*KubernetesScheduler, error) {
-	if !gateway.KubernetesMode() {
-		return nil, types.ErrIncompatibleDeploymentMode
-	}
+func NewKubernetesScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec,
+	kubeClient KubeClient, opts *ClusterSchedulerOptions) (*KubernetesScheduler, error) {
 
-	baseScheduler := NewBaseScheduler(gateway, cluster, placer, hostSpec, opts)
+	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, opts)
 
 	kubernetesScheduler := &KubernetesScheduler{
 		BaseScheduler:            baseScheduler,
@@ -39,7 +37,7 @@ func NewKubernetesScheduler(gateway ClusterGateway, cluster Cluster, placer Plac
 
 	baseScheduler.instance = kubernetesScheduler
 
-	err := kubernetesScheduler.RefreshClusterNodes()
+	err := kubernetesScheduler.refreshClusterNodes()
 	if err != nil {
 		kubernetesScheduler.log.Error("Initial retrieval of Kubernetes nodes failed: %v", err)
 	}
@@ -80,14 +78,9 @@ func (s *KubernetesScheduler) DeployNewKernel(ctx context.Context, in *proto.Ker
 	return nil
 }
 
-// RefreshClusterNodes updates the cached list of Kubernetes nodes.
+// refreshClusterNodes updates the cached list of Kubernetes nodes.
 // Returns nil on success; returns an error on failure.
-func (s *KubernetesScheduler) RefreshClusterNodes() error {
-	if !s.gateway.KubernetesMode() {
-		// Don't return an error; simply do nothing.
-		return nil
-	}
-
+func (s *KubernetesScheduler) refreshClusterNodes() error {
 	nodes, err := s.kubeClient.GetKubernetesNodes()
 	if err != nil {
 		s.log.Error("Failed to refresh Kubernetes nodes.") // The error is printed by the KubeClient. We don't need to print it again here.

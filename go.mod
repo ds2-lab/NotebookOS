@@ -6,6 +6,8 @@ toolchain go1.21.5
 
 replace github.com/go-zeromq/zmq4 => ../zmq4
 
+replace github.com/mitchellh/mapstructure => github.com/go-viper/mapstructure v1.6.0
+
 require (
 	github.com/charmbracelet/lipgloss v0.11.0
 	github.com/colinmarc/hdfs/v2 v2.4.0
@@ -18,7 +20,7 @@ require (
 	github.com/hashicorp/yamux v0.1.1
 	github.com/ianlancetaylor/cgosymbolizer v0.0.0-20240718183735-925f0b3ad234
 	github.com/jackpal/gateway v1.0.15
-	github.com/mason-leap-lab/go-utils v1.3.3
+	github.com/Scusemua/go-utils v0.1.1
 	github.com/onsi/ginkgo/v2 v2.19.0
 	github.com/onsi/gomega v1.34.1
 	github.com/opentracing-contrib/go-stdlib v1.0.0
@@ -65,6 +67,7 @@ require (
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
+	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/muesli/termenv v0.15.2 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
@@ -110,6 +113,7 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.19.0 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
+	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -144,7 +148,6 @@ require (
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
-	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect

@@ -7,7 +7,7 @@ from typing import Optional
 
 from .ast import SyncAST
 from .election import Election
-from .errors import SyncError
+from .errors import SyncError, DiscardMessageError
 from .log import Checkpointer, SyncLog, SynchronizedValue, KEY_SYNC_END
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
@@ -29,7 +29,7 @@ class Synchronizer:
     _module: types.ModuleType
     _async_loop: asyncio.AbstractEventLoop
 
-    def __init__(self, sync_log: SyncLog, module: Optional[types.ModuleType] = None, ns=None, opts=0):
+    def __init__(self, sync_log: SyncLog, module: Optional[types.ModuleType] = None, ns=None, opts=0, node_id: int = -1):
         if module is None and ns is not None:
             self._module = SyncModule()  # type: ignore
             ns.setdefault("__name__", "__main__")
@@ -38,6 +38,8 @@ class Synchronizer:
             self._module = types.ModuleType("__main__", doc="Automatically created module for python environment")
         else:
             self._module = module
+
+        self._node_id:int = node_id
 
         # Set callbacks for synclog
         sync_log.set_should_checkpoint_callback(self.should_checkpoint_callback)
@@ -53,15 +55,22 @@ class Synchronizer:
         self._log.debug("Finished setting callbacks for Synclog (within Synchronizer).")
 
         self._async_loop = asyncio.get_running_loop()
+
+        self._log.debug("Got asyncio io loop")
+
         self._tags = {}
         self._ast = SyncAST()
+        self._log.debug("Created SyncAST")
         self._referer = SyncReferer()
+        self._log.debug("Created SyncReferer")
         self._opts = opts
         self._syncing = False  # Avoid checkpoint in the middle of syncing.
 
         self._synclog: SyncLog = sync_log
+        self._log.debug("Finished creating Synchronizer")
 
     def start(self):
+        self._log.debug("Starting Synchronizer")
         self._async_loop = asyncio.get_running_loop()
         self._synclog.start(self.change_handler)
 
@@ -79,6 +88,9 @@ class Synchronizer:
     @property
     def execution_count(self) -> int:
         return self._ast.execution_count
+
+    def fast_forward_execution_count(self):
+        self._ast.fast_forward_executions()
 
     def change_handler(self, val: SynchronizedValue, restoring: bool = False):
         """Change handler"""
@@ -149,7 +161,7 @@ class Synchronizer:
             for frame in tb:
                 self._log.error(frame)
 
-    async def propose_lead(self, execution_count: int) -> int:
+    async def propose_lead(self, jupyter_message_id: str, term_number: int) -> int:
         """Propose to lead the next execution.
 
         Wait the ready of the synchronization and propose to lead a execution.
@@ -157,12 +169,12 @@ class Synchronizer:
         Note that if the execution_count is 0, the execution is guaranteed to be
         granted, which may cause duplication execution.
         """
-        self._log.debug("Synchronizer is proposing to lead term %d" % execution_count)
+        self._log.debug("Synchronizer is proposing to lead term %d" % term_number)
         try:
             # Propose to lead specified term.
             # Term 0 tries to lead the next term whatever and will always success.
-            if await self._synclog.try_lead_execution(execution_count):
-                self._log.debug("We won the election to lead term %d" % execution_count)
+            if await self._synclog.try_lead_execution(jupyter_message_id, term_number):
+                self._log.debug("We won the election to lead term %d" % term_number)
                 # Synchronized, execution_count was updated to last execution.
                 self._async_loop = asyncio.get_running_loop()  # Update async_loop.
                 return self._synclog.term
@@ -172,6 +184,10 @@ class Synchronizer:
             stack: list[str] = traceback.format_exception(se)
             for frame in stack:
                 self._log.error(frame)
+        except DiscardMessageError as dme:
+            self._log.warning(f"Received direction to discard Jupyter Message {jupyter_message_id}, "
+                              f"as election for term {term_number} was skipped: {dme}")
+            raise dme
         except Exception as e:
             self._log.error("Exception encountered while proposing LEAD: %s" % str(e))
             # print_trace(limit = 10)
@@ -180,7 +196,7 @@ class Synchronizer:
                 self._log.error(frame)
             raise e
 
-        self._log.debug("We lost the election to lead term %d" % execution_count)
+        self._log.debug("We lost the election to lead term %d" % term_number)
         # Failed to lead the term
         return 0
 
@@ -223,9 +239,11 @@ class Synchronizer:
         if election is None:
             raise ValueError(f"Could not find election with term number {term_number}")
 
-        return election.voting_phase_completed_successfully and election.code_execution_completed_successfully
+        voting_done: bool = election.voting_phase_completed_successfully
+        code_executed: bool = election.code_execution_completed_successfully
+        return (voting_done and code_executed) or election.is_in_failed_state
 
-    async def propose_yield(self, execution_count: int) -> int:
+    async def propose_yield(self, jupyter_message_id: str, term_number: int) -> int:
         """Propose to yield the next execution to another replica.
 
         Wait the ready of the synchronization and propose to lead a execution.
@@ -233,9 +251,9 @@ class Synchronizer:
         Note that if the execution_count is 0, the execution is guaranteed to be
         granted, which may cause duplication execution.
         """
-        self._log.debug("Synchronizer is proposing to yield term %d" % execution_count)
+        self._log.debug("Synchronizer is proposing to yield term %d" % term_number)
         try:
-            if await self._synclog.try_yield_execution(execution_count):
+            if await self._synclog.try_yield_execution(jupyter_message_id, term_number):
                 self._log.error("synclog.yield_exection returned true despite the fact that we're yielding...")
                 raise ValueError("synclog.yield_exection returned true despite the fact that we're yielding")
         except SyncError as se:
@@ -252,7 +270,7 @@ class Synchronizer:
                 self._log.error(frame)
             raise e
 
-        self._log.debug("Successfully yielded the execution to another replica for term %d" % execution_count)
+        self._log.debug("Successfully yielded the execution to another replica for term %d" % term_number)
         # Failed to lead the term, which is what we want to happen since we're YIELDING.
         return 0
 
@@ -279,7 +297,7 @@ class Synchronizer:
 
         await self._synclog.notify_execution_complete(term_number)
 
-    async def ready(self, execution_count: int, lead: bool) -> int:
+    async def ready(self, jupyter_message_id: str, term_number: int, lead: bool) -> int:
         """
         Wait for the replicas to synchronize and propose a leader for an election.
         Returns the execution count that granted to lead or 0 if denied.
@@ -289,17 +307,17 @@ class Synchronizer:
         Pass 'True' for the 'lead' parameter to propose LEAD.
         Pass 'False' for the 'lead' parameter to propose YIELD.
         """
-        if execution_count < 0:
+        if term_number < 0:
             return 0
 
         if lead:
             self._log.debug("Synchronizer::Ready(LEAD): Proposing to lead now.")
-            res = await self.propose_lead(execution_count)
+            res = await self.propose_lead(jupyter_message_id, term_number)
             self._log.debug("Synchronizer::Ready(LEAD): Done with proposal protocol for lead. Result: %d" % res)
             return res
         else:
             self._log.debug("Synchronizer::Ready(YIELD): Proposing to yield now.")
-            res = await self.propose_yield(execution_count)
+            res = await self.propose_yield(jupyter_message_id, term_number)
             self._log.debug("Synchronizer::Ready(YIELD): Done with proposal protocol for yield. Result: %d" % res)
             return res
 
@@ -343,6 +361,7 @@ class Synchronizer:
                 self._syncing = False
 
             self._log.debug("Appending value \"%s\" now." % str(sync_ast))
+            sync_ast._proposer_id = self._node_id
             await sync_log.append(sync_ast)
             self._log.debug("Successfully appended value \"%s\"." % str(sync_ast))
             for key in keys:
@@ -412,7 +431,7 @@ class Synchronizer:
             # Synthesize end
             await sync_log.append(
                 SynchronizedValue(None, None, election_term=self._ast.execution_count, should_end_execution=True,
-                                  key=KEY_SYNC_END))
+                                  key=KEY_SYNC_END, proposer_id=self._node_id))
 
     def should_checkpoint_callback(self, sync_log: SyncLog) -> bool:
         cp = False

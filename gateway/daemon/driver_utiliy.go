@@ -2,8 +2,9 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"log"
 	"net"
 	"os"
@@ -11,10 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Scusemua/go-utils/config"
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
-	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/opentracing/opentracing-go"
 	"github.com/zhangjyr/distributed-notebook/common/consul"
 	"github.com/zhangjyr/distributed-notebook/common/tracing"
@@ -122,9 +123,10 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	globalLogger.Debug("Cluster Gateway Options:\n%s", options.PrettyString(2))
 
 	// Initialize daemon
-	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv scheduling.ClusterGateway) {
+	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
 		globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
 		srv.SetClusterOptions(&options.ClusterSchedulerOptions)
+		srv.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 	})
 
 	distributedCluster := NewDistributedCluster(srv)
@@ -191,7 +193,8 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	go func() {
 		defer finalize(true, "Provisioner Server", distributedCluster)
 		if err := provisioner.Serve(lisHost); err != nil {
-			log.Fatalf("Error on serving host scheduler connections: %v", err)
+			globalLogger.Error(utils.RedStyle.Render("Error on serving host scheduler connections: %v"), err)
+			panic(err)
 		}
 	}()
 
@@ -199,7 +202,8 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	go func() {
 		defer finalize(true, "Distributed internalCluster Server", distributedCluster)
 		if err := distributedClusterRpcServer.Serve(distributedClusterServiceListener); err != nil {
-			log.Fatalf("Error on serving distributed cluster connections: %v", err)
+			globalLogger.Error(utils.RedStyle.Render("Error on serving distributed cluster connections: %v"), err)
+			panic(err)
 		}
 	}()
 
@@ -207,7 +211,8 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	go func() {
 		defer finalize(true, "internalCluster Gateway Daemon", distributedCluster)
 		if err := srv.Start(); err != nil {
-			log.Fatalf("Error during daemon serving: %v", err)
+			globalLogger.Error(utils.RedStyle.Render("Error during daemon serving: %v"), err)
+			panic(err)
 		}
 	}()
 

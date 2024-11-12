@@ -14,3 +14,18 @@ datasources:
     basicAuth: false
     version: 1
     editable: false
+  - id: 3
+    uid: "ce35ac1n7ewowd"
+    orgId: 1
+    name: "yesoreyeram-infinity-datasource"
+    type: "yesoreyeram-infinity-datasource"
+    url: "http://gateway:8089/variables/"
+    basicAuth: false
+    basicAuthUser: ""
+    isDefault: false
+    jsonData:
+      global_queries: []
+      oauthPassThru: false
+      auth_method: "none"
+    readOnly: false
+    apiVersion: ""

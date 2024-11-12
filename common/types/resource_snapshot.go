@@ -22,6 +22,13 @@ type HostResourceSnapshot[T ArbitraryResourceSnapshot] interface {
 	GetPendingResources() T
 	GetCommittedResources() T
 	GetSpecResources() T
+	GetContainers() []ContainerInfo
+}
+
+// ContainerInfo encodes information about a single kernel replica container, namely the kernel ID and replica ID.
+type ContainerInfo interface {
+	GetKernelId() string
+	GetReplicaId() int32
 }
 
 // ArbitraryResourceSnapshot is an interface exposed by structs that encode snapshots of resource quantities

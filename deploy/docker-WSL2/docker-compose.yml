@@ -158,6 +158,17 @@ services:
     depends_on:
       - loki
 
+  grafana-image-renderer:
+    image: grafana/grafana-image-renderer:latest
+    ports:
+      - 5555
+    environment:
+      - HTTP_PORT=5555
+      - RENDERING_VIEWPORT_MAX_HEIGHT=10000
+      - RENDERING_VIEWPORT_MAX_WIDTH=5000
+      - RENDERING_VIEWPORT_DEVICE_SCALE_FACTOR=2
+      - RENDERING_VIEWPORT_MAX_DEVICE_SCALE_FACTOR=8
+
   grafana:
     platform: linux/amd64
     image: grafana/grafana-enterprise:latest
@@ -168,6 +179,8 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=scusemua
       - GF_SECURITY_ADMIN_PASSWORD=grafana
+      - GF_RENDERING_SERVER_URL=http://grafana-image-renderer:5555/render
+      - GF_RENDERING_CALLBACK_URL=http://grafana:3000/
     volumes:
       - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini

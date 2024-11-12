@@ -50,6 +50,15 @@ build-gateway:
 						-e GOCACHE=/go/.cache \
 						$(DOCKER_USER)dist-notebook-base:latest /bin/bash -c "cd /go/pkg/distributed_notebook/dockfiles/gateway && time make build-gateway-linux"
 
+build-remote-docker-event-forwarder:
+	@echo "Building 'remote docker event forwarder' component within base docker image '$(DOCKER_USER)dist-notebook-base:latest'"
+	docker run -it --rm -v $(shell go env GOPATH)/pkg/zmq4:/go/pkg/zmq4 \
+						-v `pwd`:/go/pkg/distributed_notebook \
+						-v `pwd`:/out \
+						-v "$(shell go env GOCACHE)":/go/.cache \
+						-e GOCACHE=/go/.cache \
+						$(DOCKER_USER)dist-notebook-base:latest /bin/bash -c "cd /go/pkg/distributed_notebook/common/docker_events && time make build-linux"
+
 gateway: build-gateway 
 
 build-local_daemon:

@@ -57,6 +57,17 @@ type Spec interface {
 
 	// String returns a string representation of the Spec.
 	String() string
+
+	// Equals returns true if the target Spec is equal to the given Spec.
+	Equals(Spec) bool
+
+	// IsZero returns true if the resource counts for all resource types are zero.
+	IsZero() bool
+
+	// Add adds the corresponding resource counts of the given Spec to the target Spec
+	// and returns a new Spec struct. Neither the target spec nor the parameterized spec
+	// are modified by Add.
+	Add(other Spec) Spec
 }
 
 // ToDecimalSpec creates a new DecimalSpec struct using the same resource values as the provided Spec and returns
@@ -65,10 +76,8 @@ type Spec interface {
 // If the provided Spec is actually a DecimalSpec (or *DecimalSpec), then the returned *DecimalSpec is created
 // by calling the given Spec's CloneDecimalSpec method.
 func ToDecimalSpec(spec Spec) *DecimalSpec {
-	if decimalSpecPtr, ok := spec.(*DecimalSpec); ok {
-		return decimalSpecPtr.CloneDecimalSpec()
-	} else if decimalSpec, ok := spec.(*DecimalSpec); ok {
-		return decimalSpec.CloneDecimalSpec()
+	if decimalSpec, ok := spec.(*DecimalSpec); ok {
+		return decimalSpec
 	}
 
 	return &DecimalSpec{
@@ -86,6 +95,48 @@ type DecimalSpec struct {
 	VRam      decimal.Decimal `json:"vram"`      // Amount of VRAM required in GB.
 	Millicpus decimal.Decimal `json:"cpus"`      // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU.
 	MemoryMb  decimal.Decimal `json:"memory_mb"` // Amount of memory in megabytes (MB).
+}
+
+// NewDecimalSpec creates a new DecimalSpec struct and returns a pointer to it.
+func NewDecimalSpec(millicpus float64, memoryMb float64, gpus float64, vramGb float64) *DecimalSpec {
+	return &DecimalSpec{
+		Millicpus: decimal.NewFromFloat(millicpus),
+		MemoryMb:  decimal.NewFromFloat(memoryMb),
+		GPUs:      decimal.NewFromFloat(gpus),
+		VRam:      decimal.NewFromFloat(vramGb),
+	}
+}
+
+func (d *DecimalSpec) IsZero() bool {
+	return d.GPUs.IsZero() && d.Millicpus.IsZero() && d.MemoryMb.IsZero() && d.VRam.IsZero()
+}
+
+func (d *DecimalSpec) Subtract(spec Spec) *DecimalSpec {
+	d2 := ToDecimalSpec(spec)
+
+	return &DecimalSpec{
+		GPUs:      d.GPUs.Sub(d2.GPUs),
+		VRam:      d.VRam.Sub(d2.VRam),
+		MemoryMb:  d.MemoryMb.Sub(d2.MemoryMb),
+		Millicpus: d.Millicpus.Sub(d2.Millicpus),
+	}
+}
+
+func (d *DecimalSpec) Add(other Spec) Spec {
+	d2 := ToDecimalSpec(other)
+
+	return &DecimalSpec{
+		GPUs:      d.GPUs.Add(d2.GPUs),
+		VRam:      d.VRam.Add(d2.VRam),
+		MemoryMb:  d.MemoryMb.Add(d2.MemoryMb),
+		Millicpus: d.Millicpus.Add(d2.Millicpus),
+	}
+}
+
+func (d *DecimalSpec) Equals(other Spec) bool {
+	d2 := ToDecimalSpec(other)
+
+	return d.GPUs.Equal(d2.GPUs) && d.Millicpus.Equals(d2.Millicpus) && d.VRam.Equal(d2.VRam) && d.MemoryMb.Equal(d2.MemoryMb)
 }
 
 // VRAM is the amount of GPU memory required in GB.
@@ -196,6 +247,20 @@ func (s *Float64Spec) UpdateSpecGPUs(gpus float64) {
 	s.GPUs = gpus
 }
 
+func (s *Float64Spec) Add(other Spec) Spec {
+	return &Float64Spec{
+		Millicpus: s.Millicpus + other.CPU(),
+		MemoryMb:  s.MemoryMb + other.MemoryMB(),
+		GPUs:      s.GPUs + other.GPU(),
+		VRam:      s.VRam + other.VRAM(),
+	}
+}
+
+// IsZero returns true of the resource quantities are all zero.
+func (s *Float64Spec) IsZero() bool {
+	return s.Millicpus == 0 && s.MemoryMb == 0 && s.GPUs == 0 && s.VRam == 0
+}
+
 // UpdateSpecCPUs can be used to update the number of Millicpus.
 func (s *Float64Spec) UpdateSpecCPUs(cpus float64) {
 	s.Millicpus = cpus
@@ -208,6 +273,13 @@ func (s *Float64Spec) UpdateSpecMemoryMB(memory float64) {
 
 func (s *Float64Spec) String() string {
 	return fmt.Sprintf("ResourceSpec[Millicpus: %.0f, Memory: %.2f MB, GPUs: %.0f, VRAM: %.2f GB]", s.Millicpus, s.MemoryMb, s.GPUs, s.VRAM())
+}
+
+func (s *Float64Spec) Equals(other Spec) bool {
+	d1 := ToDecimalSpec(s)
+	d2 := ToDecimalSpec(other)
+
+	return d1.GPUs.Equal(d2.GPUs) && d1.Millicpus.Equals(d2.Millicpus) && d1.VRam.Equal(d2.VRam) && d1.MemoryMb.Equal(d2.MemoryMb)
 }
 
 // Validate checks that "this" Spec could "satisfy" the parameterized Spec.

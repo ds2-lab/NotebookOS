@@ -17,9 +17,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/petermattis/goid"
 
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
@@ -187,6 +187,17 @@ func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeT
 // Socket implements types.JupyterServerInfo.
 func (s *AbstractServer) Socket(typ types.MessageType) *types.Socket {
 	return s.Sockets.All[typ]
+}
+
+// GetSocketPort returns the port of a particular Socket.
+func (s *AbstractServer) GetSocketPort(typ types.MessageType) int {
+	socket := s.Socket(typ)
+
+	if socket != nil {
+		return socket.Port
+	}
+
+	return -1
 }
 
 // String implements types.JupyterServerInfo.

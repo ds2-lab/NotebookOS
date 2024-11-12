@@ -3,7 +3,7 @@ package scheduling
 import (
 	"context"
 	"errors"
-	"github.com/mason-leap-lab/go-utils/config"
+	"github.com/Scusemua/go-utils/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
@@ -11,25 +11,26 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/Scusemua/go-utils/logger"
 )
 
 var (
-	ErrNilHost = errors.New("host is nil when attempting to place kernel")
+	ErrNilHost           = errors.New("host is nil when attempting to place kernel")
+	ErrNilConnectionInfo = errors.New("host returned no error and no connection info after starting kernel replica")
 )
 
 // AbstractPlacer implements basic place/reclaim functionality.
 // AbstractPlacer should not be used directly. Instead, embed it in your placer implementation.
 type AbstractPlacer struct {
 	mu       sync.Mutex
-	cluster  clusterInternal
+	cluster  ClusterInternal
 	opts     *ClusterSchedulerOptions
 	log      logger.Logger
 	instance internalPlacer
 }
 
 // newAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.
-func newAbstractPlacer(cluster clusterInternal, opts *ClusterSchedulerOptions) *AbstractPlacer {
+func newAbstractPlacer(cluster ClusterInternal, opts *ClusterSchedulerOptions) *AbstractPlacer {
 	placer := &AbstractPlacer{
 		cluster: cluster,
 		opts:    opts,
@@ -42,36 +43,37 @@ func newAbstractPlacer(cluster clusterInternal, opts *ClusterSchedulerOptions) *
 // The number of hosts returned is determined by the placer.
 //
 // The core logic of FindHosts is implemented by the AbstractPlacer's internalPlacer instance/field.
-func (placer *AbstractPlacer) FindHosts(spec types.Spec) []*Host {
+func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []*Host {
 	placer.mu.Lock()
 	st := time.Now()
-	numReplicas := placer.opts.NumReplicas
 
 	// The following checks make sense/apply for all concrete implementations of Placer.
-	// If the Placer's index is empty, or if the index has too few hosts in it, then we simply return an empty slice.
-	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", numReplicas, spec.String(), placer.instance.getIndex().Len())
-	if placer.instance.getIndex().Len() == 0 {
-		placer.log.Warn(utils.OrangeStyle.Render("Index is empty... returning empty slice of Hosts."))
-		return make([]*Host, 0)
-	} else if placer.instance.getIndex().Len() < numReplicas {
-		placer.log.Warn("Index has just %d hosts (%d are required).", placer.instance.getIndex().Len(), numReplicas)
-		return make([]*Host, 0)
+	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", numHosts, kernelSpec.ResourceSpec.String(), placer.instance.getIndex().Len())
+	if placer.instance.getIndex().Len() < numHosts {
+		placer.log.Warn("Index has insufficient number of hosts: %d. Required: %d. "+
+			"We won't find enough hosts on this pass, but we can try to scale-out afterwards.",
+			placer.instance.getIndex().Len(), numHosts)
 	}
 
 	// Invoke internalPlacer's implementation of the findHosts method for the core logic of FindHosts.
-	hosts := placer.instance.findHosts(spec)
-	latency := time.Since(st)
-	if hosts == nil || len(hosts) < numReplicas {
-		placer.log.Warn(utils.OrangeStyle.Render("Failed to identify the %d required hosts for kernel %s. Found only %d/%d. Time elapsed: %v."),
-			placer.opts.NumReplicas, len(hosts), placer.opts.NumReplicas, latency)
+	hosts := placer.instance.findHosts(kernelSpec, numHosts)
 
-		placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-			With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
+	latency := time.Since(st)
+
+	var successLabel string
+	if hosts == nil || len(hosts) < numHosts {
+		placer.log.Warn(utils.OrangeStyle.Render("Failed to identify the %d required hosts for kernel %s. Found only %d/%d. Time elapsed: %v."),
+			placer.opts.NumReplicas, kernelSpec.Id, len(hosts), placer.opts.NumReplicas, latency)
+		successLabel = "false"
 	} else {
-		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts after %v."),
-			len(hosts), numReplicas, latency)
+		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts for kernel %s after %v."),
+			len(hosts), numHosts, kernelSpec.Id, latency)
+		successLabel = "true"
+	}
+
+	if placer.cluster.ClusterMetricsProvider() != nil && placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
 		placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-			With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
+			With(prometheus.Labels{"successful": successLabel}).Observe(float64(latency.Microseconds()))
 	}
 
 	return hosts
@@ -98,12 +100,18 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, spec types.Spec)
 
 	if host == nil {
 		placer.log.Warn(utils.OrangeStyle.Render("Failed to identify single viable hosts. Time elapsed: %v."), latency)
-		placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-			With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
+
+		if placer.cluster.ClusterMetricsProvider() != nil && placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
+			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+				With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
+		}
 	} else {
 		placer.log.Debug(utils.GreenStyle.Render("Successfully identified single viable host after %v."), latency)
-		placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
-			With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
+
+		if placer.cluster.ClusterMetricsProvider() != nil && placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
+			placer.cluster.ClusterMetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+				With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
+		}
 	}
 
 	// The Host could not satisfy the resourceSpec, so return nil.
@@ -117,7 +125,31 @@ func (placer *AbstractPlacer) Place(host *Host, in *proto.KernelReplicaSpec) (*p
 		return nil, ErrNilHost
 	}
 
-	return host.StartKernelReplica(context.Background(), in)
+	placer.log.Debug("Starting replica %d of kernel %s on host %s (ID=%s) now...",
+		in.ReplicaId, in.Kernel.Id, host.NodeName, host.ID)
+
+	connInfo, err := host.StartKernelReplica(context.Background(), in)
+
+	if err != nil {
+		placer.log.Error("Host %s (ID=%s) returned an error after trying to start replica %d of kernel %s: %v",
+			host.NodeName, host.ID, in.ReplicaId, in.Kernel.Id, err)
+
+		return nil, err
+	}
+
+	if connInfo != nil {
+		placer.log.Debug("Host %s (ID=%s) returned the following connection info for replica %d of kernel %s: %v",
+			host.NodeName, host.ID, in.ReplicaId, in.Kernel.Id, connInfo)
+	} else {
+		placer.log.Error(
+			utils.RedStyle.Render(
+				"Host %s (ID=%s) returned no error and no connection info after trying to start replica %d of kernel %s..."),
+			host.NodeName, host.ID, in.ReplicaId, in.Kernel.Id)
+
+		return nil, ErrNilConnectionInfo
+	}
+
+	return connInfo, err
 }
 
 // Reclaim atomically reclaims a replica from a host.

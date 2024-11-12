@@ -176,6 +176,8 @@ type LogNode struct {
 	commitC     chan *commit
 	errorC      chan error // errors from raft session
 
+	deploymentMode string
+
 	hdfsClient   *hdfs.Client  // HDFS client for reading/writing the data directory during migrations.
 	hdfsReadTime time.Duration // hdfsReadTime is the amount of time spent reading data from HDFS.
 
@@ -254,7 +256,7 @@ func CreateBytes(len byte) []byte {
 // The store_path is used as the actual data directory.
 // hdfs_data_directory is (possibly) the path to the data directory within HDFS, meaning
 // we were migrated and our data directory was written to HDFS so that we could retrieve it.
-func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFromHdfs bool, peerAddresses []string, peerIDs []int, join bool, httpDebugPort int) *LogNode {
+func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFromHdfs bool, peerAddresses []string, peerIDs []int, join bool, httpDebugPort int, deploymentMode string) *LogNode {
 	defer finalize()
 	_, _ = fmt.Fprintf(os.Stderr, "Creating a new LogNode [version %v].\n", VersionText)
 
@@ -292,6 +294,7 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 		dataDir:                storePath, // The base path of store_path is the persistent ID.
 		shouldLoadDataFromHdfs: shouldLoadDataFromHdfs,
 		httpDebugPort:          httpDebugPort,
+		deploymentMode:         deploymentMode,
 	}
 
 	logger, err := zap.NewDevelopment()
@@ -342,7 +345,6 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 			conn, err := (&net.Dialer{
 				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
-				DualStack: true,
 			}).DialContext(ctx, network, address)
 			if err != nil {
 				node.sugaredLogger.Errorf("Failed to dial HDFS DataNode at address '%s' with network '%s' because: %v", address, network, err)
@@ -355,21 +357,17 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 		// At least for development/testing, I am using a local Kubernetes cluster and a local HDFS deployment.
 		// So, the HDFS NameNode returns the local IP address. But since Kubernetes Pods have their own local host, they cannot use this to connect to the HDFS DataNode.
 		DatanodeDialFunc: func(ctx context.Context, network, address string) (net.Conn, error) {
-			// If we stop using a 'local' HDFS deployment, then we may want another IP address (not the default gateway).
-			// gateway, err := gateway.DiscoverGateway()
-			// if err != nil {
-			// 	node.logger.Error("Failed to resolve default gateway address while dialing HDFS DataNode.", zap.Error(err))
-			// 	return nil, err
-			// } else {
-			// 	node.logger.Debug("Discovered default gateway address while dialing HDFS DataNode.", zap.String("gateway-address", gateway.String()))
-			// }
+			if deploymentMode == "LOCAL" || deploymentMode == "DOCKER_COMPOSE" {
+				// If it is local, then we just use the loopback address (or whatever) to the host,
+				// which is where the data node is running.
+				originalAddress := address
+				dataNodeAddress := strings.Split(hdfsHostname, ":")[0]
+				dataNodePort := strings.Split(address, ":")[1]                // Get the port that the DataNode is using. Discard the IP address.
+				address = fmt.Sprintf("%s:%s", dataNodeAddress, dataNodePort) // returns the IP address that will enable the local k8s Pods to find the local DataNode.
+				node.logger.Debug("Modified HDFS DataNode address.", zap.String("original_address", originalAddress), zap.String("updated_address", address))
+			}
 
-			originalAddress := address
-			dataNodeAddress := strings.Split(hdfsHostname, ":")[0]
-			dataNodePort := strings.Split(address, ":")[1]                // Get the port that the DataNode is using. Discard the IP address.
-			address = fmt.Sprintf("%s:%s", dataNodeAddress, dataNodePort) // returns the IP address that will enable the local k8s Pods to find the local DataNode.
-			node.sugaredLogger.Infof("Dialing HDFS DataNode. Original address: '%s'. Modified address: %s.\n", originalAddress, address)
-			// node.sugaredLogger.Infof("Dialing HDFS DataNode. Original address: '%s'\n", address)
+			node.logger.Info("Dialing HDFS DataNode.", zap.String("datanode_address", address))
 
 			childCtx, cancel := context.WithTimeout(ctx, time.Second*30)
 			defer cancel()

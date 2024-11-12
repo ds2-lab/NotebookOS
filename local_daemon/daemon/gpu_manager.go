@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 )

@@ -3,8 +3,8 @@ package metrics
 import (
 	"errors"
 	"fmt"
+	"github.com/Scusemua/go-utils/config"
 	"github.com/gin-gonic/gin"
-	"github.com/mason-leap-lab/go-utils/config"
 	"github.com/prometheus/client_golang/prometheus"
 	"net/http"
 	"time"
