@@ -530,7 +530,7 @@ class RaftLog(object):
                 f"Creating election {election_term} during fast-forward. set_election_complete={set_election_complete}.")
 
             # Create a new election.
-            election: Election = Election(election_term, self._num_replicas, "N/A", self._election_timeout_sec)
+            election: Election = Election(election_term, self._num_replicas, "N/A", timeout_seconds = self._election_timeout_sec)
             self._elections[election_term] = election
 
             # Elections contain a sort of (singly-)linked list between themselves.
@@ -1414,7 +1414,7 @@ class RaftLog(object):
         assert self._current_election is None or self._current_election.code_execution_completed_successfully
 
         # Create a new election. We don't have an existing election to restart/use.
-        election: Election = Election(term_number, self._num_replicas, jupyter_message_id, self._election_timeout_sec)
+        election: Election = Election(term_number, self._num_replicas, jupyter_message_id, timeout_seconds = self._election_timeout_sec)
         self._elections[term_number] = election
 
         # Elections contain a sort of (singly-)linked list between themselves.
@@ -1559,9 +1559,10 @@ class RaftLog(object):
                 self._validate_or_restart_current_election(term_number=target_term_number,
                                                            jupyter_message_id=jupyter_message_id,
                                                            expected_attempt_number=expected_attempt_number)
-            else:
+            elif not self._current_election.voting_phase_completed_successfully and not self._current_election.code_execution_completed_successfully:
                 self._handle_unexpected_election(term_number=target_term_number)
 
+            self._create_new_election(term_number=target_term_number, jupyter_message_id=jupyter_message_id)
             return True
 
     async def _handle_election(
