@@ -735,7 +735,7 @@ class Election(object):
         """
         if self._election_state != ElectionState.ACTIVE:
             raise ValueError(f"election for term {self.term_number} is not active "
-                             f"(current state: {self._election_state}); cannot complete election")
+                             f"(current state: {self._election_state.get_name()}); cannot complete election")
 
         self._winner_id = winner_id
         self._election_state = ElectionState.VOTE_COMPLETE

@@ -505,16 +505,24 @@ class RaftLog(object):
 
             # If our local election hasn't been started yet, then start it.
             if self._current_election.is_inactive:
+                self.logger.debug(f"Fast-forwarding election {current_term_number} to ACTIVE state "
+                                  f"from state {self._current_election.election_state.get_name()}")
                 self._current_election.start()
 
             # If we've not finished the voting phase in our current election, then do that next.
             if not self._current_election.voting_phase_completed_successfully:
+                self.logger.debug(f"Fast-forwarding election {current_term_number} to VOTING_COMPLETE state "
+                                  f"from state {self._current_election.election_state.get_name()}")
                 self._current_election.set_election_vote_completed(notification.proposer_id)
 
             # Now designate the current election as complete (skipped, specifically, in this case).
-            self._current_election.set_execution_complete(fast_forwarding=True)
-            self._num_elections_skipped += 1
-            self._fast_forward_execution_count_handler()
+            if not self._current_election.code_execution_completed_successfully:
+                self.logger.debug(f"Fast-forwarding election {current_term_number} to EXECUTION_COMPLETE state "
+                                  f"(and subsequently to the SKIPPED state) from current state "
+                                  f"of {self._current_election.election_state.get_name()}")
+                self._current_election.set_execution_complete(fast_forwarding=True)
+                self._num_elections_skipped += 1
+                self._fast_forward_execution_count_handler()
         else:
             self.logger.debug(f"Fast-forwarding from election term {current_term_number} to election term "
                               f"{notification.election_term}. Skipping ahead by {notification.election_term} term number(s).")
