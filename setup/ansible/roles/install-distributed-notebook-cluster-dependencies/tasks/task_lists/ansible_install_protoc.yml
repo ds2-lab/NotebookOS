@@ -20,8 +20,8 @@
   file:
     path: "{{ protoc_install_parent_dir }}"
     state: directory
-    owner: ubuntu
-    group: ubuntu
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
     mode: '0755'
   when: protoc_installed.rc != 0
   environment:

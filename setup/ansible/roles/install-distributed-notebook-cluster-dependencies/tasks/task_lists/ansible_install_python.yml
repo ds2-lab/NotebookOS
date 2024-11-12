@@ -80,7 +80,7 @@
 
 - name: Ensure LD_LIBRARY_PATH is set in profile file
   lineinfile:
-    path: /home/ubuntu/.profile
+    path: /home/{{ remote_username }}/.profile
     create: yes
     line: 'export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"'
     state: present
