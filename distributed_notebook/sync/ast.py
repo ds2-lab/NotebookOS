@@ -45,8 +45,7 @@ class SyncAST(ast.NodeVisitor):
             self._globals[key] = None
 
     def fast_forward_executions(self):
-        # self._executions += 1
-        pass
+        self._executions += 1
 
     @property
     def execution_count(self) -> int:

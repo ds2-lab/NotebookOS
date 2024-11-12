@@ -1411,7 +1411,7 @@ class RaftLog(object):
         This should only be called when we do not yet have a local election or when the last local election
         completed successfully.
         """
-        assert self._current_election is None or self._current_election.code_execution_completed_successfully
+        assert self._current_election is None or self._current_election.code_execution_completed_successfully or self._current_election.was_skipped
 
         # Create a new election. We don't have an existing election to restart/use.
         election: Election = Election(term_number, self._num_replicas, jupyter_message_id, timeout_seconds = self._election_timeout_sec)
@@ -1425,7 +1425,7 @@ class RaftLog(object):
         # If we're bumping the election term to a new number, ensure that the last election
         # we know about did in fact complete successfully.
         if self._last_completed_election is not None:
-            assert self._last_completed_election.voting_phase_completed_successfully
+            assert self._last_completed_election.code_execution_completed_successfully or self._last_completed_election.was_skipped
 
         self.logger.info(f"Created new election with term number {term_number}")
 
@@ -1561,7 +1561,7 @@ class RaftLog(object):
                                      f"Current local election {self.current_election_term} "
                                      f"is in state {self._current_election.election_state.get_name()}.")
 
-            if not self._current_election.voting_phase_completed_successfully and not self._current_election.code_execution_completed_successfully:
+            if target_term_number == self.current_election_term and not self._current_election.voting_phase_completed_successfully and not self._current_election.code_execution_completed_successfully:
                 self._handle_unexpected_election(term_number=target_term_number)
                 return False # The above method raises an exception, so we won't actually return.
 
