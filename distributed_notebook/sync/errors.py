@@ -24,6 +24,14 @@ class InconsistentTermNumberError(ValueError):
     self.election: Optional[Election] = election
     self.value: Optional[SynchronizedValue] = value
 
+class DiscardMessageError(ValueError):
+  """
+  This is raised when we receive an "execute_request" or "yield_request" message out-of-order or after a delay, such
+  that the associated election was orchestrated by our peers without us and thus was skipped.
+  """
+  def __init__(self, message):
+    super().__init__(message)
+
 class SyncError(Exception):
   """Base exception class for errors generated in sync module."""
   def __init__(self, *args: object) -> None:

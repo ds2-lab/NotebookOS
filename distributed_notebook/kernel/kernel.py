@@ -37,6 +37,7 @@ from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
 from ..logging import ColoredLogFormatter
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.election import Election
+from ..sync.errors import DiscardMessageError
 
 
 # from traitlets.traitlets import Set
@@ -145,7 +146,7 @@ class DistributedKernel(IPythonKernel):
 
     local_tcp_server_port = Integer(5555, help="Port for local TCP server.").tag(config=True)
 
-    persistent_id: Union[str, Unicode] = Unicode(help="""Persistent id for storage""",allow_none=True).tag(config=True)
+    persistent_id: Union[str, Unicode] = Unicode(help="""Persistent id for storage""", allow_none=True).tag(config=True)
 
     pod_name: Union[str, Unicode] = Unicode(
         help="""Kubernetes name of the Pod encapsulating this distributed kernel replica""").tag(config=False)
@@ -715,7 +716,8 @@ class DistributedKernel(IPythonKernel):
                 elif f.done():
                     self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
 
-            self.log.debug(f"Scheduling creation of init_persistent_store_on_start_future. Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}")
+            self.log.debug(
+                f"Scheduling creation of init_persistent_store_on_start_future. Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}")
             self.init_persistent_store_on_start_future: futures.Future = asyncio.run_coroutine_threadsafe(
                 self.init_persistent_store_on_start(self.persistent_id), self.control_thread.io_loop.asyncio_loop)
             self.init_persistent_store_on_start_future.add_done_callback(init_persistent_store_done_callback)
@@ -1100,14 +1102,16 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Overrode shell hooks.")
 
         # Get synclog for synchronization.
-        sync_log = await self.get_synclog(store_path)
+        sync_log: RaftLog = await self.get_synclog(store_path)
 
         self.init_raft_log_event.set()
 
         # Start the synchronizer.
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
         self.synchronizer = Synchronizer(
-            sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO)  # type: ignore
+            sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO, node_id = self.smr_node_id)  # type: ignore
+
+        sync_log.set_fast_forward_executions_handler(self.synchronizer.fast_forward_execution_count)
 
         self.init_synchronizer_event.set()
 
@@ -1371,21 +1375,25 @@ class DistributedKernel(IPythonKernel):
                                "but cannot find election with term number equal to 1.")
                 self.report_error(
                     "Cannot Find First Election",
-                    f"Replica {self.smr_node_id} of kernel {self.kernel_id} thinks it created the first election, but "
-                    f"it cannot find any record of that election..."
+                    f"Replica {self.smr_node_id} of kernel {self.kernel_id} thinks it created the first "
+                    "election, but it cannot find any record of that election..."
                 )
-                exit(1)
+                raise ValueError("We've supposedly created the first election, "
+                                 "but cannot find election with term number equal to 1.")
 
             if not first_election.is_in_failed_state:
                 self.log.error(f"Current term number is 0, and we've created the first election, "
-                               f"but the election is not in failed state. Instead, it is in state {first_election.election_state}.")
+                               f"but the election is not in failed state. Instead, it is in state "
+                               f"{first_election.election_state.value}.")
                 self.report_error(
                     "Election State Error",
                     f"Replica {self.smr_node_id} of kernel {self.kernel_id} has current term number of 0, "
                     f"and it has created the first election, but the election is not in failed state. "
-                    f"Instead, it is in state {first_election.election_state}."
+                    f"Instead, it is in state {first_election.election_state.value}."
                 )
-                exit(1)
+                raise ValueError(f"Current term number is 0, and we've created the first election, "
+                                 f"but the election is not in failed state. Instead, it is in state "
+                                 f"{first_election.election_state.value}.")
 
             term_number = 1
 
@@ -1481,7 +1489,8 @@ class DistributedKernel(IPythonKernel):
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchronized.
             # type: ignore
-            self.shell.execution_count = await self.synchronizer.ready(current_term_number, False)
+            self.shell.execution_count = await self.synchronizer.ready(parent_header["msg_id"], current_term_number,
+                                                                       False)
 
             self.log.info(f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
                           f"shell.execution_count: {self.shell.execution_count}")
@@ -1575,6 +1584,8 @@ class DistributedKernel(IPythonKernel):
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
+            cell_meta:
+            cell_id:
             code (str): The code to be executed.
             silent (bool): Whether to display output.
             store_history (bool, optional): Whether to record this code in history and increase the execution count. If silent is True, this is implicitly False. Defaults to True.
@@ -1609,6 +1620,7 @@ class DistributedKernel(IPythonKernel):
         # Check the status of the last election before proceeding.
         await self.check_previous_election()
 
+        term_number: int = -1
         try:
             self.toggle_outstream(override=True, enable=False)
 
@@ -1616,7 +1628,7 @@ class DistributedKernel(IPythonKernel):
             if not await self.check_persistent_store():
                 raise err_wait_persistent_store
 
-            term_number: int = self.synchronizer.execution_count + 1
+            term_number = self.synchronizer.execution_count + 1
             self.log.info(f"Calling synchronizer.ready({term_number}) now with LEAD proposal.")
 
             # Pass 'True' for the 'lead' parameter to propose LEAD.
@@ -1626,7 +1638,8 @@ class DistributedKernel(IPythonKernel):
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchronized.
             # type: ignore
-            self.shell.execution_count = await self.synchronizer.ready(term_number, True)
+            self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id, term_number,
+                                                                       True)
 
             self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
                           f"shell.execution_count: {self.shell.execution_count}")
@@ -1700,6 +1713,18 @@ class DistributedKernel(IPythonKernel):
             self.log.info("Execution yielded: {}".format(eye))
 
             return gen_error_response(eye)
+        except DiscardMessageError as dme:
+            self.log.warning(f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
+                             f"as election for term {term_number} was skipped: {dme}")
+
+            self.send_notification(
+                notification_title=f"Election {term_number} Skipped by Replica {self.smr_node_id} of Kernel {self.kernel_id}",
+                notification_body=f"\"execute_request\" message {self.next_execute_request_msg_id} was dropped by replica "
+                                  f"{self.smr_node_id} of kernel {self.kernel_id}, as associated election (term={term_number}) was skipped.",
+                notification_type=WarningNotification,
+            )
+
+            return gen_error_response(dme)
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
 
@@ -2150,7 +2175,8 @@ class DistributedKernel(IPythonKernel):
         Send an error report/message to our local daemon via our IOPub socket.
         """
         if self.kernel_notification_service_stub is None:
-            self.log.error(f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup.")
+            self.log.error(
+                f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup.")
             return
 
         self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now...")
@@ -2167,7 +2193,8 @@ class DistributedKernel(IPythonKernel):
             raise ValueError(f"Invalid notification type specified: \"%d\"", notification_type)
 
         if self.kernel_notification_service_stub is None:
-            self.log.error(f"Cannot send '{notification_type}' notification '{notification_title}' as our gRPC connection was never setup.")
+            self.log.error(
+                f"Cannot send '{notification_type}' notification '{notification_title}' as our gRPC connection was never setup.")
             return
 
         self.log.debug(f"Sending \"{notification_title}\" notification of type {notification_type} now...")

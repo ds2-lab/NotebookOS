@@ -15,7 +15,7 @@ import debugpy
 
 from .checkpoint import Checkpoint
 from .election import Election
-from .errors import print_trace, SyncError, GoError, GoNilError, InconsistentTermNumberError
+from .errors import print_trace, SyncError, GoError, GoNilError, InconsistentTermNumberError, DiscardMessageError
 from .file_log import FileLog
 from .future import Future
 from .log import SynchronizedValue, LeaderElectionVote, BufferedLeaderElectionVote, LeaderElectionProposal, \
@@ -70,6 +70,7 @@ class RaftLog(object):
             report_error_callback: Callable[[str, str], None] = None,
             send_notification_func: Callable[[str, str, int], None] = None,
             hdfs_read_latency_callback: Optional[Callable[[int], None]] = None,
+            fast_forward_execution_count_handler: Callable[[], None] = None,
             election_timeout_seconds: float = 10,
             deployment_mode: str = "LOCAL",
     ):
@@ -115,10 +116,11 @@ class RaftLog(object):
         self._send_notification_func = send_notification_func
         self._deployment_mode = deployment_mode
         self._leader_term_before_migration: int = -1
+        self._fast_forward_execution_count_handler = fast_forward_execution_count_handler
 
         # How long to wait to receive other proposals before making a decision (if we can, like if we
         # have at least received one LEAD proposal).
-        self._election_timeout_seconds = election_timeout_seconds
+        self._election_timeout_sec = election_timeout_seconds
 
         try:
             self._create_persistent_store_directory(base_path)
@@ -260,6 +262,9 @@ class RaftLog(object):
 
         sys.stderr.flush()
         sys.stdout.flush()
+
+    def set_fast_forward_executions_handler(self, fast_forward_execution_count_handler: Callable[[], None]):
+        self._fast_forward_execution_count_handler = fast_forward_execution_count_handler
 
     def create_log_node(
             self,
@@ -495,7 +500,7 @@ class RaftLog(object):
             current_term_number = self.current_election.term_number
             num_terms_to_skip: int = notification.election_term - current_term_number
             self.logger.debug(f"Fast-forwarding from election term {current_term_number} to election term "
-                          f"{notification.election_term}. Skipping ahead by {num_terms_to_skip} term number(s).")
+                              f"{notification.election_term}. Skipping ahead by {num_terms_to_skip} term number(s).")
 
             # If our local election hasn't been started yet, then start it.
             if self._current_election.is_inactive:
@@ -506,8 +511,9 @@ class RaftLog(object):
                 self._current_election.set_election_vote_completed(notification.proposer_id)
 
             # Now designate the current election as complete (skipped, specifically, in this case).
-            self._current_election.set_execution_complete(fast_forwarding = True)
+            self._current_election.set_execution_complete(fast_forwarding=True)
             self._num_elections_skipped += 1
+            self._fast_forward_execution_count_handler()
         else:
             self.logger.debug(f"Fast-forwarding from election term {current_term_number} to election term "
                               f"{notification.election_term}. Skipping ahead by {notification.election_term} term number(s).")
@@ -520,10 +526,11 @@ class RaftLog(object):
             if election_term < 0:
                 raise ValueError(f"Invalid term number while creating and skipping election: {election_term}")
 
-            self.logger.debug(f"Creating election {election_term} during fast-forward. set_election_complete={set_election_complete}.")
+            self.logger.debug(
+                f"Creating election {election_term} during fast-forward. set_election_complete={set_election_complete}.")
 
             # Create a new election.
-            election: Election = Election(election_term, self._num_replicas, self._election_timeout_seconds)
+            election: Election = Election(election_term, self._num_replicas, "N/A", self._election_timeout_sec)
             self._elections[election_term] = election
 
             # Elections contain a sort of (singly-)linked list between themselves.
@@ -539,8 +546,9 @@ class RaftLog(object):
             self._current_election.set_election_vote_completed(notification.proposer_id)
 
             if set_election_complete:
-                self.current_election.set_execution_complete(fast_forwarding = True)
+                self.current_election.set_execution_complete(fast_forwarding=True)
                 self._num_elections_skipped += 1
+                self._fast_forward_execution_count_handler()
 
         # Create and entirely skip any elections between the current one and the election right before the
         # one for which we just received the "execution complete" notification.
@@ -590,7 +598,7 @@ class RaftLog(object):
 
             if self.current_election is None:
                 self.logger.warning(f"We just received a notification that code execution has completed for "
-                                  f"election {notification.election_term}; however, our current election is nil...")
+                                    f"election {notification.election_term}; however, our current election is nil...")
                 self.__fast_forward_to_future_election(notification)
                 fast_forwarding = True
 
@@ -610,14 +618,17 @@ class RaftLog(object):
             if self.leader_id != notification.proposer_id:
                 self.logger.error(f"Current leader ID is {self.leader_id}, but we just received an "
                                   f"\"election finished\" notification with proposer ID = {notification.proposer_id}...")
-                raise ValueError(f"Inconsistency detected between our local leader ID and the proposer ID of \"election finished\" notification. "
-                                 f"Leader ID: {self.leader_id}. \"Election finished\" notification proposer ID: "
-                                 f"{notification.proposer_id}.")
+                raise ValueError(
+                    f"Inconsistency detected between our local leader ID and the proposer ID of \"election finished\" notification. "
+                    f"Leader ID: {self.leader_id}. \"Election finished\" notification proposer ID: "
+                    f"{notification.proposer_id}.")
 
-            self.current_election.set_execution_complete(fast_forwarding = fast_forwarding, fast_forwarded_winner_id = notification.proposer_id)
+            self.current_election.set_execution_complete(fast_forwarding=fast_forwarding,
+                                                         fast_forwarded_winner_id=notification.proposer_id)
 
             if fast_forwarding:
                 self._num_elections_skipped += 1
+                self._fast_forward_execution_count_handler()
 
         return GoNilError()
 
@@ -1264,102 +1275,10 @@ class RaftLog(object):
         """
         return self._elections[term_number]
 
-    def _get_or_create_election(self, term_number: int = -1, latest_attempt_number: int = -1):
-        """
-        First, try to create and register a new election with the given term number.
-        If the current election has the same term number and is in the failed state, then we'll just restart and re-use that election.
-        If the current election has the same term number and is in the active state, then we'll verify that it has already received at least one proposal.
-            Specifically, it should have already received at least one proposal, which would've prompted either the creation of the election, or the restart of the election.
-            If it does not have any proposals already, then that indicates that there is a bug/error.
-
-        This modifies the following fields:
-            - self._elections
-            - self._election 
-            - self._last_completed_election
-        
-        Raises a ValueError if any of the following conditions are met:
-            - term_number < 0
-            - we already have an active election 
-            - term_number < the previous election's term number  
-            - the current election is not in the state ElectionState.COMPLETE (i.e., the current election needs to have completed successfully)
-            
-        Returns:
-            Election:
-                A new election with the specified term number, or the current election if it has the same term number and was in a FAILED state.
-        """
-        with self._election_lock:
-            if term_number < 0:
-                raise ValueError(f"illegal term number specified for new election: {term_number}")
-
-            # TODO: We may want to "relax" these conditions, or rather the consequences of these conditions, and attempt to proceed even if there's an error.
-            if self.has_active_or_failed_election():
-                assert self._current_election is not None
-
-                # If we already have an election with a different term number, then that's problematic.
-                if self._current_election.term_number != term_number:
-                    self.logger.error(
-                        f"Creating new election with term number {term_number} despite already having an active election with term number {self._current_election.term_number}")
-                    raise ValueError(f"attempted to create new election while already having an active election")
-
-                # If we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_request') ZMQ message.
-                # During this delay, we may have received a committed proposal from another replica for this election, which prompted us to either create or restart the election at that point.
-                # So, if we have a current election already, and that election is in a non-active state, then we restart it.
-                # If we have a current election that is already active, then we should have at least one proposal already (otherwise, why would the election be active already?)
-                if self._current_election.is_active:
-                    self.logger.debug(
-                        f"Reusing existing, already-active election {self._current_election.term_number}. Number of proposals received (not counting ours): {self._current_election.num_proposals_received}.")
-
-                    # Sanity check.
-                    # If the current election is already active, then we necessarily should have received a proposal from a peer, 
-                    # which triggered either the creation of this election, or the restarting of the election if it had already 
-                    # existed and was in the failed state.
-                    if self._current_election.num_proposals_received == 0:
-                        raise ValueError(
-                            f"existing election for term {term_number} is already active; however, it has no registered proposals, so it should not be active already")
-                else:
-                    self.logger.debug(
-                        f"Restarting existing election {self._current_election.term_number}. Current state: {self._current_election.election_state}.")
-                    self._current_election.restart(latest_attempt_number=latest_attempt_number)
-            elif self._current_election is not None and self._current_election.term_number > term_number:
-                self.logger.error(
-                    f"Attempted to create new election with term number {term_number} despite already previous election "
-                    f"having a larger term number of {self._current_election.term_number}")
-                raise ValueError(
-                    f"Attempted to create new election with term number smaller than previous election's term number "
-                    f"({term_number} < {self._current_election.term_number})")
-            elif self._current_election is not None and not self._current_election.voting_phase_completed_successfully:
-                self.logger.error(
-                    f"Current election with term number {self._current_election.term_number} is in state "
-                    f"{self._current_election.election_state}; it has not yet finished its voting phase.")
-                raise ValueError(
-                    f"Current election (term number: {self._current_election.term_number}) has not yet finished its "
-                    f"voting phase (current state: {self._current_election.election_state})")
-            elif self._current_election is not None and not self._current_election.code_execution_completed_successfully:
-                self.logger.error(
-                    f"Current election with term number {self._current_election.term_number} is in state "
-                    f"{self._current_election.election_state}; it has not yet finished the execution phase.")
-                raise ValueError(
-                    f"Current election (term number: {self._current_election.term_number}) has not yet finished the "
-                    f"execution phase (current state: {self._current_election.election_state})")
-            else:
-                # Create a new election. We don't have an existing election to restart/use.
-                election: Election = Election(term_number, self._num_replicas, self._election_timeout_seconds)
-                self._elections[term_number] = election
-                # Elections contain a sort of (singly-)linked list between themselves. We're performing an append-to-end-of-linked-list operation here.
-                self._last_completed_election = self._current_election
-                self._current_election = election
-
-                # If we're bumping the election term to a new number, ensure that the last election we know about did in fact complete successfully.
-                if self._last_completed_election is not None:
-                    assert self._last_completed_election.voting_phase_completed_successfully
-
-                self.logger.info(f"Created new election with term number {term_number}")
-
-                # Flip this flag to True once we've created the first Election.
-                if not self.__created_first_election:
-                    self.__created_first_election = True
-
-    async def _create_election_proposal(self, key: ElectionProposalKey, term_number: int) -> LeaderElectionProposal:
+    async def _create_election_proposal(self,
+                                        key: ElectionProposalKey,
+                                        term_number: int,
+                                        jupyter_message_id: str) -> LeaderElectionProposal:
         """
         Create and register a proposal for the current term.
 
@@ -1387,7 +1306,8 @@ class RaftLog(object):
         # Create the new proposal.
         proposal: LeaderElectionProposal = LeaderElectionProposal(key=str(key), proposer_id=self._node_id,
                                                                   election_term=term_number,
-                                                                  attempt_number=attempt_number)
+                                                                  attempt_number=attempt_number,
+                                                                  jupyter_message_id=jupyter_message_id)
 
         # Add the new proposal to the mapping of proposals for the specified term.
         existing_proposals[attempt_number] = proposal
@@ -1484,35 +1404,192 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
+    def _create_new_election(self, term_number: int = -1, jupyter_message_id: str = ""):
+        """
+        Creates the next election with the target term number and Jupyter message ID.
+
+        This should only be called when we do not yet have a local election or when the last local election
+        completed successfully.
+        """
+        assert self._current_election is None or self._current_election.code_execution_completed_successfully
+
+        # Create a new election. We don't have an existing election to restart/use.
+        election: Election = Election(term_number, self._num_replicas, jupyter_message_id, self._election_timeout_sec)
+        self._elections[term_number] = election
+
+        # Elections contain a sort of (singly-)linked list between themselves.
+        # We're performing an append-to-end-of-linked-list operation here.
+        self._last_completed_election = self._current_election
+        self._current_election = election
+
+        # If we're bumping the election term to a new number, ensure that the last election
+        # we know about did in fact complete successfully.
+        if self._last_completed_election is not None:
+            assert self._last_completed_election.voting_phase_completed_successfully
+
+        self.logger.info(f"Created new election with term number {term_number}")
+
+        # Flip this flag to True once we've created the first Election.
+        if not self.__created_first_election:
+            self.__created_first_election = True
+
+    def _validate_or_restart_current_election(self, term_number: int = -1,
+                                              jupyter_message_id: str = "",
+                                              expected_attempt_number: int = -1):
+        """
+        Validate the state of the current active election. This should be called by the handle_election method.
+        We make sure that the term number and Jupyter message IDs are consistent with the proposal we just received.
+
+        If the local election is in the 'failed' state, then we restart it.
+
+        Args:
+            term_number: the expected term number of the current election
+            jupyter_message_id: the expected jupyter message ID of the current election
+            expected_attempt_number: the expected attempt number of the current election
+        """
+        assert self._current_election is not None and expected_attempt_number >= 0
+        assert self._current_election.is_active or self._current_election.is_in_failed_state
+
+        # If we already have an election with a different term number, then that's problematic.
+        if self._current_election.term_number != term_number:
+            self.logger.error(
+                f"Creating new election with term number {term_number} despite already having an active election with "
+                f"term number {self._current_election.term_number}")
+            raise ValueError(f"attempted to create new election while already having an active election")
+
+        # If the Jupyter message IDs do not match, then that is problematic.
+        if self._current_election.jupyter_message_id != jupyter_message_id:
+            raise ValueError(f"Attempting to get or retrieve election for term {term_number} with "
+                             f"JupyterMessageID={jupyter_message_id}, which does not match the JupyterMessageID "
+                             f"of our current election for term {term_number}, "
+                             f"{self._current_election.jupyter_message_id}.")
+
+        # If we have an election with the same term number, then there may have just been some delay in us receiving the 'execute_request' (or 'yield_request') ZMQ message.
+        # During this delay, we may have received a committed proposal from another replica for this election, which prompted us to either create or restart the election at that point.
+        # So, if we have a current election already, and that election is in a non-active state, then we restart it.
+        # If we have a current election that is already active, then we should have at least one proposal already (otherwise, why would the election be active already?)
+        if self._current_election.is_active:
+            self.logger.debug(f"Reusing existing, already-active election {self._current_election.term_number}. "
+                              f"Number of proposals received (not counting ours): "
+                              f"{self._current_election.num_proposals_received}.")
+
+            # Sanity check.
+            # If the current election is already active, then we necessarily should have received a proposal from a peer,
+            # which triggered either the creation of this election, or the restarting of the election if it had already
+            # existed and was in the failed state.
+            if self._current_election.num_proposals_received == 0:
+                raise ValueError(
+                    f"Existing election for term {term_number} is already active; "
+                    f"however, it has no registered proposals, so it should not be active already")
+        else:
+            assert self._current_election.is_in_failed_state
+            self.logger.debug(
+                f"Restarting existing election {self._current_election.term_number}. "
+                f"Current state: {self._current_election.election_state.value}.")
+            self._current_election.restart(latest_attempt_number=expected_attempt_number)
+
+    def _handle_unexpected_election(
+            self,
+            term_number: int = -1,
+    ):
+        """
+        This function will always raise an exception. This is called by _handle_election when the local election
+        is not in one of the expected states.
+        """
+        if self._current_election.term_number > term_number:
+            # If we're creating a new election, its term number should be greater than that of the current election.
+            self.logger.error(
+                f"Attempted to create new election with term number {term_number} despite already previous election "
+                f"having a larger term number of {self._current_election.term_number}")
+            raise ValueError(
+                f"Attempted to create new election with term number smaller than previous election's term number "
+                f"({term_number} < {self._current_election.term_number})")
+        else:
+            self.logger.error(
+                f"Current election with term number {self._current_election.term_number} is in unexpected state "
+                f"{self._current_election.election_state.name}.")
+            raise ValueError(
+                f"Current election (term number: {self._current_election.term_number}) is in unexpected state: "
+                f"{self._current_election.election_state.name}")
+
+    async def _prepare_election(
+            self,
+            target_term_number: int = -1,
+            jupyter_message_id: str = "",
+            expected_attempt_number: int = -1,
+    ) -> bool:
+        """
+        Prepare an Election to be processed.
+
+        This involves either creating a new Election or restarting the current Election.
+
+        This also performs a series of checks to see if we're in an error state, based on the values passed to it
+        and the current local state.
+
+        This does not return an Election object. This simply updates the _current_election instance variable.
+
+        This does return a boolean flag which, if True, indicates that the election should be processed and, if False,
+        indicates that the "execute_request" or "yield_request" that we received is for an old, skipped election
+        and should simply be discarded.
+        """
+        with self._election_lock:
+            assert target_term_number > 0
+            assert expected_attempt_number > 0
+            assert jupyter_message_id is not None and jupyter_message_id != ""
+
+            # If the current election field is None, then we've never had an election before, and
+            # so we create the election and return.
+            if self._current_election is None:
+                self._create_new_election(term_number=target_term_number, jupyter_message_id=jupyter_message_id)
+                return True
+
+            target_election: Optional[Election] = self._elections.get(target_term_number)
+            if target_election is not None:
+                if target_election.was_skipped:
+                    self.logger.warning(f"Requested preparation of election {target_term_number}; "
+                                        f"however, that election was skipped.")
+                    return False
+                else:
+                    raise ValueError(f"Attempting to prepare election {target_term_number}, "
+                                     f"which is in state {target_election.election_state.value}. "
+                                     f"Current local election {self.current_election_term} "
+                                     f"is in state {self._current_election.election_state.value}.")
+
+            if self._current_election.is_active or self._current_election.is_in_failed_state:
+                self._validate_or_restart_current_election(term_number=target_term_number,
+                                                           jupyter_message_id=jupyter_message_id,
+                                                           expected_attempt_number=expected_attempt_number)
+            else:
+                self._handle_unexpected_election(term_number=target_term_number)
+
+            return True
+
     async def _handle_election(
             self,
             proposal: LeaderElectionProposal,
-            target_term_number: int = -1
+            target_term_number: int = -1,
+            jupyter_message_id: str = "",
     ) -> bool:
         """
         Orchestrate an election. Return a boolean indicating whether we are now the "leader".
 
         The election should have been set up/created prior to calling this function.
 
-        The `target_term_number` argument is just a safety mechanism to ensure that the current election matches the intended/target term number.
+        The `target_term_number` argument is just a safety mechanism to ensure that the current election
+        matches the intended/target term number.
         """
         self.logger.debug(
             f"RaftLog {self._node_id} handling election in term {target_term_number}, attempt #{proposal.attempt_number}. Will be proposing {proposal.key}.")
 
-        # TODO: Implement functionality of specifying term 0 to guarantee winning of election.
-        if target_term_number == 0:
-            raise ValueError("specifying target term of 0 is not yet supported")
-
-        # Try to create a new election with the given term number.
-        # If the current election has the same term number and is in the failed state, then we'll just restart and re-use that election.
-        try:
-            # This just updates the self._current_election variable.
-            self._get_or_create_election(term_number=target_term_number, latest_attempt_number=proposal.attempt_number)
-        except Exception as ex:
-            self.logger.error(f"Call to `_get_or_create_election` with term number {target_term_number} failed: {ex}")
-            raise ex
-
+        should_handle_election: bool = await self._prepare_election(target_term_number=target_term_number,
+                                                                    jupyter_message_id=jupyter_message_id,
+                                                                    expected_attempt_number=proposal.attempt_number)
         assert self._current_election is not None  # The current election field must be non-null.
+
+        if not should_handle_election:
+            raise DiscardMessageError(f"Message received by replica {self._node_id} of kernel {self._kernel_id}"
+                                      f"for election {target_term_number} should be discarded, "
+                                      f"as that election was skipped.")
 
         if self._current_election.election_finished_condition_waiter_loop is None:
             self._current_election.election_finished_condition_waiter_loop = asyncio.get_running_loop()
@@ -1533,16 +1610,21 @@ class RaftLog(object):
             # The proposal's term number must match the specified target term number.
         if proposal.election_term != target_term_number:
             raise ValueError(
-                f"proposal is targeting election term {proposal.election_term}, whereas caller specified election term {target_term_number}")
+                f"Proposal is targeting election term {proposal.election_term}, "
+                f"whereas caller specified election term {target_term_number}")
 
         # Do some additional sanity checks:
         # The proposal must already be registered. 
         # This means that there will be at least one proposal for the specified target term number (which matches the proposal's term number; we already checked verified that above).
-        assert target_term_number in self._proposed_values  # At least one proposal for the specified term?
-        assert proposal.attempt_number in self._proposed_values[
-            target_term_number]  # The proposal is registered under its attempt number?
-        assert self._proposed_values[target_term_number][
-                   proposal.attempt_number] == proposal  # Equality check for ultimate sanity check.
+
+        # At least one proposal for the specified term?
+        assert target_term_number in self._proposed_values
+
+        # The proposal is registered under its attempt number?
+        assert proposal.attempt_number in self._proposed_values[target_term_number]
+
+        # Equality check for ultimate sanity check.
+        assert self._proposed_values[target_term_number][proposal.attempt_number] == proposal
 
         # Define the `_leading` feature.
         # Save a reference to the currently-running IO loop so that we can resolve the `_leading` future on this same IO loop later.
@@ -1689,17 +1771,6 @@ class RaftLog(object):
             return False
 
         return self.current_election.is_active
-
-    def has_active_or_failed_election(self) -> bool:
-        """
-        Return true if the following two conditions are met:
-            - (a): We have an election (i.e., the _current_election field is non-nil)
-            - (b): The current election is in the ACTIVE state or the FAILED state
-        """
-        if self.current_election is None:
-            return False
-
-        return self.current_election.is_active or self.current_election.is_in_failed_state
 
     async def catchup_with_peers(self):
         """
@@ -1849,6 +1920,18 @@ class RaftLog(object):
         # await future 
         # res = future.result()
         self.logger.info("Result of RemoveNode: %s" % str(res))
+
+    @property
+    def current_election_term(self) -> int:
+        """
+        Return the term number of the current local election.
+
+        If the current local election is None, then this will return 0.
+        """
+        if self._current_election is not None:
+            return self._current_election.term_number
+
+        return 0
 
     @property
     def num_elections_skipped(self) -> int:
@@ -2132,7 +2215,8 @@ class RaftLog(object):
                              f"Instead, node {election.winner_id} won election {term_number}. "
                              "Cannot notify peer replicas of execution complete...")
 
-        notification = ExecutionCompleteNotification(proposer_id=self._node_id, election_term=term_number)
+        notification = ExecutionCompleteNotification(election.jupyter_message_id, proposer_id=self._node_id,
+                                                     election_term=term_number)
         self.logger.debug("Serializing and appending "
                           f"ExecutionCompleteNotification[Node={self._node_id},Term={term_number},"
                           f"ValueID={notification.id}] now.")
@@ -2141,7 +2225,7 @@ class RaftLog(object):
                           f"ExecutionCompleteNotification[Node={self._node_id},Term={term_number},"
                           f"ValueID={notification.id}].")
 
-    async def try_lead_execution(self, term_number: int) -> bool:
+    async def try_lead_execution(self, jupyter_message_id: str, term_number: int) -> bool:
         """
         Request to serve as the leader for the update of a term (and therefore to be the replica to execute user-submitted code).
 
@@ -2150,24 +2234,28 @@ class RaftLog(object):
         self.logger.debug("RaftLog %d is proposing to lead term %d." % (self._node_id, term_number))
 
         # Create a 'LEAD' proposal.
-        proposal: LeaderElectionProposal = await self._create_election_proposal(ElectionProposalKey.LEAD, term_number)
+        proposal: LeaderElectionProposal = await self._create_election_proposal(ElectionProposalKey.LEAD, term_number,
+                                                                                jupyter_message_id)
 
         # Orchestrate/carry out the election.
-        is_leading: bool = await self._handle_election(proposal, target_term_number=term_number)
+        is_leading: bool = await self._handle_election(proposal, target_term_number=term_number,
+                                                       jupyter_message_id=jupyter_message_id)
 
         return is_leading
 
-    async def try_yield_execution(self, term_number: int) -> bool:
+    async def try_yield_execution(self, jupyter_message_id: str, term_number: int) -> bool:
         """
         Request to explicitly yield the current term update (and therefore the execution of user-submitted code) to another replica.
         """
         self.logger.debug("RaftLog %d: proposing to yield term %d." % (self._node_id, term_number))
 
         # Create a 'YIELD' proposal.
-        proposal: LeaderElectionProposal = await self._create_election_proposal(ElectionProposalKey.YIELD, term_number)
+        proposal: LeaderElectionProposal = await self._create_election_proposal(ElectionProposalKey.YIELD, term_number,
+                                                                                jupyter_message_id)
 
         # Orchestrate/carry out the election.
-        is_leading: bool = await self._handle_election(proposal, target_term_number=term_number)
+        is_leading: bool = await self._handle_election(proposal, target_term_number=term_number,
+                                                       jupyter_message_id=jupyter_message_id)
 
         # If is_leading is True, then we have a problem, as we proposed YIELD.
         # We should never be elected leader if we propose YIELD.

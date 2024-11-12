@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import logging
 import time
-from enum import IntEnum
+from enum import IntEnum, Enum
 from typing import Dict, Optional, List, MutableMapping, Any
 
 from .log import LeaderElectionVote, LeaderElectionProposal
@@ -41,15 +41,18 @@ class Election(object):
             self,
             term_number: int,
             num_replicas: int,
+            jupyter_message_id: str,
             timeout_seconds: float = 10,
     ):
+        self._jupyter_message_id: str = jupyter_message_id
+
         # The term number of the election.
         # Each election has a unique term number.
         # Term numbers monotonically increase over time.
-        self._term_number = term_number
+        self._term_number: int = term_number
 
         # The number of replicas in the SMR cluster, so we know how many proposals to expect.
-        self._num_replicas = num_replicas
+        self._num_replicas: int = num_replicas
 
         # Mapping from SMR Node ID to the LeaderElectionProposal that it proposed during this election term.
         self._proposals: Dict[int, LeaderElectionProposal] = {}
@@ -229,6 +232,13 @@ class Election(object):
             getattr(self, "election_finished_condition_waiter_loop")
         except AttributeError:
             self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    @property
+    def jupyter_message_id(self) -> str:
+        """
+        Return the Jupyter message ID from the "execute_request" (or "yield_request") associated with this election.
+        """
+        return self._jupyter_message_id
 
     @property
     def num_lead_proposals_received(self) -> int:
