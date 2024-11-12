@@ -1470,10 +1470,19 @@ func (c *DistributedKernelClient) handleFailedExecutionAllYielded() error {
 	return c.executionFailedCallback(c)
 }
 
-func (c *DistributedKernelClient) pubIOMessage(msg *types.JupyterMessage, status string, _ string) error {
-	// c.log.Debug("Publishing %v status(%s:%s): %v", types.IOMessage, status, how, msg)
+func (c *DistributedKernelClient) pubIOMessage(msg *types.JupyterMessage, status string, how string) error {
+	c.log.Debug("Publishing %v status(%s:%s): %v", types.IOMessage, status, how, msg)
 	c.lastBStatusMsg = msg
-	err := c.server.Sockets.IO.Send(*msg.GetZmqMsg())
+
+	zmqMsg := msg.GetZmqMsg()
+
+	var err error
+	if zmqMsg != nil {
+		err = c.server.Sockets.IO.Send(*zmqMsg)
+	} else {
+		c.log.Error("ZMQ4 Message is null. Cannot publish IO message... status: \"%s\", how: \"%s\"", status, how)
+		err = fmt.Errorf("zmq4 message is null")
+	}
 
 	// Initiate idle status collection.
 	if status == types.MessageKernelStatusBusy {
