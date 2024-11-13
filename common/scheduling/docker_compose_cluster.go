@@ -132,7 +132,7 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 	}
 
 	c.log.Debug("Enabling host %s now...", id)
-	if err := disabledHost.Enable(); err != nil {
+	if err := disabledHost.Enable(true); err != nil {
 		// This really shouldn't happen.
 		// This would mean that the Host was in an inconsistent state relative to the Cluster,
 		// as the Host was stored in the wrong map.
@@ -162,7 +162,7 @@ func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDo
 			enabledHosts := make([]*Host, 0)
 			// First, check if we have any disabled nodes. If we do, then we'll just re-enable them.
 			c.DisabledHosts.Range(func(hostId string, host *Host) (contd bool) {
-				err := host.Enable()
+				err := host.Enable(true)
 				if err != nil {
 					c.log.Error("Failed to re-enable host %s because: %v", hostId, err)
 					// For now, we panic, as we don't expect there to be a "valid" reason to fail to enable a host.

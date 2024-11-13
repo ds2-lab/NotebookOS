@@ -379,7 +379,7 @@ func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramG
 
 func (h *Host) IsExcludedFromScheduling() bool {
 	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
 
 	return h.excludedFromScheduling
 }
@@ -392,7 +392,7 @@ func (h *Host) IsExcludedFromScheduling() bool {
 // scheduling operations and thus cannot be excluded at this time.
 func (h *Host) ExcludeFromScheduling() bool {
 	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
 
 	if numOperationsConsideringHost := h.isBeingConsideredForScheduling.Load(); numOperationsConsideringHost > 0 {
 		h.log.Debug("Host %s (ID=%s) cannot be excluded from consideration from scheduling operations as it is "+
@@ -411,7 +411,7 @@ func (h *Host) ExcludeFromScheduling() bool {
 // scheduling operations, then IncludeForScheduling will return an ErrHostAlreadyIncludedForScheduling error.
 func (h *Host) IncludeForScheduling() error {
 	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
 
 	if !h.excludedFromScheduling {
 		return ErrHostAlreadyIncludedForScheduling
@@ -424,7 +424,7 @@ func (h *Host) IncludeForScheduling() error {
 
 func (h *Host) IsBeingConsideredForScheduling() bool {
 	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
 
 	return h.isBeingConsideredForScheduling.Load() > 0
 }
@@ -436,7 +436,7 @@ func (h *Host) IsBeingConsideredForScheduling() bool {
 // Concurrently scheduling operations are permitted.
 func (h *Host) ConsiderForScheduling() bool {
 	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
 
 	if h.excludedFromScheduling {
 		h.log.Debug("Cannot consider host %s (ID=%s) for scheduling; it is presently excluded from scheduling.",
