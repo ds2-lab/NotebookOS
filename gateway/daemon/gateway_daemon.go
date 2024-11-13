@@ -805,15 +805,16 @@ func (d *ClusterGatewayImpl) Listen(transport string, addr string) (net.Listener
 	return d, nil
 }
 
-// Accept waits for and returns the next connection to the listener.
-// Accept is part of the net.Listener interface implementation.
-func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
+// acceptHostConnection accepts an incoming connection from a Local Daemon and establishes a bidirectional
+// gRPC connection with that Local Daemon.
+//
+// This returns the gRPC connection, the initial connection, the replacement connection, and an error if one occurs.
+func (d *ClusterGatewayImpl) acceptHostConnection() (*grpc.ClientConn, net.Conn, net.Conn, error) {
 	// Inspired by https://github.com/dustin-decker/grpc-firewall-bypass
 	incoming, err := d.listener.Accept()
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	conn := incoming
 
 	d.log.Debug("ClusterGatewayImpl is accepting a new connection.")
 
@@ -822,14 +823,14 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	cliSession, err := yamux.Client(incoming, yamux.DefaultConfig())
 	if err != nil {
 		d.log.Error("Failed to create yamux client session: %v", err)
-		return incoming, nil
+		return nil, nil, nil, err
 	}
 
 	// Create a new session to replace the incoming connection.
-	conn, err = cliSession.Accept()
+	conn, err := cliSession.Accept()
 	if err != nil {
 		d.log.Error("Failed to wait for the replacement of host scheduler connection: %v", err)
-		return incoming, nil
+		return nil, nil, nil, err
 	}
 
 	// Dial to create a reversion connection with dummy dialer.
@@ -841,7 +842,104 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 		}))
 	if err != nil {
 		d.log.Error("Failed to open reverse provisioner connection: %v", err)
-		return conn, nil
+		return nil, nil, nil, err
+	}
+
+	return gConn, conn, incoming, err
+}
+
+// restoreHost is used to restore an existing Host when a Local Daemon loses connection with the Cluster Gateway
+// and then reconnects.
+//
+// This will return nil on success.
+func (d *ClusterGatewayImpl) restoreHost(host *scheduling.Host) error {
+	d.log.Warn("Newly-connected Local Daemon actually already exists.")
+
+	// Sanity check.
+	if host == nil {
+		errorMessage := "We're supposed to restore a Local Daemon, but the host with which we would perform the restoration is nil...\n"
+		d.notifyDashboardOfError("Failed to Re-Register Local Daemon", errorMessage)
+		log.Fatalf(utils.RedStyle.Render(errorMessage))
+	}
+
+	// Restore the Local Daemon.
+	// This replaces the gRPC connection of the existing Host struct with that of a new one,
+	// as well as a few other fields.
+	registered, loaded := d.cluster.GetHost(host.ID)
+	if loaded {
+		err := registered.Restore(host, d.localDaemonDisconnected)
+		if err != nil {
+			d.log.Error("Error while restoring host %v: %v", host, err)
+			return err
+		}
+
+		d.log.Debug("Successfully restored existing Local Daemon %s (ID=%s).", registered.NodeName, registered.ID)
+		go d.notifyDashboardOfInfo(
+			fmt.Sprintf("Local Daemon %s Reconnected", registered.NodeName),
+			fmt.Sprintf("Local Daemon %s on node %s has reconnected to the Cluster Gateway.",
+				registered.ID,
+				registered.NodeName))
+		return nil
+	}
+
+	errorMessage := fmt.Sprintf("Supposedly existing Local Daemon (re)connected, but cannot find associated Host struct... "+
+		"Node claims to be Local Daemon %s (ID=%s).", host.ID, host.NodeName)
+	d.log.Error(errorMessage)
+
+	go d.notifyDashboardOfError(
+		fmt.Sprintf("Local Daemon %s Restoration has Failed", registered.NodeName),
+		fmt.Sprintf(errorMessage,
+			registered.ID,
+			registered.NodeName))
+
+	// TODO: We could conceivably just register the Host as a new Local Daemon, despite the fact
+	// 		 that the Host thinks it already exists. We may have to re-contact the Host through the
+	//	     SetID procedure, though. We'll at least have to re-create the Host struct, as it was only
+	//		 populated with some of the required fields.
+	return scheduling.ErrRestorationFailed
+}
+
+// registerNewHost is used to register a new Host (i.e., Local Daemon) with the Cluster after the Host connects
+// to the Cluster Gateway.
+//
+// This will return nil on success.
+func (d *ClusterGatewayImpl) registerNewHost(host *scheduling.Host) error {
+	if !host.ProperlyInitialized {
+		log.Fatalf(utils.RedStyle.Render("Newly-connected Host %s (ID=%s) was NOT properly initialized..."),
+			host.NodeName, host.ID)
+	}
+
+	d.log.Info("Incoming Local Daemon %s (ID=%s) connected", host.NodeName, host.ID)
+
+	if d.inInitialConnectionPeriod.Load() && d.cluster.Len() >= d.initialClusterSize {
+		d.numHostsDisabledDuringInitialConnectionPeriod += 1
+		d.log.Debug("We are still in the Initial Connection Period, and cluster has size %d. Disabling "+
+			"newly-connected host %s (ID=%s). Disabled %d host(s) during initial connection period so far.",
+			d.cluster.Len(), host.NodeName, host.ID, d.numHostsDisabledDuringInitialConnectionPeriod)
+		err := host.Disable()
+		if err != nil {
+			// As of right now, the only reason Disable will fail/return an error is if the Host is already disabled.
+			d.log.Warn("Failed to disable newly-connected host %s (ID=%s) because: %v", host.NodeName, host.ID, err)
+		}
+	}
+
+	err := d.cluster.NewHostAddedOrConnected(host)
+	if err != nil {
+		d.log.Error("Error while adding newly-connected host %s (ID=%s) to the Cluster: %v", host.NodeName, host.ID, err)
+		return err
+	}
+
+	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s (ID=%s) has connected to the Cluster Gateway.", host.NodeName, host.ID))
+
+	return nil
+}
+
+// Accept waits for and returns the next connection to the listener.
+// Accept is part of the net.Listener interface implementation.
+func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
+	gConn, conn, incoming, connectionError := d.acceptHostConnection()
+	if connectionError != nil {
+		return nil, connectionError
 	}
 
 	// Create a host scheduler client and register it.
@@ -850,88 +948,25 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	if err != nil {
 		if errors.Is(err, scheduling.ErrRestoreRequired) {
-			d.log.Warn("Newly-connected Local Daemon actually already exists.")
-
-			// Sanity check.
-			if host == nil {
-				errorMessage := "We're supposed to restore a Local Daemon, but the host with which we would perform the restoration is nil...\n"
-				d.notifyDashboardOfError("Failed to Re-Register Local Daemon", errorMessage)
-				log.Fatalf(utils.RedStyle.Render(errorMessage))
+			err = d.restoreHost(host)
+			if err != nil {
+				return nil, err
 			}
 
-			// Restore the Local Daemon.
-			// This replaces the gRPC connection of the existing Host struct with that of a new one,
-			// as well as a few other fields.
-			registered, loaded := d.cluster.GetHost(host.ID)
-			if loaded {
-				err := registered.Restore(host, d.localDaemonDisconnected)
-				if err != nil {
-					d.log.Error("Error while restoring host %v: %v", host, err)
-					return nil, err
-				}
-
-				d.log.Debug("Successfully restored existing Local Daemon %s (ID=%s).", registered.NodeName, registered.ID)
-				go d.notifyDashboardOfInfo(
-					fmt.Sprintf("Local Daemon %s Reconnected", registered.NodeName),
-					fmt.Sprintf("Local Daemon %s on node %s has reconnected to the Cluster Gateway.",
-						registered.ID,
-						registered.NodeName))
-				return conn, nil
-			} else {
-				errorMessage := fmt.Sprintf("Supposedly existing Local Daemon (re)connected, but cannot find associated Host struct... Node claims to be Local Daemon %s (ID=%s).", host.ID, host.NodeName)
-				d.log.Error(errorMessage)
-
-				go d.notifyDashboardOfError(
-					fmt.Sprintf("Local Daemon %s Restoration has Failed", registered.NodeName),
-					fmt.Sprintf(errorMessage,
-						registered.ID,
-						registered.NodeName))
-
-				// TODO: We could conceivably just register the Host as a new Local Daemon, despite the fact
-				// 		 that the Host thinks it already exists. We may have to re-contact the Host through the
-				//	     SetID procedure, though. We'll at least have to re-create the Host struct, as it was only
-				//		 populated with some of the required fields.
-
-				return nil, scheduling.ErrRestorationFailed
-			}
+			return conn, nil
 		} else {
 			d.log.Error("Failed to create host scheduler client: %v", err)
 			return nil, err
 		}
 	}
 
-	if host == nil {
-		log.Fatalf(utils.RedStyle.Render("Newly-connected host from addr=%s is nil.\n"),
-			incoming.RemoteAddr().String())
+	registrationError := d.registerNewHost(host)
+	if registrationError != nil {
+		d.log.Error("Failed to register new host %s (ID=%s) because: %v", host.NodeName, host.ID, registrationError)
+		return nil, registrationError
 	}
 
-	if !host.ProperlyInitialized {
-		log.Fatalf(utils.RedStyle.Render("Newly-connected Host %s (ID=%s) was NOT properly initialized..."),
-			host.NodeName, host.ID)
-	}
-
-	d.log.Info("Incoming Local Daemon %s (ID=%s) connected", host.NodeName, host.ID)
-
-	if d.inInitialConnectionPeriod.Load() && d.cluster.Len() > d.initialClusterSize {
-		d.numHostsDisabledDuringInitialConnectionPeriod += 1
-		d.log.Debug("We are still in the Initial Connection Period, and cluster has size %d. Disabling "+
-			"newly-connected host %s (ID=%s). Disabled %d host(s) during initial connection period so far.",
-			d.cluster.Len(), host.NodeName, host.ID, d.numHostsDisabledDuringInitialConnectionPeriod)
-		err = host.Disable()
-		if err != nil {
-			// As of right now, the only reason Disable will fail/return an error is if the Host is already disabled.
-			d.log.Warn("Failed to disable newly-connected host %s (ID=%s) because: %v", host.NodeName, host.ID, err)
-		}
-	}
-
-	err = d.cluster.NewHostAddedOrConnected(host)
-	if err != nil {
-		d.log.Error("Error while adding newly-connected host %s (ID=%s) to the Cluster: %v", host.NodeName, host.ID, err)
-	}
-
-	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s (ID=%s) has connected to the Cluster Gateway.", host.NodeName, host.ID))
-
-	return conn, err
+	return conn, nil
 }
 
 // Close are compatible with ClusterGatewayImpl.Close().

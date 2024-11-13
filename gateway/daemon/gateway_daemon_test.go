@@ -107,8 +107,8 @@ var (
 	"notebook-image-tag": "latest",
 	"distributed-cluster-service-port": 8079,
 	"remote-docker-event-aggregator-port": 5821,
-	"initial-cluster-size": 4,
-	"initial-connection-period": 60
+	"initial-cluster-size": -1,
+	"initial-connection-period": 0
 },
 	"port": 8080,
 	"provisioner_port": 8081,
@@ -744,6 +744,144 @@ var _ = Describe("Cluster Gateway Tests", func() {
 	})
 
 	Context("DockerCluster", func() {
+		Context("Initial Connection Period", func() {
+			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
+			var options *domain.ClusterGatewayOptions
+
+			BeforeEach(func() {
+				config.LogLevel = logger.LOG_LEVEL_ALL
+
+				abstractServer = &server.AbstractServer{
+					DebugMode: true,
+					Log:       config.GetLogger("TestAbstractServer"),
+				}
+
+				err := json.Unmarshal([]byte(GatewayOptsAsJsonString), &options)
+				if err != nil {
+					panic(err)
+				}
+			})
+
+			It("Will correctly disable hosts once 'INITIAL_CLUSTER_SIZE' hosts have joined.", func() {
+				InitialClusterSize := 3
+				InitialConnectionTimeSeconds := 3
+				InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
+
+				options.InitialClusterSize = InitialClusterSize
+				options.InitialClusterConnectionPeriodSec = InitialConnectionTimeSeconds
+
+				mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
+
+				startTime := time.Now()
+				clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
+					globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
+					srv.SetClusterOptions(&options.ClusterSchedulerOptions)
+					srv.SetDistributedClientProvider(mockedDistributedKernelClientProvider)
+				})
+				config.InitLogger(&clusterGateway.log, clusterGateway)
+
+				Expect(clusterGateway.gatewayPrometheusManager).To(BeNil())
+				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
+				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
+				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
+
+				cluster := clusterGateway.cluster
+				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+				Expect(ok).To(BeTrue())
+				Expect(index).ToNot(BeNil())
+
+				placer := cluster.Placer()
+				Expect(placer).ToNot(BeNil())
+
+				scheduler := cluster.ClusterScheduler()
+				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
+
+				Expect(cluster.Len()).To(Equal(0))
+				Expect(index.Len()).To(Equal(0))
+				Expect(placer.NumHostsInIndex()).To(Equal(0))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
+
+				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
+
+				clusterSize := 0
+				for i := 0; i < InitialClusterSize; i++ {
+					hostId := uuid.NewString()
+					hostName := fmt.Sprintf("TestHost%d", i)
+					hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
+					host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, hostName, hostSpoofer)
+					Expect(err).To(BeNil())
+					Expect(host).ToNot(BeNil())
+					Expect(localGatewayClient).ToNot(BeNil())
+
+					err = clusterGateway.registerNewHost(host)
+					Expect(err).To(BeNil())
+					clusterSize += 1
+
+					Expect(cluster.Len()).To(Equal(clusterSize))
+					Expect(index.Len()).To(Equal(clusterSize))
+					Expect(placer.NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(cluster.NumDisabledHosts()).To(Equal(0))
+					Expect(host.Enabled()).To(Equal(true))
+				}
+
+				Expect(cluster.Len()).To(Equal(InitialClusterSize))
+				Expect(cluster.NumDisabledHosts()).To(Equal(0))
+				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
+
+				By("Disabling any additional Local Daemons that connect to the Cluster Gateway during the Initial Connection Period after the first 'InitialClusterSize' Local Daemons have already connected.")
+
+				numDisabledHosts := 0
+				for i := InitialClusterSize; i < InitialClusterSize*2; i++ {
+					hostId := uuid.NewString()
+					hostName := fmt.Sprintf("TestHost%d", i)
+					hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
+					host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, hostName, hostSpoofer)
+					Expect(err).To(BeNil())
+					Expect(host).ToNot(BeNil())
+					Expect(localGatewayClient).ToNot(BeNil())
+
+					err = clusterGateway.registerNewHost(host)
+					Expect(err).To(BeNil())
+					numDisabledHosts += 1
+
+					Expect(cluster.Len()).To(Equal(InitialClusterSize))
+					Expect(host.Enabled()).To(Equal(false))
+					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
+				}
+
+				timeElapsed := time.Since(startTime)
+				timeRemaining := InitialConnectionTime - timeElapsed
+
+				log.Printf("Sleeping for %v (+ 250ms) until 'Initial Connection Period' has ended.\n", timeRemaining)
+
+				// Sleep for the amount of time left in the 'Initial Connection Period',
+				// plus a little extra, to be sure.
+				time.Sleep(timeRemaining + (time.Millisecond * time.Duration(250)))
+
+				for i := InitialClusterSize * 2; i < InitialClusterSize*3; i++ {
+					hostId := uuid.NewString()
+					hostName := fmt.Sprintf("TestHost%d", i)
+					hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
+					host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, hostName, hostSpoofer)
+					Expect(err).To(BeNil())
+					Expect(host).ToNot(BeNil())
+					Expect(localGatewayClient).ToNot(BeNil())
+
+					err = clusterGateway.registerNewHost(host)
+					Expect(err).To(BeNil())
+					clusterSize += 1
+
+					Expect(cluster.Len()).To(Equal(clusterSize))
+					Expect(index.Len()).To(Equal(clusterSize))
+					Expect(placer.NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
+					Expect(host.Enabled()).To(Equal(true))
+				}
+			})
+		})
+
 		Context("Scheduling Kernels", func() {
 			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
 
@@ -839,7 +977,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the first Host")
 
 				// Add first host.
-				cluster.NewHostAddedOrConnected(host1)
+				err = cluster.NewHostAddedOrConnected(host1)
+				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(1))
 				Expect(index.Len()).To(Equal(1))
@@ -849,7 +988,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the second Host")
 
 				// Add second host.
-				cluster.NewHostAddedOrConnected(host2)
+				err = cluster.NewHostAddedOrConnected(host2)
+				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(2))
 				Expect(index.Len()).To(Equal(2))
@@ -859,7 +999,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the third Host")
 
 				// Add third host.
-				cluster.NewHostAddedOrConnected(host3)
+				err = cluster.NewHostAddedOrConnected(host3)
+				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(3))
 				Expect(index.Len()).To(Equal(3))
@@ -1206,7 +1347,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				size := 0
 				for i, host := range hosts {
 					By(fmt.Sprintf("Correctly registering Host %d (%d/%d)", i, size+1, len(hosts)))
-					cluster.NewHostAddedOrConnected(host)
+					err := cluster.NewHostAddedOrConnected(host)
+					Expect(err).To(BeNil())
 					size += 1
 
 					Expect(cluster.Len()).To(Equal(size))

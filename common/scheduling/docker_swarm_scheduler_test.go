@@ -2,6 +2,7 @@ package scheduling_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
@@ -111,7 +112,14 @@ func addHost(idx int, hostSpec types.Spec, cluster scheduling.Cluster, mockCtrl 
 	resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, hostSpec)
 	host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, nodeName, resourceSpoofer)
 
-	cluster.NewHostAddedOrConnected(host)
+	err2 := cluster.NewHostAddedOrConnected(host)
+
+	if err != nil && err2 != nil {
+		err = errors.Join(err, err2)
+	} else if err2 != nil {
+		// err is nil, but that's what we return, so let's return the non-nil err2 instead.
+		err = err2
+	}
 
 	return host, localGatewayClient, resourceSpoofer, err
 }

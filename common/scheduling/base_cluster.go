@@ -322,7 +322,7 @@ func (c *BaseCluster) onDisabledHostAdded(host *Host) error {
 
 	c.DisabledHosts.Store(host.ID, host)
 
-	if c.clusterMetricsProvider != nil {
+	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumDisabledHostsGauge() != nil {
 		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Add(1)
 	}
 

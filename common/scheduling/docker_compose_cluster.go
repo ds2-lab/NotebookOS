@@ -174,7 +174,13 @@ func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDo
 				c.log.Debug("Using disabled host %s in scale-out operation.", hostId)
 
 				// This will add the host back to the Cluster.
-				c.NewHostAddedOrConnected(host)
+				err = c.NewHostAddedOrConnected(host)
+				if err != nil {
+					c.log.Error("Error adding newly-connected host %s (ID=%s) to cluster: %v",
+						host.NodeName, host.ID, err)
+					// TODO: Need to handle this error...
+				}
+
 				enabledHosts = append(enabledHosts, host)
 				numNewNodesRequired -= 1
 				numDisabledHostsUsed += 1
