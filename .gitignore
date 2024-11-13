@@ -152,3 +152,5 @@ dockfiles/gateway/gateway
 dockfiles/local_daemon/scheduler
 
 gateway/daemon/daemon.test
+local_daemon/daemon/daemon.test
+local_daemon/device/device.test
