@@ -105,7 +105,8 @@
   template:
     src: core-site.xml.j2
     dest: "{{ hadoop_hdfs_conf_dir }}/core-site.xml"
-    mode: 0640
+    mode: 0640r
+  become: true
 
 - name: Create/copy the hadoop-env.sh configuration file.
   template:

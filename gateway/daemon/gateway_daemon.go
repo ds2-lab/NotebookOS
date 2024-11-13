@@ -296,6 +296,27 @@ type ClusterGatewayImpl struct {
 	// TODO: Make this an field of the ClusterGateway and LocalDaemon structs.
 	//		 Update in forwardRequest and kernelResponseForwarder, rather than in here.
 	RequestLog *metrics.RequestLog
+
+	// The initial size of the cluster.
+	// If more than this many Local Daemons connect during the 'initial connection period',
+	// then the extra nodes will be disabled until a scale-out event occurs.
+	//
+	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
+	initialClusterSize int
+
+	// The initial connection period is the time immediately after the Cluster Gateway begins running during
+	// which it expects all Local Daemons to connect. If greater than N local daemons connect during this period,
+	// where N is the initial cluster size, then those extra daemons will be disabled.
+	//
+	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
+	initialConnectionPeriod time.Duration
+
+	// inInitialConnectionPeriod indicates whether we're still in the "initial connection period" or not.
+	inInitialConnectionPeriod atomic.Bool
+
+	// numHostsDisabledDuringInitialConnectionPeriod keeps track of the number of Host instances we disabled
+	// during the initial connection period.
+	numHostsDisabledDuringInitialConnectionPeriod int
 }
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
@@ -322,9 +343,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		dockerNetworkName:                        clusterDaemonOptions.DockerNetworkName,
 		numResendAttempts:                        clusterDaemonOptions.NumResendAttempts,
 		MessageAcknowledgementsEnabled:           clusterDaemonOptions.MessageAcknowledgementsEnabled,
+		initialClusterSize:                       clusterDaemonOptions.InitialClusterSize,
+		initialConnectionPeriod:                  time.Second * time.Duration(clusterDaemonOptions.InitialClusterConnectionPeriodSec),
 		prometheusInterval:                       time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
 		gatewayPrometheusManager:                 nil,
 	}
+
 	for _, configFunc := range configs {
 		configFunc(clusterGateway)
 	}
@@ -510,6 +534,15 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	if clusterGateway.gatewayPrometheusManager != nil {
 		clusterGateway.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())
 	}
+
+	clusterGateway.inInitialConnectionPeriod.Store(true)
+	go func() {
+		clusterGateway.log.Debug("Initial Connection Period will end in %v.", clusterGateway.initialConnectionPeriod)
+		time.Sleep(clusterGateway.initialConnectionPeriod)
+		clusterGateway.inInitialConnectionPeriod.Store(false)
+		clusterGateway.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
+			clusterGateway.initialConnectionPeriod, clusterGateway.cluster.Len())
+	}()
 
 	return clusterGateway
 }
@@ -867,11 +900,26 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	d.log.Info("Incoming Local Daemon %s (ID=%s) connected", host.NodeName, host.ID)
 
-	d.cluster.NewHostAddedOrConnected(host)
+	if d.inInitialConnectionPeriod.Load() && d.cluster.Len() > d.initialClusterSize {
+		d.numHostsDisabledDuringInitialConnectionPeriod += 1
+		d.log.Debug("We are still in the Initial Connection Period, and cluster has size %d. Disabling "+
+			"newly-connected host %s (ID=%s). Disabled %d host(s) during initial connection period so far.",
+			d.cluster.Len(), host.NodeName, host.ID, d.numHostsDisabledDuringInitialConnectionPeriod)
+		err = host.Disable()
+		if err != nil {
+			// As of right now, the only reason Disable will fail/return an error is if the Host is already disabled.
+			d.log.Warn("Failed to disable newly-connected host %s (ID=%s) because: %v", host.NodeName, host.ID, err)
+		}
+	}
+
+	err = d.cluster.NewHostAddedOrConnected(host)
+	if err != nil {
+		d.log.Error("Error while adding newly-connected host %s (ID=%s) to the Cluster: %v", host.NodeName, host.ID, err)
+	}
 
 	go d.notifyDashboardOfInfo("Local Daemon Connected", fmt.Sprintf("Local Daemon %s (ID=%s) has connected to the Cluster Gateway.", host.NodeName, host.ID))
 
-	return conn, nil
+	return conn, err
 }
 
 // Close are compatible with ClusterGatewayImpl.Close().

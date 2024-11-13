@@ -43,7 +43,7 @@
       when: zookeeper_installed is undefined
 
 - name: Install Hadoop HDFS
-  hosts: namenode, datanode
+  hosts: hdfs_namenodes, hdfs_datanodes
   become: true
   roles:
     - install-hadoop-hdfs

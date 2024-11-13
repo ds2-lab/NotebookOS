@@ -1,0 +1,8 @@
+- name: Start Hadoop HDFS DataNodes
+  hosts: hdfs_datanodes
+  roles:
+    - datanode
+  tags:
+    - start_hdfs_datanode
+    - start_component
+    - hdfs_datanode

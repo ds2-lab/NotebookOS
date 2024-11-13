@@ -106,7 +106,9 @@ var (
 	"notebook-image-name": "scusemua/jupyter",
 	"notebook-image-tag": "latest",
 	"distributed-cluster-service-port": 8079,
-	"remote-docker-event-aggregator-port": 5821
+	"remote-docker-event-aggregator-port": 5821,
+	"initial-cluster-size": 4,
+	"initial-connection-period": 60
 },
 	"port": 8080,
 	"provisioner_port": 8081,

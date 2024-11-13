@@ -1,6 +1,10 @@
 # This playbook is used to deploy the Distributed Jupyter Notebook cluster on the Docker Swarm cluster
 ---
 
+- name: Print HDFS NameNode endpoint
+  debug:
+    msg: "HDFS NameNode endpoint: {{ hostvars['namenode'].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ hadoop_namenode_port }}"
+
 - name: Pull the latest code changes before installing Docker Swarm app, discarding any local changes.
   git:
     repo: "{{ git_repo_url }}"

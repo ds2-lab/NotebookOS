@@ -9,7 +9,7 @@ stdin-port: 9003
 iopub-port: 9004
 iosub-port: 9005
 ack-port: 9006
-hdfs-namenode-endpoint: {{ hostvars['namenode1'].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ hadoop_namenode_port }}
+hdfs-namenode-endpoint: {{ hostvars['namenode'].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ hadoop_namenode_port }}
 debug: {{ gateway_debug_logging_enabled }}
 direct: false
 num-replicas: {{ distributed_notebook_num_replicas }}
@@ -54,3 +54,5 @@ num_resend_attempts: {{ distributed_notebook_num_resend_attempts }}
 acks_enabled: {{ distributed_notebook_message_acknowledgements_enabled }}
 simulate_checkpointing_latency: {{ distributed_notebook_simulate_checkpointing_latency }}
 remote-docker-event-aggregator-port: {{ gateway_remote_docker_event_aggregator_port }}
+initial-cluster-size: {{ distributed_notebook_initial_cluster_size }}
+initial-connection-period: {{ distributed_notebook_initial_connection_period }}

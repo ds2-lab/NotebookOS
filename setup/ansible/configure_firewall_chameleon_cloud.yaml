@@ -1,0 +1,6 @@
+- name: Configure firewall for Chameleon Cloud deployments
+  hosts: vms
+  roles:
+    - configure-firewall-chameleon-cloud
+  tags:
+    - chameleon-cloud
