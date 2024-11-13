@@ -172,7 +172,7 @@ func (c *DockerSwarmCluster) getScaleOutCommand(targetScale int32, coreLogicDone
 						host.NodeName, host.ID, err)
 					// TODO: Need to handle this error...
 				}
-				
+
 				enabledHosts = append(enabledHosts, host)
 				numNewNodesRequired -= 1
 				numDisabledHostsUsed += 1
@@ -212,13 +212,6 @@ func (c *DockerSwarmCluster) getScaleOutCommand(targetScale int32, coreLogicDone
 
 		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker swarm clusters", ErrUnsupportedOperation)
 	}
-}
-
-// DisableHost attempts to disable the specified Host.
-//
-// This method is typically not called during regular operation; it typically occurs just while unit testing.
-func (c *DockerSwarmCluster) DisableHost(hostId string) error {
-	panic("not implemented")
 }
 
 // canPossiblyScaleOut returns true if the Cluster could possibly scale-out.

@@ -1908,17 +1908,17 @@ class RaftLog(object):
         """
         self.logger.info("Adding node %d at addr %s to the SMR cluster." % (node_id, address))
         future, resolve = self._get_callback(future_name=f"add_node[{node_id}]")
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.AddNode)")
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.AddHost)")
         sys.stderr.flush()
         sys.stdout.flush()
         self._log_node.AddNode(node_id, address, resolve)
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.AddNode)")
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.AddHost)")
         sys.stderr.flush()
         sys.stdout.flush()
         res = await future.result()
         # await future 
         # res = future.result()
-        self.logger.info("Result of AddNode: %s" % str(res))
+        self.logger.info("Result of AddHost: %s" % str(res))
 
     async def update_node(self, node_id, address):
         """Add a node to the etcd-raft  cluster."""

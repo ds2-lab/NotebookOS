@@ -1,6 +1,7 @@
 package scheduling
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -87,6 +88,10 @@ type BaseScheduler struct {
 	remoteSynchronizationInterval time.Duration            // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
 	lastNodeRefreshTime           time.Time                // The time at which the nodes were last refreshed.
 
+	oversubscribed  container.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
+	undersubscribed container.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
+	idleHosts       container.Heap
+
 	lastCapacityValidation time.Time         // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
 	stRatio                *types.MovingStat // session/training ratio
 	subscriptionRatio      decimal.Decimal   // Subscription ratio.
@@ -94,7 +99,6 @@ type BaseScheduler struct {
 	invalidated            float64
 	lastSubscribedRatio    float64
 	pendingSubscribedRatio float64
-	idleHosts              container.Heap
 
 	log logger.Logger
 }
@@ -116,6 +120,8 @@ func NewBaseScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMap
 		remoteSynchronizationInterval: time.Second * time.Duration(opts.GpuPollIntervalSeconds),
 		placer:                        placer,
 		hostSpec:                      hostSpec,
+		oversubscribed:                make(container.Heap, 0, 10),
+		undersubscribed:               make(container.Heap, 0, 10),
 		idleHosts:                     make(container.Heap, 0, 10),
 		maximumCapacity:               int32(opts.MaximumNumNodes),
 		minimumCapacity:               int32(opts.MinimumNumNodes),
@@ -280,9 +286,9 @@ func (s *BaseScheduler) MinimumCapacity() int32 {
 	return s.minimumCapacity
 }
 
-// AddNode adds a new node to the kubernetes Cluster.
+// AddHost adds a new node to the kubernetes Cluster.
 // We simulate this using node taints.
-func (s *BaseScheduler) AddNode() error {
+func (s *BaseScheduler) AddHost() error {
 	p := s.cluster.RequestHosts(context.Background(), 1) /* s.hostSpec */
 	err := p.Error()
 	if err != nil {
@@ -293,9 +299,9 @@ func (s *BaseScheduler) AddNode() error {
 	return nil
 }
 
-// RemoveNode removes a new from the kubernetes Cluster.
+// RemoveHost removes a new from the kubernetes Cluster.
 // We simulate this using node taints.
-func (s *BaseScheduler) RemoveNode(hostId string) error {
+func (s *BaseScheduler) RemoveHost(hostId string) error {
 	p := s.cluster.ReleaseSpecificHosts(context.Background(), []string{hostId})
 	err := p.Error()
 	if err != nil {
@@ -353,7 +359,7 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 	s.log.Debug("Pending subscription ratio: %.4f. Invalidated: %.4f", s.pendingSubscribedRatio, s.invalidated)
 }
 
-func (s *BaseScheduler) MigrateContainer(container *Container, host *Host, b bool) (bool, error) {
+func (s *BaseScheduler) MigrateContainer(container *Container, host *Host, b bool) error {
 	return s.instance.MigrateContainer(container, host, b)
 }
 
@@ -409,7 +415,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 		// The size of the pending host pool will grow each time we provision a new host.
 		numFailures := 0
 		for int32(s.cluster.Len()) < scaledOutNumHosts {
-			err := s.AddNode()
+			err := s.AddHost()
 			if err != nil {
 				s.log.Error("Failed to add new host because: %v", err)
 				numFailures += 1
@@ -474,21 +480,29 @@ func (s *BaseScheduler) ValidateCapacity() {
 	s.lastCapacityValidation = time.Now()
 }
 
+// designateSubscriptionPoolType places the specified Host into the specified scheduler pool (i.e., oversubscribed
+// or undersubscribed).
+func (s *BaseScheduler) designateSubscriptionPoolType(host *Host, pool heap.Interface, t SchedulerPoolType) {
+	host.SetSchedulerPoolType(t)
+	heap.Push(pool, host)
+}
+
 func (s *BaseScheduler) validate() {
 	if s.invalidated > SchedulerInvalidationThreshold {
-		// StaticPlacerMaxSubscribedRatio increase, release oversubscribed hosts to undersubscribed hosts.
+		// StaticPlacerMaxSubscribedRatio increase, release oversubscribed hosts to under-subscribed hosts.
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Apply subscription ratio change %.4f -> %.4f, add under-subscription hosts to candidate pool", s.lastSubscribedRatio, s.pendingSubscribedRatio)
+			s.log.Debug("Apply subscription ratio change %.4f -> %.4f, add under-subscription hosts to candidate pool",
+				s.lastSubscribedRatio, s.pendingSubscribedRatio)
 		}
-		// TODO: Implement this.
-		panic("Not implemented!")
-		//for s.oversubscribed.Len() > 0 && s.oversubscribed.Peek().(*Host).OversubscriptionFactor() < 0.0 {
-		//	host := s.oversubscribed.Peek()
-		//	heap.Pop(&s.oversubscribed)
-		//	s.designateSubscriptionPoolType(host.(*Host), &s.undersubscribed, SchedulerPoolTypeUndersubscribed)
-		//}
-		//s.lastSubscribedRatio = s.pendingSubscribedRatio
-		//s.invalidated = 0.0
+
+		for s.oversubscribed.Len() > 0 && s.oversubscribed.Peek().(*Host).OversubscriptionFactor().LessThan(decimal.Zero) {
+			host := s.oversubscribed.Peek()
+			heap.Pop(&s.oversubscribed)
+			s.designateSubscriptionPoolType(host.(*Host), &s.undersubscribed, SchedulerPoolTypeUndersubscribed)
+		}
+
+		s.lastSubscribedRatio = s.pendingSubscribedRatio
+		s.invalidated = 0.0
 	} else if s.invalidated < (-1 * SchedulerInvalidationThreshold) {
 		s.lastSubscribedRatio = s.pendingSubscribedRatio
 		s.invalidated = 0.0
@@ -514,6 +528,37 @@ func (h *idleSortedHost) SetIdx(idx int) {
 	h.SetIdx(idx)
 }
 
+// migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
+func (s *BaseScheduler) migrateContainersFromHost(host *Host) (err error) {
+	host.containers.Range(func(containerId string, c *Container) (contd bool) {
+		err = s.MigrateContainer(c, host, true) // Pass true for `noNewHost`, as we don't want to create a new host for this.
+		if err != nil {
+			// We cannot migrate the Container.
+			s.log.Warn("Abandoning the release of idle host %s (ID=%s) because: %v", host.NodeName, host.ID, err)
+			return false
+		}
+
+		s.log.Debug("Successfully migrated all kernels from host %s (ID=%s).", host.NodeName, host.ID)
+
+		// Keep going.
+		return true
+	})
+
+	return err
+}
+
+// includeHostsInScheduling iterates over the given slice of *Host instances and sets their ExcludedFromScheduling
+// field to false.
+func (s *BaseScheduler) includeHostsInScheduling(hosts []*Host) {
+	for _, host := range hosts {
+		err := host.IncludeForScheduling()
+		if err != nil {
+			s.log.Error("Host %s (ID=%s) is already allowed to be considered for scheduling (%v)",
+				host.NodeName, host.ID, err)
+		}
+	}
+}
+
 // ReleaseIdleHosts tries to release n idle hosts. Return the number of hosts that were actually released.
 // Error will be nil on success and non-nil if some sort of failure is encountered.
 func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
@@ -527,20 +572,15 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	for int32(len(toBeReleased)) < n && s.idleHosts.Len() > 0 {
 		idleHost := s.idleHosts.Peek().(*idleSortedHost)
 
+		// If the host is not completely idle, then we'll break and stop looking.
 		if idleHost.IdleGPUs() < idleHost.ResourceSpec().GPU() {
 			break
 		}
 
-		// TODO: Just mark the Host as un-schedule-able so that we don't try to schedule anything onto it until we're done here.
-		// We should not release the Host until we're sure we want to release it.
-		//p := s.Cluster.ReleaseHosts(idleHost.host.ID)
-		panic("Not implemented")
-		//err := p.Error()
-		//if errors.Is(err, ErrHostNotFound) {
-		//	panic(err)
-		//}
-		//
-		//toBeReleased = append(toBeReleased, idleHost.Host)
+		excluded := idleHost.Host.ExcludeFromScheduling()
+		if excluded {
+			toBeReleased = append(toBeReleased, idleHost.Host)
+		}
 	}
 
 	var released int
@@ -551,34 +591,24 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		// If the host has no containers running on it at all, then we can simply release the host.
 		if host.NumContainers() > 0 {
-			host.containers.Range(func(containerId string, c *Container) (contd bool) {
-				// TODO: Migrate Container needs to actually migrate replicas.
-				migratedSuccessfully, err := s.MigrateContainer(c, host, true) // Pass true for `noNewHost`, as we don't want to create a new host for this.
+			err := s.migrateContainersFromHost(host)
+			if err != nil {
+				s.log.Warn("Failed to migrate all kernels from host %s (ID=%s) because: %v",
+					host.NodeName, host.ID, err)
 
-				if !migratedSuccessfully {
-					if err == nil {
-						// We cannot migrate the Container.
-						s.log.Warn("Abandoning the release of idle host %d/%d: Virtual Machine %s. There was no error, but the migration failed...", i+1, len(toBeReleased), host.ID)
-						panic(fmt.Sprintf("Releasing of idle host failed for unknown reason (no error). We were trying to migrate Container %s [state=%v].", c.ContainerID(), c.Status()))
-					} else {
-						// We cannot migrate the Container.
-						s.log.Warn("Abandoning the release of idle host %d/%d: Virtual Machine %s.", i+1, len(toBeReleased), host.ID)
-						s.log.Warn("Reason: %v", err)
+				s.includeHostsInScheduling(toBeReleased[i:])
 
-						// Add back all the idle hosts that we were going to release, beginning with the host that we should fail to release.
-						for j := i; j < len(toBeReleased); j++ {
-							host = toBeReleased[j]
+				return released, err
+			}
+		}
 
-							// TODO: Mark the host as schedule-able again.
-							panic("Not implemented")
-							// s.Cluster.ActiveServerfulScheduler().AddResource(host, true)
-						}
-						return false
-					}
-				}
+		err := s.RemoveHost(host.ID)
+		if err != nil {
+			s.log.Error("Failed to remove host %s (ID=%s) because: %v", host.NodeName, host.ID, err)
 
-				return true
-			})
+			s.includeHostsInScheduling(toBeReleased[i:])
+
+			return released, err
 		}
 
 		released += 1

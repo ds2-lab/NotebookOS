@@ -280,14 +280,6 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 
 	st := time.Now()
 
-	// Commented out:
-	// We should try to find as many as we can, per the method's spec.
-	//
-	// if int32(n) > index.len {
-	//	 index.log.Error("Index contains just %d hosts. Cannot seek %d hosts.", index.len, n)
-	//	 return []*Host{}, nil
-	// }
-
 	var (
 		candidateHost *Host
 		nextPos       interface{}
@@ -337,7 +329,13 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 		// In case we reshuffled, make sure we haven't already received this host.
 		// If indeed it is new, then we'll add it to the host map.
 		if _, loaded := hostsMap[candidateHost.ID]; !loaded {
-			if criteriaFunc == nil || criteriaFunc(candidateHost) {
+			// Check that the host is not outright excluded from scheduling right now and
+			// that it satisfies whatever scheduling criteria was specified by the user.
+			hostSatisfiesSchedulingCriteria := criteriaFunc == nil || criteriaFunc(candidateHost)
+
+			// Note: ConsiderForScheduling will atomically check if the host is excluded from consideration
+			// before marking it as being considered.
+			if hostSatisfiesSchedulingCriteria && candidateHost.ConsiderForScheduling() {
 				index.log.Debug("Found candidate: host %s (ID=%s)", candidateHost.NodeName, candidateHost.ID)
 				hostsMap[candidateHost.ID] = candidateHost
 			} else {

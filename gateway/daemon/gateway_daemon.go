@@ -1790,7 +1790,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 
 	d.issueUpdateReplicaRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
 
-	// Issue the AddNode request now, so that the node can join when it starts up.
+	// Issue the AddHost request now, so that the node can join when it starts up.
 	// d.issueAddNodeRequest(in.KernelId, replicaSpec.ReplicaID, in.KernelIp)
 
 	d.log.Debug("Done handling registration of added replica %d of kernel %s.", replicaSpec.ReplicaId, in.KernelId)

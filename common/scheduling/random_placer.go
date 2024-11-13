@@ -71,7 +71,12 @@ func (placer *RandomPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int
 	}, make([]interface{}, 0))
 	placer.mu.Unlock()
 
-	return hosts
+	if len(hosts) > 0 {
+		return hosts
+	}
+
+	// The Host could not satisfy the resourceSpec, so return nil.
+	return nil
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.

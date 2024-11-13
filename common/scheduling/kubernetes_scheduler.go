@@ -55,7 +55,7 @@ func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpe
 	return nil
 }
 
-func (s *KubernetesScheduler) MigrateContainer(container *Container, host *Host, b bool) (bool, error) {
+func (s *KubernetesScheduler) MigrateContainer(container *Container, host *Host, b bool) error {
 	panic("Not implemented")
 }
 

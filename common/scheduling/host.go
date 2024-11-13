@@ -12,6 +12,7 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Scusemua/go-utils/cache"
@@ -32,10 +33,11 @@ const (
 var (
 	ErrRestorationFailed = errors.New("restoration failed for unknown reason")
 
-	ErrRestoreRequired     = errors.New("restore required")
-	ErrNodeNameUnspecified = errors.New("no kubernetes node name returned for LocalDaemonClient")
-	ErrReservationNotFound = errors.New("no resource reservation found for the specified kernel")
-	ErrOldSnapshot         = errors.New("the given snapshot is older than the last snapshot applied to the target host")
+	ErrRestoreRequired                  = errors.New("restore required")
+	ErrNodeNameUnspecified              = errors.New("no kubernetes node name returned for LocalDaemonClient")
+	ErrReservationNotFound              = errors.New("no resource reservation found for the specified kernel")
+	ErrOldSnapshot                      = errors.New("the given snapshot is older than the last snapshot applied to the target host")
+	ErrHostAlreadyIncludedForScheduling = errors.New("the specified host is already being included for consideration in scheduling operations")
 )
 
 // ErrorCallback defines a function to be called if a Host appears to be dead.
@@ -175,30 +177,32 @@ type Host struct {
 
 	log logger.Logger
 
-	latestGpuInfo          *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
-	syncMutex              sync.Mutex                           // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
-	schedulingMutex        sync.Mutex                           // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating Resources on the Host.
-	meta                   hashmap.HashMap[string, interface{}] // meta is a map of metadata.
-	conn                   *grpc.ClientConn                     // conn is the gRPC connection to the Host.
-	Addr                   string                               // Addr is the Host's address.
-	NodeName               string                               // NodeName is the Host's name (for printing/logging).
-	Cluster                Cluster                              // Cluster is a reference to the Cluster interface that manages this Host.
-	metricsProvider        metrics.ClusterMetricsProvider       // Provides access to metrics relevant to the Host.
-	ID                     string                               // ID is the unique ID of this host.
-	containers             hashmap.HashMap[string, *Container]  // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
-	reservations           hashmap.HashMap[string, time.Time]   // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
-	trainingContainers     []*Container                         // trainingContainers are the actively-training kernel replicas.
-	seenSessions           []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec           *types.DecimalSpec                   // resourceSpec is the spec describing the total Resources available on the Host, not impacted by allocations.
-	lastReschedule         types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	errorCallback          ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
-	pendingContainers      types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
-	enabled                bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels.
-	CreatedAt              time.Time                            // CreatedAt is the time at which the Host was created.
-	resourcesWrapper       *ResourcesWrapper                    // resourcesWrapper wraps all the Host's Resources.
-	LastRemoteSync         time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
-	IsContainedWithinIndex bool                                 // IsContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
-	ProperlyInitialized    bool                                 // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
+	latestGpuInfo                  *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
+	syncMutex                      sync.Mutex                           // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
+	schedulingMutex                sync.Mutex                           // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating Resources on the Host.
+	meta                           hashmap.HashMap[string, interface{}] // meta is a map of metadata.
+	conn                           *grpc.ClientConn                     // conn is the gRPC connection to the Host.
+	Addr                           string                               // Addr is the Host's address.
+	NodeName                       string                               // NodeName is the Host's name (for printing/logging).
+	Cluster                        Cluster                              // Cluster is a reference to the Cluster interface that manages this Host.
+	metricsProvider                metrics.ClusterMetricsProvider       // Provides access to metrics relevant to the Host.
+	ID                             string                               // ID is the unique ID of this host.
+	containers                     hashmap.HashMap[string, *Container]  // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
+	reservations                   hashmap.HashMap[string, time.Time]   // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
+	trainingContainers             []*Container                         // trainingContainers are the actively-training kernel replicas.
+	seenSessions                   []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
+	resourceSpec                   *types.DecimalSpec                   // resourceSpec is the spec describing the total Resources available on the Host, not impacted by allocations.
+	lastReschedule                 types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	errorCallback                  ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
+	pendingContainers              types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
+	enabled                        bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
+	excludedFromScheduling         bool                                 // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
+	isBeingConsideredForScheduling atomic.Int32                         // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
+	CreatedAt                      time.Time                            // CreatedAt is the time at which the Host was created.
+	resourcesWrapper               *ResourcesWrapper                    // resourcesWrapper wraps all the Host's Resources.
+	LastRemoteSync                 time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
+	IsContainedWithinIndex         bool                                 // IsContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
+	ProperlyInitialized            bool                                 // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
 
 	// lastSnapshot is the last HostResourceSnapshot to have been applied successfully to this Host.
 	lastSnapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
@@ -208,13 +212,14 @@ type Host struct {
 	OversubscriptionQuerierFunction OversubscriptionQuerierFunction
 
 	// Cached penalties
-	sip             cache.InlineCache // Scale-in penalty.
-	sipSession      *Session          // Scale-in penalty session.
-	subscribedRatio decimal.Decimal
-	penaltyList     cache.InlineCache
-	penalties       []cachedPenalty
-	penaltyValidity bool
-	idx             int
+	sip               cache.InlineCache // Scale-in penalty.
+	sipSession        *Session          // Scale-in penalty session.
+	subscribedRatio   decimal.Decimal
+	penaltyList       cache.InlineCache
+	penalties         []cachedPenalty
+	penaltyValidity   bool
+	schedulerPoolType SchedulerPoolType
+	heapIndex         int
 }
 
 // newHostForRestoration creates and returns a new Host to be used only for restoring an existing Host.
@@ -372,6 +377,120 @@ func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramG
 	return host, nil
 }
 
+func (h *Host) IsExcludedFromScheduling() bool {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Lock()
+
+	return h.excludedFromScheduling
+}
+
+// ExcludeFromScheduling attempts to exclude this Host from being considered for scheduling operations.
+//
+// ExcludeFromScheduling will return true if the Host was successfully excluded.
+//
+// If ExcludeFromScheduling returns false, then the Host is already being considered for scheduling by one or more
+// scheduling operations and thus cannot be excluded at this time.
+func (h *Host) ExcludeFromScheduling() bool {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Lock()
+
+	if numOperationsConsideringHost := h.isBeingConsideredForScheduling.Load(); numOperationsConsideringHost > 0 {
+		h.log.Debug("Host %s (ID=%s) cannot be excluded from consideration from scheduling operations as it is "+
+			"already being considered by %d scheduling operation(s).", h.NodeName, h.ID, numOperationsConsideringHost)
+		return false
+	}
+
+	h.log.Debug("Host %s (ID=%s) is now precluded from being considered for scheduling.", h.NodeName, h.ID)
+	h.excludedFromScheduling = true
+	return true
+}
+
+// IncludeForScheduling designates the target Host as being able to be considered in scheduling operations.
+//
+// IncludeForScheduling returns nil on success. If the target Host is already allowed to be considered during
+// scheduling operations, then IncludeForScheduling will return an ErrHostAlreadyIncludedForScheduling error.
+func (h *Host) IncludeForScheduling() error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Lock()
+
+	if !h.excludedFromScheduling {
+		return ErrHostAlreadyIncludedForScheduling
+	}
+
+	h.excludedFromScheduling = false
+	h.log.Debug("Host %s (ID=%s) will be included for consideration in scheduling operations again.", h.NodeName, h.ID)
+	return nil
+}
+
+func (h *Host) IsBeingConsideredForScheduling() bool {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Lock()
+
+	return h.isBeingConsideredForScheduling.Load() > 0
+}
+
+// ConsiderForScheduling ensures that this Host is not excluded for scheduling nor will it be excluded from scheduling
+// until it is no longer being considered for scheduling.
+//
+// This will NOT return false if the host is already being considered for scheduling by a separate scheduling operation.
+// Concurrently scheduling operations are permitted.
+func (h *Host) ConsiderForScheduling() bool {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Lock()
+
+	if h.excludedFromScheduling {
+		h.log.Debug("Cannot consider host %s (ID=%s) for scheduling; it is presently excluded from scheduling.",
+			h.NodeName, h.ID)
+		return false
+	}
+
+	numOperationsConsideringHost := h.isBeingConsideredForScheduling.Add(1)
+	h.log.Debug("Host %s (ID=%s) is being considered in a scheduling operation (%d).",
+		h.NodeName, h.ID, numOperationsConsideringHost)
+	return true
+}
+
+func (h *Host) SchedulerPoolType() SchedulerPoolType {
+	return h.schedulerPoolType
+}
+
+func (h *Host) SetSchedulerPoolType(schedulerPoolType SchedulerPoolType) {
+	h.schedulerPoolType = schedulerPoolType
+}
+
+// SetIdx is part of the HeapElement implementation.
+func (h *Host) SetIdx(idx int) {
+	h.heapIndex = idx
+}
+
+func (h *Host) Compare(h2 interface{}) float64 {
+	switch h.schedulerPoolType {
+	case SchedulerPoolTypeUndersubscribed:
+		// Max heap.
+		switch v := h2.(type) {
+		case float64:
+			return h.IdleGPUs() - v // Seeking value, simply follow normal logic.
+		}
+
+		ret := h2.(*Host).IdleGPUs() - h.IdleGPUs()
+
+		// For the pool to provide all GPUs to one container, idle gpus are either 0 or all.
+		if ret != 0.0 {
+			return ret
+		}
+
+		return h.subscribedRatio.Sub(h2.(*Host).SubscribedRatioAsDecimal()).InexactFloat64()
+	default:
+		// SchedulerPoolTypeOversubscribed
+		// Min heap.
+		switch h2.(type) {
+		case float64:
+			log.Printf("Non-updated schedulerPoolType: host %s", h.ID)
+		}
+		return h.subscribedRatio.Sub(h2.(*Host).SubscribedRatioAsDecimal()).InexactFloat64()
+	}
+}
+
 // RecomputeSubscribedRatio forces the Host to recompute its subscription ratio.
 // The new value is returned.
 func (h *Host) RecomputeSubscribedRatio() decimal.Decimal {
@@ -398,9 +517,14 @@ func (h *Host) LastResourcesSnapshot() types.HostResourceSnapshot[types.Arbitrar
 	return h.lastSnapshot
 }
 
-// SubscribedRatio returns the current subscription ratio of the Host.
+// SubscribedRatio returns the current subscription ratio of the Host as a float64.
 func (h *Host) SubscribedRatio() float64 {
 	return h.subscribedRatio.InexactFloat64()
+}
+
+// SubscribedRatioAsDecimal returns the current subscription ratio of the Host as a decimal.Decimal.
+func (h *Host) SubscribedRatioAsDecimal() decimal.Decimal {
+	return h.subscribedRatio
 }
 
 // OversubscriptionFactor returns the result of passing the Host's current subscribedRatio
@@ -616,6 +740,9 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 		return fmt.Errorf("%w: kernel %s", ErrReservationNotFound, spec.Id)
 	}
 
+	// No longer being considered.
+	h.isBeingConsideredForScheduling.Add(-1)
+
 	return nil
 }
 
@@ -729,12 +856,22 @@ func (h *Host) Enabled() bool {
 // Enable enables the Host.
 //
 // If the Host is already enabled, then this returns an error.
-func (h *Host) Enable() error {
+func (h *Host) Enable(includeInScheduling bool) error {
 	if h.enabled {
+		// Even if we're already enabled, we should still call Host::IncludeForScheduling if the includeInScheduling
+		// argument was passed as true.
+		if includeInScheduling {
+			_ = h.IncludeForScheduling()
+		}
+
 		return fmt.Errorf("%w: host \"%s\" is already enabled", ErrInvalidHost, h.ID)
 	}
 
 	h.enabled = true
+	if includeInScheduling {
+		_ = h.IncludeForScheduling()
+	}
+
 	return nil
 }
 
@@ -902,6 +1039,10 @@ func (h *Host) ContainerScheduled(container *Container) error {
 	h.log.Debug("Container %s was officially started on onto Host %s %v after reservation was created.",
 		container.String(), h.ID, time.Since(reservation))
 
+	// Container was scheduled onto us, so we're no longer being considered for scheduling, as the scheduling
+	// operation concluded (and scheduled a replica onto us).
+	h.isBeingConsideredForScheduling.Add(-1)
+
 	return nil
 }
 
@@ -1055,10 +1196,6 @@ func (h *Host) GetSpecificReplicaOfKernel(kernelId string, replicaId int32) *Con
 	})
 
 	return targetContainer
-}
-
-func (h *Host) SetIdx(idx int) {
-	h.idx = idx
 }
 
 func (h *Host) String() string {

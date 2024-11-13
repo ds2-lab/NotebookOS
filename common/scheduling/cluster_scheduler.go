@@ -10,6 +10,13 @@ import (
 	"time"
 )
 
+const (
+	SchedulerPoolTypeUndersubscribed SchedulerPoolType = 1
+	SchedulerPoolTypeOversubscribed  SchedulerPoolType = 2
+)
+
+type SchedulerPoolType int
+
 // ErrorDuringScheduling is a custom error for when the scheduling of a new kernel fails.
 type ErrorDuringScheduling struct {
 	// UnderlyingError is the underlying error.
@@ -46,22 +53,22 @@ type ClusterScheduler interface {
 
 	// MigrateContainer tries to migrate the given Container from the given host.
 	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
-	MigrateContainer(*Container, *Host, bool) (bool, error)
+	MigrateContainer(*Container, *Host, bool) error
 
 	// UpdateRatio updates the Cluster's subscription ratio.
 	// UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
 	UpdateRatio(skipValidateCapacity bool) bool
 
-	// AddNode adds a new node to the kubernetes Cluster.
+	// AddHost adds a new Host to the Cluster.
 	// We simulate this using node taints.
-	AddNode() error
+	AddHost() error
 
 	// Placer returns the Placer used by the Cluster.
 	Placer() Placer
 
-	// RemoveNode removes a new from the kubernetes Cluster.
+	// RemoveHost removes a Host from the Cluster.
 	// We simulate this using node taints.
-	RemoveNode(hostId string) error
+	RemoveHost(hostId string) error
 
 	// MinimumCapacity Returns the minimum number of nodes we must have available at any time.
 	MinimumCapacity() int32
@@ -86,7 +93,7 @@ type ClusterScheduler interface {
 	RemoteSynchronizationInterval() time.Duration
 
 	// RefreshAll refreshes all metrics maintained/cached/required by the Cluster Scheduler,
-	// including the list of current kubernetes nodes, actual and virtual GPU usage information, etc.
+	// including the list of current Host instances, actual and virtual GPU usage information, etc.
 	//
 	// Return a slice of any errors that occurred. If an error occurs while refreshing a particular piece of information,
 	// then the error is recorded, and the refresh proceeds, attempting all refreshes (even if an error occurs during one refresh).

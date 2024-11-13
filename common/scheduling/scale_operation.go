@@ -263,10 +263,6 @@ func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, 
 				ErrInvalidTargetScale, len(targetHosts), initialScale, targetScale, expectedNumAffectedNodes).Error())
 	}
 
-	if cluster == nil {
-		log.Fatalf("Cannot create new ScaleOperation when Cluster is nil...")
-	}
-
 	scaleOperation := &ScaleOperation{
 		OperationId:              operationId,
 		NotificationChan:         make(chan struct{}, 1),

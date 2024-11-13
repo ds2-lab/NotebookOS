@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc/connectivity"
 	"net"
 	"strings"
@@ -98,7 +97,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	return host, nil
 }
 
-func (s *DockerScheduler) MigrateContainer(container *Container, host *Host, b bool) (bool, error) {
+func (s *DockerScheduler) MigrateContainer(container *Container, host *Host, b bool) error {
 	//TODO implement me
 	panic("implement me")
 }
@@ -151,7 +150,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 //
 // scheduleKernelReplicas returns a <-chan interface{} used to notify the caller when the scheduling operations
 // have completed.
-func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*Host, unlockedHosts hashmap.HashMap[string, *Host], blacklistedHosts []*Host) <-chan *schedulingNotification {
+func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*Host, blacklistedHosts []*Host) <-chan *schedulingNotification {
 	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
 	// or errors that occurred when launching a replica.
 	resultChan := make(chan *schedulingNotification, 3)
@@ -217,11 +216,8 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 		return candidateError
 	}
 
-	// Keep track of the hosts that we've unlocked so that we don't unlock them multiple times.
-	unlockedHosts := hashmap.NewCornelkMap[string, *Host](len(hosts))
-
 	// Schedule a replica of the kernel on each of the candidate hosts.
-	resultChan := s.scheduleKernelReplicas(in, hosts, unlockedHosts, blacklistedHosts)
+	resultChan := s.scheduleKernelReplicas(in, hosts, blacklistedHosts)
 
 	// Keep looping until we've received all responses or the context times-out.
 	responsesReceived := make([]*schedulingNotification, 0, len(hosts))

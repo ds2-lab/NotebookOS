@@ -647,7 +647,7 @@ class LogNode(go.GoClass):
 		"""
 		_smr.smr_LogNode_Propose(self.handle, val.handle, resolve, msg, goRun)
 	def AddNode(self, id, addr, resolve, goRun=False):
-		"""AddNode(int id, str addr, callable resolve) """
+		"""AddHost(int id, str addr, callable resolve) """
 		_smr.smr_LogNode_AddNode(self.handle, id, addr, resolve, goRun)
 	def RemoveNode(self, id, resolve, goRun=False):
 		"""RemoveNode(int id, callable resolve) """
