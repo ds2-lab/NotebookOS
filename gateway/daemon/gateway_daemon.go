@@ -301,6 +301,8 @@ type ClusterGatewayImpl struct {
 	// If more than this many Local Daemons connect during the 'initial connection period',
 	// then the extra nodes will be disabled until a scale-out event occurs.
 	//
+	// Specifying this as a negative number will disable this feature (so any number of hosts can connect).
+	//
 	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
 	initialClusterSize int
 
@@ -535,14 +537,24 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())
 	}
 
-	clusterGateway.inInitialConnectionPeriod.Store(true)
-	go func() {
-		clusterGateway.log.Debug("Initial Connection Period will end in %v.", clusterGateway.initialConnectionPeriod)
-		time.Sleep(clusterGateway.initialConnectionPeriod)
-		clusterGateway.inInitialConnectionPeriod.Store(false)
-		clusterGateway.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
-			clusterGateway.initialConnectionPeriod, clusterGateway.cluster.Len())
-	}()
+	// If initialClusterSize is specified as a negative number, then the feature is disabled, so we only bother
+	// setting inInitialConnectionPeriod to true and creating a goroutine to eventually set inInitialConnectionPeriod
+	// to false if the feature is enabled in the first place.
+	if clusterGateway.initialClusterSize >= 0 {
+		clusterGateway.inInitialConnectionPeriod.Store(true)
+
+		go func() {
+			clusterGateway.log.Debug("Initial Connection Period will end in %v.", clusterGateway.initialConnectionPeriod)
+			time.Sleep(clusterGateway.initialConnectionPeriod)
+			clusterGateway.inInitialConnectionPeriod.Store(false)
+			clusterGateway.log.Debug("Initial Connection Period has ended after %v. Cluster size: %d.",
+				clusterGateway.initialConnectionPeriod, clusterGateway.cluster.Len())
+		}()
+	} else {
+		clusterGateway.log.Debug("Initial Cluster Size specified as negative number (%d). "+
+			"Disabling 'initial connection period' feature.", clusterGateway.initialClusterSize)
+		clusterGateway.inInitialConnectionPeriod.Store(false) // It defaults to false, so this is unnecessary.
+	}
 
 	return clusterGateway
 }
