@@ -26,7 +26,7 @@ type DockerComposeCluster struct {
 // NewDockerComposeCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
-func NewDockerComposeCluster(hostSpec types.Spec, hostMapper HostMapper,
+func NewDockerComposeCluster(hostSpec types.Spec, hostMapper HostMapper, kernelProvider KernelProvider,
 	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *DockerComposeCluster {
 
 	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerComposeCluster")
@@ -43,7 +43,7 @@ func NewDockerComposeCluster(hostSpec types.Spec, hostMapper HostMapper,
 	}
 	dockerCluster.placer = placer
 
-	scheduler, err := NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, opts)
+	scheduler, err := NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Docker Compose Scheduler: %v", err)
 		panic(err)

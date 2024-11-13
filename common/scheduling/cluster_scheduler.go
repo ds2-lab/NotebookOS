@@ -51,13 +51,16 @@ type ClusterScheduler interface {
 	// need to start immediately after replica started, e.g., preempting a training task.
 	//MigrateKernelReplica(ctx context.Context, in *proto.KernelId, opts ...grpc.CallOption) (*proto.ReplicaID, error)
 
-	// MigrateContainer tries to migrate the given Container from the given host.
+	// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
 	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
-	MigrateContainer(*Container, *Host, bool) error
+	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) error
 
 	// UpdateRatio updates the Cluster's subscription ratio.
 	// UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
 	UpdateRatio(skipValidateCapacity bool) bool
+
+	// RemoveReplicaFromHost removes the specified replica from its Host.
+	RemoveReplicaFromHost(kernelReplica KernelReplica) error
 
 	// AddHost adds a new Host to the Cluster.
 	// We simulate this using node taints.

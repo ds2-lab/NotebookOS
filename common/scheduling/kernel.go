@@ -11,6 +11,10 @@ import (
 // KernelMessageHandler is an API defines the interface of messages that a JupyterRouter can intercept and handle.
 type KernelMessageHandler func(KernelInfo, jupyter.MessageType, *jupyter.JupyterMessage) error
 
+// ReplicaRemover is a function that removes a replica from a kernel.
+// If noop is specified, it is the caller's responsibility to stop the replica.
+type ReplicaRemover func(host *Host, session *Session, noop bool) error
+
 type KernelReplicaMessageHandler func(KernelReplicaInfo, jupyter.MessageType, *jupyter.JupyterMessage) error
 
 type KernelInfo interface {
@@ -47,6 +51,9 @@ type Kernel interface {
 	//  entity.Container.IsRescheduled()
 	Status() jupyter.KernelStatus
 
+	// IsTraining returns true if the Kernel is currently training.
+	IsTraining() bool
+
 	// Validate validates the kernel connections.
 	// Including simulator features:
 	// 	entity.Container.Start(), Start() will be implemented outside kernel abstraction. Validate() ensures the kernel is started.
@@ -75,8 +82,28 @@ type Kernel interface {
 	// KernelStoppedTraining should be called when the kernel associated with this client stops actively training.
 	KernelStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
 
-	// SessionStartedTraining should be called when the kernel associated with this client begins actively training.
-	// TrainingStartedInContainer(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
+	// GetHost returns the Host on which the replica is hosted.
+	GetHost() *Host
+
+	// SetHost sets the Host of the kernel.
+	SetHost(*Host)
+
+	// Container returns the Container associated with the KernelReplica.
+	Container() *Container
+
+	// SetContainer sets/updates the Container associated with the KernelReplica.
+	SetContainer(*Container)
+
+	// RemoveReplicaByID removes a kernel peer from the kernel by replica ID.
+	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (*Host, error)
+
+	AddOperationStarted()
+	AddOperationCompleted()
+
+	// PrepareNewReplica determines the replica ID for the new replica and returns the KernelReplicaSpec required to start the replica.
+	//
+	// Pass -1 for smrNodeId to automatically select the next node ID.
+	PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec
 }
 
 // KernelReplica defines the interface for a jupyter kernel replica.
@@ -102,16 +129,4 @@ type KernelReplica interface {
 	// SetReady designates the replica as ready.
 	// Only used by the Cluster Gateway, not by the Local Daemon.
 	SetReady()
-
-	// GetHost returns the Host on which the replica is hosted.
-	GetHost() *Host
-
-	// SetHost sets the Host of the kernel.
-	SetHost(*Host)
-
-	// Container returns the Container associated with the KernelReplica.
-	Container() *Container
-
-	// SetContainer sets/updates the Container associated with the KernelReplica.
-	SetContainer(*Container)
 }

@@ -1756,7 +1756,7 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 	return proto.VOID, nil
 }
 
-// smrNodeAddedCallback is a callback passed to the KernelReplicaClient of a kernel such that, when the kernel
+// smrNodeAddedCallback is a callback passed to the Kernel of a kernel such that, when the kernel
 // client receives a "smr_node_added" IOPub message, it will call the smrNodeAddedCallback method so that
 // the Local Daemon can notify the Cluster Gateway.
 //
@@ -2559,7 +2559,7 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *jupyter.JupyterMessage, k
 		// We should only call KernelStoppedTraining if the replica was actively training.
 		// We can check this by inspecting the type of error encoded in the "execute_reply" message.
 		// If it's a jupyter.MessageErrYieldExecution error, then the replica was NOT training,
-		// and therefore we should not call KernelStoppedTraining on the associated KernelReplicaClient.
+		// and therefore we should not call KernelStoppedTraining on the associated Kernel.
 		shouldCallTrainingStopped = msgErr.ErrName != jupyter.MessageErrYieldExecution
 	} else {
 		// This should never happen. So, if it does, then we'll panic.
@@ -3107,7 +3107,7 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelRepl
 
 	// d.log.Debug("Forwarding %v response from %v via %s: %v", typ, from, socket.Name, msg)
 	// We should only use the router here if that's where the socket came from...
-	// err := sender.SendRequest(true, socket, "" /* will be auto-resolved */, msg, sender, from.(*client.KernelReplicaClient), -1 /* will be auto-resolved */)
+	// err := sender.SendRequest(true, socket, "" /* will be auto-resolved */, msg, sender, from.(*client.Kernel), -1 /* will be auto-resolved */)
 	// err := socket.Send(*msg)
 	err = sender.SendRequest(request, socket)
 	if err != nil {

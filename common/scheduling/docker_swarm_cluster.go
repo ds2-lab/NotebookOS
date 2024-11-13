@@ -26,7 +26,7 @@ type DockerSwarmCluster struct {
 //
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally by the
 // DockerSwarmCluster for scheduling decisions.
-func NewDockerSwarmCluster(hostSpec types.Spec, hostMapper HostMapper,
+func NewDockerSwarmCluster(hostSpec types.Spec, hostMapper HostMapper, kernelProvider KernelProvider,
 	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *DockerSwarmCluster {
 
 	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerSwarmCluster")
@@ -42,7 +42,7 @@ func NewDockerSwarmCluster(hostSpec types.Spec, hostMapper HostMapper,
 	}
 	dockerCluster.placer = placer
 
-	scheduler, err := NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, opts)
+	scheduler, err := NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Docker Swarm Cluster Scheduler: %v", err)
 		panic(err)

@@ -76,7 +76,7 @@ type ActiveExecution struct {
 	originallySentAt        time.Time
 	originallySentAtDecoded bool
 
-	// activeReplica is the KernelReplicaClient connected to the replica of the kernel that is actually
+	// activeReplica is the Kernel connected to the replica of the kernel that is actually
 	// executing the user-submitted code.
 	ActiveReplica KernelReplica
 

@@ -12,4 +12,5 @@ var (
 	ErrInvalidSocketType                 = status.Error(codes.Internal, "invalid socket type specified")
 	ErrIncompatibleDeploymentMode        = status.Error(codes.FailedPrecondition, "current deployment mode is incompatible with the requested action")
 	ErrRequestTimedOut                   = status.Error(codes.Unavailable, "request timed out")
+	ErrKernelNotFound                    = status.Error(codes.InvalidArgument, "kernel not found")
 )

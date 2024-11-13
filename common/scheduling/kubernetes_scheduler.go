@@ -24,10 +24,10 @@ type KubernetesScheduler struct {
 	kubeClient KubeClient // Kubernetes client.
 }
 
-func NewKubernetesScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec,
+func NewKubernetesScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, kernelProvider KernelProvider, hostSpec types.Spec,
 	kubeClient KubeClient, opts *ClusterSchedulerOptions) (*KubernetesScheduler, error) {
 
-	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, opts)
+	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider, opts)
 
 	kubernetesScheduler := &KubernetesScheduler{
 		BaseScheduler:            baseScheduler,
@@ -43,6 +43,10 @@ func NewKubernetesScheduler(cluster ClusterInternal, placer Placer, hostMapper H
 	}
 
 	return kubernetesScheduler, nil
+}
+
+func (s *KubernetesScheduler) RemoveReplicaFromHost(_ KernelReplica) error {
+	panic("Not implemented")
 }
 
 func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpec, _ *Host, _ []*Host) error {

@@ -54,10 +54,6 @@ type ExecutionLatencyCallback func(latency time.Duration, workloadId string, ker
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
 type ExecutionFailedCallback func(c AbstractDistributedKernelClient) error
 
-// ReplicaRemover is a function that removes a replica from a kernel.
-// If noop is specified, it is the caller's responsibility to stop the replica.
-type ReplicaRemover func(host *scheduling.Host, session *scheduling.Session, noop bool) error
-
 // ReplicaKernelInfo offers hybrid information that reflects the replica source of messages.
 type ReplicaKernelInfo struct {
 	scheduling.KernelInfo
@@ -635,7 +631,7 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host *s
 }
 
 // RemoveReplica removes a kernel peer from the kernel.
-func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remover ReplicaRemover, noop bool) (*scheduling.Host, error) {
+func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (*scheduling.Host, error) {
 	host, err := c.stopReplicaLocked(r, remover, noop)
 	if err != nil {
 		return host, err
@@ -651,8 +647,8 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 		return host, scheduling.ErrReplicaNotFound
 	}
 
-	if r.(*KernelReplicaClient).IsTraining() {
-		err := r.(*KernelReplicaClient).KernelStoppedTraining(nil)
+	if r.IsTraining() {
+		err := r.KernelStoppedTraining(nil)
 		if err != nil {
 			c.log.Error("Error whilst stopping training on replica %d (during removal process): %v",
 				r.ReplicaID(), err)

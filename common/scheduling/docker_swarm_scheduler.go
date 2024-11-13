@@ -18,6 +18,12 @@ const (
 	DockerKernelDebugPortDefault int32 = 32000
 )
 
+var (
+	ErrNilKernelReplica = errors.New("specified KernelReplica is nil")
+	ErrNilContainer     = errors.New("specified kernel has a nil container")
+	ErrNilOriginalHost  = errors.New("current host of container is nil")
+)
+
 type DockerScheduler struct {
 	*BaseScheduler
 
@@ -38,8 +44,8 @@ func checkIfPortIsAvailable(port int32) bool {
 	return true    // Port is available
 }
 
-func NewDockerScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, opts *ClusterSchedulerOptions) (*DockerScheduler, error) {
-	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, opts)
+func NewDockerScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *ClusterSchedulerOptions) (*DockerScheduler, error) {
+	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider, opts)
 
 	dockerScheduler := &DockerScheduler{
 		BaseScheduler: baseScheduler,
@@ -97,9 +103,94 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	return host, nil
 }
 
-func (s *DockerScheduler) MigrateContainer(container *Container, host *Host, b bool) error {
-	//TODO implement me
-	panic("implement me")
+// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
+// Flag indicates whether we're allowed to create a new host for the container (if necessary).
+func (s *DockerScheduler) MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) error {
+	if kernelReplica == nil {
+		s.log.Error("MigrateContainer received nil KernelReplica")
+		return ErrNilKernelReplica
+	}
+
+	container := kernelReplica.Container()
+	if container == nil {
+		s.log.Error("Cannot migrate replica %d of kernel %s; kernel's container is nil",
+			kernelReplica.ReplicaID(), kernelReplica.ID())
+		return ErrNilContainer
+	}
+
+	originalHost := container.Host()
+	if originalHost == nil {
+		s.log.Error("Cannot migrate container %s. Container's host is nil.", container.ContainerID())
+		return ErrNilOriginalHost
+	}
+
+	var (
+		targetHost *Host
+		loaded     bool
+	)
+
+	// If the caller specified a particular host, then we'll verify that the specified host exists.
+	// If it doesn't, then we'll return an error.
+	if targetHostId != "" {
+		targetHost, loaded = s.cluster.GetHost(targetHostId)
+
+		if !loaded {
+			s.log.Error("Host %s specified as migration target for replica %d of kernel %s; however, host %s does not exist.",
+				targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId)
+			return fmt.Errorf("%w: cannot find specified target host %s for migration of replica %d of kernel %s",
+				ErrHostNotFound, targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID())
+		}
+
+		// Make sure that the Host doesn't already have the kernel replica to be migrated or another
+		// replica of the same kernel running on it. If so, then the target host is not viable.
+		//
+		// Likewise, if the host does not have enough resources to serve the kernel replica,
+		// then it is not viable.
+		if err := s.isHostViableForMigration(targetHost, kernelReplica); err != nil {
+			return err
+		}
+	}
+
+	dataDirectory, err := s.issuePrepareToMigrateRequest(kernelReplica, originalHost)
+	if err != nil {
+		s.log.Error("Failed to issue 'prepare-to-migrate' request to replica %d of kernel %s: %v",
+			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+		return err
+	}
+
+	err = s.RemoveReplicaFromHost(kernelReplica)
+	if err != nil {
+		s.log.Error("Failed to remove replica %d of kernel %s from its current host: %v",
+			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+		return err
+	}
+
+	return nil
+}
+
+// RemoveReplicaFromHost removes the specified replica from its Host.
+func (s *DockerScheduler) RemoveReplicaFromHost(kernelReplica KernelReplica) error {
+	if kernelReplica == nil {
+		return ErrNilKernelReplica
+	}
+
+	// First, stop the kernel on the replica we'd like to remove.
+	_, err := kernelReplica.RemoveReplicaByID(kernelReplica.ReplicaID(), s.cluster.Placer().Reclaim, false)
+	if err != nil {
+		s.log.Error("Error while stopping replica %d of kernel %s: %v",
+			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+		return err
+	}
+
+	if err = kernelReplica.Container().Session().RemoveReplicaById(kernelReplica.ReplicaID()); err != nil {
+		s.log.Error("Failed to remove replica %d from session \"%s\" because: %v",
+			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+		return err
+	}
+
+	s.log.Debug("Successfully removed replica %d of kernel %s.", kernelReplica.ReplicaID(), kernelReplica.ID())
+
+	return nil
 }
 
 // ScheduleKernelReplica schedules a particular replica onto the given Host.

@@ -44,9 +44,9 @@ type AbstractDistributedKernelClient interface {
 	PodOrContainerName(id int32) (string, error)
 	PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec
 	AddReplica(r scheduling.KernelReplica, host *scheduling.Host) error
-	RemoveReplica(r scheduling.KernelReplica, remover ReplicaRemover, noop bool) (*scheduling.Host, error)
+	RemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (*scheduling.Host, error)
 	GetReplicaByID(id int32) (scheduling.KernelReplica, error)
-	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (*scheduling.Host, error)
+	RemoveReplicaByID(id int32, remover scheduling.ReplicaRemover, noop bool) (*scheduling.Host, error)
 	Validate() error
 	InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*jupyterTypes.Socket, error)
 	InitializeIOForwarder() (*jupyterTypes.Socket, error)
@@ -57,7 +57,7 @@ type AbstractDistributedKernelClient interface {
 	IsReplicaReady(replicaId int32) (bool, error)
 	RequestWithHandler(ctx context.Context, _ string, typ jupyterTypes.MessageType, msg *jupyterTypes.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error
 	RequestWithHandlerAndReplicas(ctx context.Context, typ jupyterTypes.MessageType, jMsg *jupyterTypes.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error
-	Shutdown(remover ReplicaRemover, restart bool) error
+	Shutdown(remover scheduling.ReplicaRemover, restart bool) error
 	Close() error
 	WaitClosed() jupyterTypes.KernelStatus
 

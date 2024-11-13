@@ -76,7 +76,6 @@ var (
 
 	// Internal errors
 
-	ErrKernelNotFound          = status.Error(codes.InvalidArgument, "kernel not found")
 	ErrKernelNotReady          = status.Error(codes.Unavailable, "kernel not ready")
 	ErrActiveExecutionNotFound = status.Error(codes.InvalidArgument, "active execution for specified kernel could not be found")
 	ErrKernelSpecNotFound      = status.Error(codes.InvalidArgument, "kernel spec not found")
@@ -232,17 +231,17 @@ type ClusterGatewayImpl struct {
 	kernelRegisteredNotifications *hashmap.CornelkMap[string, *proto.KernelRegistrationNotification]
 
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
-	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]]
+	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]]
 
 	// Mapping from new kernel-replica key (i.e., <kernel-id>-<replica-id>) to AddReplicaOperation.
-	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, *AddReplicaOperation]
+	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, *scheduling.AddReplicaOperation]
 
 	// Mapping from NewPodName to chan string.
 	// In theory, it's possible to receive a PodCreated notification from Kubernetes AFTER the replica within the new Pod
 	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
 	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
 	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
-	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *AddReplicaOperation]
+	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *scheduling.AddReplicaOperation]
 
 	// Used to wait for an explicit notification that a particular node was successfully removed from its SMR cluster.
 	// smrNodeRemovedNotifications *hashmap.CornelkMap[string, chan struct{}]
@@ -337,10 +336,10 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		kernelRegisteredNotifications:            hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](128),
 		cleaned:                                  make(chan struct{}),
 		smrPort:                                  clusterDaemonOptions.SMRPort,
-		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]](64),
-		addReplicaOperationsByKernelReplicaId:    hashmap.NewCornelkMap[string, *AddReplicaOperation](64),
+		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]](64),
+		addReplicaOperationsByKernelReplicaId:    hashmap.NewCornelkMap[string, *scheduling.AddReplicaOperation](64),
 		kernelsStarting:                          hashmap.NewCornelkMap[string, chan struct{}](64),
-		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *AddReplicaOperation](64),
+		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *scheduling.AddReplicaOperation](64),
 		hdfsNameNodeEndpoint:                     clusterDaemonOptions.HdfsNameNodeEndpoint,
 		dockerNetworkName:                        clusterDaemonOptions.DockerNetworkName,
 		numResendAttempts:                        clusterDaemonOptions.NumResendAttempts,
@@ -488,7 +487,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.containerEventHandler = dockerEventHandler
 
 			clusterGateway.cluster = scheduling.NewDockerComposeCluster(clusterGateway.hostSpec, clusterGateway,
-				clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+				clusterGateway, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 			break
 		}
 	case "docker-swarm":
@@ -503,7 +502,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			clusterGateway.dockerApiClient = apiClient
 
-			clusterGateway.cluster = scheduling.NewDockerSwarmCluster(clusterGateway.hostSpec, clusterGateway,
+			clusterGateway.cluster = scheduling.NewDockerSwarmCluster(clusterGateway.hostSpec, clusterGateway, clusterGateway,
 				clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 
 			break
@@ -591,7 +590,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 			Id:            kernelId,
 			Success:       false,
 			RequestTraces: nil,
-		}, ErrKernelNotFound
+		}, types.ErrKernelNotFound
 	}
 
 	var (
@@ -780,7 +779,7 @@ func (d *ClusterGatewayImpl) publishPrometheusMetrics() {
 func (d *ClusterGatewayImpl) GetHostsOfKernel(kernelId string) ([]*scheduling.Host, error) {
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
-		return nil, ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	hosts := make([]*scheduling.Host, 0, len(kernel.Replicas()))
@@ -1025,7 +1024,7 @@ func (d *ClusterGatewayImpl) issuePrepareMigrateRequest(kernelId string, nodeId 
 	var dataDirectory = resp.DataDir
 	d.log.Debug("Successfully issued 'prepare-to-migrate' request to replica %d of kernel %s. Data directory: \"%s\"", nodeId, kernelId, dataDirectory)
 
-	time.Sleep(time.Second * 5)
+	// time.Sleep(time.Second * 5)
 
 	return dataDirectory
 }
@@ -1721,7 +1720,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// Create the new Container.
 	container := scheduling.NewContainer(session, replica, host, in.KernelIp)
 
-	// Assign the Container to the KernelReplicaClient.
+	// Assign the Container to the Kernel.
 	replica.SetContainer(container)
 
 	// Add the Container to the Host.
@@ -1751,7 +1750,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	d.log.Debug("Adding replica for kernel %s, replica %d on host %s. Resource spec: %v", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.ID, replicaSpec.Kernel.ResourceSpec)
 	err = kernel.AddReplica(replica, host)
 	if err != nil {
-		panic(fmt.Sprintf("KernelReplicaClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		panic(fmt.Sprintf("Kernel::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
 	// d.log.Debug("Adding replica %d of kernel %s to waitGroup of %d other replicas.", replicaSpec.ReplicaID, in.KernelId, waitGroup.NumReplicas())
@@ -1944,7 +1943,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	// Create the new Container.
 	container := scheduling.NewContainer(session, replica, host, in.KernelIp)
 
-	// Assign the Container to the KernelReplicaClient.
+	// Assign the Container to the Kernel.
 	replica.SetContainer(container)
 
 	// Add the Container to the Host.
@@ -1961,11 +1960,11 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		panic(err)
 	}
 
-	d.log.Debug("Validating new KernelReplicaClient for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
+	d.log.Debug("Validating new Kernel for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	if val := ctx.Value(SkipValidationKey); val == nil {
 		err := replica.Validate()
 		if err != nil {
-			panic(fmt.Sprintf("KernelReplicaClient::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
+			panic(fmt.Sprintf("Kernel::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
 		}
 	} else {
 		d.log.Warn("Skipping validation and establishment of actual network connections with newly-registered replica %d of kernel %s.",
@@ -1975,7 +1974,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	d.log.Debug("Adding Replica for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	err := kernel.AddReplica(replica, host)
 	if err != nil {
-		panic(fmt.Sprintf("KernelReplicaClient::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
+		panic(fmt.Sprintf("Kernel::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
 	// The replica is fully operational at this point, so record that it is ready.
@@ -1985,7 +1984,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	waitGroup.SetReplica(replicaId, kernelIp)
 
 	waitGroup.Register()
-	d.log.Debug("Done registering KernelReplicaClient for kernel %s, replica %d on host %s. Resource spec: %v",
+	d.log.Debug("Done registering Kernel for kernel %s, replica %d on host %s. Resource spec: %v",
 		kernelId, replicaId, hostId, kernelSpec.ResourceSpec)
 	d.log.Debug("WaitGroup for Kernel \"%s\": %s", kernelId, waitGroup.String())
 	// Wait until all replicas have registered before continuing, as we need all of their IDs.
@@ -2147,6 +2146,10 @@ func (d *ClusterGatewayImpl) StartKernelReplica(_ context.Context, _ *proto.Kern
 	return nil, ErrNotSupported
 }
 
+func (d *ClusterGatewayImpl) GetKernel(kernelId string) (scheduling.Kernel, bool) {
+	return d.kernels.Load(kernelId)
+}
+
 // GetKernelStatus returns the status of a kernel.
 func (d *ClusterGatewayImpl) GetKernelStatus(_ context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
@@ -2178,7 +2181,7 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find Kernel %s; cannot stop kernel.", in.GetId())
-		return nil, ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	restart := false
@@ -2438,7 +2441,7 @@ func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo, ta
 		if !loaded {
 			d.log.Error("Cannot find client for kernel %s during migration of one of kernel %s's replicas...",
 				in.KernelId, in.KernelId)
-			return nil, ErrKernelNotFound
+			return nil, types.ErrKernelNotFound
 		}
 
 		if !host.ResourceSpec().Validate(kernel.ResourceSpec()) {
@@ -2456,14 +2459,14 @@ func (d *ClusterGatewayImpl) migrateReplicaRemoveFirst(in *proto.ReplicaInfo, ta
 	d.log.Debug("Done removing replica %d of kernel %s.", in.ReplicaId, in.KernelId)
 
 	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
-	opts := NewAddReplicaWaitOptions(true, true, true)
+	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
 	addReplicaOp, err := d.addReplica(in, opts, dataDirectory, []*scheduling.Host{oldHost})
 	if err != nil {
 		d.log.Error("Failed to add new replica %d to kernel %s: %v", in.ReplicaId, in.KernelId, err)
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
 	}
 
-	replica, err := addReplicaOp.KernelReplicaClient().GetReplicaByID(addReplicaOp.ReplicaId())
+	replica, err := addReplicaOp.Kernel().GetReplicaByID(addReplicaOp.ReplicaId())
 	if err != nil {
 		d.log.Error("Could not find replica %d for kernel %s after migration is supposed to have completed: %v", addReplicaOp.ReplicaId(), in.KernelId, err)
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
@@ -2516,14 +2519,22 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 	if err != nil {
 		d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed after %v because: %s",
 			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration, err.Error())
-		d.gatewayPrometheusManager.NumFailedMigrations.Inc()
+
+		if d.gatewayPrometheusManager != nil {
+			d.gatewayPrometheusManager.NumFailedMigrations.Inc()
+		}
 	} else {
 		d.log.Debug("Migration operation of replica %d of kernel %s to target node %s completed successfully after %v.",
 			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration)
-		d.gatewayPrometheusManager.NumSuccessfulMigrations.Inc()
+
+		if d.gatewayPrometheusManager != nil {
+			d.gatewayPrometheusManager.NumSuccessfulMigrations.Inc()
+		}
 	}
 
-	d.gatewayPrometheusManager.KernelMigrationLatencyHistogram.Observe(float64(duration.Milliseconds()))
+	if d.gatewayPrometheusManager != nil {
+		d.gatewayPrometheusManager.KernelMigrationLatencyHistogram.Observe(float64(duration.Milliseconds()))
+	}
 
 	// If there was an error, then err will be non-nil.
 	// If there was no error, then err will be nil.
@@ -2592,7 +2603,7 @@ func (d *ClusterGatewayImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.Ju
 			// Spawn a separate goroutine to send an error notification to the dashboard.
 			go d.notifyDashboardOfError(errorMessage, errorMessage)
 
-			return ErrKernelNotFound
+			return types.ErrKernelNotFound
 		}
 
 		// Stop the kernel. If we get an error, print it here, and then we'll return it.
@@ -2630,9 +2641,9 @@ func (d *ClusterGatewayImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.Ju
 
 	// When a kernel is first created/being nudged, Jupyter Server will send both a Shell and Control request.
 	// The Control request will just have a Session, and the mapping between the Session and the Kernel will not
-	// be established until the Shell message is processed. So, if we see a ErrKernelNotFound error here, we will
+	// be established until the Shell message is processed. So, if we see a types.ErrKernelNotFound error here, we will
 	// simply retry it after some time has passed, as the requests are often received very close together.
-	if errors.Is(err, ErrKernelNotFound) {
+	if errors.Is(err, types.ErrKernelNotFound) {
 		time.Sleep(time.Millisecond * 750)
 
 		// We won't re-try more than once.
@@ -2658,7 +2669,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 		if !ok {
 			d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v",
 				msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
-			return ErrKernelNotFound
+			return types.ErrKernelNotFound
 		}
 
 		kernel.BindSession(msg.JupyterSession())
@@ -2673,7 +2684,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jupy
 			debug.PrintStack()
 		}
 
-		return ErrKernelNotFound
+		return types.ErrKernelNotFound
 	}
 
 	connInfo := kernel.ConnectionInfo()
@@ -2718,7 +2729,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 	if !loaded {
 		d.log.Error("Failed to load DistributedKernelClient %s while processing \"execute_reply\" message...", kernelId)
 		go d.notifyDashboardOfError("Failed to Load Distributed Kernel Client", fmt.Sprintf("Failed to load DistributedKernelClient %s while processing \"execute_reply\" message...", kernelId))
-		return ErrKernelNotFound
+		return types.ErrKernelNotFound
 	}
 
 	activeExecution := kernel.ActiveExecution()
@@ -2852,7 +2863,7 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 	// Ensure that the kernel exists.
 	if kernel, loaded = d.kernels.Load(in.Id); !loaded {
 		d.log.Error("Could not find kernel %s specified in 'FailNextExecution' request...", in.Id)
-		return proto.VOID, ErrKernelNotFound
+		return proto.VOID, types.ErrKernelNotFound
 	}
 
 	for _, replica := range kernel.Replicas() {
@@ -2884,7 +2895,7 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 //
 // This looks for the most-recently-added AddReplicaOperation associated with the specified replica of the specified kernel.
 // If `mustBeActive` is true, then we skip any AddReplicaOperation structs that have already been marked as completed.
-func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (*AddReplicaOperation, bool) {
+func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (*scheduling.AddReplicaOperation, bool) {
 	d.addReplicaMutex.Lock()
 	defer d.addReplicaMutex.Unlock()
 
@@ -2899,7 +2910,7 @@ func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 	d.log.Debug("Number of AddReplicaOperation struct(s) associated with kernel \"%s\": %d",
 		kernelId, activeOps.Len())
 
-	var op *AddReplicaOperation
+	var op *scheduling.AddReplicaOperation
 	// Iterate from newest to oldest, which entails beginning at the back.
 	// We want to return the newest AddReplicaOperation that matches the replica ID for this kernel.
 	for el := activeOps.Back(); el != nil; el = el.Prev() {
@@ -2940,14 +2951,14 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *jupyter.JupyterMessage) (
 		// If we didn't, then we'll return an error.
 		if len(kernelKey) == 0 {
 			d.log.Error("Jupyter Session ID is invalid for message: %s", msg.String())
-			return nil, msg.JupyterMessageType(), fmt.Errorf("%w: message did not contain a destination ID, and session ID was invalid (i.e., the empty string)", ErrKernelNotFound)
+			return nil, msg.JupyterMessageType(), fmt.Errorf("%w: message did not contain a destination ID, and session ID was invalid (i.e., the empty string)", types.ErrKernelNotFound)
 		}
 	}
 
 	kernel, ok := d.kernels.Load(kernelKey) // kernelId)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", kernelKey)
-		return nil, messageType, ErrKernelNotFound
+		return nil, messageType, types.ErrKernelNotFound
 	}
 
 	if kernel.Status() != jupyter.KernelStatusRunning {
@@ -3123,7 +3134,7 @@ func (d *ClusterGatewayImpl) cleanUp() {
 	close(d.cleaned)
 }
 
-// Add a new replica to a particular distributed kernel.
+// addReplica adds a new replica to a particular distributed kernel.
 // This is only used for adding new replicas beyond the base set of replicas created
 // when the CloneSet is first created. The first 3 (or however many there are configured
 // to be) replicas are created automatically by the CloneSet.
@@ -3132,14 +3143,14 @@ func (d *ClusterGatewayImpl) cleanUp() {
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in HDFS.
-func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []*scheduling.Host) (*AddReplicaOperation, error) {
+func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []*scheduling.Host) (*scheduling.AddReplicaOperation, error) {
 	var kernelId = in.KernelId
 	var persistentId = in.PersistentId
 
 	kernel, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Cannot add replica %d to kernel %s: cannot find kernel %s", in.ReplicaId, kernelId, kernelId)
-		return nil, d.errorf(ErrKernelNotFound)
+		return nil, d.errorf(types.ErrKernelNotFound)
 	}
 
 	kernel.AddOperationStarted()
@@ -3154,7 +3165,7 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	// The spec to be used for the new replica that is created during the migration.
 	var newReplicaSpec = kernel.PrepareNewReplica(persistentId, smrNodeId)
 
-	addReplicaOp := NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
+	addReplicaOp := scheduling.NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
 	key := fmt.Sprintf("%s-%d", addReplicaOp.KernelId(), addReplicaOp.ReplicaId())
 	d.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
 
@@ -3166,7 +3177,7 @@ func (d *ClusterGatewayImpl) addReplica(in *proto.ReplicaInfo, opts domain.AddRe
 	d.addReplicaMutex.Lock()
 	ops, ok := d.activeAddReplicaOpsPerKernel.Load(kernelId)
 	if !ok {
-		ops = orderedmap.NewOrderedMap[string, *AddReplicaOperation]()
+		ops = orderedmap.NewOrderedMap[string, *scheduling.AddReplicaOperation]()
 	}
 	ops.Set(addReplicaOp.OperationID(), addReplicaOp)
 	d.activeAddReplicaOpsPerKernel.Store(kernelId, ops)
@@ -3281,7 +3292,7 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) (*s
 	kernelClient, ok := d.kernels.Load(kernelId)
 	if !ok {
 		d.log.Error("Could not find kernel client for kernel %s.", kernelId)
-		return nil, ErrKernelNotFound
+		return nil, types.ErrKernelNotFound
 	}
 
 	replica, err := kernelClient.GetReplicaByID(smrNodeId)
@@ -3290,7 +3301,7 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) (*s
 		return nil, ErrKernelIDRequired
 	}
 
-	oldPodName := replica.GetPodOrContainerName()
+	oldPodOrContainerName := replica.GetPodOrContainerName()
 
 	session, loaded := d.cluster.GetSession(kernelId)
 	if !loaded {
@@ -3346,14 +3357,14 @@ func (d *ClusterGatewayImpl) removeReplica(smrNodeId int32, kernelId string) (*s
 		podStoppedChannel := make(chan struct{}, 1) // Buffered.
 
 		// Next, scale-in the CloneSet, taking care to ensure the correct Pod is deleted.
-		err = d.kubeClient.ScaleInCloneSet(kernelId, oldPodName, podStoppedChannel)
+		err = d.kubeClient.ScaleInCloneSet(kernelId, oldPodOrContainerName, podStoppedChannel)
 		if err != nil {
 			d.log.Error("Error while scaling-in CloneSet for kernel %s: %v", kernelId, err)
 			return nil, err
 		}
 
 		<-podStoppedChannel
-		d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodName)
+		d.log.Debug("Successfully scaled-in CloneSet by deleting Pod %s.", oldPodOrContainerName)
 	}
 
 	return oldHost, nil

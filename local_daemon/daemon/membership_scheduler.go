@@ -28,13 +28,13 @@ func (s *MembershipScheduler) OnTaskStart(kernel scheduling.Kernel, task *jupyte
 }
 
 // func (s *MembershipScheduler) triggerMigration(kernel scheduling.Kernel) error {
-// 	persistentId := kernel.(client.KernelReplicaClient).PersistentID()
-// 	s.log.Info("Triggering hard-coded migration of replica %d of kernel %s", kernel.(client.KernelReplicaClient).ReplicaID(), kernel.ID())
+// 	persistentId := kernel.(client.Kernel).PersistentID()
+// 	s.log.Info("Triggering hard-coded migration of replica %d of kernel %s", kernel.(client.Kernel).ReplicaID(), kernel.ID())
 
 // 	resp, err := s.daemon.Provisioner().MigrateKernelReplica(context.Background(), &gateway.MigrationRequest{
 // 		TargetReplica: &gateway.ReplicaInfo{
 // 			KernelId:     kernel.ID(),
-// 			ReplicaID:    kernel.(client.KernelReplicaClient).ReplicaID(),
+// 			ReplicaID:    kernel.(client.Kernel).ReplicaID(),
 // 			PersistentId: persistentId,
 // 		},
 // 	})

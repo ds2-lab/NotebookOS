@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/elliotchance/orderedmap/v2"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/container"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	"math"
 	"sync"
 	"time"
@@ -59,11 +61,16 @@ type schedulingNotification struct {
 	Error error
 }
 
+type KernelProvider interface {
+	GetKernel(kernelId string) (Kernel, bool)
+}
+
 type BaseScheduler struct {
-	instance   ClusterScheduler
-	cluster    ClusterInternal
-	hostMapper HostMapper
-	placer     Placer
+	instance       ClusterScheduler
+	cluster        ClusterInternal
+	hostMapper     HostMapper
+	placer         Placer
+	kernelProvider KernelProvider
 
 	candidateHostMutex sync.Mutex
 
@@ -103,7 +110,7 @@ type BaseScheduler struct {
 	log logger.Logger
 }
 
-func NewBaseScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, opts *ClusterSchedulerOptions) *BaseScheduler {
+func NewBaseScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *ClusterSchedulerOptions) *BaseScheduler {
 	clusterScheduler := &BaseScheduler{
 		cluster:                       cluster,
 		hostMapper:                    hostMapper,
@@ -127,6 +134,7 @@ func NewBaseScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMap
 		minimumCapacity:               int32(opts.MinimumNumNodes),
 		maxSubscribedRatio:            decimal.NewFromFloat(opts.MaxSubscribedRatio),
 		subscriptionRatio:             decimal.NewFromFloat(opts.MaxSubscribedRatio),
+		kernelProvider:                kernelProvider,
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
 
@@ -153,6 +161,10 @@ func NewBaseScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMap
 	}
 
 	return clusterScheduler
+}
+
+func (s *BaseScheduler) WithHostMapper(mapper HostMapper) {
+	s.hostMapper = mapper
 }
 
 func (s *BaseScheduler) SetHostSpec(spec types.Spec) {
@@ -312,6 +324,156 @@ func (s *BaseScheduler) RemoveHost(hostId string) error {
 	return nil
 }
 
+// RemoveReplicaFromHost removes the specified replica from its Host.
+func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica KernelReplica) error {
+	return s.instance.RemoveReplicaFromHost(kernelReplica)
+}
+
+// AddReplica adds a new replica to a particular distributed kernel.
+// This is only used for adding new replicas beyond the base set of replicas created
+// when the CloneSet is first created. The first 3 (or however many there are configured
+// to be) replicas are created automatically by the CloneSet.
+//
+// Parameters:
+// - kernelId (string): The ID of the kernel to which we're adding a new replica.
+// - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
+// - dataDirectory (string): Path to etcd-raft data directory in HDFS.
+func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []*Host) (*AddReplicaOperation, error) {
+	var kernelId = in.KernelId
+	var persistentId = in.PersistentId
+
+	kernel, ok := s.kernelProvider.GetKernel(kernelId)
+	if !ok {
+		s.log.Error("Cannot add replica %d to kernel %s: cannot find kernel %s", in.ReplicaId, kernelId, kernelId)
+		return nil, types.ErrKernelNotFound
+	}
+
+	kernel.AddOperationStarted()
+
+	var smrNodeId int32 = -1
+
+	// Reuse the same SMR node ID if we've been told to do so.
+	if opts.ReuseSameNodeId() {
+		smrNodeId = in.ReplicaId
+	}
+
+	// The spec to be used for the new replica that is created during the migration.
+	var newReplicaSpec = kernel.PrepareNewReplica(persistentId, smrNodeId)
+
+	addReplicaOp := NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
+	key := fmt.Sprintf("%s-%d", addReplicaOp.KernelId(), addReplicaOp.ReplicaId())
+	s.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
+
+	s.log.Debug("Created new AddReplicaOperation \"%s\": %s", addReplicaOp.OperationID(), addReplicaOp.String())
+	s.log.Debug("Adding replica %d to kernel \"%s\" as part of AddReplicaOperation \"%s\" now.",
+		newReplicaSpec.ReplicaId, kernelId, addReplicaOp.OperationID())
+
+	// Add the AddReplicaOperation to the associated maps belonging to the Gateway Daemon.
+	s.addReplicaMutex.Lock()
+	ops, ok := s.activeAddReplicaOpsPerKernel.Load(kernelId)
+	if !ok {
+		ops = orderedmap.NewOrderedMap[string, *AddReplicaOperation]()
+	}
+	ops.Set(addReplicaOp.OperationID(), addReplicaOp)
+	s.activeAddReplicaOpsPerKernel.Store(kernelId, ops)
+	s.addReplicaMutex.Unlock()
+
+	if s.KubernetesMode() {
+		s.containerEventHandler.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
+	}
+
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Anything that needs to happen before it's possible for the kernel to have registered already must
+	// occur before this line (i.e., before we call ScheduleKernelReplica). Once we call ScheduleKernelReplica,
+	// we cannot assume that we've not yet received the registration notification from the kernel, so all of
+	// our state needs to be set up BEFORE that call occurs.
+	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	err := s.cluster.ClusterScheduler().ScheduleKernelReplica(newReplicaSpec, nil, blacklistedHosts)
+	if err != nil {
+		return addReplicaOp, err
+	}
+
+	// In Kubernetes deployments, the key is the Pod name, which is also the kernel ID + replica suffix.
+	// In Docker deployments, the container name isn't really the container's name, but its ID, which is a hash
+	// or something like that.
+	var (
+		podOrContainerName string
+		sentBeforeClosed   bool
+	)
+	if s.KubernetesMode() {
+		s.log.Debug("Waiting for new replica to be created for kernel \"%s\" during AddReplicaOperation \"%s\".",
+			kernelId, addReplicaOp.OperationID())
+
+		// Always wait for the scale-out operation to complete and the new replica to be created.
+		podOrContainerName, sentBeforeClosed = <-addReplicaOp.ReplicaStartedChannel()
+		if !sentBeforeClosed {
+			errorMessage := fmt.Sprintf("Received default value from \"Replica Started\" channel for AddReplicaOperation \"%s\": %v",
+				addReplicaOp.OperationID(), addReplicaOp.String())
+			s.log.Error(errorMessage)
+			go s.notifyDashboardOfError("Channel Receive on Closed \"ReplicaStartedChannel\" Channel", errorMessage)
+		} else {
+			close(addReplicaOp.ReplicaStartedChannel())
+		}
+
+		s.log.Debug("New replica %d has been created for kernel %s.", addReplicaOp.ReplicaId(), kernelId)
+		addReplicaOp.SetContainerName(podOrContainerName)
+	}
+
+	if opts.WaitRegistered() {
+		s.log.Debug("Waiting for new replica %d of kernel \"%s\" to register during AddReplicaOperation \"%s\"",
+			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
+		replicaRegisteredChannel := addReplicaOp.ReplicaRegisteredChannel()
+		_, sentBeforeClosed := <-replicaRegisteredChannel
+		if !sentBeforeClosed {
+			errorMessage := fmt.Sprintf("Received default value from \"Replica Registered\" channel for AddReplicaOperation \"%s\": %v",
+				addReplicaOp.OperationID(), addReplicaOp.String())
+			s.log.Error(errorMessage)
+			go s.notifyDashboardOfError("Channel Receive on Closed \"ReplicaRegisteredChannel\" Channel", errorMessage)
+		} else {
+			addReplicaOp.CloseReplicaRegisteredChannel()
+		}
+
+		s.log.Debug("New replica %d of kernel \"%s\" has registered with the Gateway during AddReplicaOperation \"%s\".",
+			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
+	}
+
+	var smrWg sync.WaitGroup
+	smrWg.Add(1)
+	// Separate goroutine because this has to run everytime, even if we don't wait, as we call AddOperationCompleted when the new replica joins its SMR cluster.
+	go func() {
+		s.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster during AddReplicaOperation \"%s\" now...",
+			addReplicaOp.ReplicaId(), kernelId, addReplicaOp.OperationID())
+		replicaJoinedSmrChannel := addReplicaOp.ReplicaJoinedSmrChannel()
+		_, sentBeforeClosed := <-replicaJoinedSmrChannel
+		if !sentBeforeClosed {
+			errorMessage := fmt.Sprintf("Received default value from \"Replica Joined SMR\" channel for AddReplicaOperation \"%s\": %v",
+				addReplicaOp.OperationID(), addReplicaOp.String())
+			s.log.Error(errorMessage)
+			go s.notifyDashboardOfError("Channel Receive on Closed \"ReplicaJoinedSmrChannel\" Channel", errorMessage)
+		}
+
+		close(replicaJoinedSmrChannel)
+		s.log.Debug("New replica %d of kernel %s has joined its SMR cluster.", addReplicaOp.ReplicaId(), kernelId)
+		kernel.AddOperationCompleted()
+		smrWg.Done()
+
+		if !addReplicaOp.Completed() {
+			s.log.Error("AddReplicaOperation \"%s\" does not think it's done, even though it should...", addReplicaOp.Completed())
+			go s.notifyDashboardOfError(fmt.Sprintf("AddReplicaOperation \"%s\" is Confused", addReplicaOp.OperationID()),
+				fmt.Sprintf("AddReplicaOperation \"%s\" does not think it's done, even though it should: %s",
+					addReplicaOp.OperationID(), addReplicaOp.String()))
+		}
+	}()
+
+	if opts.WaitSmrJoined() {
+		s.log.Debug("Waiting for new replica %d of kernel %s to join its SMR cluster...", addReplicaOp.ReplicaId(), kernelId)
+		smrWg.Wait()
+	}
+
+	// Return nil on success.
+	return addReplicaOp, nil
+}
+
 // UpdateRatio updates the Cluster's subscription ratio.
 // UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
 func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
@@ -359,8 +521,87 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 	s.log.Debug("Pending subscription ratio: %.4f. Invalidated: %.4f", s.pendingSubscribedRatio, s.invalidated)
 }
 
-func (s *BaseScheduler) MigrateContainer(container *Container, host *Host, b bool) error {
-	return s.instance.MigrateContainer(container, host, b)
+// MigrateKernelReplica tries to migrate the given Kernel to another Host.
+// Flag indicates whether we're allowed to create a new host for the container (if necessary).
+func (s *BaseScheduler) MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) error {
+	return s.instance.MigrateKernelReplica(kernelReplica, targetHostId, canCreateNewHost)
+}
+
+// isHostViableForMigration returns nil if the specified Host is a viable migration target for the specified
+// KernelReplica -- that is, if the specified Host does not already serve another replica of the same kernel, or
+// the replica being migrated itself.
+//
+// Likewise, this also checks that the specified Host has enough resourecs to serve the specified KernelReplica.
+//
+// If the Host is not viable, then an ErrHostNotViable error is returned.
+func (s *BaseScheduler) isHostViableForMigration(targetHost *Host, kernelReplica KernelReplica) error {
+	if targetHost == nil {
+		return ErrNilHost
+	}
+
+	// If we were able to resolve the host, then let's also verify that the host doesn't already contain
+	// another replica of the same kernel (or the replica we're migrating). If so, then the host is not viable.
+	existingReplica := targetHost.GetAnyReplicaOfKernel(kernelReplica.ID())
+	if existingReplica != nil {
+		s.log.Error("Cannot migrate replica %d of kernel %s to host %s. "+
+			"Host %s is already hosting replica %d of kernel %s.", kernelReplica.ReplicaID(), kernelReplica.ID(),
+			targetHost.ID, targetHost.ID, existingReplica.ReplicaID(), kernelReplica.ID())
+
+		return fmt.Errorf("%w: replica %d of kernel %s is already running on host %s",
+			ErrHostNotViable, existingReplica.ReplicaID(), kernelReplica.ID(), targetHost.ID)
+	}
+
+	// Check that there are enough resources available.
+	kernelResourceSpec := kernelReplica.ResourceSpec()
+	if !targetHost.ResourceSpec().Validate(kernelResourceSpec) {
+		s.log.Error("Cannot migrate replica %d of kernel %s to host %s, as host does not have sufficiently-many allocatable resources to accommodate the replica.",
+			kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.ID)
+		return fmt.Errorf("%w: host lacks sufficiently-many allocatable resourecs", ErrHostNotViable)
+	}
+
+	return nil
+}
+
+// issuePrepareMigrateRequest issues a 'prepare-to-migrate' request to a specific replica of a specific kernel.
+// This will prompt the kernel to shut down its etcd process (but not remove itself from the cluster)
+// before writing the contents of its data directory to intermediate storage.
+//
+// Returns the path to the data directory in intermediate storage.
+func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica KernelReplica, originalHost *Host) (string, error) {
+	// If the host is nil, then we'll attempt to retrieve it from the kernel itself.
+	if originalHost == nil {
+		kernelContainer := kernelReplica.Container()
+		if kernelContainer == nil {
+			return "", ErrNilHost // It's ultimately the host that we need.
+		}
+
+		originalHost = kernelContainer.Host()
+		if originalHost == nil {
+			return "", ErrNilHost
+		}
+	}
+
+	s.log.Info("Calling PrepareToMigrate RPC targeting replica %d of kernel %s now.",
+		originalHost.ID, kernelReplica.ID())
+
+	replicaInfo := &proto.ReplicaInfo{
+		ReplicaId: kernelReplica.ReplicaID(),
+		KernelId:  kernelReplica.ID(),
+	}
+
+	// Issue the 'prepare-to-migrate' request. We panic if there was an error.
+	resp, err := originalHost.PrepareToMigrate(context.TODO(), replicaInfo)
+	if err != nil {
+		s.log.Error("Failed to add replica %d of kernel %s to SMR cluster because: %v",
+			originalHost.ID, kernelReplica.ID(), err)
+		return "", err
+	}
+
+	dataDirectory := resp.DataDir
+	s.log.Debug("Successfully issued 'prepare-to-migrate' request to replica %d of kernel %s. Data directory: \"%s\"",
+		originalHost.ID, kernelReplica.ID(), dataDirectory)
+
+	return dataDirectory, nil
 }
 
 // ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
@@ -531,7 +772,7 @@ func (h *idleSortedHost) SetIdx(idx int) {
 // migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
 func (s *BaseScheduler) migrateContainersFromHost(host *Host) (err error) {
 	host.containers.Range(func(containerId string, c *Container) (contd bool) {
-		err = s.MigrateContainer(c, host, true) // Pass true for `noNewHost`, as we don't want to create a new host for this.
+		err = s.MigrateKernelReplica(c, "", true) // Pass true for `noNewHost`, as we don't want to create a new host for this.
 		if err != nil {
 			// We cannot migrate the Container.
 			s.log.Warn("Abandoning the release of idle host %s (ID=%s) because: %v", host.NodeName, host.ID, err)

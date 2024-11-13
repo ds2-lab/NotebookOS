@@ -186,7 +186,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 			s.ComponentId = componentId
 			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
 			s.MessagingMetricsProvider = messagingMetricsProvider
-			s.Name = fmt.Sprintf("KernelReplicaClient-%s", spec.Kernel.Id)
+			s.Name = fmt.Sprintf("Kernel-%s", spec.Kernel.Id)
 			s.DebugMode = debugMode
 
 			/* Kernel clients should ACK messages that they're forwarding when the local kernel client lives on the Local Daemon. */
@@ -238,7 +238,7 @@ func (c *KernelReplicaClient) IsTraining() bool {
 func (c *KernelReplicaClient) WaitForTrainingToStop() {
 	gid := goid.Get()
 
-	// The trainingFinishedCond field of the KernelReplicaClient uses the trainingFinishedMu mutex.
+	// The trainingFinishedCond field of the Kernel uses the trainingFinishedMu mutex.
 	c.trainingFinishedMu.Lock()
 	defer c.trainingFinishedMu.Unlock()
 
@@ -299,7 +299,7 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(spec commonTypes.Spec) er
 func (c *KernelReplicaClient) WaitForPendingExecuteRequests() {
 	gid := goid.Get()
 
-	// The trainingFinishedCond field of the KernelReplicaClient uses the trainingFinishedMu mutex.
+	// The trainingFinishedCond field of the Kernel uses the trainingFinishedMu mutex.
 	c.pendingExecuteRequestIdsMutex.Lock()
 	defer c.pendingExecuteRequestIdsMutex.Unlock()
 
@@ -322,7 +322,7 @@ func (c *KernelReplicaClient) WaitForPendingExecuteRequests() {
 
 // IsSomeReplicaTraining returns a bool indicating  whether any replica of the kernel associated with this client is
 // actively training, even if it is not the specific replica associated with this client.
-//func (c *KernelReplicaClient) IsSomeReplicaTraining() bool {
+//func (c *Kernel) IsSomeReplicaTraining() bool {
 //	return c.isSomeReplicaTraining
 //}
 
@@ -932,11 +932,11 @@ func (c *KernelReplicaClient) InitializeShellForwarder(handler scheduling.Kernel
 	return shell, nil
 }
 
-// func (c *KernelReplicaClient) Unlock() {
+// func (c *Kernel) Unlock() {
 // 	c.destMutex.Unlock()
 // }
 
-// func (c *KernelReplicaClient) Lock() {
+// func (c *Kernel) Lock() {
 // 	c.destMutex.Lock()
 // }
 
@@ -1127,7 +1127,7 @@ func (c *KernelReplicaClient) InitializeIOSub(handler types.MessageHandler, subs
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Default to KernelReplicaClient::handleMsg if the provided handler is null.
+	// Default to Kernel::handleMsg if the provided handler is null.
 	if handler == nil {
 		c.log.Debug("Creating ZeroMQ SUB socket: default handler, port %d, subscribe-topic \"%s\"", c.client.Meta.IOPubPort, subscriptionTopic)
 		handler = c.handleMsg

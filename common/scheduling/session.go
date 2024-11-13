@@ -331,11 +331,11 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 //
 // In the Local Daemon, this won't be called, as the Local Daemon does not track Resources in this way.
 //
-// In the Cluster Gateway, this is called in the SessionStartedTraining method of the KernelReplicaClient.
-// The KernelReplicaClient's SessionStartedTraining method is called in the handleSmrLeadTaskMessage method
+// In the Cluster Gateway, this is called in the SessionStartedTraining method of the Kernel.
+// The Kernel's SessionStartedTraining method is called in the handleSmrLeadTaskMessage method
 // of DistributedKernelClient.
 //
-// DistributedKernelClient::handleSmrLeadTaskMessage --> KernelReplicaClient::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
+// DistributedKernelClient::handleSmrLeadTaskMessage --> Kernel::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
 func (s *Session) SessionStartedTraining(container *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
 	s.log.Debug("Training starting. Current state: %s.", s.GetState().String())
 
@@ -383,7 +383,7 @@ func (s *Session) SessionStartedTraining(container *Container, snapshot types.Ho
 
 // SessionStoppedTraining should be called when the actively-training Kernel replica of the Session stops training.
 //
-// This should be called by the KernelReplicaClient's KernelStoppedTraining method.
+// This should be called by the Kernel's KernelStoppedTraining method.
 //
 // Note: this method is thread-safe.
 func (s *Session) SessionStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {

@@ -156,4 +156,4 @@ local_daemon/daemon/daemon.test
 local_daemon/device/device.test
 testing/testing.test
 common/utils/utils.test
-*.test 
+*.test
