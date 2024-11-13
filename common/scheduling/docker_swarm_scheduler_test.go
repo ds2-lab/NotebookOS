@@ -106,11 +106,18 @@ func (m *dockerSchedulerTestHostMapper) GetHostsOfKernel(kernelId string) ([]*sc
 	return nil, nil
 }
 
-func addHost(idx int, hostSpec types.Spec, cluster scheduling.Cluster, mockCtrl *gomock.Controller) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
+func addHost(idx int, hostSpec types.Spec, disableHost bool, cluster scheduling.Cluster, mockCtrl *gomock.Controller) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
 	hostId := uuid.NewString()
 	nodeName := fmt.Sprintf("TestNode%d", idx)
 	resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, hostSpec)
 	host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, nodeName, resourceSpoofer)
+
+	Expect(host).ToNot(BeNil())
+
+	if disableHost {
+		disableErr := host.Disable()
+		Expect(disableErr).To(BeNil())
+	}
 
 	err2 := cluster.NewHostAddedOrConnected(host)
 
@@ -180,7 +187,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			numHosts = 3
 
 			for i := 0; i < numHosts; i++ {
-				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, cluster, mockCtrl)
+				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, false, cluster, mockCtrl)
 				Expect(err).To(BeNil())
 				Expect(host).ToNot(BeNil())
 				Expect(localGatewayClient).ToNot(BeNil())
@@ -259,7 +266,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 			// Create a new, larger host.
 			i := len(hosts)
-			bigHost1, _, _, err := addHost(i, largerHostSpec, cluster, mockCtrl)
+			bigHost1, _, _, err := addHost(i, largerHostSpec, false, cluster, mockCtrl)
 			Expect(err).To(BeNil())
 			Expect(bigHost1).ToNot(BeNil())
 
@@ -290,7 +297,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(bigHost1.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 
 			i = len(hosts)
-			bigHost2, _, _, err := addHost(i, largerHostSpec, cluster, mockCtrl)
+			bigHost2, _, _, err := addHost(i, largerHostSpec, false, cluster, mockCtrl)
 			Expect(err).To(BeNil())
 			Expect(bigHost2).ToNot(BeNil())
 
@@ -350,7 +357,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 			// First, add two new hosts, so that there are 5 hosts.
 			for i := initialSize; i < initialSize+2; i++ {
-				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, cluster, mockCtrl)
+				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, false, cluster, mockCtrl)
 				Expect(err).To(BeNil())
 				Expect(host).ToNot(BeNil())
 				Expect(localGatewayClient).ToNot(BeNil())
@@ -473,6 +480,127 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			for _, host := range candidateHosts {
 				Expect(host.NumReservations()).To(Equal(1))
 			}
+		})
+	})
+
+	Context("Scaling Operations", func() {
+		var numHosts int
+		var hosts map[int]*scheduling.Host
+		var localGatewayClients map[int]*mock_proto.MockLocalGatewayClient
+		var resourceSpoofers map[int]*distNbTesting.ResourceSpoofer
+
+		BeforeEach(func() {
+			hosts = make(map[int]*scheduling.Host)
+			localGatewayClients = make(map[int]*mock_proto.MockLocalGatewayClient)
+			resourceSpoofers = make(map[int]*distNbTesting.ResourceSpoofer)
+			numHosts = 3
+
+			for i := 0; i < numHosts; i++ {
+				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, false, cluster, mockCtrl)
+				Expect(err).To(BeNil())
+				Expect(host).ToNot(BeNil())
+				Expect(localGatewayClient).ToNot(BeNil())
+				Expect(resourceSpoofer).ToNot(BeNil())
+
+				hosts[i] = host
+				localGatewayClients[i] = localGatewayClient
+				resourceSpoofers[i] = resourceSpoofer
+			}
+		})
+
+		validateVariablesNonNil := func() {
+			Expect(scheduler).ToNot(BeNil())
+			Expect(placer).ToNot(BeNil())
+			Expect(cluster).ToNot(BeNil())
+			Expect(hostMapper).ToNot(BeNil())
+			Expect(len(hosts)).To(Equal(3))
+			Expect(len(localGatewayClients)).To(Equal(3))
+			Expect(len(resourceSpoofers)).To(Equal(3))
+		}
+
+		It("Will correctly do nothing when scale-to-size is passed the current cluster size", func() {
+			validateVariablesNonNil()
+
+			initialSize := len(hosts)
+
+			p := cluster.ScaleToSize(context.Background(), int32(initialSize))
+			Expect(p).ToNot(BeNil())
+
+			err := p.Error()
+			Expect(err).ToNot(BeNil())
+			Expect(errors.Is(err, scheduling.ErrInvalidTargetNumHosts)).To(BeTrue())
+		})
+
+		It("Will correctly do nothing when instructed to scale below minimum cluster size", func() {
+			validateVariablesNonNil()
+
+			initialSize := len(hosts)
+			Expect(initialSize).To(Equal(cluster.NumReplicas()))
+
+			p := cluster.ScaleToSize(context.Background(), 0)
+			Expect(p).ToNot(BeNil())
+
+			err := p.Error()
+			Expect(err).ToNot(BeNil())
+			Expect(errors.Is(err, scheduling.ErrInvalidTargetNumHosts)).To(BeTrue())
+		})
+
+		It("Will correctly scale-out", func() {
+			validateVariablesNonNil()
+
+			initialSize := len(hosts)
+
+			// First, add three more disabled hosts, so that there are 6 hosts total -- 3 active and 3 inactive.
+			for i := initialSize; i < initialSize+3; i++ {
+				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, true, cluster, mockCtrl)
+				Expect(err).To(BeNil())
+				Expect(host).ToNot(BeNil())
+				Expect(localGatewayClient).ToNot(BeNil())
+				Expect(resourceSpoofer).ToNot(BeNil())
+
+				hosts[i] = host
+				localGatewayClients[i] = localGatewayClient
+				resourceSpoofers[i] = resourceSpoofer
+			}
+
+			targetNumHosts := int32(initialSize * 2)
+
+			Expect(cluster.Len()).To(Equal(initialSize))
+			Expect(cluster.NumDisabledHosts()).To(Equal(initialSize))
+
+			p := cluster.ScaleToSize(context.Background(), targetNumHosts)
+			Expect(p).ToNot(BeNil())
+			Expect(p.Error()).To(BeNil())
+
+			Expect(cluster.Len()).To(Equal(int(targetNumHosts)))
+			Expect(cluster.NumDisabledHosts()).To(Equal(0))
+		})
+
+		It("Will correctly scale-in", func() {
+			initialSize := len(hosts)
+
+			// First, add three more hosts, so that there are 6 active hosts.
+			for i := initialSize; i < initialSize+3; i++ {
+				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, false, cluster, mockCtrl)
+				Expect(err).To(BeNil())
+				Expect(host).ToNot(BeNil())
+				Expect(localGatewayClient).ToNot(BeNil())
+				Expect(resourceSpoofer).ToNot(BeNil())
+
+				hosts[i] = host
+				localGatewayClients[i] = localGatewayClient
+				resourceSpoofers[i] = resourceSpoofer
+			}
+
+			Expect(cluster.Len()).To(Equal(initialSize * 2))
+			Expect(cluster.NumDisabledHosts()).To(Equal(0))
+
+			p := cluster.ScaleToSize(context.Background(), int32(initialSize))
+			Expect(p).ToNot(BeNil())
+			Expect(p.Error()).To(BeNil())
+
+			Expect(cluster.Len()).To(Equal(int(initialSize)))
+			Expect(cluster.NumDisabledHosts()).To(Equal(3))
 		})
 	})
 })

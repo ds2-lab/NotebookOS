@@ -753,20 +753,28 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise {
 	currentNumNodes := int32(c.Len())
 
+	// Are we trying to scale-down below the minimum cluster size? If so, return an error.
 	if targetNumNodes < int32(c.numReplicas) {
 		c.log.Error("Cannot scale to size of %d Local Daemon Docker node(s) from the Cluster", targetNumNodes)
 		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: targetNumNodes=%d", ErrInvalidTargetNumHosts, targetNumNodes))
 	}
 
+	// Do we already have the requested number of hosts? If so, return an error.
 	if targetNumNodes == currentNumNodes {
-		c.log.Error("Cluster is already of size %d. Rejecting request to scale to size %d.", currentNumNodes, targetNumNodes)
+		c.log.Warn("Cluster is already of size %d. Rejecting request to scale to size %d.", currentNumNodes, targetNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: Cluster is already of size %d", ErrInvalidTargetNumHosts, targetNumNodes))
-	} else if targetNumNodes > currentNumNodes {
-		return c.RequestHosts(ctx, targetNumNodes-currentNumNodes)
-	} else {
-		return c.ReleaseHosts(ctx, currentNumNodes-targetNumNodes)
 	}
+
+	// Scale out (i.e., add hosts)?
+	if targetNumNodes > currentNumNodes {
+		c.log.Debug("Requesting %d additional host(s) in order to scale-out to target size of %d.", targetNumNodes-currentNumNodes, targetNumNodes)
+		return c.RequestHosts(ctx, targetNumNodes-currentNumNodes)
+	}
+
+	// Scale in (i.e., remove hosts).
+	c.log.Debug("Releasing %d host(s) in order to scale-in to target size of %d.", targetNumNodes-currentNumNodes, targetNumNodes)
+	return c.ReleaseHosts(ctx, currentNumNodes-targetNumNodes)
 }
 
 // ClusterMetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
