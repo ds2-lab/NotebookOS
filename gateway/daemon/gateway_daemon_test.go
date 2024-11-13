@@ -880,6 +880,29 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host.Enabled()).To(Equal(true))
 				}
 			})
+
+			It("Will correctly disable the 'Initial Connection Time' behavior when the InitialClusterSize config parameter is set to a negative value.", func() {
+				InitialClusterSize := -1
+				InitialConnectionTimeSeconds := 60
+				InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
+
+				options.InitialClusterSize = InitialClusterSize
+				options.InitialClusterConnectionPeriodSec = InitialConnectionTimeSeconds
+
+				mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
+
+				clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
+					globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
+					srv.SetClusterOptions(&options.ClusterSchedulerOptions)
+					srv.SetDistributedClientProvider(mockedDistributedKernelClientProvider)
+				})
+				config.InitLogger(&clusterGateway.log, clusterGateway)
+
+				Expect(clusterGateway.gatewayPrometheusManager).To(BeNil())
+				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
+				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
+				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(false))
+			})
 		})
 
 		Context("Scheduling Kernels", func() {
@@ -977,7 +1000,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the first Host")
 
 				// Add first host.
-				err = cluster.NewHostAddedOrConnected(host1)
+				err = clusterGateway.registerNewHost(host1)
 				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(1))
@@ -988,7 +1011,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the second Host")
 
 				// Add second host.
-				err = cluster.NewHostAddedOrConnected(host2)
+				err = clusterGateway.registerNewHost(host2)
 				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(2))
@@ -999,7 +1022,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the third Host")
 
 				// Add third host.
-				err = cluster.NewHostAddedOrConnected(host3)
+				err = clusterGateway.registerNewHost(host3)
 				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(3))
@@ -1347,7 +1370,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				size := 0
 				for i, host := range hosts {
 					By(fmt.Sprintf("Correctly registering Host %d (%d/%d)", i, size+1, len(hosts)))
-					err := cluster.NewHostAddedOrConnected(host)
+					err := clusterGateway.registerNewHost(host)
 					Expect(err).To(BeNil())
 					size += 1
 

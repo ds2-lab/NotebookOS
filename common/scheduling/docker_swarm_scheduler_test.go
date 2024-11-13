@@ -87,8 +87,8 @@ var (
 	"notebook-image-tag": "latest",
 	"distributed-cluster-service-port": 8079,
 	"remote-docker-event-aggregator-port": 5821,
-	"initial-cluster-size": 4,
-	"initial-connection-period": 60
+	"initial-cluster-size": -1,
+	"initial-connection-period": 0
 },
 	"port": 8080,
 	"provisioner_port": 8081,
