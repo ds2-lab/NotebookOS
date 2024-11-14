@@ -12,6 +12,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/container"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
 	"math"
 	"sync"
@@ -65,12 +66,35 @@ type KernelProvider interface {
 	GetKernel(kernelId string) (Kernel, bool)
 }
 
+type NotificationBroker interface {
+	SendErrorNotification(errorName string, errorMessage string)
+}
+
 type BaseScheduler struct {
-	instance       ClusterScheduler
-	cluster        ClusterInternal
-	hostMapper     HostMapper
-	placer         Placer
-	kernelProvider KernelProvider
+	instance           clusterSchedulerInternal
+	cluster            ClusterInternal
+	hostMapper         HostMapper
+	placer             Placer
+	kernelProvider     KernelProvider
+	notificationBroker NotificationBroker
+
+	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
+	// kernels (or other resources) and could occur in-parallel (such as being triggered
+	// by multiple concurrent RPC requests).
+	addReplicaMutex sync.Mutex
+
+	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
+	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]]
+
+	// Mapping from new kernel-replica key (i.e., <kernel-id>-<replica-id>) to AddReplicaOperation.
+	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, *AddReplicaOperation]
+
+	// Mapping from NewPodName to chan string.
+	// In theory, it's possible to receive a PodCreated notification from Kubernetes AFTER the replica within the new Pod
+	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
+	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
+	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
+	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *AddReplicaOperation]
 
 	candidateHostMutex sync.Mutex
 
@@ -95,6 +119,11 @@ type BaseScheduler struct {
 	remoteSynchronizationInterval time.Duration            // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
 	lastNodeRefreshTime           time.Time                // The time at which the nodes were last refreshed.
 
+	// Watches for new Pods/Containers.
+	//
+	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
+	containerEventHandler ContainerWatcher
+
 	oversubscribed  container.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
 	undersubscribed container.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
 	idleHosts       container.Heap
@@ -112,29 +141,32 @@ type BaseScheduler struct {
 
 func NewBaseScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *ClusterSchedulerOptions) *BaseScheduler {
 	clusterScheduler := &BaseScheduler{
-		cluster:                       cluster,
-		hostMapper:                    hostMapper,
-		gpusPerHost:                   float64(opts.GpusPerHost),
-		virtualGpusPerHost:            int32(opts.VirtualGpusPerHost),
-		scalingFactor:                 opts.ScalingFactor,
-		scalingLimit:                  opts.ScalingLimit,
-		maximumHostsToReleaseAtOnce:   int32(opts.MaximumHostsToReleaseAtOnce),
-		scalingIntervalSec:            int32(opts.ScalingInterval),
-		predictiveAutoscalingEnabled:  opts.PredictiveAutoscalingEnabled,
-		scalingBufferSize:             int32(opts.ScalingBufferSize),
-		stRatio:                       types.NewMovingStatFromWindow(5),
-		opts:                          opts,
-		remoteSynchronizationInterval: time.Second * time.Duration(opts.GpuPollIntervalSeconds),
-		placer:                        placer,
-		hostSpec:                      hostSpec,
-		oversubscribed:                make(container.Heap, 0, 10),
-		undersubscribed:               make(container.Heap, 0, 10),
-		idleHosts:                     make(container.Heap, 0, 10),
-		maximumCapacity:               int32(opts.MaximumNumNodes),
-		minimumCapacity:               int32(opts.MinimumNumNodes),
-		maxSubscribedRatio:            decimal.NewFromFloat(opts.MaxSubscribedRatio),
-		subscriptionRatio:             decimal.NewFromFloat(opts.MaxSubscribedRatio),
-		kernelProvider:                kernelProvider,
+		cluster:                                  cluster,
+		hostMapper:                               hostMapper,
+		gpusPerHost:                              float64(opts.GpusPerHost),
+		virtualGpusPerHost:                       int32(opts.VirtualGpusPerHost),
+		scalingFactor:                            opts.ScalingFactor,
+		scalingLimit:                             opts.ScalingLimit,
+		maximumHostsToReleaseAtOnce:              int32(opts.MaximumHostsToReleaseAtOnce),
+		scalingIntervalSec:                       int32(opts.ScalingInterval),
+		predictiveAutoscalingEnabled:             opts.PredictiveAutoscalingEnabled,
+		scalingBufferSize:                        int32(opts.ScalingBufferSize),
+		stRatio:                                  types.NewMovingStatFromWindow(5),
+		opts:                                     opts,
+		remoteSynchronizationInterval:            time.Second * time.Duration(opts.GpuPollIntervalSeconds),
+		placer:                                   placer,
+		hostSpec:                                 hostSpec,
+		oversubscribed:                           make(container.Heap, 0, 10),
+		undersubscribed:                          make(container.Heap, 0, 10),
+		idleHosts:                                make(container.Heap, 0, 10),
+		maximumCapacity:                          int32(opts.MaximumNumNodes),
+		minimumCapacity:                          int32(opts.MinimumNumNodes),
+		maxSubscribedRatio:                       decimal.NewFromFloat(opts.MaxSubscribedRatio),
+		subscriptionRatio:                        decimal.NewFromFloat(opts.MaxSubscribedRatio),
+		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]](64),
+		addReplicaOperationsByKernelReplicaId:    hashmap.NewCornelkMap[string, *AddReplicaOperation](64),
+		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *AddReplicaOperation](64),
+		kernelProvider:                           kernelProvider,
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
 
@@ -161,6 +193,18 @@ func NewBaseScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMap
 	}
 
 	return clusterScheduler
+}
+
+func (s *BaseScheduler) sendErrorNotification(errorName string, errorMessage string) {
+	if s.notificationBroker == nil {
+		return
+	}
+
+	s.notificationBroker.SendErrorNotification(errorName, errorMessage)
+}
+
+func (s *BaseScheduler) WithNotificationBroker(notificationBroker NotificationBroker) {
+	s.notificationBroker = notificationBroker
 }
 
 func (s *BaseScheduler) WithHostMapper(mapper HostMapper) {
@@ -378,9 +422,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 	s.activeAddReplicaOpsPerKernel.Store(kernelId, ops)
 	s.addReplicaMutex.Unlock()
 
-	if s.KubernetesMode() {
-		s.containerEventHandler.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
-	}
+	s.instance.addReplicaSetup(kernelId, addReplicaOp)
 
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Anything that needs to happen before it's possible for the kernel to have registered already must
@@ -396,28 +438,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 	// In Kubernetes deployments, the key is the Pod name, which is also the kernel ID + replica suffix.
 	// In Docker deployments, the container name isn't really the container's name, but its ID, which is a hash
 	// or something like that.
-	var (
-		podOrContainerName string
-		sentBeforeClosed   bool
-	)
-	if s.KubernetesMode() {
-		s.log.Debug("Waiting for new replica to be created for kernel \"%s\" during AddReplicaOperation \"%s\".",
-			kernelId, addReplicaOp.OperationID())
-
-		// Always wait for the scale-out operation to complete and the new replica to be created.
-		podOrContainerName, sentBeforeClosed = <-addReplicaOp.ReplicaStartedChannel()
-		if !sentBeforeClosed {
-			errorMessage := fmt.Sprintf("Received default value from \"Replica Started\" channel for AddReplicaOperation \"%s\": %v",
-				addReplicaOp.OperationID(), addReplicaOp.String())
-			s.log.Error(errorMessage)
-			go s.notifyDashboardOfError("Channel Receive on Closed \"ReplicaStartedChannel\" Channel", errorMessage)
-		} else {
-			close(addReplicaOp.ReplicaStartedChannel())
-		}
-
-		s.log.Debug("New replica %d has been created for kernel %s.", addReplicaOp.ReplicaId(), kernelId)
-		addReplicaOp.SetContainerName(podOrContainerName)
-	}
+	s.instance.postScheduleKernelReplica(kernelId, addReplicaOp)
 
 	if opts.WaitRegistered() {
 		s.log.Debug("Waiting for new replica %d of kernel \"%s\" to register during AddReplicaOperation \"%s\"",
@@ -428,7 +449,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 			errorMessage := fmt.Sprintf("Received default value from \"Replica Registered\" channel for AddReplicaOperation \"%s\": %v",
 				addReplicaOp.OperationID(), addReplicaOp.String())
 			s.log.Error(errorMessage)
-			go s.notifyDashboardOfError("Channel Receive on Closed \"ReplicaRegisteredChannel\" Channel", errorMessage)
+			go s.sendErrorNotification("Channel Receive on Closed \"ReplicaRegisteredChannel\" Channel", errorMessage)
 		} else {
 			addReplicaOp.CloseReplicaRegisteredChannel()
 		}
@@ -449,7 +470,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 			errorMessage := fmt.Sprintf("Received default value from \"Replica Joined SMR\" channel for AddReplicaOperation \"%s\": %v",
 				addReplicaOp.OperationID(), addReplicaOp.String())
 			s.log.Error(errorMessage)
-			go s.notifyDashboardOfError("Channel Receive on Closed \"ReplicaJoinedSmrChannel\" Channel", errorMessage)
+			go s.sendErrorNotification("Channel Receive on Closed \"ReplicaJoinedSmrChannel\" Channel", errorMessage)
 		}
 
 		close(replicaJoinedSmrChannel)
@@ -459,7 +480,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 
 		if !addReplicaOp.Completed() {
 			s.log.Error("AddReplicaOperation \"%s\" does not think it's done, even though it should...", addReplicaOp.Completed())
-			go s.notifyDashboardOfError(fmt.Sprintf("AddReplicaOperation \"%s\" is Confused", addReplicaOp.OperationID()),
+			go s.sendErrorNotification(fmt.Sprintf("AddReplicaOperation \"%s\" is Confused", addReplicaOp.OperationID()),
 				fmt.Sprintf("AddReplicaOperation \"%s\" does not think it's done, even though it should: %s",
 					addReplicaOp.OperationID(), addReplicaOp.String()))
 		}
@@ -523,8 +544,93 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 
 // MigrateKernelReplica tries to migrate the given Kernel to another Host.
 // Flag indicates whether we're allowed to create a new host for the container (if necessary).
-func (s *BaseScheduler) MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) error {
-	return s.instance.MigrateKernelReplica(kernelReplica, targetHostId, canCreateNewHost)
+func (s *BaseScheduler) MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) (*proto.MigrateKernelResponse, error) {
+	if kernelReplica == nil {
+		s.log.Error("MigrateContainer received nil KernelReplica")
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, ErrNilKernelReplica
+	}
+
+	kernelContainer := kernelReplica.Container()
+	if kernelContainer == nil {
+		s.log.Error("Cannot migrate replica %d of kernel %s; kernel's kernelContainer is nil",
+			kernelReplica.ReplicaID(), kernelReplica.ID())
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, ErrNilContainer
+	}
+
+	originalHost := kernelContainer.Host()
+	if originalHost == nil {
+		s.log.Error("Cannot migrate kernelContainer %s. Container's host is nil.", kernelContainer.ContainerID())
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, ErrNilOriginalHost
+	}
+
+	var (
+		targetHost *Host
+		loaded     bool
+	)
+
+	// If the caller specified a particular host, then we'll verify that the specified host exists.
+	// If it doesn't, then we'll return an error.
+	if targetHostId != "" {
+		targetHost, loaded = s.cluster.GetHost(targetHostId)
+
+		if !loaded {
+			s.log.Error("Host %s specified as migration target for replica %d of kernel %s; however, host %s does not exist.",
+				targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId)
+			return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname},
+				fmt.Errorf("%w: cannot find specified target host %s for migration of replica %d of kernel %s",
+					ErrHostNotFound, targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID())
+		}
+
+		// Make sure that the Host doesn't already have the kernel replica to be migrated or another
+		// replica of the same kernel running on it. If so, then the target host is not viable.
+		//
+		// Likewise, if the host does not have enough resources to serve the kernel replica,
+		// then it is not viable.
+		if err := s.isHostViableForMigration(targetHost, kernelReplica); err != nil {
+			return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+		}
+	}
+
+	dataDirectory, err := s.issuePrepareToMigrateRequest(kernelReplica, originalHost)
+	if err != nil {
+		s.log.Error("Failed to issue 'prepare-to-migrate' request to replica %d of kernel %s: %v",
+			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+	}
+
+	err = s.RemoveReplicaFromHost(kernelReplica)
+	if err != nil {
+		s.log.Error("Failed to remove replica %d of kernel %s from its current host: %v",
+			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+	}
+
+	replicaSpec := &proto.ReplicaInfo{
+		KernelId:     kernelReplica.ID(),
+		ReplicaId:    kernelReplica.ReplicaID(),
+		PersistentId: kernelReplica.PersistentID(),
+	}
+
+	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
+	opts := NewAddReplicaWaitOptions(true, true, true)
+	addReplicaOp, err := s.addReplica(replicaSpec, opts, dataDirectory, []*Host{originalHost})
+	if err != nil {
+		s.log.Error("Failed to add new replica %d to kernel %s: %v", kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+	}
+
+	newlyAddedReplica, err := addReplicaOp.Kernel().GetReplicaByID(addReplicaOp.ReplicaId())
+	if err != nil {
+		s.log.Error("Could not find replica %d for kernel %s after migration is supposed to have completed: %v", addReplicaOp.ReplicaId(), kernelReplica.ID(), err)
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+	} else {
+		s.log.Debug("Successfully added new replica %d to kernel %s during migration operation.", addReplicaOp.ReplicaId(), kernelReplica.ID())
+	}
+
+	// The replica is fully operational at this point, so record that it is ready.
+	newlyAddedReplica.SetReady()
+
+	return &proto.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
 }
 
 // isHostViableForMigration returns nil if the specified Host is a viable migration target for the specified
@@ -772,7 +878,7 @@ func (h *idleSortedHost) SetIdx(idx int) {
 // migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
 func (s *BaseScheduler) migrateContainersFromHost(host *Host) (err error) {
 	host.containers.Range(func(containerId string, c *Container) (contd bool) {
-		err = s.MigrateKernelReplica(c, "", true) // Pass true for `noNewHost`, as we don't want to create a new host for this.
+		_, err = s.MigrateKernelReplica(c, "", true) // Pass true for `noNewHost`, as we don't want to create a new host for this.
 		if err != nil {
 			// We cannot migrate the Container.
 			s.log.Warn("Abandoning the release of idle host %s (ID=%s) because: %v", host.NodeName, host.ID, err)

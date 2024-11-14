@@ -45,6 +45,39 @@ func NewKubernetesScheduler(cluster ClusterInternal, placer Placer, hostMapper H
 	return kubernetesScheduler, nil
 }
 
+// addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
+func (s *KubernetesScheduler) addReplicaSetup(kernelId string, addReplicaOp *AddReplicaOperation) {
+	s.containerEventHandler.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
+}
+
+// postScheduleKernelReplica is called immediately after ScheduleKernelReplica is called.
+func (s *KubernetesScheduler) postScheduleKernelReplica(kernelId string, addReplicaOp *AddReplicaOperation) {
+	// In Kubernetes deployments, the key is the Pod name, which is also the kernel ID + replica suffix.
+	// In Docker deployments, the container name isn't really the container's name, but its ID, which is a hash
+	// or something like that.
+	var (
+		podOrContainerName string
+		sentBeforeClosed   bool
+	)
+
+	s.log.Debug("Waiting for new replica to be created for kernel \"%s\" during AddReplicaOperation \"%s\".",
+		kernelId, addReplicaOp.OperationID())
+
+	// Always wait for the scale-out operation to complete and the new replica to be created.
+	podOrContainerName, sentBeforeClosed = <-addReplicaOp.ReplicaStartedChannel()
+	if !sentBeforeClosed {
+		errorMessage := fmt.Sprintf("Received default value from \"Replica Started\" channel for AddReplicaOperation \"%s\": %v",
+			addReplicaOp.OperationID(), addReplicaOp.String())
+		s.log.Error(errorMessage)
+		go s.sendErrorNotification("Channel Receive on Closed \"ReplicaStartedChannel\" Channel", errorMessage)
+	} else {
+		close(addReplicaOp.ReplicaStartedChannel())
+	}
+
+	s.log.Debug("New replica %d has been created for kernel %s.", addReplicaOp.ReplicaId(), kernelId)
+	addReplicaOp.SetContainerName(podOrContainerName)
+}
+
 func (s *KubernetesScheduler) RemoveReplicaFromHost(_ KernelReplica) error {
 	panic("Not implemented")
 }
@@ -57,10 +90,6 @@ func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpe
 	}
 
 	return nil
-}
-
-func (s *KubernetesScheduler) MigrateContainer(container *Container, host *Host, b bool) error {
-	panic("Not implemented")
 }
 
 // DeployNewKernel is responsible for creating the necessary infrastructure ot schedule the replicas of a new

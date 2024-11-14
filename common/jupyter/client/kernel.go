@@ -1228,7 +1228,7 @@ func (c *KernelReplicaClient) forwardIOMessage(kernel scheduling.Kernel, _ *type
 	return kernel.Socket(types.IOMessage).Send(*msg.GetZmqMsg())
 }
 
-func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.Kernel, frames *types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.KernelReplica, frames *types.JupyterFrames, msg *types.JupyterMessage) error {
 	var status types.MessageKernelStatus
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling IO kernel status: %v", err)

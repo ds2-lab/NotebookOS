@@ -79,26 +79,20 @@ type Kernel interface {
 	// 	entity.Container.Stop(), Stop() will be implemented outside kernel abstraction. Close() cleans up the kernel resource after kernel stopped.
 	Close() error
 
+	// PersistentID returns the persistent ID.
+	PersistentID() string
+
 	// KernelStoppedTraining should be called when the kernel associated with this client stops actively training.
 	KernelStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
-
-	// GetHost returns the Host on which the replica is hosted.
-	GetHost() *Host
-
-	// SetHost sets the Host of the kernel.
-	SetHost(*Host)
-
-	// Container returns the Container associated with the KernelReplica.
-	Container() *Container
-
-	// SetContainer sets/updates the Container associated with the KernelReplica.
-	SetContainer(*Container)
 
 	// RemoveReplicaByID removes a kernel peer from the kernel by replica ID.
 	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (*Host, error)
 
 	AddOperationStarted()
 	AddOperationCompleted()
+	SetReady()
+
+	GetReplicaByID(id int32) (KernelReplica, error)
 
 	// PrepareNewReplica determines the replica ID for the new replica and returns the KernelReplicaSpec required to start the replica.
 	//
@@ -108,10 +102,39 @@ type Kernel interface {
 
 // KernelReplica defines the interface for a jupyter kernel replica.
 type KernelReplica interface {
-	Kernel
+	KernelReplicaInfo
+	types.Contextable
 
-	// ReplicaID returns the replica ID.
-	ReplicaID() int32
+	// ConnectionInfo returns the connection info of the kernel.
+	ConnectionInfo() *jupyter.ConnectionInfo
+
+	// KernelStoppedTraining should be called when the kernel associated with this client stops actively training.
+	KernelStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
+
+	// PersistentID returns the persistent ID.
+	PersistentID() string
+
+	BusyStatus() (string, *jupyter.JupyterMessage)
+
+	// GetHost returns the Host on which the replica is hosted.
+	GetHost() *Host
+
+	// IsTraining returns true if the Kernel is currently training.
+	IsTraining() bool
+
+	// Close cleans up kernel resource.
+	// Including simulator features:
+	// 	entity.Container.Stop(), Stop() will be implemented outside kernel abstraction. Close() cleans up the kernel resource after kernel stopped.
+	Close() error
+
+	// SetHost sets the Host of the kernel.
+	SetHost(*Host)
+
+	// Container returns the Container associated with the KernelReplica.
+	Container() *Container
+
+	// SetContainer sets/updates the Container associated with the KernelReplica.
+	SetContainer(*Container)
 
 	// GetPodOrContainerName returns the name of the Kubernetes Pod/Docker container hosting the replica.
 	GetPodOrContainerName() string

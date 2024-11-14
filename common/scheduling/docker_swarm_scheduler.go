@@ -16,6 +16,8 @@ import (
 
 const (
 	DockerKernelDebugPortDefault int32 = 32000
+
+	ErrorHostname = "ERROR" // We return this from certain gRPC calls when there's an error.
 )
 
 var (
@@ -103,69 +105,14 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	return host, nil
 }
 
-// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
-// Flag indicates whether we're allowed to create a new host for the container (if necessary).
-func (s *DockerScheduler) MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) error {
-	if kernelReplica == nil {
-		s.log.Error("MigrateContainer received nil KernelReplica")
-		return ErrNilKernelReplica
-	}
+// addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
+func (s *DockerScheduler) addReplicaSetup(_ string, _ *AddReplicaOperation) {
+	// no-op
+}
 
-	container := kernelReplica.Container()
-	if container == nil {
-		s.log.Error("Cannot migrate replica %d of kernel %s; kernel's container is nil",
-			kernelReplica.ReplicaID(), kernelReplica.ID())
-		return ErrNilContainer
-	}
-
-	originalHost := container.Host()
-	if originalHost == nil {
-		s.log.Error("Cannot migrate container %s. Container's host is nil.", container.ContainerID())
-		return ErrNilOriginalHost
-	}
-
-	var (
-		targetHost *Host
-		loaded     bool
-	)
-
-	// If the caller specified a particular host, then we'll verify that the specified host exists.
-	// If it doesn't, then we'll return an error.
-	if targetHostId != "" {
-		targetHost, loaded = s.cluster.GetHost(targetHostId)
-
-		if !loaded {
-			s.log.Error("Host %s specified as migration target for replica %d of kernel %s; however, host %s does not exist.",
-				targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId)
-			return fmt.Errorf("%w: cannot find specified target host %s for migration of replica %d of kernel %s",
-				ErrHostNotFound, targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID())
-		}
-
-		// Make sure that the Host doesn't already have the kernel replica to be migrated or another
-		// replica of the same kernel running on it. If so, then the target host is not viable.
-		//
-		// Likewise, if the host does not have enough resources to serve the kernel replica,
-		// then it is not viable.
-		if err := s.isHostViableForMigration(targetHost, kernelReplica); err != nil {
-			return err
-		}
-	}
-
-	dataDirectory, err := s.issuePrepareToMigrateRequest(kernelReplica, originalHost)
-	if err != nil {
-		s.log.Error("Failed to issue 'prepare-to-migrate' request to replica %d of kernel %s: %v",
-			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-		return err
-	}
-
-	err = s.RemoveReplicaFromHost(kernelReplica)
-	if err != nil {
-		s.log.Error("Failed to remove replica %d of kernel %s from its current host: %v",
-			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-		return err
-	}
-
-	return nil
+// postScheduleKernelReplica is called immediately after ScheduleKernelReplica is called.
+func (s *DockerScheduler) postScheduleKernelReplica(_ string, _ *AddReplicaOperation) {
+	// no-op
 }
 
 // RemoveReplicaFromHost removes the specified replica from its Host.

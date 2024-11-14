@@ -39,6 +39,16 @@ func (e *ErrorDuringScheduling) String() string {
 	return e.Error()
 }
 
+type clusterSchedulerInternal interface {
+	ClusterScheduler
+
+	// addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
+	addReplicaSetup(kernelId string, addReplicaOp *AddReplicaOperation)
+
+	// postScheduleKernelReplica is called immediately after ScheduleKernelReplica is called.
+	postScheduleKernelReplica(kernelId string, addReplicaOp *AddReplicaOperation)
+}
+
 // ClusterScheduler defines the interface of a scheduler for the Cluster.
 //
 // The scheduler is ultimately responsible for deciding where to schedule kernel replicas, when and where to migrate
@@ -53,7 +63,7 @@ type ClusterScheduler interface {
 
 	// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
 	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
-	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) error
+	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) (*proto.MigrateKernelResponse, error)
 
 	// UpdateRatio updates the Cluster's subscription ratio.
 	// UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.

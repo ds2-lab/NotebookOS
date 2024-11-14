@@ -702,7 +702,7 @@ func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelRep
 }
 
 // RemoveReplicaByID removes a kernel peer from the kernel by replica ID.
-func (c *DistributedKernelClient) RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (*scheduling.Host, error) {
+func (c *DistributedKernelClient) RemoveReplicaByID(id int32, remover scheduling.ReplicaRemover, noop bool) (*scheduling.Host, error) {
 	c.mu.RLock()
 	// var replica scheduling.KernelReplica
 	// if id <= int32(len(c.replicas)) {
@@ -976,7 +976,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 		responseReceivedWg.Add(1)
 
 		numResponsesExpected += 1
-		go func(targetReplica scheduling.Kernel) {
+		go func(targetReplica scheduling.KernelReplica) {
 			var jupyterMessage *types.JupyterMessage
 			if c.debugMode {
 				jupyterMessage = jMsg.Clone()
@@ -1073,7 +1073,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 }
 
 // Shutdown releases all replicas and closes the session.
-func (c *DistributedKernelClient) Shutdown(remover ReplicaRemover, restart bool) error {
+func (c *DistributedKernelClient) Shutdown(remover scheduling.ReplicaRemover, restart bool) error {
 	c.log.Debug("Shutting down Kernel %s.", c.id)
 	c.mu.RLock()
 
@@ -1093,10 +1093,10 @@ func (c *DistributedKernelClient) Shutdown(remover ReplicaRemover, restart bool)
 			continue
 		}
 
-		go func(replica scheduling.Kernel) {
+		go func(replica scheduling.KernelReplica) {
 			defer stopped.Done()
 
-			if host, err := c.stopReplicaLocked(replica.(*KernelReplicaClient), remover, false); err != nil {
+			if host, err := c.stopReplicaLocked(replica, remover, false); err != nil {
 				c.log.Warn("Failed to stop %v on host %v: %v", replica, host, err)
 				return
 			} else {
@@ -1159,7 +1159,7 @@ func (c *DistributedKernelClient) WaitClosed() types.KernelStatus {
 	return c.status
 }
 
-func (c *DistributedKernelClient) stopReplicaLocked(r scheduling.KernelReplica, remover ReplicaRemover, noop bool) (*scheduling.Host, error) {
+func (c *DistributedKernelClient) stopReplicaLocked(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (*scheduling.Host, error) {
 	c.log.Debug("Stopping replica %d of kernel %s now.", r.ReplicaID(), r.ID())
 	host := r.Context().Value(CtxKernelHost).(*scheduling.Host)
 	if err := remover(host, c.session, noop); err != nil {
@@ -1489,9 +1489,9 @@ func (c *DistributedKernelClient) pubIOMessage(msg *types.JupyterMessage, status
 				continue
 			}
 
-			status, msg := replica.(*KernelReplicaClient).BusyStatus()
+			status, msg := replica.BusyStatus()
 			if status == types.MessageKernelStatusIdle {
-				c.busyStatus.Reduce(replica.(*KernelReplicaClient).ReplicaID(), types.MessageKernelStatusIdle, msg, c.pubIOMessage)
+				c.busyStatus.Reduce(replica.ReplicaID(), types.MessageKernelStatusIdle, msg, c.pubIOMessage)
 			}
 		}
 	}

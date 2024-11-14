@@ -516,7 +516,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.containerEventHandler = clusterGateway.kubeClient
 
 			clusterGateway.cluster = scheduling.NewKubernetesCluster(clusterGateway.kubeClient, clusterGateway.hostSpec,
-				clusterGateway, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+				clusterGateway, clusterGateway, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 
 			break
 		}
