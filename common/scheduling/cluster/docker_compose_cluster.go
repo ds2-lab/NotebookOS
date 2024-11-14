@@ -3,7 +3,6 @@ package cluster
 import (
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/placer"
@@ -31,7 +30,7 @@ type DockerComposeCluster struct {
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
 func NewDockerComposeCluster(hostSpec types.Spec, hostMapper HostMapper, kernelProvider KernelProvider,
-	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *DockerComposeCluster {
+	clusterMetricsProvider scheduling.MetricsProvider, opts *scheduling.Options) *DockerComposeCluster {
 
 	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerComposeCluster")
 
@@ -40,20 +39,20 @@ func NewDockerComposeCluster(hostSpec types.Spec, hostMapper HostMapper, kernelP
 		DisabledHosts: hashmap.NewConcurrentMap[*entity.Host](256),
 	}
 
-	randomPlacer, err := placer.NewRandomPlacer(dockerCluster, opts)
+	randomPlacer, err := placer.NewRandomPlacer(dockerCluster, opts.NumReplicas)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Random Placer: %v", err)
 		panic(err)
 	}
 	dockerCluster.placer = randomPlacer
 
-	scheduler, err := NewDockerScheduler(dockerCluster, randomPlacer, hostMapper, hostSpec, kernelProvider, opts)
+	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, randomPlacer, hostMapper, hostSpec, kernelProvider, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Docker Compose Scheduler: %v", err)
 		panic(err)
 	}
 
-	dockerCluster.scheduler = scheduler
+	dockerCluster.scheduler = dockerScheduler
 	baseCluster.instance = dockerCluster
 
 	return dockerCluster
@@ -108,8 +107,8 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 
 	c.onHostRemoved(host)
 
-	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumDisabledHostsGauge() != nil {
-		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Add(1)
+	if c.metricsProvider != nil && c.metricsProvider.GetNumDisabledHostsGauge() != nil {
+		c.metricsProvider.GetNumDisabledHostsGauge().Add(1)
 	}
 
 	return nil
@@ -144,8 +143,8 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 	}
 	c.hosts.Store(id, disabledHost)
 
-	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumDisabledHostsGauge() != nil {
-		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Sub(1)
+	if c.metricsProvider != nil && c.metricsProvider.GetNumDisabledHostsGauge() != nil {
+		c.metricsProvider.GetNumDisabledHostsGauge().Sub(1)
 	}
 
 	return nil
@@ -154,7 +153,7 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
 //
 // Important: this should be called with the Cluster's hostMutex already acquired.
-func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func() {
+func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func() {
 	return func() {
 		currentScale := c.Len()
 		numNewNodesRequired := targetScale - int32(currentScale)
@@ -295,7 +294,7 @@ func (c *DockerComposeCluster) unsafeGetTargetedScaleInCommand(targetScale int32
 // a docker compose service.
 //
 // Important: this should be called with the Cluster's hostMutex already acquired.
-func (c *DockerComposeCluster) getScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+func (c *DockerComposeCluster) GetScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
 	if len(targetHosts) > 0 {
 		return c.unsafeGetTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
 	}

@@ -51,8 +51,8 @@ type BaseCluster struct {
 	// gpusPerHost is the number of GPUs available on each host.
 	gpusPerHost int
 
-	// scheduler is the ClusterScheduler for the Cluster.
-	scheduler ClusterScheduler
+	// scheduler is the scheduling.Scheduler for the Cluster.
+	scheduler scheduling.Scheduler
 
 	// placer is the Placer for the Cluster.
 	placer scheduling.Placer
@@ -72,8 +72,8 @@ type BaseCluster struct {
 	// It must be at least equal to the number of replicas per kernel, and it cannot be smaller than the minimum capacity.
 	maximumCapacity int32
 
-	// clusterMetricsProvider provides access to Prometheus metrics (for publishing purposes).
-	clusterMetricsProvider metrics.ClusterMetricsProvider
+	// metricsProvider provides access to Prometheus metrics (for publishing purposes).
+	metricsProvider scheduling.MetricsProvider
 
 	// scalingOpMutex controls access to the currently active scaling operation.
 	// scalingOpMutex is also used as the sync.Locker for the scaleOperationCond.
@@ -89,16 +89,16 @@ type BaseCluster struct {
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
 // This function is for package-internal or file-internal use only.
-func newBaseCluster(opts *ClusterSchedulerOptions, clusterMetricsProvider metrics.ClusterMetricsProvider, loggerPrefix string) *BaseCluster {
+func newBaseCluster(opts *scheduling.Options, clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string) *BaseCluster {
 	cluster := &BaseCluster{
-		gpusPerHost:              opts.GpusPerHost,
-		numReplicas:              opts.NumReplicas,
-		numReplicasDecimal:       decimal.NewFromInt(int64(opts.NumReplicas)),
-		clusterMetricsProvider:   clusterMetricsProvider,
+		gpusPerHost:              opts.GetGpusPerHost(),
+		numReplicas:              opts.GetNumReplicas(),
+		numReplicasDecimal:       decimal.NewFromInt(int64(opts.GetNumReplicas())),
+		metricsProvider:          clusterMetricsProvider,
 		hosts:                    hashmap.NewConcurrentMap[*entity.Host](256),
 		sessions:                 hashmap.NewCornelkMap[string, scheduling.UserSession](128),
 		indexes:                  hashmap.NewSyncMap[string, IndexProvider](),
-		validateCapacityInterval: time.Second * time.Duration(opts.ScalingInterval),
+		validateCapacityInterval: time.Second * time.Duration(opts.GetScalingInterval()),
 		DisabledHosts:            hashmap.NewConcurrentMap[*entity.Host](256),
 		numFailedScaleInOps:      0,
 		numFailedScaleOutOps:     0,
@@ -230,13 +230,13 @@ func (c *BaseCluster) NumReplicasAsDecimal() decimal.Decimal {
 // the given ratio and the Cluster's current subscription ratio.
 //
 // Cluster's GetOversubscriptionFactor simply calls the GetOversubscriptionFactor method of the
-// Cluster's ClusterScheduler.
+// Cluster's Scheduler.
 func (c *BaseCluster) GetOversubscriptionFactor(ratio decimal.Decimal) decimal.Decimal {
 	return c.scheduler.GetOversubscriptionFactor(ratio)
 }
 
 func (c *BaseCluster) SubscriptionRatio() float64 {
-	return c.ClusterScheduler().SubscriptionRatio()
+	return c.Scheduler().SubscriptionRatio()
 }
 
 // Placer returns the Placer used by the Cluster.
@@ -256,8 +256,8 @@ func (c *BaseCluster) ReadUnlockHosts() {
 	c.hostMutex.RUnlock()
 }
 
-// ClusterScheduler returns the ClusterScheduler used by the Cluster.
-func (c *BaseCluster) ClusterScheduler() ClusterScheduler {
+// Scheduler returns the Scheduler used by the Cluster.
+func (c *BaseCluster) Scheduler() scheduling.Scheduler {
 	return c.scheduler
 }
 
@@ -325,8 +325,8 @@ func (c *BaseCluster) onDisabledHostAdded(host *entity.Host) error {
 
 	c.DisabledHosts.Store(host.ID, host)
 
-	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumDisabledHostsGauge() != nil {
-		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Add(1)
+	if c.metricsProvider != nil && c.metricsProvider.GetNumDisabledHostsGauge() != nil {
+		c.metricsProvider.GetNumDisabledHostsGauge().Add(1)
 	}
 
 	return nil
@@ -350,8 +350,8 @@ func (c *BaseCluster) onHostAdded(host *entity.Host) {
 
 	c.unsafeCheckIfScaleOperationIsComplete(host)
 
-	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumHostsGauge() != nil {
-		c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+	if c.metricsProvider != nil && c.metricsProvider.GetNumHostsGauge() != nil {
+		c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 	}
 }
 
@@ -368,8 +368,8 @@ func (c *BaseCluster) onHostRemoved(host *entity.Host) {
 	defer c.scalingOpMutex.Unlock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)
 
-	if c.clusterMetricsProvider != nil && c.clusterMetricsProvider.GetNumHostsGauge() != nil {
-		c.clusterMetricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+	if c.metricsProvider != nil && c.metricsProvider.GetNumHostsGauge() != nil {
+		c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 	}
 }
 
@@ -780,9 +780,9 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 	return c.ReleaseHosts(ctx, currentNumNodes-targetNumNodes)
 }
 
-// ClusterMetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
-func (c *BaseCluster) ClusterMetricsProvider() metrics.ClusterMetricsProvider {
-	return c.clusterMetricsProvider
+// MetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
+func (c *BaseCluster) MetricsProvider() metrics.ClusterMetricsProvider {
+	return c.metricsProvider
 }
 
 // NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
@@ -829,8 +829,8 @@ func (c *BaseCluster) GetHost(hostId string) (*entity.Host, bool) {
 // targetNumNodes specifies the desired size of the Cluster.
 //
 // resultChan is used to notify a waiting goroutine that the scale-out operation has finished.
-func (c *BaseCluster) getScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
-	return c.instance.getScaleOutCommand(targetNumNodes, resultChan)
+func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
+	return c.instance.GetScaleOutCommand(targetNumNodes, resultChan)
 }
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
@@ -842,8 +842,8 @@ func (c *BaseCluster) getScaleOutCommand(targetNumNodes int32, resultChan chan i
 // targetHosts specifies any specific hosts that are to be removed.
 //
 // resultChan is used to notify a waiting goroutine that the scale-in operation has finished.
-func (c *BaseCluster) getScaleInCommand(targetNumNodes int32, targetHosts []string, resultChan chan interface{}) (func(), error) {
-	return c.instance.getScaleInCommand(targetNumNodes, targetHosts, resultChan)
+func (c *BaseCluster) GetScaleInCommand(targetNumNodes int32, targetHosts []string, resultChan chan interface{}) (func(), error) {
+	return c.instance.GetScaleInCommand(targetNumNodes, targetHosts, resultChan)
 }
 
 // NodeType returns the type of node provisioned within the Cluster.

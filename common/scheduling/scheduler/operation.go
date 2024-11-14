@@ -3,6 +3,7 @@ package scheduler
 import (
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 type AddReplicaOperation struct {
 	id                    string                               // Unique identifier of the add operation.
 	kernelId              string                               // ID of the kernel for which a replica is being added.
-	client                Kernel                               // distributedKernelClientImpl of the kernel for which we're migrating a replica.
+	client                scheduling.Kernel                    // distributedKernelClientImpl of the kernel for which we're migrating a replica.
 	smrNodeId             int32                                // The SMR Node ID of the replica that is being added.
 	podOrContainerStarted bool                                 // True if a new Pod has been started for the replica that is being added. Otherwise, false.
 	replicaJoinedSMR      bool                                 // True if the new replica has joined the SMR cluster. Otherwise, false.
@@ -31,7 +32,7 @@ type AddReplicaOperation struct {
 	replicaJoinedSmrChannel      chan struct{} // Used to notify that the new replica has joined its SMR cluster.
 }
 
-func NewAddReplicaOperation(client Kernel, spec *proto.KernelReplicaSpec, dataDirectory string) *AddReplicaOperation {
+func NewAddReplicaOperation(client scheduling.Kernel, spec *proto.KernelReplicaSpec, dataDirectory string) *AddReplicaOperation {
 	op := &AddReplicaOperation{
 		id:                           uuid.New().String(),
 		client:                       client,
@@ -114,7 +115,7 @@ func (op *AddReplicaOperation) OperationID() string {
 }
 
 // Kernel returns the *client.DistributedKernelClient of the kernel for which we're migrating a replica.
-func (op *AddReplicaOperation) Kernel() Kernel {
+func (op *AddReplicaOperation) Kernel() scheduling.Kernel {
 	return op.client
 }
 

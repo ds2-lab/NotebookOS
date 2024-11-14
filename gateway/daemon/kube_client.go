@@ -377,7 +377,7 @@ func (c *BasicKubeClient) PodUpdated(oldObj interface{}, newObj interface{}) {
 // }
 
 // KubeClientset returns the Kubernetes client.
-func (c *BasicKubeClient) KubeClientset() *kubernetes.Clientset {
+func (c *BasicKubeClient) Clientset() *kubernetes.Clientset {
 	return c.kubeClientset
 }
 

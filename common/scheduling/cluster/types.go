@@ -2,7 +2,6 @@ package cluster
 
 import (
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/scheduler"
 	"google.golang.org/grpc/codes"
@@ -31,7 +30,7 @@ type internalCluster interface {
 	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
 	//
 	// IMPORTANT: this method should be called while the hostMutex is already held.
-	getScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func()
+	GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func()
 
 	// GetScaleInCommand returns the function to be executed to perform a scale-in.
 	// This API exists so each platform-specific Cluster implementation can provide its own platform-specific
@@ -47,7 +46,7 @@ type internalCluster interface {
 	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
 	//
 	// IMPORTANT: this method should be called while the hostMutex is already held.
-	getScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error)
+	GetScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error)
 
 	// RegisterScaleOperation registers a non-specific type of ScaleOperation.
 	// Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation
@@ -72,7 +71,4 @@ type internalCluster interface {
 	// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
 	// it is currently not supported unless there is at least one disabled host already within the cluster.
 	canPossiblyScaleOut() bool
-
-	// ClusterMetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
-	ClusterMetricsProvider() metrics.ClusterMetricsProvider
 }

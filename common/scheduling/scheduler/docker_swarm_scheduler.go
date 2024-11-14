@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"google.golang.org/grpc/connectivity"
 	"net"
@@ -46,7 +48,7 @@ func checkIfPortIsAvailable(port int32) bool {
 	return true    // Port is available
 }
 
-func NewDockerScheduler(cluster ClusterInternal, placer Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *Options) (*DockerScheduler, error) {
+func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *scheduling.Options) (*DockerScheduler, error) {
 	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider, opts)
 
 	dockerScheduler := &DockerScheduler{
@@ -72,7 +74,7 @@ func NewDockerScheduler(cluster ClusterInternal, placer Placer, hostMapper HostM
 //
 // selectViableHostForReplica searches for a viable training host and, if one is found, then that host is returned.
 // Otherwise, an error is returned.
-func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []*Host) (*Host, error) {
+func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []*entity.Host) (*entity.Host, error) {
 	kernelId := replicaSpec.ID()
 
 	blacklist := make([]interface{}, 0)
@@ -97,7 +99,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 
 	host := s.placer.FindHost(blacklist, replicaSpec.FullSpecFromKernelReplicaSpec())
 	if host == nil {
-		return nil, ErrInsufficientHostsAvailable
+		return nil, scheduling.ErrInsufficientHostsAvailable
 	}
 
 	s.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.",
@@ -116,7 +118,7 @@ func (s *DockerScheduler) postScheduleKernelReplica(_ string, _ *AddReplicaOpera
 }
 
 // RemoveReplicaFromHost removes the specified replica from its Host.
-func (s *DockerScheduler) RemoveReplicaFromHost(kernelReplica KernelReplica) error {
+func (s *DockerScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelReplica) error {
 	if kernelReplica == nil {
 		return ErrNilKernelReplica
 	}
@@ -142,8 +144,8 @@ func (s *DockerScheduler) RemoveReplicaFromHost(kernelReplica KernelReplica) err
 
 // ScheduleKernelReplica schedules a particular replica onto the given Host.
 //
-// If targetHost is nil, then a candidate Host is identified automatically by the ClusterScheduler.
-func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost *Host, blacklistedHosts []*Host) (err error) {
+// If targetHost is nil, then a candidate Host is identified automatically by the Scheduler.
+func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost *entity.Host, blacklistedHosts []*entity.Host) (err error) {
 	kernelId := replicaSpec.Kernel.Id // We'll use this a lot.
 
 	if targetHost == nil {
@@ -181,14 +183,14 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 	return nil
 }
 
-// scheduleKernelReplicas schedules a replica of the specified kernel on each Host within the given slice of *Host.
+// scheduleKernelReplicas schedules a replica of the specified kernel on each Host within the given slice of *entity.Host.
 // Specifically, scheduleKernelReplicas calls ScheduleKernelReplica for each of the Host instances within the given
 // slice of Hosts in a separate goroutine, thereby scheduling a replica of the given kernel on the Host. That is, the
 // scheduling of a replica of the kernel occurs in a unique goroutine for each of the specified Host instances.
 //
 // scheduleKernelReplicas returns a <-chan interface{} used to notify the caller when the scheduling operations
 // have completed.
-func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*Host, blacklistedHosts []*Host) <-chan *schedulingNotification {
+func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*entity.Host, blacklistedHosts []*entity.Host) <-chan *schedulingNotification {
 	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
 	// or errors that occurred when launching a replica.
 	resultChan := make(chan *schedulingNotification, 3)
@@ -196,7 +198,7 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 	// For each host, launch a Docker replica on that host.
 	for i, host := range hosts {
 		// Launch replicas in parallel.
-		go func(replicaId int32, targetHost *Host) {
+		go func(replicaId int32, targetHost *entity.Host) {
 			replicaSpec := &proto.KernelReplicaSpec{
 				Kernel:                    in,
 				ReplicaId:                 replicaId,
@@ -236,7 +238,7 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 }
 
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*Host) error {
+func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*entity.Host) error {
 	st := time.Now()
 
 	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.",
@@ -339,7 +341,7 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 						in.Id, time.Since(st), responsesRequired)
 				}
 
-				return &ErrorDuringScheduling{
+				return &scheduling.ErrorDuringScheduling{
 					UnderlyingError:           err,
 					HostsWithOrphanedReplicas: hostsWithOrphanedReplica,
 					ScheduledReplicaIDs:       replicasScheduled,
@@ -387,8 +389,8 @@ func (s *DockerScheduler) pollForResourceData() {
 		// So, if we last synchronized 16 min ago, then ts is equal to whatever time it was 4 min ago.
 		ts := time.Now().Add(-1 * time.Duration(float64(timeSinceLastSync)*0.25))
 
-		hosts := make([]*Host, 0, s.cluster.Len())
-		s.cluster.RangeOverHosts(func(_ string, host *Host) (contd bool) {
+		hosts := make([]*entity.Host, 0, s.cluster.Len())
+		s.cluster.RangeOverHosts(func(_ string, host *entity.Host) (contd bool) {
 			// If we've not synchronized this host within the last <interval of time since last sync> / 4,
 			// then we'll synchronize it again now.
 			//
@@ -455,8 +457,8 @@ func (s *DockerScheduler) pollForResourceData() {
 // If there are multiple failures, then their associated errors will be joined together via errors.Join(...).
 func (s *DockerScheduler) refreshClusterNodes() error {
 	s.cluster.ReadLockHosts()
-	hosts := make([]*Host, 0, s.cluster.Len())
-	s.cluster.RangeOverHosts(func(_ string, host *Host) (contd bool) {
+	hosts := make([]*entity.Host, 0, s.cluster.Len())
+	s.cluster.RangeOverHosts(func(_ string, host *entity.Host) (contd bool) {
 		hosts = append(hosts, host)
 		return true
 	})

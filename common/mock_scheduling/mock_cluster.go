@@ -478,7 +478,7 @@ func (mr *MockClusterInternalMockRecorder) BusyGPUs() *gomock.Call {
 // ClusterMetricsProvider mocks base method.
 func (m *MockClusterInternal) ClusterMetricsProvider() metrics.ClusterMetricsProvider {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClusterMetricsProvider")
+	ret := m.ctrl.Call(m, "MetricsProvider")
 	ret0, _ := ret[0].(metrics.ClusterMetricsProvider)
 	return ret0
 }
@@ -486,13 +486,13 @@ func (m *MockClusterInternal) ClusterMetricsProvider() metrics.ClusterMetricsPro
 // ClusterMetricsProvider indicates an expected call of ClusterMetricsProvider.
 func (mr *MockClusterInternalMockRecorder) ClusterMetricsProvider() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterMetricsProvider", reflect.TypeOf((*MockClusterInternal)(nil).ClusterMetricsProvider))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MetricsProvider", reflect.TypeOf((*MockClusterInternal)(nil).ClusterMetricsProvider))
 }
 
 // ClusterScheduler mocks base method.
 func (m *MockClusterInternal) ClusterScheduler() scheduling.ClusterScheduler {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClusterScheduler")
+	ret := m.ctrl.Call(m, "Scheduler")
 	ret0, _ := ret[0].(scheduling.ClusterScheduler)
 	return ret0
 }
@@ -500,7 +500,7 @@ func (m *MockClusterInternal) ClusterScheduler() scheduling.ClusterScheduler {
 // ClusterScheduler indicates an expected call of ClusterScheduler.
 func (mr *MockClusterInternalMockRecorder) ClusterScheduler() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterScheduler", reflect.TypeOf((*MockClusterInternal)(nil).ClusterScheduler))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scheduler", reflect.TypeOf((*MockClusterInternal)(nil).ClusterScheduler))
 }
 
 // DemandGPUs mocks base method.
@@ -1100,7 +1100,7 @@ func (mr *MockClusterMockRecorder) BusyGPUs() *gomock.Call {
 // ClusterScheduler mocks base method.
 func (m *MockCluster) ClusterScheduler() scheduling.ClusterScheduler {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ClusterScheduler")
+	ret := m.ctrl.Call(m, "Scheduler")
 	ret0, _ := ret[0].(scheduling.ClusterScheduler)
 	return ret0
 }
@@ -1108,7 +1108,7 @@ func (m *MockCluster) ClusterScheduler() scheduling.ClusterScheduler {
 // ClusterScheduler indicates an expected call of ClusterScheduler.
 func (mr *MockClusterMockRecorder) ClusterScheduler() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterScheduler", reflect.TypeOf((*MockCluster)(nil).ClusterScheduler))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scheduler", reflect.TypeOf((*MockCluster)(nil).ClusterScheduler))
 }
 
 // DemandGPUs mocks base method.

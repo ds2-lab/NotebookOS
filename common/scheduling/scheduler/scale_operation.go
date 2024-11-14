@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"log"
 	"math"
@@ -195,7 +196,7 @@ type ScaleOperation struct {
 	Result                   ScaleOperationResult `json:"result"`
 	NotificationChan         chan struct{}        `json:"-"`
 	CoreLogicDoneChan        chan interface{}     `json:"-"`
-	Cluster                  Cluster              `json:"-"`
+	Cluster                  scheduling.Cluster   `json:"-"`
 
 	// cond exists so that goroutines can wait for the scale operation to complete.
 	cond   *sync.Cond
@@ -236,7 +237,7 @@ func getScaleOperationType(initialScale int32, targetScale int32) ScaleOperation
 // For now, the difference between the initial (current) scale and the target scale must equal the number of target
 // Host IDs that are specified. That is, the caller cannot request a scale-in of (e.g.,) 10 hosts, while only explicitly
 // specifying 5 Host IDs (with the idea that the Cluster would automatically select another 5 Host instances to remove).
-func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, targetHosts []string, cluster Cluster) (*ScaleOperation, error) {
+func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, targetHosts []string, cluster scheduling.Cluster) (*ScaleOperation, error) {
 	// There should be at least one target Host specified.
 	if len(targetHosts) == 0 {
 		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: current scale and initial scale are equal (no target hosts specified)", ErrInvalidTargetScale).Error())
@@ -296,7 +297,7 @@ func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, 
 // Specifically, a tuple is returned, where the first element is a pointer to a new ScaleOperation struct, and
 // the second element is an error, if one occurred. If an error did occur, then the pointer to the ScaleOperation
 // struct will presumably be a null pointer.
-func NewScaleOperation(operationId string, initialScale int32, targetScale int32, cluster Cluster) (*ScaleOperation, error) {
+func NewScaleOperation(operationId string, initialScale int32, targetScale int32, cluster scheduling.Cluster) (*ScaleOperation, error) {
 	if targetScale == initialScale {
 		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: current scale and initial scale are equal (%d)", ErrInvalidTargetScale, targetScale).Error())
 	}

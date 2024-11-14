@@ -183,8 +183,8 @@ type Host struct {
 	conn                           *grpc.ClientConn                     // conn is the gRPC connection to the Host.
 	Addr                           string                               // Addr is the Host's address.
 	NodeName                       string                               // NodeName is the Host's name (for printing/logging).
-	Cluster                        Cluster                              // Cluster is a reference to the Cluster interface that manages this Host.
-	metricsProvider                metrics.ClusterMetricsProvider       // Provides access to metrics relevant to the Host.
+	Cluster                        schedulnig.Cluster                   // Cluster is a reference to the Cluster interface that manages this Host.
+	metricsProvider                scheduling.MetricsProvider           // Provides access to metrics relevant to the Host.
 	ID                             string                               // ID is the unique ID of this host.
 	containers                     hashmap.HashMap[string, *Container]  // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
 	reservations                   hashmap.HashMap[string, time.Time]   // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
@@ -357,8 +357,8 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 }
 
 // NewHostWithConn creates and returns a new *Host.
-func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, cluster Cluster,
-	metricsProvider metrics.ClusterMetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
+func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, cluster scheduling.Cluster,
+	metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn, errorCallback ErrorCallback) (*Host, error) {
 
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
@@ -402,6 +402,10 @@ func (h *Host) ExcludeFromScheduling() bool {
 	h.log.Debug("Host %s (ID=%s) is now precluded from being considered for scheduling.", h.NodeName, h.ID)
 	h.excludedFromScheduling = true
 	return true
+}
+
+func (h *Host) Containers() hashmap.HashMap[string, *Container] {
+	return h.containers
 }
 
 // IncludeForScheduling designates the target Host as being able to be considered in scheduling operations.

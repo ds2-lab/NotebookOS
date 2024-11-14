@@ -8,6 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/resource"
 	"log"
 	"math/rand"
@@ -106,12 +107,12 @@ type ClusterGateway interface {
 
 	SetDistributedClientProvider(provider client.DistributedClientProvider)
 
-	SetClusterOptions(*scheduling.ClusterSchedulerOptions)
+	SetClusterOptions(*scheduling.Options)
 
 	ConnectionOptions() *jupyter.ConnectionInfo
 
-	// ClusterScheduler returns the associated ClusterScheduler.
-	ClusterScheduler() scheduling.ClusterScheduler
+	// Scheduler returns the associated Scheduler.
+	Scheduler() scheduling.Scheduler
 
 	// GetClusterActualGpuInfo returns the current GPU resource metrics on the node.
 	GetClusterActualGpuInfo(ctx context.Context, in *proto.Void) (*proto.ClusterActualGpuInfo, error)
@@ -129,7 +130,7 @@ type ClusterGateway interface {
 	DockerComposeMode() bool
 
 	// GetHostsOfKernel returns the Host instances on which replicas of the specified kernel are scheduled.
-	GetHostsOfKernel(kernelId string) ([]*scheduling.Host, error)
+	GetHostsOfKernel(kernelId string) ([]*entity.Host, error)
 
 	// GetId returns the ID of the ClusterGateway.
 	GetId() string
@@ -979,7 +980,7 @@ func (d *ClusterGatewayImpl) Addr() net.Addr {
 
 // ClusterScheduler returns the associated ClusterGateway.
 func (d *ClusterGatewayImpl) ClusterScheduler() scheduling.ClusterScheduler {
-	return d.cluster.ClusterScheduler()
+	return d.cluster.Scheduler()
 }
 
 func (d *ClusterGatewayImpl) SetID(_ context.Context, _ *proto.HostId) (*proto.HostId, error) {
@@ -1510,7 +1511,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	d.log.Debug("Created and stored new DistributedKernel %s.", in.Id)
 
-	err = d.cluster.ClusterScheduler().DeployNewKernel(ctx, in, []*scheduling.Host{ /* No blacklisted hosts */ })
+	err = d.cluster.Scheduler().DeployNewKernel(ctx, in, []*scheduling.Host{ /* No blacklisted hosts */ })
 	if err != nil {
 		d.log.Error("Error while deploying infrastructure for new kernel %s's: %v", in.Id, err)
 		return nil, status.Error(codes.Internal, err.Error())
@@ -2369,7 +2370,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 	replicaInfo := in.TargetReplica
 	targetNodeId := in.GetTargetNodeId()
 
-	resp, err := d.cluster.ClusterScheduler().MigrateKernelReplica(nil, targetNodeId, true)
+	resp, err := d.cluster.Scheduler().MigrateKernelReplica(nil, targetNodeId, true)
 
 	duration := time.Since(startTime)
 	if err != nil {
@@ -2402,7 +2403,7 @@ func (d *ClusterGatewayImpl) Start() error {
 
 	if d.KubernetesMode() {
 		// Start the HTTP Kubernetes Scheduler service.
-		go d.cluster.ClusterScheduler().(scheduling.KubernetesClusterScheduler).StartHttpKubernetesSchedulerService()
+		go d.cluster.Scheduler().(scheduling.KubernetesClusterScheduler).StartHttpKubernetesSchedulerService()
 	}
 
 	// Start the router. The call will return on error or router.Close() is called.

@@ -3,8 +3,10 @@ package scheduling
 import (
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/shopspring/decimal"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/cluster"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/scheduler"
+	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"golang.org/x/net/context"
 )
 
@@ -25,7 +27,7 @@ type Cluster interface {
 
 	// GetIndex returns the IndexProvider whose key is created with the given category and expected values.
 	// The category and expected values are returned by the IndexProvider.Category method.
-	GetIndex(category string, expected interface{}) (IndexProvider, bool)
+	GetIndex(category string, expected interface{}) (cluster.IndexProvider, bool)
 
 	// GetSession returns the Session with the specified ID.
 	//
@@ -55,7 +57,7 @@ type Cluster interface {
 	ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise
 
 	// AddIndex adds an index to the BaseCluster. For each category and expected value, there can be only one index.
-	AddIndex(index IndexProvider) error
+	AddIndex(index cluster.IndexProvider) error
 
 	// ActiveScaleOperation returns the active scaling operation, if one exists.
 	// If there is no active scaling operation, then ActiveScaleOperation returns nil.
@@ -94,8 +96,8 @@ type Cluster interface {
 	// NumScaleInOperationsFailed returns the number of scale-in operations that have failed.
 	NumScaleInOperationsFailed() int
 
-	// ClusterScheduler returns the ClusterScheduler used by the Cluster.
-	ClusterScheduler() ClusterScheduler
+	// Scheduler returns the Scheduler used by the Cluster.
+	Scheduler() Scheduler
 
 	// Placer returns the Placer used by the Cluster.
 	Placer() Placer

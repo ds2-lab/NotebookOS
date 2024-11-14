@@ -12,6 +12,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/container"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
@@ -24,17 +25,6 @@ const (
 	SchedulerInvalidationThreshold = 0.1
 )
 
-type aggregateGpuInfo struct {
-	*proto.ClusterActualGpuInfo
-
-	TotalSpecGPUs              int32 `json:"specGPUs,omitempty"`              // The total number of GPUs configured/present on this node.
-	TotalIdleGPUs              int32 `json:"idleGPUs,omitempty"`              // The number of GPUs that are uncommitted and therefore available on this node. This quantity is equal to specGPUs - committedGPUs.
-	TotalCommittedGPUs         int32 `json:"committedGPUs,omitempty"`         // The number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
-	TotalPendingGPUs           int32 `json:"pendingGPUs,omitempty"`           // The sum of the outstanding GPUs of all replicas scheduled onto this node. Pending GPUs are not allocated or committed to a particular replica yet. The time at which Resources are actually committed to a replica depends upon the policy being used. In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
-	TotalNumPendingAllocations int32 `json:"numPendingAllocations,omitempty"` // Number of individual allocations consisting of GPUs that have NOT been fully committed to a kernel.
-	TotalNumAllocations        int32 `json:"numAllocations,omitempty"`        // Number of individual allocations such that the GPUs have been committed to a container.
-}
-
 // schedulingNotification is a struct that is sent over a channel to notify the "main" goroutine handling the
 // scheduling of a new kernel that the scheduling of one of that kernel's replicas has completed successfully.
 type schedulingNotification struct {
@@ -43,7 +33,7 @@ type schedulingNotification struct {
 	SchedulingCompletedAt time.Time
 
 	// Host is the Host on which the kernel was scheduled (or attempted to be scheduled).
-	Host *Host
+	Host *entity.Host
 
 	// KernelId is the ID of the kernel for which a replica was scheduled.
 	KernelId string
@@ -60,7 +50,7 @@ type schedulingNotification struct {
 }
 
 type KernelProvider interface {
-	GetKernel(kernelId string) (Kernel, bool)
+	GetKernel(kernelId string) (scheduling.Kernel, bool)
 }
 
 type NotificationBroker interface {
@@ -69,9 +59,9 @@ type NotificationBroker interface {
 
 type BaseScheduler struct {
 	instance           clusterSchedulerInternal
-	cluster            ClusterInternal
+	cluster            scheduling.Cluster
 	hostMapper         HostMapper
-	placer             Placer
+	placer             scheduling.Placer
 	kernelProvider     KernelProvider
 	notificationBroker NotificationBroker
 
@@ -98,28 +88,28 @@ type BaseScheduler struct {
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
 	//-//-//-//-//-//-//-//-//-//
-	gpusPerHost                   float64       // The number of actual GPUs that are available for use on each node/host.
-	virtualGpusPerHost            int32         // The number of virtual GPUs per host.
-	scalingFactor                 float64       // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
-	maximumHostsToReleaseAtOnce   int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	scalingIntervalSec            int32         // How often to call UpdateRatio in seconds.
-	scalingInterval               time.Duration // How often to call UpdateRatio .
-	scalingLimit                  float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
-	canScaleIn                    bool          // Can the Cluster/Placer scale-in?
-	shouldUpdateRatio             bool          // Should the Placer update its subscription ratio?
-	predictiveAutoscalingEnabled  bool          // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
-	scalingBufferSize             int32         // How many extra hosts we provision so that we can quickly scale if needed.
-	minimumCapacity               int32         // The minimum number of nodes we must have available at any time.
-	maximumCapacity               int32         // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
-	opts                          *Options      // Configuration options.
-	hostSpec                      types.Spec    // The types.Spec used when creating new Host instances.
-	remoteSynchronizationInterval time.Duration // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
-	lastNodeRefreshTime           time.Time     // The time at which the nodes were last refreshed.
+	gpusPerHost                   float64             // The number of actual GPUs that are available for use on each node/host.
+	virtualGpusPerHost            int32               // The number of virtual GPUs per host.
+	scalingFactor                 float64             // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	maximumHostsToReleaseAtOnce   int32               // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	scalingIntervalSec            int32               // How often to call UpdateRatio in seconds.
+	scalingInterval               time.Duration       // How often to call UpdateRatio .
+	scalingLimit                  float64             // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
+	canScaleIn                    bool                // Can the Cluster/Placer scale-in?
+	shouldUpdateRatio             bool                // Should the Placer update its subscription ratio?
+	predictiveAutoscalingEnabled  bool                // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
+	scalingBufferSize             int32               // How many extra hosts we provision so that we can quickly scale if needed.
+	minimumCapacity               int32               // The minimum number of nodes we must have available at any time.
+	maximumCapacity               int32               // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+	opts                          *scheduling.Options // Configuration options.
+	hostSpec                      types.Spec          // The types.Spec used when creating new Host instances.
+	remoteSynchronizationInterval time.Duration       // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
+	lastNodeRefreshTime           time.Time           // The time at which the nodes were last refreshed.
 
 	// Watches for new Pods/Containers.
 	//
 	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
-	containerEventHandler ContainerWatcher
+	containerEventHandler scheduling.ContainerWatcher
 
 	oversubscribed  container.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
 	undersubscribed container.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
@@ -136,7 +126,7 @@ type BaseScheduler struct {
 	log logger.Logger
 }
 
-func NewBaseScheduler(cluster ClusterInternal, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *Options) *BaseScheduler {
+func NewBaseScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *scheduling.Options) *BaseScheduler {
 	clusterScheduler := &BaseScheduler{
 		cluster:                                  cluster,
 		hostMapper:                               hostMapper,
@@ -224,14 +214,14 @@ func (s *BaseScheduler) SubscriptionRatio() float64 {
 }
 
 // Placer returns the Placer used by the BaseScheduler.
-func (s *BaseScheduler) Placer() Placer {
+func (s *BaseScheduler) Placer() scheduling.Placer {
 	return s.placer
 }
 
 // TryGetCandidateHosts performs a single attempt/pass of searching for candidate Host instances.
 //
 // TryGetCandidateHosts is exported so that it can be unit tested.
-func (s *BaseScheduler) TryGetCandidateHosts(hosts []*Host, kernelSpec *proto.KernelSpec) []*Host {
+func (s *BaseScheduler) TryGetCandidateHosts(hosts []*entity.Host, kernelSpec *proto.KernelSpec) []*entity.Host {
 	s.candidateHostMutex.Lock()
 
 	// Identify the hosts onto which we will place replicas of the kernel.
@@ -251,7 +241,7 @@ func (s *BaseScheduler) TryGetCandidateHosts(hosts []*Host, kernelSpec *proto.Ke
 	return hosts
 }
 
-// GetCandidateHosts returns a slice of *Host containing Host instances that could serve
+// GetCandidateHosts returns a slice of *entity.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
 // GetCandidateHosts will automatically request that new Host instances be provisioned and added to the Cluster
@@ -262,12 +252,12 @@ func (s *BaseScheduler) TryGetCandidateHosts(hosts []*Host, kernelSpec *proto.Ke
 // The size of the returned slice will be equal to the configured number of replicas for each kernel (usually 3).
 //
 // This function is NOT idempotent. This locks the Hosts that are returned.
-func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error) {
+func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*entity.Host, error) {
 	var (
 		numTries    = 0
 		maxAttempts = 3
 		bestAttempt = -1
-		hosts       []*Host
+		hosts       []*entity.Host
 	)
 	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {
 		hosts = s.TryGetCandidateHosts(hosts, kernelSpec)
@@ -317,18 +307,18 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		}
 
 		return nil, fmt.Errorf("%w: could only find at-most %d/%d required hosts to serve replicas of kernel %s",
-			ErrInsufficientHostsAvailable, bestAttempt, s.opts.NumReplicas, kernelSpec.Id)
+			scheduling.ErrInsufficientHostsAvailable, bestAttempt, s.opts.NumReplicas, kernelSpec.Id)
 	}
 
 	return hosts, nil
 }
 
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*Host) error {
+func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*entity.Host) error {
 	return s.instance.DeployNewKernel(ctx, in, blacklistedHosts)
 }
 
-// RemoteSynchronizationInterval returns the interval at which the ClusterScheduler synchronizes
+// RemoteSynchronizationInterval returns the interval at which the Scheduler synchronizes
 // the Host instances within the Cluster with their remote nodes.
 func (s *BaseScheduler) RemoteSynchronizationInterval() time.Duration {
 	return s.remoteSynchronizationInterval
@@ -366,7 +356,7 @@ func (s *BaseScheduler) RemoveHost(hostId string) error {
 }
 
 // RemoveReplicaFromHost removes the specified replica from its Host.
-func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica KernelReplica) error {
+func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelReplica) error {
 	return s.instance.RemoveReplicaFromHost(kernelReplica)
 }
 
@@ -379,7 +369,7 @@ func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica KernelReplica) error
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in HDFS.
-func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []*Host) (*AddReplicaOperation, error) {
+func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []*entity.Host) (*AddReplicaOperation, error) {
 	var kernelId = in.KernelId
 	var persistentId = in.PersistentId
 
@@ -427,7 +417,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 	// we cannot assume that we've not yet received the registration notification from the kernel, so all of
 	// our state needs to be set up BEFORE that call occurs.
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	err := s.cluster.ClusterScheduler().ScheduleKernelReplica(newReplicaSpec, nil, blacklistedHosts)
+	err := s.cluster.Scheduler().ScheduleKernelReplica(newReplicaSpec, nil, blacklistedHosts)
 	if err != nil {
 		return addReplicaOp, err
 	}
@@ -541,7 +531,7 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 
 // MigrateKernelReplica tries to migrate the given Kernel to another Host.
 // Flag indicates whether we're allowed to create a new host for the container (if necessary).
-func (s *BaseScheduler) MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) (*proto.MigrateKernelResponse, error) {
+func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, canCreateNewHost bool) (*proto.MigrateKernelResponse, error) {
 	if kernelReplica == nil {
 		s.log.Error("MigrateContainer received nil KernelReplica")
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, ErrNilKernelReplica
@@ -561,7 +551,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica KernelReplica, target
 	}
 
 	var (
-		targetHost *Host
+		targetHost *entity.Host
 		loaded     bool
 	)
 
@@ -575,7 +565,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica KernelReplica, target
 				targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId)
 			return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname},
 				fmt.Errorf("%w: cannot find specified target host %s for migration of replica %d of kernel %s",
-					ErrHostNotFound, targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID())
+					scheduling.ErrHostNotFound, targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID())
 		}
 
 		// Make sure that the Host doesn't already have the kernel replica to be migrated or another
@@ -610,7 +600,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica KernelReplica, target
 
 	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
 	opts := NewAddReplicaWaitOptions(true, true, true)
-	addReplicaOp, err := s.addReplica(replicaSpec, opts, dataDirectory, []*Host{originalHost})
+	addReplicaOp, err := s.addReplica(replicaSpec, opts, dataDirectory, []*entity.Host{originalHost})
 	if err != nil {
 		s.log.Error("Failed to add new replica %d to kernel %s: %v", kernelReplica.ReplicaID(), kernelReplica.ID(), err)
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
@@ -637,9 +627,9 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica KernelReplica, target
 // Likewise, this also checks that the specified Host has enough resourecs to serve the specified KernelReplica.
 //
 // If the Host is not viable, then an ErrHostNotViable error is returned.
-func (s *BaseScheduler) isHostViableForMigration(targetHost *Host, kernelReplica KernelReplica) error {
+func (s *BaseScheduler) isHostViableForMigration(targetHost *entity.Host, kernelReplica scheduling.KernelReplica) error {
 	if targetHost == nil {
-		return ErrNilHost
+		return scheduling.ErrNilHost
 	}
 
 	// If we were able to resolve the host, then let's also verify that the host doesn't already contain
@@ -651,7 +641,7 @@ func (s *BaseScheduler) isHostViableForMigration(targetHost *Host, kernelReplica
 			targetHost.ID, targetHost.ID, existingReplica.ReplicaID(), kernelReplica.ID())
 
 		return fmt.Errorf("%w: replica %d of kernel %s is already running on host %s",
-			ErrHostNotViable, existingReplica.ReplicaID(), kernelReplica.ID(), targetHost.ID)
+			scheduling.ErrHostNotViable, existingReplica.ReplicaID(), kernelReplica.ID(), targetHost.ID)
 	}
 
 	// Check that there are enough resources available.
@@ -659,7 +649,7 @@ func (s *BaseScheduler) isHostViableForMigration(targetHost *Host, kernelReplica
 	if !targetHost.ResourceSpec().Validate(kernelResourceSpec) {
 		s.log.Error("Cannot migrate replica %d of kernel %s to host %s, as host does not have sufficiently-many allocatable resources to accommodate the replica.",
 			kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.ID)
-		return fmt.Errorf("%w: host lacks sufficiently-many allocatable resourecs", ErrHostNotViable)
+		return fmt.Errorf("%w: host lacks sufficiently-many allocatable resourecs", scheduling.ErrHostNotViable)
 	}
 
 	return nil
@@ -670,17 +660,17 @@ func (s *BaseScheduler) isHostViableForMigration(targetHost *Host, kernelReplica
 // before writing the contents of its data directory to intermediate storage.
 //
 // Returns the path to the data directory in intermediate storage.
-func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica KernelReplica, originalHost *Host) (string, error) {
+func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.KernelReplica, originalHost *entity.Host) (string, error) {
 	// If the host is nil, then we'll attempt to retrieve it from the kernel itself.
 	if originalHost == nil {
 		kernelContainer := kernelReplica.Container()
 		if kernelContainer == nil {
-			return "", ErrNilHost // It's ultimately the host that we need.
+			return "", scheduling.ErrNilHost // It's ultimately the host that we need.
 		}
 
 		originalHost = kernelContainer.Host()
 		if originalHost == nil {
-			return "", ErrNilHost
+			return "", scheduling.ErrNilHost
 		}
 	}
 
@@ -711,7 +701,7 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica KernelReplica
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (s *BaseScheduler) ValidateCapacity() {
 	var load int32
-	s.cluster.RangeOverHosts(func(_ string, host *Host) bool {
+	s.cluster.RangeOverHosts(func(_ string, host *entity.Host) bool {
 		load += int32(host.CommittedGPUs())
 		return true
 	})
@@ -767,7 +757,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 				if numFailures > 3 {
 					s.log.Error("We've failed three times to provision a new host. Aborting automated operation.")
 					return
-				} else if errors.Is(err, ErrUnsupportedOperation) {
+				} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
 					s.log.Warn("Aborting scale-out operation as we lack sufficient disabled hosts to scale-out, and adding additional hosts directly is not supported by the current cluster type.")
 					return
 				} else {
@@ -826,7 +816,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 
 // designateSubscriptionPoolType places the specified Host into the specified scheduler pool (i.e., oversubscribed
 // or undersubscribed).
-func (s *BaseScheduler) designateSubscriptionPoolType(host *Host, pool heap.Interface, t SchedulerPoolType) {
+func (s *BaseScheduler) designateSubscriptionPoolType(host *entity.Host, pool heap.Interface, t scheduling.SchedulerPoolType) {
 	host.SetSchedulerPoolType(t)
 	heap.Push(pool, host)
 }
@@ -839,10 +829,10 @@ func (s *BaseScheduler) validate() {
 				s.lastSubscribedRatio, s.pendingSubscribedRatio)
 		}
 
-		for s.oversubscribed.Len() > 0 && s.oversubscribed.Peek().(*Host).OversubscriptionFactor().LessThan(decimal.Zero) {
+		for s.oversubscribed.Len() > 0 && s.oversubscribed.Peek().(*entity.Host).OversubscriptionFactor().LessThan(decimal.Zero) {
 			host := s.oversubscribed.Peek()
 			heap.Pop(&s.oversubscribed)
-			s.designateSubscriptionPoolType(host.(*Host), &s.undersubscribed, SchedulerPoolTypeUndersubscribed)
+			s.designateSubscriptionPoolType(host.(*entity.Host), &s.undersubscribed, scheduling.SchedulerPoolTypeUndersubscribed)
 		}
 
 		s.lastSubscribedRatio = s.pendingSubscribedRatio
@@ -854,7 +844,7 @@ func (s *BaseScheduler) validate() {
 }
 
 type idleSortedHost struct {
-	*Host
+	*entity.Host
 }
 
 func (h *idleSortedHost) Compare(other interface{}) float64 {
@@ -862,7 +852,7 @@ func (h *idleSortedHost) Compare(other interface{}) float64 {
 	diff := other.(*idleSortedHost).IdleGPUs() - h.IdleGPUs()
 	if diff == 0.0 {
 		// max subscription heap for promoting rebalancing.
-		return other.(*Host).SubscribedRatio() - h.SubscribedRatio()
+		return other.(*entity.Host).SubscribedRatio() - h.SubscribedRatio()
 	} else {
 		return diff
 	}
@@ -873,8 +863,8 @@ func (h *idleSortedHost) SetIdx(idx int) {
 }
 
 // migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
-func (s *BaseScheduler) migrateContainersFromHost(host *Host) (err error) {
-	host.containers.Range(func(containerId string, c *Container) (contd bool) {
+func (s *BaseScheduler) migrateContainersFromHost(host *entity.Host) (err error) {
+	host.Containers().Range(func(containerId string, c *entity.Container) (contd bool) {
 		_, err = s.MigrateKernelReplica(c, "", true) // Pass true for `noNewHost`, as we don't want to create a new host for this.
 		if err != nil {
 			// We cannot migrate the Container.
@@ -891,9 +881,9 @@ func (s *BaseScheduler) migrateContainersFromHost(host *Host) (err error) {
 	return err
 }
 
-// includeHostsInScheduling iterates over the given slice of *Host instances and sets their ExcludedFromScheduling
+// includeHostsInScheduling iterates over the given slice of *entity.Host instances and sets their ExcludedFromScheduling
 // field to false.
-func (s *BaseScheduler) includeHostsInScheduling(hosts []*Host) {
+func (s *BaseScheduler) includeHostsInScheduling(hosts []*entity.Host) {
 	for _, host := range hosts {
 		err := host.IncludeForScheduling()
 		if err != nil {
@@ -912,7 +902,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		s.log.Debug("Attempting to release %d idle host(s). There are currently %d host(s) in the Cluster.", n, s.cluster.Len())
 	}
 
-	toBeReleased := make([]*Host, 0, n)
+	toBeReleased := make([]*entity.Host, 0, n)
 	for int32(len(toBeReleased)) < n && s.idleHosts.Len() > 0 {
 		idleHost := s.idleHosts.Peek().(*idleSortedHost)
 

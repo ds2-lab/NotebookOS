@@ -18,16 +18,6 @@ type LocalDaemonNodeProvider interface {
 	GetId() string
 }
 
-// ClusterMetricsProvider provides access to Cluster-related Prometheus metrics.
-type ClusterMetricsProvider interface {
-	GetScaleOutLatencyMillisecondsHistogram() prometheus.Histogram
-	GetScaleInLatencyMillisecondsHistogram() prometheus.Histogram
-	GetPlacerFindHostLatencyMicrosecondsHistogram() *prometheus.HistogramVec
-	GetNumDisabledHostsGauge() prometheus.Gauge
-	GetNumHostsGauge() prometheus.Gauge
-	GetHostRemoteSyncLatencyMicrosecondsHistogram() prometheus.Histogram
-}
-
 // GatewayPrometheusManager is responsible for registering metrics with Prometheus and serving them via HTTP.
 // This is to be used by the Cluster Gateway. Local Daemons use the LocalDaemonPrometheusManager struct.
 type GatewayPrometheusManager struct {

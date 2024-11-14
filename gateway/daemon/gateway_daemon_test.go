@@ -793,7 +793,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				placer := cluster.Placer()
 				Expect(placer).ToNot(BeNil())
 
-				scheduler := cluster.ClusterScheduler()
+				scheduler := cluster.Scheduler()
 				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
 
 				Expect(cluster.Len()).To(Equal(0))
@@ -971,7 +971,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				placer := cluster.Placer()
 				Expect(placer).ToNot(BeNil())
 
-				scheduler := cluster.ClusterScheduler()
+				scheduler := cluster.Scheduler()
 				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
 
 				Expect(cluster.Len()).To(Equal(0))
@@ -1347,7 +1347,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				placer := cluster.Placer()
 				Expect(placer).ToNot(BeNil())
 
-				scheduler := cluster.ClusterScheduler()
+				scheduler := cluster.Scheduler()
 				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
 
 				Expect(cluster.Len()).To(Equal(0))

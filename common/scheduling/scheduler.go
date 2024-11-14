@@ -1,4 +1,4 @@
-package scheduler
+package scheduling
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"strings"
 	"time"
 )
@@ -39,23 +40,13 @@ func (e *ErrorDuringScheduling) String() string {
 	return e.Error()
 }
 
-type clusterSchedulerInternal interface {
-	ClusterScheduler
-
-	// addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
-	addReplicaSetup(kernelId string, addReplicaOp *AddReplicaOperation)
-
-	// postScheduleKernelReplica is called immediately after ScheduleKernelReplica is called.
-	postScheduleKernelReplica(kernelId string, addReplicaOp *AddReplicaOperation)
-}
-
-// ClusterScheduler defines the interface of a scheduler for the Cluster.
+// Scheduler defines the interface of a scheduler for the Cluster.
 //
 // The scheduler is ultimately responsible for deciding where to schedule kernel replicas, when and where to migrate
 // kernel replicas, etc.
 //
-// The ClusterScheduler works together with the Placer to fulfill its role and responsibilities.
-type ClusterScheduler interface {
+// The Scheduler works together with the Placer to fulfill its role and responsibilities.
+type Scheduler interface {
 	// MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
 	// Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
 	// need to start immediately after replica started, e.g., preempting a training task.
@@ -99,9 +90,9 @@ type ClusterScheduler interface {
 
 	// GetCandidateHosts identifies candidate hosts for a particular kernel, reserving resources on hosts
 	// before returning them.
-	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*Host, error)
+	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*entity.Host, error)
 
-	// RemoteSynchronizationInterval returns the interval at which the ClusterScheduler synchronizes
+	// RemoteSynchronizationInterval returns the interval at which the Scheduler synchronizes
 	// the Host instances within the Cluster with their remote nodes.
 	RemoteSynchronizationInterval() time.Duration
 
@@ -113,16 +104,16 @@ type ClusterScheduler interface {
 	//RefreshAll() []error
 
 	// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-	DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []*Host) error
+	DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []*entity.Host) error
 
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//
-	// If targetHost is nil, then a candidate host is identified automatically by the ClusterScheduler.
-	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost *Host, blacklistedHosts []*Host) error
+	// If targetHost is nil, then a candidate host is identified automatically by the Scheduler.
+	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost *entity.Host, blacklistedHosts []*entity.Host) error
 }
 
 type KubernetesClusterScheduler interface {
-	ClusterScheduler
+	Scheduler
 
 	// StartHttpKubernetesSchedulerService starts the HTTP service used to make scheduling decisions.
 	// This method should be called from its own goroutine.

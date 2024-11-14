@@ -1,4 +1,4 @@
-package scheduler
+package scheduling
 
 import (
 	"encoding/json"
@@ -31,6 +31,21 @@ type Options struct {
 	ExecutionTimeSamplingWindow   int64   `name:"execution-time-sampling-window"    json:"execution-time-sampling-window"   yaml:"execution-time-sampling-window"                        description:"Window size for moving average of training time. Specify a negative value to compute the average as the average of ALL execution times."`
 	MigrationTimeSamplingWindow   int64   `name:"migration-time-sampling-window"    json:"migration-time-sampling-window"   yaml:"migration-time-sampling-window"                        description:"Window size for moving average of migration time. Specify a negative value to compute the average as the average of ALL migration times."`
 	SchedulerHttpPort             int     `name:"scheduler-http-port"               json:"scheduler-http-port"              yaml:"scheduler-http-port"                        description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
+}
+
+// GetNumReplicas returns the number of replicas per kernel.
+func (opts *Options) GetNumReplicas() int {
+	return opts.NumReplicas
+}
+
+// GetGpusPerHost returns the number of allocatable GPUs on each entity.Host.
+func (opts *Options) GetGpusPerHost() int {
+	return opts.GpusPerHost
+}
+
+// GetScalingInterval returns the interval at which the Cluster will attempt to auto-scale.
+func (opts *Options) GetScalingInterval() int {
+	return opts.ScalingInterval
 }
 
 // PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.

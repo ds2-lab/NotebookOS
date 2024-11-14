@@ -1,34 +1,18 @@
-package scheduler
+package scheduling
 
 import (
-	"context"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"golang.org/x/net/context"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 )
-
-const (
-	FilterRoute = "/filter" // Used by the ClusterScheduler to expose an HTTP endpoint.
-)
-
-// ContainerWatcher watches for new Pods/Containers.
-//
-// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
-type ContainerWatcher interface {
-	// RegisterChannel registers a channel that is used to notify waiting goroutines that the Pod/Container has started.
-	//
-	// Accepts as a parameter a chan string that can be used to wait until the new Container has been created.
-	// The ID of the new Container will be sent over the channel when the new Container is started.
-	// The error will be nil on success.
-	RegisterChannel(kernelId string, startedChan chan string)
-}
 
 // KubeClient is used by the Cluster Gateway and Cluster Scheduler to interact with Kubernetes.
 type KubeClient interface {
 	ContainerWatcher
 
-	KubeClientset() *kubernetes.Clientset // Get the Kubernetes client.
+	Clientset() *kubernetes.Clientset // Get the Kubernetes client.
 
 	// DeployDistributedKernels creates a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
 	DeployDistributedKernels(context.Context, *proto.KernelSpec) (*types.ConnectionInfo, error)

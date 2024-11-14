@@ -3,7 +3,6 @@ package cluster
 import (
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/placer"
@@ -11,10 +10,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"log"
 	"strings"
-)
-
-var (
-	ErrUnsupportedOperation = errors.New("the requested operation is not supported")
 )
 
 // DockerSwarmCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
@@ -31,7 +26,7 @@ type DockerSwarmCluster struct {
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally by the
 // DockerSwarmCluster for scheduling decisions.
 func NewDockerSwarmCluster(hostSpec types.Spec, hostMapper HostMapper, kernelProvider KernelProvider,
-	clusterMetricsProvider metrics.ClusterMetricsProvider, opts *ClusterSchedulerOptions) *DockerSwarmCluster {
+	clusterMetricsProvider scheduling.MetricsProvider, opts *scheduling.Options) *DockerSwarmCluster {
 
 	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerSwarmCluster")
 
@@ -39,7 +34,7 @@ func NewDockerSwarmCluster(hostSpec types.Spec, hostMapper HostMapper, kernelPro
 		BaseCluster: baseCluster,
 	}
 
-	randomPlacer, err := placer.NewRandomPlacer(dockerCluster, opts)
+	randomPlacer, err := placer.NewRandomPlacer(dockerCluster, opts.NumReplicas)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Random Placer: %v", err)
 		panic(err)
@@ -100,8 +95,8 @@ func (c *DockerSwarmCluster) unsafeDisableHost(id string) error {
 
 	c.onHostRemoved(host)
 
-	if c.clusterMetricsProvider != nil {
-		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Add(1)
+	if c.metricsProvider != nil {
+		c.metricsProvider.GetNumDisabledHostsGauge().Add(1)
 	}
 
 	return nil
@@ -136,8 +131,8 @@ func (c *DockerSwarmCluster) unsafeEnableHost(id string) error {
 	}
 	c.hosts.Store(id, disabledHost)
 
-	if c.clusterMetricsProvider != nil {
-		c.clusterMetricsProvider.GetNumDisabledHostsGauge().Sub(1)
+	if c.metricsProvider != nil {
+		c.metricsProvider.GetNumDisabledHostsGauge().Sub(1)
 	}
 
 	return nil
@@ -146,7 +141,7 @@ func (c *DockerSwarmCluster) unsafeEnableHost(id string) error {
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
 //
 // Important: this should be called with the Cluster's hostMutex already acquired.
-func (c *DockerSwarmCluster) getScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func() {
+func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func() {
 	return func() {
 		currentScale := c.Len()
 		numNewNodesRequired := targetScale - int32(currentScale)
@@ -214,7 +209,7 @@ func (c *DockerSwarmCluster) getScaleOutCommand(targetScale int32, coreLogicDone
 		c.log.Error("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.", targetScale)
 		c.log.Error("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.", numDisabledHostsUsed, targetScale-int32(currentScale))
 
-		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker swarm clusters", ErrUnsupportedOperation)
+		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker swarm clusters", scheduling.ErrUnsupportedOperation)
 	}
 }
 
@@ -280,7 +275,7 @@ func (c *DockerSwarmCluster) unsafeGetTargetedScaleInCommand(targetScale int32, 
 // a docker compose service.
 //
 // Important: this should be called with the Cluster's hostMutex already acquired.
-func (c *DockerSwarmCluster) getScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+func (c *DockerSwarmCluster) GetScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
 	if len(targetHosts) > 0 {
 		return c.unsafeGetTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
 	}
