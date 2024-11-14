@@ -6,8 +6,8 @@ import (
 	"github.com/gin-gonic/contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/placer"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -26,7 +26,7 @@ type KubernetesScheduler struct {
 	kubeClient KubeClient // Kubernetes client.
 }
 
-func NewKubernetesScheduler(cluster ClusterInternal, placer placer.Placer, hostMapper HostMapper, kernelProvider KernelProvider, hostSpec types.Spec,
+func NewKubernetesScheduler(cluster ClusterInternal, placer scheduling.Placer, hostMapper HostMapper, kernelProvider KernelProvider, hostSpec types.Spec,
 	kubeClient KubeClient, opts *Options) (*KubernetesScheduler, error) {
 
 	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider, opts)

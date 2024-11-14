@@ -4,6 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/placer"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/scheduler"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"log"
@@ -17,8 +21,8 @@ import (
 type DockerComposeCluster struct {
 	*BaseCluster
 
-	// DisabledHosts is a map from host ID to *Host containing all the Host instances that are currently set to "off".
-	DisabledHosts hashmap.HashMap[string, *Host]
+	// DisabledHosts is a map from host ID to *entity.Host containing all the Host instances that are currently set to "off".
+	DisabledHosts hashmap.HashMap[string, *entity.Host]
 }
 
 // NewDockerComposeCluster creates a new DockerComposeCluster struct and returns a pointer to it.
@@ -33,17 +37,17 @@ func NewDockerComposeCluster(hostSpec types.Spec, hostMapper HostMapper, kernelP
 
 	dockerCluster := &DockerComposeCluster{
 		BaseCluster:   baseCluster,
-		DisabledHosts: hashmap.NewConcurrentMap[*Host](256),
+		DisabledHosts: hashmap.NewConcurrentMap[*entity.Host](256),
 	}
 
-	placer, err := NewRandomPlacer(dockerCluster, opts)
+	randomPlacer, err := placer.NewRandomPlacer(dockerCluster, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Random Placer: %v", err)
 		panic(err)
 	}
-	dockerCluster.placer = placer
+	dockerCluster.placer = randomPlacer
 
-	scheduler, err := NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider, opts)
+	scheduler, err := NewDockerScheduler(dockerCluster, randomPlacer, hostMapper, hostSpec, kernelProvider, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Docker Compose Scheduler: %v", err)
 		panic(err)
@@ -81,15 +85,15 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 		// Let's check if the Host even exists.
 		_, exists := c.DisabledHosts.Load(id)
 		if exists {
-			return fmt.Errorf("%w: host \"%s\" is already disabled", ErrInvalidHost, id)
+			return fmt.Errorf("%w: host \"%s\" is already disabled", scheduling.ErrInvalidHost, id)
 		} else {
-			return fmt.Errorf("%w: host \"%s\" does not exist (in any capacity)", ErrInvalidHost, id)
+			return fmt.Errorf("%w: host \"%s\" does not exist (in any capacity)", scheduling.ErrInvalidHost, id)
 		}
 	}
 
-	if host.containers.Len() > 0 {
+	if host.NumContainers() > 0 {
 		return fmt.Errorf("%w: host \"%s\" is hosting at least one kernel replica, and automated migrations are not yet implemented",
-			ErrInvalidHost, id)
+			scheduling.ErrInvalidHost, id)
 	}
 
 	c.log.Debug("Disabling host %s now...", id)
@@ -125,9 +129,9 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 		// Let's check if the Host even exists.
 		_, exists := c.hosts.Load(id)
 		if exists {
-			return fmt.Errorf("%w: host \"%s\" is not disabled", ErrInvalidHost, id)
+			return fmt.Errorf("%w: host \"%s\" is not disabled", scheduling.ErrInvalidHost, id)
 		} else {
-			return fmt.Errorf("%w: host \"%s\" does not exist (in any capacity)", ErrInvalidHost, id)
+			return fmt.Errorf("%w: host \"%s\" does not exist (in any capacity)", scheduling.ErrInvalidHost, id)
 		}
 	}
 
@@ -159,9 +163,9 @@ func (c *DockerComposeCluster) getScaleOutCommand(targetScale int32, coreLogicDo
 
 		numDisabledHostsUsed := 0
 		if c.DisabledHosts.Len() > 0 {
-			enabledHosts := make([]*Host, 0)
+			enabledHosts := make([]*entity.Host, 0)
 			// First, check if we have any disabled nodes. If we do, then we'll just re-enable them.
-			c.DisabledHosts.Range(func(hostId string, host *Host) (contd bool) {
+			c.DisabledHosts.Range(func(hostId string, host *entity.Host) (contd bool) {
 				err := host.Enable(true)
 				if err != nil {
 					c.log.Error("Failed to re-enable host %s because: %v", hostId, err)
@@ -303,8 +307,8 @@ func (c *DockerComposeCluster) getScaleInCommand(targetScale int32, targetHosts 
 
 	// First, just look for Hosts that are entirely idle.
 	// NOTE: targetHosts is empty at this point. If it wasn't, we would have called unsafeGetTargetedScaleInCommand(...).
-	c.hosts.Range(func(hostId string, host *Host) (contd bool) {
-		if host.containers.Len() == 0 {
+	c.hosts.Range(func(hostId string, host *entity.Host) (contd bool) {
+		if host.NumContainers() == 0 {
 			targetHosts = append(targetHosts, hostId)
 			c.log.Debug("Identified Host %s as viable target for termination during scale-in. Identified %d/%d hosts to terminate.",
 				host.ID, len(targetHosts), numAffectedNodes)
@@ -329,5 +333,5 @@ func (c *DockerComposeCluster) getScaleInCommand(targetScale int32, targetHosts 
 	c.log.Warn("Failed to identify %d hosts for scale-in. Only identified %d/%d.",
 		numAffectedNodes, len(targetHosts), numAffectedNodes)
 	return nil, fmt.Errorf("%w: insufficient idle hosts available to scale-in by %d host(s); largest scale-in possible: %d host(s)",
-		ErrInvalidTargetScale, numAffectedNodes, len(targetHosts))
+		scheduler.ErrInvalidTargetScale, numAffectedNodes, len(targetHosts))
 }

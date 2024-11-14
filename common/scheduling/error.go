@@ -17,4 +17,5 @@ var (
 	ErrNilHost                    = errors.New("host is nil when attempting to place kernel")
 	ErrNilConnectionInfo          = errors.New("host returned no error and no connection info after starting kernel replica")
 	ErrOldSnapshot                = errors.New("the given snapshot is older than the last snapshot applied to the target host")
+	ErrNotImplementedYet          = errors.New("this method has not yet been implemented")
 )

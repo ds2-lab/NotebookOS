@@ -11,7 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/container"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/placer"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"github.com/zhangjyr/distributed-notebook/gateway/domain"
@@ -22,10 +22,6 @@ import (
 
 const (
 	SchedulerInvalidationThreshold = 0.1
-)
-
-var (
-	ErrNotImplementedYet = errors.New("this method has not yet been implemented")
 )
 
 type aggregateGpuInfo struct {
@@ -140,7 +136,7 @@ type BaseScheduler struct {
 	log logger.Logger
 }
 
-func NewBaseScheduler(cluster ClusterInternal, placer placer.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *Options) *BaseScheduler {
+func NewBaseScheduler(cluster ClusterInternal, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *Options) *BaseScheduler {
 	clusterScheduler := &BaseScheduler{
 		cluster:                                  cluster,
 		hostMapper:                               hostMapper,

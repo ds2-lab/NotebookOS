@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/placer"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/scheduler"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
@@ -24,20 +27,20 @@ func NewKubernetesCluster(kubeClient KubeClient, hostSpec types.Spec, hostMapper
 		BaseCluster: baseCluster,
 	}
 
-	placer, err := NewRandomPlacer(baseCluster, opts)
+	randomPlacer, err := placer.NewRandomPlacer(baseCluster, opts)
 	if err != nil {
 		kubernetesCluster.log.Error("Failed to create Random Placer: %v", err)
 		panic(err)
 	}
-	kubernetesCluster.placer = placer
+	kubernetesCluster.placer = randomPlacer
 
-	scheduler, err := NewKubernetesScheduler(kubernetesCluster, placer, hostMapper, kernelProvider, hostSpec, kubeClient, opts)
+	kubeScheduler, err := scheduler.NewKubernetesScheduler(kubernetesCluster, randomPlacer, hostMapper, kernelProvider, hostSpec, kubeClient, opts)
 	if err != nil {
 		kubernetesCluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
 		panic(err)
 	}
 
-	kubernetesCluster.scheduler = scheduler
+	kubernetesCluster.scheduler = kubeScheduler
 	baseCluster.instance = kubernetesCluster
 
 	return kubernetesCluster
@@ -64,20 +67,20 @@ func (c *KubernetesCluster) ReleaseHost(id string) promise.Promise {
 	return promise.Resolved(nil, promise.ErrNotImplemented)
 }
 
-func (c *KubernetesCluster) HandleScaleInOperation(op *ScaleOperation) promise.Promise {
+func (c *KubernetesCluster) HandleScaleInOperation(op *scheduler.ScaleOperation) promise.Promise {
 	return promise.Resolved(nil, promise.ErrNotImplemented)
 }
 
-func (c *KubernetesCluster) HandleScaleOutOperation(op *ScaleOperation) promise.Promise {
+func (c *KubernetesCluster) HandleScaleOutOperation(op *scheduler.ScaleOperation) promise.Promise {
 	return promise.Resolved(nil, promise.ErrNotImplemented)
 }
 
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
 func (c *KubernetesCluster) getScaleOutCommand(targetNumNodes int32, coreLogicDoneChan chan interface{}) func() {
-	panic(fmt.Errorf("%w: KubernetesCluster::getScaleOutCommand", ErrNotImplementedYet))
+	panic(fmt.Errorf("%w: KubernetesCluster::getScaleOutCommand", scheduling.ErrNotImplementedYet))
 }
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
 func (c *KubernetesCluster) getScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
-	panic(fmt.Errorf("%w: KubernetesCluster::getScaleInCommand", ErrNotImplementedYet))
+	panic(fmt.Errorf("%w: KubernetesCluster::getScaleInCommand", scheduling.ErrNotImplementedYet))
 }

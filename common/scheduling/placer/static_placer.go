@@ -2,6 +2,7 @@ package placer
 
 import (
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/index"
 	"github.com/zhangjyr/distributed-notebook/common/types"
@@ -18,7 +19,7 @@ type StaticPlacer struct {
 }
 
 // NewStaticPlacer creates a new StaticPlacer.
-func NewStaticPlacer(cluster Cluster, numReplicas int) (*StaticPlacer, error) {
+func NewStaticPlacer(cluster scheduling.Cluster, numReplicas int) (*StaticPlacer, error) {
 	basePlacer := NewAbstractPlacer(cluster, numReplicas)
 
 	staticPlacer := &StaticPlacer{

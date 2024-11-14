@@ -19,14 +19,14 @@ import (
 // AbstractPlacer should not be used directly. Instead, embed it in your placer implementation.
 type AbstractPlacer struct {
 	mu          sync.Mutex
-	cluster     Cluster
+	cluster     scheduling.Cluster
 	log         logger.Logger
 	numReplicas int
 	instance    internalPlacer
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.
-func NewAbstractPlacer(cluster Cluster, numReplicas int) *AbstractPlacer {
+func NewAbstractPlacer(cluster scheduling.Cluster, numReplicas int) *AbstractPlacer {
 	placer := &AbstractPlacer{
 		cluster:     cluster,
 		numReplicas: numReplicas,

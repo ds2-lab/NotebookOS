@@ -2,6 +2,7 @@ package placer
 
 import (
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/index"
 	"github.com/zhangjyr/distributed-notebook/common/types"
@@ -15,7 +16,7 @@ type RandomPlacer struct {
 }
 
 // NewRandomPlacer creates a new RandomPlacer.
-func NewRandomPlacer(cluster Cluster, numReplicas int) (*RandomPlacer, error) {
+func NewRandomPlacer(cluster scheduling.Cluster, numReplicas int) (*RandomPlacer, error) {
 	basePlacer := NewAbstractPlacer(cluster, numReplicas)
 	randomPlacer := &RandomPlacer{
 		AbstractPlacer: basePlacer,
