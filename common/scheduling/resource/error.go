@@ -1,0 +1,111 @@
+package resource
+
+import (
+	"errors"
+	"fmt"
+	"github.com/shopspring/decimal"
+)
+
+var (
+	// ErrInvalidAllocationRequest indicates that a Allocation could not be created/satisfied due to an issue
+	// with the request itself.
+	//
+	// The issue is not something of the nature that there are just insufficient Resources available to satisfy the
+	// request. Instead, ErrInvalidAllocationRequest indicates that the request itself was illegal or issued under
+	// invalid circumstances, such as there being no existing Allocation of type PendingAllocation when
+	// attempting to commit Resources to a particular kernel replica. Alternatively, a kernel replica may be getting
+	// evicted, but no existing Allocation is found for that particular kernel replica.
+	ErrInvalidAllocationRequest = errors.New("the resource allocation could not be completed due to the request being invalid")
+
+	// ErrInvalidOperation indicates that adding or subtracting the specified Resources to/from the internal resource
+	// counts of a Resources struct would result in an invalid/illegal resource count within that Resources struct,
+	// such as a negative quantity for cpus, gpus, or memory.
+	ErrInvalidOperation = errors.New("the requested resource operation would result in an invalid resource count")
+
+	ErrIllegalGpuAdjustment     = errors.New("requested gpu adjustment is illegal")
+	ErrAllocationNotFound       = errors.New("could not find the requested GPU allocation")
+	ErrInvalidAllocationType    = errors.New("allocation for target kernel replica is not of expected/correct type")
+	ErrNoPendingAllocationFound = errors.New("a pending allocation could not be found when allocating actual GPUs")
+)
+
+// InconsistentResourcesError is a custom error type used to indicate that some resource quantity within
+// the AllocationManager is in an inconsistent or invalid/illegal state.
+//
+// A InconsistentResourcesError contains the information to describe exactly what is wrong, in terms of which
+// quantity or quantities or involved, what the nature of the inconsistency or illegal state is, etc.
+type InconsistentResourcesError struct {
+	// ResourceKind indicates which kind of resource is in an inconsistent or invalid state.
+	ResourceKind ResourceKind
+
+	// ResourceStatus indicates which status of resource is in an inconsistent or invalid state.
+	ResourceStatus ResourceStatus
+
+	// ResourceInconsistency defines the various ways in which Resources can be in an inconsistent or illegal state.
+	// Examples include a resource being negative, a resource quantity being larger than the total available Resources
+	// of that kind on the node, and so on.
+	ResourceInconsistency ResourceInconsistency
+
+	// Quantity is the value of the inconsistent/invalid resource.
+	Quantity decimal.Decimal
+
+	// ReferenceQuantity is the value against which Quantity is being compared and, as a result, is in
+	// an invalid or inconsistent state.
+	//
+	// For example, if the CPU resource is in an invalid or inconsistent state with the ResourceInconsistency
+	// specified as ResourceQuantityGreaterThanSpec, then the ReferenceQuantity will be set to the appropriate
+	// Quantity of the associated scheduling.Host instance's types.Spec.
+	ReferenceQuantity decimal.Decimal
+
+	// ReferenceQuantityIsMeaningful indicates that the value of ReferenceQuantity is meaningful, and not just
+	// a default value used in cases where there is no ReferenceQuantity, such as when the Quantity is simply
+	// a negative number.
+	ReferenceQuantityIsMeaningful bool
+}
+
+// NewInconsistentResourcesError creates a new InconsistentResourcesError struct and returns a pointer to it.
+//
+// This function sets the ReferenceQuantityIsMeaningful field to false.
+func NewInconsistentResourcesError(kind ResourceKind, inconsistency ResourceInconsistency, status ResourceStatus,
+	quantity decimal.Decimal) *InconsistentResourcesError {
+
+	return &InconsistentResourcesError{
+		ResourceKind:                  kind,
+		ResourceInconsistency:         inconsistency,
+		Quantity:                      quantity,
+		ResourceStatus:                status,
+		ReferenceQuantity:             decimal.Zero.Copy(),
+		ReferenceQuantityIsMeaningful: false,
+	}
+}
+
+// NewInconsistentResourcesErrorWithResourceQuantity creates a new InconsistentResourcesError struct and
+// returns a pointer to it.
+//
+// This function sets the ReferenceQuantityIsMeaningful field to true.
+func NewInconsistentResourcesErrorWithResourceQuantity(kind ResourceKind, inconsistency ResourceInconsistency,
+	status ResourceStatus, quantity decimal.Decimal, referenceQuantity decimal.Decimal) *InconsistentResourcesError {
+
+	return &InconsistentResourcesError{
+		ResourceKind:                  kind,
+		ResourceInconsistency:         inconsistency,
+		Quantity:                      quantity,
+		ResourceStatus:                status,
+		ReferenceQuantity:             referenceQuantity,
+		ReferenceQuantityIsMeaningful: true,
+	}
+}
+
+// AsError returns the InconsistentResourcesError as an error.
+func (e *InconsistentResourcesError) AsError() error {
+	return e
+}
+
+func (e *InconsistentResourcesError) Error() string {
+	if e.ReferenceQuantityIsMeaningful {
+		return fmt.Sprintf("resource \"%s\" is an inconsistent or invalid state: \"%s\" (quantity=%s, referenceQuantity=%s)",
+			e.ResourceKind, e.ResourceInconsistency, e.Quantity, e.ReferenceQuantity)
+	} else {
+		return fmt.Sprintf("resource \"%s\" is an inconsistent or invalid state: \"%s\" (quantity=%s)",
+			e.ResourceKind, e.ResourceInconsistency, e.Quantity)
+	}
+}

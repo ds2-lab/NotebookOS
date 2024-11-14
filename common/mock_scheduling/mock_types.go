@@ -21,7 +21,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-// MockAbstractSession is a mock of AbstractSession interface.
+// MockAbstractSession is a mock of UserSession interface.
 type MockAbstractSession struct {
 	ctrl     *gomock.Controller
 	recorder *MockAbstractSessionMockRecorder

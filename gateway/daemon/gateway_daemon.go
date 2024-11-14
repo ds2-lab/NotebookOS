@@ -8,6 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/resource"
 	"log"
 	"math/rand"
 	"net"
@@ -1459,7 +1460,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (client.Abstrac
 	d.log.Debug("Allocating the following \"listen\" ports to kernel %s: %v", kernel.ID(), listenPorts)
 
 	// Create a new Session for scheduling purposes.
-	resourceUtil := scheduling.NewEmptyResourceUtilization().
+	resourceUtil := resource.NewEmptyUtilization().
 		WithCpuUtilization(in.ResourceSpec.CPU()).
 		WithMemoryUsageMb(in.ResourceSpec.MemoryMB()).
 		WithNGpuUtilizationValues(in.ResourceSpec.Gpu, 0)
