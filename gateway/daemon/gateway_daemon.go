@@ -1290,26 +1290,26 @@ func (d *ClusterGatewayImpl) notifyDashboardOfWarning(warningName string, warnin
 
 // staticSchedulingFailureHandler is a callback to be invoked when all replicas of a
 // kernel propose 'YIELD' while static scheduling is set as the configured scheduling policy.
-func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c scheduling.Kernel) error {
+func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Kernel) error {
 	// Dynamically migrate one of the existing replicas to another node.
 	//
 	// Randomly select a replica to migrate.
-	targetReplica := rand.Intn(c.Size()) + 1
+	targetReplica := rand.Intn(kernel.Size()) + 1
 	d.log.Debug(utils.LightBlueStyle.Render("Static Failure Handler: migrating replica %d of kernel %s now."),
-		targetReplica, c.ID())
+		targetReplica, kernel.ID())
 
 	// Notify the cluster dashboard that we're performing a migration.
-	go d.notifyDashboardOfWarning(fmt.Sprintf("All Replicas of Kernel \"%s\" Have Proposed 'YIELD'", c.ID()),
-		fmt.Sprintf("All replicas of kernel %s proposed 'YIELD' during code execution.", c.ID()))
+	go d.notifyDashboardOfWarning(fmt.Sprintf("All Replicas of Kernel \"%s\" Have Proposed 'YIELD'", kernel.ID()),
+		fmt.Sprintf("All replicas of kernel %s proposed 'YIELD' during code execution.", kernel.ID()))
 
 	// TODO: There could be race conditions here with how we are creating and linking and assigning the ...
 	// TODO: ... ActiveExecution structs here. That is, if we receive additional "execute_request" messages during ...
 	// TODO: ... this process, then things could get messed-up. We need to put a big lock around this or something ...
 	// TODO: ... Like, a lock around/in the DistributedKernelClient, specifically.
 
-	activeExecution := c.ActiveExecution()
+	activeExecution := kernel.ActiveExecution()
 	if activeExecution == nil {
-		d.log.Error("Could not find active execution for kernel %s after static scheduling failure.", c.ID())
+		d.log.Error("Could not find active execution for kernel %s after static scheduling failure.", kernel.ID())
 		go d.notifyDashboardOfError("ErrActiveExecutionNotFound", "active execution for specified kernel could not be found")
 		return ErrActiveExecutionNotFound
 	}
@@ -1320,9 +1320,9 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c scheduling.Kernel)
 	// For now, we'll just let the standard scheduling logic handle things, which will prioritize the least-loaded host.
 	req := &proto.MigrationRequest{
 		TargetReplica: &proto.ReplicaInfo{
-			KernelId:     c.ID(),
+			KernelId:     kernel.ID(),
 			ReplicaId:    int32(targetReplica),
-			PersistentId: c.PersistentID(),
+			PersistentId: kernel.PersistentID(),
 		},
 		TargetNodeId: nil,
 	}
@@ -1338,11 +1338,11 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c scheduling.Kernel)
 
 		if err != nil {
 			d.log.Error(utils.RedStyle.Render("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s"),
-				targetReplica, c.ID(), err.Error())
+				targetReplica, kernel.ID(), err.Error())
 			errorChan <- err
 		} else {
 			d.log.Debug(utils.GreenStyle.Render("Static Failure Handler: successfully migrated replica %d of kernel %s to host %s."),
-				targetReplica, c.ID(), resp.Hostname)
+				targetReplica, kernel.ID(), resp.Hostname)
 		}
 
 		waitGroup.Done()
@@ -1366,22 +1366,22 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c scheduling.Kernel)
 		return err
 	}
 
-	signatureScheme := c.ConnectionInfo().SignatureScheme
+	signatureScheme := kernel.ConnectionInfo().SignatureScheme
 	if signatureScheme == "" {
 		d.log.Warn("Kernel %s's signature scheme is blank. Defaulting to \"%s\"", messaging.JupyterSignatureScheme)
 		signatureScheme = messaging.JupyterSignatureScheme
 	}
 
 	// Regenerate the signature.
-	if _, err := msg.JupyterFrames.Sign(signatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
+	if _, err := msg.JupyterFrames.Sign(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		// Ignore the error; just log it.
 		d.log.Warn("Failed to sign frames because %v", err)
 	}
 
 	// Ensure that the frames are now correct.
-	if err := msg.JupyterFrames.Verify(signatureScheme, []byte(c.ConnectionInfo().Key)); err != nil {
+	if err := msg.JupyterFrames.Verify(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v': %v",
-			signatureScheme, c.ConnectionInfo().Key, err)
+			signatureScheme, kernel.ConnectionInfo().Key, err)
 		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
 		return ErrFailedToVerifyMessage
 	}
@@ -1392,6 +1392,9 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c scheduling.Kernel)
 	case err := <-errorChan:
 		{
 			// If there was an error during execution, then we'll return that error rather than proceed.
+			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Migrate Replica of Kernel \"%s\"",
+				kernel.ID()), err.Error())
+
 			return err
 		}
 	default:
@@ -1400,8 +1403,8 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c scheduling.Kernel)
 		}
 	}
 
-	d.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), c.ID())
-	err = d.ShellHandler(c, msg)
+	d.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), kernel.ID())
+	err = d.ShellHandler(kernel, msg)
 	if err != nil {
 		d.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
 		go d.notifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
@@ -2406,7 +2409,25 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 	replicaInfo := in.TargetReplica
 	targetNodeId := in.GetTargetNodeId()
 
-	resp, err := d.cluster.Scheduler().MigrateKernelReplica(nil, targetNodeId, true)
+	kernel, loaded := d.kernels.Load(replicaInfo.KernelId)
+	if !loaded {
+		d.log.Error("Could not find target of migration, kernel \"%s\"", replicaInfo.KernelId)
+		go d.notifyDashboardOfError("Cannot Migrate Kernel.",
+			fmt.Sprintf("Cannot find kernel with ID=%s.", replicaInfo.KernelId))
+		return nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, replicaInfo.KernelId)
+	}
+
+	kernelReplica, err := kernel.GetReplicaByID(replicaInfo.ReplicaId)
+	if err != nil {
+		d.log.Error("Kernel %s does not have a replica with SMR node ID of %d. Cannot migrate.",
+			replicaInfo.KernelId, replicaInfo.ReplicaId)
+		go d.notifyDashboardOfError("Cannot Migrate Kernel.",
+			fmt.Sprintf("Kernel %s does not have a replica with ID=%d.",
+				replicaInfo.KernelId, replicaInfo.ReplicaId))
+		return nil, err
+	}
+
+	resp, err := d.cluster.Scheduler().MigrateKernelReplica(kernelReplica, targetNodeId, true)
 
 	duration := time.Since(startTime)
 	if err != nil {
