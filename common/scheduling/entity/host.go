@@ -736,14 +736,30 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec) (bool, error) {
 	return true, nil
 }
 
+func (h *Host) GetResourceSpec() types.Spec {
+	return h.resourceSpec
+}
+
+func (h *Host) GetLatestGpuInfo() *proto.GpuInfo {
+	return h.latestGpuInfo
+}
+
+func (h *Host) GetLocalGatewayClient() proto.LocalGatewayClient {
+	return h.LocalGatewayClient
+}
+
+func (h *Host) GetAddress() string {
+	return h.Addr
+}
+
 // Restore restores the state of a Host from another Host.
-func (h *Host) Restore(restoreFrom *Host, callback scheduling.ErrorCallback) error {
+func (h *Host) Restore(restoreFrom scheduling.Host, callback scheduling.ErrorCallback) error {
 	h.SetErrorCallback(callback)
-	h.LocalGatewayClient = restoreFrom.LocalGatewayClient
-	h.resourceSpec = restoreFrom.resourceSpec
-	h.ID = restoreFrom.ID
-	h.NodeName = restoreFrom.NodeName
-	h.latestGpuInfo = restoreFrom.latestGpuInfo
+	h.LocalGatewayClient = restoreFrom.GetLocalGatewayClient()
+	h.resourceSpec = types.ToDecimalSpec(restoreFrom.GetResourceSpec())
+	h.ID = restoreFrom.GetID()
+	h.NodeName = restoreFrom.GetNodeName()
+	h.latestGpuInfo = restoreFrom.GetLatestGpuInfo()
 
 	return nil
 }
@@ -871,6 +887,10 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 	}
 
 	return nil
+}
+
+func (h *Host) IsProperlyInitialized() bool {
+	return h.ProperlyInitialized
 }
 
 // ContainerStartedTraining is to be called when a Container begins training on a Host.

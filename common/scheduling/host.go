@@ -25,15 +25,20 @@ type PreemptionInfo interface {
 type Host interface {
 	proto.LocalGatewayClient
 
+	GetLocalGatewayClient() proto.LocalGatewayClient
 	GetNodeName() string
 	GetID() string
 	IsExcludedFromScheduling() bool
+	GetAddress() string
 	ExcludeFromScheduling() bool
 	Containers() hashmap.HashMap[string, KernelContainer]
 	IncludeForScheduling() error
 	IsBeingConsideredForScheduling() bool
 	ConsiderForScheduling() bool
 	SchedulerPoolType() SchedulerPoolType
+	GetResourceSpec() types.Spec
+	IsProperlyInitialized() bool
+	GetLatestGpuInfo() *proto.GpuInfo
 	SetSchedulerPoolType(schedulerPoolType SchedulerPoolType)
 	SetIdx(idx int)
 	Compare(h2 interface{}) float64

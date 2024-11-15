@@ -169,7 +169,7 @@ func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx c
 }
 
 // addHost creates and returns a new Host whose LocalGatewayClient is mocked.
-func addHost(idx int, clusterGateway *ClusterGatewayImpl, mockCtrl *gomock.Controller) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
+func addHost(idx int, clusterGateway *ClusterGatewayImpl, mockCtrl *gomock.Controller) (scheduling.Host, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
 	hostId := uuid.NewString()
 	nodeName := fmt.Sprintf("TestNode%d", idx)
 	resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, clusterGateway.hostSpec)
@@ -202,7 +202,7 @@ func initMockedKernelForCreation(mockCtrl *gomock.Controller, kernelId string, k
 	kernel.EXPECT().SetSession(gomock.Any()).MaxTimes(1).DoAndReturn(func(session *scheduling.Session) {
 		sessionId = session.ID()
 	})
-	kernel.EXPECT().AddReplica(gomock.Any(), gomock.Any()).Times(3).DoAndReturn(func(r scheduling.KernelReplica, host *scheduling.Host) error {
+	kernel.EXPECT().AddReplica(gomock.Any(), gomock.Any()).Times(3).DoAndReturn(func(r scheduling.KernelReplica, host scheduling.Host) error {
 		currentSize.Add(1)
 
 		return nil
@@ -1201,7 +1201,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly notifying that the kernel registered")
 
 				sleepIntervals := make(chan time.Duration, 3)
-				notifyKernelRegistered := func(replicaId int32, targetHost *scheduling.Host) {
+				notifyKernelRegistered := func(replicaId int32, targetHost scheduling.Host) {
 					// defer GinkgoRecover()
 
 					log.Printf("Notifying Gateway that replica %d has registered.\n", replicaId)
@@ -1335,7 +1335,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					kernelSpecsByIdx[i] = kernelSpec
 				}
 
-				hosts := make(map[int]*scheduling.Host)
+				hosts := make(map[int]scheduling.Host)
 				localGatewayClients := make(map[int]*mock_proto.MockLocalGatewayClient)
 				resourceSpoofers := make(map[int]*distNbTesting.ResourceSpoofer)
 
@@ -1475,7 +1475,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly notifying that the kernel registered")
 
 				sleepIntervals := make(chan time.Duration, numKernels*3)
-				notifyKernelRegistered := func(replicaId int32, kernelId string, targetHost *scheduling.Host) {
+				notifyKernelRegistered := func(replicaId int32, kernelId string, targetHost scheduling.Host) {
 					// defer GinkgoRecover()
 
 					log.Printf("Notifying Gateway that replica %d of kernel %s has registered.\n", replicaId, kernelId)

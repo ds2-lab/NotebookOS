@@ -84,7 +84,7 @@ func (mr *MockAbstractDistributedKernelClientMockRecorder) AddOperationStarted()
 }
 
 // AddReplica mocks base method.
-func (m *MockAbstractDistributedKernelClient) AddReplica(r scheduling.KernelReplica, host *scheduling.Host) error {
+func (m *MockAbstractDistributedKernelClient) AddReplica(r scheduling.KernelReplica, host scheduling.Host) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddReplica", r, host)
 	ret0, _ := ret[0].(error)
@@ -465,10 +465,10 @@ func (mr *MockAbstractDistributedKernelClientMockRecorder) PrepareNewReplica(per
 }
 
 // RemoveReplica mocks base method.
-func (m *MockAbstractDistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remover client.ReplicaRemover, noop bool) (*scheduling.Host, error) {
+func (m *MockAbstractDistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remover client.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RemoveReplica", r, remover, noop)
-	ret0, _ := ret[0].(*scheduling.Host)
+	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -480,10 +480,10 @@ func (mr *MockAbstractDistributedKernelClientMockRecorder) RemoveReplica(r, remo
 }
 
 // RemoveReplicaByID mocks base method.
-func (m *MockAbstractDistributedKernelClient) RemoveReplicaByID(id int32, remover client.ReplicaRemover, noop bool) (*scheduling.Host, error) {
+func (m *MockAbstractDistributedKernelClient) RemoveReplicaByID(id int32, remover client.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RemoveReplicaByID", id, remover, noop)
-	ret0, _ := ret[0].(*scheduling.Host)
+	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -864,10 +864,10 @@ func (mr *MockAbstractKernelClientMockRecorder) Container() *gomock.Call {
 }
 
 // GetHost mocks base method.
-func (m *MockAbstractKernelClient) GetHost() *scheduling.Host {
+func (m *MockAbstractKernelClient) GetHost() scheduling.Host {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetHost")
-	ret0, _ := ret[0].(*scheduling.Host)
+	ret0, _ := ret[0].(scheduling.Host)
 	return ret0
 }
 
@@ -1169,7 +1169,7 @@ func (mr *MockAbstractKernelClientMockRecorder) SetContainer(container any) *gom
 }
 
 // SetHost mocks base method.
-func (m *MockAbstractKernelClient) SetHost(host *scheduling.Host) {
+func (m *MockAbstractKernelClient) SetHost(host scheduling.Host) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetHost", host)
 }

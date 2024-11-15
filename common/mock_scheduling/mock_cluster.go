@@ -45,7 +45,7 @@ func (m *MockClusterIndexProvider) EXPECT() *MockClusterIndexProviderMockRecorde
 }
 
 // Add mocks base method.
-func (m *MockClusterIndexProvider) Add(arg0 *scheduling.Host) {
+func (m *MockClusterIndexProvider) Add(arg0 scheduling.Host) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Add", arg0)
 }
@@ -72,7 +72,7 @@ func (mr *MockClusterIndexProviderMockRecorder) Category() *gomock.Call {
 }
 
 // GetMetrics mocks base method.
-func (m *MockClusterIndexProvider) GetMetrics(arg0 *scheduling.Host) []float64 {
+func (m *MockClusterIndexProvider) GetMetrics(arg0 scheduling.Host) []float64 {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMetrics", arg0)
 	ret0, _ := ret[0].([]float64)
@@ -86,7 +86,7 @@ func (mr *MockClusterIndexProviderMockRecorder) GetMetrics(arg0 any) *gomock.Cal
 }
 
 // IsQualified mocks base method.
-func (m *MockClusterIndexProvider) IsQualified(arg0 *scheduling.Host) (any, scheduling.ClusterIndexQualification) {
+func (m *MockClusterIndexProvider) IsQualified(arg0 scheduling.Host) (any, scheduling.ClusterIndexQualification) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "IsQualified", arg0)
 	ret0, _ := ret[0].(any)
@@ -115,7 +115,7 @@ func (mr *MockClusterIndexProviderMockRecorder) Len() *gomock.Call {
 }
 
 // Remove mocks base method.
-func (m *MockClusterIndexProvider) Remove(arg0 *scheduling.Host) {
+func (m *MockClusterIndexProvider) Remove(arg0 scheduling.Host) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Remove", arg0)
 }
@@ -127,7 +127,7 @@ func (mr *MockClusterIndexProviderMockRecorder) Remove(arg0 any) *gomock.Call {
 }
 
 // Update mocks base method.
-func (m *MockClusterIndexProvider) Update(arg0 *scheduling.Host) {
+func (m *MockClusterIndexProvider) Update(arg0 scheduling.Host) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Update", arg0)
 }
@@ -162,14 +162,14 @@ func (m *MockClusterIndexQuerier) EXPECT() *MockClusterIndexQuerierMockRecorder 
 }
 
 // Seek mocks base method.
-func (m *MockClusterIndexQuerier) Seek(blacklist []any, metrics ...[]float64) (*scheduling.Host, any) {
+func (m *MockClusterIndexQuerier) Seek(blacklist []any, metrics ...[]float64) (scheduling.Host, any) {
 	m.ctrl.T.Helper()
 	varargs := []any{blacklist}
 	for _, a := range metrics {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Seek", varargs...)
-	ret0, _ := ret[0].(*scheduling.Host)
+	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(any)
 	return ret0, ret1
 }
@@ -182,14 +182,14 @@ func (mr *MockClusterIndexQuerierMockRecorder) Seek(blacklist any, metrics ...an
 }
 
 // SeekFrom mocks base method.
-func (m *MockClusterIndexQuerier) SeekFrom(start any, metrics ...[]float64) (*scheduling.Host, any) {
+func (m *MockClusterIndexQuerier) SeekFrom(start any, metrics ...[]float64) (scheduling.Host, any) {
 	m.ctrl.T.Helper()
 	varargs := []any{start}
 	for _, a := range metrics {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "SeekFrom", varargs...)
-	ret0, _ := ret[0].(*scheduling.Host)
+	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(any)
 	return ret0, ret1
 }
@@ -202,14 +202,14 @@ func (mr *MockClusterIndexQuerierMockRecorder) SeekFrom(start any, metrics ...an
 }
 
 // SeekMultipleFrom mocks base method.
-func (m *MockClusterIndexQuerier) SeekMultipleFrom(pos any, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []any, metrics ...[]float64) ([]*scheduling.Host, any) {
+func (m *MockClusterIndexQuerier) SeekMultipleFrom(pos any, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []any, metrics ...[]float64) ([]scheduling.Host, any) {
 	m.ctrl.T.Helper()
 	varargs := []any{pos, n, criteriaFunc, blacklist}
 	for _, a := range metrics {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "SeekMultipleFrom", varargs...)
-	ret0, _ := ret[0].([]*scheduling.Host)
+	ret0, _ := ret[0].([]scheduling.Host)
 	ret1, _ := ret[1].(any)
 	return ret0, ret1
 }
@@ -245,7 +245,7 @@ func (m *MockClusterIndex) EXPECT() *MockClusterIndexMockRecorder {
 }
 
 // Add mocks base method.
-func (m *MockClusterIndex) Add(arg0 *scheduling.Host) {
+func (m *MockClusterIndex) Add(arg0 scheduling.Host) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Add", arg0)
 }
@@ -272,7 +272,7 @@ func (mr *MockClusterIndexMockRecorder) Category() *gomock.Call {
 }
 
 // GetMetrics mocks base method.
-func (m *MockClusterIndex) GetMetrics(arg0 *scheduling.Host) []float64 {
+func (m *MockClusterIndex) GetMetrics(arg0 scheduling.Host) []float64 {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMetrics", arg0)
 	ret0, _ := ret[0].([]float64)
@@ -286,7 +286,7 @@ func (mr *MockClusterIndexMockRecorder) GetMetrics(arg0 any) *gomock.Call {
 }
 
 // IsQualified mocks base method.
-func (m *MockClusterIndex) IsQualified(arg0 *scheduling.Host) (any, scheduling.ClusterIndexQualification) {
+func (m *MockClusterIndex) IsQualified(arg0 scheduling.Host) (any, scheduling.ClusterIndexQualification) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "IsQualified", arg0)
 	ret0, _ := ret[0].(any)
@@ -315,7 +315,7 @@ func (mr *MockClusterIndexMockRecorder) Len() *gomock.Call {
 }
 
 // Remove mocks base method.
-func (m *MockClusterIndex) Remove(arg0 *scheduling.Host) {
+func (m *MockClusterIndex) Remove(arg0 scheduling.Host) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Remove", arg0)
 }
@@ -327,14 +327,14 @@ func (mr *MockClusterIndexMockRecorder) Remove(arg0 any) *gomock.Call {
 }
 
 // Seek mocks base method.
-func (m *MockClusterIndex) Seek(blacklist []any, metrics ...[]float64) (*scheduling.Host, any) {
+func (m *MockClusterIndex) Seek(blacklist []any, metrics ...[]float64) (scheduling.Host, any) {
 	m.ctrl.T.Helper()
 	varargs := []any{blacklist}
 	for _, a := range metrics {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Seek", varargs...)
-	ret0, _ := ret[0].(*scheduling.Host)
+	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(any)
 	return ret0, ret1
 }
@@ -347,14 +347,14 @@ func (mr *MockClusterIndexMockRecorder) Seek(blacklist any, metrics ...any) *gom
 }
 
 // SeekFrom mocks base method.
-func (m *MockClusterIndex) SeekFrom(start any, metrics ...[]float64) (*scheduling.Host, any) {
+func (m *MockClusterIndex) SeekFrom(start any, metrics ...[]float64) (scheduling.Host, any) {
 	m.ctrl.T.Helper()
 	varargs := []any{start}
 	for _, a := range metrics {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "SeekFrom", varargs...)
-	ret0, _ := ret[0].(*scheduling.Host)
+	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(any)
 	return ret0, ret1
 }
@@ -367,14 +367,14 @@ func (mr *MockClusterIndexMockRecorder) SeekFrom(start any, metrics ...any) *gom
 }
 
 // SeekMultipleFrom mocks base method.
-func (m *MockClusterIndex) SeekMultipleFrom(pos any, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []any, metrics ...[]float64) ([]*scheduling.Host, any) {
+func (m *MockClusterIndex) SeekMultipleFrom(pos any, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []any, metrics ...[]float64) ([]scheduling.Host, any) {
 	m.ctrl.T.Helper()
 	varargs := []any{pos, n, criteriaFunc, blacklist}
 	for _, a := range metrics {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "SeekMultipleFrom", varargs...)
-	ret0, _ := ret[0].([]*scheduling.Host)
+	ret0, _ := ret[0].([]scheduling.Host)
 	ret1, _ := ret[1].(any)
 	return ret0, ret1
 }
@@ -387,7 +387,7 @@ func (mr *MockClusterIndexMockRecorder) SeekMultipleFrom(pos, n, criteriaFunc, b
 }
 
 // Update mocks base method.
-func (m *MockClusterIndex) Update(arg0 *scheduling.Host) {
+func (m *MockClusterIndex) Update(arg0 scheduling.Host) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "Update", arg0)
 }
@@ -518,10 +518,10 @@ func (mr *MockClusterInternalMockRecorder) DemandGPUs() *gomock.Call {
 }
 
 // GetHost mocks base method.
-func (m *MockClusterInternal) GetHost(hostId string) (*scheduling.Host, bool) {
+func (m *MockClusterInternal) GetHost(hostId string) (scheduling.Host, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetHost", hostId)
-	ret0, _ := ret[0].(*scheduling.Host)
+	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -591,7 +591,7 @@ func (mr *MockClusterInternalMockRecorder) Len() *gomock.Call {
 }
 
 // NewHostAddedOrConnected mocks base method.
-func (m *MockClusterInternal) NewHostAddedOrConnected(host *scheduling.Host) error {
+func (m *MockClusterInternal) NewHostAddedOrConnected(host scheduling.Host) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewHostAddedOrConnected", host)
 	ret0, _ := ret[0].(error)
@@ -801,7 +801,7 @@ func (mr *MockClusterInternalMockRecorder) Placer() *gomock.Call {
 }
 
 // RangeOverHosts mocks base method.
-func (m *MockClusterInternal) RangeOverHosts(f func(string, *scheduling.Host) bool) {
+func (m *MockClusterInternal) RangeOverHosts(f func(string, scheduling.Host) bool) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "RangeOverHosts", f)
 }
@@ -1126,10 +1126,10 @@ func (mr *MockClusterMockRecorder) DemandGPUs() *gomock.Call {
 }
 
 // GetHost mocks base method.
-func (m *MockCluster) GetHost(hostId string) (*scheduling.Host, bool) {
+func (m *MockCluster) GetHost(hostId string) (scheduling.Host, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetHost", hostId)
-	ret0, _ := ret[0].(*scheduling.Host)
+	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -1199,7 +1199,7 @@ func (mr *MockClusterMockRecorder) Len() *gomock.Call {
 }
 
 // NewHostAddedOrConnected mocks base method.
-func (m *MockCluster) NewHostAddedOrConnected(host *scheduling.Host) error {
+func (m *MockCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "NewHostAddedOrConnected", host)
 	ret0, _ := ret[0].(error)
@@ -1409,7 +1409,7 @@ func (mr *MockClusterMockRecorder) Placer() *gomock.Call {
 }
 
 // RangeOverHosts mocks base method.
-func (m *MockCluster) RangeOverHosts(f func(string, *scheduling.Host) bool) {
+func (m *MockCluster) RangeOverHosts(f func(string, scheduling.Host) bool) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "RangeOverHosts", f)
 }
