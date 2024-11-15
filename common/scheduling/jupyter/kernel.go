@@ -1,4 +1,4 @@
-package client
+package jupyter
 
 import (
 	"context"
@@ -74,7 +74,7 @@ type KernelReplicaClient struct {
 	status                           types.KernelStatus
 	busyStatus                       string
 	lastBStatusMsg                   *types.JupyterMessage
-	iobroker                         *MessageBroker[scheduling.Kernel, *types.JupyterMessage, *types.JupyterFrames]
+	iobroker                         *MessageBroker[scheduling.KernelReplica, *types.JupyterMessage, *types.JupyterFrames]
 	shell                            *types.Socket                                  // Listener.
 	iopub                            *types.Socket                                  // Listener.
 	numResendAttempts                int                                            // Number of times to try resending a message before giving up.
@@ -85,7 +85,7 @@ type KernelReplicaClient struct {
 	ready                            bool                                           // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
 	yieldNextExecutionRequest        bool                                           // If true, then we will yield the next 'execute_request'.
 	hostId                           string                                         // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
-	host                             *scheduling.Host                               // The host that the kernel replica is running on.
+	host                             scheduling.Host                                // The host that the kernel replica is running on.
 	workloadId                       string                                         // workloadId is the ID of the workload associated with this kernel, if this kernel was created within a workload. This is populated after extracting the ID from the metadata frame of a Jupyter message.
 	workloadIdSet                    bool                                           // workloadIdSet is a flag indicating whether workloadId has been assigned a "meaningful" value or not.
 	trainingStartedAt                time.Time                                      // trainingStartedAt is the time at which the kernel associated with this client began actively training.
@@ -115,7 +115,7 @@ type KernelReplicaClient struct {
 	isGatewayClient bool
 
 	// The Container associated with this KernelReplicaClient.
-	container *scheduling.Container
+	container scheduling.KernelContainer
 
 	// prometheusManager is an interface that enables the recording of metrics observed by the KernelReplicaClient.
 	messagingMetricsProvider metrics.MessagingMetricsProvider
@@ -132,7 +132,7 @@ type KernelReplicaClient struct {
 func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *types.ConnectionInfo, componentId string,
 	numResendAttempts int, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, messageAcknowledgementsEnabled bool,
-	persistentId string, hostId string, host *scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
+	persistentId string, hostId string, host scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
 	debugMode bool, messagingMetricsProvider metrics.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *KernelReplicaClient {
 
@@ -213,11 +213,11 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	return client
 }
 
-func (c *KernelReplicaClient) Container() *scheduling.Container {
+func (c *KernelReplicaClient) Container() scheduling.KernelContainer {
 	return c.container
 }
 
-func (c *KernelReplicaClient) SetContainer(container *scheduling.Container) {
+func (c *KernelReplicaClient) SetContainer(container scheduling.KernelContainer) {
 	c.container = container
 }
 
@@ -952,7 +952,7 @@ func (c *KernelReplicaClient) InitializeIOForwarder() (*types.Socket, error) {
 	}
 
 	c.iopub = iopub
-	c.iobroker = NewMessageBroker[scheduling.Kernel](c.extractIOTopicFrame)
+	c.iobroker = NewMessageBroker[scheduling.KernelReplica](c.extractIOTopicFrame)
 	c.iobroker.Subscribe(MessageBrokerAllTopics, c.forwardIOMessage) // Default to forward all messages.
 	c.iobroker.Subscribe(types.IOTopicStatus, c.handleIOKernelStatus)
 	c.iobroker.Subscribe(types.IOTopicSMRReady, c.handleIOKernelSMRReady)
@@ -962,7 +962,7 @@ func (c *KernelReplicaClient) InitializeIOForwarder() (*types.Socket, error) {
 
 // AddIOHandler adds a handler for a specific IOPub topic.
 // The handler should return ErrStopPropagation to avoid msg being forwarded to the client.
-func (c *KernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, *types.JupyterFrames, *types.JupyterMessage]) error {
+func (c *KernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.KernelReplica, *types.JupyterFrames, *types.JupyterMessage]) error {
 	if c.iobroker == nil {
 		return ErrIOPubNotStarted
 	}
@@ -1108,12 +1108,12 @@ func (c *KernelReplicaClient) Close() error {
 }
 
 // GetHost returns the Host on which the replica is hosted.
-func (c *KernelReplicaClient) GetHost() *scheduling.Host {
+func (c *KernelReplicaClient) GetHost() scheduling.Host {
 	return c.host
 }
 
 // SetHost sets the Host of the kernel.
-func (c *KernelReplicaClient) SetHost(host *scheduling.Host) {
+func (c *KernelReplicaClient) SetHost(host scheduling.Host) {
 	c.host = host
 }
 
@@ -1223,7 +1223,7 @@ func (c *KernelReplicaClient) extractIOTopicFrame(msg *types.JupyterMessage) (st
 	return string(rawTopic), msg.JupyterFrames
 }
 
-func (c *KernelReplicaClient) forwardIOMessage(kernel scheduling.Kernel, _ *types.JupyterFrames, msg *types.JupyterMessage) error {
+func (c *KernelReplicaClient) forwardIOMessage(kernel scheduling.KernelReplica, _ *types.JupyterFrames, msg *types.JupyterMessage) error {
 	return kernel.Socket(types.IOMessage).Send(*msg.GetZmqMsg())
 }
 
@@ -1251,7 +1251,7 @@ func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.KernelReplica, f
 // NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called, as "smr_node_added" are
 // currently not sent. (Specifically, we don't use the "add_replica_request" CONTROL message at the moment, so none
 // of this ever happens.)
-func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, frames *types.JupyterFrames, _ *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.KernelReplica, frames *types.JupyterFrames, _ *types.JupyterMessage) error {
 	var nodeAddedMessage types.MessageSMRNodeUpdated
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR node added: %v", err)
@@ -1271,7 +1271,7 @@ func (c *KernelReplicaClient) handleIOKernelSMRNodeAdded(_ scheduling.Kernel, fr
 	return commonTypes.ErrStopPropagation
 }
 
-func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.Kernel, frames *types.JupyterFrames, _ *types.JupyterMessage) error {
+func (c *KernelReplicaClient) handleIOKernelSMRReady(kernel scheduling.KernelReplica, frames *types.JupyterFrames, _ *types.JupyterMessage) error {
 	var nodeReadyMessage types.MessageSMRReady
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling kernel SMR ready: %v", err)

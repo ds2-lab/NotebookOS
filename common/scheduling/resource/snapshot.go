@@ -39,7 +39,7 @@ type ManagerSnapshot struct {
 // we can deserialize a ManagerSnapshot struct from the metadata frame of a JupyterMessage, which
 // is typically a map[string]interface{}.
 type MetadataResourceWrapperSnapshot struct {
-	ResourceWrapperSnapshot *ManagerSnapshot `json:"resource_snapshot"`
+	ManagerSnapshot *ManagerSnapshot `json:"resource_snapshot"`
 }
 
 func (s *ManagerSnapshot) GetContainers() []types.ContainerInfo {

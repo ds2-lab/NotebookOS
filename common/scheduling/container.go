@@ -43,6 +43,7 @@ type KernelContainer interface {
 	String() string
 	Session() UserSession
 	Host() Host
+	SetHost(Host)
 	InteractivePriority() float64
 	InvalidateInteractivePriority()
 	PreemptionPriority() float64

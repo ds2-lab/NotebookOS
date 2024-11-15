@@ -33,20 +33,3 @@ type CodeExecution interface {
 	GetAttemptId() int
 	GetWorkloadId() string
 }
-
-type CodeExecutionQueue []CodeExecution
-
-// Enqueue adds an element to the end of the queue
-func (q *CodeExecutionQueue) Enqueue(item CodeExecution) {
-	*q = append(*q, item)
-}
-
-// Dequeue removes and returns the element from the front of the queue
-func (q *CodeExecutionQueue) Dequeue() CodeExecution {
-	if len(*q) == 0 {
-		return nil // Queue is empty
-	}
-	item := (*q)[0]
-	*q = (*q)[1:]
-	return item
-}

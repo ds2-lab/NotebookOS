@@ -18,7 +18,6 @@ import (
 )
 
 var (
-	ErrInvalidStateTransition      = errors.New("invalid session state transition requested")
 	ErrInvalidExplanationRequested = errors.New("invalid explanation requested")
 	ErrInvalidContainer            = errors.New("the specified or provided container is invalid")
 	ErrMissingTrainingContainer    = errors.New("session is training, but its \"training container\" is nil")
@@ -315,7 +314,7 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 
 	if s.IsTraining() {
 		s.log.Error("Session cannot transition to state \"%s\" -- Session is already training!", SessionStateExpectingTraining)
-		err := fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidStateTransition, s.sessionState, SessionStateExpectingTraining)
+		err := fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", scheduling.ErrInvalidStateTransition, s.sessionState, SessionStateExpectingTraining)
 		return promise.Resolved(s.instance, err)
 	}
 
@@ -559,7 +558,7 @@ func (s *Session) IsTraining() bool {
 
 func (s *Session) transition(targetState scheduling.SessionState) error {
 	if s.IsStopped() {
-		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidStateTransition, s.sessionState, targetState)
+		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", scheduling.ErrInvalidStateTransition, s.sessionState, targetState)
 	}
 
 	// Some bookkeeping about state transitions, like how long we were in the previous state,

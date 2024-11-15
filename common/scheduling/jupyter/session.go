@@ -1,4 +1,4 @@
-package client
+package jupyter
 
 type sessionManagerImpl struct {
 	sessions []string

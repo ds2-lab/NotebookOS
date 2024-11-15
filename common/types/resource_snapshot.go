@@ -8,7 +8,7 @@ import (
 // HostResourceSnapshot is an interface exposed by structs that encode snapshots of resource quantities
 // on a particular Host at a particular time.
 //
-// This interface exists so that we can use the proto.NodeResourcesSnapshot and ResourceWrapperSnapshot structs
+// This interface exists so that we can use the proto.NodeResourcesSnapshot and ManagerSnapshot structs
 // interchangeably/in a type-agnostic way.
 type HostResourceSnapshot[T ArbitraryResourceSnapshot] interface {
 	container.Comparable
