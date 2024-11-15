@@ -8,7 +8,6 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/elliotchance/orderedmap/v2"
-	"github.com/scusemua/distributed-notebook/common/container"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -110,9 +109,9 @@ type BaseScheduler struct {
 	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
 	containerEventHandler scheduling.ContainerWatcher
 
-	oversubscribed  container.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
-	undersubscribed container.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
-	idleHosts       container.Heap
+	oversubscribed  types.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
+	undersubscribed types.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
+	idleHosts       types.Heap
 
 	lastCapacityValidation time.Time         // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
 	stRatio                *types.MovingStat // session/training ratio
@@ -142,9 +141,9 @@ func NewBaseScheduler(cluster scheduling.Cluster, placer scheduling.Placer, host
 		remoteSynchronizationInterval:            time.Second * time.Duration(opts.GpuPollIntervalSeconds),
 		placer:                                   placer,
 		hostSpec:                                 hostSpec,
-		oversubscribed:                           make(container.Heap, 0, 10),
-		undersubscribed:                          make(container.Heap, 0, 10),
-		idleHosts:                                make(container.Heap, 0, 10),
+		oversubscribed:                           make(types.Heap, 0, 10),
+		undersubscribed:                          make(types.Heap, 0, 10),
+		idleHosts:                                make(types.Heap, 0, 10),
 		maximumCapacity:                          int32(opts.MaximumNumNodes),
 		minimumCapacity:                          int32(opts.MinimumNumNodes),
 		maxSubscribedRatio:                       decimal.NewFromFloat(opts.MaxSubscribedRatio),

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/types"
 )
 
@@ -16,9 +15,6 @@ var (
 // internalPlacer is the internal API implemented by all Placer instances.
 type internalPlacer interface {
 	scheduling.Placer
-
-	// index returns the ClusterIndex of the specific Placer implementation.
-	getIndex() index.ClusterIndex
 
 	// findHost returns a host that can satisfy the resourceSpec.
 	// This is the Placer-implementation-specific logic of the Placer.FindHost method.

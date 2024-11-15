@@ -87,7 +87,7 @@ type BaseCluster struct {
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
 // This function is for package-internal or file-internal use only.
-func newBaseCluster(opts *scheduling.SchedulerOptions, clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string) *BaseCluster {
+func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer, clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string) *BaseCluster {
 	cluster := &BaseCluster{
 		gpusPerHost:              opts.GetGpusPerHost(),
 		numReplicas:              opts.GetNumReplicas(),
@@ -98,6 +98,7 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, clusterMetricsProvider sc
 		indexes:                  hashmap.NewSyncMap[string, scheduling.IndexProvider](),
 		validateCapacityInterval: time.Second * time.Duration(opts.GetScalingInterval()),
 		DisabledHosts:            hashmap.NewConcurrentMap[scheduling.Host](256),
+		placer:                   placer,
 		numFailedScaleInOps:      0,
 		numFailedScaleOutOps:     0,
 		numSuccessfulScaleInOps:  0,
@@ -134,6 +135,10 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, clusterMetricsProvider sc
 			time.Sleep(cluster.validateCapacityInterval)
 		}
 	}()
+
+	if err := cluster.AddIndex(placer.GetIndex()); err != nil {
+		panic(err)
+	}
 
 	return cluster
 }

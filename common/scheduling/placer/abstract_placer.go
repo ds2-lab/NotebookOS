@@ -17,18 +17,18 @@ import (
 // AbstractPlacer implements basic place/reclaim functionality.
 // AbstractPlacer should not be used directly. Instead, embed it in your placer implementation.
 type AbstractPlacer struct {
-	mu          sync.Mutex
-	cluster     scheduling.Cluster
-	log         logger.Logger
-	numReplicas int
-	instance    internalPlacer
+	mu              sync.Mutex
+	metricsProvider scheduling.MetricsProvider
+	log             logger.Logger
+	numReplicas     int
+	instance        internalPlacer
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.
-func NewAbstractPlacer(cluster scheduling.Cluster, numReplicas int) *AbstractPlacer {
+func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int) *AbstractPlacer {
 	placer := &AbstractPlacer{
-		cluster:     cluster,
-		numReplicas: numReplicas,
+		metricsProvider: metricsProvider,
+		numReplicas:     numReplicas,
 	}
 	config.InitLogger(&placer.log, placer)
 	return placer
@@ -43,11 +43,11 @@ func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts i
 	st := time.Now()
 
 	// The following checks make sense/apply for all concrete implementations of Placer.
-	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", numHosts, kernelSpec.ResourceSpec.String(), placer.instance.getIndex().Len())
-	if placer.instance.getIndex().Len() < numHosts {
+	placer.log.Debug("Searching index for %d hosts to satisfy request %s. Number of hosts in index: %d.", numHosts, kernelSpec.ResourceSpec.String(), placer.instance.GetIndex().Len())
+	if placer.instance.GetIndex().Len() < numHosts {
 		placer.log.Warn("Index has insufficient number of hosts: %d. Required: %d. "+
 			"We won't find enough hosts on this pass, but we can try to scale-out afterwards.",
-			placer.instance.getIndex().Len(), numHosts)
+			placer.instance.GetIndex().Len(), numHosts)
 	}
 
 	// Invoke internalPlacer's implementation of the findHosts method for the core logic of FindHosts.
@@ -66,8 +66,8 @@ func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts i
 		successLabel = "true"
 	}
 
-	if placer.cluster.MetricsProvider() != nil && placer.cluster.MetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
-		placer.cluster.MetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+	if placer.metricsProvider != nil && placer.metricsProvider.GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
+		placer.metricsProvider.GetPlacerFindHostLatencyMicrosecondsHistogram().
 			With(prometheus.Labels{"successful": successLabel}).Observe(float64(latency.Microseconds()))
 	}
 
@@ -96,15 +96,15 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, spec types.Spec)
 	if host == nil {
 		placer.log.Warn(utils.OrangeStyle.Render("Failed to identify single viable hosts. Time elapsed: %v."), latency)
 
-		if placer.cluster.MetricsProvider() != nil && placer.cluster.MetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
-			placer.cluster.MetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+		if placer.metricsProvider != nil && placer.metricsProvider.GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
+			placer.metricsProvider.GetPlacerFindHostLatencyMicrosecondsHistogram().
 				With(prometheus.Labels{"successful": "false"}).Observe(float64(latency.Microseconds()))
 		}
 	} else {
 		placer.log.Debug(utils.GreenStyle.Render("Successfully identified single viable host after %v."), latency)
 
-		if placer.cluster.MetricsProvider() != nil && placer.cluster.MetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
-			placer.cluster.MetricsProvider().GetPlacerFindHostLatencyMicrosecondsHistogram().
+		if placer.metricsProvider != nil && placer.metricsProvider.GetPlacerFindHostLatencyMicrosecondsHistogram() != nil {
+			placer.metricsProvider.GetPlacerFindHostLatencyMicrosecondsHistogram().
 				With(prometheus.Labels{"successful": "true"}).Observe(float64(latency.Microseconds()))
 		}
 	}

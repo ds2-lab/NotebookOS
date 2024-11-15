@@ -1,4 +1,4 @@
-package scheduler_test
+package scheduling_test
 
 import (
 	"encoding/json"

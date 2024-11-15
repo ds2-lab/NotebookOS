@@ -37,6 +37,9 @@ type Placer interface {
 
 	// NumHostsInIndex returns the length of the Placer's index.
 	NumHostsInIndex() int
+
+	// GetIndex returns the placer's index.ClusterIndex.
+	GetIndex() ClusterIndex
 }
 
 type PlacerStats interface {

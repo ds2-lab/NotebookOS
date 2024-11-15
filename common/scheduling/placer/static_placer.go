@@ -18,23 +18,20 @@ type StaticPlacer struct {
 }
 
 // NewStaticPlacer creates a new StaticPlacer.
-func NewStaticPlacer(cluster scheduling.Cluster, numReplicas int) (*StaticPlacer, error) {
-	basePlacer := NewAbstractPlacer(cluster, numReplicas)
+func NewStaticPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int) (*StaticPlacer, error) {
+	basePlacer := NewAbstractPlacer(metricsProvider, numReplicas)
 
 	staticPlacer := &StaticPlacer{
 		AbstractPlacer: basePlacer,
 		index:          index.NewStaticClusterIndex(),
 	}
 
-	if err := cluster.AddIndex(staticPlacer.index); err != nil {
-		return nil, err
-	}
-
 	basePlacer.instance = staticPlacer
 	return staticPlacer, nil
 }
 
-func (placer *StaticPlacer) getIndex() index.ClusterIndex {
+// GetIndex returns the ClusterIndex of the specific Placer implementation.
+func (placer *StaticPlacer) GetIndex() scheduling.ClusterIndex {
 	return placer.index
 }
 

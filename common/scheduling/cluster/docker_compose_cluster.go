@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -28,24 +27,17 @@ type DockerComposeCluster struct {
 // NewDockerComposeCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
-func NewDockerComposeCluster(hostSpec types.Spec, hostMapper HostMapper, kernelProvider KernelProvider,
+func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, opts *scheduling.SchedulerOptions) *DockerComposeCluster {
 
-	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerComposeCluster")
+	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerComposeCluster")
 
 	dockerCluster := &DockerComposeCluster{
 		BaseCluster:   baseCluster,
 		DisabledHosts: hashmap.NewConcurrentMap[scheduling.Host](256),
 	}
 
-	randomPlacer, err := placer.NewRandomPlacer(dockerCluster, opts.NumReplicas)
-	if err != nil {
-		dockerCluster.log.Error("Failed to create Random Placer: %v", err)
-		panic(err)
-	}
-	dockerCluster.placer = randomPlacer
-
-	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, randomPlacer, hostMapper, hostSpec, kernelProvider, opts)
+	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Docker Compose Scheduler: %v", err)
 		panic(err)

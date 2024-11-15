@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
@@ -24,23 +23,16 @@ type DockerSwarmCluster struct {
 //
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally by the
 // DockerSwarmCluster for scheduling decisions.
-func NewDockerSwarmCluster(hostSpec types.Spec, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
+func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, opts *scheduling.SchedulerOptions) *DockerSwarmCluster {
 
-	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerSwarmCluster")
+	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerSwarmCluster")
 
 	dockerCluster := &DockerSwarmCluster{
 		BaseCluster: baseCluster,
 	}
 
-	randomPlacer, err := placer.NewRandomPlacer(dockerCluster, opts.NumReplicas)
-	if err != nil {
-		dockerCluster.log.Error("Failed to create Random Placer: %v", err)
-		panic(err)
-	}
-	dockerCluster.placer = randomPlacer
-
-	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, randomPlacer, hostMapper, hostSpec, kernelProvider, opts)
+	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Docker Swarm Cluster Scheduler: %v", err)
 		panic(err)
@@ -167,7 +159,7 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 				err = c.NewHostAddedOrConnected(host)
 				if err != nil {
 					c.log.Error("Error adding newly-connected host %s (ID=%s) to cluster: %v",
-						host.NodeName, host.ID, err)
+						host.GetNodeName(), host.GetID(), err)
 					// TODO: Need to handle this error...
 				}
 
@@ -186,9 +178,9 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 
 			// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the "disabled hosts" mapping.
 			for _, host := range enabledHosts {
-				_, loaded := c.DisabledHosts.LoadAndDelete(host.ID)
+				_, loaded := c.DisabledHosts.LoadAndDelete(host.GetID())
 				if !loaded {
-					log.Fatalf("Failed to find host %s in DisabledHosts map after using it in scale-out operation.", host.ID)
+					log.Fatalf("Failed to find host %s in DisabledHosts map after using it in scale-out operation.", host.GetID())
 				}
 			}
 		}
@@ -290,7 +282,7 @@ func (c *DockerSwarmCluster) GetScaleInCommand(targetScale int32, targetHosts []
 		if host.NumContainers() == 0 {
 			targetHosts = append(targetHosts, hostId)
 			c.log.Debug("Identified Host %s as viable target for termination during scale-in. Identified %d/%d hosts to terminate.",
-				host.ID, len(targetHosts), numAffectedNodes)
+				host.GetID(), len(targetHosts), numAffectedNodes)
 		}
 
 		// If we've identified enough hosts, then we can stop iterating.

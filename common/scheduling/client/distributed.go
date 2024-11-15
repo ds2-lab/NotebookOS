@@ -8,7 +8,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
@@ -344,7 +343,7 @@ func (c *DistributedKernelClient) EnqueueActiveExecution(attemptId int, msg *typ
 			msg.JupyterMessageId())
 
 		// Create the next execution attempt.
-		nextExecutionAttempt := entity.NewActiveExecution(c.ID(), c.activeExecution.GetAttemptId()+1, c.Size(), msg)
+		nextExecutionAttempt := scheduling.NewActiveExecution(c.ID(), c.activeExecution.GetAttemptId()+1, c.Size(), msg)
 
 		// Link the previous active execution with the current one (in both directions).
 		nextExecutionAttempt.LinkPreviousAttempt(c.activeExecution)
@@ -364,7 +363,7 @@ func (c *DistributedKernelClient) EnqueueActiveExecution(attemptId int, msg *typ
 		return nextExecutionAttempt
 	}
 
-	newActiveExecution := entity.NewActiveExecution(c.id, attemptId, c.Size(), msg)
+	newActiveExecution := scheduling.NewActiveExecution(c.id, attemptId, c.Size(), msg)
 
 	c.log.Debug("Setting or enqueuing new ActiveExecution targeting kernel %s for new \"execute_request\" \"%s\"",
 		c.id, newActiveExecution.ExecuteRequestMessageId)

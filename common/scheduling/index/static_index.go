@@ -232,7 +232,7 @@ func (index *StaticClusterIndex) SeekFrom(startIdx interface{}, metrics ...[]flo
 	return index.Seek(make([]interface{}, 0), metrics...)
 }
 
-func (index *StaticClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+func (index *StaticClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
 	//TODO implement me
 	panic("implement me")
 }

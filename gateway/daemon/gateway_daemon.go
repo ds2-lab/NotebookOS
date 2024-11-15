@@ -10,6 +10,7 @@ import (
 	jupyterScheduling "github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/shopspring/decimal"
@@ -490,6 +491,13 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			dockerEventHandler := NewDockerEventHandler()
 			clusterGateway.containerEventHandler = dockerEventHandler
+
+			randomPlacer, err := placer.NewRandomPlacer(dockerCluster, opts.NumReplicas)
+			if err != nil {
+				dockerCluster.log.Error("Failed to create Random Placer: %v", err)
+				panic(err)
+			}
+			dockerCluster.placer = randomPlacer
 
 			clusterGateway.cluster = cluster.NewDockerComposeCluster(clusterGateway.hostSpec, clusterGateway,
 				clusterGateway, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)

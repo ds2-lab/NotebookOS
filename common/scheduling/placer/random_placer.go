@@ -15,23 +15,19 @@ type RandomPlacer struct {
 }
 
 // NewRandomPlacer creates a new RandomPlacer.
-func NewRandomPlacer(cluster scheduling.Cluster, numReplicas int) (*RandomPlacer, error) {
-	basePlacer := NewAbstractPlacer(cluster, numReplicas)
+func NewRandomPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int) (*RandomPlacer, error) {
+	basePlacer := NewAbstractPlacer(metricsProvider, numReplicas)
 	randomPlacer := &RandomPlacer{
 		AbstractPlacer: basePlacer,
 		index:          index.NewRandomClusterIndex(100),
-	}
-
-	if err := cluster.AddIndex(randomPlacer.index); err != nil {
-		return nil, err
 	}
 
 	basePlacer.instance = randomPlacer
 	return randomPlacer, nil
 }
 
-// index returns the ClusterIndex of the specific Placer implementation.
-func (placer *RandomPlacer) getIndex() index.ClusterIndex {
+// GetIndex returns the ClusterIndex of the specific Placer implementation.
+func (placer *RandomPlacer) GetIndex() scheduling.ClusterIndex {
 	return placer.index
 }
 

@@ -1,11 +1,10 @@
-package entity
+package scheduling
 
 import (
 	"errors"
 	"fmt"
-	mapstructure "github.com/go-viper/mapstructure/v2"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/scusemua/distributed-notebook/common/jupyter/types"
-	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
@@ -46,8 +45,8 @@ type ActiveExecution struct {
 	numLeadRoles            int                                           // Number of 'LEAD' roles issued.
 	numYieldRoles           int                                           // Number of 'YIELD' roles issued.
 	roles                   map[int32]string                              // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
-	nextAttempt             scheduling.CodeExecution                      // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
-	previousAttempt         scheduling.CodeExecution                      // The retry that preceded this one, if this is not the first attempt.
+	nextAttempt             CodeExecution                                 // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
+	previousAttempt         CodeExecution                                 // The retry that preceded this one, if this is not the first attempt.
 	msg                     *types.JupyterMessage                         // The original 'execute_request' message.
 	Replies                 hashmap.HashMap[int32, *types.JupyterMessage] // The responses from each replica. Note that replies are only saved if debug mode is enabled.
 	replyMutex              sync.Mutex                                    // Ensures atomicity of the RegisterReply method.
@@ -61,7 +60,7 @@ type ActiveExecution struct {
 
 	// activeReplica is the Kernel connected to the replica of the kernel that is actually
 	// executing the user-submitted code.
-	ActiveReplica scheduling.KernelReplica
+	ActiveReplica KernelReplica
 
 	// WorkloadId can be retrieved from the metadata dictionary of the Jupyter messages if the sender
 	// was a Golang Jupyter client.
@@ -71,11 +70,11 @@ type ActiveExecution struct {
 	executed bool
 }
 
-func (e *ActiveExecution) LinkPreviousAttempt(previousAttempt scheduling.CodeExecution) {
+func (e *ActiveExecution) LinkPreviousAttempt(previousAttempt CodeExecution) {
 	e.previousAttempt = previousAttempt
 }
 
-func (e *ActiveExecution) LinkNextAttempt(nextAttempt scheduling.CodeExecution) {
+func (e *ActiveExecution) LinkNextAttempt(nextAttempt CodeExecution) {
 	e.nextAttempt = nextAttempt
 }
 
@@ -86,11 +85,11 @@ func (e *ActiveExecution) GetNumReplicas() int {
 	return e.NumReplicas
 }
 
-func (e *ActiveExecution) SetActiveReplica(replica scheduling.KernelReplica) {
+func (e *ActiveExecution) SetActiveReplica(replica KernelReplica) {
 	e.ActiveReplica = replica
 }
 
-func (e *ActiveExecution) GetActiveReplica() scheduling.KernelReplica {
+func (e *ActiveExecution) GetActiveReplica() KernelReplica {
 	return e.ActiveReplica
 }
 
@@ -285,7 +284,7 @@ func (e *ActiveExecution) ReceivedYieldNotification(smrNodeId int32) error {
 	e.numYieldRoles += 1
 
 	if e.numYieldRoles == e.NumReplicas {
-		return scheduling.ErrExecutionFailedAllYielded
+		return ErrExecutionFailedAllYielded
 	}
 
 	return nil

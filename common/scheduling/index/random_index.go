@@ -90,7 +90,7 @@ func (index *RandomClusterIndex) Add(host scheduling.Host) {
 		index.freeStart += 1
 	}
 	host.SetMeta(HostMetaRandomIndex, i)
-	host.IsContainedWithinIndex = true
+	host.SetContainedWithinIndex(true)
 	index.log.Debug("Added Host %s to RandomClusterIndex at position %d.", host.GetID(), i)
 	index.len += 1
 }
@@ -109,7 +109,7 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 		return
 	}
 
-	if !host.IsContainedWithinIndex {
+	if !host.IsContainedWithinIndex() {
 		index.log.Warn("Host %s thinks it is not contained within any Cluster indices; "+
 			"however, its \"%s\" metadata has a non-nil value (%d).\n", host.GetID(), HostMetaRandomIndex, i)
 	}
@@ -141,7 +141,7 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 	index.hosts[i] = nil
 	index.len -= 1
 	host.SetMeta(HostMetaRandomIndex, nil)
-	host.IsContainedWithinIndex = false
+	host.SetContainedWithinIndex(false)
 
 	// Update freeStart.
 	if i < index.freeStart {
@@ -275,7 +275,7 @@ func (index *RandomClusterIndex) SeekFrom(pos interface{}, metrics ...[]float64)
 // Pass nil as pos to reset the seek.
 //
 // This entire method is thread-safe. The index is locked until this method returns.
-func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 

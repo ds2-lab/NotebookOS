@@ -1,7 +1,6 @@
 package types
 
 import (
-	"github.com/scusemua/distributed-notebook/common/container"
 	"time"
 )
 
@@ -11,7 +10,7 @@ import (
 // This interface exists so that we can use the proto.NodeResourcesSnapshot and ManagerSnapshot structs
 // interchangeably/in a type-agnostic way.
 type HostResourceSnapshot[T ArbitraryResourceSnapshot] interface {
-	container.Comparable
+	Comparable
 
 	String() string
 	GetSnapshotId() int32

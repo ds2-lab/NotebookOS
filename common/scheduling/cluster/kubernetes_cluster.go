@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -29,11 +28,6 @@ func (c *KubernetesCluster) GetIndex(category string, expected interface{}) (sch
 	panic("implement me")
 }
 
-func (c *KubernetesCluster) AddIndex(index scheduling.IndexProvider) error {
-	//TODO implement me
-	panic("implement me")
-}
-
 func (c *KubernetesCluster) Scheduler() scheduling.Scheduler {
 	//TODO implement me
 	panic("implement me")
@@ -44,22 +38,15 @@ func (c *KubernetesCluster) Scheduler() scheduling.Scheduler {
 // NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
 // This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
-func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec, hostMapper HostMapper, kernelProvider KernelProvider,
+func NewKubernetesCluster(kubeClient scheduling.KubeClient, placer scheduling.Placer, hostSpec types.Spec, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, opts *scheduling.SchedulerOptions) *KubernetesCluster {
 
-	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "KubernetesCluster")
+	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "KubernetesCluster")
 	kubernetesCluster := &KubernetesCluster{
 		BaseCluster: baseCluster,
 	}
 
-	randomPlacer, err := placer.NewRandomPlacer(baseCluster, opts.NumReplicas)
-	if err != nil {
-		kubernetesCluster.log.Error("Failed to create Random Placer: %v", err)
-		panic(err)
-	}
-	kubernetesCluster.placer = randomPlacer
-
-	kubeScheduler, err := scheduler.NewKubernetesScheduler(kubernetesCluster, randomPlacer, hostMapper, kernelProvider, hostSpec, kubeClient, opts)
+	kubeScheduler, err := scheduler.NewKubernetesScheduler(kubernetesCluster, placer, hostMapper, kernelProvider, hostSpec, kubeClient, opts)
 	if err != nil {
 		kubernetesCluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)
 		panic(err)
