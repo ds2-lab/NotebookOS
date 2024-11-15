@@ -149,7 +149,7 @@
 <g id="a_node9"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/common/jupyter/messaging" xlink:title="github.com/scusemua/distributed&#45;notebook/common/jupyter/messaging" target="_graphviz">
 <polygon fill="none" stroke="#911907" stroke-width="2" stroke-opacity="0.698039" points="3256,-698.04 3040,-698.04 3040,-662.04 3256,-662.04 3256,-698.04"/>
 <text text-anchor="start" x="3048" y="-683.04" font-family="Times,serif" font-size="10.00">common/jupyter/messaging</text>
-<text text-anchor="start" x="3048" y="-672.04" font-family="Times,serif" font-size="10.00">2382 / 103.7KB</text>
+<text text-anchor="start" x="3048" y="-672.04" font-family="Times,serif" font-size="10.00">2368 / 103.0KB</text>
 </a>
 </g>
 </g>
@@ -196,7 +196,7 @@
 <g id="a_node28"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/common/utils" xlink:title="github.com/scusemua/distributed&#45;notebook/common/utils" target="_graphviz">
 <polygon fill="none" stroke="#439107" stroke-width="2" stroke-opacity="0.698039" points="3508,-300.04 3400,-300.04 3400,-264.04 3508,-264.04 3508,-300.04"/>
 <text text-anchor="start" x="3408" y="-285.04" font-family="Times,serif" font-size="10.00">common/utils</text>
-<text text-anchor="start" x="3408" y="-274.04" font-family="Times,serif" font-size="10.00">288 / 10.4KB</text>
+<text text-anchor="start" x="3408" y="-274.04" font-family="Times,serif" font-size="10.00">284 / 10.1KB</text>
 </a>
 </g>
 </g>
@@ -610,7 +610,7 @@
 <g id="a_node18"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/common/scheduling/client" xlink:title="github.com/scusemua/distributed&#45;notebook/common/scheduling/client" target="_graphviz">
 <polygon fill="none" stroke="#079179" stroke-width="2" stroke-opacity="0.698039" points="1582,-643.04 1366,-643.04 1366,-607.04 1582,-607.04 1582,-643.04"/>
 <text text-anchor="start" x="1374" y="-628.04" font-family="Times,serif" font-size="10.00">common/scheduling/client</text>
-<text text-anchor="start" x="1374" y="-617.04" font-family="Times,serif" font-size="10.00">2678 / 126.3KB</text>
+<text text-anchor="start" x="1374" y="-617.04" font-family="Times,serif" font-size="10.00">2664 / 125.1KB</text>
 </a>
 </g>
 </g>
@@ -701,7 +701,7 @@
 <g id="a_node19"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/common/scheduling/cluster" xlink:title="github.com/scusemua/distributed&#45;notebook/common/scheduling/cluster" target="_graphviz">
 <polygon fill="none" stroke="#072a91" stroke-width="2" stroke-opacity="0.698039" points="844,-1255.04 628,-1255.04 628,-1219.04 844,-1219.04 844,-1255.04"/>
 <text text-anchor="start" x="636" y="-1240.04" font-family="Times,serif" font-size="10.00">common/scheduling/cluster</text>
-<text text-anchor="start" x="636" y="-1229.04" font-family="Times,serif" font-size="10.00">1393 / 65.7KB</text>
+<text text-anchor="start" x="636" y="-1229.04" font-family="Times,serif" font-size="10.00">1384 / 65.4KB</text>
 </a>
 </g>
 </g>
@@ -720,7 +720,7 @@
 <g id="a_node24"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/common/scheduling/scheduler" xlink:title="github.com/scusemua/distributed&#45;notebook/common/scheduling/scheduler" target="_graphviz">
 <polygon fill="none" stroke="#91073f" stroke-width="2" stroke-opacity="0.698039" points="1204,-1255.04 952,-1255.04 952,-1219.04 1204,-1219.04 1204,-1255.04"/>
 <text text-anchor="start" x="960" y="-1240.04" font-family="Times,serif" font-size="10.00">common/scheduling/scheduler</text>
-<text text-anchor="start" x="960" y="-1229.04" font-family="Times,serif" font-size="10.00">2129 / 107.7KB</text>
+<text text-anchor="start" x="960" y="-1229.04" font-family="Times,serif" font-size="10.00">2110 / 107.1KB</text>
 </a>
 </g>
 </g>
@@ -785,7 +785,7 @@
 <g id="a_node23"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/common/scheduling/resource" xlink:title="github.com/scusemua/distributed&#45;notebook/common/scheduling/resource" target="_graphviz">
 <polygon fill="none" stroke="#918007" stroke-width="2" stroke-opacity="0.698039" points="1582,-1390.04 1366,-1390.04 1366,-1354.04 1582,-1354.04 1582,-1390.04"/>
 <text text-anchor="start" x="1374" y="-1375.04" font-family="Times,serif" font-size="10.00">common/scheduling/resource</text>
-<text text-anchor="start" x="1374" y="-1364.04" font-family="Times,serif" font-size="10.00">2559 / 122.4KB</text>
+<text text-anchor="start" x="1374" y="-1364.04" font-family="Times,serif" font-size="10.00">2556 / 122.4KB</text>
 </a>
 </g>
 </g>
@@ -986,7 +986,7 @@
 <g id="a_node36"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/gateway/domain" xlink:title="github.com/scusemua/distributed&#45;notebook/gateway/domain" target="_graphviz">
 <polygon fill="none" stroke="#071e91" stroke-width="2" stroke-opacity="0.698039" points="1546,-1099.04 1402,-1099.04 1402,-1063.04 1546,-1063.04 1546,-1099.04"/>
 <text text-anchor="start" x="1410" y="-1084.04" font-family="Times,serif" font-size="10.00">gateway/domain</text>
-<text text-anchor="start" x="1410" y="-1073.04" font-family="Times,serif" font-size="10.00">209 / 17.8KB</text>
+<text text-anchor="start" x="1410" y="-1073.04" font-family="Times,serif" font-size="10.00">209 / 17.7KB</text>
 </a>
 </g>
 </g>
@@ -1157,7 +1157,7 @@
 <g id="a_node35"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/gateway/daemon" xlink:title="github.com/scusemua/distributed&#45;notebook/gateway/daemon" target="_graphviz">
 <polygon fill="none" stroke="#419107" stroke-width="2" stroke-opacity="0.698039" points="520,-830.04 376,-830.04 376,-794.04 520,-794.04 520,-830.04"/>
 <text text-anchor="start" x="384" y="-815.04" font-family="Times,serif" font-size="10.00">gateway/daemon</text>
-<text text-anchor="start" x="384" y="-804.04" font-family="Times,serif" font-size="10.00">4794 / 219.0KB</text>
+<text text-anchor="start" x="384" y="-804.04" font-family="Times,serif" font-size="10.00">4793 / 218.9KB</text>
 </a>
 </g>
 </g>
@@ -1412,7 +1412,7 @@
 <g id="a_node39"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/local_daemon/daemon" xlink:title="github.com/scusemua/distributed&#45;notebook/local_daemon/daemon" target="_graphviz">
 <polygon fill="none" stroke="#078191" stroke-width="2" stroke-opacity="0.698039" points="1168,-419.04 988,-419.04 988,-383.04 1168,-383.04 1168,-419.04"/>
 <text text-anchor="start" x="996" y="-404.04" font-family="Times,serif" font-size="10.00">local_daemon/daemon</text>
-<text text-anchor="start" x="996" y="-393.04" font-family="Times,serif" font-size="10.00">3264 / 160.4KB</text>
+<text text-anchor="start" x="996" y="-393.04" font-family="Times,serif" font-size="10.00">3240 / 159.6KB</text>
 </a>
 </g>
 </g>
@@ -1585,7 +1585,7 @@
 <g id="a_node40"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/local_daemon/device" xlink:title="github.com/scusemua/distributed&#45;notebook/local_daemon/device" target="_graphviz">
 <polygon fill="none" stroke="#914a07" stroke-width="2" stroke-opacity="0.698039" points="1564,-419.04 1384,-419.04 1384,-383.04 1564,-383.04 1564,-419.04"/>
 <text text-anchor="start" x="1392" y="-404.04" font-family="Times,serif" font-size="10.00">local_daemon/device</text>
-<text text-anchor="start" x="1392" y="-393.04" font-family="Times,serif" font-size="10.00">1362 / 53.6KB</text>
+<text text-anchor="start" x="1392" y="-393.04" font-family="Times,serif" font-size="10.00">1362 / 53.7KB</text>
 </a>
 </g>
 </g>
