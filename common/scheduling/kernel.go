@@ -1,12 +1,12 @@
 package scheduling
 
 import (
+	"context"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
-	messaging "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"golang.org/x/net/context"
 	"time"
 )
 
