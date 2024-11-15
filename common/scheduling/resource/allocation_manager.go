@@ -71,8 +71,8 @@ type AllocationManager struct {
 	metricsManager *metrics.LocalDaemonPrometheusManager
 }
 
-// NewResourceManager creates a new AllocationManager struct and returns a pointer to it.
-func NewResourceManager(resourceSpec types.Spec) *AllocationManager {
+// NewAllocationManager creates a new AllocationManager struct and returns a pointer to it.
+func NewAllocationManager(resourceSpec types.Spec) *AllocationManager {
 	manager := &AllocationManager{
 		ID:                         uuid.NewString(),
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, *Allocation](128),

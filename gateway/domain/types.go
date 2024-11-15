@@ -37,7 +37,7 @@ func (k MetadataKey) String() string {
 }
 
 type ClusterDaemonOptions struct {
-	scheduling.ClusterSchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
+	scheduling.Options `yaml:",inline" json:"cluster_scheduler_options"`
 
 	LocalDaemonServiceName            string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
 	LocalDaemonServicePort            int    `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`

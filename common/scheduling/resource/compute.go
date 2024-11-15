@@ -83,10 +83,10 @@ func (res *ComputeResource) ResourceSnapshot(snapshotId int32) *ComputeResourceS
 	return snapshot
 }
 
-// protoResourceSnapshot constructs and returns a pointer to a new protoResourceSnapshot struct.
+// ProtoSnapshot constructs and returns a pointer to a new ProtoSnapshot struct.
 //
 // This method is thread-safe to ensure that the quantities of each resource are all captured atomically.
-func (res *ComputeResource) protoResourceSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+func (res *ComputeResource) ProtoSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	res.Lock()
 	defer res.Unlock()
 

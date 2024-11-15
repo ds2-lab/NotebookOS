@@ -311,7 +311,7 @@ func (r *Manager) IdleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesS
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.idleResources.protoResourceSnapshot(snapshotId)
+	return r.idleResources.ProtoSnapshot(snapshotId)
 }
 
 // PendingProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current pending ComputeResource
@@ -320,7 +320,7 @@ func (r *Manager) PendingProtoResourcesSnapshot(snapshotId int32) *proto.Resourc
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.pendingResources.protoResourceSnapshot(snapshotId)
+	return r.pendingResources.ProtoSnapshot(snapshotId)
 }
 
 // CommittedProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current committed ComputeResource
@@ -329,7 +329,7 @@ func (r *Manager) CommittedProtoResourcesSnapshot(snapshotId int32) *proto.Resou
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.committedResources.protoResourceSnapshot(snapshotId)
+	return r.committedResources.ProtoSnapshot(snapshotId)
 }
 
 // SpecProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current spec ComputeResource
@@ -338,7 +338,7 @@ func (r *Manager) SpecProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesS
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	return r.specResources.protoResourceSnapshot(snapshotId)
+	return r.specResources.ProtoSnapshot(snapshotId)
 }
 
 // ComputeResourceSnapshot returns a pointer to a ComputeResourceSnapshot created for the specified "status" of ComputeResource

@@ -4,7 +4,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/resource"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -21,7 +21,7 @@ type ResourceSpoofer struct {
 	NodeName   string
 	ManagerId  string
 	HostSpec   types.Spec
-	Wrapper    *scheduling.ResourcesWrapper
+	Wrapper    *resource.Manager
 }
 
 func NewResourceSpoofer(nodeName string, hostId string, hostSpec types.Spec) *ResourceSpoofer {
@@ -30,7 +30,7 @@ func NewResourceSpoofer(nodeName string, hostId string, hostSpec types.Spec) *Re
 		NodeName:  nodeName,
 		ManagerId: uuid.NewString(),
 		HostSpec:  hostSpec,
-		Wrapper:   scheduling.NewResourcesWrapper(hostSpec),
+		Wrapper:   resource.NewManager(hostSpec),
 	}
 
 	ginkgo.GinkgoWriter.Printf("Created new ResourceSpoofer for host %s (ID=%s) with spec=%s\n", nodeName, hostId, hostSpec.String())

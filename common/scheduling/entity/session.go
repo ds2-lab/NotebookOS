@@ -103,8 +103,8 @@ type SessionBuilder struct {
 	migrationTimeSampleWindowSize int64
 }
 
-// NewUserSessionBuilder initializes a new SessionBuilder
-func NewUserSessionBuilder() *SessionBuilder {
+// NewSessionBuilder initializes a new SessionBuilder
+func NewSessionBuilder() *SessionBuilder {
 	return &SessionBuilder{}
 }
 
