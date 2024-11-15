@@ -23,7 +23,7 @@
 <g id="a_node1"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/common/scheduling" xlink:title="github.com/scusemua/distributed&#45;notebook/common/scheduling" target="_graphviz">
 <polygon fill="none" stroke="#075f91" stroke-width="2" stroke-opacity="0.698039" points="1168,-131.54 1024,-131.54 1024,-95.54 1168,-95.54 1168,-131.54"/>
 <text text-anchor="start" x="1032" y="-116.54" font-family="Times,serif" font-size="10.00">common/scheduling</text>
-<text text-anchor="start" x="1032" y="-105.54" font-family="Times,serif" font-size="10.00">1079 / 52.5KB</text>
+<text text-anchor="start" x="1032" y="-105.54" font-family="Times,serif" font-size="10.00">1083 / 52.7KB</text>
 </a>
 </g>
 </g>
@@ -90,7 +90,7 @@
 <g id="a_node3"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/common/scheduling/entity" xlink:title="github.com/scusemua/distributed&#45;notebook/common/scheduling/entity" target="_graphviz">
 <polygon fill="none" stroke="#360791" stroke-width="2" stroke-opacity="0.698039" points="574,-74.54 358,-74.54 358,-38.54 574,-38.54 574,-74.54"/>
 <text text-anchor="start" x="366" y="-59.54" font-family="Times,serif" font-size="10.00">common/scheduling/entity</text>
-<text text-anchor="start" x="366" y="-48.54" font-family="Times,serif" font-size="10.00">2336 / 108.4KB</text>
+<text text-anchor="start" x="366" y="-48.54" font-family="Times,serif" font-size="10.00">2313 / 106.8KB</text>
 </a>
 </g>
 </g>
@@ -147,7 +147,7 @@
 <g id="a_node5"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/common/scheduling/jupyter" xlink:title="github.com/scusemua/distributed&#45;notebook/common/scheduling/jupyter" target="_graphviz">
 <polygon fill="none" stroke="#915f07" stroke-width="2" stroke-opacity="0.698039" points="232,-74.54 16,-74.54 16,-38.54 232,-38.54 232,-74.54"/>
 <text text-anchor="start" x="24" y="-59.54" font-family="Times,serif" font-size="10.00">common/scheduling/jupyter</text>
-<text text-anchor="start" x="24" y="-48.54" font-family="Times,serif" font-size="10.00">2690 / 126.6KB</text>
+<text text-anchor="start" x="24" y="-48.54" font-family="Times,serif" font-size="10.00">2688 / 126.6KB</text>
 </a>
 </g>
 </g>

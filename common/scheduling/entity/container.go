@@ -19,7 +19,7 @@ type Container struct {
 
 	session           scheduling.UserSession    // The Session associated with the Container.
 	replicaId         int32                     // The SMR node ID of the kernel replica running within the Container.
-	host              *Host                     // The Host on which the Container is currently scheduled.
+	host              scheduling.Host           // The Host on which the Container is currently scheduled.
 	id                string                    // The kernel ID of the Container.
 	containerState    scheduling.ContainerState // The current state of the Container.
 	executions        atomic.Int32              // The number of training events processed by the Container.
@@ -40,7 +40,7 @@ type PlaceholderContainer struct {
 }
 
 // NewContainer creates and returns a new *Container.
-func NewContainer(session scheduling.UserSession, kernelReplica scheduling.KernelReplica, host *Host, kernelIp string) *Container {
+func NewContainer(session scheduling.UserSession, kernelReplica scheduling.KernelReplica, host scheduling.Host, kernelIp string) *Container {
 	id := session.ID()
 	container := &Container{
 		KernelReplica:  kernelReplica,
@@ -129,7 +129,7 @@ func (c *Container) Session() scheduling.UserSession {
 	return c.session
 }
 
-func (c *Container) Host() *Host {
+func (c *Container) Host() scheduling.Host {
 	return c.host
 }
 
@@ -305,11 +305,11 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 		return err
 	}
 
-	if snapshot == nil {
-		c.log.Warn("Received nil ResourceSnapshot. This should only happen if we're about to be terminated.")
-	} else {
-		// Just compare the snapshot against our local resources.
-	}
+	//if snapshot == nil {
+	//	c.log.Warn("Received nil ResourceSnapshot. This should only happen if we're about to be terminated.")
+	//} else {
+	//	// Just compare the snapshot against our local resources.
+	//}
 
 	return nil
 }

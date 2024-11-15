@@ -4,11 +4,12 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	jupyterTypes "github.com/scusemua/distributed-notebook/common/jupyter/types"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/jupyter"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"golang.org/x/net/context"
 	"time"
 )
+
+type MessageBrokerHandler[S any, T any, R any] func(source S, msg T, raw R) error
 
 // KernelMessageHandler is an API defines the interface of messages that a JupyterRouter can intercept and handle.
 type KernelMessageHandler func(KernelInfo, jupyterTypes.MessageType, *jupyterTypes.JupyterMessage) error
@@ -157,7 +158,7 @@ type KernelReplica interface {
 	ReconnectSocket(typ jupyterTypes.MessageType) (*jupyterTypes.Socket, error)
 	Validate() error
 	InitializeShellForwarder(handler KernelMessageHandler) (*jupyterTypes.Socket, error)
-	AddIOHandler(topic string, handler jupyter.MessageBrokerHandler[KernelReplica, *jupyterTypes.JupyterFrames, *jupyterTypes.JupyterMessage]) error
+	AddIOHandler(topic string, handler MessageBrokerHandler[KernelReplica, *jupyterTypes.JupyterFrames, *jupyterTypes.JupyterMessage]) error
 	RequestWithHandler(ctx context.Context, _ string, typ jupyterTypes.MessageType, msg *jupyterTypes.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
 	Close() error
 	GetHost() Host

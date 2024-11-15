@@ -1,10 +1,12 @@
 package jupyter
 
+import "github.com/scusemua/distributed-notebook/common/scheduling"
+
 type sessionManagerImpl struct {
 	sessions []string
 }
 
-func NewSessionManager(kernelSess string) SessionManager {
+func NewSessionManager(kernelSess string) scheduling.SessionManager {
 	sm := &sessionManagerImpl{
 		sessions: make([]string, 1, 2), // Reserve 2 slots for kernel session and notebook session.
 	}

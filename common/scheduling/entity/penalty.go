@@ -1,9 +1,11 @@
 package entity
 
+import "github.com/scusemua/distributed-notebook/common/scheduling"
+
 type cachedPenalty struct {
 	penalty     float64
 	explain     string
-	preemptions ContainerList
+	preemptions scheduling.ContainerList
 	valid       bool
 }
 
@@ -15,6 +17,6 @@ func (p *cachedPenalty) String() string {
 	return p.explain
 }
 
-func (p *cachedPenalty) Candidates() ContainerList {
+func (p *cachedPenalty) Candidates() scheduling.ContainerList {
 	return p.preemptions[:]
 }

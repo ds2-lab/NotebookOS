@@ -962,7 +962,7 @@ func (c *KernelReplicaClient) InitializeIOForwarder() (*types.Socket, error) {
 
 // AddIOHandler adds a handler for a specific IOPub topic.
 // The handler should return ErrStopPropagation to avoid msg being forwarded to the client.
-func (c *KernelReplicaClient) AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.KernelReplica, *types.JupyterFrames, *types.JupyterMessage]) error {
+func (c *KernelReplicaClient) AddIOHandler(topic string, handler scheduling.MessageBrokerHandler[scheduling.KernelReplica, *types.JupyterFrames, *types.JupyterMessage]) error {
 	if c.iobroker == nil {
 		return ErrIOPubNotStarted
 	}

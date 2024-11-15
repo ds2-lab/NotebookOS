@@ -3,6 +3,7 @@ package jupyter
 import (
 	"errors"
 	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	commonTypes "github.com/scusemua/distributed-notebook/common/types"
 	"reflect"
 	"sync"
@@ -14,20 +15,18 @@ const (
 
 type MessageTopicRecognizer[R any, T any] func(msg R) (string, T)
 
-type MessageBrokerHandler[S any, T any, R any] func(source S, msg T, raw R) error
-
 // MessageBroker is a general message broker that offers simple event handling.
 // Users will need to provide the type of message source(S), raw message(R), normalized message(T), and a topic recognizer.
 type MessageBroker[S any, R any, T any] struct {
-	topics            map[string][]MessageBrokerHandler[S, T, R]
+	topics            map[string][]scheduling.MessageBrokerHandler[S, T, R]
 	topicMutex        sync.RWMutex
 	topicRecognizer   MessageTopicRecognizer[R, T]
-	allTopicsHandlers []MessageBrokerHandler[S, T, R]
+	allTopicsHandlers []scheduling.MessageBrokerHandler[S, T, R]
 }
 
 func NewMessageBroker[S any, R any, T any](recognizer MessageTopicRecognizer[R, T]) *MessageBroker[S, R, T] {
 	return &MessageBroker[S, R, T]{
-		topics:          make(map[string][]MessageBrokerHandler[S, T, R]),
+		topics:          make(map[string][]scheduling.MessageBrokerHandler[S, T, R]),
 		topicRecognizer: recognizer,
 	}
 }
@@ -50,7 +49,7 @@ func (broker *MessageBroker[S, R, T]) Publish(src S, raw R) (err error) {
 	return err
 }
 
-func (broker *MessageBroker[S, R, T]) Subscribe(topic string, handler MessageBrokerHandler[S, T, R]) {
+func (broker *MessageBroker[S, R, T]) Subscribe(topic string, handler scheduling.MessageBrokerHandler[S, T, R]) {
 	broker.topicMutex.Lock()
 	defer broker.topicMutex.Unlock()
 
@@ -60,7 +59,7 @@ func (broker *MessageBroker[S, R, T]) Subscribe(topic string, handler MessageBro
 	}
 }
 
-func (broker *MessageBroker[S, R, T]) Unsubscribe(topic string, handler MessageBrokerHandler[S, T, R]) {
+func (broker *MessageBroker[S, R, T]) Unsubscribe(topic string, handler scheduling.MessageBrokerHandler[S, T, R]) {
 	broker.topicMutex.Lock()
 	defer broker.topicMutex.Unlock()
 
@@ -74,7 +73,7 @@ func (broker *MessageBroker[S, R, T]) Unsubscribe(topic string, handler MessageB
 	}
 }
 
-func (broker *MessageBroker[S, R, T]) invokeLocked(handlers []MessageBrokerHandler[S, T, R], src S, msg T, raw R, defaultErr error) (err error, stop bool) {
+func (broker *MessageBroker[S, R, T]) invokeLocked(handlers []scheduling.MessageBrokerHandler[S, T, R], src S, msg T, raw R, defaultErr error) (err error, stop bool) {
 	// Later added handlers will be called first.
 	err = defaultErr
 	for i := len(handlers) - 1; i >= 0; i-- {
@@ -86,7 +85,7 @@ func (broker *MessageBroker[S, R, T]) invokeLocked(handlers []MessageBrokerHandl
 	return
 }
 
-func (broker *MessageBroker[S, R, T]) findInHandlers(needle MessageBrokerHandler[S, T, R], stack []MessageBrokerHandler[S, T, R]) (pos int) {
+func (broker *MessageBroker[S, R, T]) findInHandlers(needle scheduling.MessageBrokerHandler[S, T, R], stack []scheduling.MessageBrokerHandler[S, T, R]) (pos int) {
 	pos = -1
 	n := reflect.ValueOf(needle).Pointer()
 	for i, h := range stack {
