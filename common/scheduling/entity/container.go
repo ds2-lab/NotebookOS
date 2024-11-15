@@ -65,7 +65,7 @@ func NewContainer(session scheduling.UserSession, kernelReplica scheduling.Kerne
 func (c *Container) ToDockerContainer() *proto.DockerContainer {
 	return &proto.DockerContainer{
 		ContainerName:   c.ContainerID(),
-		ContainerAge:    time.Now().Sub(c.StartedAt()).String(),
+		ContainerAge:    time.Since(c.StartedAt()).String(),
 		ContainerIp:     c.addr,
 		ContainerStatus: "running", // TODO: This may be inaccurate during migrations and such.
 		Valid:           true,

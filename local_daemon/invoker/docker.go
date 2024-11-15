@@ -452,7 +452,7 @@ func (ivk *DockerInvoker) Close() error {
 				ivk.log.Warn("Will retry using a different name for the old container.")
 			} else {
 				ivk.log.Error("This Docker error is unexpected. Unsure how to recover.")
-				return fmt.Errorf(errorMessage)
+				return errors.New(errorMessage)
 			}
 
 			idx += 1

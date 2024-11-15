@@ -138,7 +138,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 
 	// Validate that the `spec` argument is non-nil.
 	if spec == nil {
-		log.Fatalf(utils.RedStyle.Render("Cannot create new KernelClient, as spec is nil.\n"))
+		log.Fatalln(utils.RedStyle.Render("Cannot create new KernelClient, as spec is nil."))
 	}
 
 	// Validate that the `Kernel` field of the `spec` argument is non-nil.

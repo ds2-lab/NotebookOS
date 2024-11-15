@@ -8,9 +8,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"google.golang.org/grpc/connectivity"
-	"net"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -35,19 +33,6 @@ type DockerScheduler struct {
 
 	// Used in Docker mode. Assigned to individual kernel replicas, incremented after each assignment.
 	dockerModeKernelDebugPort atomic.Int32
-
-	deployKernelMutex sync.Mutex
-}
-
-// checkIfPortIsAvailable checks if the specified port is presently available, returning true if so and false if not.
-func checkIfPortIsAvailable(port int32) bool {
-	address := fmt.Sprintf("localhost:%d", port)
-	ln, err := net.Listen("tcp", address)
-	if err != nil {
-		return false // Port is not available
-	}
-	_ = ln.Close() // Close the listener if successful
-	return true    // Port is available
 }
 
 func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
@@ -254,7 +239,7 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 	deadline, ok := ctx.Deadline()
 	if ok {
 		s.log.Debug("Context (for deploying replicas of kernel %s) has deadline of %v, which is in %v.",
-			in.Id, deadline, deadline.Sub(time.Now()))
+			in.Id, deadline, time.Until(deadline))
 	}
 
 	// Retrieve a slice of viable Hosts onto which we can schedule replicas of the specified kernel.
@@ -390,7 +375,7 @@ func (s *DockerScheduler) pollForResourceData() {
 		// then we'll just skip it to save network bandwidth.
 
 		// This should be approximately equal to s.remoteSynchronizationInterval
-		timeSinceLastSync := time.Now().Sub(lastSync)
+		timeSinceLastSync := time.Since(lastSync)
 
 		// ts is the time exactly "a quarter of the interval since the last synchronization" ago.
 		// So, if we last synchronized 16 min ago, then ts is equal to whatever time it was 4 min ago.

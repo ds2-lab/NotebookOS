@@ -573,7 +573,7 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 	if !d.hasId() {
 		// Make sure we received a valid ID.
 		if !isValidId(in.Id) {
-			log.Fatalf(utils.RedStyle.Render("Received empty ID, and our current ID is also empty...\n"))
+			log.Fatalln(utils.RedStyle.Render("Received empty ID, and our current ID is also empty..."))
 		}
 
 		d.id = in.Id
@@ -735,19 +735,6 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 	}()
 }
 
-// updatePrometheusGpuMetrics updates all the resource-related Prometheus metrics.
-// updatePrometheusGpuMetrics is used as a callback by the GPU/Resource Manager.
-//
-// Deprecated: superseded by updatePrometheusResourceMetrics.
-func (d *SchedulerDaemonImpl) updatePrometheusGpuMetrics(idleGpus float64, pendingGpus float64, committedGpus float64) {
-	d.prometheusManager.IdleGpuGauge.
-		Set(idleGpus)
-	d.prometheusManager.PendingGpuGauge.
-		Set(pendingGpus)
-	d.prometheusManager.CommittedGpuGauge.
-		Set(committedGpus)
-}
-
 // StartKernel starts a single kernel.
 func (d *SchedulerDaemonImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
 	return d.StartKernelReplica(ctx, &proto.KernelReplicaSpec{
@@ -807,7 +794,7 @@ func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize L
 	defer func() {
 		swapped := d.connectingToGateway.CompareAndSwap(1, 0)
 		if !swapped {
-			log.Fatalf(utils.RedStyle.Render("Failed to swap `connecting to gateway` flag back after finishing connection attempt...\n"))
+			log.Fatalln(utils.RedStyle.Render("Failed to swap `connecting to gateway` flag back after finishing connection attempt..."))
 		}
 	}()
 
@@ -1111,8 +1098,8 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 	} else {
 		kernelClientCreationChannel, loaded = d.kernelClientCreationChannels.Load(kernelReplicaSpec.Kernel.Id)
 		if !loaded {
-			message := fmt.Sprintf("Failed to load 'kernel client creation' channel for kernel \"%s\".", kernelReplicaSpec.Kernel.Id)
-			d.notifyClusterGatewayAndPanic("Failed to Load 'Kernel Client Creation' Channel", message, fmt.Errorf(message))
+			err := fmt.Errorf("failed to load 'kernel client creation' channel for kernel \"%s\"", kernelReplicaSpec.Kernel.Id)
+			d.notifyClusterGatewayAndPanic("Failed to Load 'Kernel Client Creation' Channel", err.Error(), err)
 		}
 
 		d.log.Debug("Waiting for notification that the KernelClient for kernel \"%s\" has been created.", kernelReplicaSpec.Kernel.Id)
@@ -1930,12 +1917,12 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	// kernelInvoker is nil before this line of code is executed.
 	// This is just to stop the IDE from complaining, as it (apparently) cannot detect the impossibility here.
 	if kernelInvoker == nil {
-		errorMessage := fmt.Sprintf("Invoker is nil when creating replica %d of kernel %s.", in.ReplicaId, in.Kernel.Id)
-		d.notifyClusterGatewayAndPanic(errorMessage, errorMessage, errorMessage)
+		errorMessage := fmt.Errorf("invoker is nil when creating replica %d of kernel %s", in.ReplicaId, in.Kernel.Id)
+		d.notifyClusterGatewayAndPanic(errorMessage.Error(), errorMessage.Error(), errorMessage)
 
 		// This won't get executed, as the above call will panic.
 		// This line is just here so that the IDE won't complain about kernelInvoker possibly being null below.
-		return nil, fmt.Errorf(errorMessage)
+		return nil, errorMessage
 	}
 
 	connInfo, invocationError := kernelInvoker.InvokeWithContext(ctx, in)
@@ -2304,9 +2291,9 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.Info, msg *messaging.Jupyter
 		res := <-resultChan
 
 		// Return the result as an error or nil if there was no error.
-		switch v := res.(type) {
+		switch res.(type) {
 		case error:
-			return v.(error)
+			return res.(error)
 		case struct{}:
 			return nil
 		}
@@ -3276,7 +3263,7 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *messagin
 			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
 				Id:               uuid.NewString(),
 				Title:            "Failed to Validate Modified Jupyter Message with Resource Snapshot",
-				Message:          fmt.Sprintf(errorMessage),
+				Message:          errorMessage,
 				NotificationType: 0,
 				Panicked:         false,
 			})

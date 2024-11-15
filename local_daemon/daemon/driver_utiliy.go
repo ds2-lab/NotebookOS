@@ -99,9 +99,9 @@ func getNameOrIdOfDockerContainerNonJson(hostnameEnv string, getName bool) (stri
 	formattedCommand := strings.ReplaceAll(unformattedCommand, "{container_hostname_env}", hostnameEnv)
 
 	if getName {
-		formattedCommand = strings.ReplaceAll(unformattedCommand, "{target_field}", "Name")
+		formattedCommand = strings.ReplaceAll(formattedCommand, "{target_field}", "Name")
 	} else {
-		formattedCommand = strings.ReplaceAll(unformattedCommand, "{target_field}", "Id")
+		formattedCommand = strings.ReplaceAll(formattedCommand, "{target_field}", "Id")
 	}
 
 	argv := strings.Split(formattedCommand, " ")
@@ -125,17 +125,9 @@ func getNameOrIdOfDockerContainerNonJson(hostnameEnv string, getName bool) (stri
 
 	containerName := strings.TrimSpace(stdoutBuffer.String())
 
-	if strings.HasPrefix(containerName, "'") {
-		containerName = containerName[1:]
-	}
-
-	if strings.HasSuffix(containerName, "'") {
-		containerName = containerName[0 : len(containerName)-1]
-	}
-
-	if strings.HasPrefix(containerName, "/") {
-		containerName = containerName[1:]
-	}
+	containerName = strings.TrimPrefix(containerName, "'")
+	containerName = strings.TrimSuffix(containerName, "'")
+	containerName = strings.TrimPrefix(containerName, "/")
 
 	globalLogger.Info("Resolved container name: \"%s\"", containerName)
 	return containerName, nil
@@ -216,17 +208,9 @@ func getNameAndIdOfDockerContainer() (string, string, error) {
 	containerName := outputMap[0]["Name"].(string)
 	containerId := outputMap[0]["Id"].(string)
 
-	if strings.HasPrefix(containerName, "'") {
-		containerName = containerName[1:]
-	}
-
-	if strings.HasSuffix(containerName, "'") {
-		containerName = containerName[0 : len(containerName)-1]
-	}
-
-	if strings.HasPrefix(containerName, "/") {
-		containerName = containerName[1:]
-	}
+	containerName = strings.TrimPrefix(containerName, "'")
+	containerName = strings.TrimSuffix(containerName, "'")
+	containerName = strings.TrimPrefix(containerName, "/")
 
 	globalLogger.Info("Resolved container name: \"%s\"", containerName)
 	globalLogger.Info("Resolved container ID: \"%s\"", containerId)

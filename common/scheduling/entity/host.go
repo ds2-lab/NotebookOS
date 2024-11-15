@@ -58,7 +58,7 @@ type SubscriptionQuerier interface {
 // Host are already held.
 func unsafeApplyResourceSnapshotToHost(h *Host, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
 	if h == nil {
-		log.Fatalf(utils.RedStyle.Render("Attempted to apply (possibly nil) resource snapshot to nil Host."))
+		log.Fatalln(utils.RedStyle.Render("Attempted to apply (possibly nil) resource snapshot to nil Host."))
 	}
 
 	if snapshot == nil {

@@ -94,7 +94,6 @@ type BaseScheduler struct {
 	scalingInterval               time.Duration                // How often to call UpdateRatio .
 	scalingLimit                  float64                      // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
 	canScaleIn                    bool                         // Can the Cluster/Placer scale-in?
-	shouldUpdateRatio             bool                         // Should the Placer update its subscription ratio?
 	predictiveAutoscalingEnabled  bool                         // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
 	scalingBufferSize             int32                        // How many extra hosts we provision so that we can quickly scale if needed.
 	minimumCapacity               int32                        // The minimum number of nodes we must have available at any time.
@@ -230,9 +229,7 @@ func (s *BaseScheduler) TryGetCandidateHosts(hosts []scheduling.Host, kernelSpec
 	hostBatch := s.placer.FindHosts(kernelSpec, numHostsRequired)
 
 	// Add all the hosts returned by FindHosts to our running slice of hosts.
-	for _, host := range hostBatch {
-		hosts = append(hosts, host)
-	}
+	hosts = append(hosts, hostBatch...)
 
 	s.candidateHostMutex.Unlock()
 
@@ -857,7 +854,7 @@ func (h *idleSortedHost) Compare(other interface{}) float64 {
 }
 
 func (h *idleSortedHost) SetIdx(idx int) {
-	h.SetIdx(idx)
+	h.Host.SetIdx(idx)
 }
 
 // migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.

@@ -180,12 +180,7 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 				numDisabledHostsUsed += 1
 
 				// If we have already satisfied the scale-out requirement, then we'll stop iterating.
-				if numNewNodesRequired == 0 {
-					return false
-				}
-
-				// Keep iterating, as we need more hosts to satisfy the scale-out requirement.
-				return true
+				return numNewNodesRequired != 0
 			})
 
 			// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the "disabled hosts" mapping.
@@ -272,8 +267,6 @@ func (c *DockerComposeCluster) unsafeGetTargetedScaleInCommand(targetScale int32
 		}
 
 		coreLogicDoneChan <- struct{}{}
-
-		return
 	}, nil
 }
 

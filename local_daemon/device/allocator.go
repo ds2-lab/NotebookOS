@@ -173,10 +173,10 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 
 	candidatePods, err := v.getCandidatePodsForAllocation()
 	if err != nil {
-		errorMessage := fmt.Sprintf("Failed to retrieve candidate pods for allocation because: %v", err)
-		v.log.Error(errorMessage)
-		klog.Error(errorMessage)
-		return nil, fmt.Errorf(errorMessage)
+		errorMessage := fmt.Errorf("failed to retrieve candidate pods for allocation because: %w", err)
+		v.log.Error(errorMessage.Error())
+		klog.Error(errorMessage.Error())
+		return nil, errorMessage
 	}
 
 	var numVirtualGPUsRequested = int32(len(request.DevicesIDs))
@@ -211,16 +211,16 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 			klog.V(2).Infof("Returning the following value from virtualGpuPluginServerImpl::Allocate: %v", responses)
 			return responses, nil
 		} else {
-			errorMessage := fmt.Sprintf("failed to allocate vGPUs to pod %s(%s) because: %v", string(candidatePod.UID), candidatePod.Name, err)
-			v.log.Error(errorMessage)
+			errorMessage := fmt.Errorf("failed to allocate vGPUs to pod %s(%s) because: %w", string(candidatePod.UID), candidatePod.Name, err)
+			v.log.Error(errorMessage.Error())
 			klog.Error(errorMessage)
-			return nil, fmt.Errorf(errorMessage)
+			return nil, errorMessage
 		}
 	} else {
-		errorMessage := fmt.Sprintf("could not find candidate Pod for request for %d vGPUs, allocation failed.", len(request.DevicesIDs))
-		v.log.Error(errorMessage)
+		errorMessage := fmt.Errorf("could not find candidate Pod for request for %d vGPUs, allocation failed", len(request.DevicesIDs))
+		v.log.Error(errorMessage.Error())
 		klog.Error(errorMessage)
-		return nil, fmt.Errorf(errorMessage)
+		return nil, errorMessage
 	}
 }
 

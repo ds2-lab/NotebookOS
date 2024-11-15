@@ -128,11 +128,6 @@ type DistributedKernelClient struct {
 
 	session scheduling.UserSession
 
-	// isTraining a bool indicating whether a replica of the associated kernel is actively training right now.
-	isTraining bool
-	// trainingStartedAt is the time at which a replica of the associated kernel began actively training.
-	trainingStartedAt time.Time
-
 	debugMode bool
 
 	log     logger.Logger
@@ -281,8 +276,8 @@ func (c *DistributedKernelClient) ExecutionComplete(msg *messaging.JupyterMessag
 
 		associatedExecution, loaded = c.activeExecutionsByExecuteRequestMsgId.Load(msg.JupyterParentMessageId())
 		if !loaded {
-			log.Fatalf(utils.RedStyle.Render("[ERROR] Cannot find active execution associated with \"execute_request\" \"%s\", for which we just received an \"execute_reply\"...",
-				msg.JupyterParentMessageId()))
+			log.Fatalf(utils.RedStyle.Render("[ERROR] Cannot find active execution associated with \"execute_request\" \"%s\", for which we just received an \"execute_reply\"..."),
+				msg.JupyterParentMessageId())
 		}
 	} else {
 		associatedExecution = c.activeExecution
@@ -1038,17 +1033,8 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 							//
 							// If we aren't training, then it may be a little suspect that our message hasn't been
 							// processed yet. We'll log a warning message, but we'll keep waiting.
-							if !c.isTraining {
-								// NOTE: If we're in debug mode, then jMsg will not necessarily be the exact same message that was sent to the replica,
-								// as we clone the messages before sending them!!!
-								c.log.Warn("Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Kernel isn't even training... Received %d/%d responses so far.",
-									time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
-							} else if loopIterations > 0 && loopIterations%5 == 0 { // Print warnings every so often about stuck SHELL messages.
-								// NOTE: If we're in debug mode, then jMsg will not necessarily be the exact same message that was sent to the replica,
-								// as we clone the messages before sending them!!!
-								c.log.Warn("Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Kernel is currently training. Received %d/%d responses so far.",
-									time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
-							}
+							c.log.Warn("Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Received %d/%d responses so far.",
+								time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
 						} else {
 							// We've waited for over 5 minutes, and we've not heard anything. This is a non-shell message.
 							// NOTE: If we're in debug mode, then jMsg will not necessarily be the exact same message that was sent to the replica,
@@ -1276,8 +1262,7 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 	// Decode the jupyter.MessageSMRLeadTask message.
 	var leadMessage messaging.MessageSMRLeadTask
 	if err := msg.JupyterFrames.DecodeContent(&leadMessage); err != nil {
-		errorMessage := fmt.Sprintf("Failed to decode content of SMR Lead ZMQ message: %v\n", err)
-		log.Fatalf(utils.RedStyle.Render(errorMessage))
+		log.Fatalf(utils.RedStyle.Render("Failed to decode content of SMR Lead ZMQ message: %v\n"), err)
 	}
 
 	// The time at which the kernel replica began executing the code.

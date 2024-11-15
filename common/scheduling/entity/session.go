@@ -415,7 +415,7 @@ func (s *Session) unsafeTrainingStopped() promise.Promise {
 		return promise.Resolved(s.instance, err)
 	}
 
-	trainingDuration := time.Now().Sub(s.trainingStart)
+	trainingDuration := time.Since(s.trainingStart)
 	s.trainingTimeHistory.AddValue(trainingDuration)
 	s.trainingTime.Add(float64(trainingDuration) / float64(time.Second))
 
@@ -456,7 +456,7 @@ func (s *Session) MigrationComplete() promise.Promise {
 		return promise.Resolved(s.instance, err)
 	}
 
-	migrationDuration := time.Now().Sub(s.migrationStart)
+	migrationDuration := time.Since(s.migrationStart)
 	s.migrationTimeHistory.AddValue(migrationDuration)
 	s.migrationTime.Add(float64(migrationDuration) / float64(time.Second))
 	s.log.Debug("Migration completed in %v.", migrationDuration)
@@ -659,5 +659,5 @@ func (s *Session) StartedAt() time.Time {
 }
 
 func (s *Session) Duration() time.Duration {
-	return time.Now().Sub(s.startedAt)
+	return time.Since(s.startedAt)
 }

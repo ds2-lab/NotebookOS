@@ -112,11 +112,7 @@ func (e InsufficientResourcesError) Error() string {
 
 func (e InsufficientResourcesError) Is(other error) bool {
 	var insufficientResourcesError *InsufficientResourcesError
-	if !errors.As(other, &insufficientResourcesError) {
-		return false
-	}
-
-	return true
+	return errors.As(other, &insufficientResourcesError)
 }
 
 func (e InsufficientResourcesError) String() string {

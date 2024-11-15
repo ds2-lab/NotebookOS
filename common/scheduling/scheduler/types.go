@@ -11,7 +11,3 @@ type clusterSchedulerInternal interface {
 	// postScheduleKernelReplica is called immediately after ScheduleKernelReplica is called.
 	postScheduleKernelReplica(kernelId string, addReplicaOp *AddReplicaOperation)
 }
-
-type clusterInternal interface {
-	scheduling.Cluster
-}

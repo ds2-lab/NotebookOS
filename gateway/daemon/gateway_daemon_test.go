@@ -35,8 +35,10 @@ import (
 
 const (
 	signatureScheme string = "hmac-sha256"
-	kernelId               = "66902bac-9386-432e-b1b9-21ac853fa1c9"
-	persistentId           = "a45e4331-8fdc-4143-aac8-00d3e9df54fa"
+
+	kernelId string = "66902bac-9386-432e-b1b9-21ac853fa1c9"
+
+	persistentId string = "a45e4331-8fdc-4143-aac8-00d3e9df54fa"
 )
 
 var (

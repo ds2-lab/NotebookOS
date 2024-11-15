@@ -69,8 +69,10 @@ const (
 	SchedulingPolicyFcfsBatch SchedulingPolicy = "fcfs-batch"
 
 	// SkipValidationKey is passed in Context of NotifyKernelRegistered to skip the connection validation step.
-	SkipValidationKey string = "SkipValidationKey"
+	SkipValidationKey contextKey = "SkipValidationKey"
 )
+
+type contextKey string
 
 var (
 	// gRPC errors
@@ -292,8 +294,6 @@ type ClusterGatewayImpl struct {
 	servingPrometheus atomic.Int32
 	// prometheusInterval is how often we publish metrics to Prometheus.
 	prometheusInterval time.Duration
-	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
-	prometheusPort int
 
 	// hostSpec is the resource spec of Hosts in the Cluster
 	hostSpec *types.DecimalSpec
@@ -1650,11 +1650,11 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	addReplicaOp, ok := d.addReplicaOperationsByKernelReplicaId.LoadAndDelete(key)
 
 	if !ok {
-		errorMessage := fmt.Sprintf("Could not find AddReplicaOperation struct under key \"%s\"", key)
-		d.log.Error(errorMessage)
-		d.notifyDashboardOfError("Kernel Registration Error", errorMessage)
+		errorMessage := fmt.Errorf("could not find AddReplicaOperation struct under key \"%s\"", key)
+		d.log.Error(errorMessage.Error())
+		d.notifyDashboardOfError("Kernel Registration Error", errorMessage.Error())
 
-		return nil, fmt.Errorf(errorMessage)
+		return nil, errorMessage
 	}
 
 	if d.DockerMode() {

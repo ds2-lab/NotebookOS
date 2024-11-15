@@ -10,7 +10,6 @@ import (
 
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	"github.com/go-zeromq/zmq4"
 )
 
 const (
@@ -264,22 +263,6 @@ func (b *RequestBuilder) WithDoneCallback(doneCallback MessageDone) *RequestBuil
 func (b *RequestBuilder) WithMessageHandler(handler MessageHandler) *RequestBuilder {
 	b.handler = handler
 	return b
-}
-
-// Extract the DEST frame from the request's frames.
-// If there is no DEST frame already contained within the message, then add the DEST frame.
-func (b *RequestBuilder) extractAndAddDestFrame(destId string, msg *zmq4.Msg) (*zmq4.Msg, string, int) {
-	// Slightly inefficient. We call SkipIdentities both in NewJupyterFramesFromBytes and ExtractDestFrame.
-	// (And again several times in AddDestFrame...)
-	jFrames := NewJupyterFramesFromBytes(msg.Frames)
-
-	// Normalize the request, we do not assume that the types.RequestDest implements the auto-detect feature.
-	_, reqId, _ := jFrames.ExtractDestFrame(false)
-	if reqId == "" {
-		reqId = jFrames.AddDestFrame(destId, false)
-	}
-
-	return msg, reqId, jFrames.Offset
 }
 
 // BuildRequest builds the request as configured.
