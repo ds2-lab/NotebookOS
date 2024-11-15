@@ -1,4 +1,4 @@
-package jupyter
+package client
 
 import "github.com/scusemua/distributed-notebook/common/scheduling"
 

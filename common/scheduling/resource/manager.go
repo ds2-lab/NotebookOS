@@ -12,15 +12,15 @@ import (
 )
 
 const (
-	// IdleResources can overlap with pending ComputeResource. These are ComputeResource that are not actively bound
+	// IdleResources can overlap with pending HostResources. These are HostResources that are not actively bound
 	// to any containers/replicas. They are available for use by a locally-running container/replica.
 	IdleResources Status = "idle"
 
 	// PendingResources are "subscribed to" by a locally-running container/replica; however, they are not
 	// bound to that container/replica, and thus are available for use by any of the locally-running replicas.
 	//
-	// Pending ComputeResource indicate the presence of locally-running replicas that are not actively training.
-	// The sum of all pending ComputeResource on a node is the amount of ComputeResource that would be required if all
+	// Pending HostResources indicate the presence of locally-running replicas that are not actively training.
+	// The sum of all pending HostResources on a node is the amount of HostResources that would be required if all
 	// locally-scheduled replicas began training at the same time.
 	PendingResources Status = "pending"
 
@@ -28,7 +28,7 @@ const (
 	// As such, they are unavailable for use by any other locally-running replicas.
 	CommittedResources Status = "committed"
 
-	// SpecResources are the total allocatable ComputeResource available on the Host.
+	// SpecResources are the total allocatable HostResources available on the Host.
 	// SpecResources are a static, fixed quantity. They do not change in response to resource (de)allocations.
 	SpecResources Status = "spec"
 
@@ -49,7 +49,7 @@ const (
 	ResourceQuantityGreaterThanSpec Inconsistency = "quantity_greater_than_spec"
 
 	// IdleSpecUnequal indicates that our IdleResources and SpecResources are unequal despite having no kernel
-	// replicas scheduled locally on the node. (When the ndoe is empty, all our ComputeResource should be idle.)
+	// replicas scheduled locally on the node. (When the ndoe is empty, all our HostResources should be idle.)
 	IdleSpecUnequal Inconsistency = "idle_and_spec_resources_unequal"
 
 	// PendingNonzero indicates that our PendingResources are non-zero despite having no replicas scheduled locally.
@@ -57,23 +57,23 @@ const (
 )
 
 var (
-	// ErrInsufficientMemory indicates that there was insufficient memory ComputeResource available to validate/support/serve
+	// ErrInsufficientMemory indicates that there was insufficient memory HostResources available to validate/support/serve
 	// the given resource request/types.Spec.
 	//
 	// Deprecated: use InsufficientResourcesError instead.
-	ErrInsufficientMemory = errors.New("insufficient memory ComputeResource available")
+	ErrInsufficientMemory = errors.New("insufficient memory HostResources available")
 
-	// ErrInsufficientCPUs indicates that there was insufficient CPU ComputeResource available to validate/support/serve
+	// ErrInsufficientCPUs indicates that there was insufficient CPU HostResources available to validate/support/serve
 	// the given resource request/types.Spec.
 	//
 	// Deprecated: use InsufficientResourcesError instead.
-	ErrInsufficientCPUs = errors.New("insufficient CPU ComputeResource available")
+	ErrInsufficientCPUs = errors.New("insufficient CPU HostResources available")
 
-	// ErrInsufficientGPUs indicates that there was insufficient GPU ComputeResource available to validate/support/serve
+	// ErrInsufficientGPUs indicates that there was insufficient GPU HostResources available to validate/support/serve
 	// the given resource request/types.Spec.
 	//
 	// Deprecated: use InsufficientResourcesError instead.
-	ErrInsufficientGPUs = errors.New("insufficient GPU ComputeResource available")
+	ErrInsufficientGPUs = errors.New("insufficient GPU HostResources available")
 
 	// ErrInvalidSnapshot is a general error message indicating that the application of a snapshot has failed.
 	ErrInvalidSnapshot = errors.New("the specified snapshot could not be applied")
@@ -83,16 +83,16 @@ var (
 	ErrIncompatibleResourceStatus = errors.New("source and target Status values are not the same")
 )
 
-// InsufficientResourcesError is a custom error type that is used to indicate that ComputeResource could not be
-// allocated because there are insufficient ComputeResource available for one or more ComputeResource (CPU, GPU, or RAM).
+// InsufficientResourcesError is a custom error type that is used to indicate that HostResources could not be
+// allocated because there are insufficient HostResources available for one or more HostResources (CPU, GPU, or RAM).
 type InsufficientResourcesError struct {
-	// AvailableResources are the ComputeResource that were available on the node at the time that the
+	// AvailableResources are the HostResources that were available on the node at the time that the
 	// failed allocation was attempted.
 	AvailableResources types.Spec
-	// RequestedResources are the ComputeResource that were requested, and that could not be fulfilled in their entirety.
+	// RequestedResources are the HostResources that were requested, and that could not be fulfilled in their entirety.
 	RequestedResources types.Spec
 	// OffendingResourceKinds is a slice containing each Kind for which there were insufficient
-	// ComputeResource available (and thus that particular Kind contributed to the inability of the node
+	// HostResources available (and thus that particular Kind contributed to the inability of the node
 	// to fulfill the resource request).
 	OffendingResourceKinds []Kind
 }
@@ -127,23 +127,23 @@ func (e InsufficientResourcesError) String() string {
 // Kind can be one of CPU, GPU, or Memory
 type Kind string
 
-// Inconsistency defines the various ways in which ComputeResource can be in an inconsistent or illegal state.
-// Examples include a resource being negative, a resource quantity being larger than the total available ComputeResource
+// Inconsistency defines the various ways in which HostResources can be in an inconsistent or illegal state.
+// Examples include a resource being negative, a resource quantity being larger than the total available HostResources
 // of that kind on the node, and so on.
 type Inconsistency string
 
-// Manager is a wrapper around several ComputeResource structs, each of which corresponds to idle, pending,
-// committed, or spec ComputeResource.
+// Manager is a wrapper around several HostResources structs, each of which corresponds to idle, pending,
+// committed, or spec HostResources.
 type Manager struct {
 	mu sync.Mutex
 
 	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this Manager.
 	lastAppliedSnapshotId int32
 
-	idleResources      *ComputeResource
-	pendingResources   *ComputeResource
-	committedResources *ComputeResource
-	specResources      *ComputeResource
+	idleResources      *HostResources
+	pendingResources   *HostResources
+	committedResources *HostResources
+	specResources      *HostResources
 }
 
 // NewManager creates a new Manager struct from the given types.Spec and returns
@@ -156,28 +156,28 @@ func NewManager(spec types.Spec) *Manager {
 	return &Manager{
 		// ManagerSnapshot IDs begin at 0, so -1 will always be less than the first snapshot to be applied.
 		lastAppliedSnapshotId: -1,
-		idleResources: &ComputeResource{
+		idleResources: &HostResources{
 			resourceStatus: IdleResources,
 			millicpus:      resourceSpec.Millicpus.Copy(),
 			memoryMB:       resourceSpec.MemoryMb.Copy(),
 			gpus:           resourceSpec.GPUs.Copy(),
 			vramGB:         resourceSpec.VRam.Copy(),
 		},
-		pendingResources: &ComputeResource{
+		pendingResources: &HostResources{
 			resourceStatus: PendingResources,
 			millicpus:      decimal.Zero.Copy(),
 			memoryMB:       decimal.Zero.Copy(),
 			gpus:           decimal.Zero.Copy(),
 			vramGB:         decimal.Zero.Copy(),
 		},
-		committedResources: &ComputeResource{
+		committedResources: &HostResources{
 			resourceStatus: CommittedResources,
 			millicpus:      decimal.Zero.Copy(),
 			memoryMB:       decimal.Zero.Copy(),
 			gpus:           decimal.Zero.Copy(),
 			vramGB:         decimal.Zero.Copy(),
 		},
-		specResources: &ComputeResource{
+		specResources: &HostResources{
 			resourceStatus: SpecResources,
 			millicpus:      resourceSpec.Millicpus.Copy(),
 			memoryMB:       resourceSpec.MemoryMb.Copy(),
@@ -233,43 +233,43 @@ func (r *Manager) String() string {
 		r.idleResources.String(), r.pendingResources.String(), r.committedResources.String(), r.specResources.String())
 }
 
-// IdleResources returns a ComputeResourceState that is responsible for encoding the current idle ComputeResource
+// IdleResources returns a ComputeResourceState that is responsible for encoding the current idle HostResources
 // of the target Manager.
-func (r *Manager) IdleResources() *ComputeResource {
+func (r *Manager) IdleResources() *HostResources {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.idleResources
 }
 
-// PendingResources returns a ComputeResourceState that is responsible for encoding the current pending ComputeResource
+// PendingResources returns a ComputeResourceState that is responsible for encoding the current pending HostResources
 // of the target Manager.
-func (r *Manager) PendingResources() *ComputeResource {
+func (r *Manager) PendingResources() *HostResources {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.pendingResources
 }
 
-// CommittedResources returns a ComputeResourceState that is responsible for encoding the current committed ComputeResource
+// CommittedResources returns a ComputeResourceState that is responsible for encoding the current committed HostResources
 // of the target Manager.
-func (r *Manager) CommittedResources() *ComputeResource {
+func (r *Manager) CommittedResources() *HostResources {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.committedResources
 }
 
-// SpecResources returns a ComputeResourceState that is responsible for encoding the current spec ComputeResource
+// SpecResources returns a ComputeResourceState that is responsible for encoding the current spec HostResources
 // of the target Manager.
-func (r *Manager) SpecResources() *ComputeResource {
+func (r *Manager) SpecResources() *HostResources {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.specResources
 }
 
-// idleResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current idle ComputeResource
+// idleResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current idle HostResources
 // of the target Manager.
 func (r *Manager) idleResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
 	r.mu.Lock()
@@ -278,7 +278,7 @@ func (r *Manager) idleResourcesSnapshot(snapshotId int32) *ComputeResourceSnapsh
 	return r.idleResources.ResourceSnapshot(snapshotId)
 }
 
-// pendingResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current pending ComputeResource
+// pendingResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current pending HostResources
 // of the target Manager.
 func (r *Manager) pendingResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
 	r.mu.Lock()
@@ -287,7 +287,7 @@ func (r *Manager) pendingResourcesSnapshot(snapshotId int32) *ComputeResourceSna
 	return r.pendingResources.ResourceSnapshot(snapshotId)
 }
 
-// committedResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current committed ComputeResource
+// committedResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current committed HostResources
 // of the target Manager.
 func (r *Manager) committedResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
 	r.mu.Lock()
@@ -296,7 +296,7 @@ func (r *Manager) committedResourcesSnapshot(snapshotId int32) *ComputeResourceS
 	return r.committedResources.ResourceSnapshot(snapshotId)
 }
 
-// specResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current spec ComputeResource
+// specResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current spec HostResources
 // of the target Manager.
 func (r *Manager) specResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
 	r.mu.Lock()
@@ -305,7 +305,7 @@ func (r *Manager) specResourcesSnapshot(snapshotId int32) *ComputeResourceSnapsh
 	return r.specResources.ResourceSnapshot(snapshotId)
 }
 
-// IdleProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current idle ComputeResource
+// IdleProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current idle HostResources
 // of the target Manager.
 func (r *Manager) IdleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
@@ -314,7 +314,7 @@ func (r *Manager) IdleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesS
 	return r.idleResources.ProtoSnapshot(snapshotId)
 }
 
-// PendingProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current pending ComputeResource
+// PendingProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current pending HostResources
 // of the target Manager.
 func (r *Manager) PendingProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
@@ -323,7 +323,7 @@ func (r *Manager) PendingProtoResourcesSnapshot(snapshotId int32) *proto.Resourc
 	return r.pendingResources.ProtoSnapshot(snapshotId)
 }
 
-// CommittedProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current committed ComputeResource
+// CommittedProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current committed HostResources
 // of the target Manager.
 func (r *Manager) CommittedProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
@@ -332,7 +332,7 @@ func (r *Manager) CommittedProtoResourcesSnapshot(snapshotId int32) *proto.Resou
 	return r.committedResources.ProtoSnapshot(snapshotId)
 }
 
-// SpecProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current spec ComputeResource
+// SpecProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current spec HostResources
 // of the target Manager.
 func (r *Manager) SpecProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	r.mu.Lock()
@@ -341,7 +341,7 @@ func (r *Manager) SpecProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesS
 	return r.specResources.ProtoSnapshot(snapshotId)
 }
 
-// ComputeResourceSnapshot returns a pointer to a ComputeResourceSnapshot created for the specified "status" of ComputeResource
+// ComputeResourceSnapshot returns a pointer to a ComputeResourceSnapshot created for the specified "status" of HostResources
 // (i.e., "idle", "pending", "committed", or "spec").
 func (r *Manager) ResourceSnapshot(status Status, snapshotId int32) *ComputeResourceSnapshot {
 	switch status {

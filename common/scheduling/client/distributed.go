@@ -1,4 +1,4 @@
-package jupyter
+package client
 
 import (
 	"context"
@@ -265,7 +265,7 @@ func (c *DistributedKernelClient) SetActiveExecution(activeExecution scheduling.
 // ExecutionComplete returns true.
 //
 // If there are no ActiveExecution structs enqueued, then ExecutionComplete returns false.
-func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostResourceSnapshot[commonTypes.ArbitraryResourceSnapshot], msg *types.JupyterMessage) (bool, error) {
+func (c *DistributedKernelClient) ExecutionComplete(msg *types.JupyterMessage) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -304,7 +304,7 @@ func (c *DistributedKernelClient) ExecutionComplete(snapshot commonTypes.HostRes
 		return false, err
 	}
 
-	err = c.activeExecution.GetActiveReplica().KernelStoppedTraining(snapshot)
+	err = c.activeExecution.GetActiveReplica().KernelStoppedTraining()
 	if len(c.activeExecutionQueue) > 0 {
 		c.activeExecution = c.activeExecutionQueue.Dequeue()
 		c.log.Debug("Popped next ActiveExecution off of queue and assigned it as current ActiveExecution: %v",
@@ -655,7 +655,7 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 	}
 
 	if r.IsTraining() {
-		err := r.KernelStoppedTraining(nil)
+		err := r.KernelStoppedTraining()
 		if err != nil {
 			c.log.Error("Error whilst stopping training on replica %d (during removal process): %v",
 				r.ReplicaID(), err)
@@ -1340,14 +1340,8 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 
 	targetActiveExecution.SetActiveReplica(kernelReplica)
 
-	// Extract the resource snapshot from the request.
-	snapshot, extractionError := c.extractResourceSnapshotFromRequestMetadata(msg)
-	if extractionError != nil {
-		panic(extractionError)
-	}
-
 	// Record that the kernel has started training.
-	if err := KernelStartedTraining(kernelReplica, snapshot); err != nil {
+	if err := kernelReplica.KernelStartedTraining(); err != nil {
 		c.log.Error("Failed to start training for kernel replica %s-%d: %v", c.id, kernelReplica.ReplicaID(), err)
 		panic(err)
 	}

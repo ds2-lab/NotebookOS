@@ -17,7 +17,7 @@ import (
 )
 
 // AllocationManager is responsible for keeping track of resource allocations on behalf of the Local Daemon.
-// The AllocationManager allocates and deallocates ComputeResource to/from kernel replicas scheduled to run on the node.
+// The AllocationManager allocates and deallocates HostResources to/from kernel replicas scheduled to run on the node.
 //
 // AllocationManager is a replacement for GpuManager.
 //
@@ -59,7 +59,7 @@ type AllocationManager struct {
 	// allocationIdMap contains Allocation structs of both types (CommittedAllocation and PendingAllocation).
 	allocationKernelReplicaMap hashmap.HashMap[string, *Allocation]
 
-	// resourcesWrapper encapsulates the state of all ComputeResource (idle, pending, committed, and spec) managed
+	// resourcesWrapper encapsulates the state of all HostResources (idle, pending, committed, and spec) managed
 	// by this AllocationManager.
 	resourcesWrapper *Manager
 
@@ -260,7 +260,7 @@ func (m *AllocationManager) SpecVRAM() decimal.Decimal {
 	return m.resourcesWrapper.SpecResources().VRAMAsDecimal().Copy()
 }
 
-// SpecResources returns a snapshot of the current quantities of spec ComputeResource available
+// SpecResources returns a snapshot of the current quantities of spec HostResources available
 // on this node at the time at which the SpecResources method is called.
 func (m *AllocationManager) SpecResources() *types.DecimalSpec {
 	return m.resourcesWrapper.specResources.ToDecimalSpec()
@@ -294,7 +294,7 @@ func (m *AllocationManager) IdleVRamGB() decimal.Decimal {
 	return m.resourcesWrapper.IdleResources().VRAMAsDecimal().Copy()
 }
 
-// IdleResources returns a snapshot of the current quantities of idle ComputeResource available
+// IdleResources returns a snapshot of the current quantities of idle HostResources available
 // on this node at the time at which the IdleResources method is called.
 func (m *AllocationManager) IdleResources() *types.DecimalSpec {
 	return m.resourcesWrapper.idleResources.ToDecimalSpec()
@@ -328,7 +328,7 @@ func (m *AllocationManager) CommittedVRamGB() decimal.Decimal {
 	return m.resourcesWrapper.CommittedResources().VRAMAsDecimal().Copy()
 }
 
-// CommittedResources returns a snapshot of the current quantities of committed ComputeResource available
+// CommittedResources returns a snapshot of the current quantities of committed HostResources available
 // on this node at the time at which the CommittedResources method is called.
 func (m *AllocationManager) CommittedResources() *types.DecimalSpec {
 	return m.resourcesWrapper.committedResources.ToDecimalSpec()
@@ -336,7 +336,7 @@ func (m *AllocationManager) CommittedResources() *types.DecimalSpec {
 
 // PendingGPUs returns the sum of the outstanding GPUs of all replicas scheduled onto this node.
 // Pending GPUs are not allocated or committed to a particular replica yet.
-// The time at which ComputeResource are actually committed to a replica depends upon the policy being used.
+// The time at which HostResources are actually committed to a replica depends upon the policy being used.
 // In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
 //
 // This returns a copy of the decimal.Decimal used internally.
@@ -346,7 +346,7 @@ func (m *AllocationManager) PendingGPUs() decimal.Decimal {
 
 // PendingCPUs returns the sum of the outstanding Millicpus of all replicas scheduled onto this node, in millicpus.
 // Pending Millicpus are not allocated or committed to a particular replica yet.
-// The time at which ComputeResource are actually committed to a replica depends upon the policy being used.
+// The time at which HostResources are actually committed to a replica depends upon the policy being used.
 // In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
 //
 // This returns a copy of the decimal.Decimal used internally.
@@ -356,7 +356,7 @@ func (m *AllocationManager) PendingCPUs() decimal.Decimal {
 
 // PendingMemoryMB returns the sum of the outstanding memory of all replicas scheduled onto this node, in MB.
 // Pending memory is not allocated or committed to a particular replica yet.
-// The time at which ComputeResource are actually committed to a replica depends upon the policy being used.
+// The time at which HostResources are actually committed to a replica depends upon the policy being used.
 // In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
 //
 // This returns a copy of the decimal.Decimal used internally.
@@ -366,7 +366,7 @@ func (m *AllocationManager) PendingMemoryMB() decimal.Decimal {
 
 // PendingVRAM returns the sum of the outstanding VRAM of all replicas scheduled onto this node, in GB.
 // Pending VRAM is not allocated or committed to a particular replica yet.
-// The time at which ComputeResource are actually committed to a replica depends upon the policy being used.
+// The time at which HostResources are actually committed to a replica depends upon the policy being used.
 // In some cases, they're committed immediately.
 // In other cases, they're committed only when the replica is actively training.
 //
@@ -375,7 +375,7 @@ func (m *AllocationManager) PendingVRAM() decimal.Decimal {
 	return m.resourcesWrapper.PendingResources().VRAMAsDecimal().Copy()
 }
 
-// PendingResources returns a snapshot of the current quantities of pending ComputeResource available
+// PendingResources returns a snapshot of the current quantities of pending HostResources available
 // on this node at the time at which the PendingResources method is called.
 func (m *AllocationManager) PendingResources() *types.DecimalSpec {
 	return m.resourcesWrapper.pendingResources.ToDecimalSpec()
@@ -438,7 +438,7 @@ func (m *AllocationManager) ReplicaHasPendingGPUs(replicaId int32, kernelId stri
 	return false
 }
 
-// ReplicaHasCommittedResources returns true if the specified kernel replica has any ComputeResource committed to it.
+// ReplicaHasCommittedResources returns true if the specified kernel replica has any HostResources committed to it.
 func (m *AllocationManager) ReplicaHasCommittedResources(replicaId int32, kernelId string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -504,8 +504,8 @@ func (m *AllocationManager) NumPendingAllocations() int {
 }
 
 // PromoteReservation should be called when a kernel replica has won its leader election and begins executing code.
-// This method simply records that the ComputeResource committed to the kernel are no longer "merely" a reservation.
-// Instead, the resource allocation will indicate that they committed ComputeResource are being used by a kernel replica
+// This method simply records that the HostResources committed to the kernel are no longer "merely" a reservation.
+// Instead, the resource allocation will indicate that they committed HostResources are being used by a kernel replica
 // that is actively running user-submitted code.
 //
 // If there is no resource reservation (i.e., committed allocation whose IsReservation flag is set to true) for the
@@ -523,7 +523,7 @@ func (m *AllocationManager) PromoteReservation(replicaId int32, kernelId string)
 
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Error("Cannot promote reserved ComputeResource for replica %d of kernel %s: no existing resource allocation found for that kernel replica.",
+		m.log.Error("Cannot promote reserved HostResources for replica %d of kernel %s: no existing resource allocation found for that kernel replica.",
 			replicaId, kernelId)
 	}
 
@@ -627,7 +627,7 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 	return nil
 }
 
-// CommitResources commits/binds ComputeResource to a particular kernel replica, such that the ComputeResource are reserved for
+// CommitResources commits/binds HostResources to a particular kernel replica, such that the HostResources are reserved for
 // exclusive use by that kernel replica until the kernel replica releases them (or another entity releases them
 // on behalf of the kernel replica).
 //
@@ -636,7 +636,7 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 //
 // If the given types.Spec argument is non-nil, then the existing resource allocation associated with the specified
 // kernel will be adjusted (increased or decreased) according to the given spec. If the AllocationManager finds that
-// there are insufficient ComputeResource available to accommodate the requested adjustment, then an error is returned.
+// there are insufficient HostResources available to accommodate the requested adjustment, then an error is returned.
 //
 // If the given types.Spec argument is nil, then the pending resource allocation associated with the specified kernel
 // will simply be "promoted" to a "committed" resource request as-is, without adjusting any of the individual resource
@@ -658,7 +658,7 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Error("Cannot commit ComputeResource to replica %d of kernel %s: no existing resource allocation "+
+		m.log.Error("Cannot commit HostResources to replica %d of kernel %s: no existing resource allocation "+
 			"found for that kernel replica.", replicaId, kernelId)
 		return fmt.Errorf("%w: no resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
@@ -683,12 +683,12 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 		m.log.Debug("Pending allocation for kernel %s-%d pre-commitment: %s", kernelId, replicaId, allocation.ToSpec())
 	}
 
-	m.log.Debug("Attempting to commit the following ComputeResource to replica %d of kernel %s (isReservation=%v): %v",
+	m.log.Debug("Attempting to commit the following HostResources to replica %d of kernel %s (isReservation=%v): %v",
 		replicaId, kernelId, isReservation, requestedResources.String())
 
 	// First, validate against this scheduling.Host's spec.
 	if err := m.resourcesWrapper.specResources.ValidateWithError(requestedResources); err != nil {
-		m.log.Error("Could not commit the following ComputeResource to replica %d of kernel %s due "+
+		m.log.Error("Could not commit the following HostResources to replica %d of kernel %s due "+
 			"to insufficient host spec: %s. Specific reason for commitment failure: %v.",
 			replicaId, kernelId, requestedResources.String(), err)
 		return err
@@ -696,20 +696,20 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 
 	// Next, validate against our actual idle resource capacity.
 	if err := m.resourcesWrapper.idleResources.ValidateWithError(requestedResources); err != nil {
-		m.log.Error("Could not commit ComputeResource to replica %d of kernel %s: %s. "+
+		m.log.Error("Could not commit HostResources to replica %d of kernel %s: %s. "+
 			"Reason for commitment failure: %v.", replicaId, kernelId, requestedResources.String(), err)
 		return err
 	}
 
-	// If we've gotten this far, then we have enough ComputeResource available to commit the requested ComputeResource
-	// to the specified kernel replica. So, let's do that now. First, we'll decrement the idle ComputeResource.
+	// If we've gotten this far, then we have enough HostResources available to commit the requested HostResources
+	// to the specified kernel replica. So, let's do that now. First, we'll decrement the idle HostResources.
 	if err := m.resourcesWrapper.idleResources.Subtract(requestedResources); err != nil {
 		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
 		// as we passed all the validation checks up above.
 		panic(err)
 	}
 
-	// Next, we'll decrement the pending ComputeResource. We decrement because the ComputeResource are no longer "pending".
+	// Next, we'll decrement the pending HostResources. We decrement because the HostResources are no longer "pending".
 	// Instead, they are actively bound/committed to the kernel replica.
 	if err := m.resourcesWrapper.pendingResources.Subtract(requestedResources); err != nil {
 		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
@@ -717,7 +717,7 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 		panic(err)
 	}
 
-	// Next, we'll increment the committed ComputeResource.
+	// Next, we'll increment the committed HostResources.
 	if err := m.resourcesWrapper.committedResources.Add(requestedResources); err != nil {
 		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
 		// as we passed all the validation checks up above.
@@ -740,7 +740,7 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	m.numPendingAllocations.Decr()
 	m.numCommittedAllocations.Incr()
 
-	m.log.Debug("Successfully committed the following ComputeResource to replica %d of kernel %s (isReservation=%v): %v",
+	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isReservation=%v): %v",
 		replicaId, kernelId, isReservation, requestedResources.String())
 
 	// Update Prometheus metrics.
@@ -757,7 +757,7 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	return nil
 }
 
-// ReleaseCommittedResources uncommits/unbinds ComputeResource from a particular kernel replica, such that the ComputeResource are made
+// ReleaseCommittedResources uncommits/unbinds HostResources from a particular kernel replica, such that the HostResources are made
 // available for use by other kernel replicas.
 //
 // This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
@@ -774,7 +774,7 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Error("Cannot release committed ComputeResource bound to replica %d of kernel %s: no existing resource "+
+		m.log.Error("Cannot release committed HostResources bound to replica %d of kernel %s: no existing resource "+
 			"allocation found for that kernel replica.", replicaId, kernelId)
 		return fmt.Errorf("%w: no pending resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
@@ -782,13 +782,13 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 
 	// Sanity check, essentially. It should not already be pending, since we're supposed to be releasing it right now.
 	if allocation.IsPending() {
-		// In some cases, this isn't really an error. We (almost) always try to release committed ComputeResource
-		// when we receive an "execute_reply" message, as we commit/reserve ComputeResource for kernel replicas before
+		// In some cases, this isn't really an error. We (almost) always try to release committed HostResources
+		// when we receive an "execute_reply" message, as we commit/reserve HostResources for kernel replicas before
 		// their leader election so that they're definitely available if they win.
 		//
-		// However, if we already knew that there were insufficient ComputeResource available prior to the leader election,
+		// However, if we already knew that there were insufficient HostResources available prior to the leader election,
 		// then we'll not have reserved any, and the call to ReleaseCommittedResources will "fail" (as there won't
-		// be any committed ComputeResource to release). In this case, it's not an error.
+		// be any committed HostResources to release). In this case, it's not an error.
 		m.log.Debug("Found existing resource allocation for replica %d of kernel %s; "+
 			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsReservation=true.",
 			replicaId, kernelId, allocation.AllocationType.String(), CommittedAllocation.String())
@@ -801,7 +801,7 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 	// the ReleaseCommittedResources method.
 	m.unsafeReleaseCommittedResources(allocation, nil)
 
-	m.log.Debug("Attempting to release the following committed ComputeResource from replica %d of kernel %s: %v. Current committed resource counts: %v.",
+	m.log.Debug("Attempting to release the following committed HostResources from replica %d of kernel %s: %v. Current committed resource counts: %v.",
 		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.committedResources.String())
 
 	// Finally, we'll update the Allocation struct associated with this request.
@@ -811,7 +811,7 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 	// allocations.
 	m.unsafeDemoteCommittedAllocationToPendingAllocation(allocation)
 
-	m.log.Debug("Successfully released the following (previously) committed ComputeResource to replica %d of kernel %s: %v. Updated committed resource counts: %v.",
+	m.log.Debug("Successfully released the following (previously) committed HostResources to replica %d of kernel %s: %v. Updated committed resource counts: %v.",
 		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.committedResources.String())
 
 	// Update Prometheus metrics.
@@ -847,7 +847,7 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 	// Verify that there does not already exist an allocation associated with the specified kernel replica.
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); allocationExists {
-		m.log.Error("Cannot subscribe pending ComputeResource to replica %d of kernel %s: found existing resource "+
+		m.log.Error("Cannot subscribe pending HostResources to replica %d of kernel %s: found existing resource "+
 			"allocation associated to that kernel replica: %s", replicaId, kernelId, allocation.String())
 		return fmt.Errorf("%w: existing resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
@@ -863,7 +863,7 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 		WithVRAM(spec.VRAM())
 	allocation = builder.BuildResourceAllocation()
 
-	m.log.Debug("Attempting to subscribe the following pending ComputeResource to replica %d of kernel %s: %v",
+	m.log.Debug("Attempting to subscribe the following pending HostResources to replica %d of kernel %s: %v",
 		replicaId, kernelId, spec.String())
 
 	// Convert the given types.Spec argument to a *types.DecimalSpec struct.
@@ -876,7 +876,7 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 		return err
 	}
 
-	m.log.Debug("Successfully subscribed the following pending ComputeResource to replica %d of kernel %s: %v",
+	m.log.Debug("Successfully subscribed the following pending HostResources to replica %d of kernel %s: %v",
 		replicaId, kernelId, decimalSpec.String())
 
 	// Update Prometheus metrics.
@@ -896,7 +896,7 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 // ReplicaEvicted is to be called whenever a kernel replica is stopped/evicted from this scheduling.Host.
 // ReplicaEvicted releases any Allocation associated with the evicted/stopped kernel replica.
 //
-// If there are ComputeResource actively bound/committed to the kernel replica, then they are released.
+// If there are HostResources actively bound/committed to the kernel replica, then they are released.
 // Likewise, any Allocation of type PendingAllocation is released/dissolved.
 //
 // This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
@@ -924,9 +924,9 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 	allocatedResources := allocation.ToDecimalSpec()
 
 	// First, check if the allocation is of type CommittedAllocation.
-	// If so, then we'll first release the committed ComputeResource before unsubscribing the pending ComputeResource.
+	// If so, then we'll first release the committed HostResources before unsubscribing the pending HostResources.
 	if allocation.IsCommitted() {
-		// Perform the resource count adjustments associated with releasing committed ComputeResource.
+		// Perform the resource count adjustments associated with releasing committed HostResources.
 		// We'll pass allocatedResources ourselves (non-nil), as we need the *types.DecimalSpec
 		// later on in the ReplicaEvicted method.
 		m.unsafeReleaseCommittedResources(allocation, allocatedResources)
@@ -936,7 +936,7 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 		m.unsafeDemoteCommittedAllocationToPendingAllocation(allocation)
 	}
 
-	// Next, unsubscribe the pending ComputeResource.
+	// Next, unsubscribe the pending HostResources.
 	err := m.unsafeUnsubscribePendingResources(allocatedResources, key)
 	if err != nil {
 		m.log.Error("Failed to unsubscribe pending resources %s from replica %d of kernel %s because: %v",
@@ -944,7 +944,7 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 		return err
 	}
 
-	m.log.Debug("Evicted replica %d of kernel %s, releasing the following pending ComputeResource: %v.",
+	m.log.Debug("Evicted replica %d of kernel %s, releasing the following pending HostResources: %v.",
 		replicaId, kernelId, allocation.ToSpecString())
 	m.log.Debug("After removal: %s.", m.resourcesWrapper.pendingResources.String())
 
@@ -955,17 +955,17 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 	return nil
 }
 
-// HasSufficientIdleResourcesAvailable returns true if there are sufficiently many idle ComputeResource available
-// on the node such that the requested ComputeResource could be commited to a locally-running kernel replica.
+// HasSufficientIdleResourcesAvailable returns true if there are sufficiently many idle HostResources available
+// on the node such that the requested HostResources could be commited to a locally-running kernel replica.
 func (m *AllocationManager) HasSufficientIdleResourcesAvailable(spec types.Spec) bool {
 	return m.resourcesWrapper.idleResources.Validate(spec)
 }
 
-// HasSufficientIdleResourcesAvailableWithError returns true if there are sufficiently many idle ComputeResource available
-// on the node such that the requested ComputeResource could be commited to a locally-running kernel replica.
+// HasSufficientIdleResourcesAvailableWithError returns true if there are sufficiently many idle HostResources available
+// on the node such that the requested HostResources could be commited to a locally-running kernel replica.
 //
 // This method differs from HasSufficientIdleResourcesAvailable insofar as it returns an error encoding the resource(s)
-// for which there are insufficient idle ComputeResource available.
+// for which there are insufficient idle HostResources available.
 func (m *AllocationManager) HasSufficientIdleResourcesAvailableWithError(spec types.Spec) (bool, error) {
 	if err := m.resourcesWrapper.idleResources.ValidateWithError(spec); err != nil {
 		return false, err
@@ -992,35 +992,35 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 	// Check that everything is non-negative. //
 	////////////////////////////////////////////
 
-	// Idle ComputeResource.
+	// Idle HostResources.
 	hasNegative, kind := m.resourcesWrapper.idleResources.HasNegativeField()
 	if hasNegative {
 		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, IdleResources, m.resourcesWrapper.idleResources.GetResource(kind))
 	}
 
-	// Pending ComputeResource.
+	// Pending HostResources.
 	hasNegative, kind = m.resourcesWrapper.pendingResources.HasNegativeField()
 	if hasNegative {
 		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, PendingResources, m.resourcesWrapper.idleResources.GetResource(kind))
 	}
 
-	// Committed ComputeResource.
+	// Committed HostResources.
 	hasNegative, kind = m.resourcesWrapper.committedResources.HasNegativeField()
 	if hasNegative {
 		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, CommittedResources, m.resourcesWrapper.idleResources.GetResource(kind))
 	}
 
-	// Spec ComputeResource.
+	// Spec HostResources.
 	hasNegative, kind = m.resourcesWrapper.specResources.HasNegativeField()
 	if hasNegative {
 		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, SpecResources, m.resourcesWrapper.idleResources.GetResource(kind))
 	}
 
 	////////////////////////////////////////////////////////////////////////////////////////
-	// Check that the idle and committed ComputeResource are no larger than the spec ComputeResource. //
+	// Check that the idle and committed HostResources are no larger than the spec HostResources. //
 	////////////////////////////////////////////////////////////////////////////////////////
 
-	// Idle ComputeResource <= Spec ComputeResource.
+	// Idle HostResources <= Spec HostResources.
 	isOkay, offendingKind := m.resourcesWrapper.idleResources.LessThanOrEqual(m.resourcesWrapper.specResources)
 	if !isOkay {
 		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, ResourceQuantityGreaterThanSpec,
@@ -1028,7 +1028,7 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 			m.resourcesWrapper.specResources.GetResource(offendingKind))
 	}
 
-	// Committed ComputeResource <= spec ComputeResource.
+	// Committed HostResources <= spec HostResources.
 	isOkay, offendingKind = m.resourcesWrapper.committedResources.LessThanOrEqual(m.resourcesWrapper.specResources)
 	if !isOkay {
 		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, ResourceQuantityGreaterThanSpec,
@@ -1044,7 +1044,7 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 		// If there are no kernel replicas scheduled on this node, then our pending and committed
 		// resource counts should be 0 and our idle resource count should be max (equal to spec).
 
-		// First, check that our idle ComputeResource are equal to our spec ComputeResource.
+		// First, check that our idle HostResources are equal to our spec HostResources.
 		areEqual, offendingKind := m.resourcesWrapper.idleResources.EqualTo(m.resourcesWrapper.specResources)
 		if !areEqual {
 			return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, IdleSpecUnequal,
@@ -1052,7 +1052,7 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 				m.resourcesWrapper.specResources.GetResource(offendingKind))
 		}
 
-		// Next, check that our pending ComputeResource are equal to zero.
+		// Next, check that our pending HostResources are equal to zero.
 		isZero, offendingKind := m.resourcesWrapper.pendingResources.IsZero()
 		if !isZero {
 			return NewInconsistentResourcesError(offendingKind, PendingNonzero,
@@ -1086,13 +1086,13 @@ func (m *AllocationManager) unsafeUnsubscribePendingResources(allocatedResources
 func (m *AllocationManager) unsafeAllocatePendingResources(decimalSpec *types.DecimalSpec, allocation *Allocation, key string, replicaId int32, kernelId string) error {
 	// First, validate against this scheduling.Host's spec.
 	if err := m.resourcesWrapper.specResources.ValidateWithError(decimalSpec); err != nil {
-		m.log.Error("Could not subscribe the following pending ComputeResource to replica %d of kernel %s due "+
+		m.log.Error("Could not subscribe the following pending HostResources to replica %d of kernel %s due "+
 			"to insufficient host spec: %s. Specific reason for subscription failure: %v.",
 			replicaId, kernelId, decimalSpec.String(), err)
 		return err
 	}
 
-	// If we've gotten this far, then we have enough ComputeResource available to subscribe the requested ComputeResource
+	// If we've gotten this far, then we have enough HostResources available to subscribe the requested HostResources
 	// to the specified kernel replica. So, let's do that now.
 	if err := m.resourcesWrapper.pendingResources.Add(decimalSpec); err != nil {
 		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
@@ -1129,7 +1129,7 @@ func (m *AllocationManager) unsafeDemoteCommittedAllocationToPendingAllocation(a
 	m.numCommittedAllocations.Decr()
 }
 
-// unsafeReleaseCommittedResources releases committed/bound ComputeResource from the kernel replica associated with
+// unsafeReleaseCommittedResources releases committed/bound HostResources from the kernel replica associated with
 // the given Allocation.
 //
 // This function does NOT acquire the AllocationManager's mutex, nor does it perform any validation checks whatsoever.
@@ -1155,22 +1155,22 @@ func (m *AllocationManager) unsafeReleaseCommittedResources(allocation *Allocati
 		allocatedResources = allocation.ToDecimalSpec()
 	}
 
-	// If we've gotten this far, then we have enough ComputeResource available to commit the requested ComputeResource
-	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle ComputeResource.
+	// If we've gotten this far, then we have enough HostResources available to commit the requested HostResources
+	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle HostResources.
 	if err := m.resourcesWrapper.idleResources.Add(allocatedResources); err != nil {
 		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
 		// as we passed all the validation checks up above.
 		panic(err)
 	}
 
-	// Next, we'll increment the pending ComputeResource (since we're releasing committed ComputeResource).
+	// Next, we'll increment the pending HostResources (since we're releasing committed HostResources).
 	if err := m.resourcesWrapper.pendingResources.Add(allocatedResources); err != nil {
 		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
 		// as we passed all the validation checks up above.
 		panic(err)
 	}
 
-	// Next, we'll decrement the committed ComputeResource (since we're releasing committed ComputeResource).
+	// Next, we'll decrement the committed HostResources (since we're releasing committed HostResources).
 	if err := m.resourcesWrapper.committedResources.Subtract(allocatedResources); err != nil {
 		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
 		// as we passed all the validation checks up above.

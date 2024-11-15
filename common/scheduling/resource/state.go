@@ -5,32 +5,32 @@ import "github.com/shopspring/decimal"
 // ManagerState defines a public interface for accessing (i.e., reading) but not mutating (i.e., writing)
 // the current state of a ManagerState.
 //
-// ManagerState wraps several ComputeResourceState instances -- one for ComputeResource of each of the following types:
+// ManagerState wraps several ComputeResourceState instances -- one for HostResources of each of the following types:
 // idle, pending, committed, and spec. As such, ManagerState exposes a collection of several ComputeResourceState
 // instances to provide a convenient type for reading all the relevant state of a AllocationManager.
 type ManagerState interface {
-	// IdleResources returns the idle ComputeResource managed by a AllocationManager.
-	// Idle ComputeResource can overlap with pending ComputeResource. These are ComputeResource that are not actively bound
+	// IdleResources returns the idle HostResources managed by a AllocationManager.
+	// Idle HostResources can overlap with pending HostResources. These are HostResources that are not actively bound
 	// to any containers/replicas. They are available for use by a locally-running container/replica.
 	IdleResources() ComputeResourceState
 
-	// PendingResources returns the pending ComputeResource managed by a AllocationManager.
-	// Pending ComputeResource are "subscribed to" by a locally-running container/replica; however, they are not
+	// PendingResources returns the pending HostResources managed by a AllocationManager.
+	// Pending HostResources are "subscribed to" by a locally-running container/replica; however, they are not
 	// bound to that container/replica, and thus are available for use by any of the locally-running replicas.
 	//
-	// Pending ComputeResource indicate the presence of locally-running replicas that are not actively training.
-	// The sum of all pending ComputeResource on a node is the amount of ComputeResource that would be required if all
+	// Pending HostResources indicate the presence of locally-running replicas that are not actively training.
+	// The sum of all pending HostResources on a node is the amount of HostResources that would be required if all
 	// locally-scheduled replicas began training at the same time.
 	PendingResources() ComputeResourceState
 
-	// CommittedResources returns the committed ComputeResource managed by a AllocationManager.
-	// These are ComputeResource that are actively bound/committed to a particular, locally-running container.
+	// CommittedResources returns the committed HostResources managed by a AllocationManager.
+	// These are HostResources that are actively bound/committed to a particular, locally-running container.
 	// As such, they are unavailable for use by any other locally-running replicas.
 	CommittedResources() ComputeResourceState
 
-	// SpecResources returns the spec ComputeResource managed by a AllocationManager.
-	// These are the total allocatable ComputeResource available on the Host.
-	// Spec ComputeResource are a static, fixed quantity. They do not change in response to resource (de)allocations.
+	// SpecResources returns the spec HostResources managed by a AllocationManager.
+	// These are the total allocatable HostResources available on the Host.
+	// Spec HostResources are a static, fixed quantity. They do not change in response to resource (de)allocations.
 	SpecResources() ComputeResourceState
 
 	// String returns a string representation of the ManagerState suitable for logging.
@@ -40,11 +40,11 @@ type ManagerState interface {
 // ComputeResourceState defines a public interface for getting (i.e., reading) but not mutating (i.e., writing)
 // the current state of a AllocationManager.
 //
-// ComputeResourceState encapsulates the ComputeResource for a single type of resource (i.e., idle, pending, committed, or spec).
+// ComputeResourceState encapsulates the HostResources for a single type of resource (i.e., idle, pending, committed, or spec).
 // Meanwhile, ManagerState exposes a collection of several ComputeResourceState instances to provide a convenient
 // type for reading all the relevant state of a AllocationManager.
 type ComputeResourceState interface {
-	// Status returns the Status of the ComputeResource encapsulated/made available for reading
+	// Status returns the Status of the HostResources encapsulated/made available for reading
 	// by this ComputeResourceState instance.
 	ResourceStatus() Status
 
@@ -79,6 +79,6 @@ type ComputeResourceState interface {
 	String() string
 
 	// ComputeResourceSnapshot creates and returns a pointer to a new ComputeResourceSnapshot struct, thereby
-	// capturing the current quantities of the ComputeResource encoded by the ComputeResourceState instance.
+	// capturing the current quantities of the HostResources encoded by the ComputeResourceState instance.
 	ResourceSnapshot(snapshotId int32) *ComputeResourceSnapshot
 }

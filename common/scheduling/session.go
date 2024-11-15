@@ -65,8 +65,8 @@ type UserSession interface {
 	PreemptionPriority() float64
 	StartedAt() time.Time
 	Duration() time.Duration
-	SessionStartedTraining(container KernelContainer, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise
-	SessionStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise
+	SessionStartedTraining(container KernelContainer) promise.Promise
+	SessionStoppedTraining() promise.Promise
 	GetReplicaContainer(replicaId int32) (KernelContainer, bool)
 }
 

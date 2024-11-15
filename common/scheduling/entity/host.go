@@ -35,7 +35,7 @@ var (
 	ErrHostAlreadyIncludedForScheduling = errors.New("the specified host is already being included for consideration in scheduling operations")
 )
 
-// ResourceSpec defines the ComputeResource available on a particular Host.
+// ResourceSpec defines the HostResources available on a particular Host.
 type ResourceSpec struct {
 	CPUs     float64 `json:"cpus"`
 	MemoryGB float64 `json:"memory_gb"`
@@ -92,7 +92,7 @@ type Host struct {
 
 	latestGpuInfo                  *proto.GpuInfo                                      // latestGpuInfo is the latest GPU info of this host scheduler.
 	syncMutex                      sync.Mutex                                          // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
-	schedulingMutex                sync.Mutex                                          // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating ComputeResource on the Host.
+	schedulingMutex                sync.Mutex                                          // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
 	meta                           hashmap.HashMap[string, interface{}]                // meta is a map of metadata.
 	conn                           *grpc.ClientConn                                    // conn is the gRPC connection to the Host.
 	Addr                           string                                              // Addr is the Host's address.
@@ -103,7 +103,7 @@ type Host struct {
 	reservations                   hashmap.HashMap[string, time.Time]                  // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
 	trainingContainers             []scheduling.KernelContainer                        // trainingContainers are the actively-training kernel replicas.
 	seenSessions                   []string                                            // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec                   *types.DecimalSpec                                  // resourceSpec is the spec describing the total ComputeResource available on the Host, not impacted by allocations.
+	resourceSpec                   *types.DecimalSpec                                  // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
 	lastReschedule                 types.StatFloat64                                   // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
 	errorCallback                  scheduling.ErrorCallback                            // errorCallback is a function to be called if a Host appears to be dead.
 	pendingContainers              types.StatInt32                                     // pendingContainers is the number of Containers that are scheduled on the host.
@@ -111,7 +111,7 @@ type Host struct {
 	excludedFromScheduling         bool                                                // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
 	isBeingConsideredForScheduling atomic.Int32                                        // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
 	CreatedAt                      time.Time                                           // CreatedAt is the time at which the Host was created.
-	resourceManager                *resource.Manager                                   // resourcesWrapper wraps all the Host's ComputeResource.
+	resourceManager                *resource.Manager                                   // resourcesWrapper wraps all the Host's HostResources.
 	LastRemoteSync                 time.Time                                           // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 	isContainedWithinIndex         bool                                                // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
 	ProperlyInitialized            bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
@@ -152,7 +152,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 		return nil, gpuFetchError
 	}
 
-	// Create the ResourceSpec defining the ComputeResource available on the Host.
+	// Create the ResourceSpec defining the HostResources available on the Host.
 	resourceSpec := &types.DecimalSpec{
 		GPUs:      decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
 		Millicpus: decimal.NewFromFloat(float64(millicpus)),
@@ -225,7 +225,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		return nil, err
 	}
 
-	// Create the ResourceSpec defining the ComputeResource available on the Host.
+	// Create the ResourceSpec defining the HostResources available on the Host.
 	resourceSpec := &types.DecimalSpec{
 		GPUs:      decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
 		Millicpus: decimal.NewFromFloat(float64(millicpus)),
@@ -639,7 +639,7 @@ func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
 
 // CanServeContainerWithError returns nil if the target Host can serve the resource request.
 //
-// This method only checks against the Host's "spec" (i.e., the total ComputeResource available on the Host,
+// This method only checks against the Host's "spec" (i.e., the total HostResources available on the Host,
 // not taking into account current resource allocations).
 func (h *Host) CanServeContainerWithError(resourceRequest types.Spec) (bool, error) {
 	err := h.resourceManager.SpecResources().ValidateWithError(resourceRequest)
@@ -652,7 +652,7 @@ func (h *Host) CanServeContainerWithError(resourceRequest types.Spec) (bool, err
 
 // CanServeContainer returns a boolean indicating whether this Host could serve a kernel replica with the given
 // resource requirements / resource request. This method only checks against the Host's "spec" (i.e., the total
-// ComputeResource available on the Host, not taking into account current resource allocations).
+// HostResources available on the Host, not taking into account current resource allocations).
 //
 // CanServeContainer returns true when the Host could serve the hypothetical kernel and false when the Host could not.
 func (h *Host) CanServeContainer(resourceRequest types.Spec) bool {
@@ -660,10 +660,10 @@ func (h *Host) CanServeContainer(resourceRequest types.Spec) bool {
 }
 
 // CanCommitResources returns a boolean indicating whether this Host could commit the specified resource request
-// to a kernel scheduled onto the Host right now. Commiting resource requires having sufficiently many idle ComputeResource
+// to a kernel scheduled onto the Host right now. Commiting resource requires having sufficiently many idle HostResources
 // available.
 //
-// CanCommitResources returns true if the Host could commit/reserve the given ComputeResource right now.
+// CanCommitResources returns true if the Host could commit/reserve the given HostResources right now.
 // Otherwise, CanCommitResources returns false.
 func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 	return h.resourceManager.IdleResources().Validate(types.ToDecimalSpec(resourceRequest))
@@ -1119,7 +1119,7 @@ func (h *Host) LastReschedule() types.StatFloat64Field {
 	return &h.lastReschedule
 }
 
-// TimeSinceLastSynchronizationWithRemote returns a time.Duration indicating how long it has been since its ComputeResource
+// TimeSinceLastSynchronizationWithRemote returns a time.Duration indicating how long it has been since its HostResources
 // were refreshed and synchronized from the actual remote Host that this Host struct represents.
 func (h *Host) TimeSinceLastSynchronizationWithRemote() time.Duration {
 	return time.Since(h.LastRemoteSync)
@@ -1196,7 +1196,7 @@ func (h *Host) PendingVRAM() float64 { return h.resourceManager.PendingResources
 
 func (h *Host) CommittedVRAM() float64 { return h.resourceManager.CommittedResources().VRAM() }
 
-// ResourceSpec the types.Spec defining the ComputeResource available on the Host.
+// ResourceSpec the types.Spec defining the HostResources available on the Host.
 func (h *Host) ResourceSpec() types.ValidatableResourceSpec {
 	return h.resourceSpec
 }
@@ -1217,7 +1217,7 @@ func (h *Host) PendingResources() *types.DecimalSpec {
 	return h.resourceManager.PendingResources().ToDecimalSpec()
 }
 
-// CommittedResources returns a types.Spec encapsulating the idle ComputeResource on the Host.
+// CommittedResources returns a types.Spec encapsulating the idle HostResources on the Host.
 func (h *Host) CommittedResources() *types.DecimalSpec {
 	return h.resourceManager.CommittedResources().ToDecimalSpec()
 }

@@ -10,15 +10,15 @@ var (
 	// ErrInvalidAllocationRequest indicates that a Allocation could not be created/satisfied due to an issue
 	// with the request itself.
 	//
-	// The issue is not something of the nature that there are just insufficient ComputeResource available to satisfy the
+	// The issue is not something of the nature that there are just insufficient HostResources available to satisfy the
 	// request. Instead, ErrInvalidAllocationRequest indicates that the request itself was illegal or issued under
 	// invalid circumstances, such as there being no existing Allocation of type PendingAllocation when
-	// attempting to commit ComputeResource to a particular kernel replica. Alternatively, a kernel replica may be getting
+	// attempting to commit HostResources to a particular kernel replica. Alternatively, a kernel replica may be getting
 	// evicted, but no existing Allocation is found for that particular kernel replica.
 	ErrInvalidAllocationRequest = errors.New("the resource allocation could not be completed due to the request being invalid")
 
-	// ErrInvalidOperation indicates that adding or subtracting the specified ComputeResource to/from the internal resource
-	// counts of a ComputeResource struct would result in an invalid/illegal resource count within that ComputeResource struct,
+	// ErrInvalidOperation indicates that adding or subtracting the specified HostResources to/from the internal resource
+	// counts of a HostResources struct would result in an invalid/illegal resource count within that HostResources struct,
 	// such as a negative quantity for cpus, gpus, or memory.
 	ErrInvalidOperation = errors.New("the requested resource operation would result in an invalid resource count")
 
@@ -40,8 +40,8 @@ type InconsistentResourcesError struct {
 	// ResourceStatus indicates which status of resource is in an inconsistent or invalid state.
 	ResourceStatus Status
 
-	// ResourceInconsistency defines the various ways in which ComputeResource can be in an inconsistent or illegal state.
-	// Examples include a resource being negative, a resource quantity being larger than the total available ComputeResource
+	// ResourceInconsistency defines the various ways in which HostResources can be in an inconsistent or illegal state.
+	// Examples include a resource being negative, a resource quantity being larger than the total available HostResources
 	// of that kind on the node, and so on.
 	ResourceInconsistency Inconsistency
 

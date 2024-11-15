@@ -366,7 +366,7 @@ func (mr *MockAbstractSessionMockRecorder) SessionStarted() *gomock.Call {
 }
 
 // SessionStartedTraining mocks base method.
-func (m *MockAbstractSession) SessionStartedTraining(container *scheduling.Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
+func (m *MockAbstractSession) SessionStartedTraining(container scheduling.KernelContainer, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SessionStartedTraining", container, snapshot)
 	ret0, _ := ret[0].(promise.Promise)
@@ -408,15 +408,15 @@ func (mr *MockAbstractSessionMockRecorder) SessionStopped() *gomock.Call {
 }
 
 // SessionStoppedTraining mocks base method.
-func (m *MockAbstractSession) SessionStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
+func (m *MockAbstractSession) SessionStoppedTraining() promise.Promise {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SessionStoppedTraining", snapshot)
+	ret := m.ctrl.Call(m, "SessionStoppedTraining")
 	ret0, _ := ret[0].(promise.Promise)
 	return ret0
 }
 
 // SessionStoppedTraining indicates an expected call of SessionStoppedTraining.
-func (mr *MockAbstractSessionMockRecorder) SessionStoppedTraining(snapshot any) *gomock.Call {
+func (mr *MockAbstractSessionMockRecorder) SessionStoppedTraining() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SessionStoppedTraining", reflect.TypeOf((*MockAbstractSession)(nil).SessionStoppedTraining), snapshot)
 }

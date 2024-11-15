@@ -98,6 +98,7 @@ func (s *BaseServer) SetContext(ctx context.Context) {
 	s.server.Ctx = ctx
 }
 
-func (s *BaseServer) Close() {
+func (s *BaseServer) Close() error {
 	s.server.CancelCtx()
+	return nil
 }

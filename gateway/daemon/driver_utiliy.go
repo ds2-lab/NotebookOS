@@ -3,7 +3,7 @@ package daemon
 import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/jupyter"
+	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"log"
 	"net"
@@ -126,7 +126,7 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
 		globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
 		srv.SetClusterOptions(&options.SchedulerOptions)
-		srv.SetDistributedClientProvider(&jupyter.DistributedKernelClientProvider{})
+		srv.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 	})
 
 	distributedCluster := NewDistributedCluster(srv)

@@ -336,7 +336,7 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 // of DistributedKernelClient.
 //
 // DistributedKernelClient::handleSmrLeadTaskMessage --> Kernel::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
-func (s *Session) SessionStartedTraining(container scheduling.KernelContainer, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
+func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) promise.Promise {
 	s.log.Debug("Training starting. Current state: %s.", s.GetState().String())
 
 	s.mu.Lock()
@@ -386,18 +386,18 @@ func (s *Session) SessionStartedTraining(container scheduling.KernelContainer, s
 // This should be called by the Kernel's KernelStoppedTraining method.
 //
 // Note: this method is thread-safe.
-func (s *Session) SessionStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
+func (s *Session) SessionStoppedTraining() promise.Promise {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return UnsafeTrainingStopped(s, snapshot)
+	return s.unsafeTrainingStopped()
 }
 
 // UnsafeTrainingStopped performs the work of SessionStoppedTraining. It is to be called by SessionStoppedTraining, and sometimes
 // SessionStopped, after the Session's mutex has already been acquired.
 //
 // Note: this method is NOT thread-safe.
-func UnsafeTrainingStopped(s *Session, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
+func (s *Session) unsafeTrainingStopped() promise.Promise {
 	s.log.Debug("Training stopping. Current state: %s.", s.sessionState.String())
 
 	if err := s.transition(scheduling.SessionStateIdle); err != nil {
@@ -502,7 +502,7 @@ func (s *Session) SessionStopped() promise.Promise {
 
 	if s.IsTraining() {
 		s.log.Debug("Currently training. Stopping training before stopping scheduling.Session.")
-		p := UnsafeTrainingStopped(s, nil) // Call UnsafeTrainingStopped directly, as we already have the mutex.
+		p := s.unsafeTrainingStopped() // Call UnsafeTrainingStopped directly, as we already have the mutex.
 		if err := p.Error(); err != nil {
 			return promise.Resolved(nil, err)
 		}

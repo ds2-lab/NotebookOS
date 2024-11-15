@@ -53,6 +53,7 @@ type ExecutionFailedCallback func(c Kernel) error
 type Kernel interface {
 	types.Contextable
 	SessionManager
+	Server
 
 	SetSession(session UserSession)
 	GetSession() UserSession
@@ -63,7 +64,7 @@ type Kernel interface {
 	GetActiveExecutionByExecuteRequestMsgId(msgId string) (CodeExecution, bool)
 	ExecutionFailedCallback() ExecutionFailedCallback
 	SetActiveExecution(activeExecution CodeExecution)
-	ExecutionComplete(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot], msg *jupyterTypes.JupyterMessage) (bool, error)
+	ExecutionComplete(msg *jupyterTypes.JupyterMessage) (bool, error)
 	EnqueueActiveExecution(attemptId int, msg *jupyterTypes.JupyterMessage) CodeExecution
 	ResetID(id string)
 	PersistentID() string
@@ -98,11 +99,10 @@ type Kernel interface {
 	RequestWithHandler(ctx context.Context, _ string, typ jupyterTypes.MessageType, msg *jupyterTypes.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
 	RequestWithHandlerAndReplicas(ctx context.Context, typ jupyterTypes.MessageType, jMsg *jupyterTypes.JupyterMessage, handler KernelReplicaMessageHandler, done func(), replicas ...KernelReplica) error
 	Shutdown(remover ReplicaRemover, restart bool) error
-	Close() error
 	WaitClosed() jupyterTypes.KernelStatus
 
 	// NumActiveExecutionOperations returns the number of ActiveExecution structs registered with
-	// the kernel. This counts both the current ActiveExecution as well as the length of the queue of
+	// the kernel. This counts both the current ActiveExecution and the length of the queue of
 	// ActiveExecution structs.
 	//
 	// This method is thread safe.
@@ -111,18 +111,21 @@ type Kernel interface {
 
 type KernelReplica interface {
 	types.Contextable
+	SessionManager
+	Server
 
 	Container() KernelContainer
 	SetContainer(container KernelContainer)
 	IsTraining() bool
 	WaitForTrainingToStop()
+	KernelStartedTraining() error
 	WaitForPendingExecuteRequests()
 	SetLastTrainingTimePrometheusUpdate()
 	LastTrainingTimePrometheusUpdate() time.Time
 	NumPendingExecuteRequests() int
 	SentExecuteRequest(msg *jupyterTypes.JupyterMessage)
 	ReceivedExecuteReply(msg *jupyterTypes.JupyterMessage)
-	KernelStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
+	KernelStoppedTraining() error
 	TrainingStartedAt() time.Time
 	WorkloadId() string
 	SetWorkloadId(workloadId string)
@@ -133,6 +136,9 @@ type KernelReplica interface {
 	ShellListenPort() int
 	IOPubListenPort() int
 	YieldNextExecutionRequest()
+	SetPodOrContainerName(name string)
+	SetNodeName(name string)
+	InitializeIOForwarder() (*jupyterTypes.Socket, error)
 	YieldedNextExecutionRequest()
 	SupposedToYieldNextExecutionRequest() bool
 	ID() string
@@ -160,7 +166,6 @@ type KernelReplica interface {
 	InitializeShellForwarder(handler KernelMessageHandler) (*jupyterTypes.Socket, error)
 	AddIOHandler(topic string, handler MessageBrokerHandler[KernelReplica, *jupyterTypes.JupyterFrames, *jupyterTypes.JupyterMessage]) error
 	RequestWithHandler(ctx context.Context, _ string, typ jupyterTypes.MessageType, msg *jupyterTypes.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
-	Close() error
 	GetHost() Host
 	SetHost(host Host)
 	InitializeIOSub(handler jupyterTypes.MessageHandler, subscriptionTopic string) (*jupyterTypes.Socket, error)

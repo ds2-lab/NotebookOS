@@ -144,7 +144,7 @@ func (s *ManagerSnapshot) GetSpecResources() types.ArbitraryResourceSnapshot {
 	return s.SpecResources
 }
 
-// ComputeResourceSnapshot is a snapshot of a ComputeResource struct with exported
+// ComputeResourceSnapshot is a snapshot of a HostResources struct with exported
 // fields so that it can be marshalled and unmarshalled to JSON.
 type ComputeResourceSnapshot struct {
 	ResourceStatus Status          `json:"resource_status"` // resourceStatus is the ResourceStatus represented/encoded by this struct.

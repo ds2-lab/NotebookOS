@@ -1,4 +1,4 @@
-package jupyter
+package client
 
 import (
 	"context"
@@ -32,7 +32,7 @@ var (
 	//ErrResourceSpecAlreadySet = errors.New("kernel already has a resource spec set")
 )
 
-type SMRNodeReadyNotificationCallback func(*KernelReplicaClient)
+type SMRNodeReadyNotificationCallback func(replica scheduling.KernelReplica)
 type SMRNodeUpdatedNotificationCallback func(*types.MessageSMRNodeUpdated) // For node-added or node-removed notifications.
 
 // ConnectionRevalidationFailedCallback defines a special type of callback function.
@@ -41,7 +41,7 @@ type SMRNodeUpdatedNotificationCallback func(*types.MessageSMRNodeUpdated) // Fo
 // we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
 //
 // If we do not reconnect successfully, then this method is called.
-type ConnectionRevalidationFailedCallback func(replica *KernelReplicaClient, msg *types.JupyterMessage, err error)
+type ConnectionRevalidationFailedCallback func(replica scheduling.KernelReplica, msg *types.JupyterMessage, err error)
 
 // ResubmissionAfterSuccessfulRevalidationFailedCallback defines a special type of callback function.
 //
@@ -50,7 +50,7 @@ type ConnectionRevalidationFailedCallback func(replica *KernelReplicaClient, msg
 //
 // If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
 // then this method is called.
-type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica *KernelReplicaClient, msg *types.JupyterMessage, err error)
+type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica scheduling.KernelReplica, msg *types.JupyterMessage, err error)
 
 // KernelReplicaClient is an implementation of the KernelReplicaClient interface.
 //
@@ -347,7 +347,7 @@ func (c *KernelReplicaClient) LastTrainingTimePrometheusUpdate() time.Time {
 // In the Local Daemon, this is called in the handleSMRLeadTask method.
 //
 // In the internalCluster Gateway, this is called in the handleSmrLeadTaskMessage method of DistributedKernelClient.
-func KernelStartedTraining(c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[commonTypes.ArbitraryResourceSnapshot]) error {
+func (c *KernelReplicaClient) KernelStartedTraining() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -358,7 +358,7 @@ func KernelStartedTraining(c *KernelReplicaClient, snapshot commonTypes.HostReso
 			"Will discard future \"execute_reply\" message if we do end up receiving it...", c.replicaId, c.id, c.trainingStartedAt)
 
 		// We already locked the kernel above, so we can call the unsafe method directly here.
-		err := unsafeKernelStoppedTraining(c, snapshot)
+		err := c.unsafeKernelStoppedTraining()
 		if err != nil {
 			c.log.Error("Couldn't cleanly stop training for replica %d of kernel %s: %v", c.replicaId, c.id, err)
 			return err
@@ -373,7 +373,7 @@ func KernelStartedTraining(c *KernelReplicaClient, snapshot commonTypes.HostReso
 	// The following code is only executed within the internalCluster Gateway.
 	container := c.Container()
 	if container != nil { // Container will be nil on Local Daemons; they don't track resources this way.
-		p := container.Session().SessionStartedTraining(container, snapshot)
+		p := container.Session().SessionStartedTraining(container)
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to start training for session %s: %v", container.Session().ID(), err)
 			return err
@@ -468,7 +468,7 @@ func (c *KernelReplicaClient) ReceivedExecuteReply(msg *types.JupyterMessage) {
 // KernelReplicaClient struct.
 //
 // If the kernel is already not training, then this method just returns immediately (without an error).
-func unsafeKernelStoppedTraining(c *KernelReplicaClient, snapshot commonTypes.HostResourceSnapshot[commonTypes.ArbitraryResourceSnapshot]) error {
+func (c *KernelReplicaClient) unsafeKernelStoppedTraining() error {
 	c.trainingFinishedMu.Lock()
 	if !c.isTraining {
 		c.log.Warn("Cannot stop training; already not training.")
@@ -486,7 +486,7 @@ func unsafeKernelStoppedTraining(c *KernelReplicaClient, snapshot commonTypes.Ho
 	// If the Container is actively-training, then we need to call SessionStoppedTraining
 	// before removing it so that the resources are all returned appropriately.
 	if container := c.Container(); container != nil {
-		p := container.Session().SessionStoppedTraining(snapshot)
+		p := container.Session().SessionStoppedTraining()
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v",
 				c.ID(), c.ReplicaID(), err)
@@ -501,11 +501,11 @@ func unsafeKernelStoppedTraining(c *KernelReplicaClient, snapshot commonTypes.Ho
 }
 
 // KernelStoppedTraining should be called when the kernel associated with this client stops actively training.
-func (c *KernelReplicaClient) KernelStoppedTraining(snapshot commonTypes.HostResourceSnapshot[commonTypes.ArbitraryResourceSnapshot]) error {
+func (c *KernelReplicaClient) KernelStoppedTraining() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return unsafeKernelStoppedTraining(c, snapshot)
+	return c.unsafeKernelStoppedTraining()
 }
 
 // TrainingStartedAt returns the time at which the kernel associated with this client began actively training.
@@ -1068,7 +1068,8 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 			// Need to update the message's header before resubmitting to avoid duplicate signature errors.
 			updateHeaderError := request.PrepareForResubmission()
 			if updateHeaderError != nil {
-				c.log.Error("Failed to update the header for %s \"%s\" message %s (JupyterID=%s): %v", typ.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), updateHeaderError)
+				c.log.Error("Failed to update the header for %s \"%s\" message %s (JupyterID=%s): %v",
+					typ.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), updateHeaderError)
 				c.resubmissionAfterSuccessfulRevalidationFailedCallback(c, request.Payload(), updateHeaderError)
 				return errors.Join(err, updateHeaderError)
 			}

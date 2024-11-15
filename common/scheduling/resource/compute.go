@@ -9,19 +9,19 @@ import (
 	"sync"
 )
 
-// Status differentiates between idle, pending, committed, and spec ComputeResource.
+// Status differentiates between idle, pending, committed, and spec HostResources.
 type Status string
 
 func (t Status) String() string {
 	return string(t)
 }
 
-// ComputeResource is a struct used by the AllocationManager to track its total idle, pending, committed, and spec ComputeResource
+// HostResources is a struct used by the AllocationManager to track its total idle, pending, committed, and spec HostResources
 // of each type (CPU, GPU, and Memory).
-type ComputeResource struct {
+type HostResources struct {
 	sync.Mutex // Enables atomic access to each individual field.
 
-	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this ComputeResource struct.
+	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this HostResources struct.
 	lastAppliedSnapshotId int32
 
 	resourceStatus Status          // resourceStatus is the ResourceStatus represented/encoded by this struct.
@@ -35,15 +35,15 @@ type ComputeResource struct {
 // in the given ArbitraryResourceSnapshot instance.
 //
 // ApplySnapshotToResources returns nil on success. The only failure possible is that the ArbitraryResourceSnapshot
-// encodes ComputeResource of a different "status" than the target ComputeResource struct. For example, if the target
-// ComputeResource struct encodes "idle" ComputeResource, whereas the given ArbitraryResourceSnapshot instance encodes
-// "pending" ComputeResource, then an error will be returned, and none of the resource quantities in the target
-// ComputeResource struct will be overwritten.
-func ApplySnapshotToResources[T types.ArbitraryResourceSnapshot](res *ComputeResource, snapshot T) error {
+// encodes HostResources of a different "status" than the target HostResources struct. For example, if the target
+// HostResources struct encodes "idle" HostResources, whereas the given ArbitraryResourceSnapshot instance encodes
+// "pending" HostResources, then an error will be returned, and none of the resource quantities in the target
+// HostResources struct will be overwritten.
+func ApplySnapshotToResources[T types.ArbitraryResourceSnapshot](res *HostResources, snapshot T) error {
 	res.Lock()
 	defer res.Unlock()
 
-	// Ensure that the snapshot corresponds to ComputeResource of the same status as the target ComputeResource struct.
+	// Ensure that the snapshot corresponds to HostResources of the same status as the target HostResources struct.
 	// If it doesn't, then we'll reject the snapshot.
 	if res.resourceStatus.String() != snapshot.GetResourceStatus() {
 		return fmt.Errorf("%w: %w", ErrInvalidSnapshot, ErrIncompatibleResourceStatus)
@@ -67,7 +67,7 @@ func ApplySnapshotToResources[T types.ArbitraryResourceSnapshot](res *ComputeRes
 // ResourceSnapshot constructs and returns a pointer to a new ComputeResourceSnapshot struct.
 //
 // This method is thread-safe to ensure that the quantities of each resource are all captured atomically.
-func (res *ComputeResource) ResourceSnapshot(snapshotId int32) *ComputeResourceSnapshot {
+func (res *HostResources) ResourceSnapshot(snapshotId int32) *ComputeResourceSnapshot {
 	res.Lock()
 	defer res.Unlock()
 
@@ -86,7 +86,7 @@ func (res *ComputeResource) ResourceSnapshot(snapshotId int32) *ComputeResourceS
 // ProtoSnapshot constructs and returns a pointer to a new ProtoSnapshot struct.
 //
 // This method is thread-safe to ensure that the quantities of each resource are all captured atomically.
-func (res *ComputeResource) ProtoSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+func (res *HostResources) ProtoSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	res.Lock()
 	defer res.Unlock()
 
@@ -103,11 +103,11 @@ func (res *ComputeResource) ProtoSnapshot(snapshotId int32) *proto.ResourcesSnap
 }
 
 // ToDecimalSpec returns a pointer to a types.DecimalSpec struct that encapsulates a snapshot of
-// the current quantities of ComputeResource encoded/maintained by the target ComputeResource struct.
+// the current quantities of HostResources encoded/maintained by the target HostResources struct.
 //
 // This method is thread-safe to ensure that the quantity of each individual resource type cannot
 // be modified during the time that the new types.DecimalSpec struct is being constructed.
-func (res *ComputeResource) ToDecimalSpec() *types.DecimalSpec {
+func (res *HostResources) ToDecimalSpec() *types.DecimalSpec {
 	res.Lock()
 	defer res.Unlock()
 
@@ -115,11 +115,11 @@ func (res *ComputeResource) ToDecimalSpec() *types.DecimalSpec {
 }
 
 // unsafeToDecimalSpec returns a pointer to a types.DecimalSpec struct that encapsulates a snapshot of
-// the current quantities of ComputeResource encoded/maintained by the target ComputeResource struct.
+// the current quantities of HostResources encoded/maintained by the target HostResources struct.
 //
 // This method is not thread-safe and should be called only by the ToDecimalSpec method, unless
-// the ComputeResource' lock is already held.
-func (res *ComputeResource) unsafeToDecimalSpec() *types.DecimalSpec {
+// the HostResources' lock is already held.
+func (res *HostResources) unsafeToDecimalSpec() *types.DecimalSpec {
 	return &types.DecimalSpec{
 		GPUs:      res.gpus.Copy(),
 		Millicpus: res.millicpus.Copy(),
@@ -128,17 +128,17 @@ func (res *ComputeResource) unsafeToDecimalSpec() *types.DecimalSpec {
 	}
 }
 
-// LessThan returns true if each field of the target 'ComputeResource' struct is strictly less than the corresponding field
-// of the other 'ComputeResource' struct.
+// LessThan returns true if each field of the target 'HostResources' struct is strictly less than the corresponding field
+// of the other 'HostResources' struct.
 //
-// This method locks both 'ComputeResource' instances, beginning with the target instance.
+// This method locks both 'HostResources' instances, beginning with the target instance.
 //
-// If any field of the target 'ComputeResource' struct is not less than the corresponding field of the other 'ComputeResource'
+// If any field of the target 'HostResources' struct is not less than the corresponding field of the other 'HostResources'
 // struct, then false is returned.
 //
 // The Kind are checked in the following order: CPU, Memory, GPU.
 // The Kind of the first offending quantity will be returned, along with false, based on that order.
-func (res *ComputeResource) LessThan(other *ComputeResource) (bool, Kind) {
+func (res *HostResources) LessThan(other *HostResources) (bool, Kind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -164,14 +164,14 @@ func (res *ComputeResource) LessThan(other *ComputeResource) (bool, Kind) {
 	return true, NoResource
 }
 
-// LessThanOrEqual returns true if each field of the target 'ComputeResource' struct is less than or equal to the
-// corresponding field of the other 'ComputeResource' struct.
+// LessThanOrEqual returns true if each field of the target 'HostResources' struct is less than or equal to the
+// corresponding field of the other 'HostResources' struct.
 //
-// This method locks both 'ComputeResource' instances, beginning with the target instance.
+// This method locks both 'HostResources' instances, beginning with the target instance.
 //
-// If any field of the target 'ComputeResource' struct is not less than or equal to the corresponding field of the
-// other 'ComputeResource' struct, then false is returned.
-func (res *ComputeResource) LessThanOrEqual(other *ComputeResource) (bool, Kind) {
+// If any field of the target 'HostResources' struct is not less than or equal to the corresponding field of the
+// other 'HostResources' struct, then false is returned.
+func (res *HostResources) LessThanOrEqual(other *HostResources) (bool, Kind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -197,14 +197,14 @@ func (res *ComputeResource) LessThanOrEqual(other *ComputeResource) (bool, Kind)
 	return true, NoResource
 }
 
-// GreaterThan returns true if each field of the target 'ComputeResource' struct is strictly greater than to the
-// corresponding field of the other 'ComputeResource' struct.
+// GreaterThan returns true if each field of the target 'HostResources' struct is strictly greater than to the
+// corresponding field of the other 'HostResources' struct.
 //
-// This method locks both 'ComputeResource' instances, beginning with the target instance.
+// This method locks both 'HostResources' instances, beginning with the target instance.
 //
-// If any field of the target 'ComputeResource' struct is not strictly greater than the corresponding field of the
-// other 'ComputeResource' struct, then false is returned.
-func (res *ComputeResource) GreaterThan(other *ComputeResource) (bool, Kind) {
+// If any field of the target 'HostResources' struct is not strictly greater than the corresponding field of the
+// other 'HostResources' struct, then false is returned.
+func (res *HostResources) GreaterThan(other *HostResources) (bool, Kind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -230,14 +230,14 @@ func (res *ComputeResource) GreaterThan(other *ComputeResource) (bool, Kind) {
 	return true, NoResource
 }
 
-// GreaterThanOrEqual returns true if each field of the target 'ComputeResource' struct is greater than or equal to the
-// corresponding field of the other 'ComputeResource' struct.
+// GreaterThanOrEqual returns true if each field of the target 'HostResources' struct is greater than or equal to the
+// corresponding field of the other 'HostResources' struct.
 //
-// This method locks both 'ComputeResource' instances, beginning with the target instance.
+// This method locks both 'HostResources' instances, beginning with the target instance.
 //
-// If any field of the target 'ComputeResource' struct is not greater than or equal to the corresponding field of the
-// other 'ComputeResource' struct, then false is returned.
-func (res *ComputeResource) GreaterThanOrEqual(other *ComputeResource) (bool, Kind) {
+// If any field of the target 'HostResources' struct is not greater than or equal to the corresponding field of the
+// other 'HostResources' struct, then false is returned.
+func (res *HostResources) GreaterThanOrEqual(other *HostResources) (bool, Kind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -263,14 +263,14 @@ func (res *ComputeResource) GreaterThanOrEqual(other *ComputeResource) (bool, Ki
 	return true, NoResource
 }
 
-// EqualTo returns true if each field of the target 'ComputeResource' struct is exactly equal to the corresponding field of
-// the other 'ComputeResource' struct.
+// EqualTo returns true if each field of the target 'HostResources' struct is exactly equal to the corresponding field of
+// the other 'HostResources' struct.
 //
-// This method locks both 'ComputeResource' instances, beginning with the target instance.
+// This method locks both 'HostResources' instances, beginning with the target instance.
 //
-// If any field of the target 'ComputeResource' struct is not equal to the corresponding field of the other 'ComputeResource'
+// If any field of the target 'HostResources' struct is not equal to the corresponding field of the other 'HostResources'
 // struct, then false is returned.
-func (res *ComputeResource) EqualTo(other *ComputeResource) (bool, Kind) {
+func (res *HostResources) EqualTo(other *HostResources) (bool, Kind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -296,12 +296,12 @@ func (res *ComputeResource) EqualTo(other *ComputeResource) (bool, Kind) {
 	return true, NoResource
 }
 
-// IsZero returns true if each field of the target 'ComputeResource' struct is exactly equal to 0.
+// IsZero returns true if each field of the target 'HostResources' struct is exactly equal to 0.
 //
-// This method locks both 'ComputeResource' instances, beginning with the target instance.
+// This method locks both 'HostResources' instances, beginning with the target instance.
 //
-// If any field of the target 'ComputeResource' struct is not equal to 0, then false is returned.
-func (res *ComputeResource) IsZero() (bool, Kind) {
+// If any field of the target 'HostResources' struct is not equal to 0, then false is returned.
+func (res *HostResources) IsZero() (bool, Kind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -329,7 +329,7 @@ func (res *ComputeResource) IsZero() (bool, Kind) {
 // This method is thread-safe.
 //
 // If kind is equal to NoResource, then this method will panic.
-func (res *ComputeResource) GetResource(kind Kind) decimal.Decimal {
+func (res *HostResources) GetResource(kind Kind) decimal.Decimal {
 	res.Lock()
 	defer res.Unlock()
 
@@ -357,11 +357,11 @@ func (res *ComputeResource) GetResource(kind Kind) decimal.Decimal {
 //
 // This method is thread-safe.
 //
-// The ComputeResource are checked in the following order: CPU, Memory, GPU.
+// The HostResources are checked in the following order: CPU, Memory, GPU.
 // This method will return true and the associated Kind for the first negative Kind encountered.
 //
-// If no ComputeResource are negative, then this method returns false and NoResource.
-func (res *ComputeResource) HasNegativeField() (bool, Kind) {
+// If no HostResources are negative, then this method returns false and NoResource.
+func (res *HostResources) HasNegativeField() (bool, Kind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -384,27 +384,27 @@ func (res *ComputeResource) HasNegativeField() (bool, Kind) {
 	return false, NoResource
 }
 
-func (res *ComputeResource) String() string {
+func (res *HostResources) String() string {
 	res.Lock()
 	defer res.Unlock()
 
-	return fmt.Sprintf("[%s ComputeResource: millicpus=%s,gpus=%s,vram=%sGB,memory=%sMB]",
+	return fmt.Sprintf("[%s HostResources: millicpus=%s,gpus=%s,vram=%sGB,memory=%sMB]",
 		res.resourceStatus.String(), res.millicpus.StringFixed(0),
 		res.gpus.StringFixed(0), res.vramGB.StringFixed(4), res.memoryMB.StringFixed(4))
 }
 
-func (res *ComputeResource) ResourceStatus() Status {
+func (res *HostResources) ResourceStatus() Status {
 	return res.resourceStatus
 }
 
-func (res *ComputeResource) MemoryMB() float64 {
+func (res *HostResources) MemoryMB() float64 {
 	res.Lock()
 	defer res.Unlock()
 
 	return res.memoryMB.InexactFloat64()
 }
 
-func (res *ComputeResource) MemoryMbAsDecimal() decimal.Decimal {
+func (res *HostResources) MemoryMbAsDecimal() decimal.Decimal {
 	res.Lock()
 	defer res.Unlock()
 
@@ -412,7 +412,7 @@ func (res *ComputeResource) MemoryMbAsDecimal() decimal.Decimal {
 }
 
 // SetMemoryMB sets the amount of memory to a copy of the specified decimal.Decimal value.
-func (res *ComputeResource) SetMemoryMB(memoryMB decimal.Decimal) {
+func (res *HostResources) SetMemoryMB(memoryMB decimal.Decimal) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -420,7 +420,7 @@ func (res *ComputeResource) SetMemoryMB(memoryMB decimal.Decimal) {
 }
 
 // VRAM returns the amount of VRAM (in GB).
-func (res *ComputeResource) VRAM() float64 {
+func (res *HostResources) VRAM() float64 {
 	res.Lock()
 	defer res.Unlock()
 
@@ -429,21 +429,21 @@ func (res *ComputeResource) VRAM() float64 {
 
 // VRAMAsDecimal returns a copy of the decimal.Decimal that precisely & accurately encodes the amount of VRAM.
 // The units are gigabytes (GB).
-func (res *ComputeResource) VRAMAsDecimal() decimal.Decimal {
+func (res *HostResources) VRAMAsDecimal() decimal.Decimal {
 	res.Lock()
 	defer res.Unlock()
 
 	return res.vramGB.Copy()
 }
 
-func (res *ComputeResource) GPUs() float64 {
+func (res *HostResources) GPUs() float64 {
 	res.Lock()
 	defer res.Unlock()
 
 	return res.gpus.InexactFloat64()
 }
 
-func (res *ComputeResource) GPUsAsDecimal() decimal.Decimal {
+func (res *HostResources) GPUsAsDecimal() decimal.Decimal {
 	res.Lock()
 	defer res.Unlock()
 
@@ -451,21 +451,21 @@ func (res *ComputeResource) GPUsAsDecimal() decimal.Decimal {
 }
 
 // SetGpus sets the number of GPUs to a copy of the specified decimal.Decimal value.
-func (res *ComputeResource) SetGpus(gpus decimal.Decimal) {
+func (res *HostResources) SetGpus(gpus decimal.Decimal) {
 	res.Lock()
 	defer res.Unlock()
 
 	res.gpus = gpus.Copy()
 }
 
-func (res *ComputeResource) Millicpus() float64 {
+func (res *HostResources) Millicpus() float64 {
 	res.Lock()
 	defer res.Unlock()
 
 	return res.millicpus.InexactFloat64()
 }
 
-func (res *ComputeResource) MillicpusAsDecimal() decimal.Decimal {
+func (res *HostResources) MillicpusAsDecimal() decimal.Decimal {
 	res.Lock()
 	defer res.Unlock()
 
@@ -473,21 +473,21 @@ func (res *ComputeResource) MillicpusAsDecimal() decimal.Decimal {
 }
 
 // SetMillicpus sets the number of Millicpus to a copy of the specified decimal.Decimal value.
-func (res *ComputeResource) SetMillicpus(millicpus decimal.Decimal) {
+func (res *HostResources) SetMillicpus(millicpus decimal.Decimal) {
 	res.Lock()
 	defer res.Unlock()
 
 	res.millicpus = millicpus
 }
 
-// Add adds the ComputeResource encapsulated in the given types.DecimalSpec to the ComputeResource' internal resource counts.
+// Add adds the HostResources encapsulated in the given types.DecimalSpec to the HostResources' internal resource counts.
 //
-// If performing this operation were to result in any of the ComputeResource' internal counts becoming negative, then
+// If performing this operation were to result in any of the HostResources' internal counts becoming negative, then
 // an error is returned and no changes are made whatsoever.
 //
-// This operation is performed atomically. It should not be called from a context in which the ComputeResource' mutex is
+// This operation is performed atomically. It should not be called from a context in which the HostResources' mutex is
 // already held/acquired, as this will lead to a deadlock.
-func (res *ComputeResource) Add(spec *types.DecimalSpec) error {
+func (res *HostResources) Add(spec *types.DecimalSpec) error {
 	res.Lock()
 	defer res.Unlock()
 
@@ -529,14 +529,14 @@ func (res *ComputeResource) Add(spec *types.DecimalSpec) error {
 	return nil
 }
 
-// Subtract subtracts the ComputeResource encapsulated in the given types.DecimalSpec from the ComputeResource' own internal counts.
+// Subtract subtracts the HostResources encapsulated in the given types.DecimalSpec from the HostResources' own internal counts.
 //
-// If performing this operation were to result in any of the ComputeResource' internal counts becoming negative, then
+// If performing this operation were to result in any of the HostResources' internal counts becoming negative, then
 // an error is returned and no changes are made whatsoever.
 //
-// This operation is performed atomically. It should not be called from a context in which the ComputeResource' mutex is
+// This operation is performed atomically. It should not be called from a context in which the HostResources' mutex is
 // already held/acquired, as this will lead to a deadlock.
-func (res *ComputeResource) Subtract(spec *types.DecimalSpec) error {
+func (res *HostResources) Subtract(spec *types.DecimalSpec) error {
 	res.Lock()
 	defer res.Unlock()
 
@@ -579,9 +579,9 @@ func (res *ComputeResource) Subtract(spec *types.DecimalSpec) error {
 
 }
 
-// Validate returns true if each of the ComputeResource' cpu, gpu, and memory are greater than or equal to the respective
+// Validate returns true if each of the HostResources' cpu, gpu, and memory are greater than or equal to the respective
 // resource of the given types.DecimalSpec.
-func (res *ComputeResource) Validate(spec types.Spec) bool {
+func (res *HostResources) Validate(spec types.Spec) bool {
 	res.Lock()
 	defer res.Unlock()
 
@@ -600,13 +600,13 @@ func (res *ComputeResource) Validate(spec types.Spec) bool {
 		res.vramGB.GreaterThanOrEqual(decimalSpec.VRam)
 }
 
-// ValidateWithError returns nil if each of the ComputeResource' cpu, gpu, and memory are greater than or equal to the
+// ValidateWithError returns nil if each of the HostResources' cpu, gpu, and memory are greater than or equal to the
 // respective resource of the given types.DecimalSpec. That is, if the given types.DecimalSpec is validated, so to
 // speak, then ValidateWithError will return nil.
 //
 // If the specified types.DecimalSpec is NOT validated, then an error is returned.
-// This error indicates which of the ComputeResource' cpu, gpu, and/or memory were insufficient to validate the given spec.
-func (res *ComputeResource) ValidateWithError(spec types.Spec) error {
+// This error indicates which of the HostResources' cpu, gpu, and/or memory were insufficient to validate the given spec.
+func (res *HostResources) ValidateWithError(spec types.Spec) error {
 	res.Lock()
 	defer res.Unlock()
 
