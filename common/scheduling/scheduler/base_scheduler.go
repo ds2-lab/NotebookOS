@@ -211,7 +211,7 @@ func (s *BaseScheduler) SubscriptionRatio() float64 {
 	return s.subscriptionRatio.InexactFloat64()
 }
 
-// Placer returns the Placer used by the BaseScheduler.
+// Placer returns the Placer used by the scheduling.Scheduler.
 func (s *BaseScheduler) Placer() scheduling.Placer {
 	return s.placer
 }

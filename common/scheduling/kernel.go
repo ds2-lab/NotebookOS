@@ -48,6 +48,14 @@ type SessionManager interface {
 	ClearSessions()            // ClearSessions clears all sessions.
 }
 
+// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
+// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
+// the DistributedKernelClient will check if its ActiveExecution struct has the original "sent-at" timestamp
+// of the original "execute_request". If it does, then it can calculate the latency between submission and when
+// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
+// so that a relevant Prometheus metric can be updated.
+type ExecutionLatencyCallback func(latency time.Duration, workloadId string, kernelId string)
+
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
 type ExecutionFailedCallback func(c Kernel) error
 

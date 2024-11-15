@@ -1,4 +1,4 @@
-package scheduling_test
+package resource_test
 
 import (
 	"errors"

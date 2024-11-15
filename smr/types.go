@@ -5,7 +5,7 @@ import (
 	"unsafe"
 )
 
-// Wrapper of python bytes for buffered stream.
+// Manager of python bytes for buffered stream.
 type Bytes struct {
 	bytes []byte
 }

@@ -3,9 +3,9 @@ package daemon
 import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/mock_client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	types2 "github.com/scusemua/distributed-notebook/common/types"
 
@@ -31,7 +31,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		schedulerDaemon  *SchedulerDaemonImpl
 		vgpuPluginServer device.VirtualGpuPluginServer
 		mockCtrl         *gomock.Controller
-		kernel           *mock_client.MockKernelReplica
+		kernel           *mock_scheduling.MockKernelReplica
 		kernelKey        = "23d90942-8c3de3a713a5c3611792b7a5"
 		resourceManager  *resource.AllocationManager
 	)
@@ -39,7 +39,7 @@ var _ = Describe("Local Daemon Tests", func() {
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		vgpuPluginServer = mock_device.NewMockVirtualGpuPluginServer(mockCtrl)
-		kernel = mock_client.NewMockKernelReplica(mockCtrl)
+		kernel = mock_scheduling.NewMockKernelReplica(mockCtrl)
 		resourceManager = resource.NewAllocationManager(&types2.DecimalSpec{
 			GPUs:      decimal.NewFromFloat(8),
 			Millicpus: decimal.NewFromFloat(64000),

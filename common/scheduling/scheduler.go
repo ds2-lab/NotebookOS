@@ -104,6 +104,9 @@ type Scheduler interface {
 	KernelScheduler
 	HostScheduler
 	SchedulerMetricsManager
+
+	// Placer returns the Placer used by the scheduling.Scheduler.
+	Placer() Placer
 }
 
 type KubernetesClusterScheduler interface {

@@ -15,6 +15,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
@@ -140,7 +141,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 		mockCtrl        *gomock.Controller
 		dockerScheduler *scheduler.DockerScheduler
 		dockerCluster   scheduling.Cluster
-		placer          scheduling.Placer
+		clusterPlacer   scheduling.Placer
 		hostMapper      scheduler.HostMapper
 	)
 
@@ -157,11 +158,12 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 
-		dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, hostMapper, nil, nil, &opts.ClusterDaemonOptions.SchedulerOptions)
-		Expect(dockerCluster).ToNot(BeNil())
+		clusterPlacer, err = placer.NewRandomPlacer(nil, 3)
+		Expect(err).To(BeNil())
+		Expect(clusterPlacer).ToNot(BeNil())
 
-		placer = dockerCluster.Placer()
-		Expect(placer).ToNot(BeNil())
+		dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil, nil, &opts.ClusterDaemonOptions.SchedulerOptions)
+		Expect(dockerCluster).ToNot(BeNil())
 
 		genericScheduler := dockerCluster.Scheduler()
 		Expect(genericScheduler).ToNot(BeNil())
@@ -205,7 +207,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 		validateVariablesNonNil := func() {
 			Expect(dockerScheduler).ToNot(BeNil())
-			Expect(placer).ToNot(BeNil())
+			Expect(clusterPlacer).ToNot(BeNil())
 			Expect(dockerCluster).ToNot(BeNil())
 			Expect(hostMapper).ToNot(BeNil())
 			Expect(len(hosts)).To(Equal(3))
@@ -521,7 +523,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 		validateVariablesNonNil := func() {
 			Expect(dockerScheduler).ToNot(BeNil())
-			Expect(placer).ToNot(BeNil())
+			Expect(clusterPlacer).ToNot(BeNil())
 			Expect(dockerCluster).ToNot(BeNil())
 			Expect(hostMapper).ToNot(BeNil())
 			Expect(len(hosts)).To(Equal(3))

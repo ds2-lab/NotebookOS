@@ -53,14 +53,6 @@ func (q *CodeExecutionQueue) Dequeue() *scheduling.ActiveExecution {
 	return item
 }
 
-// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
-// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
-// the DistributedKernelClient will check if its ActiveExecution struct has the original "sent-at" timestamp
-// of the original "execute_request". If it does, then it can calculate the latency between submission and when
-// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
-// so that a relevant Prometheus metric can be updated.
-type ExecutionLatencyCallback func(latency time.Duration, workloadId string, kernelId string)
-
 // ReplicaKernelInfo offers hybrid information that reflects the replica source of messages.
 type ReplicaKernelInfo struct {
 	scheduling.KernelInfo
@@ -78,8 +70,8 @@ func (r *ReplicaKernelInfo) String() string {
 type DistributedClientProvider interface {
 	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
 		connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
-		debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
-		messagingMetricsProvider metrics.MessagingMetricsProvider) scheduling.Kernel
+		debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
+		executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider) scheduling.Kernel
 }
 
 // DistributedKernelClient is a client of a Distributed Jupyter Kernel that is used by the Gateway daemon.
@@ -129,7 +121,7 @@ type DistributedKernelClient struct {
 	// of the original "execute_request". If it does, then it can calculate the latency between submission and when
 	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
 	// so that a relevant Prometheus metric can be updated.
-	executionLatencyCallback ExecutionLatencyCallback
+	executionLatencyCallback scheduling.ExecutionLatencyCallback
 
 	// messagingMetricsProvider is an interface that enables the recording of metrics observed by the DistributedKernelClient.
 	messagingMetricsProvider metrics.MessagingMetricsProvider
@@ -156,7 +148,7 @@ type DistributedKernelClientProvider struct{}
 // a pointer to it in the form of an AbstractDistributedKernelClient interface.
 func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
 	connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
-	debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
+	debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
 	messagingMetricsProvider metrics.MessagingMetricsProvider) scheduling.Kernel {
 
 	kernel := &DistributedKernelClient{

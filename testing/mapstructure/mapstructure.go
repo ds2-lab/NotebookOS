@@ -38,5 +38,5 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("Wrapper: %s\n", wrapper.String())
+	fmt.Printf("Manager: %s\n", wrapper.String())
 }
