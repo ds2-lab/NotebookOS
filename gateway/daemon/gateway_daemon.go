@@ -492,14 +492,13 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			dockerEventHandler := NewDockerEventHandler()
 			clusterGateway.containerEventHandler = dockerEventHandler
 
-			randomPlacer, err := placer.NewRandomPlacer(dockerCluster, opts.NumReplicas)
+			randomPlacer, err := placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
 			if err != nil {
-				dockerCluster.log.Error("Failed to create Random Placer: %v", err)
+				clusterGateway.log.Error("Failed to create Random Placer: %v", err)
 				panic(err)
 			}
-			dockerCluster.placer = randomPlacer
 
-			clusterGateway.cluster = cluster.NewDockerComposeCluster(clusterGateway.hostSpec, clusterGateway,
+			clusterGateway.cluster = cluster.NewDockerComposeCluster(clusterGateway.hostSpec, randomPlacer, clusterGateway,
 				clusterGateway, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 			break
 		}
@@ -515,8 +514,14 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			clusterGateway.dockerApiClient = apiClient
 
-			clusterGateway.cluster = cluster.NewDockerSwarmCluster(clusterGateway.hostSpec, clusterGateway, clusterGateway,
-				clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+			randomPlacer, err := placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
+			if err != nil {
+				clusterGateway.log.Error("Failed to create Random Placer: %v", err)
+				panic(err)
+			}
+
+			clusterGateway.cluster = cluster.NewDockerSwarmCluster(clusterGateway.hostSpec, randomPlacer, clusterGateway,
+				clusterGateway, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 
 			break
 		}
@@ -528,7 +533,13 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
 			clusterGateway.containerEventHandler = clusterGateway.kubeClient
 
-			clusterGateway.cluster = cluster.NewKubernetesCluster(clusterGateway.kubeClient, clusterGateway.hostSpec,
+			randomPlacer, err := placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
+			if err != nil {
+				clusterGateway.log.Error("Failed to create Random Placer: %v", err)
+				panic(err)
+			}
+
+			clusterGateway.cluster = cluster.NewKubernetesCluster(clusterGateway.kubeClient, randomPlacer, clusterGateway.hostSpec,
 				clusterGateway, clusterGateway, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
 
 			break
