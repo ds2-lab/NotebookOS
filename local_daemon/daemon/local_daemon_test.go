@@ -260,7 +260,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(resourceManager.PendingGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
 			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(8))).To(BeTrue())
 
-			unsignedFrames := [][]byte{
+			unsignedExecReqFrames := [][]byte{
 				[]byte("<IDS|MSG>"), /* Frame start */
 				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"), /* Signature */
 				[]byte(""), /* Header */
@@ -268,7 +268,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecReqFrames)
 			err = jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))

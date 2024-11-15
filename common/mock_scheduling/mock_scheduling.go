@@ -705,6 +705,20 @@ func (mr *MockSchedulerMockRecorder) MinimumCapacity() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MinimumCapacity", reflect.TypeOf((*MockScheduler)(nil).MinimumCapacity))
 }
 
+// Placer mocks base method.
+func (m *MockScheduler) Placer() scheduling.Placer {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Placer")
+	ret0, _ := ret[0].(scheduling.Placer)
+	return ret0
+}
+
+// Placer indicates an expected call of Placer.
+func (mr *MockSchedulerMockRecorder) Placer() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Placer", reflect.TypeOf((*MockScheduler)(nil).Placer))
+}
+
 // ReleaseIdleHosts mocks base method.
 func (m *MockScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	m.ctrl.T.Helper()

@@ -669,20 +669,51 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 		}
 	}
 
-	s.log.Info("Calling PrepareToMigrate RPC targeting replica %d of kernel %s now.",
-		originalHost.GetID(), kernelReplica.ID())
+	s.log.Info("Calling PrepareToMigrate RPC targeting host %s (ID=%s) of replica %d of kernel %s now.",
+		originalHost.GetNodeName(), originalHost.GetID(), kernelReplica.ReplicaID(), kernelReplica.ID())
 
 	replicaInfo := &proto.ReplicaInfo{
 		ReplicaId: kernelReplica.ReplicaID(),
 		KernelId:  kernelReplica.ID(),
 	}
 
-	// Issue the 'prepare-to-migrate' request. We panic if there was an error.
-	resp, err := originalHost.PrepareToMigrate(context.TODO(), replicaInfo)
-	if err != nil {
-		s.log.Error("Failed to add replica %d of kernel %s to SMR cluster because: %v",
-			originalHost.GetID(), kernelReplica.ID(), err)
-		return "", err
+	resultChan := make(chan interface{}, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+
+	go func() {
+		// Issue the 'prepare-to-migrate' request. We panic if there was an error.
+		resp, err := originalHost.PrepareToMigrate(ctx, replicaInfo)
+		if err != nil {
+			s.log.Error("Failed to add replica %d of kernel %s to SMR cluster because: %v",
+				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+			resultChan <- err
+		} else {
+			resultChan <- resp
+		}
+	}()
+
+	var resp *proto.PrepareToMigrateResponse
+	select {
+	case <-ctx.Done():
+		{
+			s.log.Error("Timed-out waiting for response from host %s (ID=%s) for 'prepare-to-migrate' request for replica %d of kernel %s...",
+				originalHost.GetNodeName(), originalHost.GetID(), kernelReplica.ReplicaID(), kernelReplica.ID())
+			return "", fmt.Errorf("timed out")
+		}
+	case res := <-resultChan:
+		{
+			switch res.(type) {
+			case *proto.PrepareToMigrateResponse:
+				{
+					resp = res.(*proto.PrepareToMigrateResponse)
+				}
+			case error:
+				{
+					return "", res.(error)
+				}
+			}
+		}
 	}
 
 	dataDirectory := resp.DataDir
