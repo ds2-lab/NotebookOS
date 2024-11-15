@@ -63,7 +63,7 @@ type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica *KernelR
 // Used by both the Gateway and Local Daemon components.
 type KernelReplicaClient struct {
 	*server.BaseServer
-	SessionManager
+	scheduling.SessionManager
 	client *server.AbstractServer
 
 	// destMutex                 sync.Mutex

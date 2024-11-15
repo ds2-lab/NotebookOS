@@ -79,6 +79,17 @@ func (e *ActiveExecution) LinkNextAttempt(nextAttempt scheduling.CodeExecution) 
 	e.nextAttempt = nextAttempt
 }
 
+func (e *ActiveExecution) GetExecutionId() string {
+	return e.ExecutionId
+}
+func (e *ActiveExecution) GetNumReplicas() int {
+	return e.NumReplicas
+}
+
+func (e *ActiveExecution) SetActiveReplica(replica scheduling.KernelReplica) {
+	e.ActiveReplica = replica
+}
+
 func (e *ActiveExecution) GetActiveReplica() scheduling.KernelReplica {
 	return e.ActiveReplica
 }

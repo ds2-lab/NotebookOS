@@ -4,6 +4,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	jupyterTypes "github.com/scusemua/distributed-notebook/common/jupyter/types"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/jupyter"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"golang.org/x/net/context"
 	"time"
@@ -156,7 +157,7 @@ type KernelReplica interface {
 	ReconnectSocket(typ jupyterTypes.MessageType) (*jupyterTypes.Socket, error)
 	Validate() error
 	InitializeShellForwarder(handler KernelMessageHandler) (*jupyterTypes.Socket, error)
-	AddIOHandler(topic string, handler client.MessageBrokerHandler[Kernel, *jupyterTypes.JupyterFrames, *jupyterTypes.JupyterMessage]) error
+	AddIOHandler(topic string, handler jupyter.MessageBrokerHandler[KernelReplica, *jupyterTypes.JupyterFrames, *jupyterTypes.JupyterMessage]) error
 	RequestWithHandler(ctx context.Context, _ string, typ jupyterTypes.MessageType, msg *jupyterTypes.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
 	Close() error
 	GetHost() Host

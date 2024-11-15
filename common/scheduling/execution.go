@@ -32,4 +32,7 @@ type CodeExecution interface {
 	GetExecuteRequestMessageId() string
 	GetAttemptId() int
 	GetWorkloadId() string
+	GetExecutionId() string
+	GetNumReplicas() int
+	SetActiveReplica(replica KernelReplica)
 }
