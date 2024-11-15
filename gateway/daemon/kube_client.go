@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,9 +15,9 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/pkg/errors"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
-	"github.com/zhangjyr/distributed-notebook/gateway/domain"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/gateway/domain"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -377,7 +377,7 @@ func (c *BasicKubeClient) PodUpdated(oldObj interface{}, newObj interface{}) {
 // }
 
 // KubeClientset returns the Kubernetes client.
-func (c *BasicKubeClient) KubeClientset() *kubernetes.Clientset {
+func (c *BasicKubeClient) Clientset() *kubernetes.Clientset {
 	return c.kubeClientset
 }
 
@@ -421,7 +421,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 
 	headlessServiceName := fmt.Sprintf("kernel-%s-svc", kernel.Id)
 
-	// Prepare the *jupyter.ConfigFile.
+	// Prepare the *messaging.ConfigFile.
 	configFileInfo, err := c.prepareConfigFileContents(&proto.KernelReplicaSpec{
 		ReplicaId: DummySMRNodeId, // We'll replace the dummy value with the correct ID when the Pod starts.
 		Replicas:  nil,

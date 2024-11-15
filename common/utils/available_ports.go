@@ -23,15 +23,10 @@ type AvailablePorts struct {
 	mu               sync.Mutex
 
 	maxPort int // The largest port managed by this struct.
-
-	// Metrics.
-	numAllocations int // Number of calls to AvailablePorts::RequestPorts
-	numReturns     int // Number of calls to AvailablePorts::ReturnPorts
 }
 
 var (
 	ErrInsufficientPortsAvailable = errors.New("there are not enough available ports to satisfy the request")
-	ErrInvalidPortReturned        = errors.New("one or more of the specified ports were not marked as unavailable")
 )
 
 // NewAvailablePorts construct a new AvailablePorts data structure. Returns a pointer to the data structure.
@@ -126,7 +121,7 @@ func (p *AvailablePorts) RequestPorts() ([]int, error) {
 	p.availablePorts = p.availablePorts[p.allocationSize:]
 
 	for _, port := range allocation {
-		if p.portAvailability[port] == false {
+		if !p.portAvailability[port] {
 			panic(fmt.Sprintf("Port %d is already marked as unavailable.", port))
 		}
 
@@ -167,7 +162,7 @@ func (p *AvailablePorts) ReturnPorts(ports []int) error {
 			panic(fmt.Sprintf("Encountered unexpected port: %d", port))
 		}
 
-		if p.portAvailability[port] == true {
+		if p.portAvailability[port] {
 			panic(fmt.Sprintf("Port %d is already marked as available.", port))
 		}
 

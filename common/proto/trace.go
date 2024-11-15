@@ -11,12 +11,12 @@ const (
 	DefaultTraceTimingValue int64 = -1
 
 	// RequestTraceMetadataKey is the key at which a RequestTrace is included in the metadata mapping/frame
-	// of a types.JupyterMessage.
+	// of a messaging.JupyterMessage.
 	RequestTraceMetadataKey string = "request_trace"
 )
 
 // JupyterRequestTraceFrame is a wrapper around a *RequestTrace that allows us to deserialize the
-// associated frame of a types.JupyterMessage when it contains a serialized/JSON-encoded *RequestTrace.
+// associated frame of a messaging.JupyterMessage when it contains a serialized/JSON-encoded *RequestTrace.
 type JupyterRequestTraceFrame struct {
 	RequestTrace *RequestTrace `json:"request_trace" mapstructure:"request_trace"`
 }

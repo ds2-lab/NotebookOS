@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"net"
 	"sync/atomic"
 
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -59,7 +59,7 @@ func (dc *DistributedCluster) HandlePanic(identity string, fatalErr interface{})
 		Id:               uuid.NewString(),
 		Title:            fmt.Sprintf("%s panicked.", identity),
 		Message:          fmt.Sprintf("%v", fatalErr),
-		NotificationType: int32(types.ErrorNotification),
+		NotificationType: int32(messaging.ErrorNotification),
 		Panicked:         true,
 	})
 

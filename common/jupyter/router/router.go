@@ -5,14 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"strings"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	commonTypes "github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 )
 
 const (
@@ -30,10 +31,10 @@ type Router struct {
 	name string // Identifies the router server.
 
 	// handlers
-	handlers []RouterMessageHandler
+	handlers []MessageHandler
 }
 
-func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvider, messageAcknowledgementsEnabled bool,
+func New(ctx context.Context, opts *jupyter.ConnectionInfo, provider Provider, messageAcknowledgementsEnabled bool,
 	name string, shouldAckMessages bool, nodeType metrics.NodeType, debugMode bool) *Router {
 
 	router := &Router{
@@ -51,10 +52,10 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 			}
 
 			// We do not set handlers of the sockets here. Server routine will be started using a shared handler.
-			s.Sockets.HB = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.HBPort, types.HBMessage, fmt.Sprintf("Router-Router-HB[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
-			s.Sockets.Control = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ControlPort, types.ControlMessage, fmt.Sprintf("Router-Router-Ctrl[%s]", name), fmt.Sprintf("Remote-%s-Ctrl", remoteComponentName))
-			s.Sockets.Shell = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ShellPort, types.ShellMessage, fmt.Sprintf("Router-Router-Shell[%s]", name), fmt.Sprintf("Remote-%s-Shell", remoteComponentName))
-			s.Sockets.Stdin = types.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.StdinPort, types.StdinMessage, fmt.Sprintf("Router-Router-Stdin[%s]", name), fmt.Sprintf("Remote-%s-Stdin", remoteComponentName))
+			s.Sockets.HB = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.HBPort, messaging.HBMessage, fmt.Sprintf("Router-Router-HB[%s]", name), fmt.Sprintf("Remote-%s-HB", remoteComponentName))
+			s.Sockets.Control = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ControlPort, messaging.ControlMessage, fmt.Sprintf("Router-Router-Ctrl[%s]", name), fmt.Sprintf("Remote-%s-Ctrl", remoteComponentName))
+			s.Sockets.Shell = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.ShellPort, messaging.ShellMessage, fmt.Sprintf("Router-Router-Shell[%s]", name), fmt.Sprintf("Remote-%s-Shell", remoteComponentName))
+			s.Sockets.Stdin = messaging.NewSocketWithRemoteName(zmq4.NewRouter(s.Ctx), opts.StdinPort, messaging.StdinMessage, fmt.Sprintf("Router-Router-Stdin[%s]", name), fmt.Sprintf("Remote-%s-Stdin", remoteComponentName))
 			s.PrependId = true
 			s.ReconnectOnAckFailure = false
 			s.ShouldAckMessages = shouldAckMessages
@@ -65,12 +66,12 @@ func New(ctx context.Context, opts *types.ConnectionInfo, provider RouterProvide
 		}),
 	}
 	router.BaseServer = router.server.Server()
-	router.handlers = make([]RouterMessageHandler, len(router.server.Sockets.All))
+	router.handlers = make([]MessageHandler, len(router.server.Sockets.All))
 	if provider != nil {
-		router.AddHandler(types.ControlMessage, provider.ControlHandler)
-		router.AddHandler(types.ShellMessage, provider.ShellHandler)
-		router.AddHandler(types.StdinMessage, provider.StdinHandler)
-		router.AddHandler(types.HBMessage, provider.HBHandler)
+		router.AddHandler(messaging.ControlMessage, provider.ControlHandler)
+		router.AddHandler(messaging.ShellMessage, provider.ShellHandler)
+		router.AddHandler(messaging.StdinMessage, provider.StdinHandler)
+		router.AddHandler(messaging.HBMessage, provider.HBHandler)
 	}
 	return router
 }
@@ -98,7 +99,7 @@ func (g *Router) ShouldAckMessages() bool {
 	return g.server.ShouldAckMessages
 }
 
-func (g *Router) ConnectionInfo() *types.ConnectionInfo {
+func (g *Router) ConnectionInfo() *jupyter.ConnectionInfo {
 	return g.server.Meta
 }
 
@@ -162,14 +163,14 @@ func (g *Router) Name() string {
 	return g.name
 }
 
-func (g *Router) AddHandler(typ types.MessageType, handler RouterMessageHandler) {
+func (g *Router) AddHandler(typ messaging.MessageType, handler MessageHandler) {
 	if g.handlers[typ] != nil {
-		handler = func(oldHandler RouterMessageHandler, newHandler RouterMessageHandler) RouterMessageHandler {
-			return func(sockets RouterInfo, msg *types.JupyterMessage) error {
+		handler = func(oldHandler MessageHandler, newHandler MessageHandler) MessageHandler {
+			return func(sockets Info, msg *messaging.JupyterMessage) error {
 				err := newHandler(sockets, msg)
 				if err == nil {
 					return oldHandler(sockets, msg)
-				} else if errors.Is(err, commonTypes.ErrStopPropagation) {
+				} else if errors.Is(err, types.ErrStopPropagation) {
 					return nil
 				} else {
 					return err
@@ -186,7 +187,7 @@ func (g *Router) Close() error {
 	return nil
 }
 
-func (g *Router) handleMsg(_ types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
+func (g *Router) handleMsg(_ messaging.JupyterServerInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 	handler := g.handlers[typ]
 	if handler != nil {
 		return handler(g, msg)

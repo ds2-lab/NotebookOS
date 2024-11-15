@@ -3,9 +3,9 @@ package testing
 import (
 	"github.com/google/uuid"
 	"github.com/onsi/ginkgo/v2"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -21,7 +21,7 @@ type ResourceSpoofer struct {
 	NodeName   string
 	ManagerId  string
 	HostSpec   types.Spec
-	Wrapper    *scheduling.ResourcesWrapper
+	Manager    *resource.Manager
 }
 
 func NewResourceSpoofer(nodeName string, hostId string, hostSpec types.Spec) *ResourceSpoofer {
@@ -30,7 +30,7 @@ func NewResourceSpoofer(nodeName string, hostId string, hostSpec types.Spec) *Re
 		NodeName:  nodeName,
 		ManagerId: uuid.NewString(),
 		HostSpec:  hostSpec,
-		Wrapper:   scheduling.NewResourcesWrapper(hostSpec),
+		Manager:   resource.NewManager(hostSpec),
 	}
 
 	ginkgo.GinkgoWriter.Printf("Created new ResourceSpoofer for host %s (ID=%s) with spec=%s\n", nodeName, hostId, hostSpec.String())
@@ -51,10 +51,10 @@ func (s *ResourceSpoofer) ResourcesSnapshot(_ context.Context, _ *proto.Void, _ 
 		ManagerId: s.ManagerId,
 		// Timestamp is the time at which the NodeResourcesSnapshot was taken/created.
 		Timestamp:          timestamppb.New(time.Now()),
-		IdleResources:      s.Wrapper.IdleProtoResourcesSnapshot(snapshotId),
-		PendingResources:   s.Wrapper.PendingProtoResourcesSnapshot(snapshotId),
-		CommittedResources: s.Wrapper.CommittedProtoResourcesSnapshot(snapshotId),
-		SpecResources:      s.Wrapper.SpecProtoResourcesSnapshot(snapshotId),
+		IdleResources:      s.Manager.IdleProtoResourcesSnapshot(snapshotId),
+		PendingResources:   s.Manager.PendingProtoResourcesSnapshot(snapshotId),
+		CommittedResources: s.Manager.CommittedProtoResourcesSnapshot(snapshotId),
+		SpecResources:      s.Manager.SpecProtoResourcesSnapshot(snapshotId),
 	}
 
 	snapshotWithContainers := &proto.NodeResourcesSnapshotWithContainers{

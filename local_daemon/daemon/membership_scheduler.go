@@ -3,9 +3,9 @@ package daemon
 import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
+	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/local_daemon/domain"
 )
 
 // MembershipScheduler is a scheduling.Scheduler that for testing the membership changing.
@@ -28,13 +28,13 @@ func (s *MembershipScheduler) OnTaskStart(kernel scheduling.Kernel, task *jupyte
 }
 
 // func (s *MembershipScheduler) triggerMigration(kernel scheduling.Kernel) error {
-// 	persistentId := kernel.(client.KernelReplicaClient).PersistentID()
-// 	s.log.Info("Triggering hard-coded migration of replica %d of kernel %s", kernel.(client.KernelReplicaClient).ReplicaID(), kernel.ID())
+// 	persistentId := kernel.(client.Kernel).PersistentID()
+// 	s.log.Info("Triggering hard-coded migration of replica %d of kernel %s", kernel.(client.Kernel).ReplicaID(), kernel.ID())
 
 // 	resp, err := s.daemon.Provisioner().MigrateKernelReplica(context.Background(), &gateway.MigrationRequest{
 // 		TargetReplica: &gateway.ReplicaInfo{
 // 			KernelId:     kernel.ID(),
-// 			ReplicaID:    kernel.(client.KernelReplicaClient).ReplicaID(),
+// 			ReplicaID:    kernel.(client.Kernel).ReplicaID(),
 // 			PersistentId: persistentId,
 // 		},
 // 	})

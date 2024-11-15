@@ -5,8 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"net/url"
 	"os"
 	"os/exec"
@@ -18,8 +19,7 @@ import (
 
 	"github.com/Scusemua/go-utils/config"
 	"github.com/google/uuid"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils"
 )
 
 const (
@@ -452,7 +452,7 @@ func (ivk *DockerInvoker) Close() error {
 				ivk.log.Warn("Will retry using a different name for the old container.")
 			} else {
 				ivk.log.Error("This Docker error is unexpected. Unsure how to recover.")
-				return fmt.Errorf(errorMessage)
+				return errors.New(errorMessage)
 			}
 
 			idx += 1

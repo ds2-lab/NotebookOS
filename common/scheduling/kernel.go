@@ -2,20 +2,28 @@ package scheduling
 
 import (
 	"context"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/jupyter/router"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/types"
+	"time"
 )
 
-// KernelMessageHandler is an API defines the interface of messages that a JupyterRouter can intercept and handle.
-type KernelMessageHandler func(KernelInfo, jupyter.MessageType, *jupyter.JupyterMessage) error
+type MessageBrokerHandler[S any, T any, R any] func(source S, msg T, raw R) error
 
-type KernelReplicaMessageHandler func(KernelReplicaInfo, jupyter.MessageType, *jupyter.JupyterMessage) error
+// KernelMessageHandler is an API defines the interface of messages that a JupyterRouter can intercept and handle.
+type KernelMessageHandler func(KernelInfo, messaging.MessageType, *messaging.JupyterMessage) error
+
+// ReplicaRemover is a function that removes a replica from a kernel.
+// If noop is specified, it is the caller's responsibility to stop the replica.
+type ReplicaRemover func(host Host, session UserSession, noop bool) error
+
+type KernelReplicaMessageHandler func(KernelReplicaInfo, messaging.MessageType, *messaging.JupyterMessage) error
 
 type KernelInfo interface {
-	// RouterInfo provides kernel specific routing information.
-	router.RouterInfo
+	// Info provides kernel specific routing information.
+	router.Info
 
 	// ID returns kernel ID.
 	ID() string
@@ -33,85 +41,141 @@ type KernelReplicaInfo interface {
 	ReplicaID() int32
 }
 
-// Kernel defines the interface for a jupyter kernel.
-type Kernel interface {
-	KernelInfo
-	types.Contextable
-
-	// ConnectionInfo returns the connection info of the kernel.
-	ConnectionInfo() *jupyter.ConnectionInfo
-
-	// Status returns the kernel status.
-	// Including simulator features:
-	// 	entity.Container.IsTraining()
-	//  entity.Container.IsRescheduled()
-	Status() jupyter.KernelStatus
-
-	// Validate validates the kernel connections.
-	// Including simulator features:
-	// 	entity.Container.Start(), Start() will be implemented outside kernel abstraction. Validate() ensures the kernel is started.
-	Validate() error
-
-	// InitializeShellForwarder initializes the shell forwarder.
-	InitializeShellForwarder(handler KernelMessageHandler) (*jupyter.Socket, error)
-
-	// InitializeIOForwarder initializes the io forwarder.
-	InitializeIOForwarder() (*jupyter.Socket, error)
-
-	// RequestWithHandler sends a request and handles the response.
-	// Includes simulator features:
-	// 	entity.Container.Preprocess()
-	// 	entity.Container.Train()
-	// 	entity.Container.StopTrain()
-	// 	entity.Container.Suspend()
-	// 	entity.Container.Resume()
-	RequestWithHandler(ctx context.Context, prompt string, typ jupyter.MessageType, msg *jupyter.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
-
-	// Close cleans up kernel resource.
-	// Including simulator features:
-	// 	entity.Container.Stop(), Stop() will be implemented outside kernel abstraction. Close() cleans up the kernel resource after kernel stopped.
-	Close() error
-
-	// KernelStoppedTraining should be called when the kernel associated with this client stops actively training.
-	KernelStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
-
-	// SessionStartedTraining should be called when the kernel associated with this client begins actively training.
-	// TrainingStartedInContainer(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error
+type SessionManager interface {
+	Sessions() []string        // Session returns the associated session ID.
+	BindSession(sess string)   // BindSession binds a session ID to the client.
+	UnbindSession(sess string) // UnbindSession unbinds a session ID from the client.
+	ClearSessions()            // ClearSessions clears all sessions.
 }
 
-// KernelReplica defines the interface for a jupyter kernel replica.
-type KernelReplica interface {
-	Kernel
+// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
+// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
+// the DistributedKernelClient will check if its ActiveExecution struct has the original "sent-at" timestamp
+// of the original "execute_request". If it does, then it can calculate the latency between submission and when
+// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
+// so that a relevant Prometheus metric can be updated.
+type ExecutionLatencyCallback func(latency time.Duration, workloadId string, kernelId string)
 
-	// ReplicaID returns the replica ID.
-	ReplicaID() int32
+// ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
+type ExecutionFailedCallback func(c Kernel) error
 
-	// GetPodOrContainerName returns the name of the Kubernetes Pod/Docker container hosting the replica.
-	GetPodOrContainerName() string
+type Kernel interface {
+	types.Contextable
+	SessionManager
+	Server
 
-	// NodeName returns the name of the node that the Pod is running on.
-	NodeName() string
-
-	// InitializeIOSub initializes the io subscriber of the replica with customized handler.
-	InitializeIOSub(handler jupyter.MessageHandler, subscriptionTopic string) (*jupyter.Socket, error)
-
-	// IsReady returns true if the replica has registered and joined its SMR Cluster.
-	// Only used by the Cluster Gateway, not by the Local Daemon.
+	SetSession(session UserSession)
+	GetSession() UserSession
+	GetContainers() []KernelContainer
+	ShellListenPort() int
+	IOPubListenPort() int
+	ActiveExecution() *ActiveExecution
+	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*ActiveExecution, bool)
+	ExecutionFailedCallback() ExecutionFailedCallback
+	SetActiveExecution(activeExecution *ActiveExecution)
+	ExecutionComplete(msg *messaging.JupyterMessage) (bool, error)
+	EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *ActiveExecution
+	ResetID(id string)
+	PersistentID() string
+	String() string
+	ID() string
+	SourceKernelID() string
+	ResourceSpec() *types.DecimalSpec
+	KernelSpec() *proto.KernelSpec
+	ConnectionInfo() *jupyter.ConnectionInfo
+	Status() jupyter.KernelStatus
+	AggregateBusyStatus() string
+	BindSession(sess string)
+	Size() int
+	NumActiveMigrationOperations() int
+	AddOperationStarted()
+	AddOperationCompleted()
+	Replicas() []KernelReplica
+	PodOrContainerName(id int32) (string, error)
+	PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec
+	AddReplica(r KernelReplica, host Host) error
+	RemoveReplica(r KernelReplica, remover ReplicaRemover, noop bool) (Host, error)
+	GetReplicaByID(id int32) (KernelReplica, error)
+	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (Host, error)
+	Validate() error
+	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
+	InitializeIOForwarder() (*messaging.Socket, error)
+	GetReadyReplica() KernelReplica
 	IsReady() bool
+	Socket(typ messaging.MessageType) *messaging.Socket
+	GetSocketPort(typ messaging.MessageType) int
+	IsReplicaReady(replicaId int32) (bool, error)
+	RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
+	RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType, jMsg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func(), replicas ...KernelReplica) error
+	Shutdown(remover ReplicaRemover, restart bool) error
+	WaitClosed() jupyter.KernelStatus
 
-	// SetReady designates the replica as ready.
-	// Only used by the Cluster Gateway, not by the Local Daemon.
+	// NumActiveExecutionOperations returns the number of ActiveExecution structs registered with
+	// the kernel. This counts both the current ActiveExecution and the length of the queue of
+	// ActiveExecution structs.
+	//
+	// This method is thread safe.
+	NumActiveExecutionOperations() int
+}
+
+type KernelReplica interface {
+	types.Contextable
+	SessionManager
+	Server
+
+	Container() KernelContainer
+	SetContainer(container KernelContainer)
+	IsTraining() bool
+	WaitForTrainingToStop()
+	KernelStartedTraining() error
+	WaitForPendingExecuteRequests()
+	SetLastTrainingTimePrometheusUpdate()
+	LastTrainingTimePrometheusUpdate() time.Time
+	NumPendingExecuteRequests() int
+	SentExecuteRequest(msg *messaging.JupyterMessage)
+	ReceivedExecuteReply(msg *messaging.JupyterMessage)
+	KernelStoppedTraining() error
+	TrainingStartedAt() time.Time
+	WorkloadId() string
+	SetWorkloadId(workloadId string)
+	WorkloadIdSet() bool
+	ShouldAckMessages() bool
+	GetPodOrContainerName() string
+	NodeName() string
+	ShellListenPort() int
+	IOPubListenPort() int
+	YieldNextExecutionRequest()
+	SetPodOrContainerName(name string)
+	SetNodeName(name string)
+	InitializeIOForwarder() (*messaging.Socket, error)
+	YieldedNextExecutionRequest()
+	SupposedToYieldNextExecutionRequest() bool
+	ID() string
+	SourceKernelID() string
+	ReplicaID() int32
+	SetReplicaID(replicaId int32)
+	SetPersistentID(persistentId string)
+	PersistentID() string
+	ResourceSpec() *types.DecimalSpec
+	SetResourceSpec(spec *proto.ResourceSpec)
+	KernelSpec() *proto.KernelSpec
+	Address() string
+	String() string
+	UpdateResourceSpec(types.Spec) error
+	IsReady() bool
+	HostId() string
 	SetReady()
-
-	// GetHost returns the Host on which the replica is hosted.
-	GetHost() *Host
-
-	// SetHost sets the Host of the kernel.
-	SetHost(*Host)
-
-	// Container returns the Container associated with the KernelReplica.
-	Container() *Container
-
-	// SetContainer sets/updates the Container associated with the KernelReplica.
-	SetContainer(*Container)
+	Socket(typ messaging.MessageType) *messaging.Socket
+	ConnectionInfo() *jupyter.ConnectionInfo
+	Status() jupyter.KernelStatus
+	BusyStatus() (string, *messaging.JupyterMessage)
+	BindSession(sess string)
+	ReconnectSocket(typ messaging.MessageType) (*messaging.Socket, error)
+	Validate() error
+	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
+	AddIOHandler(topic string, handler MessageBrokerHandler[KernelReplica, *messaging.JupyterFrames, *messaging.JupyterMessage]) error
+	RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
+	GetHost() Host
+	SetHost(host Host)
+	InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error)
 }

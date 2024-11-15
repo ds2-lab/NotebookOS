@@ -4,29 +4,29 @@
 name: distributed_cluster
 
 services:
-  docker-hoster:
-    platform: linux/amd64
-    build:
-      context: ../..
-      dockerfile: deploy/docker-WSL2/hoster/Dockerfile
-    image: {{ docker_username }}/docker-hoster:latest
-    labels:
-      app: "distributed_cluster"
-      component: "docker_hoster"
-    container_name: "docker-hoster"
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/tmp/docker.sock
-      - /etc/hosts:/tmp/hosts
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+  #docker-hoster:
+    #platform: linux/amd64
+    #build:
+    #  context: ../..
+    #  dockerfile: deploy/docker-WSL2/hoster/Dockerfile
+    #image: docker-hoster:latest
+    #labels:
+    #  app: "distributed_cluster"
+    #  component: "docker_hoster"
+    #container_name: "docker-hoster"
+    #restart: unless-stopped
+    #volumes:
+    #  - /var/run/docker.sock:/tmp/docker.sock
+    #  - /etc/hosts:/tmp/hosts
+    #extra_hosts:
+    #  - "host.docker.internal:host-gateway"
 
   jupyter:
     platform: linux/amd64
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: {{ docker_username }}/jupyter-debug:latest
+    image: {{ jupyter_server_docker_username }}/jupyter-debug:latest
     labels:
       app: "distributed_cluster"
       component: "jupyter_server"
@@ -50,7 +50,7 @@ services:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: {{ docker_username }}/gateway:latest
+    image: {{ gateway_docker_username }}/gateway:latest
     labels:
       app: "distributed_cluster"
       component: "cluster_gateway"
@@ -83,13 +83,13 @@ services:
     platform: linux/amd64
     environment:
       - KERNEL_TEMP_BASE_IN_CONTAINER=/{{ kernel_base_directory_name }}
-      - KERNEL_IMAGE={{ docker_username }}/jupyter-debug:latest
+      - KERNEL_IMAGE={{ jupyter_server_docker_username }}/jupyter-debug:latest
       - HOST_MOUNT_DIR=/home/{{ remote_username }}/{{ kernel_base_directory_name }}
       - TARGET_MOUNT_DIR=/{{ kernel_base_directory_name }}
       - STORAGE=/home/{{ remote_username }}/{{ kernel_storage_directory }}
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: {{ docker_username }}/daemon:latest
+    image: {{ local_daemon_docker_username }}/daemon:latest
     labels:
       app: "distributed_cluster"
       component: "local_daemon"

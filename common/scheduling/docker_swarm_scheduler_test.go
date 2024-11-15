@@ -2,19 +2,25 @@ package scheduling_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/mock_proto"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	distNbTesting "github.com/zhangjyr/distributed-notebook/common/testing"
-	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/distributed-notebook/gateway/domain"
+	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/mock_proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
+	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/net/context"
 )
@@ -85,7 +91,9 @@ var (
 	"notebook-image-name": "scusemua/jupyter",
 	"notebook-image-tag": "latest",
 	"distributed-cluster-service-port": 8079,
-	"remote-docker-event-aggregator-port": 5821
+	"remote-docker-event-aggregator-port": 5821,
+	"initial-cluster-size": -1,
+	"initial-connection-period": 0
 },
 	"port": 8080,
 	"provisioner_port": 8081,
@@ -99,28 +107,42 @@ var (
 type dockerSchedulerTestHostMapper struct{}
 
 // GetHostsOfKernel returns the Host instances on which the replicas of the specified kernel are scheduled.
-func (m *dockerSchedulerTestHostMapper) GetHostsOfKernel(kernelId string) ([]*scheduling.Host, error) {
+func (m *dockerSchedulerTestHostMapper) GetHostsOfKernel(kernelId string) ([]scheduling.Host, error) {
 	return nil, nil
 }
 
-func addHost(idx int, hostSpec types.Spec, cluster scheduling.Cluster, mockCtrl *gomock.Controller) (*scheduling.Host, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
+func addHost(idx int, hostSpec types.Spec, disableHost bool, cluster scheduling.Cluster, mockCtrl *gomock.Controller) (scheduling.Host, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
 	hostId := uuid.NewString()
 	nodeName := fmt.Sprintf("TestNode%d", idx)
 	resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, hostSpec)
 	host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, nodeName, resourceSpoofer)
 
-	cluster.NewHostAddedOrConnected(host)
+	Expect(host).ToNot(BeNil())
+
+	if disableHost {
+		disableErr := host.Disable()
+		Expect(disableErr).To(BeNil())
+	}
+
+	err2 := cluster.NewHostAddedOrConnected(host)
+
+	if err != nil && err2 != nil {
+		err = errors.Join(err, err2)
+	} else if err2 != nil {
+		// err is nil, but that's what we return, so let's return the non-nil err2 instead.
+		err = err2
+	}
 
 	return host, localGatewayClient, resourceSpoofer, err
 }
 
 var _ = Describe("Docker Swarm Scheduler Tests", func() {
 	var (
-		mockCtrl   *gomock.Controller
-		scheduler  *scheduling.DockerScheduler
-		cluster    scheduling.ClusterInternal
-		placer     scheduling.Placer
-		hostMapper scheduling.HostMapper
+		mockCtrl        *gomock.Controller
+		dockerScheduler *scheduler.DockerScheduler
+		dockerCluster   scheduling.Cluster
+		clusterPlacer   scheduling.Placer
+		hostMapper      scheduler.HostMapper
 	)
 
 	config.LogLevel = logger.LOG_LEVEL_ALL
@@ -136,19 +158,20 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 
-		cluster = scheduling.NewDockerSwarmCluster(hostSpec, hostMapper, nil, &opts.ClusterSchedulerOptions)
-		Expect(cluster).ToNot(BeNil())
+		clusterPlacer, err = placer.NewRandomPlacer(nil, 3)
+		Expect(err).To(BeNil())
+		Expect(clusterPlacer).ToNot(BeNil())
 
-		placer = cluster.Placer()
-		Expect(placer).ToNot(BeNil())
+		dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil, nil, &opts.ClusterDaemonOptions.SchedulerOptions)
+		Expect(dockerCluster).ToNot(BeNil())
 
-		genericScheduler := cluster.ClusterScheduler()
+		genericScheduler := dockerCluster.Scheduler()
 		Expect(genericScheduler).ToNot(BeNil())
 
 		var ok bool
-		scheduler, ok = genericScheduler.(*scheduling.DockerScheduler)
+		dockerScheduler, ok = genericScheduler.(*scheduler.DockerScheduler)
 		Expect(ok).To(BeTrue())
-		Expect(scheduler).ToNot(BeNil())
+		Expect(dockerScheduler).ToNot(BeNil())
 
 		hostMapper = &dockerSchedulerTestHostMapper{}
 	})
@@ -159,18 +182,18 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 	Context("Will handle basic scheduling operations correctly", func() {
 		var numHosts int
-		var hosts map[int]*scheduling.Host
+		var hosts map[int]scheduling.Host
 		var localGatewayClients map[int]*mock_proto.MockLocalGatewayClient
 		var resourceSpoofers map[int]*distNbTesting.ResourceSpoofer
 
 		BeforeEach(func() {
-			hosts = make(map[int]*scheduling.Host)
+			hosts = make(map[int]scheduling.Host)
 			localGatewayClients = make(map[int]*mock_proto.MockLocalGatewayClient)
 			resourceSpoofers = make(map[int]*distNbTesting.ResourceSpoofer)
 			numHosts = 3
 
 			for i := 0; i < numHosts; i++ {
-				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, cluster, mockCtrl)
+				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, false, dockerCluster, mockCtrl)
 				Expect(err).To(BeNil())
 				Expect(host).ToNot(BeNil())
 				Expect(localGatewayClient).ToNot(BeNil())
@@ -183,9 +206,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 		})
 
 		validateVariablesNonNil := func() {
-			Expect(scheduler).ToNot(BeNil())
-			Expect(placer).ToNot(BeNil())
-			Expect(cluster).ToNot(BeNil())
+			Expect(dockerScheduler).ToNot(BeNil())
+			Expect(clusterPlacer).ToNot(BeNil())
+			Expect(dockerCluster).ToNot(BeNil())
 			Expect(hostMapper).ToNot(BeNil())
 			Expect(len(hosts)).To(Equal(3))
 			Expect(len(localGatewayClients)).To(Equal(3))
@@ -208,7 +231,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				ResourceSpec:    resourceSpec,
 			}
 
-			candidateHosts, err := scheduler.GetCandidateHosts(context.Background(), kernelSpec)
+			candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec)
 			Expect(err).To(BeNil())
 			Expect(candidateHosts).ToNot(BeNil())
 			Expect(len(candidateHosts)).To(Equal(3))
@@ -235,7 +258,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				ResourceSpec:    resourceSpec,
 			}
 
-			candidateHosts, err := scheduler.GetCandidateHosts(context.Background(), kernelSpec)
+			candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec)
 			Expect(err).ToNot(BeNil())
 			Expect(candidateHosts).To(BeNil())
 			Expect(len(candidateHosts)).To(Equal(0))
@@ -249,13 +272,13 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 			// Create a new, larger host.
 			i := len(hosts)
-			bigHost1, _, _, err := addHost(i, largerHostSpec, cluster, mockCtrl)
+			bigHost1, _, _, err := addHost(i, largerHostSpec, false, dockerCluster, mockCtrl)
 			Expect(err).To(BeNil())
 			Expect(bigHost1).ToNot(BeNil())
 
 			hosts[i] = bigHost1
 
-			Expect(cluster.Len()).To(Equal(4))
+			Expect(dockerCluster.Len()).To(Equal(4))
 
 			kernelId := uuid.NewString()
 			kernelKey := uuid.NewString()
@@ -270,8 +293,8 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				ResourceSpec:    bigResourceSpec,
 			}
 
-			candidateHosts := make([]*scheduling.Host, 0)
-			candidateHosts = scheduler.TryGetCandidateHosts(candidateHosts, bigKernelSpec)
+			candidateHosts := make([]scheduling.Host, 0)
+			candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, bigKernelSpec)
 			Expect(candidateHosts).ToNot(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
 			Expect(candidateHosts[0]).To(Equal(bigHost1))
@@ -280,13 +303,13 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(bigHost1.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 
 			i = len(hosts)
-			bigHost2, _, _, err := addHost(i, largerHostSpec, cluster, mockCtrl)
+			bigHost2, _, _, err := addHost(i, largerHostSpec, false, dockerCluster, mockCtrl)
 			Expect(err).To(BeNil())
 			Expect(bigHost2).ToNot(BeNil())
 
 			hosts[i] = bigHost2
 
-			candidateHosts = scheduler.TryGetCandidateHosts(candidateHosts, bigKernelSpec)
+			candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, bigKernelSpec)
 			Expect(candidateHosts).ToNot(BeNil())
 			Expect(len(candidateHosts)).To(Equal(2))
 			Expect(candidateHosts[0]).To(Equal(bigHost1))
@@ -312,12 +335,12 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			}
 
 			// Remove two of the smaller hosts so that the only hosts left are one small host and two big hosts.
-			cluster.RemoveHost(hosts[0].ID)
-			cluster.RemoveHost(hosts[1].ID)
+			dockerCluster.RemoveHost(hosts[0].GetID())
+			dockerCluster.RemoveHost(hosts[1].GetID())
 
-			Expect(cluster.Len()).To(Equal(3))
+			Expect(dockerCluster.Len()).To(Equal(3))
 
-			candidateHosts, err = scheduler.GetCandidateHosts(context.Background(), smallKernelSpec)
+			candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), smallKernelSpec)
 			Expect(err).To(BeNil())
 			Expect(candidateHosts).ToNot(BeNil())
 			Expect(len(candidateHosts)).To(Equal(3))
@@ -340,7 +363,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 			// First, add two new hosts, so that there are 5 hosts.
 			for i := initialSize; i < initialSize+2; i++ {
-				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, cluster, mockCtrl)
+				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, false, dockerCluster, mockCtrl)
 				Expect(err).To(BeNil())
 				Expect(host).ToNot(BeNil())
 				Expect(localGatewayClient).ToNot(BeNil())
@@ -351,7 +374,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				resourceSpoofers[i] = resourceSpoofer
 			}
 
-			Expect(cluster.Len()).To(Equal(5))
+			Expect(dockerCluster.Len()).To(Equal(5))
 
 			// Add a sixth host, but set it to be disabled initially.
 			hostId := uuid.NewString()
@@ -359,7 +382,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, hostSpec)
 			Expect(resourceSpoofer).ToNot(BeNil())
 
-			host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, nodeName, resourceSpoofer)
+			host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, dockerCluster, hostId, nodeName, resourceSpoofer)
 			Expect(err).To(BeNil())
 			Expect(host).ToNot(BeNil())
 			Expect(localGatewayClient).ToNot(BeNil())
@@ -367,17 +390,17 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			err = host.Disable()
 			Expect(err).To(BeNil())
 
-			err = cluster.NewHostAddedOrConnected(host)
+			err = dockerCluster.NewHostAddedOrConnected(host)
 			Expect(err).To(BeNil())
 
 			hosts[5] = host
 			localGatewayClients[5] = localGatewayClient
 			resourceSpoofers[5] = resourceSpoofer
 
-			Expect(cluster.Len()).To(Equal(5))
-			Expect(cluster.NumDisabledHosts()).To(Equal(1))
+			Expect(dockerCluster.Len()).To(Equal(5))
+			Expect(dockerCluster.NumDisabledHosts()).To(Equal(1))
 
-			By("First scheduling a bunch of sessions into/onto the cluster")
+			By("First scheduling a bunch of sessions into/onto the dockerCluster")
 
 			// Schedule a bunch of sessions so that, when we try to schedule another one, it'll oversubscribe one or more hosts.
 			for i := 0; i < 21; i++ {
@@ -394,26 +417,33 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					ResourceSpec:    resourceSpec,
 				}
 
-				session := scheduling.NewUserSession(context.Background(), kernelId, kernelSpec,
-					scheduling.NewResourceUtilization(1.0, 2000, []float64{1.0, 1.0}, 4), cluster, &opts.ClusterSchedulerOptions)
-				cluster.AddSession(kernelId, session)
-				cluster.ClusterScheduler().UpdateRatio(true)
+				session := entity.NewSessionBuilder().
+					WithContext(context.Background()).
+					WithID(kernelId).
+					WithKernelSpec(kernelSpec).
+					WithMigrationTimeSampleWindowSize(opts.MigrationTimeSamplingWindow).
+					WithTrainingTimeSampleWindowSize(opts.ExecutionTimeSamplingWindow).
+					WithResourceUtilization(resource.NewUtilization(1.0, 2000, []float64{1.0, 1.0}, 4)).
+					Build()
 
-				Expect(cluster.Sessions().Len()).To(Equal(i + 1))
+				dockerCluster.AddSession(kernelId, session)
+				dockerCluster.Scheduler().UpdateRatio(true)
+
+				Expect(dockerCluster.Sessions().Len()).To(Equal(i + 1))
 
 				for j := 0; j < 3; j++ {
 					host := hosts[j]
 
 					fmt.Printf("Cluster subscribed ratio: %f, Host %s (ID=%s) subscription ratio: %f, oversubscription factor: %s\n",
-						cluster.SubscriptionRatio(), host.NodeName, host.ID, host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
+						dockerCluster.SubscriptionRatio(), host.GetNodeName(), host.GetID(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
 
 					err := host.AddToPendingResources(decimalSpec)
 					Expect(err).To(BeNil())
 
-					cluster.ClusterScheduler().UpdateRatio(true)
+					dockerCluster.Scheduler().UpdateRatio(true)
 
 					fmt.Printf("Cluster subscribed ratio: %f, Host %s (ID=%s) subscription ratio: %f, oversubscription factor: %s\n\n",
-						cluster.SubscriptionRatio(), host.NodeName, host.ID, host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
+						dockerCluster.SubscriptionRatio(), host.GetNodeName(), host.GetID(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
 				}
 			}
 
@@ -432,8 +462,8 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 			By("Correctly returning only 2 candidate hosts due to the other hosts becoming too oversubscribed")
 
-			candidateHosts := make([]*scheduling.Host, 0)
-			candidateHosts = scheduler.TryGetCandidateHosts(candidateHosts, kernelSpec)
+			candidateHosts := make([]scheduling.Host, 0)
+			candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, kernelSpec)
 			Expect(candidateHosts).ToNot(BeNil())
 			Expect(len(candidateHosts)).To(Equal(2))
 
@@ -445,24 +475,145 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				Expect(err).To(BeNil())
 			}
 
-			Expect(cluster.Len()).To(Equal(5))
-			Expect(cluster.NumScalingOperationsAttempted()).To(Equal(0))
-			Expect(cluster.NumScaleOutOperationsAttempted()).To(Equal(0))
-			Expect(cluster.NumScaleOutOperationsSucceeded()).To(Equal(0))
+			Expect(dockerCluster.Len()).To(Equal(5))
+			Expect(dockerCluster.NumScalingOperationsAttempted()).To(Equal(0))
+			Expect(dockerCluster.NumScaleOutOperationsAttempted()).To(Equal(0))
+			Expect(dockerCluster.NumScaleOutOperationsSucceeded()).To(Equal(0))
 
-			candidateHosts, err = scheduler.GetCandidateHosts(context.Background(), kernelSpec)
+			candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec)
 			Expect(err).To(BeNil())
 			Expect(candidateHosts).ToNot(BeNil())
 			Expect(len(candidateHosts)).To(Equal(3))
 
-			Expect(cluster.Len()).To(Equal(6))
-			Expect(cluster.NumScalingOperationsAttempted()).To(Equal(1))
-			Expect(cluster.NumScaleOutOperationsAttempted()).To(Equal(1))
-			Expect(cluster.NumScaleOutOperationsSucceeded()).To(Equal(1))
+			Expect(dockerCluster.Len()).To(Equal(6))
+			Expect(dockerCluster.NumScalingOperationsAttempted()).To(Equal(1))
+			Expect(dockerCluster.NumScaleOutOperationsAttempted()).To(Equal(1))
+			Expect(dockerCluster.NumScaleOutOperationsSucceeded()).To(Equal(1))
 
 			for _, host := range candidateHosts {
 				Expect(host.NumReservations()).To(Equal(1))
 			}
+		})
+	})
+
+	Context("Scaling Operations", func() {
+		var numHosts int
+		var hosts map[int]scheduling.Host
+		var localGatewayClients map[int]*mock_proto.MockLocalGatewayClient
+		var resourceSpoofers map[int]*distNbTesting.ResourceSpoofer
+
+		BeforeEach(func() {
+			hosts = make(map[int]scheduling.Host)
+			localGatewayClients = make(map[int]*mock_proto.MockLocalGatewayClient)
+			resourceSpoofers = make(map[int]*distNbTesting.ResourceSpoofer)
+			numHosts = 3
+
+			for i := 0; i < numHosts; i++ {
+				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, false, dockerCluster, mockCtrl)
+				Expect(err).To(BeNil())
+				Expect(host).ToNot(BeNil())
+				Expect(localGatewayClient).ToNot(BeNil())
+				Expect(resourceSpoofer).ToNot(BeNil())
+
+				hosts[i] = host
+				localGatewayClients[i] = localGatewayClient
+				resourceSpoofers[i] = resourceSpoofer
+			}
+		})
+
+		validateVariablesNonNil := func() {
+			Expect(dockerScheduler).ToNot(BeNil())
+			Expect(clusterPlacer).ToNot(BeNil())
+			Expect(dockerCluster).ToNot(BeNil())
+			Expect(hostMapper).ToNot(BeNil())
+			Expect(len(hosts)).To(Equal(3))
+			Expect(len(localGatewayClients)).To(Equal(3))
+			Expect(len(resourceSpoofers)).To(Equal(3))
+		}
+
+		It("Will correctly do nothing when scale-to-size is passed the current dockerCluster size", func() {
+			validateVariablesNonNil()
+
+			initialSize := len(hosts)
+
+			p := dockerCluster.ScaleToSize(context.Background(), int32(initialSize))
+			Expect(p).ToNot(BeNil())
+
+			err := p.Error()
+			Expect(err).ToNot(BeNil())
+			Expect(errors.Is(err, scheduling.ErrInvalidTargetNumHosts)).To(BeTrue())
+		})
+
+		It("Will correctly do nothing when instructed to scale below minimum dockerCluster size", func() {
+			validateVariablesNonNil()
+
+			initialSize := len(hosts)
+			Expect(initialSize).To(Equal(dockerCluster.NumReplicas()))
+
+			p := dockerCluster.ScaleToSize(context.Background(), 0)
+			Expect(p).ToNot(BeNil())
+
+			err := p.Error()
+			Expect(err).ToNot(BeNil())
+			Expect(errors.Is(err, scheduling.ErrInvalidTargetNumHosts)).To(BeTrue())
+		})
+
+		It("Will correctly scale-out", func() {
+			validateVariablesNonNil()
+
+			initialSize := len(hosts)
+
+			// First, add three more disabled hosts, so that there are 6 hosts total -- 3 active and 3 inactive.
+			for i := initialSize; i < initialSize+3; i++ {
+				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, true, dockerCluster, mockCtrl)
+				Expect(err).To(BeNil())
+				Expect(host).ToNot(BeNil())
+				Expect(localGatewayClient).ToNot(BeNil())
+				Expect(resourceSpoofer).ToNot(BeNil())
+
+				hosts[i] = host
+				localGatewayClients[i] = localGatewayClient
+				resourceSpoofers[i] = resourceSpoofer
+			}
+
+			targetNumHosts := int32(initialSize * 2)
+
+			Expect(dockerCluster.Len()).To(Equal(initialSize))
+			Expect(dockerCluster.NumDisabledHosts()).To(Equal(initialSize))
+
+			p := dockerCluster.ScaleToSize(context.Background(), targetNumHosts)
+			Expect(p).ToNot(BeNil())
+			Expect(p.Error()).To(BeNil())
+
+			Expect(dockerCluster.Len()).To(Equal(int(targetNumHosts)))
+			Expect(dockerCluster.NumDisabledHosts()).To(Equal(0))
+		})
+
+		It("Will correctly scale-in", func() {
+			initialSize := len(hosts)
+
+			// First, add three more hosts, so that there are 6 active hosts.
+			for i := initialSize; i < initialSize+3; i++ {
+				host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, false, dockerCluster, mockCtrl)
+				Expect(err).To(BeNil())
+				Expect(host).ToNot(BeNil())
+				Expect(localGatewayClient).ToNot(BeNil())
+				Expect(resourceSpoofer).ToNot(BeNil())
+
+				hosts[i] = host
+				localGatewayClients[i] = localGatewayClient
+				resourceSpoofers[i] = resourceSpoofer
+			}
+
+			Expect(dockerCluster.Len()).To(Equal(initialSize * 2))
+			Expect(dockerCluster.NumDisabledHosts()).To(Equal(0))
+
+			p := dockerCluster.ScaleToSize(context.Background(), int32(initialSize))
+			Expect(p).ToNot(BeNil())
+			Expect(p.Error()).To(BeNil())
+
+			Expect(dockerCluster.Len()).To(Equal(int(initialSize)))
+			Expect(dockerCluster.NumDisabledHosts()).To(Equal(3))
 		})
 	})
 })

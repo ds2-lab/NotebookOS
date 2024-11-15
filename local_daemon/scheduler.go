@@ -17,8 +17,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"github.com/zhangjyr/distributed-notebook/local_daemon/daemon"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
+	"github.com/scusemua/distributed-notebook/local_daemon/daemon"
+	"github.com/scusemua/distributed-notebook/local_daemon/domain"
 )
 
 const (

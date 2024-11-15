@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"log"
 	"os"
 	"os/exec"
@@ -16,11 +16,11 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	"github.com/opentracing/opentracing-go"
-	"github.com/zhangjyr/distributed-notebook/common/consul"
-	"github.com/zhangjyr/distributed-notebook/common/tracing"
-	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/device"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
+	"github.com/scusemua/distributed-notebook/common/consul"
+	"github.com/scusemua/distributed-notebook/common/tracing"
+	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/local_daemon/device"
+	"github.com/scusemua/distributed-notebook/local_daemon/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )
@@ -99,9 +99,9 @@ func getNameOrIdOfDockerContainerNonJson(hostnameEnv string, getName bool) (stri
 	formattedCommand := strings.ReplaceAll(unformattedCommand, "{container_hostname_env}", hostnameEnv)
 
 	if getName {
-		formattedCommand = strings.ReplaceAll(unformattedCommand, "{target_field}", "Name")
+		formattedCommand = strings.ReplaceAll(formattedCommand, "{target_field}", "Name")
 	} else {
-		formattedCommand = strings.ReplaceAll(unformattedCommand, "{target_field}", "Id")
+		formattedCommand = strings.ReplaceAll(formattedCommand, "{target_field}", "Id")
 	}
 
 	argv := strings.Split(formattedCommand, " ")
@@ -125,17 +125,9 @@ func getNameOrIdOfDockerContainerNonJson(hostnameEnv string, getName bool) (stri
 
 	containerName := strings.TrimSpace(stdoutBuffer.String())
 
-	if strings.HasPrefix(containerName, "'") {
-		containerName = containerName[1:]
-	}
-
-	if strings.HasSuffix(containerName, "'") {
-		containerName = containerName[0 : len(containerName)-1]
-	}
-
-	if strings.HasPrefix(containerName, "/") {
-		containerName = containerName[1:]
-	}
+	containerName = strings.TrimPrefix(containerName, "'")
+	containerName = strings.TrimSuffix(containerName, "'")
+	containerName = strings.TrimPrefix(containerName, "/")
 
 	globalLogger.Info("Resolved container name: \"%s\"", containerName)
 	return containerName, nil
@@ -216,17 +208,9 @@ func getNameAndIdOfDockerContainer() (string, string, error) {
 	containerName := outputMap[0]["Name"].(string)
 	containerId := outputMap[0]["Id"].(string)
 
-	if strings.HasPrefix(containerName, "'") {
-		containerName = containerName[1:]
-	}
-
-	if strings.HasSuffix(containerName, "'") {
-		containerName = containerName[0 : len(containerName)-1]
-	}
-
-	if strings.HasPrefix(containerName, "/") {
-		containerName = containerName[1:]
-	}
+	containerName = strings.TrimPrefix(containerName, "'")
+	containerName = strings.TrimSuffix(containerName, "'")
+	containerName = strings.TrimPrefix(containerName, "/")
 
 	globalLogger.Info("Resolved container name: \"%s\"", containerName)
 	globalLogger.Info("Resolved container ID: \"%s\"", containerId)
@@ -247,7 +231,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	disableDevicePluginServer := options.DeploymentMode != string(types.KubernetesMode)
 	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, disableDevicePluginServer)
 
-	globalLogger.Debug("Local Daemon Options:\n%s", options.PrettyString(2))
+	globalLogger.Debug("Local Daemon SchedulerOptions:\n%s", options.PrettyString(2))
 
 	// Initialize grpc server
 	scheduler := New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port, devicePluginServer, nodeName, dockerContainerId)

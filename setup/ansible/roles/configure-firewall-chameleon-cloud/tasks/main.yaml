@@ -1,0 +1,30 @@
+- name: Allow TCP traffic on port 2377
+  shell:
+    cmd: "sudo firewall-cmd --zone=public --add-port=2377/tcp"
+  become: true
+
+- name: Allow TCP traffic on port 7946
+  shell:
+    cmd: "sudo firewall-cmd --zone=public --add-port=7946/tcp"
+  become: true
+
+- name: Allow UDP traffic on port 7946
+  shell:
+    cmd: "sudo firewall-cmd --zone=public --add-port=7946/udp"
+  become: true
+
+- name: Allow UDP traffic on port 234789
+  shell:
+    cmd: "sudo firewall-cmd --zone=public --add-port=4789/udp"
+  become: true
+
+- name: Persist the firewall changes
+  shell:
+    cmd: "sudo firewall-cmd --runtime-to-permanent"
+  become: true
+
+- name: Reload firewall
+  shell:
+    cmd: "sudo firewall-cmd --reload"
+  become: true
+

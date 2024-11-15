@@ -2,7 +2,7 @@ package scheduling
 
 import (
 	"encoding/json"
-	"github.com/zhangjyr/distributed-notebook/common/configuration"
+	"github.com/scusemua/distributed-notebook/common/configuration"
 	"log"
 	"math"
 	"strings"
@@ -13,7 +13,7 @@ const (
 	DefaultMaxSubscribedRatio     = 7.0
 )
 
-type ClusterSchedulerOptions struct {
+type SchedulerOptions struct {
 	configuration.CommonOptions   `yaml:",inline" name:"common_options" json:"common_options"`
 	VirtualGpusPerHost            int     `name:"num-virtual-gpus-per-node"         json:"num-virtual-gpus-per-node"        yaml:"num-virtual-gpus-per-node"                        description:"The number of virtual GPUs per host."`
 	SubscribedRatioUpdateInterval float64 `name:"subscribed-ratio-update-interval"  json:"subscribed-ratio-update-interval" yaml:"subscribed-ratio-update-interval"                        description:"The interval to update the subscribed ratio."`
@@ -33,8 +33,23 @@ type ClusterSchedulerOptions struct {
 	SchedulerHttpPort             int     `name:"scheduler-http-port"               json:"scheduler-http-port"              yaml:"scheduler-http-port"                        description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
 }
 
+// GetNumReplicas returns the number of replicas per kernel.
+func (opts *SchedulerOptions) GetNumReplicas() int {
+	return opts.NumReplicas
+}
+
+// GetGpusPerHost returns the number of allocatable GPUs on each entity.Host.
+func (opts *SchedulerOptions) GetGpusPerHost() int {
+	return opts.GpusPerHost
+}
+
+// GetScalingInterval returns the interval at which the Cluster will attempt to auto-scale.
+func (opts *SchedulerOptions) GetScalingInterval() int {
+	return opts.ScalingInterval
+}
+
 // PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
-func (opts *ClusterSchedulerOptions) PrettyString(indentSize int) string {
+func (opts *SchedulerOptions) PrettyString(indentSize int) string {
 	indentBuilder := strings.Builder{}
 	for i := 0; i < indentSize; i++ {
 		indentBuilder.WriteString(" ")
@@ -48,7 +63,7 @@ func (opts *ClusterSchedulerOptions) PrettyString(indentSize int) string {
 	return string(m)
 }
 
-func (opts *ClusterSchedulerOptions) String() string {
+func (opts *SchedulerOptions) String() string {
 	m, err := json.Marshal(opts)
 	if err != nil {
 		panic(err)
@@ -60,7 +75,7 @@ func (opts *ClusterSchedulerOptions) String() string {
 // ValidateClusterSchedulerOptions ensures that the values of certain configuration parameters are consistent with
 // respect to one another, and/or with respect to certain requirements/constraints on their values (unrelated of
 // other configuration parameters).
-func (opts *ClusterSchedulerOptions) ValidateClusterSchedulerOptions() {
+func (opts *SchedulerOptions) ValidateClusterSchedulerOptions() {
 	// Validate the minimum capacity.
 	// It must be at least equal to the number of replicas per kernel.
 	if opts.MinimumNumNodes < opts.NumReplicas {

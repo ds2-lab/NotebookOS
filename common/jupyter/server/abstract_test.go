@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
-	"github.com/zhangjyr/distributed-notebook/common/mock_metrics"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/mock_metrics"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"go.uber.org/mock/gomock"
 	"sync"
 	"time"
@@ -18,7 +20,6 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 )
 
 const (
@@ -43,8 +44,8 @@ func (s *wrappedServer) SourceKernelID() string {
 }
 
 // ConnectionInfo implements SourceKernel.
-func (s *wrappedServer) ConnectionInfo() *types.ConnectionInfo {
-	return &types.ConnectionInfo{
+func (s *wrappedServer) ConnectionInfo() *jupyter.ConnectionInfo {
+	return &jupyter.ConnectionInfo{
 		IP:              ip,
 		ShellPort:       s.shellPort,
 		Transport:       "tcp",
@@ -72,8 +73,8 @@ var _ = Describe("AbstractServer", func() {
 		serverMetricsProvider = mock_metrics.NewMockMessagingMetricsProvider(mockCtrl)
 		clientMetricsProvider = mock_metrics.NewMockMessagingMetricsProvider(mockCtrl)
 
-		_server := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, metrics.ClusterGateway, func(s *AbstractServer) {
-			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort, Type: types.ShellMessage, Name: "TestServer_Router_Shell"}
+		_server := New(context.Background(), &jupyter.ConnectionInfo{Transport: "tcp"}, metrics.ClusterGateway, func(s *AbstractServer) {
+			s.Sockets.Shell = &messaging.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort, Type: messaging.ShellMessage, Name: "TestServer_Router_Shell"}
 			s.DebugMode = true
 			s.ComponentId = serverName
 			s.MessagingMetricsProvider = serverMetricsProvider
@@ -81,8 +82,8 @@ var _ = Describe("AbstractServer", func() {
 		})
 		server = &wrappedServer{AbstractServer: _server, shellPort: shellListenPort, id: "[SERVER]"}
 
-		_client := New(context.Background(), &types.ConnectionInfo{Transport: "tcp"}, metrics.LocalDaemon, func(s *AbstractServer) {
-			s.Sockets.Shell = &types.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: shellListenPort + 1, Type: types.ShellMessage, Name: "TestClient_Dealer_Shell"}
+		_client := New(context.Background(), &jupyter.ConnectionInfo{Transport: "tcp"}, metrics.LocalDaemon, func(s *AbstractServer) {
+			s.Sockets.Shell = &messaging.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: shellListenPort + 1, Type: messaging.ShellMessage, Name: "TestClient_Dealer_Shell"}
 			s.DebugMode = true
 			s.ComponentId = clientName
 			s.MessagingMetricsProvider = clientMetricsProvider
@@ -97,12 +98,12 @@ var _ = Describe("AbstractServer", func() {
 
 	Context("Reliable Message Delivery", func() {
 		It("Will re-send messages until an ACK is received", func() {
-			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, types.ShellMessage, gomock.Any()).MaxTimes(1)
-			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MinTimes(3).MaxTimes(3)
-			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddMessageE2ELatencyObservation(gomock.Any(), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddAckReceivedLatency(gomock.Any(), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddNumSendAttemptsRequiredObservation(float64(3), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
+			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, messaging.ShellMessage, gomock.Any()).MaxTimes(1)
+			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MinTimes(3).MaxTimes(3)
+			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddMessageE2ELatencyObservation(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddAckReceivedLatency(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddNumSendAttemptsRequiredObservation(float64(3), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
 
 			err := server.Listen(server.Sockets.Shell)
 			Expect(err).To(BeNil())
@@ -118,7 +119,7 @@ var _ = Describe("AbstractServer", func() {
 
 			serverMessagesReceived := 0
 			respondAfterNMessages := 3
-			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
+			handleServerMessage := func(info messaging.JupyterServerInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 				defer GinkgoRecover()
 
 				server.Log.Info("Server received message: %v\n", msg)
@@ -150,7 +151,7 @@ var _ = Describe("AbstractServer", func() {
 					*msg.HeaderFrame(),
 					[]byte(""),
 					[]byte(""))
-				_, err = types.NewJupyterFramesFromBytes(ackResponse.Frames).Sign(signatureScheme, []byte(kernelKey))
+				_, err = messaging.NewJupyterFramesFromBytes(ackResponse.Frames).Sign(signatureScheme, []byte(kernelKey))
 
 				server.Log.Info("Responding to message with ACK: %v", ackResponse)
 
@@ -179,10 +180,10 @@ var _ = Describe("AbstractServer", func() {
 					[]byte(""),
 					bufferFrame)
 
-				jMsg := types.NewJupyterMessage(&actualResponse)
+				jMsg := messaging.NewJupyterMessage(&actualResponse)
 				_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 				Expect(err).To(BeNil())
-				requestTrace, added, reqErr := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, time.Now(), server.Log)
+				requestTrace, added, reqErr := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, time.Now(), server.Log)
 				Expect(added).To(BeFalse())
 				GinkgoWriter.Printf("reqErr: %v\n", reqErr)
 				Expect(reqErr).To(BeNil())
@@ -224,7 +225,7 @@ var _ = Describe("AbstractServer", func() {
 			headerMap := make(map[string]string)
 			headerMap["msg_id"] = msgId
 			headerMap["date"] = "2018-11-07T00:25:00.073876Z"
-			headerMap["msg_type"] = types.ShellKernelInfoRequest
+			headerMap["msg_type"] = messaging.ShellKernelInfoRequest
 			headerMap["session"] = kernelId
 			header, _ := json.Marshal(&headerMap)
 
@@ -238,9 +239,9 @@ var _ = Describe("AbstractServer", func() {
 				[]byte(""))
 
 			requestReceivedByGateway := time.Now()
-			jMsg := types.NewJupyterMessage(&msg)
+			jMsg := messaging.NewJupyterMessage(&msg)
 			fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame: %d\nMsg.Frames length: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), len(msg.Frames))
-			requestTrace, added, err := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, requestReceivedByGateway, client.Log)
+			requestTrace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestReceivedByGateway, client.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeTrue())
 			Expect(err).To(BeNil())
@@ -252,15 +253,15 @@ var _ = Describe("AbstractServer", func() {
 			fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame: %d\nMsg.Frames length: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), len(msg.Frames))
 
 			Expect(requestTrace.MessageId).To(Equal(msgId))
-			Expect(requestTrace.MessageType).To(Equal(types.ShellKernelInfoRequest))
+			Expect(requestTrace.MessageType).To(Equal(messaging.ShellKernelInfoRequest))
 			Expect(requestTrace.KernelId).To(Equal(kernelId))
 
 			m, err := json.Marshal(&proto.JupyterRequestTraceFrame{RequestTrace: requestTrace})
 			Expect(err).To(BeNil())
 
-			fmt.Printf("jMsg.JupyterFrames[%d+%d]: %s\n", jMsg.Offset(), types.JupyterFrameRequestTrace, string(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]))
+			fmt.Printf("jMsg.JupyterFrames[%d+%d]: %s\n", jMsg.Offset(), messaging.JupyterFrameRequestTrace, string(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+messaging.JupyterFrameRequestTrace]))
 			fmt.Printf("Marshalled RequestTrace: %s\n", string(m))
-			Expect(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]).To(Equal(m))
+			Expect(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+messaging.JupyterFrameRequestTrace]).To(Equal(m))
 			Expect(requestTrace.RequestReceivedByGateway).To(Equal(requestReceivedByGateway.UnixMilli()))
 			Expect(requestTrace.RequestSentByGateway).To(Equal(proto.DefaultTraceTimingValue))
 			Expect(requestTrace.RequestReceivedByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
@@ -272,19 +273,19 @@ var _ = Describe("AbstractServer", func() {
 			Expect(requestTrace.ReplyReceivedByGateway).To(Equal(proto.DefaultTraceTimingValue))
 			Expect(requestTrace.ReplySentByGateway).To(Equal(proto.DefaultTraceTimingValue))
 
-			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
+			clientHandleMessage := func(info messaging.JupyterServerInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 				client.Log.Info("Client received %v message: %v", typ, msg)
 				wg.Done()
 				return nil
 			}
 
-			builder := types.NewRequestBuilder(context.Background(), client.id, client.id, client.ConnectionInfo()).
+			builder := messaging.NewRequestBuilder(context.Background(), client.id, client.id, client.ConnectionInfo()).
 				WithAckRequired(true).
 				WithAckTimeout(time.Millisecond * 1000).
-				WithMessageType(types.ShellMessage).
+				WithMessageType(messaging.ShellMessage).
 				WithBlocking(true).
-				WithTimeout(types.DefaultRequestTimeout).
-				WithDoneCallback(types.DefaultDoneHandler).
+				WithTimeout(messaging.DefaultRequestTimeout).
+				WithDoneCallback(messaging.DefaultDoneHandler).
 				WithMessageHandler(clientHandleMessage).
 				WithNumAttempts(3).
 				WithRemoveDestFrame(true).
@@ -309,12 +310,12 @@ var _ = Describe("AbstractServer", func() {
 		})
 
 		It("Will halt the retry procedure upon receiving an ACK.", func() {
-			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, types.ShellMessage, gomock.Any()).MaxTimes(1)
-			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MinTimes(1).MaxTimes(1)
-			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddMessageE2ELatencyObservation(gomock.Any(), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddAckReceivedLatency(gomock.Any(), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddNumSendAttemptsRequiredObservation(float64(1), clientName, metrics.LocalDaemon, types.ShellMessage, types.ShellKernelInfoRequest).MaxTimes(1)
+			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, messaging.ShellMessage, gomock.Any()).MaxTimes(1)
+			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MinTimes(1).MaxTimes(1)
+			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddMessageE2ELatencyObservation(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddAckReceivedLatency(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddNumSendAttemptsRequiredObservation(float64(1), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
 
 			err := server.Listen(server.Sockets.Shell)
 			Expect(err).To(BeNil())
@@ -329,7 +330,7 @@ var _ = Describe("AbstractServer", func() {
 			client.Log.Debug("Dialed server socket @ %v", address1)
 
 			serverMessagesReceived := 0
-			handleServerMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
+			handleServerMessage := func(info messaging.JupyterServerInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 				defer GinkgoRecover()
 
 				server.Log.Info("Server received message: %v\n", msg)
@@ -345,7 +346,7 @@ var _ = Describe("AbstractServer", func() {
 				idFrame := msg.JupyterFrames.Frames[0]
 
 				var wrapper *proto.JupyterRequestTraceFrame
-				err := json.Unmarshal(msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+types.JupyterFrameRequestTrace], &wrapper)
+				err := json.Unmarshal(msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+messaging.JupyterFrameRequestTrace], &wrapper)
 				Expect(err).To(BeNil())
 
 				requestTrace := wrapper.RequestTrace
@@ -410,10 +411,10 @@ var _ = Describe("AbstractServer", func() {
 
 				time.Sleep(time.Millisecond * 5)
 
-				jMsg := types.NewJupyterMessage(&actualResponse)
+				jMsg := messaging.NewJupyterMessage(&actualResponse)
 				_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 				Expect(err).To(BeNil())
-				requestTrace, added, reqErr := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, time.Now(), server.Log) // Simulate send
+				requestTrace, added, reqErr := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, time.Now(), server.Log) // Simulate send
 				server.Log.Debug(utils.LightBlueStyle.Render("RequestTrace: %s"), requestTrace.String())
 				Expect(added).To(BeFalse())
 				GinkgoWriter.Printf("reqErr: %v\n", reqErr)
@@ -466,11 +467,11 @@ var _ = Describe("AbstractServer", func() {
 				[]byte(""),
 				[]byte(""))
 			now := time.Now()
-			jMsg := types.NewJupyterMessage(&msg)
+			jMsg := messaging.NewJupyterMessage(&msg)
 			_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			fmt.Printf("[a] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
-			requestTrace, added, err := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &types.Socket{Type: types.ShellMessage}, now, client.Log) // Simulate recv
+			requestTrace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, now, client.Log) // Simulate recv
 			client.Log.Debug(utils.LightBlueStyle.Render("RequestTrace: %s"), requestTrace.String())
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeTrue())
@@ -483,13 +484,13 @@ var _ = Describe("AbstractServer", func() {
 			fmt.Printf("[b] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
 
 			Expect(requestTrace.MessageId).To(Equal(msgId))
-			Expect(requestTrace.MessageType).To(Equal(types.ShellKernelInfoRequest))
+			Expect(requestTrace.MessageType).To(Equal(messaging.ShellKernelInfoRequest))
 			Expect(requestTrace.KernelId).To(Equal(DEST_KERNEL_ID))
 
 			m, err := json.Marshal(&proto.JupyterRequestTraceFrame{RequestTrace: requestTrace})
 			Expect(err).To(BeNil())
 
-			Expect(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+types.JupyterFrameRequestTrace]).To(Equal(m))
+			Expect(jMsg.JupyterFrames.Frames[jMsg.JupyterFrames.Offset+messaging.JupyterFrameRequestTrace]).To(Equal(m))
 			Expect(requestTrace.RequestReceivedByGateway).To(Equal(now.UnixMilli()))
 			Expect(requestTrace.RequestSentByGateway).To(Equal(proto.DefaultTraceTimingValue))
 			Expect(requestTrace.RequestReceivedByLocalDaemon).To(Equal(proto.DefaultTraceTimingValue))
@@ -503,18 +504,18 @@ var _ = Describe("AbstractServer", func() {
 
 			time.Sleep(time.Millisecond * 125) // Sleep long enough to ensure timestamps in RequestTrace are different
 
-			clientHandleMessage := func(info types.JupyterServerInfo, typ types.MessageType, msg *types.JupyterMessage) error {
+			clientHandleMessage := func(info messaging.JupyterServerInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 				client.Log.Info("Client received %v message: %v", typ, msg)
 				wg.Done()
 				return nil
 			}
 
-			builder := types.NewRequestBuilder(context.Background(), client.id, client.id, client.ConnectionInfo()).
+			builder := messaging.NewRequestBuilder(context.Background(), client.id, client.id, client.ConnectionInfo()).
 				WithAckRequired(true).
-				WithMessageType(types.ShellMessage).
+				WithMessageType(messaging.ShellMessage).
 				WithBlocking(true).
-				WithTimeout(types.DefaultRequestTimeout).
-				WithDoneCallback(types.DefaultDoneHandler).
+				WithTimeout(messaging.DefaultRequestTimeout).
+				WithDoneCallback(messaging.DefaultDoneHandler).
 				WithMessageHandler(clientHandleMessage).
 				WithNumAttempts(3).
 				WithRemoveDestFrame(true).

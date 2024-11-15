@@ -2,9 +2,9 @@ package daemon
 
 import (
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/client"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"log"
 	"net"
 	"os"
@@ -17,9 +17,9 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	"github.com/opentracing/opentracing-go"
-	"github.com/zhangjyr/distributed-notebook/common/consul"
-	"github.com/zhangjyr/distributed-notebook/common/tracing"
-	"github.com/zhangjyr/distributed-notebook/gateway/domain"
+	"github.com/scusemua/distributed-notebook/common/consul"
+	"github.com/scusemua/distributed-notebook/common/tracing"
+	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 )
@@ -118,14 +118,14 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	globalLogger.Info("Jupyter server listening at %v", lis.Addr())
 
 	options.ClusterDaemonOptions.ValidateClusterDaemonOptions()
-	options.ClusterSchedulerOptions.ValidateClusterSchedulerOptions()
+	options.SchedulerOptions.ValidateClusterSchedulerOptions()
 
-	globalLogger.Debug("Cluster Gateway Options:\n%s", options.PrettyString(2))
+	globalLogger.Debug("Cluster Gateway SchedulerOptions:\n%s", options.PrettyString(2))
 
 	// Initialize daemon
 	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
 		globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
-		srv.SetClusterOptions(&options.ClusterSchedulerOptions)
+		srv.SetClusterOptions(&options.SchedulerOptions)
 		srv.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 	})
 

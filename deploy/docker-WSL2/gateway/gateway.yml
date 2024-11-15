@@ -54,3 +54,5 @@ num_resend_attempts: 1
 acks_enabled: false
 checkpointing_enabled: true
 remote-docker-event-aggregator-port: 5821
+initial-cluster-size: 4
+initial-connection-period: 60

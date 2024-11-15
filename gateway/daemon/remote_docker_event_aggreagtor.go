@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/docker_events/observer"
+	"github.com/scusemua/distributed-notebook/common/docker_events/observer"
 	"net"
 )
 

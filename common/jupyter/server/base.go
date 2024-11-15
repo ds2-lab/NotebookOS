@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
-
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 )
 
 var (
@@ -17,7 +16,7 @@ var (
 type ServerInfo interface {
 	fmt.Stringer
 
-	Socket(types.MessageType) *types.Socket
+	Socket(messaging.MessageType) *messaging.Socket
 }
 
 // BaseServer exposes the basic operations of a Jupyter server. Get BaseServer from AbstractServer.Server().
@@ -25,7 +24,7 @@ type BaseServer struct {
 	server *AbstractServer
 }
 
-func (s *BaseServer) SendRequest(request types.Request, socket *types.Socket) error {
+func (s *BaseServer) SendRequest(request messaging.Request, socket *messaging.Socket) error {
 	return s.server.SendRequest(request, socket)
 }
 
@@ -38,30 +37,30 @@ func (s *BaseServer) AssignMessagingMetricsProvider(messagingMetricsProvider met
 	s.server.MessagingMetricsProvider = messagingMetricsProvider
 }
 
-// func (s *BaseServer) SendRequest(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
-// 	jMsg := types.NewJupyterMessage(req)
+// func (s *BaseServer) SendRequest(requiresACK bool, socket *messaging.Socket, reqId string, req *zmq4.msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
+// 	jMsg := messaging.NewJupyterMessage(req)
 // 	return s.server.SendRequest(requiresACK, socket, reqId, jMsg, dest, sourceKernel, offset)
 // }
 
 // RegisterAck begins listening for an ACK for a message with the given ID.
-func (s *BaseServer) RegisterAck(msg *types.JupyterMessage) (chan struct{}, bool) {
+func (s *BaseServer) RegisterAck(msg *messaging.JupyterMessage) (chan struct{}, bool) {
 	// _, reqId, _ := types.ExtractDestFrame(msg.JupyterFrames)
 	return s.server.RegisterAck(msg.RequestId)
 }
 
 // RegisterAckForRequest begins listening for an ACK for a message with the given ID.
-func (s *BaseServer) RegisterAckForRequest(req types.Request) (chan struct{}, bool) {
+func (s *BaseServer) RegisterAckForRequest(req messaging.Request) (chan struct{}, bool) {
 	// _, reqId, _ := types.ExtractDestFrame(msg.JupyterFrames)
 	return s.server.RegisterAck(req.RequestId())
 }
 
 // Socket returns the zmq socket of the given type.
-func (s *BaseServer) Socket(typ types.MessageType) *types.Socket {
+func (s *BaseServer) Socket(typ messaging.MessageType) *messaging.Socket {
 	return s.server.Sockets.All[typ]
 }
 
 // GetSocketPort returns the port of a particular Socket.
-func (s *BaseServer) GetSocketPort(typ types.MessageType) int {
+func (s *BaseServer) GetSocketPort(typ messaging.MessageType) int {
 	socket := s.Socket(typ)
 
 	if socket != nil {
@@ -73,13 +72,13 @@ func (s *BaseServer) GetSocketPort(typ types.MessageType) int {
 
 // SetIOPubSocket sets the IOPub socket for the server.
 // SetIOPubSocket returns an error if the Socket is already set, as it should only be set once when the IO socket is nil.
-func (s *BaseServer) SetIOPubSocket(iopub *types.Socket) error {
+func (s *BaseServer) SetIOPubSocket(iopub *messaging.Socket) error {
 	if s.server.Sockets.IO != nil {
 		return ErrIOSocketAlreadySet
 	}
 
 	s.server.Sockets.IO = iopub
-	s.server.Sockets.All[types.IOMessage] = iopub
+	s.server.Sockets.All[messaging.IOMessage] = iopub
 
 	return nil
 }
@@ -98,6 +97,7 @@ func (s *BaseServer) SetContext(ctx context.Context) {
 	s.server.Ctx = ctx
 }
 
-func (s *BaseServer) Close() {
+func (s *BaseServer) Close() error {
 	s.server.CancelCtx()
+	return nil
 }

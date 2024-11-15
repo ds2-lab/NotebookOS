@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/prometheus/client_golang/prometheus"
-	jupyterTypes "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"net/http"
 	"sync"
 	"time"
@@ -15,7 +15,7 @@ import (
 	"github.com/gin-gonic/contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils"
 )
 
 const (
@@ -61,7 +61,7 @@ type MessagingMetricsProvider interface {
 	// If the target MessagingMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
 	// error is returned.
 	AddMessageE2ELatencyObservation(latency time.Duration, nodeId string, nodeType NodeType,
-		socketType jupyterTypes.MessageType, jupyterMessageType string) error
+		socketType messaging.MessageType, jupyterMessageType string) error
 
 	// AddNumSendAttemptsRequiredObservation enables the caller to record an observation of the number of times a
 	// message had to be (re)sent before an ACK was received from the recipient.
@@ -69,24 +69,24 @@ type MessagingMetricsProvider interface {
 	// If the target MessagingMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
 	// error is returned.
 	AddNumSendAttemptsRequiredObservation(acksRequired float64, nodeId string, nodeType NodeType,
-		socketType jupyterTypes.MessageType, jupyterMessageType string) error
+		socketType messaging.MessageType, jupyterMessageType string) error
 
 	// AddAckReceivedLatency is used to record an observation for the "ack_received_latency_microseconds" metric.
 	AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType NodeType,
-		socketType jupyterTypes.MessageType, jupyterMessageType string) error
+		socketType messaging.MessageType, jupyterMessageType string) error
 
 	// AddFailedSendAttempt records that a message was never acknowledged by the target recipient.
 	//
 	// If the target MessagingMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
 	// error is returned.
-	AddFailedSendAttempt(nodeId string, nodeType NodeType, socketType jupyterTypes.MessageType, jupyterMessageType string) error
+	AddFailedSendAttempt(nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error
 
 	// SentMessage record that a message was sent (including cases where the message sent was resubmitted and not
 	// sent for the very first time).
-	SentMessage(nodeId string, sendLatency time.Duration, nodeType NodeType, socketType jupyterTypes.MessageType, jupyterMessageType string) error
+	SentMessage(nodeId string, sendLatency time.Duration, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error
 
 	// SentMessageUnique records that a message was sent. This should not be incremented for resubmitted messages.
-	SentMessageUnique(nodeId string, nodeType NodeType, socketType jupyterTypes.MessageType, jupyterMessageType string) error
+	SentMessageUnique(nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error
 }
 
 // ContainerMetricsProvider is an exported interface that exposes an API for publishing container-related metrics.
@@ -465,7 +465,7 @@ func (m *basePrometheusManager) initializeMetrics() error {
 // If the target Prometheus Manager has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
 // error is returned.
 func (m *basePrometheusManager) AddMessageE2ELatencyObservation(latency time.Duration, nodeId string, nodeType NodeType,
-	socketType jupyterTypes.MessageType, jupyterMessageType string) error {
+	socketType messaging.MessageType, jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
 		m.log.Error("Cannot record message E2E latency observation as metrics have not yet been initialized...")
@@ -489,7 +489,7 @@ func (m *basePrometheusManager) AddMessageE2ELatencyObservation(latency time.Dur
 // If the target Prometheus Manager has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
 // error is returned.
 func (m *basePrometheusManager) AddNumSendAttemptsRequiredObservation(sendsRequired float64, nodeId string,
-	nodeType NodeType, socketType jupyterTypes.MessageType, jupyterMessageType string) error {
+	nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
 		m.log.Error("Cannot record \"NumSendAttemptsRequired\" observation as metrics have not yet been initialized...")
@@ -508,7 +508,7 @@ func (m *basePrometheusManager) AddNumSendAttemptsRequiredObservation(sendsRequi
 }
 
 // AddFailedSendAttempt records that a message was never acknowledged by the target recipient.
-func (m *basePrometheusManager) AddFailedSendAttempt(nodeId string, nodeType NodeType, socketType jupyterTypes.MessageType,
+func (m *basePrometheusManager) AddFailedSendAttempt(nodeId string, nodeType NodeType, socketType messaging.MessageType,
 	jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
@@ -529,7 +529,7 @@ func (m *basePrometheusManager) AddFailedSendAttempt(nodeId string, nodeType Nod
 
 // SentMessage record that a message was sent (including cases where the message sent was resubmitted and not
 // sent for the very first time).
-func (m *basePrometheusManager) SentMessage(nodeId string, sendLatency time.Duration, nodeType NodeType, socketType jupyterTypes.MessageType,
+func (m *basePrometheusManager) SentMessage(nodeId string, sendLatency time.Duration, nodeType NodeType, socketType messaging.MessageType,
 	jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
@@ -557,7 +557,7 @@ func (m *basePrometheusManager) SentMessage(nodeId string, sendLatency time.Dura
 }
 
 // SentMessageUnique records that a message was sent. This should not be incremented for resubmitted messages.
-func (m *basePrometheusManager) SentMessageUnique(nodeId string, nodeType NodeType, socketType jupyterTypes.MessageType,
+func (m *basePrometheusManager) SentMessageUnique(nodeId string, nodeType NodeType, socketType messaging.MessageType,
 	jupyterMessageType string) error {
 
 	if !m.metricsInitialized {
@@ -577,7 +577,7 @@ func (m *basePrometheusManager) SentMessageUnique(nodeId string, nodeType NodeTy
 }
 
 // AddAckReceivedLatency is used to record an observation for the "ack_received_latency_microseconds" metric.
-func (m *basePrometheusManager) AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType NodeType, socketType jupyterTypes.MessageType, jupyterMessageType string) error {
+func (m *basePrometheusManager) AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 	if !m.metricsInitialized {
 		m.log.Error("Cannot record \"AckLatencyMicroseconds\" observation as metrics have not yet been initialized...")
 		return ErrMetricsNotInitialized

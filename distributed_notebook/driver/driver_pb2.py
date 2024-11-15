@@ -14,14 +14,14 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0c\x64river.proto\x12\x06\x64river\"c\n\rJupyterKernel\x12\x10\n\x08kernelId\x18\x01 \x01(\t\x12\x13\n\x0bnumReplicas\x18\x02 \x01(\x05\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x1b\n\x13\x61ggregateBusyStatus\x18\x04 \x01(\t\"Q\n\x13ListKernelsResponse\x12\x12\n\nnumKernels\x18\x01 \x01(\x05\x12&\n\x07kernels\x18\x02 \x03(\x0b\x32\x15.driver.JupyterKernel\"\x06\n\x04Void2X\n\x1a\x44istributedNotebookCluster\x12:\n\x0bListKernels\x12\x0c.driver.Void\x1a\x1b.driver.ListKernelsResponse\"\x00\x42\x7f\n6com.github.zhangjyr.distributed-notebook.common.driverB\x0b\x44riverProtoP\x01Z6github.com/zhangjyr/distributed-notebook/common/driverb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0c\x64river.proto\x12\x06\x64river\"c\n\rJupyterKernel\x12\x10\n\x08kernelId\x18\x01 \x01(\t\x12\x13\n\x0bnumReplicas\x18\x02 \x01(\x05\x12\x0e\n\x06status\x18\x03 \x01(\t\x12\x1b\n\x13\x61ggregateBusyStatus\x18\x04 \x01(\t\"Q\n\x13ListKernelsResponse\x12\x12\n\nnumKernels\x18\x01 \x01(\x05\x12&\n\x07kernels\x18\x02 \x03(\x0b\x32\x15.driver.JupyterKernel\"\x06\n\x04Void2X\n\x1a\x44istributedNotebookCluster\x12:\n\x0bListKernels\x12\x0c.driver.Void\x1a\x1b.driver.ListKernelsResponse\"\x00\x42\x7f\n6com.github.zhangjyr.distributed-notebook.common.driverB\x0b\x44riverProtoP\x01Z6github.com/scusemua/distributed-notebook/common/driverb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'driver_pb2', _globals)
 if _descriptor._USE_C_DESCRIPTORS == False:
   _globals['DESCRIPTOR']._options = None
-  _globals['DESCRIPTOR']._serialized_options = b'\n6com.github.zhangjyr.distributed-notebook.common.driverB\013DriverProtoP\001Z6github.com/zhangjyr/distributed-notebook/common/driver'
+  _globals['DESCRIPTOR']._serialized_options = b'\n6com.github.zhangjyr.distributed-notebook.common.driverB\013DriverProtoP\001Z6github.com/scusemua/distributed-notebook/common/driver'
   _globals['_JUPYTERKERNEL']._serialized_start=24
   _globals['_JUPYTERKERNEL']._serialized_end=123
   _globals['_LISTKERNELSRESPONSE']._serialized_start=125

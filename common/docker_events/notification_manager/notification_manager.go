@@ -1,7 +1,7 @@
 package notification_manager
 
 import (
-	"github.com/zhangjyr/distributed-notebook/common/docker_events/observer"
+	"github.com/scusemua/distributed-notebook/common/docker_events/observer"
 	"sync"
 )
 

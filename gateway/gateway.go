@@ -17,8 +17,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"github.com/zhangjyr/distributed-notebook/gateway/daemon"
-	"github.com/zhangjyr/distributed-notebook/gateway/domain"
+	"github.com/scusemua/distributed-notebook/gateway/daemon"
+	"github.com/scusemua/distributed-notebook/gateway/domain"
 )
 
 var (

@@ -20,7 +20,6 @@ distributed_notebook_simulate_checkpointing_latency: true
 distributed_notebook_gpu_poll_interval: 5
 distributed_notebook_num_resend_attempts: 1
 distributed_notebook_run_kernels_in_gdb: false
-
 distributed_notebook_smr_port: 8080
 distributed_notebook_max_subscribed_ratio: 7.0
 distributed_notebook_gpus_per_host: 8
@@ -30,6 +29,8 @@ distributed_notebook_subscribed_scaling_factor: 1.05
 distributed_notebook_subscribed_scaling_interval: 30
 distributed_notebook_subscribed_scaling_limit: 1.1
 distributed_notebook_subscribed_scaling_in_limit: 2
+distributed_notebook_initial_cluster_size: 4
+distributed_notebook_initial_connection_period: 60
 
 # The 'advertise address' is an externally reachable address advertised to other nodes.
 # This port is used with the 'advertise address', which is set to the "ansible_nodename" of the first manager node.

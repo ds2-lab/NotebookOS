@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"io"
 	"log"
 	"math"
@@ -22,9 +22,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/petermattis/goid"
 
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 )
 
 const (
@@ -51,7 +51,7 @@ type WaitResponseOptionGetter func(key string) interface{}
 
 // AbstractServer implements the basic socket serving useful for a Jupyter server. Embed this struct in your server implementation.
 type AbstractServer struct {
-	Meta *types.ConnectionInfo
+	Meta *jupyter.ConnectionInfo
 
 	// MessagingMetricsProvider is an interface that enables the recording of metrics observed by the AbstractServer.
 	// This should be assigned a value in the init function passed as a parameter in the "constructor" of the AbstractServer.
@@ -62,7 +62,7 @@ type AbstractServer struct {
 	CancelCtx func()
 
 	// ZMQ sockets
-	Sockets *types.JupyterSocket
+	Sockets *messaging.JupyterSocket
 
 	// logger
 	Log logger.Logger
@@ -145,7 +145,7 @@ type AbstractServer struct {
 	PanicOnFirstFailedSend bool
 }
 
-func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeType, init func(server *AbstractServer)) *AbstractServer {
+func New(ctx context.Context, info *jupyter.ConnectionInfo, nodeType metrics.NodeType, init func(server *AbstractServer)) *AbstractServer {
 	var cancelCtx func()
 	ctx, cancelCtx = context.WithCancel(ctx)
 
@@ -154,7 +154,7 @@ func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeT
 		Ctx:                            ctx,
 		CancelCtx:                      cancelCtx,
 		MessageAcknowledgementsEnabled: true, // Default to true
-		Sockets:                        &types.JupyterSocket{},
+		Sockets:                        &messaging.JupyterSocket{},
 		UseJitter:                      true,
 		MaxSleepInterval:               time.Second * 5,
 		RequestTimeout:                 time.Second * 60,
@@ -165,10 +165,10 @@ func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeT
 		PanicOnFirstFailedSend:         false,
 	}
 	init(server)
-	server.Sockets.All = [5]*types.Socket{server.Sockets.HB, server.Sockets.Control, server.Sockets.Shell, server.Sockets.Stdin, server.Sockets.IO}
+	server.Sockets.All = [5]*messaging.Socket{server.Sockets.HB, server.Sockets.Control, server.Sockets.Shell, server.Sockets.Stdin, server.Sockets.IO}
 	for i, socket := range server.Sockets.All {
 		if socket != nil {
-			socket.Type = types.MessageType(i)
+			socket.Type = messaging.MessageType(i)
 		}
 	}
 
@@ -184,13 +184,13 @@ func New(ctx context.Context, info *types.ConnectionInfo, nodeType metrics.NodeT
 	return server
 }
 
-// Socket implements types.JupyterServerInfo.
-func (s *AbstractServer) Socket(typ types.MessageType) *types.Socket {
+// Socket implements messaging.JupyterServerInfo.
+func (s *AbstractServer) Socket(typ messaging.MessageType) *messaging.Socket {
 	return s.Sockets.All[typ]
 }
 
 // GetSocketPort returns the port of a particular Socket.
-func (s *AbstractServer) GetSocketPort(typ types.MessageType) int {
+func (s *AbstractServer) GetSocketPort(typ messaging.MessageType) int {
 	socket := s.Socket(typ)
 
 	if socket != nil {
@@ -200,7 +200,7 @@ func (s *AbstractServer) GetSocketPort(typ types.MessageType) int {
 	return -1
 }
 
-// String implements types.JupyterServerInfo.
+// String implements messaging.JupyterServerInfo.
 func (s *AbstractServer) String() string {
 	return "AbstractServer"
 }
@@ -214,10 +214,10 @@ func (s *AbstractServer) NumAcknowledgementsReceived() int32 {
 	return s.numAcksReceived.Load()
 }
 
-func (s *AbstractServer) Listen(socket *types.Socket) error {
+func (s *AbstractServer) Listen(socket *messaging.Socket) error {
 	if s.Meta.Transport != "tcp" {
 		s.Log.Error("Unsupported transport specified: \"%s\". Only \"tcp\" is supported.", s.Meta.Transport)
-		return types.ErrNotSupported
+		return jupyter.ErrNotSupported
 	}
 
 	// s.Log.Debug("%s [%s] socket about to listen. Socket has port %d", socket.Type.String(), socket.Socket.Type(), socket.Port)
@@ -234,7 +234,7 @@ func (s *AbstractServer) Listen(socket *types.Socket) error {
 	return nil
 }
 
-func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, socket *types.Socket) {
+func (s *AbstractServer) handleAck(jMsg *messaging.JupyterMessage, rspId string, socket *messaging.Socket) {
 	goroutineId := goid.Get()
 
 	if !s.MessageAcknowledgementsEnabled {
@@ -301,7 +301,7 @@ func (s *AbstractServer) handleAck(jMsg *types.JupyterMessage, rspId string, soc
 	}
 }
 
-func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket) error {
+func (s *AbstractServer) sendAck(msg *messaging.JupyterMessage, socket *messaging.Socket) error {
 	// If ACKs are disabled, just return immediately.
 	if !s.MessageAcknowledgementsEnabled {
 		return nil
@@ -397,7 +397,7 @@ func (s *AbstractServer) sendAck(msg *types.JupyterMessage, socket *types.Socket
 //
 // Returns a flag where 'true' means to continue calling the normal message handlers, and 'false' means to not forward the message around or do anything else for this message,
 // including sending an ACK. (That is, there is no need to even send an ACK if 'false' is returned.)
-func (s *AbstractServer) tryHandleSpecialMessage(jMsg *types.JupyterMessage, socket *types.Socket) (bool, error) {
+func (s *AbstractServer) tryHandleSpecialMessage(jMsg *messaging.JupyterMessage, socket *messaging.Socket) (bool, error) {
 	// This is generally unused for now; we don't do anything special for Golang frontends as of right now.
 	if s.isMessageGolangFrontendRegistrationRequest(jMsg, socket.Type) {
 		s.Log.Debug("Golang frontend registration JFrames: %v", jMsg.JupyterFrames)
@@ -425,7 +425,7 @@ func (s *AbstractServer) tryHandleSpecialMessage(jMsg *types.JupyterMessage, soc
 
 // Serve starts serving the socket with the specified handler.
 // The handler is passed as an argument to allow multiple sockets sharing the same handler.
-func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Socket, handler types.MessageHandler) {
+func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messaging.Socket, handler messaging.MessageHandler) {
 	goroutineId := goid.Get()
 
 	if !atomic.CompareAndSwapInt32(&socket.Serving, 0, 1) {
@@ -475,10 +475,10 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 			switch v := msg.(type) {
 			case error:
 				err = v
-			case *types.JupyterMessage:
+			case *messaging.JupyterMessage:
 				jMsg := v
 
-				if (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && !jMsg.IsAck() {
+				if (socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage) && !jMsg.IsAck() {
 					firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Handling %s \"%s\" message"), goroutineId, socket.Type, jMsg.JupyterMessageType())
 					secondPart := fmt.Sprintf("'%s' (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()))
 					thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
@@ -505,7 +505,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 				//
 				// AbstractServers that live on the Cluster Gateway and receive messages from frontend clients typically
 				// do not ACK messages unless the frontend client is our custom Jupyter Golang client.
-				if !isAck && (socket.Type == types.ShellMessage || socket.Type == types.ControlMessage) && s.ShouldAckMessages {
+				if !isAck && (socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage) && s.ShouldAckMessages {
 					ackErr := s.sendAck(jMsg, socket)
 					if ackErr != nil {
 						s.Log.Error("Error while sending 'ACK' for message. Message we failed to ACK: %s. Error: %v.", jMsg.String(), ackErr)
@@ -519,7 +519,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 
 					// Send an error message of some sort back to the original sender, in Jupyter format.
 					_ = s.replyWithError(jMsg, socket, err)
-				} else if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && jMsg.JupyterMessageType() != "stream") {
+				} else if socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage || (socket.Type == messaging.IOMessage && jMsg.JupyterMessageType() != "stream") {
 					// Only print this next bit for Shell, Control, and non-stream IOPub messages.
 					// That's all we care about here.
 					s.Log.Debug(utils.LightGreenStyle.Render("[gid=%d] Finished handling %s \"%s\" message \"%s\" (JupyterID=\"%s\") in %v."),
@@ -574,7 +574,7 @@ func (s *AbstractServer) Serve(server types.JupyterServerInfo, socket *types.Soc
 	}
 }
 
-func (s *AbstractServer) generateErrorMessage(originalMessage *types.JupyterMessage, err error) (*types.JupyterMessage, error) {
+func (s *AbstractServer) generateErrorMessage(originalMessage *messaging.JupyterMessage, err error) (*messaging.JupyterMessage, error) {
 	// We need the signature scheme and key in order to sign the error message that we create here.
 	// If those haven't been populated yet (they must be populated manually), then we cannot send the error message.
 	var (
@@ -584,7 +584,7 @@ func (s *AbstractServer) generateErrorMessage(originalMessage *types.JupyterMess
 		keySet             bool
 	)
 
-	// If we're a server in a KernelReplicaClient or DistributedKernelClient, then the Meta field should be non-nil
+	// If we're a server in a Kernel or DistributedKernelClient, then the Meta field should be non-nil
 	// and will have the connection info. So, we can get the signature scheme and key from there.
 	if s.Meta != nil {
 		signatureScheme = s.Meta.SignatureScheme
@@ -603,7 +603,7 @@ func (s *AbstractServer) generateErrorMessage(originalMessage *types.JupyterMess
 		}
 	}
 
-	msgType := types.JupyterMessageType(originalMessage.JupyterMessageType())
+	msgType := messaging.JupyterMessageType(originalMessage.JupyterMessageType())
 
 	var respMsgType string
 	baseType, ok := msgType.GetBaseMessageType()
@@ -614,13 +614,13 @@ func (s *AbstractServer) generateErrorMessage(originalMessage *types.JupyterMess
 	}
 
 	// Create the new message.
-	frames := types.NewJupyterFramesWithReservation(1)
+	frames := messaging.NewJupyterFramesWithReservation(1)
 
 	// Create the message header.
-	header := &types.MessageHeader{
-		Date:     time.Now().UTC().Format(types.JavascriptISOString),
+	header := &messaging.MessageHeader{
+		Date:     time.Now().UTC().Format(messaging.JavascriptISOString),
 		MsgID:    uuid.New().String(),
-		MsgType:  types.JupyterMessageType(respMsgType),
+		MsgType:  messaging.JupyterMessageType(respMsgType),
 		Session:  originalMessage.JupyterSession(),
 		Username: originalMessage.JupyterUsername(),
 		Version:  originalMessage.JupyterVersion(),
@@ -632,8 +632,8 @@ func (s *AbstractServer) generateErrorMessage(originalMessage *types.JupyterMess
 	}
 
 	// Create the message content.
-	errorContent := &types.MessageError{
-		Status:   types.MessageStatusError,
+	errorContent := &messaging.MessageError{
+		Status:   messaging.MessageStatusError,
 		ErrName:  fmt.Sprintf("%T", err),
 		ErrValue: err.Error(),
 	}
@@ -653,7 +653,7 @@ func (s *AbstractServer) generateErrorMessage(originalMessage *types.JupyterMess
 	}
 
 	// Add the destination frame, in case we're in the Local Daemon and this has to go back to the Cluster Gateway.
-	jMsg := types.NewJupyterMessage(&msg)
+	jMsg := messaging.NewJupyterMessage(&msg)
 	jMsg.AddDestinationId(originalMessage.DestinationId)
 
 	return jMsg, nil
@@ -662,7 +662,7 @@ func (s *AbstractServer) generateErrorMessage(originalMessage *types.JupyterMess
 // replyWithError replies to the sender with a message encoding the provided error.
 // The message that is sent back to the sender is in Jupyter format.
 // The message is constructed using information from the original message.
-func (s *AbstractServer) replyWithError(originalMessage *types.JupyterMessage, socket *types.Socket, err error) error {
+func (s *AbstractServer) replyWithError(originalMessage *messaging.JupyterMessage, socket *messaging.Socket, err error) error {
 	errorMessage, generationError := s.generateErrorMessage(originalMessage, err)
 	if generationError != nil {
 		s.Log.Warn("Failed to generate error message because: %v", generationError)
@@ -712,12 +712,12 @@ func (s *AbstractServer) RegisterAck(reqId string) (chan struct{}, bool) {
 //   - server: The jupyter server instance that will be passed to the handler to get the socket for forwarding the response.
 //   - socket: The client socket to forward the request.
 //   - req: The request to be sent.
-//   - sourceKernel: Entity that implements the types.SourceKernel interface and thus can add the types.SourceKernel frame to the message.
+//   - sourceKernel: Entity that implements the messaging.SourceKernel interface and thus can add the messaging.SourceKernel frame to the message.
 //   - dest: The info of request destination that the WaitResponse can use to track individual request.
 //   - handler: The handler to handle the response.
 //   - getOption: The function to get the options.
 //   - requiresACK: If true, then we should expect an ACK for this message, and we should resend it if no ACK is receive before a timeout.
-func (s *AbstractServer) Request(request types.Request, socket *types.Socket) error {
+func (s *AbstractServer) Request(request messaging.Request, socket *messaging.Socket) error {
 	goroutineId := goid.Get()
 
 	// Validate that the request is non-nil...
@@ -755,7 +755,7 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 	}
 
 	// Track the pending request.
-	socket.PendingReq.Store(reqId, types.GetMessageHandlerWrapper(request))
+	socket.PendingReq.Store(reqId, messaging.GetMessageHandlerWrapper(request))
 
 	// Apply a default timeout
 	// var cancel context.CancelFunc
@@ -849,7 +849,7 @@ func (s *AbstractServer) Request(request types.Request, socket *types.Socket) er
 // Wait for an ACK on the given channel, or time-out after the Request's configured timeout.
 //
 // If the Request does not actually require an acknowledgement, then this returns true immediately, indicating success.
-func (s *AbstractServer) waitForAck(request types.Request) bool {
+func (s *AbstractServer) waitForAck(request messaging.Request) bool {
 	// If there's no ACK required, then just return immediately.
 	if !request.RequiresAck() {
 		s.Log.Warn("%s \"%s\" request %s (JupyterID=%s) does not require an ACK. Returning immediately instead of waiting for an ACK.",
@@ -895,13 +895,13 @@ func (s *AbstractServer) printSendLatencyWarning(sendDuration time.Duration, msg
 	}
 }
 
-// sendRequest sends the zmq4.msg encapsulated by the types.Request on the given types.Socket.
+// sendRequest sends the zmq4.msg encapsulated by the messaging.Request on the given messaging.Socket.
 //
 // If the send operation is successful, then sendRequest returns nil.
 //
-// If the send operation fails, then the types.Request is transitioned to an error state, and the associated
+// If the send operation fails, then the messaging.Request is transitioned to an error state, and the associated
 // error is returned.
-func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket) error {
+func (s *AbstractServer) sendRequest(request messaging.Request, socket *messaging.Socket) error {
 	// This updates the frames of the zmq4.Msg, assigning them to be the frames of the JupyterMessage/JupyterFrames.
 	zmqMsg := request.Payload().GetZmqMsg()
 
@@ -910,7 +910,7 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 	//	"Sending %s \"%s\" message %s (JupyterID=\"%s\").\n\nJupyterFrames (%p): %s.\n\nzmq4.Msg Frames (%p): %s\n\n"),
 	//socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(),
 	//request.Payload().JupyterFrames.Frames, request.Payload().JupyterFrames.String(),
-	//zmqMsg.Frames, types.FramesToString(zmqMsg.Frames))
+	//zmqMsg.Frames, messaging.FramesToString(zmqMsg.Frames))
 
 	// Send the request.
 	sendStart := time.Now()
@@ -959,7 +959,7 @@ func (s *AbstractServer) sendRequest(request types.Request, socket *types.Socket
 
 // shouldAddRequestTrace returns true if the AbstractServer should embed or update an existing metrics.RequestTrace
 // struct within the first "buffer" frame of a Jupyter message.
-func (s *AbstractServer) shouldAddRequestTrace(msg *types.JupyterMessage, socket *types.Socket) bool {
+func (s *AbstractServer) shouldAddRequestTrace(msg *messaging.JupyterMessage, socket *messaging.Socket) bool {
 	if msg == nil {
 		panic("JupyterMessage is nil when evaluating whether to add RequestTrace.")
 	}
@@ -972,23 +972,23 @@ func (s *AbstractServer) shouldAddRequestTrace(msg *types.JupyterMessage, socket
 		return false
 	}
 
-	if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage {
+	if socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage {
 		return true
 	}
 
-	if socket.Type == types.IOMessage && msg.JupyterMessageType() != "stream" && msg.JupyterMessageType() != "status" {
+	if socket.Type == messaging.IOMessage && msg.JupyterMessageType() != "stream" && msg.JupyterMessageType() != "status" {
 		return true
 	}
 
 	return false
 }
 
-// sendRequestWithRetries encapsulates the logic of sending the given types.Request using the given types.Socket
-// in a reliable way; that is, sendRequestWithRetries will resubmit the given types.Request if an ACK is not received
-// within the types.Request's configured timeout window, up to the types.Request's configured maximum number of attempts.
+// sendRequestWithRetries encapsulates the logic of sending the given messaging.Request using the given messaging.Socket
+// in a reliable way; that is, sendRequestWithRetries will resubmit the given messaging.Request if an ACK is not received
+// within the messaging.Request's configured timeout window, up to the messaging.Request's configured maximum number of attempts.
 //
 // sendRequestWithRetries will return nil on success.
-func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *types.Socket) error {
+func (s *AbstractServer) sendRequestWithRetries(request messaging.Request, socket *messaging.Socket) error {
 	goroutineId := goid.Get()
 
 	// We only want to record the "unique send" metric once per message sent (i.e., don't include resubmissions).
@@ -999,7 +999,7 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 	if s.shouldAddRequestTrace(request.Payload(), socket) {
 		// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 		//	socket.Type.String(), request.JupyterMessageType())
-		_, _, err := types.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now(), s.Log)
+		_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now(), s.Log)
 		if err != nil {
 			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
 			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
@@ -1054,7 +1054,7 @@ func (s *AbstractServer) sendRequestWithRetries(request types.Request, socket *t
 
 // onAcknowledgementReceived is to be called when an acknowledgement is received for the given Request within
 // the Request's configured time-out window.
-func (s *AbstractServer) onAcknowledgementReceived(request types.Request, socket *types.Socket) {
+func (s *AbstractServer) onAcknowledgementReceived(request messaging.Request, socket *messaging.Socket) {
 	if !request.RequiresAck() {
 		s.Log.Error("We're recording that we successfully received an ACK for %s \"%s\" request %s (JupyterID=%s), but that request doesn't require an ACK...",
 			request.MessageType().String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId())
@@ -1079,7 +1079,7 @@ func (s *AbstractServer) onAcknowledgementReceived(request types.Request, socket
 
 // onNoAcknowledgementReceived is to be called when no acknowledgement is received for the given Request
 // within the Request's configured time-out window.
-func (s *AbstractServer) onNoAcknowledgementReceived(request types.Request, socket *types.Socket) error {
+func (s *AbstractServer) onNoAcknowledgementReceived(request messaging.Request, socket *messaging.Socket) error {
 	goroutineId := goid.Get()
 
 	// If ACKs are disabled, then just return immediately.
@@ -1143,11 +1143,11 @@ func (s *AbstractServer) onNoAcknowledgementReceived(request types.Request, sock
 	return nil
 }
 
-// SendRequest sends a types.Request on the given types.Socket.
+// SendRequest sends a messaging.Request on the given messaging.Socket.
 // If this message requires ACKs, then this will retry until an ACK is received, or it will give up.
 //
 // SendRequest returns nil on success.
-func (s *AbstractServer) SendRequest(request types.Request, socket *types.Socket) error {
+func (s *AbstractServer) SendRequest(request messaging.Request, socket *messaging.Socket) error {
 	// If the message requires an ACK, then we'll try sending it multiple times.
 	// Otherwise, we'll just send it the one time.
 	if s.MessageAcknowledgementsEnabled && request.RequiresAck() {
@@ -1158,7 +1158,7 @@ func (s *AbstractServer) SendRequest(request types.Request, socket *types.Socket
 }
 
 // onSuccessfullySentMessage is to be called when a message is sent successfully.
-func (s *AbstractServer) onSuccessfullySentMessage(request types.Request, socket *types.Socket, numTries int) {
+func (s *AbstractServer) onSuccessfullySentMessage(request messaging.Request, socket *messaging.Socket, numTries int) {
 	if _, err := request.SetProcessing(); err != nil {
 		panic(fmt.Sprintf("Request transition to 'processing' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
 	}
@@ -1188,7 +1188,7 @@ func (s *AbstractServer) getSleepInterval(attempt int) time.Duration {
 	return nextSleepInterval
 }
 
-func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, contd <-chan bool) {
+func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}, contd <-chan bool) {
 	goroutineId := goid.Get()
 	defer close(chMsg)
 
@@ -1199,8 +1199,8 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 
 		if err == nil {
 			// Deserialize the message now so we can print some debug info + inspect if it is an ACK.
-			msg = types.NewJupyterMessage(&got)
-			jMsg := msg.(*types.JupyterMessage)
+			msg = messaging.NewJupyterMessage(&got)
+			jMsg := msg.(*messaging.JupyterMessage)
 
 			// If the message is just an ACK, then we'll spawn another goroutine to handle it and keep polling.
 			if jMsg.IsAck() {
@@ -1216,14 +1216,14 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 				continue
 			}
 
-			if socket.Type == types.ShellMessage || socket.Type == types.ControlMessage || (socket.Type == types.IOMessage && jMsg.JupyterMessageType() != "stream" && jMsg.JupyterMessageType() != "status" && jMsg.JupyterMessageType() != "execute_input") {
+			if socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage || (socket.Type == messaging.IOMessage && jMsg.JupyterMessageType() != "stream" && jMsg.JupyterMessageType() != "status" && jMsg.JupyterMessageType() != "execute_input") {
 				s.Log.Debug("[gid=%d] Poller received new %s \"%s\" message %s (JupyterID=\"%s\", Session=\"%s\").", goroutineId, socket.Type.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), jMsg.JupyterSession())
 
 				if s.DebugMode {
 					// We only want to add traces to Shell, Control, and a subset of IOPub messages.
 					// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 					//	socket.Type.String(), jMsg.JupyterMessageType())
-					_, _, err := types.AddOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt, s.Log)
+					_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt, s.Log)
 					if err != nil {
 						s.Log.Error("Failed to add RequestTrace to JupyterMessage: %v.", err)
 						panic(err)
@@ -1263,35 +1263,35 @@ func (s *AbstractServer) poll(socket *types.Socket, chMsg chan<- interface{}, co
 	}
 }
 
-//func (s *AbstractServer) isMessageAnAck(msg *types.JupyterMessage, typ types.MessageType) bool {
+//func (s *AbstractServer) isMessageAnAck(msg *messaging.JupyterMessage, typ messaging.MessageType) bool {
 //	// ACKs are only sent for Shell/Control messages.
-//	if typ != types.ShellMessage && typ != types.ControlMessage {
+//	if typ != messaging.ShellMessage && typ != messaging.ControlMessage {
 //		return false
 //	}
 //
-//	return msg.JupyterMessageType() == types.MessageTypeACK
+//	return msg.JupyterMessageType() == messaging.MessageTypeACK
 //}
 
-func (s *AbstractServer) isMessageGolangFrontendRegistrationRequest(msg *types.JupyterMessage, typ types.MessageType) bool {
+func (s *AbstractServer) isMessageGolangFrontendRegistrationRequest(msg *messaging.JupyterMessage, typ messaging.MessageType) bool {
 	// Golang frontend registration requests are only sent for Shell/Control messages.
-	if typ != types.ShellMessage && typ != types.ControlMessage {
+	if typ != messaging.ShellMessage && typ != messaging.ControlMessage {
 		return false
 	}
 
 	return msg.JupyterMessageType() == GolangFrontendRegistrationRequest
 }
 
-func (s *AbstractServer) getOneTimeMessageHandler(socket *types.Socket, shouldDestFrameBeRemoved bool, defaultHandler types.MessageHandler) types.MessageHandler {
-	return func(info types.JupyterServerInfo, msgType types.MessageType, msg *types.JupyterMessage) error {
+func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shouldDestFrameBeRemoved bool, defaultHandler messaging.MessageHandler) messaging.MessageHandler {
+	return func(info messaging.JupyterServerInfo, msgType messaging.MessageType, msg *messaging.JupyterMessage) error {
 		// This handler returns errServeOnce if any to indicate that the server should stop serving.
 		retErr := errServeOnce
 		pendingRequests := socket.PendingReq
 		// var matchReqId string
-		var handler types.MessageHandler
-		var request types.Request
+		var handler messaging.MessageHandler
+		var request messaging.Request
 
 		if pendingRequests != nil {
-			// We do not assume that the types.RequestDest implements the auto-detect feature.
+			// We do not assume that the messaging.RequestDest implements the auto-detect feature.
 			_, rspId, _ := msg.JupyterFrames.ExtractDestFrame(true)
 			if rspId == "" {
 				s.Log.Warn("Unexpected response without request ID, fallback to default handler.")

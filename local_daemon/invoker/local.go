@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"log"
 	"net"
 	"os"
@@ -16,8 +16,8 @@ import (
 
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/utils"
 )
 
 const (
@@ -133,7 +133,7 @@ func (ivk *LocalInvoker) Wait() (jupyter.KernelStatus, error) {
 	}
 
 	<-ivk.closed
-	ivk.closedAt = time.Time{} // Update closedAt to extend expriation time
+	ivk.closedAt = time.Time{} // Update closedAt to extend expiration time
 	return ivk.Status()
 }
 
@@ -145,7 +145,7 @@ func (ivk *LocalInvoker) OnStatusChanged(handler StatucChangedHandler) {
 	ivk.statusChanged = handler
 }
 
-func (ivk *LocalInvoker) GetReplicaAddress(spec *proto.KernelSpec, replicaId int32) string {
+func (ivk *LocalInvoker) GetReplicaAddress(_ *proto.KernelSpec, _ int32) string {
 	ivk.initSMRPort()
 	return fmt.Sprintf("127.0.0.1:%d", ivk.SMRPort)
 }
@@ -178,6 +178,7 @@ func (ivk *LocalInvoker) prepareConnectionFile(spec *proto.KernelSpec) (*jupyter
 		if err != nil {
 			return nil, err
 		}
+		// Can we just call this directly? Or do we not actually want to close it...?
 		defer conn.Close()
 		socks[i] = conn
 	}

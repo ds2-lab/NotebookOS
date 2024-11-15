@@ -6,7 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"net/http"
 )
 
@@ -16,16 +16,6 @@ type LocalDaemonNodeProvider interface {
 
 	// GetId returns the node ID of the entity providing the local daemon nodes.
 	GetId() string
-}
-
-// ClusterMetricsProvider provides access to Cluster-related Prometheus metrics.
-type ClusterMetricsProvider interface {
-	GetScaleOutLatencyMillisecondsHistogram() prometheus.Histogram
-	GetScaleInLatencyMillisecondsHistogram() prometheus.Histogram
-	GetPlacerFindHostLatencyMicrosecondsHistogram() *prometheus.HistogramVec
-	GetNumDisabledHostsGauge() prometheus.Gauge
-	GetNumHostsGauge() prometheus.Gauge
-	GetHostRemoteSyncLatencyMicrosecondsHistogram() prometheus.Histogram
 }
 
 // GatewayPrometheusManager is responsible for registering metrics with Prometheus and serving them via HTTP.

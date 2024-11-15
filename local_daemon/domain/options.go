@@ -3,12 +3,12 @@ package domain
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/configuration"
+	"github.com/scusemua/distributed-notebook/common/configuration"
 	"strings"
 
 	"github.com/Scusemua/go-utils/config"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/types"
 )
 
 type LocalDaemonOptions struct {
