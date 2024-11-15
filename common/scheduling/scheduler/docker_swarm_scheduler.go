@@ -7,6 +7,7 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/index"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"google.golang.org/grpc/connectivity"
 	"net"
@@ -20,6 +21,9 @@ const (
 	DockerKernelDebugPortDefault int32 = 32000
 
 	ErrorHostname = "ERROR" // We return this from certain gRPC calls when there's an error.
+
+	ConsecutiveFailuresWarning int = 2
+	ConsecutiveFailuresBad     int = 3
 )
 
 var (
@@ -81,7 +85,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	for _, blacklistedHost := range blacklistedHosts {
 		s.log.Debug("Host %s (ID=%s) of kernel %s-%d was specifically specified as being blacklisted.",
 			blacklistedHost.NodeName, blacklistedHost.ID, kernelId, replicaSpec.ReplicaId)
-		blacklist = append(blacklist, blacklistedHost.GetMeta(HostMetaRandomIndex))
+		blacklist = append(blacklist, blacklistedHost.GetMeta(index.HostMetaRandomIndex))
 	}
 
 	replicaHosts, err := s.hostMapper.GetHostsOfKernel(kernelId)
@@ -94,7 +98,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	for _, host := range replicaHosts {
 		s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.",
 			host.ID, host.NodeName, kernelId, replicaSpec.ReplicaId)
-		blacklist = append(blacklist, host.GetMeta(HostMetaRandomIndex))
+		blacklist = append(blacklist, host.GetMeta(index.HostMetaRandomIndex))
 	}
 
 	host := s.placer.FindHost(blacklist, replicaSpec.FullSpecFromKernelReplicaSpec())
@@ -123,8 +127,13 @@ func (s *DockerScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelR
 		return ErrNilKernelReplica
 	}
 
+	kernel, loaded := s.kernelProvider.GetKernel(kernelReplica.ID())
+	if !loaded {
+		return types.ErrKernelNotFound
+	}
+
 	// First, stop the kernel on the replica we'd like to remove.
-	_, err := kernelReplica.RemoveReplicaByID(kernelReplica.ReplicaID(), s.cluster.Placer().Reclaim, false)
+	_, err := kernel.RemoveReplicaByID(kernelReplica.ReplicaID(), s.cluster.Placer().Reclaim, false)
 	if err != nil {
 		s.log.Error("Error while stopping replica %d of kernel %s: %v",
 			kernelReplica.ReplicaID(), kernelReplica.ID(), err)

@@ -932,18 +932,18 @@ func (mr *MockClusterInternalMockRecorder) SubscriptionRatio() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscriptionRatio", reflect.TypeOf((*MockClusterInternal)(nil).SubscriptionRatio))
 }
 
-// canPossiblyScaleOut mocks base method.
-func (m *MockClusterInternal) canPossiblyScaleOut() bool {
+// CanPossiblyScaleOut mocks base method.
+func (m *MockClusterInternal) CanPossiblyScaleOut() bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "canPossiblyScaleOut")
+	ret := m.ctrl.Call(m, "CanPossiblyScaleOut")
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
 
-// canPossiblyScaleOut indicates an expected call of canPossiblyScaleOut.
-func (mr *MockClusterInternalMockRecorder) canPossiblyScaleOut() *gomock.Call {
+// CanPossiblyScaleOut indicates an expected call of CanPossiblyScaleOut.
+func (mr *MockClusterInternalMockRecorder) CanPossiblyScaleOut() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "canPossiblyScaleOut", reflect.TypeOf((*MockClusterInternal)(nil).canPossiblyScaleOut))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CanPossiblyScaleOut", reflect.TypeOf((*MockClusterInternal)(nil).CanPossiblyScaleOut))
 }
 
 // getScaleInCommand mocks base method.

@@ -208,11 +208,11 @@ func (c *BaseCluster) Sessions() hashmap.HashMap[string, scheduling.UserSession]
 	return c.sessions
 }
 
-// canPossiblyScaleOut returns true if the Cluster could possibly scale-out.
+// CanPossiblyScaleOut returns true if the Cluster could possibly scale-out.
 // This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
 // it is currently not supported unless there is at least one disabled host already within the cluster.
-func (c *BaseCluster) canPossiblyScaleOut() bool {
-	return c.instance.canPossiblyScaleOut()
+func (c *BaseCluster) CanPossiblyScaleOut() bool {
+	return c.instance.CanPossiblyScaleOut()
 }
 
 // NumReplicasAsDecimal returns the numer of replicas that each Jupyter kernel has associated with it as

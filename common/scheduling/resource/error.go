@@ -10,15 +10,15 @@ var (
 	// ErrInvalidAllocationRequest indicates that a Allocation could not be created/satisfied due to an issue
 	// with the request itself.
 	//
-	// The issue is not something of the nature that there are just insufficient Resources available to satisfy the
+	// The issue is not something of the nature that there are just insufficient ComputeResource available to satisfy the
 	// request. Instead, ErrInvalidAllocationRequest indicates that the request itself was illegal or issued under
 	// invalid circumstances, such as there being no existing Allocation of type PendingAllocation when
-	// attempting to commit Resources to a particular kernel replica. Alternatively, a kernel replica may be getting
+	// attempting to commit ComputeResource to a particular kernel replica. Alternatively, a kernel replica may be getting
 	// evicted, but no existing Allocation is found for that particular kernel replica.
 	ErrInvalidAllocationRequest = errors.New("the resource allocation could not be completed due to the request being invalid")
 
-	// ErrInvalidOperation indicates that adding or subtracting the specified Resources to/from the internal resource
-	// counts of a Resources struct would result in an invalid/illegal resource count within that Resources struct,
+	// ErrInvalidOperation indicates that adding or subtracting the specified ComputeResource to/from the internal resource
+	// counts of a ComputeResource struct would result in an invalid/illegal resource count within that ComputeResource struct,
 	// such as a negative quantity for cpus, gpus, or memory.
 	ErrInvalidOperation = errors.New("the requested resource operation would result in an invalid resource count")
 
@@ -35,15 +35,15 @@ var (
 // quantity or quantities or involved, what the nature of the inconsistency or illegal state is, etc.
 type InconsistentResourcesError struct {
 	// ResourceKind indicates which kind of resource is in an inconsistent or invalid state.
-	ResourceKind ResourceKind
+	ResourceKind Kind
 
 	// ResourceStatus indicates which status of resource is in an inconsistent or invalid state.
-	ResourceStatus ResourceStatus
+	ResourceStatus Status
 
-	// ResourceInconsistency defines the various ways in which Resources can be in an inconsistent or illegal state.
-	// Examples include a resource being negative, a resource quantity being larger than the total available Resources
+	// ResourceInconsistency defines the various ways in which ComputeResource can be in an inconsistent or illegal state.
+	// Examples include a resource being negative, a resource quantity being larger than the total available ComputeResource
 	// of that kind on the node, and so on.
-	ResourceInconsistency ResourceInconsistency
+	ResourceInconsistency Inconsistency
 
 	// Quantity is the value of the inconsistent/invalid resource.
 	Quantity decimal.Decimal
@@ -65,7 +65,7 @@ type InconsistentResourcesError struct {
 // NewInconsistentResourcesError creates a new InconsistentResourcesError struct and returns a pointer to it.
 //
 // This function sets the ReferenceQuantityIsMeaningful field to false.
-func NewInconsistentResourcesError(kind ResourceKind, inconsistency ResourceInconsistency, status ResourceStatus,
+func NewInconsistentResourcesError(kind Kind, inconsistency Inconsistency, status Status,
 	quantity decimal.Decimal) *InconsistentResourcesError {
 
 	return &InconsistentResourcesError{
@@ -82,8 +82,8 @@ func NewInconsistentResourcesError(kind ResourceKind, inconsistency ResourceInco
 // returns a pointer to it.
 //
 // This function sets the ReferenceQuantityIsMeaningful field to true.
-func NewInconsistentResourcesErrorWithResourceQuantity(kind ResourceKind, inconsistency ResourceInconsistency,
-	status ResourceStatus, quantity decimal.Decimal, referenceQuantity decimal.Decimal) *InconsistentResourcesError {
+func NewInconsistentResourcesErrorWithResourceQuantity(kind Kind, inconsistency Inconsistency,
+	status Status, quantity decimal.Decimal, referenceQuantity decimal.Decimal) *InconsistentResourcesError {
 
 	return &InconsistentResourcesError{
 		ResourceKind:                  kind,

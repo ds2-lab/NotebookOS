@@ -17,6 +17,10 @@ import (
 	"time"
 )
 
+const (
+	FilterRoute = "/filter" // Used by the Scheduler to expose an HTTP endpoint.
+)
+
 type KubernetesScheduler struct {
 	*BaseScheduler
 
@@ -80,7 +84,7 @@ func (s *KubernetesScheduler) postScheduleKernelReplica(kernelId string, addRepl
 	addReplicaOp.SetContainerName(podOrContainerName)
 }
 
-func (s *KubernetesScheduler) RemoveReplicaFromHost(_ KernelReplica) error {
+func (s *KubernetesScheduler) RemoveReplicaFromHost(_ scheduling.KernelReplica) error {
 	panic("Not implemented")
 }
 

@@ -2643,7 +2643,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 	}
 
 	if snapshotWrapper.ResourceWrapperSnapshot != nil {
-		d.log.Debug(utils.LightBlueStyle.Render("Extracted ResourceWrapperSnapshot from metadata frame of Jupyter \"%s\" message: %s"),
+		d.log.Debug(utils.LightBlueStyle.Render("Extracted ManagerSnapshot from metadata frame of Jupyter \"%s\" message: %s"),
 			jupyter.ShellExecuteReply, snapshotWrapper.ResourceWrapperSnapshot.String())
 	} else {
 		d.log.Warn(utils.OrangeStyle.Render("Jupyter \"%s\" did not contain an \"%s\" entry..."), msg.JupyterMessageType(), scheduling.ResourceSnapshotMetadataKey)

@@ -1,9 +1,5 @@
 package scheduling
 
-const (
-	FilterRoute = "/filter" // Used by the Scheduler to expose an HTTP endpoint.
-)
-
 // ContainerWatcher watches for new Pods/Containers.
 //
 // The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.

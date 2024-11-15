@@ -213,10 +213,10 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 	}
 }
 
-// canPossiblyScaleOut returns true if the Cluster could possibly scale-out.
+// CanPossiblyScaleOut returns true if the Cluster could possibly scale-out.
 // This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
 // it is currently not supported unless there is at least one disabled host already within the cluster.
-func (c *DockerSwarmCluster) canPossiblyScaleOut() bool {
+func (c *DockerSwarmCluster) CanPossiblyScaleOut() bool {
 	return c.DisabledHosts.Len() > 0
 }
 

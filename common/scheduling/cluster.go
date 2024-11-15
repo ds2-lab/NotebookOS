@@ -162,4 +162,9 @@ type Cluster interface {
 	// Cluster's GetOversubscriptionFactor simply calls the GetOversubscriptionFactor method of the
 	// Cluster's ClusterScheduler.
 	GetOversubscriptionFactor(ratio decimal.Decimal) decimal.Decimal
+
+	// CanPossiblyScaleOut returns true if the Cluster could possibly scale-out.
+	// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
+	// it is currently not supported unless there is at least one disabled host already within the cluster.
+	CanPossiblyScaleOut() bool
 }

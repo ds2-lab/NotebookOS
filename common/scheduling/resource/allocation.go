@@ -11,13 +11,13 @@ import (
 
 const (
 	// PendingAllocation indicates that a Allocation is "pending" rather than "committed".
-	// This means that the Resources are not "actually" allocated to the associated kernel replica.
-	// The kernel replica is merely scheduled locally, but it has not bound to these Resources.
+	// This means that the ComputeResource are not "actually" allocated to the associated kernel replica.
+	// The kernel replica is merely scheduled locally, but it has not bound to these ComputeResource.
 	PendingAllocation AllocationType = "pending"
 
 	//CommittedAllocation indicates that a Allocation has been committed to the associated kernel replica.
 	//That is, the GPUs, Millicpus, and Memory specified in the allocation are actively committed and bound to the
-	//associated kernel replica. These Resources are not available for use by other kernel replicas.
+	//associated kernel replica. These ComputeResource are not available for use by other kernel replicas.
 	CommittedAllocation AllocationType = "committed"
 
 	// ResourceSnapshotMetadataKey is used as a key for the metadata dictionary of Jupyter messages
@@ -38,8 +38,8 @@ func (t AllocationType) String() string {
 	return string(t)
 }
 
-// Allocation encapsulates an allocation of Resources to a kernel replica.
-// Each Allocation encapsulates an allocation of GPU, CPU, and Memory Resources.
+// Allocation encapsulates an allocation of ComputeResource to a kernel replica.
+// Each Allocation encapsulates an allocation of GPU, CPU, and Memory ComputeResource.
 type Allocation struct {
 	// AllocationId is the unique ID of the allocation.
 	AllocationId string `json:"ID"`
@@ -63,20 +63,20 @@ type Allocation struct {
 	// KernelId is the ID of the kernel whose replica was allocated GPUs.
 	KernelId string `json:"kernel_id"`
 
-	// Timestamp is the time at which the Resources were allocated to the replica.
+	// Timestamp is the time at which the ComputeResource were allocated to the replica.
 	Timestamp time.Time `json:"timestamp"`
 
 	// AllocationType indicates whether the Allocation is "pending" or "committed".
 	//
-	// "Pending" indicates that the Resources are not "actually" allocated to the associated kernel replica.
-	// The kernel replica is merely scheduled locally, but it has not bound to these Resources.
+	// "Pending" indicates that the ComputeResource are not "actually" allocated to the associated kernel replica.
+	// The kernel replica is merely scheduled locally, but it has not bound to these ComputeResource.
 	//
 	// "Committed" indicates that a Allocation has been committed to the associated kernel replica.
 	// That is, the GPUs, Millicpus, and Memory specified in the allocation are actively committed and bound to the
-	// associated kernel replica. These Resources are not available for use by other kernel replicas.
+	// associated kernel replica. These ComputeResource are not available for use by other kernel replicas.
 	AllocationType AllocationType `json:"allocation_type"`
 
-	// IsReservation indicates whether the Resources were commited in anticipation of a leader election,
+	// IsReservation indicates whether the ComputeResource were commited in anticipation of a leader election,
 	// or if they are committed to a kernel that is actively training.
 	IsReservation bool `json:"is_reservation"`
 
@@ -166,7 +166,7 @@ func (a *Allocation) ToDecimalSpec() *types.DecimalSpec {
 	}
 }
 
-// IsNonZero returns true if any of the Resources (cpu, gpu, memory) encapsulated by the Allocation are > 0.
+// IsNonZero returns true if any of the ComputeResource (cpu, gpu, memory) encapsulated by the Allocation are > 0.
 func (a *Allocation) IsNonZero() bool {
 	return a.GPUs.GreaterThan(decimal.Zero) || a.Millicpus.GreaterThan(decimal.Zero) || a.MemoryMB.GreaterThan(decimal.Zero)
 }

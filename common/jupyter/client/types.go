@@ -5,6 +5,7 @@ import (
 	jupyterTypes "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"time"
 )
@@ -14,17 +15,17 @@ import (
 type AbstractDistributedKernelClient interface {
 	SessionManager
 
-	SetSession(session *scheduling.Session)
-	GetSession() *scheduling.Session
-	GetContainers() []*scheduling.Container
+	SetSession(session *scheduling.UserSession)
+	GetSession() *scheduling.UserSession
+	GetContainers() []*entity.Container
 	ShellListenPort() int
 	IOPubListenPort() int
-	ActiveExecution() *scheduling.ActiveExecution
-	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*scheduling.ActiveExecution, bool)
+	ActiveExecution() *entity.ActiveExecution
+	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*entity.ActiveExecution, bool)
 	ExecutionFailedCallback() ExecutionFailedCallback
-	SetActiveExecution(activeExecution *scheduling.ActiveExecution)
+	SetActiveExecution(activeExecution *entity.ActiveExecution)
 	ExecutionComplete(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot], msg *jupyterTypes.JupyterMessage) (bool, error)
-	EnqueueActiveExecution(attemptId int, msg *jupyterTypes.JupyterMessage) *scheduling.ActiveExecution
+	EnqueueActiveExecution(attemptId int, msg *jupyterTypes.JupyterMessage) *entity.ActiveExecution
 	ResetID(id string)
 	PersistentID() string
 	String() string
@@ -43,10 +44,10 @@ type AbstractDistributedKernelClient interface {
 	Replicas() []scheduling.KernelReplica
 	PodOrContainerName(id int32) (string, error)
 	PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec
-	AddReplica(r scheduling.KernelReplica, host *scheduling.Host) error
-	RemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (*scheduling.Host, error)
+	AddReplica(r scheduling.KernelReplica, host *entity.Host) error
+	RemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (*entity.Host, error)
 	GetReplicaByID(id int32) (scheduling.KernelReplica, error)
-	RemoveReplicaByID(id int32, remover scheduling.ReplicaRemover, noop bool) (*scheduling.Host, error)
+	RemoveReplicaByID(id int32, remover scheduling.ReplicaRemover, noop bool) (*entity.Host, error)
 	Validate() error
 	InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*jupyterTypes.Socket, error)
 	InitializeIOForwarder() (*jupyterTypes.Socket, error)
@@ -72,8 +73,8 @@ type AbstractDistributedKernelClient interface {
 // AbstractKernelClient is just an extraction of the public/exported methods of the
 // KernelReplicaClient struct into an interface so that we can mock the interface for unit tests.
 type AbstractKernelClient interface {
-	Container() *scheduling.Container
-	SetContainer(container *scheduling.Container)
+	Container() *entity.Container
+	SetContainer(container *entity.Container)
 	IsTraining() bool
 	WaitForTrainingToStop()
 	WaitForPendingExecuteRequests()
@@ -121,7 +122,7 @@ type AbstractKernelClient interface {
 	AddIOHandler(topic string, handler MessageBrokerHandler[scheduling.Kernel, *jupyterTypes.JupyterFrames, *jupyterTypes.JupyterMessage]) error
 	RequestWithHandler(ctx context.Context, _ string, typ jupyterTypes.MessageType, msg *jupyterTypes.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error
 	Close() error
-	GetHost() *scheduling.Host
-	SetHost(host *scheduling.Host)
+	GetHost() *entity.Host
+	SetHost(host *entity.Host)
 	InitializeIOSub(handler jupyterTypes.MessageHandler, subscriptionTopic string) (*jupyterTypes.Socket, error)
 }
