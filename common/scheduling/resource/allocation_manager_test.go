@@ -4,7 +4,6 @@ import (
 	"errors"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/resource"
 	distNbTesting "github.com/zhangjyr/distributed-notebook/common/testing"
 	"github.com/zhangjyr/distributed-notebook/common/types"
@@ -151,7 +150,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(insufficientResourcesError).ToNot(BeNil())
 
 		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
-		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.CPU))
+		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(resource.CPU))
 		Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel3spec))
 		Expect(insufficientResourcesError.AvailableResources).To(Equal(resourceManager.IdleResources()))
 
