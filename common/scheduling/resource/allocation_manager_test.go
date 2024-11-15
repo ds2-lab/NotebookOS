@@ -5,16 +5,17 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/resource"
 	distNbTesting "github.com/zhangjyr/distributed-notebook/common/testing"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
 var _ = Describe("AllocationManager Standard Tests", func() {
-	var resourceManager *scheduling.ResourceManager
+	var resourceManager *resource.AllocationManager
 	resourceManagerSpec := types.NewDecimalSpec(8000, 64000, 8, 32)
 
 	BeforeEach(func() {
-		resourceManager = scheduling.NewResourceManager(resourceManagerSpec)
+		resourceManager = resource.NewAllocationManager(resourceManagerSpec)
 	})
 
 	It("Will correctly handle the scheduling of a single pending resource request", func() {
@@ -85,7 +86,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
 		err := resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, scheduling.ErrInvalidAllocationRequest)).To(BeTrue())
+		Expect(errors.Is(err, resource.ErrInvalidAllocationRequest)).To(BeTrue())
 	})
 
 	It("Will correctly handle scheduling multiple committed resources", func() {
@@ -144,7 +145,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		err = resourceManager.CommitResources(1, "Kernel3", kernel3spec, false)
 		Expect(err).ToNot(BeNil())
 
-		var insufficientResourcesError *scheduling.InsufficientResourcesError
+		var insufficientResourcesError *resource.InsufficientResourcesError
 		ok := errors.As(err, &insufficientResourcesError)
 		Expect(ok).To(BeTrue())
 		Expect(insufficientResourcesError).ToNot(BeNil())
@@ -170,7 +171,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(insufficientResourcesError).ToNot(BeNil())
 
 		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
-		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.GPU))
+		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(resource.GPU))
 		Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel4spec))
 		Expect(insufficientResourcesError.AvailableResources).To(Equal(resourceManager.IdleResources()))
 
@@ -190,7 +191,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(insufficientResourcesError).ToNot(BeNil())
 
 		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
-		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.Memory))
+		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(resource.Memory))
 		Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel5spec))
 		Expect(insufficientResourcesError.AvailableResources).To(Equal(resourceManager.IdleResources()))
 
@@ -210,7 +211,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(insufficientResourcesError).ToNot(BeNil())
 
 		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
-		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.VRAM))
+		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(resource.VRAM))
 		Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel6spec))
 		Expect(insufficientResourcesError.AvailableResources).To(Equal(resourceManager.IdleResources()))
 
@@ -231,10 +232,10 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(4))
 
-		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.CPU)).To(BeTrue())
-		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.Memory)).To(BeTrue())
-		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.GPU)).To(BeTrue())
-		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.VRAM)).To(BeTrue())
+		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, resource.CPU)).To(BeTrue())
+		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, resource.Memory)).To(BeTrue())
+		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, resource.GPU)).To(BeTrue())
+		Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, resource.VRAM)).To(BeTrue())
 
 		Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel7spec))
 		Expect(insufficientResourcesError.AvailableResources).To(Equal(resourceManager.IdleResources()))
@@ -301,7 +302,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 	It("Will correctly return an error when trying to evict a non-existent kernel replica", func() {
 		err := resourceManager.ReplicaEvicted(1, "Kernel1")
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, scheduling.ErrInvalidAllocationRequest)).To(BeTrue())
+		Expect(errors.Is(err, resource.ErrInvalidAllocationRequest)).To(BeTrue())
 	})
 
 	It("Will correctly handle deallocating committed resources from a kernel replica", func() {
@@ -339,11 +340,11 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 		Expect(err).ToNot(BeNil())
 
-		var insufficientResourcesError *scheduling.InsufficientResourcesError
+		var insufficientResourcesError *resource.InsufficientResourcesError
 		Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 		Expect(insufficientResourcesError).ToNot(BeNil())
 		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
-		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.GPU))
+		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(resource.GPU))
 		Expect(resourceManagerSpec.Equals(insufficientResourcesError.AvailableResources)).To(BeTrue())
 		Expect(kernel1Spec.Equals(insufficientResourcesError.RequestedResources)).To(BeTrue())
 	})
@@ -354,11 +355,11 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 		Expect(err).ToNot(BeNil())
 
-		var insufficientResourcesError *scheduling.InsufficientResourcesError
+		var insufficientResourcesError *resource.InsufficientResourcesError
 		Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 		Expect(insufficientResourcesError).ToNot(BeNil())
 		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
-		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.GPU))
+		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(resource.GPU))
 		Expect(resourceManagerSpec.Equals(insufficientResourcesError.AvailableResources)).To(BeTrue())
 		Expect(kernel1Spec.Equals(insufficientResourcesError.RequestedResources)).To(BeTrue())
 
@@ -394,11 +395,11 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		err = resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 		Expect(err).ToNot(BeNil())
 
-		var insufficientResourcesError *scheduling.InsufficientResourcesError
+		var insufficientResourcesError *resource.InsufficientResourcesError
 		Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 		Expect(insufficientResourcesError).ToNot(BeNil())
 		Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
-		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(scheduling.GPU))
+		Expect(insufficientResourcesError.OffendingResourceKinds[0]).To(Equal(resource.GPU))
 		Expect(updatedResourceManagerSpec.Equals(insufficientResourcesError.AvailableResources)).To(BeTrue())
 		Expect(kernel1Spec.Equals(insufficientResourcesError.RequestedResources)).To(BeTrue())
 	})
@@ -422,13 +423,13 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		err = resourceManager.AdjustSpecGPUs(1)
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, scheduling.ErrIllegalGpuAdjustment)).To(BeTrue())
+		Expect(errors.Is(err, resource.ErrIllegalGpuAdjustment)).To(BeTrue())
 	})
 
 	It("Will correctly return an error when trying to release committed resources from a non-existent kernel replica", func() {
 		err := resourceManager.ReleaseCommittedResources(1, "Kernel1")
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, scheduling.ErrInvalidAllocationRequest)).To(BeTrue())
+		Expect(errors.Is(err, resource.ErrInvalidAllocationRequest)).To(BeTrue())
 	})
 
 	It("Will correctly return an error when trying to release committed resources from a kernel replica that has only pending resources allocated to it", func() {
@@ -449,7 +450,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		err = resourceManager.ReleaseCommittedResources(1, "Kernel1")
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, scheduling.ErrInvalidAllocationType)).To(BeTrue())
+		Expect(errors.Is(err, resource.ErrInvalidAllocationType)).To(BeTrue())
 	})
 
 	It("Will correctly adjust a lone pending resource reservation to a smaller reservation", func() {
@@ -536,13 +537,13 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		err = resourceManager.AdjustPendingResources(1, "Kernel1", kernel1SpecV2)
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, scheduling.ErrInvalidOperation)).To(BeTrue())
+		Expect(errors.Is(err, resource.ErrInvalidOperation)).To(BeTrue())
 	})
 
 	It("Will fail to adjust a resource request that does not exist", func() {
 		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
 		err := resourceManager.AdjustPendingResources(1, "Kernel1", kernel1Spec)
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, scheduling.ErrAllocationNotFound)).To(BeTrue())
+		Expect(errors.Is(err, resource.ErrAllocationNotFound)).To(BeTrue())
 	})
 })
