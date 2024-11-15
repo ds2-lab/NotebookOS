@@ -1,6 +1,4 @@
-package cluster
-
-import "github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
+package scheduling
 
 const (
 	CategoryClusterIndex = "BaseCluster"
@@ -23,20 +21,20 @@ type IndexProvider interface {
 
 	// IsQualified returns the actual value according to the index category and whether the host is qualified.
 	// An index provider must be able to track indexed hosts and indicate disqualification.
-	IsQualified(*entity.Host) (actual interface{}, qualified IndexQualification)
+	IsQualified(Host) (actual interface{}, qualified IndexQualification)
 
 	// Len returns the number of hosts in the index.
 	Len() int
 
 	// Add adds a host to the index.
-	Add(*entity.Host)
+	Add(Host)
 
 	// Update updates a host in the index.
-	Update(*entity.Host)
+	Update(Host)
 
 	// Remove removes a host from the index.
-	Remove(*entity.Host)
+	Remove(Host)
 
 	// GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.
-	GetMetrics(*entity.Host) (metrics []float64)
+	GetMetrics(Host) (metrics []float64)
 }

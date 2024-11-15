@@ -22,7 +22,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-// MockAbstractDistributedKernelClient is a mock of AbstractDistributedKernelClient interface.
+// MockAbstractDistributedKernelClient is a mock of scheduling.Kernel interface.
 type MockAbstractDistributedKernelClient struct {
 	ctrl     *gomock.Controller
 	recorder *MockAbstractDistributedKernelClientMockRecorder

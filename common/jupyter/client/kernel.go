@@ -957,7 +957,6 @@ func (c *KernelReplicaClient) InitializeIOForwarder() (*types.Socket, error) {
 	c.iobroker.Subscribe(types.IOTopicStatus, c.handleIOKernelStatus)
 	c.iobroker.Subscribe(types.IOTopicSMRReady, c.handleIOKernelSMRReady)
 	c.iobroker.Subscribe(types.IOTopicSMRNodeAdded, c.handleIOKernelSMRNodeAdded)
-	// c.iobroker.Subscribe(types.IOTopicSMRNodeRemoved, c.handleIOKernelSMRNodeRemoved)
 	return iopub, nil
 }
 

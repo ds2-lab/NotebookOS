@@ -12,29 +12,20 @@ import (
 	"time"
 )
 
-const (
-	ContainerStateTraining  ContainerState = "SESSION_TRAINING"  // Indicates that the Container is actively running AND is actively training.
-	ContainerStateStopped   ContainerState = "SESSION_STOPPED"   // Indicates that the Container is permanently stopped.
-	ContainerStateIdle      ContainerState = "SESSION_IDLE"      // Indicates that the Container is actively running on a Host and is NOT actively performing a task.
-	ContainerStateMigrating ContainerState = "SESSION_MIGRATING" // Indicates that the Container is currently migrating to a new Host.
-)
-
-type ContainerState string
-
 type Container struct {
 	scheduling.KernelReplica
 
 	log logger.Logger
 
-	session           scheduling.UserSession // The Session associated with the Container.
-	replicaId         int32                  // The SMR node ID of the kernel replica running within the Container.
-	host              *Host                  // The Host on which the Container is currently scheduled.
-	id                string                 // The kernel ID of the Container.
-	containerState    ContainerState         // The current state of the Container.
-	executions        atomic.Int32           // The number of training events processed by the Container.
-	trainingStartedAt time.Time              // The time at which the Container started training.
-	startedAt         time.Time              // The time at which the Container was created.
-	addr              string                 // The address of the Container.
+	session           scheduling.UserSession    // The Session associated with the Container.
+	replicaId         int32                     // The SMR node ID of the kernel replica running within the Container.
+	host              *Host                     // The Host on which the Container is currently scheduled.
+	id                string                    // The kernel ID of the Container.
+	containerState    scheduling.ContainerState // The current state of the Container.
+	executions        atomic.Int32              // The number of training events processed by the Container.
+	trainingStartedAt time.Time                 // The time at which the Container started training.
+	startedAt         time.Time                 // The time at which the Container was created.
+	addr              string                    // The address of the Container.
 
 	spec     *types.DecimalSpec
 	lastSpec *types.DecimalSpec
@@ -58,7 +49,7 @@ func NewContainer(session scheduling.UserSession, kernelReplica scheduling.Kerne
 		host:           host,
 		session:        session,
 		log:            config.GetLogger(fmt.Sprintf("Container %s-%d ", session.ID(), kernelReplica.ReplicaID())),
-		containerState: ContainerStateIdle,
+		containerState: scheduling.ContainerStateIdle,
 		spec:           types.ToDecimalSpec(session.ResourceSpec()),
 		startedAt:      time.Now(),
 		addr:           kernelIp,
@@ -144,7 +135,7 @@ func (c *Container) Host() *Host {
 
 func (c *Container) getInteractivePriority() float64 {
 	c.interactivePriority.Validator(time.Now())
-	required := c.session.ResourceUtilization().NumGpusAsFloat() // float64(c.Session().Meta().GPU.GPUs)
+	required := float64(c.session.ResourceUtilization().GetNumGpus())
 	idleGPUs := c.host.Stats().IdleGPUs()
 	extras := 0.0
 	extraExplain := "0.0"
@@ -198,32 +189,32 @@ func (c *Container) Explain(key scheduling.ExplainerEntry) string {
 }
 
 // ContainerState returns the Container's current state.
-func (c *Container) ContainerState() ContainerState {
+func (c *Container) ContainerState() scheduling.ContainerState {
 	return c.containerState
 }
 
 // IsStopped returns true if the Session has been terminated.
 func (c *Container) IsStopped() bool {
-	return c.containerState == ContainerStateStopped
+	return c.containerState == scheduling.ContainerStateStopped
 }
 
 // IsIdle returns true if the Session is currently idle, meaning that none of its replicas are currently training.
 func (c *Container) IsIdle() bool {
-	return c.containerState == ContainerStateIdle
+	return c.containerState == scheduling.ContainerStateIdle
 }
 
 // IsMigrating returns true if one or more replicas are currently migrating from one Host to another.
 func (c *Container) IsMigrating() bool {
-	return c.containerState == ContainerStateMigrating
+	return c.containerState == scheduling.ContainerStateMigrating
 }
 
 // IsTraining returns true if the Session is actively training.
 // Otherwise, IsTraining returns false.
 func (c *Container) IsTraining() bool {
-	return c.containerState == ContainerStateIdle
+	return c.containerState == scheduling.ContainerStateIdle
 }
 
-func (c *Container) transition(targetState ContainerState) error {
+func (c *Container) transition(targetState scheduling.ContainerState) error {
 	if c.IsStopped() {
 		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidStateTransition, c.containerState, targetState)
 	}
@@ -265,17 +256,17 @@ func TrainingStartedInContainer(c *Container, snapshot types.HostResourceSnapsho
 	}
 
 	c.trainingStartedAt = time.Now()
-	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().NumGpus))
-	c.spec.UpdateSpecCPUs(c.Session().ResourceUtilization().CpuUtilization)
-	c.spec.UpdateSpecMemoryMB(c.Session().ResourceUtilization().MemoryUsageMb)
+	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().GetNumGpus()))
+	c.spec.UpdateSpecCPUs(c.Session().ResourceUtilization().GetCpuUtilization())
+	c.spec.UpdateSpecMemoryMB(c.Session().ResourceUtilization().GetMemoryUsageMb())
 
 	// Processing a new training event.
 	c.executions.Add(1)
 
 	c.interactivePriorityBase = c.host.Stats().LastReschedule().Load()
 
-	if err := c.transition(ContainerStateTraining); err != nil {
-		c.log.Error("Failed to transition to state %v because: %v", ContainerStateTraining, err)
+	if err := c.transition(scheduling.ContainerStateTraining); err != nil {
+		c.log.Error("Failed to transition to state %v because: %v", scheduling.ContainerStateTraining, err)
 		return err
 	}
 
@@ -286,8 +277,8 @@ func TrainingStartedInContainer(c *Container, snapshot types.HostResourceSnapsho
 //
 // This should be called by the Session's SessionStoppedTraining method.
 func ContainerStoppedTraining(c *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
-	if err := c.transition(ContainerStateIdle); err != nil {
-		c.log.Error("Failed to transition Container to state %v because: %v", ContainerStateIdle, err)
+	if err := c.transition(scheduling.ContainerStateIdle); err != nil {
+		c.log.Error("Failed to transition Container to state %v because: %v", scheduling.ContainerStateIdle, err)
 		return err
 	}
 
@@ -335,8 +326,8 @@ func (c *Container) ContainedStopped() error {
 	// is attempted, and ErrNilHost is returned directly by ContainedStopped if the Container's host field is nil.)
 	//
 
-	if err := c.transition(ContainerStateStopped); err != nil {
-		c.log.Error("Failed to transition Container to state %v because: %v", ContainerStateStopped, err)
+	if err := c.transition(scheduling.ContainerStateStopped); err != nil {
+		c.log.Error("Failed to transition Container to state %v because: %v", scheduling.ContainerStateStopped, err)
 		return err
 	}
 

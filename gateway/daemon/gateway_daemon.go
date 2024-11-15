@@ -99,7 +99,7 @@ type GatewayDaemonConfig func(ClusterGateway)
 // The primary purpose is simply to send a notification to the dashboard that a panic occurred before exiting.
 // This makes error detection easier (i.e., it's immediately obvious when the system breaks as we're notified
 // visually of the panic in the cluster dashboard).
-type FailureHandler func(c client.AbstractDistributedKernelClient) error
+type FailureHandler func(c scheduling.Kernel) error
 
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
 type ClusterGateway interface {
@@ -177,8 +177,8 @@ type ClusterGatewayImpl struct {
 	// kernel members
 	transport        string
 	ip               string
-	kernels          hashmap.HashMap[string, client.AbstractDistributedKernelClient] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
-	kernelIdToKernel hashmap.HashMap[string, client.AbstractDistributedKernelClient] // Map from Kernel ID to client.DistributedKernelClient.
+	kernels          hashmap.HashMap[string, scheduling.Kernel] // Map with possible duplicate values. We map kernel ID and session ID to the associated kernel. There may be multiple sessions per kernel.
+	kernelIdToKernel hashmap.HashMap[string, scheduling.Kernel] // Map from Kernel ID to client.DistributedKernelClient.
 	kernelSpecs      hashmap.HashMap[string, *proto.KernelSpec]
 
 	// numActiveKernels is the number of actively-running kernels.
@@ -331,8 +331,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		ip:                                       opts.IP,
 		DebugMode:                                clusterDaemonOptions.CommonOptions.DebugMode,
 		availablePorts:                           utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
-		kernels:                                  hashmap.NewCornelkMap[string, client.AbstractDistributedKernelClient](128),
-		kernelIdToKernel:                         hashmap.NewCornelkMap[string, client.AbstractDistributedKernelClient](128),
+		kernels:                                  hashmap.NewCornelkMap[string, scheduling.Kernel](128),
+		kernelIdToKernel:                         hashmap.NewCornelkMap[string, scheduling.Kernel](128),
 		kernelSpecs:                              hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
 		waitGroups:                               hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
 		kernelRegisteredNotifications:            hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](128),
@@ -1123,7 +1123,7 @@ func (d *ClusterGatewayImpl) SmrNodeAdded(_ context.Context, replicaInfo *proto.
 // we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
 //
 // If we do not reconnect successfully, then this method is called.
-func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel *client.KernelReplicaClient, msg *jupyter.JupyterMessage, reconnectionError error) { /* client client.AbstractDistributedKernelClient,  */
+func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel *client.KernelReplicaClient, msg *jupyter.JupyterMessage, reconnectionError error) { /* client scheduling.Kernel,  */
 	_, messageType, err := d.kernelAndTypeFromMsg(msg)
 	if err != nil {
 		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
@@ -1142,7 +1142,7 @@ func (d *ClusterGatewayImpl) kernelReconnectionFailed(kernel *client.KernelRepli
 //
 // If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
 // then this method is called.
-func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(kernel *client.KernelReplicaClient, msg *jupyter.JupyterMessage, resubmissionError error) { /* client client.AbstractDistributedKernelClient, */
+func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(kernel *client.KernelReplicaClient, msg *jupyter.JupyterMessage, resubmissionError error) { /* client scheduling.Kernel, */
 	_, messageType, err := d.kernelAndTypeFromMsg(msg)
 	if err != nil {
 		d.log.Error("Failed to extract message type from ZMQ message because: %v", err)
@@ -1156,19 +1156,19 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 	d.notifyDashboardOfError("Connection to Kernel Lost, Reconnection Succeeded, but Request Resubmission Failed", errorMessage)
 }
 
-func (d *ClusterGatewayImpl) executionFailed(c client.AbstractDistributedKernelClient) error {
+func (d *ClusterGatewayImpl) executionFailed(c scheduling.Kernel) error {
 	execution := c.ActiveExecution()
 	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.", execution.ExecutionId, execution.AttemptId, c.ID())
 
 	return d.failureHandler(c)
 }
 
-func (d *ClusterGatewayImpl) defaultFailureHandler(_ client.AbstractDistributedKernelClient) error {
+func (d *ClusterGatewayImpl) defaultFailureHandler(_ scheduling.Kernel) error {
 	d.log.Warn("There is no failure handler for the DEFAULT scheduling policy.")
 	return fmt.Errorf("there is no failure handler for the DEFAULT scheduling policy; cannot handle error")
 }
 
-func (d *ClusterGatewayImpl) fcfsBatchSchedulingFailureHandler(_ client.AbstractDistributedKernelClient) error {
+func (d *ClusterGatewayImpl) fcfsBatchSchedulingFailureHandler(_ scheduling.Kernel) error {
 	d.log.Warn("There is no failure handler for the FCFS Batch scheduling policy.")
 	return fmt.Errorf("there is no failure handler for the FCFS Batch policy; cannot handle error")
 }
@@ -1264,7 +1264,7 @@ func (d *ClusterGatewayImpl) notifyDashboardOfWarning(warningName string, warnin
 
 // staticSchedulingFailureHandler is a callback to be invoked when all replicas of a
 // kernel propose 'YIELD' while static scheduling is set as the configured scheduling policy.
-func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c client.AbstractDistributedKernelClient) error {
+func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c scheduling.Kernel) error {
 	// Dynamically migrate one of the existing replicas to another node.
 	//
 	// Randomly select a replica to migrate.
@@ -1385,11 +1385,11 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(c client.AbstractDis
 	return nil
 }
 
-func (d *ClusterGatewayImpl) dynamicV3FailureHandler(_ client.AbstractDistributedKernelClient) error {
+func (d *ClusterGatewayImpl) dynamicV3FailureHandler(_ scheduling.Kernel) error {
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 }
 
-func (d *ClusterGatewayImpl) dynamicV4FailureHandler(_ client.AbstractDistributedKernelClient) error {
+func (d *ClusterGatewayImpl) dynamicV4FailureHandler(_ scheduling.Kernel) error {
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
 }
 
@@ -1426,7 +1426,7 @@ func (d *ClusterGatewayImpl) KubernetesMode() bool {
 }
 
 // startNewKernel is called by StartKernel when creating a brand-new kernel, rather than restarting an existing kernel.
-func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (client.AbstractDistributedKernelClient, error) {
+func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Kernel, error) {
 	d.log.Debug("Did not find existing DistributedKernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
 
 	listenPorts, err := d.availablePorts.RequestPorts()
@@ -1481,7 +1481,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in)
 
 	var (
-		kernel client.AbstractDistributedKernelClient
+		kernel scheduling.Kernel
 		ok     bool
 		err    error
 	)
@@ -1609,7 +1609,7 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 // addReplicaNewPodOrContainerNotifications field.
 //
 // IMPORTANT: This will release the main mutex before returning.
-func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegistrationNotification, kernel client.AbstractDistributedKernelClient, waitGroup *registrationWaitGroups) (*proto.KernelRegistrationNotificationResponse, error) {
+func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegistrationNotification, kernel scheduling.Kernel, waitGroup *registrationWaitGroups) (*proto.KernelRegistrationNotificationResponse, error) {
 	// We load-and-delete the entry so that, if we migrate the same replica again in the future, then we can't load
 	// the old AddReplicaOperation struct...
 	key := fmt.Sprintf("%s-%d", in.KernelId, in.ReplicaId)
@@ -2656,7 +2656,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *jupyter
 	return nil
 }
 
-func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel client.AbstractDistributedKernelClient) error {
+func (d *ClusterGatewayImpl) processExecuteRequest(msg *jupyter.JupyterMessage, kernel scheduling.Kernel) error {
 	kernelId := kernel.ID()
 	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg.StringFormatted())
 
@@ -2713,7 +2713,7 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 	d.log.Debug("Received 'FailNextExecution' request targeting kernel %s.", in.Id)
 
 	var (
-		kernel client.AbstractDistributedKernelClient
+		kernel scheduling.Kernel
 		loaded bool
 	)
 
@@ -2788,7 +2788,7 @@ func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 }
 
 // Extract the Kernel ID and the message type from the given ZMQ message.
-func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *jupyter.JupyterMessage) (kernel client.AbstractDistributedKernelClient, messageType string, err error) {
+func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *jupyter.JupyterMessage) (kernel scheduling.Kernel, messageType string, err error) {
 	// This is initially the kernel's ID, which is the DestID field of the message.
 	// But we may not have set a destination ID field within the message yet.
 	// In this case, we'll fall back to the session ID within the message's Jupyter header.
@@ -2825,7 +2825,7 @@ func (d *ClusterGatewayImpl) kernelAndTypeFromMsg(msg *jupyter.JupyterMessage) (
 	return kernel, messageType, nil
 }
 
-func (d *ClusterGatewayImpl) forwardRequest(kernel client.AbstractDistributedKernelClient, typ jupyter.MessageType, msg *jupyter.JupyterMessage) (err error) {
+func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ jupyter.MessageType, msg *jupyter.JupyterMessage) (err error) {
 	goroutineId := goid.Get()
 	// var messageType string
 	if kernel == nil {
@@ -2999,7 +2999,7 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 	d.Lock()
 	defer d.Unlock()
 
-	d.kernelIdToKernel.Range(func(id string, kernel client.AbstractDistributedKernelClient) bool {
+	d.kernelIdToKernel.Range(func(id string, kernel scheduling.Kernel) bool {
 		// d.log.Debug("Will be returning Kernel %s with %d replica(s) [%v] [%v].", id, kernel.Len(), kernel.Status(), kernel.AggregateBusyStatus())
 
 		respKernel := &proto.DistributedJupyterKernel{

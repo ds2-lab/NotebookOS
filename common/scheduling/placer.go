@@ -2,7 +2,6 @@ package scheduling
 
 import (
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
@@ -19,22 +18,22 @@ import (
 type Placer interface {
 	// FindHosts returns a list of hosts that can satisfy the resourceSpec.
 	// The number of hosts returned is determined by the placer.
-	FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []*entity.Host
+	FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []Host
 
 	// FindHost returns a host that can satisfy the resourceSpec.
 	// This method is provided for development. Implementation are not required to implement this method.
-	FindHost(blacklist []interface{}, metrics types.Spec) *entity.Host
+	FindHost(blacklist []interface{}, metrics types.Spec) Host
 
 	// Place atomically places a replica on a host.
 	// The subscription rate of the host will be checked before placing the replica. If the rate is above the threshold, a new host will be launched to place the replica.
 	// The reasons to launch a new host are:
 	// 1. If the host is selected by the placer, the subscription rate is updated before placement to ensure the rate is below the threshold.
 	// 2. We assume the host selected by the scheduler is best fit. If such a choice would fail the subscription rate check, a reselection could not help.
-	Place(host *entity.Host, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error)
+	Place(host Host, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error)
 
 	// Reclaim atomically reclaims a replica from a host.
 	// If noop is specified, it is the caller's responsibility to stop the replica.
-	Reclaim(host *entity.Host, sess UserSession, noop bool) error
+	Reclaim(host Host, sess UserSession, noop bool) error
 
 	// NumHostsInIndex returns the length of the Placer's index.
 	NumHostsInIndex() int

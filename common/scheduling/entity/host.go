@@ -36,9 +36,6 @@ var (
 	ErrHostAlreadyIncludedForScheduling = errors.New("the specified host is already being included for consideration in scheduling operations")
 )
 
-// ErrorCallback defines a function to be called if a Host appears to be dead.
-type ErrorCallback func(localDaemonId string, nodeName string, errorName string, errorMessage string) error
-
 // ResourceSpec defines the ComputeResource available on a particular Host.
 type ResourceSpec struct {
 	CPUs     float64 `json:"cpus"`
@@ -46,91 +43,9 @@ type ResourceSpec struct {
 	GPUs     float64 `json:"gpus"`
 }
 
-type PreemptionInfo interface {
-	fmt.Stringer
-
-	Penalty() float64
-	Candidates() ContainerList
-}
-
 // OversubscriptionQuerierFunction is a function used by Host's to compare their subscription ratio against the
 // Cluster's subscription ratio/factor. This is used to determine if a Host is fit to serve a Container or not.
 type OversubscriptionQuerierFunction func(ratio decimal.Decimal) decimal.Decimal
-
-type HostStatistics interface {
-	// Priority returns the host's "priority", which is the benefit gained or lost in terms of GPU time per migration.
-	Priority(session *Session) float64
-
-	// ScaleInPriority returns the host's "scheduling-in priority", or SIP, which is defined as a * the interactive
-	// priority of a given task + b * the sum of the preemption priorities of the preemptible tasks
-	ScaleInPriority() float64
-
-	// IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
-	IdleGPUs() float64
-
-	// PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
-	// Pending GPUs are NOT actively bound to any
-	PendingGPUs() float64
-
-	// CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
-	CommittedGPUs() float64
-
-	// IdleCPUs returns the number of Millicpus that the host has not allocated to any Containers.
-	IdleCPUs() float64
-
-	// PendingCPUs returns the number of Millicpus that are oversubscribed by Containers scheduled on the Host.
-	// Pending Millicpus are NOT actively bound to any
-	PendingCPUs() float64
-
-	// CommittedCPUs returns the number of Millicpus that are actively bound to Containers scheduled on the Host.
-	CommittedCPUs() float64
-
-	// IdleMemoryMb returns the amount of memory, in megabytes (MB), that the host has not allocated to any Containers.
-	IdleMemoryMb() float64
-
-	// PendingMemoryMb returns the amount of memory, in megabytes (MB), that is oversubscribed by Containers scheduled on the Host.
-	// Pending MemoryMb are NOT actively bound to any
-	PendingMemoryMb() float64
-
-	// CommittedMemoryMb returns the amount of memory, in megabytes (MB), that is actively bound to Containers scheduled on the Host.
-	CommittedMemoryMb() float64
-
-	// IdleVRAM returns the amount of VRAM, in gigabytes (GB), that the host has not allocated to any Containers.
-	IdleVRAM() float64
-
-	// PendingVRAM returns the amount of memory, in gigabytes (GB), that is oversubscribed by Containers scheduled on the Host.
-	// Pending MemoryMb are NOT actively bound to any
-	PendingVRAM() float64
-
-	// CommittedVRAM returns the amount of memory, in gigabytes (GB), that is actively bound to Containers scheduled on the Host.
-	CommittedVRAM() float64
-
-	// LastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	LastReschedule() types.StatFloat64Field
-}
-
-type HostMeta interface {
-	Value(key interface{}) interface{}
-}
-
-type cachedPenalty struct {
-	penalty     float64
-	explain     string
-	preemptions ContainerList
-	valid       bool
-}
-
-func (p *cachedPenalty) Penalty() float64 {
-	return p.penalty
-}
-
-func (p *cachedPenalty) String() string {
-	return p.explain
-}
-
-func (p *cachedPenalty) Candidates() ContainerList {
-	return p.preemptions[:]
-}
 
 // unsafeApplyResourceSnapshotToHost does the actual work of the ApplyResourceSnapshotToHost function, but
 // no locks are acquired.
@@ -425,6 +340,14 @@ func (h *Host) IsBeingConsideredForScheduling() bool {
 	defer h.schedulingMutex.Unlock()
 
 	return h.isBeingConsideredForScheduling.Load() > 0
+}
+
+func (h *Host) GetNodeName() string {
+	return h.NodeName
+}
+
+func (h *Host) GetID() string {
+	return h.ID
 }
 
 // ConsiderForScheduling ensures that this Host is not excluded for scheduling nor will it be excluded from scheduling
@@ -1208,7 +1131,7 @@ func (h *Host) GetConnectionState() connectivity.State {
 	return h.conn.GetState()
 }
 
-func (h *Host) Stats() HostStatistics {
+func (h *Host) Stats() scheduling.HostStatistics {
 	return h
 }
 
@@ -1224,12 +1147,12 @@ func (h *Host) TimeSinceLastSynchronizationWithRemote() time.Duration {
 }
 
 // SetMeta sets the metadata of the host.
-func (h *Host) SetMeta(key HostMetaKey, value interface{}) {
+func (h *Host) SetMeta(key scheduling.HostMetaKey, value interface{}) {
 	h.meta.Store(string(key), value)
 }
 
 // GetMeta return the metadata of the host.
-func (h *Host) GetMeta(key HostMetaKey) interface{} {
+func (h *Host) GetMeta(key scheduling.HostMetaKey) interface{} {
 	if h.meta == nil {
 		log.Printf(utils.OrangeStyle.Render("[WARNING] Cannot retrieve metadata \"%s\" -- metadata dictionary is nil..."), key)
 		return nil
@@ -1241,7 +1164,7 @@ func (h *Host) GetMeta(key HostMetaKey) interface{} {
 	return nil
 }
 
-func (h *Host) Priority(session *Session) float64 {
+func (h *Host) Priority(session scheduling.UserSession) float64 {
 	if session != h.sipSession {
 		h.sip.Invalidate()
 		h.sipSession = session

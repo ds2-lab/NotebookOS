@@ -3,9 +3,6 @@ package scheduling
 import (
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/shopspring/decimal"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/cluster"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/scheduler"
 	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"golang.org/x/net/context"
 )
@@ -27,7 +24,7 @@ type Cluster interface {
 
 	// GetIndex returns the IndexProvider whose key is created with the given category and expected values.
 	// The category and expected values are returned by the IndexProvider.Category method.
-	GetIndex(category string, expected interface{}) (cluster.IndexProvider, bool)
+	GetIndex(category string, expected interface{}) (IndexProvider, bool)
 
 	// GetSession returns the Session with the specified ID.
 	//
@@ -57,11 +54,7 @@ type Cluster interface {
 	ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise
 
 	// AddIndex adds an index to the BaseCluster. For each category and expected value, there can be only one index.
-	AddIndex(index cluster.IndexProvider) error
-
-	// ActiveScaleOperation returns the active scaling operation, if one exists.
-	// If there is no active scaling operation, then ActiveScaleOperation returns nil.
-	ActiveScaleOperation() *scheduler.ScaleOperation
+	AddIndex(index IndexProvider) error
 
 	// NumScalingOperationsSucceeded returns the number of scale-in and scale-out operations that have been
 	// completed successfully.
@@ -111,7 +104,7 @@ type Cluster interface {
 	// NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
 	// NewHostAddedOrConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
 	// task of locking the required structures during scaling operations.
-	NewHostAddedOrConnected(host *entity.Host) error
+	NewHostAddedOrConnected(host Host) error
 
 	// RemoveHost removes the Host with the specified ID.
 	// This is called when a Local Daemon loses connection.
@@ -124,12 +117,12 @@ type Cluster interface {
 	NumDisabledHosts() int
 
 	// GetHost returns the Host with the given ID, if one exists.
-	GetHost(hostId string) (*entity.Host, bool)
+	GetHost(hostId string) (Host, bool)
 
 	// RangeOverHosts executes the provided function on each Host in the Cluster.
 	//
 	// Importantly, this function does NOT lock the hostsMutex.
-	RangeOverHosts(f func(key string, value *entity.Host) bool)
+	RangeOverHosts(f func(key string, value Host) bool)
 
 	// BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
 	BusyGPUs() float64

@@ -17,27 +17,12 @@ import (
 	"time"
 )
 
-const (
-	SessionStateInit              SessionState = "SESSION_INIT"               // Indicates that the Session has just been created, but its replicas have not yet been scheduled onto Hosts.
-	SessionStateTraining          SessionState = "SESSION_TRAINING"           // Indicates that the Session is actively running AND one of its replicas is actively training.
-	SessionStateStopped           SessionState = "SESSION_STOPPED"            // Indicates that the Session is permanently stopped.
-	SessionStateIdle              SessionState = "SESSION_IDLE"               // Indicates that the Session is actively running on a Host and is NOT actively performing a task.
-	SessionStateExpectingTraining SessionState = "SESSION_EXPECTING_TRAINING" // Indicates that the Session is expecting to begin training shortly, as a "execute_request" message has been forwarded, but the training has not yet began.
-	SessionStateMigrating         SessionState = "SESSION_MIGRATING"          // Indicates that one or more replicas are currently migrating to new Hosts.
-)
-
 var (
 	ErrInvalidStateTransition      = errors.New("invalid session state transition requested")
 	ErrInvalidExplanationRequested = errors.New("invalid explanation requested")
 	ErrInvalidContainer            = errors.New("the specified or provided container is invalid")
 	ErrMissingTrainingContainer    = errors.New("session is training, but its \"training container\" is nil")
 )
-
-type SessionState string
-
-func (s SessionState) String() string {
-	return string(s)
-}
 
 func NewMovingStatistic(window int64) *types.MovingStat {
 	if window > 0 {
@@ -51,10 +36,10 @@ func NewMovingStatistic(window int64) *types.MovingStat {
 
 // sessionStateTransition encapsulates some data regarding state transitions.
 type sessionStateTransition struct {
-	PrevState       SessionState  `json:"prev_state"`
-	NewState        SessionState  `json:"new_state"`
-	Timestamp       time.Time     `json:"timestamp"`
-	TimeInPrevState time.Duration `json:"time_in_prev_state"`
+	PrevState       scheduling.SessionState `json:"prev_state"`
+	NewState        scheduling.SessionState `json:"new_state"`
+	Timestamp       time.Time               `json:"timestamp"`
+	TimeInPrevState time.Duration           `json:"time_in_prev_state"`
 }
 
 type Session struct {
@@ -62,7 +47,7 @@ type Session struct {
 
 	ctx               context.Context           // The Session's context.
 	id                string                    // Session/kernel ID.
-	sessionState      SessionState              // The current state of the Session.
+	sessionState      scheduling.SessionState   // The current state of the Session.
 	trainingStart     time.Time                 // Time at which the current training began.
 	migrationStart    time.Time                 // Time at which the migration began.
 	containers        map[int32]*Container      // The kernel replicas belonging to this Session.
@@ -485,8 +470,8 @@ func (s *Session) SessionStatistics() scheduling.SessionStatistics {
 	return s
 }
 
-// GetState returns the current state of the Session in the form of a SessionState.
-func (s *Session) GetState() SessionState {
+// GetState returns the current state of the Session in the form of a scheduling.SessionState.
+func (s *Session) GetState() scheduling.SessionState {
 	return s.sessionState
 }
 
@@ -572,7 +557,7 @@ func (s *Session) IsTraining() bool {
 	return s.sessionState == SessionStateTraining
 }
 
-func (s *Session) transition(targetState SessionState) error {
+func (s *Session) transition(targetState scheduling.SessionState) error {
 	if s.IsStopped() {
 		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidStateTransition, s.sessionState, targetState)
 	}

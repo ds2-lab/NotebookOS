@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"strings"
 	"time"
 )
@@ -90,7 +89,7 @@ type Scheduler interface {
 
 	// GetCandidateHosts identifies candidate hosts for a particular kernel, reserving resources on hosts
 	// before returning them.
-	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]*entity.Host, error)
+	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]Host, error)
 
 	// RemoteSynchronizationInterval returns the interval at which the Scheduler synchronizes
 	// the Host instances within the Cluster with their remote nodes.
@@ -104,12 +103,12 @@ type Scheduler interface {
 	//RefreshAll() []error
 
 	// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-	DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []*entity.Host) error
+	DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []Host) error
 
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//
 	// If targetHost is nil, then a candidate host is identified automatically by the Scheduler.
-	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost *entity.Host, blacklistedHosts []*entity.Host) error
+	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host) error
 }
 
 type KubernetesClusterScheduler interface {

@@ -1,6 +1,7 @@
 package index
 
 import (
+	"github.com/zhangjyr/distributed-notebook/common/scheduling"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"log"
 	"math/rand"
@@ -14,9 +15,9 @@ import (
 )
 
 const (
-	expectedRandomIndex                = "*"
-	HostMetaRandomIndex    HostMetaKey = "random_index"
-	randomIndexGCThreshold             = 10
+	expectedRandomIndex                           = "*"
+	HostMetaRandomIndex    scheduling.HostMetaKey = "random_index"
+	randomIndexGCThreshold                        = 10
 )
 
 // RandomClusterIndex is a simple Cluster that seeks hosts randomly.

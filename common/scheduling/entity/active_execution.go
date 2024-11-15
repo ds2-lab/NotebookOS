@@ -29,23 +29,6 @@ var (
 	ErrExecutionFailedAllYielded = errors.New("an execution failed; all replicas proposed 'YIELD'")
 )
 
-type ActiveExecutionQueue []*ActiveExecution
-
-// Enqueue adds an element to the end of the queue
-func (q *ActiveExecutionQueue) Enqueue(item *ActiveExecution) {
-	*q = append(*q, item)
-}
-
-// Dequeue removes and returns the element from the front of the queue
-func (q *ActiveExecutionQueue) Dequeue() *ActiveExecution {
-	if len(*q) == 0 {
-		return nil // Queue is empty
-	}
-	item := (*q)[0]
-	*q = (*q)[1:]
-	return item
-}
-
 // ActiveExecution encapsulates the submission of a single 'execute_request' message for a particular kernel.
 // We observe the results of the SMR proposal protocol and take action accordingly, depending upon the results.
 // For example, if all replicas of the kernel issue 'YIELD' roles, then we will need to perform some sort of

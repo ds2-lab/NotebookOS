@@ -3,11 +3,25 @@ package scheduling
 import (
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/resource"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"golang.org/x/net/context"
 	"time"
 )
+
+const (
+	SessionStateInit              SessionState = "SESSION_INIT"               // Indicates that the Session has just been created, but its replicas have not yet been scheduled onto Hosts.
+	SessionStateTraining          SessionState = "SESSION_TRAINING"           // Indicates that the Session is actively running AND one of its replicas is actively training.
+	SessionStateStopped           SessionState = "SESSION_STOPPED"            // Indicates that the Session is permanently stopped.
+	SessionStateIdle              SessionState = "SESSION_IDLE"               // Indicates that the Session is actively running on a Host and is NOT actively performing a task.
+	SessionStateExpectingTraining SessionState = "SESSION_EXPECTING_TRAINING" // Indicates that the Session is expecting to begin training shortly, as a "execute_request" message has been forwarded, but the training has not yet began.
+	SessionStateMigrating         SessionState = "SESSION_MIGRATING"          // Indicates that one or more replicas are currently migrating to new Hosts.
+)
+
+type SessionState string
+
+func (s SessionState) String() string {
+	return string(s)
+}
 
 type SessionStatistic interface {
 	Add(val float64)
@@ -22,15 +36,15 @@ type SessionStatistic interface {
 type UserSession interface {
 	Lock()
 	Unlock()
-	AddReplica(container *Container) error
-	RemoveReplica(container *Container) error
+	AddReplica(container KernelContainer) error
+	RemoveReplica(container KernelContainer) error
 	RemoveReplicaById(replicaId int32) error
 	ResourceSpec() types.CloneableSpec
 	ID() string
 	Context() context.Context
 	SetContext(ctx context.Context)
-	ResourceUtilization() *resource.Utilization
-	SetResourceUtilization(util *resource.Utilization)
+	ResourceUtilization() Utilization
+	SetResourceUtilization(util Utilization)
 	KernelSpec() *proto.KernelSpec
 	String() string
 	SetExpectingTraining() promise.Promise
@@ -51,9 +65,9 @@ type UserSession interface {
 	PreemptionPriority() float64
 	StartedAt() time.Time
 	Duration() time.Duration
-	SessionStartedTraining(container *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise
+	SessionStartedTraining(container KernelContainer, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise
 	SessionStoppedTraining(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise
-	GetReplicaContainer(replicaId int32) (*Container, bool)
+	GetReplicaContainer(replicaId int32) (KernelContainer, bool)
 }
 
 type SessionStatistics interface {

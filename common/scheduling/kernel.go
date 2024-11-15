@@ -5,7 +5,6 @@ import (
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	jupyterTypes "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
 	"github.com/zhangjyr/distributed-notebook/common/types"
 	"golang.org/x/net/context"
 	"time"
@@ -16,7 +15,7 @@ type KernelMessageHandler func(KernelInfo, jupyterTypes.MessageType, *jupyterTyp
 
 // ReplicaRemover is a function that removes a replica from a kernel.
 // If noop is specified, it is the caller's responsibility to stop the replica.
-type ReplicaRemover func(host *entity.Host, session UserSession, noop bool) error
+type ReplicaRemover func(host Host, session UserSession, noop bool) error
 
 type KernelReplicaMessageHandler func(KernelReplicaInfo, jupyterTypes.MessageType, *jupyterTypes.JupyterMessage) error
 
@@ -41,19 +40,20 @@ type KernelReplicaInfo interface {
 }
 
 type Kernel interface {
+	types.Contextable
 	client.SessionManager
 
 	SetSession(session UserSession)
 	GetSession() UserSession
-	GetContainers() []*entity.Container
+	GetContainers() []KernelContainer
 	ShellListenPort() int
 	IOPubListenPort() int
-	ActiveExecution() *entity.ActiveExecution
-	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*entity.ActiveExecution, bool)
+	ActiveExecution() CodeExecution
+	GetActiveExecutionByExecuteRequestMsgId(msgId string) (CodeExecution, bool)
 	ExecutionFailedCallback() client.ExecutionFailedCallback
-	SetActiveExecution(activeExecution *entity.ActiveExecution)
+	SetActiveExecution(activeExecution CodeExecution)
 	ExecutionComplete(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot], msg *jupyterTypes.JupyterMessage) (bool, error)
-	EnqueueActiveExecution(attemptId int, msg *jupyterTypes.JupyterMessage) *entity.ActiveExecution
+	EnqueueActiveExecution(attemptId int, msg *jupyterTypes.JupyterMessage) CodeExecution
 	ResetID(id string)
 	PersistentID() string
 	String() string
@@ -72,10 +72,10 @@ type Kernel interface {
 	Replicas() []KernelReplica
 	PodOrContainerName(id int32) (string, error)
 	PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec
-	AddReplica(r KernelReplica, host *entity.Host) error
-	RemoveReplica(r KernelReplica, remover ReplicaRemover, noop bool) (*entity.Host, error)
+	AddReplica(r KernelReplica, host Host) error
+	RemoveReplica(r KernelReplica, remover ReplicaRemover, noop bool) (Host, error)
 	GetReplicaByID(id int32) (KernelReplica, error)
-	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (*entity.Host, error)
+	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (Host, error)
 	Validate() error
 	InitializeShellForwarder(handler KernelMessageHandler) (*jupyterTypes.Socket, error)
 	InitializeIOForwarder() (*jupyterTypes.Socket, error)
@@ -99,8 +99,10 @@ type Kernel interface {
 }
 
 type KernelReplica interface {
-	Container() *entity.Container
-	SetContainer(container *entity.Container)
+	types.Contextable
+
+	Container() KernelContainer
+	SetContainer(container KernelContainer)
 	IsTraining() bool
 	WaitForTrainingToStop()
 	WaitForPendingExecuteRequests()
@@ -148,7 +150,7 @@ type KernelReplica interface {
 	AddIOHandler(topic string, handler client.MessageBrokerHandler[Kernel, *jupyterTypes.JupyterFrames, *jupyterTypes.JupyterMessage]) error
 	RequestWithHandler(ctx context.Context, _ string, typ jupyterTypes.MessageType, msg *jupyterTypes.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
 	Close() error
-	GetHost() *entity.Host
-	SetHost(host *entity.Host)
+	GetHost() Host
+	SetHost(host Host)
 	InitializeIOSub(handler jupyterTypes.MessageHandler, subscriptionTopic string) (*jupyterTypes.Socket, error)
 }

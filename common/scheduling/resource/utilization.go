@@ -116,3 +116,33 @@ func (u *Utilization) StringFormatted() string {
 
 	return string(m)
 }
+
+// GetCpuUtilization returns the CPU utilization percentage.
+func (u *Utilization) GetCpuUtilization() float64 {
+	return u.CpuUtilization
+}
+
+// GetMemoryUsageMb returns the amount of memory used in megabytes.
+func (u *Utilization) GetMemoryUsageMb() float64 {
+	return u.MemoryUsageMb
+}
+
+// GetVramUsageGb returns the amount of VRAM used in gigabytes.
+func (u *Utilization) GetVramUsageGb() float64 {
+	return u.VramUsageGb
+}
+
+// GetAggregateGpuUtilization returns the aggregate GPU utilization percentage.
+func (u *Utilization) GetAggregateGpuUtilization() float64 {
+	return u.AggregateGpuUtilization
+}
+
+// GetIndividualGpuUtilizationValues returns the individual GPU utilization values.
+func (u *Utilization) GetIndividualGpuUtilizationValues() []float64 {
+	return u.IndividualGpuUtilizationValues
+}
+
+// GetNumGpus returns the number of GPUs currently in use.
+func (u *Utilization) GetNumGpus() int {
+	return u.NumGpus
+}

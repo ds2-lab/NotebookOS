@@ -1,4 +1,4 @@
-package entity
+package scheduling
 
 import (
 	"errors"
@@ -9,7 +9,7 @@ var (
 	ErrInsufficientPreemptableContainers = errors.New("insufficient preemptable containers")
 )
 
-type ContainerList []*Container
+type ContainerList []KernelContainer
 
 func (cl ContainerList) Len() int {
 	return len(cl)
@@ -52,7 +52,7 @@ func (pc *PenaltyContainers) Penalty(gpus float64) (float64, int, error) {
 			return penalty, preempted, ErrInsufficientPreemptableContainers
 		}
 		penalty += pc.ContainerList[preempted].ContainerStatistics().PreemptionPriority()
-		gpus -= pc.ContainerList[preempted].Session().ResourceUtilization().NumGpusAsFloat()
+		gpus -= float64(pc.ContainerList[preempted].Session().ResourceUtilization().GetNumGpus())
 		preempted++
 	}
 	return penalty, preempted, nil
