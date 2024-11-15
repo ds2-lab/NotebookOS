@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"google.golang.org/grpc/connectivity"
 	"net"
@@ -84,7 +83,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	for _, blacklistedHost := range blacklistedHosts {
 		s.log.Debug("Host %s (ID=%s) of kernel %s-%d was specifically specified as being blacklisted.",
 			blacklistedHost.GetNodeName(), blacklistedHost.GetID(), kernelId, replicaSpec.ReplicaId)
-		blacklist = append(blacklist, blacklistedHost.GetMeta(index.HostMetaRandomIndex))
+		blacklist = append(blacklist, blacklistedHost.GetMeta(s.placer.GetIndex().GetMetadataKey()))
 	}
 
 	replicaHosts, err := s.hostMapper.GetHostsOfKernel(kernelId)
@@ -97,7 +96,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	for _, host := range replicaHosts {
 		s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.",
 			host.GetID(), host.GetNodeName(), kernelId, replicaSpec.ReplicaId)
-		blacklist = append(blacklist, host.GetMeta(index.HostMetaRandomIndex))
+		blacklist = append(blacklist, host.GetMeta(s.placer.GetIndex().GetMetadataKey()))
 	}
 
 	host := s.placer.FindHost(blacklist, replicaSpec.FullSpecFromKernelReplicaSpec())

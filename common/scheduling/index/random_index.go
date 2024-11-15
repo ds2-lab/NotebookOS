@@ -48,6 +48,10 @@ func (index *RandomClusterIndex) Category() (string, interface{}) {
 	return scheduling.CategoryClusterIndex, expectedRandomIndex
 }
 
+func (index *RandomClusterIndex) GetMetadataKey() scheduling.HostMetaKey {
+	return HostMetaRandomIndex
+}
+
 func (index *RandomClusterIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
 	// Since all hosts are qualified, we check if the host is in the index only.
 	val := host.GetMeta(HostMetaRandomIndex)

@@ -8,7 +8,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
@@ -1257,21 +1256,21 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 //
 // The returned error will be nil on success. If a *scheduling.ManagerSnapshot could not be extracted from
 // the given/specified Jupyter ZMQ message, then the error will be non-nil.
-func (c *DistributedKernelClient) extractResourceSnapshotFromRequestMetadata(msg *messaging.JupyterMessage) (*resource.ManagerSnapshot, error) {
-	var snapshotWrapper *resource.MetadataResourceWrapperSnapshot
-	metadataFrame := msg.JupyterFrames.MetadataFrame()
-	err := metadataFrame.Decode(&snapshotWrapper)
-	if err != nil {
-		c.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
-		return nil, err // TODO: Should I panic here?
-	}
-
-	snapshot := snapshotWrapper.ManagerSnapshot
-	c.log.Debug(utils.LightBlueStyle.Render("Extracted ManagerSnapshot from metadata frame of Jupyter \"%s\" message: %s"),
-		messaging.MessageTypeSMRLeadTask, snapshot.String())
-
-	return snapshot, nil
-}
+//func (c *DistributedKernelClient) extractResourceSnapshotFromRequestMetadata(msg *messaging.JupyterMessage) (*resource.ManagerSnapshot, error) {
+//	var snapshotWrapper *resource.MetadataResourceWrapperSnapshot
+//	metadataFrame := msg.JupyterFrames.MetadataFrame()
+//	err := metadataFrame.Decode(&snapshotWrapper)
+//	if err != nil {
+//		c.log.Error("Failed to decode metadata frame of \"%s\" message: %v", msg.JupyterMessageType(), err)
+//		return nil, err // TODO: Should I panic here?
+//	}
+//
+//	snapshot := snapshotWrapper.ManagerSnapshot
+//	c.log.Debug(utils.LightBlueStyle.Render("Extracted ManagerSnapshot from metadata frame of Jupyter \"%s\" message: %s"),
+//		messaging.MessageTypeSMRLeadTask, snapshot.String())
+//
+//	return snapshot, nil
+//}
 
 // handleSmrLeadTaskMessage handles an jupyter.MessageTypeSMRLeadTask IO Pub message.
 // TODO: This logic is sort of buried away in a very non-obvious place...

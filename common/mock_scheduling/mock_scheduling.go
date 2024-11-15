@@ -2984,6 +2984,20 @@ func (mr *MockClusterIndexMockRecorder) Category() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Category", reflect.TypeOf((*MockClusterIndex)(nil).Category))
 }
 
+// GetMetadataKey mocks base method.
+func (m *MockClusterIndex) GetMetadataKey() scheduling.HostMetaKey {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMetadataKey")
+	ret0, _ := ret[0].(scheduling.HostMetaKey)
+	return ret0
+}
+
+// GetMetadataKey indicates an expected call of GetMetadataKey.
+func (mr *MockClusterIndexMockRecorder) GetMetadataKey() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetadataKey", reflect.TypeOf((*MockClusterIndex)(nil).GetMetadataKey))
+}
+
 // GetMetrics mocks base method.
 func (m *MockClusterIndex) GetMetrics(arg0 scheduling.Host) []float64 {
 	m.ctrl.T.Helper()

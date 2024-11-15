@@ -8,6 +8,11 @@ import (
 	"sync"
 )
 
+const (
+	expectedStaticIndex                        = "*"
+	HostMetaStaticIndex scheduling.HostMetaKey = "static_index"
+)
+
 type StaticClusterIndex struct {
 	hosts     []scheduling.Host // The Host instances in the index.
 	length    int               // The number of Host instances in the index.
@@ -36,17 +41,21 @@ func NewStaticClusterIndex() *StaticClusterIndex {
 
 // Category returns the category of the index and the expected value.
 func (index *StaticClusterIndex) Category() (category string, expected interface{}) {
-	return scheduling.CategoryClusterIndex, expectedRandomIndex
+	return scheduling.CategoryClusterIndex, expectedStaticIndex
+}
+
+func (index *StaticClusterIndex) GetMetadataKey() scheduling.HostMetaKey {
+	return HostMetaStaticIndex
 }
 
 // IsQualified returns the actual value according to the index category and whether the host is qualified.
 // An index provider must be able to track indexed hosts and indicate disqualification.
 func (index *StaticClusterIndex) IsQualified(host scheduling.Host) (actual interface{}, qualified scheduling.IndexQualification) {
 	// Since all hosts are qualified, we check if the host is in the index only.
-	if _, ok := host.GetMeta(HostMetaRandomIndex).(int32); ok {
-		return expectedRandomIndex, scheduling.IndexQualified
+	if _, ok := host.GetMeta(HostMetaStaticIndex).(int32); ok {
+		return expectedStaticIndex, scheduling.IndexQualified
 	} else {
-		return expectedRandomIndex, scheduling.IndexNewQualified
+		return expectedStaticIndex, scheduling.IndexNewQualified
 	}
 }
 
@@ -75,7 +84,7 @@ func (index *StaticClusterIndex) Add(host scheduling.Host) {
 		index.freeStart += 1
 	}
 
-	host.SetMeta(HostMetaRandomIndex, i)
+	host.SetMeta(HostMetaStaticIndex, i)
 	index.length += 1
 	index.sortIndex()
 }
@@ -104,7 +113,7 @@ func (index *StaticClusterIndex) Remove(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
-	i, ok := host.GetMeta(HostMetaRandomIndex).(int32)
+	i, ok := host.GetMeta(HostMetaStaticIndex).(int32)
 	if !ok {
 		return
 	}
@@ -168,7 +177,7 @@ func (index *StaticClusterIndex) compactLocked(from int32) {
 	for i := frontier + 1; i < len(index.hosts); i++ {
 		if index.hosts[i] != nil {
 			index.hosts[frontier], index.hosts[i] = index.hosts[i], nil
-			index.hosts[frontier].SetMeta(HostMetaRandomIndex, frontier)
+			index.hosts[frontier].SetMeta(HostMetaStaticIndex, frontier)
 			frontier += 1
 		}
 	}
@@ -211,7 +220,7 @@ func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 	// Begin searching from `seekStart`, which is reset after every Seek operation.
 	for _, host := range index.hosts[index.seekStart:] {
 		// If the given host is blacklisted, then look for a different host.
-		if slices.Contains(__blacklist, host.GetMeta(HostMetaRandomIndex).(int32)) {
+		if slices.Contains(__blacklist, host.GetMeta(HostMetaStaticIndex).(int32)) {
 			continue
 		}
 
