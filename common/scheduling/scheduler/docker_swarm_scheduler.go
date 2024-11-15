@@ -52,7 +52,7 @@ func checkIfPortIsAvailable(port int32) bool {
 	return true    // Port is available
 }
 
-func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *scheduling.Options) (*DockerScheduler, error) {
+func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
 	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider, opts)
 
 	dockerScheduler := &DockerScheduler{

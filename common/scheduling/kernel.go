@@ -1,7 +1,6 @@
 package scheduling
 
 import (
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	jupyterTypes "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
@@ -39,9 +38,19 @@ type KernelReplicaInfo interface {
 	ReplicaID() int32
 }
 
+type SessionManager interface {
+	Sessions() []string        // Session returns the associated session ID.
+	BindSession(sess string)   // BindSession binds a session ID to the client.
+	UnbindSession(sess string) // UnbindSession unbinds a session ID from the client.
+	ClearSessions()            // ClearSessions clears all sessions.
+}
+
+// ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
+type ExecutionFailedCallback func(c Kernel) error
+
 type Kernel interface {
 	types.Contextable
-	client.SessionManager
+	SessionManager
 
 	SetSession(session UserSession)
 	GetSession() UserSession
@@ -50,7 +59,7 @@ type Kernel interface {
 	IOPubListenPort() int
 	ActiveExecution() CodeExecution
 	GetActiveExecutionByExecuteRequestMsgId(msgId string) (CodeExecution, bool)
-	ExecutionFailedCallback() client.ExecutionFailedCallback
+	ExecutionFailedCallback() ExecutionFailedCallback
 	SetActiveExecution(activeExecution CodeExecution)
 	ExecutionComplete(snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot], msg *jupyterTypes.JupyterMessage) (bool, error)
 	EnqueueActiveExecution(attemptId int, msg *jupyterTypes.JupyterMessage) CodeExecution

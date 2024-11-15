@@ -2,8 +2,8 @@ package daemon
 
 import (
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/zhangjyr/distributed-notebook/common/scheduling/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/utils"
 	"log"
 	"net"
@@ -118,15 +118,15 @@ func CreateAndStartClusterGatewayComponents(options *domain.ClusterGatewayOption
 	globalLogger.Info("Jupyter server listening at %v", lis.Addr())
 
 	options.ClusterDaemonOptions.ValidateClusterDaemonOptions()
-	options.ClusterSchedulerOptions.ValidateClusterSchedulerOptions()
+	options.SchedulerOptions.ValidateClusterSchedulerOptions()
 
-	globalLogger.Debug("Cluster Gateway Options:\n%s", options.PrettyString(2))
+	globalLogger.Debug("Cluster Gateway SchedulerOptions:\n%s", options.PrettyString(2))
 
 	// Initialize daemon
 	srv := New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
 		globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
-		srv.SetClusterOptions(&options.ClusterSchedulerOptions)
-		srv.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
+		srv.SetClusterOptions(&options.SchedulerOptions)
+		srv.SetDistributedClientProvider(&jupyter.DistributedKernelClientProvider{})
 	})
 
 	distributedCluster := NewDistributedCluster(srv)

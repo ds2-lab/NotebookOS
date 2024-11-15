@@ -30,7 +30,7 @@ type DockerComposeCluster struct {
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
 func NewDockerComposeCluster(hostSpec types.Spec, hostMapper HostMapper, kernelProvider KernelProvider,
-	clusterMetricsProvider scheduling.MetricsProvider, opts *scheduling.Options) *DockerComposeCluster {
+	clusterMetricsProvider scheduling.MetricsProvider, opts *scheduling.SchedulerOptions) *DockerComposeCluster {
 
 	baseCluster := newBaseCluster(opts, clusterMetricsProvider, "DockerComposeCluster")
 

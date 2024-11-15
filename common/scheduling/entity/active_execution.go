@@ -25,8 +25,7 @@ const (
 )
 
 var (
-	ErrProposalAlreadyReceived   = errors.New("we already received a proposal from that replica")
-	ErrExecutionFailedAllYielded = errors.New("an execution failed; all replicas proposed 'YIELD'")
+	ErrProposalAlreadyReceived = errors.New("we already received a proposal from that replica")
 )
 
 // ActiveExecution encapsulates the submission of a single 'execute_request' message for a particular kernel.
@@ -47,8 +46,8 @@ type ActiveExecution struct {
 	numLeadRoles            int                                           // Number of 'LEAD' roles issued.
 	numYieldRoles           int                                           // Number of 'YIELD' roles issued.
 	roles                   map[int32]string                              // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
-	nextAttempt             *ActiveExecution                              // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
-	previousAttempt         *ActiveExecution                              // The retry that preceded this one, if this is not the first attempt.
+	nextAttempt             scheduling.CodeExecution                      // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
+	previousAttempt         scheduling.CodeExecution                      // The retry that preceded this one, if this is not the first attempt.
 	msg                     *types.JupyterMessage                         // The original 'execute_request' message.
 	Replies                 hashmap.HashMap[int32, *types.JupyterMessage] // The responses from each replica. Note that replies are only saved if debug mode is enabled.
 	replyMutex              sync.Mutex                                    // Ensures atomicity of the RegisterReply method.
@@ -70,6 +69,30 @@ type ActiveExecution struct {
 	workloadIdSet bool
 
 	executed bool
+}
+
+func (e *ActiveExecution) LinkPreviousAttempt(previousAttempt scheduling.CodeExecution) {
+	e.previousAttempt = previousAttempt
+}
+
+func (e *ActiveExecution) LinkNextAttempt(nextAttempt scheduling.CodeExecution) {
+	e.nextAttempt = nextAttempt
+}
+
+func (e *ActiveExecution) GetActiveReplica() scheduling.KernelReplica {
+	return e.ActiveReplica
+}
+
+func (e *ActiveExecution) GetExecuteRequestMessageId() string {
+	return e.ExecuteRequestMessageId
+}
+
+func (e *ActiveExecution) GetAttemptId() int {
+	return e.AttemptId
+}
+
+func (e *ActiveExecution) GetWorkloadId() string {
+	return e.WorkloadId
 }
 
 func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *types.JupyterMessage) *ActiveExecution {
@@ -251,7 +274,7 @@ func (e *ActiveExecution) ReceivedYieldNotification(smrNodeId int32) error {
 	e.numYieldRoles += 1
 
 	if e.numYieldRoles == e.NumReplicas {
-		return ErrExecutionFailedAllYielded
+		return scheduling.ErrExecutionFailedAllYielded
 	}
 
 	return nil
@@ -263,10 +286,10 @@ func (e *ActiveExecution) NumRolesReceived() int {
 	return e.numLeadRoles + e.numYieldRoles
 }
 
-func (e *ActiveExecution) LinkPreviousAttempt(previousAttempt *ActiveExecution) {
-	e.previousAttempt = previousAttempt
-}
-
-func (e *ActiveExecution) LinkNextAttempt(nextAttempt *ActiveExecution) {
-	e.nextAttempt = nextAttempt
-}
+//func (e *ActiveExecution) LinkPreviousAttempt(previousAttempt *ActiveExecution) {
+//	e.previousAttempt = previousAttempt
+//}
+//
+//func (e *ActiveExecution) LinkNextAttempt(nextAttempt *ActiveExecution) {
+//	e.nextAttempt = nextAttempt
+//}

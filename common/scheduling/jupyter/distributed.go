@@ -55,13 +55,6 @@ func (q *CodeExecutionQueue) Dequeue() *entity.ActiveExecution {
 	return item
 }
 
-type SessionManager interface {
-	Sessions() []string        // Session returns the associated session ID.
-	BindSession(sess string)   // BindSession binds a session ID to the client.
-	UnbindSession(sess string) // UnbindSession unbinds a session ID from the client.
-	ClearSessions()            // ClearSessions clears all sessions.
-}
-
 // ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
 // When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
 // the DistributedKernelClient will check if its ActiveExecution struct has the original "sent-at" timestamp
@@ -69,9 +62,6 @@ type SessionManager interface {
 // the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
 // so that a relevant Prometheus metric can be updated.
 type ExecutionLatencyCallback func(latency time.Duration, workloadId string, kernelId string)
-
-// ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
-type ExecutionFailedCallback func(c *DistributedKernelClient) error
 
 // ReplicaKernelInfo offers hybrid information that reflects the replica source of messages.
 type ReplicaKernelInfo struct {
@@ -90,7 +80,7 @@ func (r *ReplicaKernelInfo) String() string {
 type DistributedClientProvider interface {
 	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
 		connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
-		debugMode bool, executionFailedCallback ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
+		debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
 		messagingMetricsProvider metrics.MessagingMetricsProvider) scheduling.Kernel
 }
 
@@ -98,7 +88,7 @@ type DistributedClientProvider interface {
 // It wraps individual KernelReplicaClient instances -- one for each replica of the kernel.
 type DistributedKernelClient struct {
 	*server.BaseServer
-	SessionManager
+	scheduling.SessionManager
 	server *server.AbstractServer
 
 	id             string
@@ -133,7 +123,7 @@ type DistributedKernelClient struct {
 	activeExecutionQueue CodeExecutionQueue
 
 	// Callback for when execution fails (such as all replicas proposing 'YIELD').
-	executionFailedCallback ExecutionFailedCallback
+	executionFailedCallback scheduling.ExecutionFailedCallback
 
 	// ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
 	// When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
@@ -168,7 +158,7 @@ type DistributedKernelClientProvider struct{}
 // a pointer to it in the form of an AbstractDistributedKernelClient interface.
 func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
 	connectionInfo *types.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
-	debugMode bool, executionFailedCallback ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
+	debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback ExecutionLatencyCallback,
 	messagingMetricsProvider metrics.MessagingMetricsProvider) scheduling.Kernel {
 
 	kernel := &DistributedKernelClient{
@@ -241,7 +231,7 @@ func (c *DistributedKernelClient) IOPubListenPort() int {
 	return c.iopubListenPort
 }
 
-func (c *DistributedKernelClient) ActiveExecution() *entity.ActiveExecution {
+func (c *DistributedKernelClient) ActiveExecution() scheduling.CodeExecution {
 	return c.activeExecution
 }
 
@@ -251,7 +241,7 @@ func (c *DistributedKernelClient) GetActiveExecutionByExecuteRequestMsgId(msgId 
 	return c.activeExecutionsByExecuteRequestMsgId.Load(msgId)
 }
 
-func (c *DistributedKernelClient) ExecutionFailedCallback() ExecutionFailedCallback {
+func (c *DistributedKernelClient) ExecutionFailedCallback() scheduling.ExecutionFailedCallback {
 	return c.executionFailedCallback
 }
 

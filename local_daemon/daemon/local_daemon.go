@@ -99,7 +99,7 @@ type GRPCServerWrapper struct {
 // TODO: Synchronize resource status using replica network (e.g., control socket).
 // Synchronization message should load-balance between replicas mapped the same host.
 type SchedulerDaemonImpl struct {
-	// Options
+	// SchedulerOptions
 	id       string
 	nodeName string
 
@@ -129,7 +129,7 @@ type SchedulerDaemonImpl struct {
 	proto.UnimplementedKernelErrorReporterServer
 	router *router.Router
 
-	// Options
+	// SchedulerOptions
 	connectionOptions      *jupyter.ConnectionInfo
 	schedulerDaemonOptions domain.SchedulerDaemonOptions
 

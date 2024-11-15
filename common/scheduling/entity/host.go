@@ -93,7 +93,7 @@ type Host struct {
 	conn                           *grpc.ClientConn                     // conn is the gRPC connection to the Host.
 	Addr                           string                               // Addr is the Host's address.
 	NodeName                       string                               // NodeName is the Host's name (for printing/logging).
-	Cluster                        schedulnig.Cluster                   // Cluster is a reference to the Cluster interface that manages this Host.
+	Cluster                        scheduling.Cluster                   // Cluster is a reference to the Cluster interface that manages this Host.
 	metricsProvider                scheduling.MetricsProvider           // Provides access to metrics relevant to the Host.
 	ID                             string                               // ID is the unique ID of this host.
 	containers                     hashmap.HashMap[string, *Container]  // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
@@ -102,7 +102,7 @@ type Host struct {
 	seenSessions                   []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
 	resourceSpec                   *types.DecimalSpec                   // resourceSpec is the spec describing the total ComputeResource available on the Host, not impacted by allocations.
 	lastReschedule                 types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	errorCallback                  ErrorCallback                        // errorCallback is a function to be called if a Host appears to be dead.
+	errorCallback                  scheduling.ErrorCallback             // errorCallback is a function to be called if a Host appears to be dead.
 	pendingContainers              types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
 	enabled                        bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
 	excludedFromScheduling         bool                                 // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.

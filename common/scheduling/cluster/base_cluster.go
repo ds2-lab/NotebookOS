@@ -89,7 +89,7 @@ type BaseCluster struct {
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
 // This function is for package-internal or file-internal use only.
-func newBaseCluster(opts *scheduling.Options, clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string) *BaseCluster {
+func newBaseCluster(opts *scheduling.SchedulerOptions, clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string) *BaseCluster {
 	cluster := &BaseCluster{
 		gpusPerHost:              opts.GetGpusPerHost(),
 		numReplicas:              opts.GetNumReplicas(),

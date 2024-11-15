@@ -247,7 +247,7 @@ func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, don
 	disableDevicePluginServer := options.DeploymentMode != string(types.KubernetesMode)
 	devicePluginServer := device.NewVirtualGpuPluginServer(&options.VirtualGpuPluginServerOptions, nodeName, disableDevicePluginServer)
 
-	globalLogger.Debug("Local Daemon Options:\n%s", options.PrettyString(2))
+	globalLogger.Debug("Local Daemon SchedulerOptions:\n%s", options.PrettyString(2))
 
 	// Initialize grpc server
 	scheduler := New(&options.ConnectionInfo, options, options.KernelRegistryPort, options.Port, devicePluginServer, nodeName, dockerContainerId)

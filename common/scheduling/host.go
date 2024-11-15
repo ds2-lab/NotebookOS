@@ -23,6 +23,8 @@ type PreemptionInfo interface {
 }
 
 type Host interface {
+	proto.LocalGatewayClient
+
 	GetNodeName() string
 	GetID() string
 	IsExcludedFromScheduling() bool

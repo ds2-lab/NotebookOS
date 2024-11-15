@@ -9,6 +9,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/zhangjyr/distributed-notebook/common/metrics"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
+	jupyterScheduling "github.com/zhangjyr/distributed-notebook/common/scheduling/jupyter"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling/resource"
 	"log"
 	"math/rand"
@@ -36,7 +37,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	dockerClient "github.com/docker/docker/client"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
 	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
 	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
 	"github.com/zhangjyr/distributed-notebook/common/scheduling"
@@ -102,12 +102,13 @@ type GatewayDaemonConfig func(ClusterGateway)
 type FailureHandler func(c scheduling.Kernel) error
 
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
+// This interface exists so that we can spoof it during unit tests.
 type ClusterGateway interface {
 	proto.ClusterGatewayServer
 
-	SetDistributedClientProvider(provider client.DistributedClientProvider)
+	SetDistributedClientProvider(provider jupyterScheduling.DistributedClientProvider)
 
-	SetClusterOptions(*scheduling.Options)
+	SetClusterOptions(*scheduling.SchedulerOptions)
 
 	ConnectionOptions() *jupyter.ConnectionInfo
 
@@ -164,7 +165,7 @@ type ClusterGatewayImpl struct {
 	proto.UnimplementedLocalGatewayServer
 	router *router.Router
 
-	// Options
+	// SchedulerOptions
 	connectionOptions *jupyter.ConnectionInfo
 	ClusterOptions    *scheduling.ClusterSchedulerOptions
 
@@ -560,7 +561,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	return clusterGateway
 }
 
-func (d *ClusterGatewayImpl) SetDistributedClientProvider(provider client.DistributedClientProvider) {
+func (d *ClusterGatewayImpl) SetDistributedClientProvider(provider jupyterScheduling.DistributedKernelClientProvider) {
 	d.DistributedClientProvider = provider
 }
 

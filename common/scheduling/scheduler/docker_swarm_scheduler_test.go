@@ -157,7 +157,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 
-		dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, hostMapper, nil, nil, &opts.ClusterDaemonOptions.Options)
+		dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, hostMapper, nil, nil, &opts.ClusterDaemonOptions.SchedulerOptions)
 		Expect(dockerCluster).ToNot(BeNil())
 
 		placer = dockerCluster.Placer()
