@@ -5,7 +5,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"time"
 
-	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 )
 
 type StatucChangedHandler func(old jupyter.KernelStatus, new jupyter.KernelStatus)
