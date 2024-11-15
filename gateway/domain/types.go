@@ -3,7 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"github.com/Scusemua/go-utils/config"
-	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"

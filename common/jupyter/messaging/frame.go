@@ -1,4 +1,4 @@
-package types
+package messaging
 
 import (
 	"crypto/hmac"
@@ -255,7 +255,7 @@ func (frames *JupyterFrames) Sign(signatureScheme string, key []byte) ([][]byte,
 	return frames.Frames, nil
 }
 
-func (frames *JupyterFrames) SignByConnectionInfo(connInfo *ConnectionInfo) ([][]byte, error) {
+func (frames *JupyterFrames) SignByConnectionInfo(connInfo *jupyter.ConnectionInfo) ([][]byte, error) {
 	signatureScheme := connInfo.SignatureScheme
 	if signatureScheme == "" {
 		signatureScheme = JupyterSignatureScheme

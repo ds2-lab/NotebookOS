@@ -1,9 +1,10 @@
-package types
+package messaging
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"slices"
 	"sync"
 	"time"
@@ -366,7 +367,7 @@ type BasicRequest struct {
 	destinationId string
 
 	// The connection info of the remote target of the request.
-	connectionInfo *ConnectionInfo
+	connectionInfo *jupyter.ConnectionInfo
 
 	// The entity responsible for providing access to sockets in the request handler.
 	socketProvider JupyterServerInfo
@@ -508,7 +509,7 @@ func (r *BasicRequest) Cancel() error {
 	}
 
 	// This probably shouldn't happen.
-	return ErrNoCancelConfigured
+	return jupyter.ErrNoCancelConfigured
 }
 
 // ContextAndCancel returns the associated Context and the associated cancel function, if one exists.

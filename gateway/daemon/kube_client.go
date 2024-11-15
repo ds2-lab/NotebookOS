@@ -15,7 +15,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	cmap "github.com/orcaman/concurrent-map/v2"
 	"github.com/pkg/errors"
-	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	appsv1 "k8s.io/api/apps/v1"
@@ -421,7 +421,7 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 
 	headlessServiceName := fmt.Sprintf("kernel-%s-svc", kernel.Id)
 
-	// Prepare the *jupyter.ConfigFile.
+	// Prepare the *messaging.ConfigFile.
 	configFileInfo, err := c.prepareConfigFileContents(&proto.KernelReplicaSpec{
 		ReplicaId: DummySMRNodeId, // We'll replace the dummy value with the correct ID when the Pod starts.
 		Replicas:  nil,

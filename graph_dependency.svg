@@ -137,7 +137,7 @@
 <!-- github.com/scusemua/distributed&#45;notebook/common/jupyter/types -->
 <g id="node12" class="node">
 <title>github.com/scusemua/distributed&#45;notebook/common/jupyter/types</title>
-<g id="a_node12"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/common/jupyter/types" xlink:title="github.com/scusemua/distributed&#45;notebook/common/jupyter/types" target="_graphviz">
+<g id="a_node12"><a xlink:href="https://pkg.go.dev/github.com/scusemua/distributed-notebook/common/jupyter/messaging" xlink:title="github.com/scusemua/distributed&#45;notebook/common/jupyter/types" target="_graphviz">
 <polygon fill="none" stroke="#915d07" stroke-width="2" stroke-opacity="0.698039" points="3184,-697.32 3004,-697.32 3004,-661.32 3184,-661.32 3184,-697.32"/>
 <text text-anchor="start" x="3012" y="-682.32" font-family="Times,serif" font-size="10.00">common/jupyter/types</text>
 <text text-anchor="start" x="3012" y="-671.32" font-family="Times,serif" font-size="10.00">2522 / 110.9KB</text>

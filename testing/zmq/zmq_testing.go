@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"log"
 	"net"
@@ -20,7 +22,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/go-zeromq/zmq4"
-	"github.com/scusemua/distributed-notebook/common/jupyter/types"
 	"github.com/scusemua/distributed-notebook/testing/fake_kernel"
 )
 
@@ -77,7 +78,10 @@ func Serve(socket *fake_kernel.SocketWrapper, id string, sendAcks bool, sendRepl
 				copy(messageFrames[i], identity_frame)
 			}
 
-			jFrames := types.JupyterFrames(msg.Frames[delimIndex:])
+			jFrames := &messaging.JupyterFrames{
+				Frames: msg.Frames[delimIndex:],
+				Offset: delimIndex,
+			}
 			var header map[string]interface{}
 			if err := jFrames.DecodeHeader(&header); err != nil {
 				panic(err)
@@ -105,8 +109,10 @@ func Serve(socket *fake_kernel.SocketWrapper, id string, sendAcks bool, sendRepl
 		}
 
 		if sendReplies {
-
-			jFrames := types.JupyterFrames(msg.Frames[delimIndex:])
+			jFrames := &messaging.JupyterFrames{
+				Frames: msg.Frames[delimIndex:],
+				Offset: delimIndex,
+			}
 			var header map[string]interface{}
 			if err := jFrames.DecodeHeader(&header); err != nil {
 				panic(err)
@@ -182,7 +188,7 @@ func RegisterFakeKernel(kernelId string, replicaId int, wg *sync.WaitGroup) {
 
 	registration_payload["kernel"] = kernel_spec
 
-	connInfo := &types.ConnectionInfo{
+	connInfo := &jupyter.ConnectionInfo{
 		IP:              "127.0.0.1",
 		Transport:       "tcp",
 		HBPort:          baseSocketPort,
@@ -328,8 +334,8 @@ func TestZMQ() {
 	}
 	fmt.Printf("Connected to %s (control).\n", ctrlDialAddr)
 
-	go Serve(&fake_kernel.SocketWrapper{Socket: shellSocket, Type: types.ShellMessage}, kernelId, false, false)
-	go Serve(&fake_kernel.SocketWrapper{Socket: controlSocket, Type: types.ControlMessage}, kernelId, false, false)
+	go Serve(&fake_kernel.SocketWrapper{Socket: shellSocket, Type: messaging.ShellMessage}, kernelId, false, false)
+	go Serve(&fake_kernel.SocketWrapper{Socket: controlSocket, Type: messaging.ControlMessage}, kernelId, false, false)
 
 	client, conn := ConnectToLocalGatewayGRPC()
 	defer conn.Close()

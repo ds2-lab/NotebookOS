@@ -1,4 +1,4 @@
-package types
+package messaging
 
 import (
 	"encoding/json"
@@ -34,6 +34,13 @@ const (
 	JavascriptISOString = "2006-01-02T15:04:05.999Z07:00"
 
 	MessageTypeACK = "ACK"
+)
+
+var (
+	ErrInvalidJupyterMessage       = fmt.Errorf("invalid jupyter message")
+	ErrRequestAlreadyCompleted     = fmt.Errorf("the request cannot be cancelled as it has already been completed")
+	ErrNotSupportedSignatureScheme = fmt.Errorf("not supported signature scheme")
+	ErrInvalidJupyterSignature     = fmt.Errorf("invalid jupyter signature")
 )
 
 type JupyterMessageType string
@@ -274,18 +281,15 @@ func extractRequestTraceFromJupyterMessage(msg *JupyterMessage, logger logger.Lo
 	}
 }
 
-// AddOrUpdateRequestTraceToJupyterMessage will add a RequestTrace to the given types.JupyterMessage's metadata frame.
-// If there is already a RequestTrace within the types.JupyterMessage's metadata frame, then no change is made.
+// AddOrUpdateRequestTraceToJupyterMessage will add a RequestTrace to the given messaging.JupyterMessage's metadata frame.
+// If there is already a RequestTrace within the messaging.JupyterMessage's metadata frame, then no change is made.
 //
-// AddOrUpdateRequestTraceToJupyterMessage returns true if a RequestTrace is serialized into the types.JupyterMessage's
+// AddOrUpdateRequestTraceToJupyterMessage returns true if a RequestTrace is serialized into the messaging.JupyterMessage's
 // metadata frame. If there is already a RequestTrace encoded within the metadata frame, then false is returned.
 //
 // If there is an error decoding or encoding the metadata frame of the jupyter.JupyterMessage, then an error is
 // returned, and the boolean returned along with the error is always false.
 func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket, timestamp time.Time, logger logger.Logger) (*proto.RequestTrace, bool, error) {
-	// logger.Debug("Adding or updating RequestTrace in Jupyter %s \"%s\" message \"%s\"",
-	//	socket.Type.String(), msg.JupyterMessageType(), msg.JupyterMessageId())
-
 	var (
 		wrapper      *proto.JupyterRequestTraceFrame
 		requestTrace *proto.RequestTrace

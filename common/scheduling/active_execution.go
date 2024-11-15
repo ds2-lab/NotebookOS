@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-viper/mapstructure/v2"
-	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
@@ -35,21 +35,21 @@ var (
 // Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
 // Alternatively, under 'dynamic' scheduling, we migrate existing replicas to another node to handle the request.
 type ActiveExecution struct {
-	ExecutionId             string                                        // Unique ID identifying the execution request.
-	AttemptId               int                                           // Beginning at 1, identifies the "attempt number", in case we have to retry due to timeouts.
-	SessionId               string                                        // The ID of the Jupyter session that initiated the request.
-	KernelId                string                                        // ID of the associated kernel.
-	ExecuteRequestMessageId string                                        // The Jupyter message ID of the associated Jupyter "execute_request" ZMQ message.
-	CreatedAt               time.Time                                     // The time at which this ActiveExecution was created.
-	NumReplicas             int                                           // The number of replicas that the kernel had with the execution request was originally received.
-	numLeadRoles            int                                           // Number of 'LEAD' roles issued.
-	numYieldRoles           int                                           // Number of 'YIELD' roles issued.
-	roles                   map[int32]string                              // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
-	nextAttempt             CodeExecution                                 // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
-	previousAttempt         CodeExecution                                 // The retry that preceded this one, if this is not the first attempt.
-	msg                     *types.JupyterMessage                         // The original 'execute_request' message.
-	Replies                 hashmap.HashMap[int32, *types.JupyterMessage] // The responses from each replica. Note that replies are only saved if debug mode is enabled.
-	replyMutex              sync.Mutex                                    // Ensures atomicity of the RegisterReply method.
+	ExecutionId             string                                            // Unique ID identifying the execution request.
+	AttemptId               int                                               // Beginning at 1, identifies the "attempt number", in case we have to retry due to timeouts.
+	SessionId               string                                            // The ID of the Jupyter session that initiated the request.
+	KernelId                string                                            // ID of the associated kernel.
+	ExecuteRequestMessageId string                                            // The Jupyter message ID of the associated Jupyter "execute_request" ZMQ message.
+	CreatedAt               time.Time                                         // The time at which this ActiveExecution was created.
+	NumReplicas             int                                               // The number of replicas that the kernel had with the execution request was originally received.
+	numLeadRoles            int                                               // Number of 'LEAD' roles issued.
+	numYieldRoles           int                                               // Number of 'YIELD' roles issued.
+	roles                   map[int32]string                                  // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
+	nextAttempt             CodeExecution                                     // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
+	previousAttempt         CodeExecution                                     // The retry that preceded this one, if this is not the first attempt.
+	msg                     *messaging.JupyterMessage                         // The original 'execute_request' message.
+	Replies                 hashmap.HashMap[int32, *messaging.JupyterMessage] // The responses from each replica. Note that replies are only saved if debug mode is enabled.
+	replyMutex              sync.Mutex                                        // Ensures atomicity of the RegisterReply method.
 
 	// originallySentAt is the time at which the "execute_request" message associated with this ActiveExecution
 	// was actually sent by the Jupyter client. We can only recover this if the client is an instance of our
@@ -105,7 +105,7 @@ func (e *ActiveExecution) GetWorkloadId() string {
 	return e.WorkloadId
 }
 
-func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *types.JupyterMessage) *ActiveExecution {
+func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *messaging.JupyterMessage) *ActiveExecution {
 	activeExecution := &ActiveExecution{
 		ExecutionId:             uuid.NewString(),
 		SessionId:               msg.JupyterSession(),
@@ -113,7 +113,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 		roles:                   make(map[int32]string, 3),
 		KernelId:                kernelId,
 		NumReplicas:             numReplicas,
-		Replies:                 hashmap.NewCornelkMap[int32, *types.JupyterMessage](numReplicas),
+		Replies:                 hashmap.NewCornelkMap[int32, *messaging.JupyterMessage](numReplicas),
 		nextAttempt:             nil,
 		previousAttempt:         nil,
 		msg:                     msg,
@@ -126,7 +126,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 	err := msg.JupyterFrames.DecodeMetadata(&metadataDict)
 	if err == nil {
 		// Attempt to decode it this way.
-		var requestMetadata *types.ExecuteRequestMetadata
+		var requestMetadata *messaging.ExecuteRequestMetadata
 		err = mapstructure.Decode(metadataDict, &requestMetadata)
 		if err == nil {
 			if requestMetadata.SentAtUnixTimestamp != nil {
@@ -179,23 +179,23 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *ty
 	return activeExecution
 }
 
-// RegisterReply saves an "execute_reply" *types.JupyterMessage from one of the replicas of the kernel
+// RegisterReply saves an "execute_reply" *messaging.JupyterMessage from one of the replicas of the kernel
 // associated with the target ActiveExecution.
 //
 // NOTE: Replies are only saved if debug mode is enabled.
 //
-// This will return an error if the given *types.JupyterMessage is not of type "execute_request".
+// This will return an error if the given *messaging.JupyterMessage is not of type "execute_request".
 //
 // This will return an error if the 'overwrite' parameter is false, and we've already registered a response
 // from the specified kernel replica. (The replica is specified via the 'replicaId' parameter.)
 //
 // This method is thread safe.
-func (e *ActiveExecution) RegisterReply(replicaId int32, response *types.JupyterMessage, overwrite bool) error {
+func (e *ActiveExecution) RegisterReply(replicaId int32, response *messaging.JupyterMessage, overwrite bool) error {
 	e.replyMutex.Lock()
 	defer e.replyMutex.Unlock()
 
-	if response.JupyterMessageType() != types.ShellExecuteReply {
-		return fmt.Errorf("illegal Jupyter message type of response: \"%s\"", types.ShellExecuteReply)
+	if response.JupyterMessageType() != messaging.ShellExecuteReply {
+		return fmt.Errorf("illegal Jupyter message type of response: \"%s\"", messaging.ShellExecuteReply)
 	}
 
 	// If overwrite is false, then we return an error if we already have a response registered for the specified replica.
@@ -244,7 +244,7 @@ func (e *ActiveExecution) OriginalTimestampOrCreatedAt() time.Time {
 	}
 }
 
-func (e *ActiveExecution) Msg() *types.JupyterMessage {
+func (e *ActiveExecution) Msg() *messaging.JupyterMessage {
 	return e.msg
 }
 

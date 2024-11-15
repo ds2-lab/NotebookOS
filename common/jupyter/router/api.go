@@ -1,21 +1,21 @@
 package router
 
-import "github.com/scusemua/distributed-notebook/common/jupyter/types"
+import "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 
-// RouterMessageHandler defines the interface of messages that a JupyterRouter can intercept and handle.
-type RouterMessageHandler func(RouterInfo, *types.JupyterMessage) error
+// MessageHandler defines the interface of messages that a JupyterRouter can intercept and handle.
+type MessageHandler func(Info, *messaging.JupyterMessage) error
 
-type RouterInfo interface {
-	types.JupyterServerInfo
+type Info interface {
+	messaging.JupyterServerInfo
 }
 
-// RouterProvider defines the interface to provide handlers for a JupyterRouter.
-type RouterProvider interface {
-	ControlHandler(RouterInfo, *types.JupyterMessage) error
+// Provider defines the interface to provide handlers for a JupyterRouter.
+type Provider interface {
+	ControlHandler(Info, *messaging.JupyterMessage) error
 
-	ShellHandler(RouterInfo, *types.JupyterMessage) error
+	ShellHandler(Info, *messaging.JupyterMessage) error
 
-	StdinHandler(RouterInfo, *types.JupyterMessage) error
+	StdinHandler(Info, *messaging.JupyterMessage) error
 
-	HBHandler(RouterInfo, *types.JupyterMessage) error
+	HBHandler(Info, *messaging.JupyterMessage) error
 }

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"sync"
@@ -77,7 +77,7 @@ func (l *RequestLog) unsafeLen() int {
 }
 
 // AddEntry adds a RequestLogEntry to the RequestLog for the specified JupyterMessage.
-func (l *RequestLog) AddEntry(msg *types.JupyterMessage, messageType types.MessageType, trace *proto.RequestTrace) error {
+func (l *RequestLog) AddEntry(msg *messaging.JupyterMessage, messageType messaging.MessageType, trace *proto.RequestTrace) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -122,7 +122,7 @@ type RequestLogEntryWrapper struct {
 	RequestId          string
 	JupyterMessageId   string
 	JupyterMessageType string
-	MessageType        types.MessageType
+	MessageType        messaging.MessageType
 	KernelId           string
 }
 
@@ -131,14 +131,14 @@ type RequestLogEntry struct {
 	RequestId          string
 	JupyterMessageId   string
 	JupyterMessageType string
-	MessageType        types.MessageType
+	MessageType        messaging.MessageType
 	KernelId           string
 
 	RequestTrace *proto.RequestTrace
 }
 
 // NewRequestLogEntry creates a new RequestLogEntry struct and returns a pointer to it.
-func NewRequestLogEntry(msg *types.JupyterMessage, messageType types.MessageType, trace *proto.RequestTrace) *RequestLogEntry {
+func NewRequestLogEntry(msg *messaging.JupyterMessage, messageType messaging.MessageType, trace *proto.RequestTrace) *RequestLogEntry {
 	return &RequestLogEntry{
 		RequestId:          msg.RequestId,
 		JupyterMessageId:   msg.JupyterMessageId(),

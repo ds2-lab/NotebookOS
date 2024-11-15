@@ -14,7 +14,7 @@ import (
 	time "time"
 
 	gin "github.com/gin-gonic/gin"
-	types "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	types "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	metrics "github.com/scusemua/distributed-notebook/common/metrics"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -174,7 +174,7 @@ func (m *MockMessagingMetricsProvider) EXPECT() *MockMessagingMetricsProviderMoc
 }
 
 // AddAckReceivedLatency mocks base method.
-func (m *MockMessagingMetricsProvider) AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType metrics.NodeType, socketType types.MessageType, jupyterMessageType string) error {
+func (m *MockMessagingMetricsProvider) AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType metrics.NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddAckReceivedLatency", latency, nodeId, nodeType, socketType, jupyterMessageType)
 	ret0, _ := ret[0].(error)
@@ -188,7 +188,7 @@ func (mr *MockMessagingMetricsProviderMockRecorder) AddAckReceivedLatency(latenc
 }
 
 // AddFailedSendAttempt mocks base method.
-func (m *MockMessagingMetricsProvider) AddFailedSendAttempt(nodeId string, nodeType metrics.NodeType, socketType types.MessageType, jupyterMessageType string) error {
+func (m *MockMessagingMetricsProvider) AddFailedSendAttempt(nodeId string, nodeType metrics.NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddFailedSendAttempt", nodeId, nodeType, socketType, jupyterMessageType)
 	ret0, _ := ret[0].(error)
@@ -202,7 +202,7 @@ func (mr *MockMessagingMetricsProviderMockRecorder) AddFailedSendAttempt(nodeId,
 }
 
 // AddMessageE2ELatencyObservation mocks base method.
-func (m *MockMessagingMetricsProvider) AddMessageE2ELatencyObservation(latency time.Duration, nodeId string, nodeType metrics.NodeType, socketType types.MessageType, jupyterMessageType string) error {
+func (m *MockMessagingMetricsProvider) AddMessageE2ELatencyObservation(latency time.Duration, nodeId string, nodeType metrics.NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddMessageE2ELatencyObservation", latency, nodeId, nodeType, socketType, jupyterMessageType)
 	ret0, _ := ret[0].(error)
@@ -216,7 +216,7 @@ func (mr *MockMessagingMetricsProviderMockRecorder) AddMessageE2ELatencyObservat
 }
 
 // AddNumSendAttemptsRequiredObservation mocks base method.
-func (m *MockMessagingMetricsProvider) AddNumSendAttemptsRequiredObservation(acksRequired float64, nodeId string, nodeType metrics.NodeType, socketType types.MessageType, jupyterMessageType string) error {
+func (m *MockMessagingMetricsProvider) AddNumSendAttemptsRequiredObservation(acksRequired float64, nodeId string, nodeType metrics.NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AddNumSendAttemptsRequiredObservation", acksRequired, nodeId, nodeType, socketType, jupyterMessageType)
 	ret0, _ := ret[0].(error)
@@ -230,7 +230,7 @@ func (mr *MockMessagingMetricsProviderMockRecorder) AddNumSendAttemptsRequiredOb
 }
 
 // SentMessage mocks base method.
-func (m *MockMessagingMetricsProvider) SentMessage(nodeId string, sendLatency time.Duration, nodeType metrics.NodeType, socketType types.MessageType, jupyterMessageType string) error {
+func (m *MockMessagingMetricsProvider) SentMessage(nodeId string, sendLatency time.Duration, nodeType metrics.NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SentMessage", nodeId, sendLatency, nodeType, socketType, jupyterMessageType)
 	ret0, _ := ret[0].(error)
@@ -244,7 +244,7 @@ func (mr *MockMessagingMetricsProviderMockRecorder) SentMessage(nodeId, sendLate
 }
 
 // SentMessageUnique mocks base method.
-func (m *MockMessagingMetricsProvider) SentMessageUnique(nodeId string, nodeType metrics.NodeType, socketType types.MessageType, jupyterMessageType string) error {
+func (m *MockMessagingMetricsProvider) SentMessageUnique(nodeId string, nodeType metrics.NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SentMessageUnique", nodeId, nodeType, socketType, jupyterMessageType)
 	ret0, _ := ret[0].(error)

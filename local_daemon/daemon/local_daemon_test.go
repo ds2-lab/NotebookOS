@@ -11,8 +11,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/scusemua/distributed-notebook/common/jupyter/client"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/mock_client"
-	"github.com/scusemua/distributed-notebook/common/jupyter/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/scusemua/distributed-notebook/local_daemon/device"
 	"github.com/scusemua/distributed-notebook/local_daemon/domain"
@@ -55,7 +55,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		}
 		config.InitLogger(&schedulerDaemon.log, schedulerDaemon)
 
-		kernel.EXPECT().ConnectionInfo().Return(&types.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
+		kernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
 		kernel.EXPECT().KernelSpec().Return(&proto.KernelSpec{
 			Id:              "66902bac-9386-432e-b1b9-21ac853fa1c9",
 			Session:         "10cb49c9-b17e-425e-9bc1-ee3ff66e6974",
@@ -93,7 +93,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				Version:  "5.2",
 			}
 
-			// kernel.EXPECT().SkipIdentities(gomock.Any()).DoAndReturn(func(arg [][]byte) (types.JupyterFrames, int) {
+			// kernel.EXPECT().SkipIdentities(gomock.Any()).DoAndReturn(func(arg [][]byte) (messaging.JupyterFrames, int) {
 			// 	return arg, 0
 			// }).AnyTimes()
 		})
@@ -109,7 +109,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(fmt.Sprintf("{\"%s\": 2}", domain.TargetReplicaArg)), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
-			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
 			err := jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
@@ -117,7 +117,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-			jMsg := types.NewJupyterMessage(msg)
+			jMsg := messaging.NewJupyterMessage(msg)
 			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
@@ -142,7 +142,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
 			err := jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
@@ -150,7 +150,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-			jMsg := types.NewJupyterMessage(msg)
+			jMsg := messaging.NewJupyterMessage(msg)
 
 			// Make it so that there are no idle GPUs available.
 			resourceManager.DebugSetIdleGPUs(0)
@@ -178,7 +178,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
 			err := jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
@@ -186,7 +186,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-			jMsg := types.NewJupyterMessage(msg)
+			jMsg := messaging.NewJupyterMessage(msg)
 			// Make it so that there are no idle GPUs available.
 			resourceManager.DebugSetIdleGPUs(0)
 
@@ -215,7 +215,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte("{}"), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames1 := types.NewJupyterFramesFromBytes(unsignedFrames1)
+			jFrames1 := messaging.NewJupyterFramesFromBytes(unsignedFrames1)
 			frames1, err := jFrames1.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			Expect(frames1).ToNot(BeNil())
@@ -229,7 +229,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte("{}"), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames2 := types.NewJupyterFramesFromBytes(unsignedFrames2)
+			jFrames2 := messaging.NewJupyterFramesFromBytes(unsignedFrames2)
 			frames2, err := jFrames2.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
 			Expect(frames2).ToNot(BeNil())
@@ -267,7 +267,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				[]byte(""), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
-			jFrames := types.NewJupyterFramesFromBytes(unsignedFrames)
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
 			err = jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
@@ -275,7 +275,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-			jMsg := types.NewJupyterMessage(msg)
+			jMsg := messaging.NewJupyterMessage(msg)
 			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))

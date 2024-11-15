@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Scusemua/go-utils/promise"
-	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 )
 
 const (
@@ -42,10 +42,10 @@ func resetEmptyCollectedMap(size int) {
 	}
 }
 
-type KernelStatusPublisher func(msg *types.JupyterMessage, status string, how string) error
+type KernelStatusPublisher func(msg *messaging.JupyterMessage, status string, how string) error
 
 type StatusMsg struct {
-	*types.JupyterMessage
+	*messaging.JupyterMessage
 	Status string
 	How    string
 }
@@ -65,7 +65,7 @@ type AggregateKernelStatus struct {
 	numCollected     int32                    // Number of statuses we've collected.
 	matches          int32                    // The number of collected status that matches the expected status.
 	status           string                   // The last resolved status.
-	sampleMsg        *types.JupyterMessage
+	sampleMsg        *messaging.JupyterMessage
 	lastErr          error
 
 	// collected        []int32                  // A map that tracks the progress of the status collection. The first element is the number of collected status.
@@ -77,7 +77,7 @@ func NewAggregateKernelStatus(kernel *DistributedKernelClient, numReplicas int) 
 	return &AggregateKernelStatus{
 		Promise:      promise.Resolved(),
 		kernel:       kernel,
-		status:       types.MessageKernelStatusIdle,
+		status:       messaging.MessageKernelStatusIdle,
 		collectedMap: make(map[int32]int32, numReplicas),
 		numCollected: 0,
 		// collected: make([]int32, num_replicas+1),
@@ -93,7 +93,7 @@ func (s *AggregateKernelStatus) Status() string {
 func (s *AggregateKernelStatus) Collect(ctx context.Context, numReplicas int, replica_slots int, expecting string, publish KernelStatusPublisher) {
 	// s.kernel.log.Debug("Collecting aggregate status for kernel %s, %d replicas.", s.kernel.id, num_replicas)
 	s.expectingStatus = expecting
-	if expecting == types.MessageKernelStatusIdle {
+	if expecting == messaging.MessageKernelStatusIdle {
 		// Idle status is special, it requires all replicas to be idle.
 		s.expectingMatches = int32(numReplicas)
 		s.allowViolation = false
@@ -123,7 +123,7 @@ func (s *AggregateKernelStatus) Collect(ctx context.Context, numReplicas int, re
 }
 
 // Reduce reduces the received status against the expected status and called the handler if last collect has timed out.
-func (s *AggregateKernelStatus) Reduce(replicaId int32, status string, msg *types.JupyterMessage, publish KernelStatusPublisher) {
+func (s *AggregateKernelStatus) Reduce(replicaId int32, status string, msg *messaging.JupyterMessage, publish KernelStatusPublisher) {
 	// s.kernel.log.Debug("Reducing status \"%s\" for replica %d of kernel %s.", status, replicaId, s.kernel.id)
 
 	if s.IsResolved() && s.lastErr == nil {
@@ -193,7 +193,7 @@ func (s *AggregateKernelStatus) waitForStatus(ctx context.Context, defaultStatus
 // replicaID starts from 1. status update from duplicated replica will be ignored.
 // New match call after the resolution of the promise will still be proceeded.
 // The function is thread-safe and can be called concurrently.
-func (s *AggregateKernelStatus) match(replicaId int32, status string, msg *types.JupyterMessage) (how string, retStatus string, resolved bool) {
+func (s *AggregateKernelStatus) match(replicaId int32, status string, msg *messaging.JupyterMessage) (how string, retStatus string, resolved bool) {
 	// Check if the status has been collected.
 	// ReplicaID should not exceed the size of the collected map, ignore if it does.
 	// if replicaId >= int32(len(s.collected)) || !atomic.CompareAndSwapInt32(&s.collected[replicaId], 0, 1) {

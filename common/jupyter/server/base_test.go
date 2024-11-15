@@ -6,7 +6,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
-	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 )
 
 const (
@@ -40,7 +40,7 @@ var _ = Describe("BaseServer", func() {
 			frames := [][]byte{
 				[]byte("<IDS|MSG>"),
 			}
-			jFrames := types.NewJupyterFramesFromBytes(frames)
+			jFrames := messaging.NewJupyterFramesFromBytes(frames)
 
 			jFrames.AddDestFrame(DEST_KERNEL_ID, true)
 			Expect(jFrames.Len()).To(Equal(2))
@@ -56,7 +56,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 				[]byte("body"),
 			}
-			jFrames = types.NewJupyterFramesFromBytes(frames)
+			jFrames = messaging.NewJupyterFramesFromBytes(frames)
 			jFrames.AddDestFrame(DEST_KERNEL_ID, true)
 			Expect(jFrames.Len()).To(Equal(4))
 			Expect(jFrames.Frames[0]).To(Equal(frames[0]))
@@ -74,7 +74,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 				[]byte("body"),
 			}
-			jFrames = types.NewJupyterFramesFromBytes(frames)
+			jFrames = messaging.NewJupyterFramesFromBytes(frames)
 			jFrames.AddDestFrame(DEST_KERNEL_ID, true)
 			Expect(jFrames.Len()).To(Equal(5))
 			Expect(jFrames.Frames[0]).To(Equal(frames[0]))
@@ -94,7 +94,7 @@ var _ = Describe("BaseServer", func() {
 				getDestFrame(DEST_KERNEL_ID, "a98c"),
 				[]byte("<IDS|MSG>"),
 			}
-			jFrames := types.NewJupyterFramesFromBytes(frames)
+			jFrames := messaging.NewJupyterFramesFromBytes(frames)
 
 			kernelId, reqId, offset := jFrames.ExtractDestFrame(false)
 			Expect(kernelId).To(Equal(DEST_KERNEL_ID))
@@ -105,7 +105,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("some identities"),
 				[]byte("<IDS|MSG>"),
 			}
-			jFrames = types.NewJupyterFramesFromBytes(frames)
+			jFrames = messaging.NewJupyterFramesFromBytes(frames)
 			kernelId, _, offset = jFrames.ExtractDestFrame(false)
 			Expect(kernelId).To(Equal(""))
 			Expect(offset).To(Equal(1))
@@ -113,7 +113,7 @@ var _ = Describe("BaseServer", func() {
 			frames = [][]byte{
 				[]byte("<IDS|MSG>"),
 			}
-			jFrames = types.NewJupyterFramesFromBytes(frames)
+			jFrames = messaging.NewJupyterFramesFromBytes(frames)
 			kernelId, _, offset = jFrames.ExtractDestFrame(false)
 			Expect(kernelId).To(Equal(""))
 			Expect(offset).To(Equal(0))
@@ -123,7 +123,7 @@ var _ = Describe("BaseServer", func() {
 			frames := [][]byte{
 				[]byte("<IDS|MSG>"),
 			}
-			jFrames := types.NewJupyterFramesFromBytes(frames)
+			jFrames := messaging.NewJupyterFramesFromBytes(frames)
 
 			framesAfterRemoval := jFrames.RemoveDestFrame(true)
 			Expect(len(framesAfterRemoval)).To(Equal(1))
@@ -133,7 +133,7 @@ var _ = Describe("BaseServer", func() {
 				getDestFrame(DEST_KERNEL_ID, "a98c"),
 				[]byte("<IDS|MSG>"),
 			}
-			jFrames = types.NewJupyterFramesFromBytes(frames)
+			jFrames = messaging.NewJupyterFramesFromBytes(frames)
 
 			framesAfterRemoval = jFrames.RemoveDestFrame(true)
 			Expect(len(framesAfterRemoval)).To(Equal(1))
@@ -145,7 +145,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 				[]byte("body"),
 			}
-			jFrames = types.NewJupyterFramesFromBytes(frames)
+			jFrames = messaging.NewJupyterFramesFromBytes(frames)
 
 			framesAfterRemoval = jFrames.RemoveDestFrame(true)
 			Expect(len(framesAfterRemoval)).To(Equal(3))
@@ -157,7 +157,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("some identities"),
 				[]byte("<IDS|MSG>"),
 			}
-			jFrames = types.NewJupyterFramesFromBytes(frames)
+			jFrames = messaging.NewJupyterFramesFromBytes(frames)
 
 			printFrames(jFrames.Frames)
 			framesAfterRemoval = jFrames.RemoveDestFrame(true)
@@ -173,7 +173,7 @@ var _ = Describe("BaseServer", func() {
 				[]byte("<IDS|MSG>"),
 				[]byte("adc6e220ddc8d4184576e72f8ca96bca363ecdeab43b136a7917e93afc6bc5e0"),
 			}
-			jFrames = types.NewJupyterFramesFromBytes(frames)
+			jFrames = messaging.NewJupyterFramesFromBytes(frames)
 
 			framesAfterRemoval = jFrames.RemoveDestFrame(true)
 			Expect(len(framesAfterRemoval)).To(Equal(3))

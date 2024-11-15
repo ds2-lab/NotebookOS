@@ -2,9 +2,9 @@ package client
 
 import (
 	"errors"
-	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	commonTypes "github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"reflect"
 	"sync"
 )
@@ -33,7 +33,7 @@ func NewMessageBroker[S any, R any, T any](recognizer MessageTopicRecognizer[R, 
 
 func (broker *MessageBroker[S, R, T]) Publish(src S, raw R) (err error) {
 	topic, msg := broker.topicRecognizer(raw)
-	err = types.ErrNoHandler
+	err = jupyter.ErrNoHandler
 	stop := false
 
 	broker.topicMutex.RLock()
@@ -97,7 +97,7 @@ func (broker *MessageBroker[S, R, T]) findInHandlers(needle scheduling.MessageBr
 }
 
 func (broker *MessageBroker[S, R, T]) shouldStop(err error) (error, bool) {
-	if errors.Is(err, commonTypes.ErrStopPropagation) {
+	if errors.Is(err, types.ErrStopPropagation) {
 		return nil, true
 	} else if err != nil {
 		return err, true

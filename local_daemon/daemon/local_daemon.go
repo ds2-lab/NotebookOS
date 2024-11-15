@@ -34,8 +34,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
-	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/types"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -2198,9 +2198,9 @@ func (d *SchedulerDaemonImpl) Close() error {
 	return nil
 }
 
-// RouterProvider implementations.
+// Provider implementations.
 
-func (d *SchedulerDaemonImpl) ControlHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) ControlHandler(_ router.Info, msg *jupyter.JupyterMessage) error {
 	// Kernel ID is not available in the control message.
 	// _, header, _, err := jupyter.HeaderFromMsg(msg)
 	// if err != nil {
@@ -2250,7 +2250,7 @@ func (d *SchedulerDaemonImpl) kernelShellHandler(info scheduling.KernelInfo, _ j
 	return d.ShellHandler(info, msg)
 }
 
-func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) ShellHandler(_ router.Info, msg *jupyter.JupyterMessage) error {
 	// d.log.Debug("Received shell message with %d frame(s): %s", len(msg.JupyterFrames), msg)
 	// kernelId, header, offset, err := d.headerAndOffsetFromMsg(msg)
 	// if err != nil {
@@ -2340,7 +2340,7 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.RouterInfo, msg *jupyter.Jup
 	return nil
 }
 
-// enqueueExecuteRequest enqueues a given types.JupyterMessage (which must be an "execute_request" message) for
+// enqueueExecuteRequest enqueues a given messaging.JupyterMessage (which must be an "execute_request" message) for
 // submission to the target kernel. Messages are dequeued and submitted in a FCFS manner by a separate goroutine.
 //
 // The reason for this is that we need to process "execute_request" messages one-at-a-time to avoid resource allocation
@@ -2819,11 +2819,11 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *jupyter.JupyterMessage,
 	return msg
 }
 
-func (d *SchedulerDaemonImpl) StdinHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) StdinHandler(_ router.Info, msg *jupyter.JupyterMessage) error {
 	return d.forwardRequest(context.Background(), nil, jupyter.StdinMessage, msg, nil)
 }
 
-func (d *SchedulerDaemonImpl) HBHandler(_ router.RouterInfo, msg *jupyter.JupyterMessage) error {
+func (d *SchedulerDaemonImpl) HBHandler(_ router.Info, msg *jupyter.JupyterMessage) error {
 	return d.forwardRequest(context.Background(), nil, jupyter.HBMessage, msg, nil)
 }
 
@@ -3062,13 +3062,13 @@ func (d *SchedulerDaemonImpl) kernelResponseForwarder(from scheduling.KernelRepl
 		}
 	}
 
-	builder := jupyter.NewRequestBuilder(context.Background(), from.ID(), from.ID(), connectionInfo).
-		WithAckRequired(jupyter.ShouldMessageRequireAck(typ) && requiresAck && d.MessageAcknowledgementsEnabled).
+	builder := messaging.NewRequestBuilder(context.Background(), from.ID(), from.ID(), connectionInfo).
+		WithAckRequired(messaging.ShouldMessageRequireAck(typ) && requiresAck && d.MessageAcknowledgementsEnabled).
 		WithMessageType(typ).
 		WithBlocking(true).
-		WithTimeout(jupyter.DefaultRequestTimeout).
-		WithDoneCallback(jupyter.DefaultDoneHandler).
-		WithMessageHandler(jupyter.DefaultMessageHandler).
+		WithTimeout(messaging.DefaultRequestTimeout).
+		WithDoneCallback(messaging.DefaultDoneHandler).
+		WithMessageHandler(messaging.DefaultMessageHandler).
 		WithNumAttempts(d.numResendAttempts).
 		WithSocketProvider(from).
 		WithJMsgPayload(msg)

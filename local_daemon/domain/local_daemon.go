@@ -10,7 +10,7 @@ import (
 
 type SchedulerDaemon interface {
 	proto.LocalGatewayServer
-	router.RouterProvider
+	router.Provider
 
 	// SetID sets the SchedulerDaemonImpl id by the gateway.
 	SetID(ctx context.Context, in *proto.HostId) (*proto.HostId, error)

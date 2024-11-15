@@ -7,7 +7,6 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
-	"github.com/scusemua/distributed-notebook/common/jupyter/client"
 	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/mock_proto"
@@ -29,8 +28,7 @@ import (
 	"github.com/go-zeromq/zmq4"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/scusemua/distributed-notebook/common/jupyter/mock_client"
-	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	jupyter "github.com/scusemua/distributed-notebook/common/jupyter"
 	"go.uber.org/mock/gomock"
 )
 

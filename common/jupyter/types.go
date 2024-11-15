@@ -1,4 +1,4 @@
-package types
+package jupyter
 
 import (
 	"encoding/json"
@@ -8,16 +8,12 @@ import (
 )
 
 var (
-	ErrNotSupported                = fmt.Errorf("not supported")
-	ErrNoCancelConfigured          = fmt.Errorf("this request was not configured with a context that supported cancellation")
-	ErrRequestAlreadyCompleted     = fmt.Errorf("the request cannot be cancelled as it has already been completed")
-	ErrKernelNotLaunched           = fmt.Errorf("kernel not launched")
-	ErrKernelNotReady              = fmt.Errorf("kernel not ready")
-	ErrKernelClosed                = fmt.Errorf("kernel closed")
-	ErrInvalidJupyterMessage       = fmt.Errorf("invalid jupyter message")
-	ErrNotSupportedSignatureScheme = fmt.Errorf("not supported signature scheme")
-	ErrInvalidJupyterSignature     = fmt.Errorf("invalid jupyter signature")
-	ErrNoHandler                   = fmt.Errorf("no handler")
+	ErrNotSupported       = fmt.Errorf("not supported")
+	ErrNoCancelConfigured = fmt.Errorf("this request was not configured with a context that supported cancellation")
+	ErrKernelNotLaunched  = fmt.Errorf("kernel not launched")
+	ErrKernelNotReady     = fmt.Errorf("kernel not ready")
+	ErrKernelClosed       = fmt.Errorf("kernel closed")
+	ErrNoHandler          = fmt.Errorf("no handler")
 )
 
 const (

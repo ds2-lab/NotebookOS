@@ -1,7 +1,7 @@
 package scheduling
 
 import (
-	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"golang.org/x/net/context"
 	corev1 "k8s.io/api/core/v1"
@@ -15,7 +15,7 @@ type KubeClient interface {
 	Clientset() *kubernetes.Clientset // Get the Kubernetes client.
 
 	// DeployDistributedKernels creates a StatefulSet of distributed kernels for a particular Session. This should be thread-safe for unique Sessions.
-	DeployDistributedKernels(context.Context, *proto.KernelSpec) (*types.ConnectionInfo, error)
+	DeployDistributedKernels(context.Context, *proto.KernelSpec) (*jupyter.ConnectionInfo, error)
 
 	// DeleteCloneset deletes the CloneSet for the kernel identified by the given ID.
 	DeleteCloneset(kernelId string) error

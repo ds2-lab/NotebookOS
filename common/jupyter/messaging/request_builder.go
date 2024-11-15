@@ -1,9 +1,10 @@
-package types
+package messaging
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"strings"
 	"time"
 
@@ -109,14 +110,14 @@ type RequestBuilder struct {
 	hasTimeout bool
 
 	// The connection info of the remote target of the request.
-	connectionInfo *ConnectionInfo
+	connectionInfo *jupyter.ConnectionInfo
 }
 
 // NewRequestBuilder creates a new RequestBuilder struct, passing in an optional parent context and the ID of the
 // source of the message, which will usually be a kernel.
 //
 // NewRequestBuilder returns a pointer to the newly-created RequestBuilder struct.
-func NewRequestBuilder(parentContext context.Context, sourceId string, destId string, connectionInfo *ConnectionInfo) *RequestBuilder {
+func NewRequestBuilder(parentContext context.Context, sourceId string, destId string, connectionInfo *jupyter.ConnectionInfo) *RequestBuilder {
 	builder := &RequestBuilder{
 		isBlocking:               true,
 		timeout:                  DefaultRequestTimeout, // Default value

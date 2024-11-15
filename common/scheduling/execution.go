@@ -1,7 +1,7 @@
 package scheduling
 
 import (
-	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"time"
 )
 
@@ -13,12 +13,12 @@ import (
 // Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
 // Alternatively, under 'dynamic' scheduling, we migrate existing replicas to another node to handle the request.
 type CodeExecution interface {
-	RegisterReply(replicaId int32, response *types.JupyterMessage, overwrite bool) error
+	RegisterReply(replicaId int32, response *messaging.JupyterMessage, overwrite bool) error
 	HasValidWorkloadId() bool
 	HasValidOriginalSentTimestamp() bool
 	OriginalSentTimestamp() time.Time
 	OriginalTimestampOrCreatedAt() time.Time
-	Msg() *types.JupyterMessage
+	Msg() *messaging.JupyterMessage
 	HasExecuted() bool
 	SetExecuted()
 	String() string

@@ -5,6 +5,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/mock_proto"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"go.uber.org/mock/gomock"
 )
@@ -54,8 +55,8 @@ func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster,
 		gomock.Any(),
 	).DoAndReturn(resourceSpoofer.ResourcesSnapshot).AnyTimes()
 
-	host, err := scheduling.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
-		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, cluster, nil, localGatewayClient,
+	host, err := entity.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
+		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, 3, cluster, nil, localGatewayClient,
 		func(_ string, _ string, _ string, _ string) error { return nil })
 
 	return host, localGatewayClient, err

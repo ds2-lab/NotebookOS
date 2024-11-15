@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/Scusemua/go-utils/config"
-	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/types"
 )
 
