@@ -45,8 +45,8 @@ type ActiveExecution struct {
 	numLeadRoles            int                                               // Number of 'LEAD' roles issued.
 	numYieldRoles           int                                               // Number of 'YIELD' roles issued.
 	roles                   map[int32]string                                  // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
-	nextAttempt             CodeExecution                                     // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
-	previousAttempt         CodeExecution                                     // The retry that preceded this one, if this is not the first attempt.
+	nextAttempt             *ActiveExecution                                  // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
+	previousAttempt         *ActiveExecution                                  // The retry that preceded this one, if this is not the first attempt.
 	msg                     *messaging.JupyterMessage                         // The original 'execute_request' message.
 	Replies                 hashmap.HashMap[int32, *messaging.JupyterMessage] // The responses from each replica. Note that replies are only saved if debug mode is enabled.
 	replyMutex              sync.Mutex                                        // Ensures atomicity of the RegisterReply method.
@@ -70,11 +70,11 @@ type ActiveExecution struct {
 	executed bool
 }
 
-func (e *ActiveExecution) LinkPreviousAttempt(previousAttempt CodeExecution) {
+func (e *ActiveExecution) LinkPreviousAttempt(previousAttempt *ActiveExecution) {
 	e.previousAttempt = previousAttempt
 }
 
-func (e *ActiveExecution) LinkNextAttempt(nextAttempt CodeExecution) {
+func (e *ActiveExecution) LinkNextAttempt(nextAttempt *ActiveExecution) {
 	e.nextAttempt = nextAttempt
 }
 

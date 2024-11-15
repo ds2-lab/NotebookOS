@@ -61,12 +61,12 @@ type Kernel interface {
 	GetContainers() []KernelContainer
 	ShellListenPort() int
 	IOPubListenPort() int
-	ActiveExecution() CodeExecution
-	GetActiveExecutionByExecuteRequestMsgId(msgId string) (CodeExecution, bool)
+	ActiveExecution() *ActiveExecution
+	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*ActiveExecution, bool)
 	ExecutionFailedCallback() ExecutionFailedCallback
-	SetActiveExecution(activeExecution CodeExecution)
+	SetActiveExecution(activeExecution *ActiveExecution)
 	ExecutionComplete(msg *messaging.JupyterMessage) (bool, error)
-	EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) CodeExecution
+	EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *ActiveExecution
 	ResetID(id string)
 	PersistentID() string
 	String() string

@@ -1,14 +1,15 @@
 module github.com/scusemua/distributed-notebook
 
-go 1.21
+go 1.22
 
-toolchain go1.21.5
+toolchain go1.22.9
 
 replace github.com/go-zeromq/zmq4 => ../zmq4
 
 replace github.com/mitchellh/mapstructure => github.com/go-viper/mapstructure v1.6.0
 
 require (
+	github.com/Scusemua/go-utils v0.1.1
 	github.com/charmbracelet/lipgloss v0.11.0
 	github.com/colinmarc/hdfs/v2 v2.4.0
 	github.com/elliotchance/orderedmap/v2 v2.2.0
@@ -20,7 +21,6 @@ require (
 	github.com/hashicorp/yamux v0.1.1
 	github.com/ianlancetaylor/cgosymbolizer v0.0.0-20240718183735-925f0b3ad234
 	github.com/jackpal/gateway v1.0.15
-	github.com/Scusemua/go-utils v0.1.1
 	github.com/onsi/ginkgo/v2 v2.19.0
 	github.com/onsi/gomega v1.34.1
 	github.com/opentracing-contrib/go-stdlib v1.0.0
@@ -35,7 +35,7 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.5.2
 	go.etcd.io/etcd/raft/v3 v3.5.2
 	go.etcd.io/etcd/server/v3 v3.5.2
-	go.uber.org/mock v0.4.0
+	go.uber.org/mock v0.5.0
 	go.uber.org/zap v1.21.0
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
 	google.golang.org/grpc v1.64.0
