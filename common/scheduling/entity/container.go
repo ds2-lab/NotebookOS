@@ -216,7 +216,7 @@ func (c *Container) IsTraining() bool {
 
 func (c *Container) transition(targetState scheduling.ContainerState) error {
 	if c.IsStopped() {
-		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", ErrInvalidStateTransition, c.containerState, targetState)
+		return fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", scheduling.ErrInvalidStateTransition, c.containerState, targetState)
 	}
 
 	c.containerState = targetState
@@ -238,7 +238,7 @@ func (c *Container) ScaleOutPriority() float64 {
 }
 
 // TrainingStartedInContainer should be called when the Container begins training.
-func TrainingStartedInContainer(c *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
+func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
 	c.lastSpec = c.spec
 
 	//if snapshot != nil {
@@ -276,7 +276,7 @@ func TrainingStartedInContainer(c *Container, snapshot types.HostResourceSnapsho
 // ContainerStoppedTraining should be called when the Container stops training.
 //
 // This should be called by the Session's SessionStoppedTraining method.
-func ContainerStoppedTraining(c *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
+func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
 	if err := c.transition(scheduling.ContainerStateIdle); err != nil {
 		c.log.Error("Failed to transition Container to state %v because: %v", scheduling.ContainerStateIdle, err)
 		return err

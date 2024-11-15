@@ -6,7 +6,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"sync"
@@ -39,7 +38,7 @@ func NewAbstractPlacer(cluster scheduling.Cluster, numReplicas int) *AbstractPla
 // The number of hosts returned is determined by the placer.
 //
 // The core logic of FindHosts is implemented by the AbstractPlacer's internalPlacer instance/field.
-func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []*entity.Host {
+func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []scheduling.Host {
 	placer.mu.Lock()
 	st := time.Now()
 
@@ -80,12 +79,12 @@ func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts i
 // Second bool indicates whether the host was successfully locked. This does not mean that it is still locked.
 // Merely that we were able to lock it when we tried. If we locked it and found that the host wasn't viable,
 // then we'll have unlocked it before hostIsViable returns.
-func (placer *AbstractPlacer) hostIsViable(candidateHost *entity.Host, spec types.Spec) (bool, bool) {
+func (placer *AbstractPlacer) hostIsViable(candidateHost scheduling.Host, spec types.Spec) (bool, bool) {
 	return placer.instance.hostIsViable(candidateHost, spec)
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *AbstractPlacer) FindHost(blacklist []interface{}, spec types.Spec) *entity.Host {
+func (placer *AbstractPlacer) FindHost(blacklist []interface{}, spec types.Spec) scheduling.Host {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 
@@ -115,32 +114,32 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, spec types.Spec)
 }
 
 // Place atomically places a replica on a host.
-func (placer *AbstractPlacer) Place(host *entity.Host, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+func (placer *AbstractPlacer) Place(host scheduling.Host, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
 	if host == nil {
 		placer.log.Debug("Host cannot be nil when placing a kernel replica...")
 		return nil, scheduling.ErrNilHost
 	}
 
 	placer.log.Debug("Starting replica %d of kernel %s on host %s (ID=%s) now...",
-		in.ReplicaId, in.Kernel.Id, host.NodeName, host.ID)
+		in.ReplicaId, in.Kernel.Id, host.GetNodeName(), host.GetID())
 
 	connInfo, err := host.StartKernelReplica(context.Background(), in)
 
 	if err != nil {
 		placer.log.Error("Host %s (ID=%s) returned an error after trying to start replica %d of kernel %s: %v",
-			host.NodeName, host.ID, in.ReplicaId, in.Kernel.Id, err)
+			host.GetNodeName(), host.GetID(), in.ReplicaId, in.Kernel.Id, err)
 
 		return nil, err
 	}
 
 	if connInfo != nil {
 		placer.log.Debug("Host %s (ID=%s) returned the following connection info for replica %d of kernel %s: %v",
-			host.NodeName, host.ID, in.ReplicaId, in.Kernel.Id, connInfo)
+			host.GetNodeName(), host.GetID(), in.ReplicaId, in.Kernel.Id, connInfo)
 	} else {
 		placer.log.Error(
 			utils.RedStyle.Render(
 				"Host %s (ID=%s) returned no error and no connection info after trying to start replica %d of kernel %s..."),
-			host.NodeName, host.ID, in.ReplicaId, in.Kernel.Id)
+			host.GetNodeName(), host.GetID(), in.ReplicaId, in.Kernel.Id)
 
 		return nil, scheduling.ErrNilConnectionInfo
 	}
@@ -150,7 +149,7 @@ func (placer *AbstractPlacer) Place(host *entity.Host, in *proto.KernelReplicaSp
 
 // Reclaim atomically reclaims a replica from a host.
 // If noop is specified, it is the caller's responsibility to stop the replica.
-func (placer *AbstractPlacer) Reclaim(host *entity.Host, sess scheduling.UserSession, noop bool) error {
+func (placer *AbstractPlacer) Reclaim(host scheduling.Host, sess scheduling.UserSession, noop bool) error {
 	if noop {
 		return nil
 	}

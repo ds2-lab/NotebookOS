@@ -24,12 +24,12 @@ func (c *KubernetesCluster) Sessions() hashmap.HashMap[string, scheduling.UserSe
 	panic("implement me")
 }
 
-func (c *KubernetesCluster) GetIndex(category string, expected interface{}) (IndexProvider, bool) {
+func (c *KubernetesCluster) GetIndex(category string, expected interface{}) (scheduling.IndexProvider, bool) {
 	//TODO implement me
 	panic("implement me")
 }
 
-func (c *KubernetesCluster) AddIndex(index IndexProvider) error {
+func (c *KubernetesCluster) AddIndex(index scheduling.IndexProvider) error {
 	//TODO implement me
 	panic("implement me")
 }

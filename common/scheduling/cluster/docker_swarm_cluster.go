@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -150,9 +149,9 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 
 		numDisabledHostsUsed := 0
 		if c.DisabledHosts.Len() > 0 {
-			enabledHosts := make([]*entity.Host, 0)
+			enabledHosts := make([]scheduling.Host, 0)
 			// First, check if we have any disabled nodes. If we do, then we'll just re-enable them.
-			c.DisabledHosts.Range(func(hostId string, host *entity.Host) (contd bool) {
+			c.DisabledHosts.Range(func(hostId string, host scheduling.Host) (contd bool) {
 				err := host.Enable(true)
 				if err != nil {
 					c.log.Error("Failed to re-enable host %s because: %v", hostId, err)
@@ -287,7 +286,7 @@ func (c *DockerSwarmCluster) GetScaleInCommand(targetScale int32, targetHosts []
 
 	// First, just look for Hosts that are entirely idle.
 	// NOTE: targetHosts is empty at this point. If it wasn't, we would have called unsafeGetTargetedScaleInCommand(...).
-	c.hosts.Range(func(hostId string, host *entity.Host) (contd bool) {
+	c.hosts.Range(func(hostId string, host scheduling.Host) (contd bool) {
 		if host.NumContainers() == 0 {
 			targetHosts = append(targetHosts, hostId)
 			c.log.Debug("Identified Host %s as viable target for termination during scale-in. Identified %d/%d hosts to terminate.",

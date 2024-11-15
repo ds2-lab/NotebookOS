@@ -3,7 +3,6 @@ package placer
 import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"sync"
@@ -40,11 +39,11 @@ func (placer *StaticPlacer) getIndex() index.ClusterIndex {
 }
 
 // FindHosts returns a single host that can satisfy the resourceSpec.
-func (placer *StaticPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int) []*entity.Host {
+func (placer *StaticPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int) []scheduling.Host {
 	var (
 		pos   interface{}
-		host  *entity.Host
-		hosts = make([]*entity.Host, placer.opts.NumReplicas)
+		host  scheduling.Host
+		hosts = make([]scheduling.Host, placer.numReplicas)
 	)
 	for i := 0; i < len(hosts); i++ {
 		host, pos = placer.index.SeekFrom(pos)
@@ -58,8 +57,8 @@ func (placer *StaticPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int
 }
 
 // FindHost returns a single host that can satisfy the resourceSpec.
-func (placer *StaticPlacer) findHost(blacklist []interface{}, spec types.Spec) *entity.Host {
-	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost *entity.Host) bool {
+func (placer *StaticPlacer) findHost(blacklist []interface{}, spec types.Spec) scheduling.Host {
+	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost scheduling.Host) bool {
 		viable, _ := placer.hostIsViable(candidateHost, spec)
 		return viable
 	}, blacklist)

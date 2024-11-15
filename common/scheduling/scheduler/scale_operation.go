@@ -7,7 +7,6 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"log"
 	"math"
 	"sync"
@@ -521,8 +520,8 @@ func (op *ScaleOperation) IsErred() bool {
 // RegisterAffectedHost registers a Host as having been added or removed as a result of the ScaleOperation.
 // RegisterAffectedHost determines whether the Host must have been added or removed based on the type of
 // ScaleOperation that the target ScaleOperation is (i.e., scaling out vs. scaling in).
-func (op *ScaleOperation) RegisterAffectedHost(host *entity.Host) error {
-	op.NodesAffected = append(op.NodesAffected, host.ID)
+func (op *ScaleOperation) RegisterAffectedHost(host scheduling.Host) error {
+	op.NodesAffected = append(op.NodesAffected, host.GetID())
 
 	if len(op.NodesAffected) > op.ExpectedNumAffectedNodes {
 		op.log.Error("Expected %d nodes to be affected; however, we just registered Affected Node #%d",

@@ -3,7 +3,6 @@ package placer
 import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/types"
 )
@@ -43,12 +42,12 @@ func (placer *RandomPlacer) NumHostsInIndex() int {
 
 // tryReserveResourcesOnHost attempts to reserve resources for a future replica of the specified kernel
 // on the specified host, returning true if the reservation was created successfully.
-func (placer *RandomPlacer) tryReserveResourcesOnHost(candidateHost *entity.Host, kernelSpec *proto.KernelSpec) bool {
+func (placer *RandomPlacer) tryReserveResourcesOnHost(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec) bool {
 	reserved, err := candidateHost.ReserveResources(kernelSpec)
 
 	if err != nil {
 		placer.log.Error("Error while attempting to reserve resources for replica of kernel %s on host %s (ID=%s): %v",
-			kernelSpec.Id, candidateHost.NodeName, candidateHost.ID, err)
+			kernelSpec.Id, candidateHost.GetNodeName(), candidateHost.GetID(), err)
 
 		// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
 		if reserved {
@@ -62,14 +61,14 @@ func (placer *RandomPlacer) tryReserveResourcesOnHost(candidateHost *entity.Host
 // findHosts iterates over the Host instances in the index, attempting to reserve the requested resources
 // on each Host until either the requested number of Host instances has been found, or until all Host
 // instances have been checked.
-func (placer *RandomPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int) []*entity.Host {
+func (placer *RandomPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int) []scheduling.Host {
 	var (
-		pos   interface{}    = nil
-		hosts []*entity.Host = nil
+		pos   interface{}       = nil
+		hosts []scheduling.Host = nil
 	)
 
 	// Seek `numHosts` Hosts from the Placer's index.
-	hosts, _ = placer.index.SeekMultipleFrom(pos, numHosts, func(candidateHost *entity.Host) bool {
+	hosts, _ = placer.index.SeekMultipleFrom(pos, numHosts, func(candidateHost scheduling.Host) bool {
 		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec)
 	}, make([]interface{}, 0))
 	placer.mu.Unlock()
@@ -83,8 +82,8 @@ func (placer *RandomPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *RandomPlacer) findHost(blacklist []interface{}, spec types.Spec) *entity.Host {
-	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost *entity.Host) bool {
+func (placer *RandomPlacer) findHost(blacklist []interface{}, spec types.Spec) scheduling.Host {
+	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost scheduling.Host) bool {
 		viable, _ := placer.hostIsViable(candidateHost, spec)
 		return viable
 	}, blacklist)

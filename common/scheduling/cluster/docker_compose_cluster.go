@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -20,8 +19,8 @@ import (
 type DockerComposeCluster struct {
 	*BaseCluster
 
-	// DisabledHosts is a map from host ID to *entity.Host containing all the Host instances that are currently set to "off".
-	DisabledHosts hashmap.HashMap[string, *entity.Host]
+	// DisabledHosts is a map from host ID to scheduling.Host containing all the Host instances that are currently set to "off".
+	DisabledHosts hashmap.HashMap[string, scheduling.Host]
 }
 
 // NewDockerComposeCluster creates a new DockerComposeCluster struct and returns a pointer to it.
@@ -36,7 +35,7 @@ func NewDockerComposeCluster(hostSpec types.Spec, hostMapper HostMapper, kernelP
 
 	dockerCluster := &DockerComposeCluster{
 		BaseCluster:   baseCluster,
-		DisabledHosts: hashmap.NewConcurrentMap[*entity.Host](256),
+		DisabledHosts: hashmap.NewConcurrentMap[scheduling.Host](256),
 	}
 
 	randomPlacer, err := placer.NewRandomPlacer(dockerCluster, opts.NumReplicas)
@@ -162,9 +161,9 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 
 		numDisabledHostsUsed := 0
 		if c.DisabledHosts.Len() > 0 {
-			enabledHosts := make([]*entity.Host, 0)
+			enabledHosts := make([]scheduling.Host, 0)
 			// First, check if we have any disabled nodes. If we do, then we'll just re-enable them.
-			c.DisabledHosts.Range(func(hostId string, host *entity.Host) (contd bool) {
+			c.DisabledHosts.Range(func(hostId string, host scheduling.Host) (contd bool) {
 				err := host.Enable(true)
 				if err != nil {
 					c.log.Error("Failed to re-enable host %s because: %v", hostId, err)
@@ -180,7 +179,7 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 				err = c.NewHostAddedOrConnected(host)
 				if err != nil {
 					c.log.Error("Error adding newly-connected host %s (ID=%s) to cluster: %v",
-						host.NodeName, host.ID, err)
+						host.GetNodeName(), host.GetID(), err)
 					// TODO: Need to handle this error...
 				}
 
@@ -199,9 +198,9 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 
 			// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the "disabled hosts" mapping.
 			for _, host := range enabledHosts {
-				_, loaded := c.DisabledHosts.LoadAndDelete(host.ID)
+				_, loaded := c.DisabledHosts.LoadAndDelete(host.GetID())
 				if !loaded {
-					log.Fatalf("Failed to find host %s in DisabledHosts map after using it in scale-out operation.", host.ID)
+					log.Fatalf("Failed to find host %s in DisabledHosts map after using it in scale-out operation.", host.GetID())
 				}
 			}
 		}
@@ -306,11 +305,11 @@ func (c *DockerComposeCluster) GetScaleInCommand(targetScale int32, targetHosts 
 
 	// First, just look for Hosts that are entirely idle.
 	// NOTE: targetHosts is empty at this point. If it wasn't, we would have called unsafeGetTargetedScaleInCommand(...).
-	c.hosts.Range(func(hostId string, host *entity.Host) (contd bool) {
+	c.hosts.Range(func(hostId string, host scheduling.Host) (contd bool) {
 		if host.NumContainers() == 0 {
 			targetHosts = append(targetHosts, hostId)
 			c.log.Debug("Identified Host %s as viable target for termination during scale-in. Identified %d/%d hosts to terminate.",
-				host.ID, len(targetHosts), numAffectedNodes)
+				host.GetID(), len(targetHosts), numAffectedNodes)
 		}
 
 		// If we've identified enough hosts, then we can stop iterating.

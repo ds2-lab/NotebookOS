@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -88,7 +87,7 @@ func (s *KubernetesScheduler) RemoveReplicaFromHost(_ scheduling.KernelReplica) 
 	panic("Not implemented")
 }
 
-func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpec, _ *entity.Host, _ []*entity.Host) error {
+func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpec, _ scheduling.Host, _ []scheduling.Host) error {
 	if err := s.kubeClient.ScaleOutCloneSet(spec.Kernel.Id); err != nil {
 		s.log.Error("Failed to add replica %d to kernel %s. Could not scale-up CloneSet because: %v",
 			spec.ReplicaId, spec.Kernel.Id, err)
@@ -103,7 +102,7 @@ func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpe
 //
 // In the case of KubernetesScheduler, DeployNewKernel uses the Kubernetes API to deploy the necessary Kubernetes
 // Resources to create the new Kernel replicas.
-func (s *KubernetesScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*entity.Host) error {
+func (s *KubernetesScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	if blacklistedHosts != nil && len(blacklistedHosts) > 0 {
 		panic("Support for blacklisted hosts with Kubernetes scheduler may not have been implemented yet (I don't think it has)...")
 	}

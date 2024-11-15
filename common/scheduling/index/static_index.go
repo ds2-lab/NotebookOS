@@ -3,16 +3,16 @@ package index
 import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"slices"
 	"sync"
 )
 
 type StaticClusterIndex struct {
-	hosts     []*entity.Host // The Host instances in the index.
-	length    int            // The number of Host instances in the index.
-	freeStart int32          // The first freed index.
-	seekStart int32          // The index at which we begin searching for a Host. For this index, its reset after every seek.
+	hosts     []scheduling.Host // The Host instances in the index.
+	length    int               // The number of Host instances in the index.
+	freeStart int32             // The first freed index.
+	seekStart int32             // The index at which we begin searching for a Host. For this index, its reset after every seek.
 
 	mu  sync.Mutex
 	log logger.Logger
@@ -20,7 +20,7 @@ type StaticClusterIndex struct {
 
 func NewStaticClusterIndex() *StaticClusterIndex {
 	index := &StaticClusterIndex{
-		hosts:     make([]*entity.Host, 0),
+		hosts:     make([]scheduling.Host, 0),
 		length:    0,
 		freeStart: 0,
 	}
@@ -36,17 +36,17 @@ func NewStaticClusterIndex() *StaticClusterIndex {
 
 // Category returns the category of the index and the expected value.
 func (index *StaticClusterIndex) Category() (category string, expected interface{}) {
-	return CategoryClusterIndex, expectedRandomIndex
+	return scheduling.CategoryClusterIndex, expectedRandomIndex
 }
 
 // IsQualified returns the actual value according to the index category and whether the host is qualified.
 // An index provider must be able to track indexed hosts and indicate disqualification.
-func (index *StaticClusterIndex) IsQualified(host *entity.Host) (actual interface{}, qualified ClusterIndexQualification) {
+func (index *StaticClusterIndex) IsQualified(host scheduling.Host) (actual interface{}, qualified scheduling.IndexQualification) {
 	// Since all hosts are qualified, we check if the host is in the index only.
 	if _, ok := host.GetMeta(HostMetaRandomIndex).(int32); ok {
-		return expectedRandomIndex, ClusterIndexQualified
+		return expectedRandomIndex, scheduling.IndexQualified
 	} else {
-		return expectedRandomIndex, ClusterIndexNewQualified
+		return expectedRandomIndex, scheduling.IndexNewQualified
 	}
 }
 
@@ -56,7 +56,7 @@ func (index *StaticClusterIndex) Len() int {
 }
 
 // Add adds a host to the index.
-func (index *StaticClusterIndex) Add(host *entity.Host) {
+func (index *StaticClusterIndex) Add(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -82,10 +82,10 @@ func (index *StaticClusterIndex) Add(host *entity.Host) {
 
 // Update updates a host in the index.
 // TODO: Call this when GPU amounts change.
-func (index *StaticClusterIndex) Update(host *entity.Host) {
+func (index *StaticClusterIndex) Update(host scheduling.Host) {
 	found := false
 	for i, h := range index.hosts {
-		if h.ID == host.ID {
+		if h.GetID() == host.GetID() {
 			index.hosts[i] = host
 			found = true
 			break
@@ -100,7 +100,7 @@ func (index *StaticClusterIndex) Update(host *entity.Host) {
 }
 
 // Remove removes a host from the index.
-func (index *StaticClusterIndex) Remove(host *entity.Host) {
+func (index *StaticClusterIndex) Remove(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -121,7 +121,7 @@ func (index *StaticClusterIndex) Remove(host *entity.Host) {
 		index.compactLocked(index.freeStart)
 	}
 
-	slices.SortFunc(index.hosts, func(a, b *entity.Host) int {
+	slices.SortFunc(index.hosts, func(a, b scheduling.Host) int {
 		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
 		// with the Hosts with the most idle GPUs appearing first.
 		if a.IdleGPUs() > b.IdleGPUs() {
@@ -137,7 +137,7 @@ func (index *StaticClusterIndex) Remove(host *entity.Host) {
 // sortIndex sorts the Host instances in the index by their number of idle GPUs.
 // Host instances with more idle GPUs available appear first in the index.
 func (index *StaticClusterIndex) sortIndex() {
-	slices.SortFunc(index.hosts, func(a, b *entity.Host) int {
+	slices.SortFunc(index.hosts, func(a, b scheduling.Host) int {
 		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
 		// with the Hosts with the most idle GPUs appearing first.
 		if a.IdleGPUs() > b.IdleGPUs() {
@@ -177,7 +177,7 @@ func (index *StaticClusterIndex) compactLocked(from int32) {
 }
 
 // GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.
-func (index *StaticClusterIndex) GetMetrics(*entity.Host) (metrics []float64) {
+func (index *StaticClusterIndex) GetMetrics(scheduling.Host) (metrics []float64) {
 	return nil
 }
 
@@ -186,7 +186,7 @@ func (index *StaticClusterIndex) GetMetrics(*entity.Host) (metrics []float64) {
 // // // // // // // // // // // // // //
 
 // Seek returns the host specified by the metrics.
-func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret *entity.Host, pos interface{}) {
+func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret scheduling.Host, pos interface{}) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -223,7 +223,7 @@ func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 }
 
 // SeekFrom continues the seek from the position.
-func (index *StaticClusterIndex) SeekFrom(startIdx interface{}, metrics ...[]float64) (host *entity.Host, pos interface{}) {
+func (index *StaticClusterIndex) SeekFrom(startIdx interface{}, metrics ...[]float64) (host scheduling.Host, pos interface{}) {
 	if start, ok := startIdx.(int32); ok {
 		index.seekStart = start
 	} else {
@@ -232,7 +232,7 @@ func (index *StaticClusterIndex) SeekFrom(startIdx interface{}, metrics ...[]flo
 	return index.Seek(make([]interface{}, 0), metrics...)
 }
 
-func (index *StaticClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]*entity.Host, interface{}) {
+func (index *StaticClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
 	//TODO implement me
 	panic("implement me")
 }

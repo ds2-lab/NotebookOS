@@ -106,11 +106,11 @@ var (
 type dockerSchedulerTestHostMapper struct{}
 
 // GetHostsOfKernel returns the Host instances on which the replicas of the specified kernel are scheduled.
-func (m *dockerSchedulerTestHostMapper) GetHostsOfKernel(kernelId string) ([]*entity.Host, error) {
+func (m *dockerSchedulerTestHostMapper) GetHostsOfKernel(kernelId string) ([]scheduling.Host, error) {
 	return nil, nil
 }
 
-func addHost(idx int, hostSpec types.Spec, disableHost bool, cluster scheduling.Cluster, mockCtrl *gomock.Controller) (*entity.Host, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
+func addHost(idx int, hostSpec types.Spec, disableHost bool, cluster scheduling.Cluster, mockCtrl *gomock.Controller) (scheduling.Host, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
 	hostId := uuid.NewString()
 	nodeName := fmt.Sprintf("TestNode%d", idx)
 	resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, hostSpec)
@@ -180,12 +180,12 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 	Context("Will handle basic scheduling operations correctly", func() {
 		var numHosts int
-		var hosts map[int]*entity.Host
+		var hosts map[int]scheduling.Host
 		var localGatewayClients map[int]*mock_proto.MockLocalGatewayClient
 		var resourceSpoofers map[int]*distNbTesting.ResourceSpoofer
 
 		BeforeEach(func() {
-			hosts = make(map[int]*entity.Host)
+			hosts = make(map[int]scheduling.Host)
 			localGatewayClients = make(map[int]*mock_proto.MockLocalGatewayClient)
 			resourceSpoofers = make(map[int]*distNbTesting.ResourceSpoofer)
 			numHosts = 3
@@ -291,7 +291,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				ResourceSpec:    bigResourceSpec,
 			}
 
-			candidateHosts := make([]*entity.Host, 0)
+			candidateHosts := make([]scheduling.Host, 0)
 			candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, bigKernelSpec)
 			Expect(candidateHosts).ToNot(BeNil())
 			Expect(len(candidateHosts)).To(Equal(1))
@@ -333,8 +333,8 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			}
 
 			// Remove two of the smaller hosts so that the only hosts left are one small host and two big hosts.
-			dockerCluster.RemoveHost(hosts[0].ID)
-			dockerCluster.RemoveHost(hosts[1].ID)
+			dockerCluster.RemoveHost(hosts[0].GetID())
+			dockerCluster.RemoveHost(hosts[1].GetID())
 
 			Expect(dockerCluster.Len()).To(Equal(3))
 
@@ -421,7 +421,8 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					WithKernelSpec(kernelSpec).
 					WithMigrationTimeSampleWindowSize(opts.MigrationTimeSamplingWindow).
 					WithTrainingTimeSampleWindowSize(opts.ExecutionTimeSamplingWindow).
-					WithResourceUtilization(resource.NewUtilization(1.0, 2000, []float64{1.0, 1.0}, 4))
+					WithResourceUtilization(resource.NewUtilization(1.0, 2000, []float64{1.0, 1.0}, 4)).
+					Build()
 
 				dockerCluster.AddSession(kernelId, session)
 				dockerCluster.Scheduler().UpdateRatio(true)
@@ -432,7 +433,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					host := hosts[j]
 
 					fmt.Printf("Cluster subscribed ratio: %f, Host %s (ID=%s) subscription ratio: %f, oversubscription factor: %s\n",
-						dockerCluster.SubscriptionRatio(), host.NodeName, host.ID, host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
+						dockerCluster.SubscriptionRatio(), host.GetNodeName(), host.GetID(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
 
 					err := host.AddToPendingResources(decimalSpec)
 					Expect(err).To(BeNil())
@@ -440,7 +441,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					dockerCluster.Scheduler().UpdateRatio(true)
 
 					fmt.Printf("Cluster subscribed ratio: %f, Host %s (ID=%s) subscription ratio: %f, oversubscription factor: %s\n\n",
-						dockerCluster.SubscriptionRatio(), host.NodeName, host.ID, host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
+						dockerCluster.SubscriptionRatio(), host.GetNodeName(), host.GetID(), host.SubscribedRatio(), host.OversubscriptionFactor().StringFixed(4))
 				}
 			}
 
@@ -459,7 +460,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 			By("Correctly returning only 2 candidate hosts due to the other hosts becoming too oversubscribed")
 
-			candidateHosts := make([]*entity.Host, 0)
+			candidateHosts := make([]scheduling.Host, 0)
 			candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, kernelSpec)
 			Expect(candidateHosts).ToNot(BeNil())
 			Expect(len(candidateHosts)).To(Equal(2))
@@ -495,12 +496,12 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 	Context("Scaling Operations", func() {
 		var numHosts int
-		var hosts map[int]*entity.Host
+		var hosts map[int]scheduling.Host
 		var localGatewayClients map[int]*mock_proto.MockLocalGatewayClient
 		var resourceSpoofers map[int]*distNbTesting.ResourceSpoofer
 
 		BeforeEach(func() {
-			hosts = make(map[int]*entity.Host)
+			hosts = make(map[int]scheduling.Host)
 			localGatewayClients = make(map[int]*mock_proto.MockLocalGatewayClient)
 			resourceSpoofers = make(map[int]*distNbTesting.ResourceSpoofer)
 			numHosts = 3

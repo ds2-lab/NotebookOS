@@ -102,6 +102,9 @@ type Host interface {
 	SubtractFromPendingResources(spec *types.DecimalSpec) error
 	SubtractFromIdleResources(spec *types.DecimalSpec) error
 	SubtractFromCommittedResources(spec *types.DecimalSpec) error
+	IsContainedWithinIndex() bool
+	SetContainedWithinIndex(bool)
+	GetLastRemoteSync() time.Time
 }
 
 type HostStatistics interface {

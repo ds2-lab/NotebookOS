@@ -5,7 +5,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/mock_proto"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"go.uber.org/mock/gomock"
 )
@@ -21,7 +20,7 @@ func ContainsOffendingResourceKind(lst []resource.Kind, target resource.Kind) bo
 }
 
 // NewHostWithSpoofedGRPC creates a new scheduling.Host struct with a spoofed proto.LocalGatewayClient.
-func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string, resourceSpoofer *ResourceSpoofer) (*entity.Host, *mock_proto.MockLocalGatewayClient, error) {
+func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string, resourceSpoofer *ResourceSpoofer) (scheduling.Host, *mock_proto.MockLocalGatewayClient, error) {
 	gpuSchedulerId := uuid.NewString()
 
 	localGatewayClient := mock_proto.NewMockLocalGatewayClient(ctrl)

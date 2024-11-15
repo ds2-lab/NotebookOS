@@ -47,6 +47,8 @@ type KernelContainer interface {
 	InteractivePriority() float64
 	InvalidateInteractivePriority()
 	PreemptionPriority() float64
+	ContainerStoppedTraining() error
+	TrainingStartedInContainer() error
 	Explain(key ExplainerEntry) string
 	ContainerState() ContainerState
 	IsStopped() bool

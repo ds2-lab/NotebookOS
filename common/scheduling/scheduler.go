@@ -39,39 +39,45 @@ func (e *ErrorDuringScheduling) String() string {
 	return e.Error()
 }
 
-// Scheduler defines the interface of a scheduler for the Cluster.
-//
-// The scheduler is ultimately responsible for deciding where to schedule kernel replicas, when and where to migrate
-// kernel replicas, etc.
-//
-// The Scheduler works together with the Placer to fulfill its role and responsibilities.
-type Scheduler interface {
-	// MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
-	// Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
-	// need to start immediately after replica started, e.g., preempting a training task.
-	//MigrateKernelReplica(ctx context.Context, in *proto.KernelId, opts ...grpc.CallOption) (*proto.ReplicaID, error)
-
+type KernelScheduler interface {
 	// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
 	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
 	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) (*proto.MigrateKernelResponse, error)
 
-	// UpdateRatio updates the Cluster's subscription ratio.
-	// UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
-	UpdateRatio(skipValidateCapacity bool) bool
+	// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
+	DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []Host) error
+
+	// ScheduleKernelReplica schedules a particular replica onto the given Host.
+	//
+	// If targetHost is nil, then a candidate host is identified automatically by the Scheduler.
+	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host) error
 
 	// RemoveReplicaFromHost removes the specified replica from its Host.
 	RemoveReplicaFromHost(kernelReplica KernelReplica) error
+}
 
+type HostScheduler interface {
 	// AddHost adds a new Host to the Cluster.
 	// We simulate this using node taints.
 	AddHost() error
 
-	// Placer returns the Placer used by the Cluster.
-	Placer() Placer
-
 	// RemoveHost removes a Host from the Cluster.
 	// We simulate this using node taints.
 	RemoveHost(hostId string) error
+
+	// ReleaseIdleHosts Tries to release n idle hosts. Return the number of hosts that were actually released.
+	// Error will be nil on success and non-nil if some sort of failure is encountered.
+	ReleaseIdleHosts(n int32) (int, error)
+
+	// GetCandidateHosts identifies candidate hosts for a particular kernel, reserving resources on hosts
+	// before returning them.
+	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]Host, error)
+}
+
+type SchedulerMetricsManager interface {
+	// UpdateRatio updates the Cluster's subscription ratio.
+	// UpdateRatio also validates the Cluster's overall capacity as well, scaling in or out as needed.
+	UpdateRatio(skipValidateCapacity bool) bool
 
 	// MinimumCapacity Returns the minimum number of nodes we must have available at any time.
 	MinimumCapacity() int32
@@ -83,32 +89,21 @@ type Scheduler interface {
 	// the given ratio and the Cluster's current subscription ratio.
 	GetOversubscriptionFactor(ratio decimal.Decimal) decimal.Decimal
 
-	// ReleaseIdleHosts Tries to release n idle hosts. Return the number of hosts that were actually released.
-	// Error will be nil on success and non-nil if some sort of failure is encountered.
-	ReleaseIdleHosts(n int32) (int, error)
-
-	// GetCandidateHosts identifies candidate hosts for a particular kernel, reserving resources on hosts
-	// before returning them.
-	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]Host, error)
-
 	// RemoteSynchronizationInterval returns the interval at which the Scheduler synchronizes
 	// the Host instances within the Cluster with their remote nodes.
 	RemoteSynchronizationInterval() time.Duration
+}
 
-	// RefreshAll refreshes all metrics maintained/cached/required by the Cluster Scheduler,
-	// including the list of current Host instances, actual and virtual GPU usage information, etc.
-	//
-	// Return a slice of any errors that occurred. If an error occurs while refreshing a particular piece of information,
-	// then the error is recorded, and the refresh proceeds, attempting all refreshes (even if an error occurs during one refresh).
-	//RefreshAll() []error
-
-	// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-	DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []Host) error
-
-	// ScheduleKernelReplica schedules a particular replica onto the given Host.
-	//
-	// If targetHost is nil, then a candidate host is identified automatically by the Scheduler.
-	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host) error
+// Scheduler defines the interface of a scheduler for the Cluster.
+//
+// The scheduler is ultimately responsible for deciding where to schedule kernel replicas, when and where to migrate
+// kernel replicas, etc.
+//
+// The Scheduler works together with the Placer to fulfill its role and responsibilities.
+type Scheduler interface {
+	KernelScheduler
+	HostScheduler
+	SchedulerMetricsManager
 }
 
 type KubernetesClusterScheduler interface {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"google.golang.org/grpc/connectivity"
@@ -78,13 +77,13 @@ func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 //
 // selectViableHostForReplica searches for a viable training host and, if one is found, then that host is returned.
 // Otherwise, an error is returned.
-func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []*entity.Host) (*entity.Host, error) {
+func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host) (scheduling.Host, error) {
 	kernelId := replicaSpec.ID()
 
 	blacklist := make([]interface{}, 0)
 	for _, blacklistedHost := range blacklistedHosts {
 		s.log.Debug("Host %s (ID=%s) of kernel %s-%d was specifically specified as being blacklisted.",
-			blacklistedHost.NodeName, blacklistedHost.ID, kernelId, replicaSpec.ReplicaId)
+			blacklistedHost.GetNodeName(), blacklistedHost.GetID(), kernelId, replicaSpec.ReplicaId)
 		blacklist = append(blacklist, blacklistedHost.GetMeta(index.HostMetaRandomIndex))
 	}
 
@@ -97,7 +96,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	// That way, we'll necessarily select a host on which no other replicas of this kernel are running.
 	for _, host := range replicaHosts {
 		s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.",
-			host.ID, host.NodeName, kernelId, replicaSpec.ReplicaId)
+			host.GetID(), host.GetNodeName(), kernelId, replicaSpec.ReplicaId)
 		blacklist = append(blacklist, host.GetMeta(index.HostMetaRandomIndex))
 	}
 
@@ -107,7 +106,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	}
 
 	s.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.",
-		host.ID, kernelId, replicaSpec.ReplicaId, host.ID)
+		host.GetID, kernelId, replicaSpec.ReplicaId, host.GetID())
 	return host, nil
 }
 
@@ -154,7 +153,7 @@ func (s *DockerScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelR
 // ScheduleKernelReplica schedules a particular replica onto the given Host.
 //
 // If targetHost is nil, then a candidate Host is identified automatically by the Scheduler.
-func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost *entity.Host, blacklistedHosts []*entity.Host) (err error) {
+func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host, blacklistedHosts []scheduling.Host) (err error) {
 	kernelId := replicaSpec.Kernel.Id // We'll use this a lot.
 
 	if targetHost == nil {
@@ -169,7 +168,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 		}
 
 		s.log.Debug("Found viable target host for replica %d of kernel %s at scheduling time: host %s",
-			replicaSpec.ReplicaId, kernelId, targetHost.ID)
+			replicaSpec.ReplicaId, kernelId, targetHost.GetID())
 	}
 
 	// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
@@ -192,14 +191,14 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 	return nil
 }
 
-// scheduleKernelReplicas schedules a replica of the specified kernel on each Host within the given slice of *entity.Host.
+// scheduleKernelReplicas schedules a replica of the specified kernel on each Host within the given slice of scheduling.Host.
 // Specifically, scheduleKernelReplicas calls ScheduleKernelReplica for each of the Host instances within the given
 // slice of Hosts in a separate goroutine, thereby scheduling a replica of the given kernel on the Host. That is, the
 // scheduling of a replica of the kernel occurs in a unique goroutine for each of the specified Host instances.
 //
 // scheduleKernelReplicas returns a <-chan interface{} used to notify the caller when the scheduling operations
 // have completed.
-func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*entity.Host, blacklistedHosts []*entity.Host) <-chan *schedulingNotification {
+func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []scheduling.Host, blacklistedHosts []scheduling.Host) <-chan *schedulingNotification {
 	// Channel to send either notifications that we successfully launched a replica (in the form of a struct{}{})
 	// or errors that occurred when launching a replica.
 	resultChan := make(chan *schedulingNotification, 3)
@@ -207,7 +206,7 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 	// For each host, launch a Docker replica on that host.
 	for i, host := range hosts {
 		// Launch replicas in parallel.
-		go func(replicaId int32, targetHost *entity.Host) {
+		go func(replicaId int32, targetHost scheduling.Host) {
 			replicaSpec := &proto.KernelReplicaSpec{
 				Kernel:                    in,
 				ReplicaId:                 replicaId,
@@ -247,7 +246,7 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []*
 }
 
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []*entity.Host) error {
+func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	st := time.Now()
 
 	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.",
@@ -310,12 +309,12 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 					}
 
 					replicasScheduled = append(replicasScheduled, notification.ReplicaId)
-					hostsWithOrphanedReplica = append(hostsWithOrphanedReplica, notification.Host.ID)
+					hostsWithOrphanedReplica = append(hostsWithOrphanedReplica, notification.Host.GetID())
 
 					// Write the replica ID.
 					replicasScheduledBuilder.WriteString(fmt.Sprintf("%d", notification.ReplicaId))
 					// Write the host ID.
-					hostsWithOrphanedReplicaBuilder.WriteString(fmt.Sprintf("Host %s", notification.Host.ID))
+					hostsWithOrphanedReplicaBuilder.WriteString(fmt.Sprintf("Host %s", notification.Host.GetID()))
 
 					// If this is not the last replica ID that we'll be writing out...
 					if (idx + 1) < len(responsesReceived) {
@@ -366,7 +365,7 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 
 				responsesReceived = append(responsesReceived, notification)
 				s.log.Debug("Successfully scheduled replica %d of kernel %s on host %s. %d/%d replicas scheduled. Time elapsed: %v.",
-					notification.ReplicaId, in.Id, notification.Host.ID, len(responsesReceived), responsesRequired, time.Since(st))
+					notification.ReplicaId, in.Id, notification.Host.GetID(), len(responsesReceived), responsesRequired, time.Since(st))
 			}
 		}
 	}
@@ -398,14 +397,14 @@ func (s *DockerScheduler) pollForResourceData() {
 		// So, if we last synchronized 16 min ago, then ts is equal to whatever time it was 4 min ago.
 		ts := time.Now().Add(-1 * time.Duration(float64(timeSinceLastSync)*0.25))
 
-		hosts := make([]*entity.Host, 0, s.cluster.Len())
-		s.cluster.RangeOverHosts(func(_ string, host *entity.Host) (contd bool) {
+		hosts := make([]scheduling.Host, 0, s.cluster.Len())
+		s.cluster.RangeOverHosts(func(_ string, host scheduling.Host) (contd bool) {
 			// If we've not synchronized this host within the last <interval of time since last sync> / 4,
 			// then we'll synchronize it again now.
 			//
 			// So, for example, if the last round of synchronizations was 16 minutes ago, then we'll synchronize
 			// this Host now as long as we've not done so within the last 4 minutes.
-			if host.LastRemoteSync.Before(ts) {
+			if host.GetLastRemoteSync().Before(ts) {
 				hosts = append(hosts, host)
 			}
 			return true
@@ -413,7 +412,7 @@ func (s *DockerScheduler) pollForResourceData() {
 		s.cluster.ReadUnlockHosts()
 
 		for _, host := range hosts {
-			hostId := host.ID
+			hostId := host.GetID()
 			err := host.SynchronizeResourceInformation()
 			if err != nil {
 				var (
@@ -428,26 +427,26 @@ func (s *DockerScheduler) pollForResourceData() {
 				numConsecutiveFailuresPerHost[hostId] = numConsecutiveFailures
 
 				s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s (consecutive: %d): %v",
-					hostId, host.NodeName, numConsecutiveFailures, err)
+					hostId, host.GetNodeName(), numConsecutiveFailures, err)
 
 				// If we've failed 3 or more consecutive times, then we may just assume that the scheduler is dead.
 				if numConsecutiveFailures >= ConsecutiveFailuresWarning {
 					// If the gRPC connection to the scheduler is in the transient failure or shutdown state, then we'll just assume it is dead.
 					if host.GetConnectionState() == connectivity.TransientFailure || host.GetConnectionState() == connectivity.Shutdown {
 						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.",
-							numConsecutiveFailures, host.ID, host.NodeName, host.GetConnectionState().String(), host.ID)
+							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String(), host.GetID())
 						s.log.Error(errorMessage)
-						_ = host.ErrorCallback()(host.ID, host.NodeName, "Local Daemon Connectivity Error", errorMessage)
+						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "Local Daemon Connectivity Error", errorMessage)
 					} else if numConsecutiveFailures >= ConsecutiveFailuresBad {
 						// If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
 						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.",
-							numConsecutiveFailures, host.ID, host.NodeName, host.GetConnectionState().String(), host.ID)
+							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String(), host.GetID())
 						s.log.Error(errorMessage)
-						_ = host.ErrorCallback()(host.ID, host.NodeName, "Local Daemon Connectivity Error", errorMessage)
+						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "Local Daemon Connectivity Error", errorMessage)
 					} else {
 						// Otherwise, we won't assume it is dead yet...
 						s.log.Warn("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...",
-							numConsecutiveFailures, host.ID, host.NodeName, host.GetConnectionState().String())
+							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String())
 					}
 				}
 			} else {
@@ -466,8 +465,8 @@ func (s *DockerScheduler) pollForResourceData() {
 // If there are multiple failures, then their associated errors will be joined together via errors.Join(...).
 func (s *DockerScheduler) refreshClusterNodes() error {
 	s.cluster.ReadLockHosts()
-	hosts := make([]*entity.Host, 0, s.cluster.Len())
-	s.cluster.RangeOverHosts(func(_ string, host *entity.Host) (contd bool) {
+	hosts := make([]scheduling.Host, 0, s.cluster.Len())
+	s.cluster.RangeOverHosts(func(_ string, host scheduling.Host) (contd bool) {
 		hosts = append(hosts, host)
 		return true
 	})
@@ -475,11 +474,11 @@ func (s *DockerScheduler) refreshClusterNodes() error {
 
 	errs := make([]error, 0)
 	for _, host := range hosts {
-		hostId := host.ID
+		hostId := host.GetID()
 		err := host.SynchronizeResourceInformation()
 		if err != nil {
 			s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s: %v",
-				hostId, host.NodeName, err)
+				hostId, host.GetNodeName(), err)
 			errs = append(errs, err)
 		}
 	}

@@ -7,9 +7,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
-	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
@@ -26,16 +24,16 @@ type BaseCluster struct {
 	instance internalCluster
 
 	// DisabledHosts is a map from host ID to *entity.Host containing all the Host instances that are currently set to "off".
-	DisabledHosts hashmap.HashMap[string, *entity.Host]
+	DisabledHosts hashmap.HashMap[string, scheduling.Host]
 
 	// hosts is a map from host ID to *entity.Host containing all the Host instances provisioned within the Cluster.
-	hosts hashmap.HashMap[string, *entity.Host]
+	hosts hashmap.HashMap[string, scheduling.Host]
 
 	// sessions is a map of Sessions.
 	sessions hashmap.HashMap[string, scheduling.UserSession]
 
 	// indexes is a map from index key to IndexProvider containing all the indexes in the Cluster.
-	indexes hashmap.BaseHashMap[string, IndexProvider]
+	indexes hashmap.BaseHashMap[string, scheduling.IndexProvider]
 
 	// activeScaleOperation is a reference to the currently-active scale-out/scale-in operation.
 	// There may only be one scaling operation active at any given time.
@@ -95,11 +93,11 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, clusterMetricsProvider sc
 		numReplicas:              opts.GetNumReplicas(),
 		numReplicasDecimal:       decimal.NewFromInt(int64(opts.GetNumReplicas())),
 		metricsProvider:          clusterMetricsProvider,
-		hosts:                    hashmap.NewConcurrentMap[*entity.Host](256),
+		hosts:                    hashmap.NewConcurrentMap[scheduling.Host](256),
 		sessions:                 hashmap.NewCornelkMap[string, scheduling.UserSession](128),
-		indexes:                  hashmap.NewSyncMap[string, IndexProvider](),
+		indexes:                  hashmap.NewSyncMap[string, scheduling.IndexProvider](),
 		validateCapacityInterval: time.Second * time.Duration(opts.GetScalingInterval()),
-		DisabledHosts:            hashmap.NewConcurrentMap[*entity.Host](256),
+		DisabledHosts:            hashmap.NewConcurrentMap[scheduling.Host](256),
 		numFailedScaleInOps:      0,
 		numFailedScaleOutOps:     0,
 		numSuccessfulScaleInOps:  0,
@@ -261,12 +259,12 @@ func (c *BaseCluster) Scheduler() scheduling.Scheduler {
 	return c.scheduler
 }
 
-func (c *BaseCluster) GetIndex(category string, expected interface{}) (IndexProvider, bool) {
+func (c *BaseCluster) GetIndex(category string, expected interface{}) (scheduling.IndexProvider, bool) {
 	key := fmt.Sprintf("%s:%v", category, expected)
 	return c.indexes.Load(key)
 }
 
-func (c *BaseCluster) AddIndex(index IndexProvider) error {
+func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 	category, expected := index.Category()
 	key := fmt.Sprintf("%s:%v", category, expected)
 	if _, ok := c.indexes.Load(key); ok {
@@ -279,7 +277,7 @@ func (c *BaseCluster) AddIndex(index IndexProvider) error {
 
 // unsafeCheckIfScaleOperationIsComplete is used to check if there is an active scaling operation and,
 // if there is, then to check if that operation is complete.
-func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host *entity.Host) {
+func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host scheduling.Host) {
 	if c.activeScaleOperation == nil {
 		return
 	}
@@ -318,12 +316,12 @@ func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host *entity.Host) {
 
 // onDisabledHostAdded when a new Host is added to the Cluster in a disabled state,
 // meaning that it is intended to be unavailable unless we explicitly scale-out.
-func (c *BaseCluster) onDisabledHostAdded(host *entity.Host) error {
+func (c *BaseCluster) onDisabledHostAdded(host scheduling.Host) error {
 	if host.Enabled() {
-		return fmt.Errorf("host %s (ID=%s) is not disabled", host.NodeName, host.ID)
+		return fmt.Errorf("host %s (ID=%s) is not disabled", host.GetNodeName(), host.GetID())
 	}
 
-	c.DisabledHosts.Store(host.ID, host)
+	c.DisabledHosts.Store(host.GetID(), host)
 
 	if c.metricsProvider != nil && c.metricsProvider.GetNumDisabledHostsGauge() != nil {
 		c.metricsProvider.GetNumDisabledHostsGauge().Add(1)
@@ -333,15 +331,15 @@ func (c *BaseCluster) onDisabledHostAdded(host *entity.Host) error {
 }
 
 // onHostAdded is called when a host is added to the BaseCluster.
-func (c *BaseCluster) onHostAdded(host *entity.Host) {
-	c.indexes.Range(func(key string, index IndexProvider) bool {
-		if _, qualificationStatus := index.IsQualified(host); qualificationStatus == IndexNewQualified {
+func (c *BaseCluster) onHostAdded(host scheduling.Host) {
+	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
+		if _, qualificationStatus := index.IsQualified(host); qualificationStatus == scheduling.IndexNewQualified {
 			c.log.Debug("Adding new host to index: %v", host)
 			index.Add(host)
-		} else if qualificationStatus == IndexQualified {
+		} else if qualificationStatus == scheduling.IndexQualified {
 			c.log.Debug("Updating existing host within index: %v", host)
 			index.Update(host)
-		} else if qualificationStatus == IndexDisqualified {
+		} else if qualificationStatus == scheduling.IndexDisqualified {
 			c.log.Debug("Removing existing host from index in onHostAdded: %v", host)
 			index.Remove(host)
 		} // else unqualified
@@ -356,9 +354,9 @@ func (c *BaseCluster) onHostAdded(host *entity.Host) {
 }
 
 // onHostRemoved is called when a host is deleted from the BaseCluster.
-func (c *BaseCluster) onHostRemoved(host *entity.Host) {
-	c.indexes.Range(func(key string, index IndexProvider) bool {
-		if _, hostQualificationStatus := index.IsQualified(host); hostQualificationStatus != IndexUnqualified {
+func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
+	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
+		if _, hostQualificationStatus := index.IsQualified(host); hostQualificationStatus != scheduling.IndexUnqualified {
 			index.Remove(host)
 		}
 		return true
@@ -376,7 +374,7 @@ func (c *BaseCluster) onHostRemoved(host *entity.Host) {
 // BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
 func (c *BaseCluster) BusyGPUs() float64 {
 	busyGPUs := 0.0
-	c.hosts.Range(func(_ string, host *entity.Host) (contd bool) {
+	c.hosts.Range(func(_ string, host scheduling.Host) (contd bool) {
 		busyGPUs += host.CommittedGPUs()
 		return true
 	})
@@ -407,7 +405,7 @@ func (c *BaseCluster) NumReplicas() int {
 // RangeOverHosts executes the provided function on each Host in the Cluster.
 //
 // Importantly, this function does NOT lock the hostsMutex.
-func (c *BaseCluster) RangeOverHosts(f func(key string, value *entity.Host) bool) {
+func (c *BaseCluster) RangeOverHosts(f func(key string, value scheduling.Host) bool) {
 	c.hosts.Range(f)
 }
 
@@ -781,44 +779,44 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 }
 
 // MetricsProvider returns the metrics.ClusterMetricsProvider of the Cluster.
-func (c *BaseCluster) MetricsProvider() metrics.ClusterMetricsProvider {
+func (c *BaseCluster) MetricsProvider() scheduling.MetricsProvider {
 	return c.metricsProvider
 }
 
 // NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
 // NewHostAddedOrConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
 // task of locking the required structures during scaling operations.
-func (c *BaseCluster) NewHostAddedOrConnected(host *entity.Host) error {
+func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	c.scalingOpMutex.Lock()
 	defer c.scalingOpMutex.Unlock()
 
 	if !host.Enabled() {
-		c.log.Debug("Attempting to add disabled host %s (ID=%s) to the cluster now.", host.NodeName, host.ID)
+		c.log.Debug("Attempting to add disabled host %s (ID=%s) to the cluster now.", host.GetNodeName(), host.GetID())
 		err := c.onDisabledHostAdded(host)
 		if err != nil {
-			c.log.Error("Failed to add disabled Host %s (ID=%s) to cluster because: %v", host.NodeName, host.ID, err)
+			c.log.Error("Failed to add disabled Host %s (ID=%s) to cluster because: %v", host.GetNodeName(), host.GetID(), err)
 			return err
 		}
-		c.log.Debug("Successfully added disabled host %s (ID=%s) to the cluster.", host.NodeName, host.ID)
+		c.log.Debug("Successfully added disabled host %s (ID=%s) to the cluster.", host.GetNodeName(), host.GetID())
 		return nil
 	}
 
-	c.log.Debug("Host %s (ID=%s) has just connected to the Cluster or is being re-enabled", host.NodeName, host.ID)
+	c.log.Debug("Host %s (ID=%s) has just connected to the Cluster or is being re-enabled", host.GetNodeName(), host.GetID())
 
 	c.hostMutex.Lock()
 	// The host mutex is already locked if we're performing a scaling operation.
-	c.hosts.Store(host.ID, host)
+	c.hosts.Store(host.GetID(), host)
 	c.hostMutex.Unlock()
 
 	c.onHostAdded(host)
 
-	c.log.Debug("Finished handling scheduling.Cluster-level registration of newly-added host %s (ID=%s)", host.NodeName, host.ID)
+	c.log.Debug("Finished handling scheduling.Cluster-level registration of newly-added host %s (ID=%s)", host.GetNodeName(), host.GetID())
 
 	return nil
 }
 
 // GetHost returns the Host with the given ID, if one exists.
-func (c *BaseCluster) GetHost(hostId string) (*entity.Host, bool) {
+func (c *BaseCluster) GetHost(hostId string) (scheduling.Host, bool) {
 	return c.hosts.Load(hostId)
 }
 

@@ -10,7 +10,6 @@ import (
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"math"
 	"sync"
@@ -44,22 +43,22 @@ type sessionStateTransition struct {
 type Session struct {
 	instance *Session
 
-	ctx               context.Context           // The Session's context.
-	id                string                    // Session/kernel ID.
-	sessionState      scheduling.SessionState   // The current state of the Session.
-	trainingStart     time.Time                 // Time at which the current training began.
-	migrationStart    time.Time                 // Time at which the migration began.
-	containers        map[int32]*Container      // The kernel replicas belonging to this Session.
-	trainingContainer *Container                // The Container that is actively training.
-	resourceSpec      types.CloneableSpec       // The (current) resource requirements of the Session.
-	stateTransitions  []*sessionStateTransition // History of state transitions performed by the Session.
+	ctx               context.Context                      // The Session's context.
+	id                string                               // Session/kernel ID.
+	sessionState      scheduling.SessionState              // The current state of the Session.
+	trainingStart     time.Time                            // Time at which the current training began.
+	migrationStart    time.Time                            // Time at which the migration began.
+	containers        map[int32]scheduling.KernelContainer // The kernel replicas belonging to this Session.
+	trainingContainer scheduling.KernelContainer           // The Container that is actively training.
+	resourceSpec      types.CloneableSpec                  // The (current) resource requirements of the Session.
+	stateTransitions  []*sessionStateTransition            // History of state transitions performed by the Session.
 
 	////////////////////////
 	// Session Statistics //
 	////////////////////////
 
 	kernelSpec                     *proto.KernelSpec           // The kernel resourceSpec of the associated kernel.
-	resourceUtilization            *resource.Utilization       // Current/latest resource usage statistics.
+	resourceUtilization            scheduling.Utilization      // Current/latest resource usage statistics.
 	startedAt                      time.Time                   // Time at which the session began running.
 	trainingTime                   scheduling.SessionStatistic // Moving average of training times.
 	migrationTime                  scheduling.SessionStatistic // Moving average of migration times.
@@ -82,7 +81,7 @@ type SessionBuilder struct {
 	ctx                           context.Context
 	id                            string
 	kernelSpec                    *proto.KernelSpec
-	resourceUtilization           *resource.Utilization
+	resourceUtilization           scheduling.Utilization
 	trainingTimeSampleWindowSize  int64
 	migrationTimeSampleWindowSize int64
 }
@@ -123,7 +122,7 @@ func (b *SessionBuilder) WithKernelSpec(kernelSpec *proto.KernelSpec) *SessionBu
 }
 
 // WithResourceUtilization sets the resource utilization for the user session
-func (b *SessionBuilder) WithResourceUtilization(resourceUtilization *resource.Utilization) *SessionBuilder {
+func (b *SessionBuilder) WithResourceUtilization(resourceUtilization scheduling.Utilization) *SessionBuilder {
 	b.resourceUtilization = resourceUtilization
 	return b
 }
@@ -137,7 +136,7 @@ func (b *SessionBuilder) Build() *Session {
 		resourceSpec:               b.kernelSpec.DecimalSpecFromKernelSpec(),
 		resourceUtilization:        b.resourceUtilization,
 		log:                        config.GetLogger(fmt.Sprintf("Session %s ", b.id)),
-		sessionState:               SessionStateInit,
+		sessionState:               scheduling.SessionStateInit,
 		startedAt:                  time.Now(),
 		trainingTime:               NewMovingStatistic(b.trainingTimeSampleWindowSize),
 		migrationTime:              NewMovingStatistic(b.migrationTimeSampleWindowSize),
@@ -146,7 +145,7 @@ func (b *SessionBuilder) Build() *Session {
 		preemptionPriorityHistory:  NewValueHistory[float64]("Preemption Priority", "float64"),
 		trainingTimeHistory:        NewValueHistory[time.Duration]("Training Time", "time.Duration"),
 		migrationTimeHistory:       NewValueHistory[time.Duration]("Migration Time", "time.Duration"),
-		containers:                 make(map[int32]*Container),
+		containers:                 make(map[int32]scheduling.KernelContainer),
 	}
 
 	initialInteractivePriority := session.updateInteractivePriority("session started")
@@ -178,7 +177,7 @@ func (s *Session) Unlock() {
 // On success, AddReplica will return nil.
 //
 // Note: this method is thread-safe.
-func (s *Session) AddReplica(container *Container) error {
+func (s *Session) AddReplica(container scheduling.KernelContainer) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -191,17 +190,17 @@ func (s *Session) AddReplica(container *Container) error {
 	}
 
 	// Ensure we don't already have a replica with this SMR Node ID.
-	if existingContainer, loaded := s.containers[container.ReplicaID()]; loaded {
+	if existingContainer, loaded := s.containers[container.ReplicaId()]; loaded {
 		s.log.Error("Cannot add/register scheduling.Container for replica %d of kernel \"%s\" with associated scheduling.Session; "+
-			"session already has container for replica %d registered...", container.ReplicaID(), s.id, container.ReplicaID())
-		s.log.Error("Existing scheduling.Container for replica %d of kernel \"%s\": %s", container.ReplicaID(), s.id, existingContainer.String())
-		return fmt.Errorf("%w: session already has container for replica %d registered", ErrInvalidContainer, container.ReplicaID())
+			"session already has container for replica %d registered...", container.ReplicaId(), s.id, container.ReplicaId())
+		s.log.Error("Existing scheduling.Container for replica %d of kernel \"%s\": %s", container.ReplicaId(), s.id, existingContainer.String())
+		return fmt.Errorf("%w: session already has container for replica %d registered", ErrInvalidContainer, container.ReplicaId())
 	}
 
-	s.containers[container.ReplicaID()] = container
+	s.containers[container.ReplicaId()] = container
 
 	s.log.Debug("Successfully added/registered scheduling.Container for replica %d of kernel \"%s\" with associated scheduling.Session",
-		container.ReplicaID(), s.id)
+		container.ReplicaId(), s.id)
 
 	return nil
 }
@@ -212,8 +211,8 @@ func (s *Session) AddReplica(container *Container) error {
 // On success, RemoveReplica returns nil.
 //
 // Note: this method is thread-safe.
-func (s *Session) RemoveReplica(container *Container) error {
-	return s.RemoveReplicaById(container.ReplicaID())
+func (s *Session) RemoveReplica(container scheduling.KernelContainer) error {
+	return s.RemoveReplicaById(container.ReplicaId())
 }
 
 // RemoveReplicaById removes the Container with the specified SMR node ID from the Session's replicas.
@@ -261,7 +260,7 @@ func (s *Session) Context() context.Context {
 // GetReplicaContainer returns the Container with the given replica ID (i.e., SMR node ID).
 //
 // If the Session does not presently have a Container with the specified ID, then nil is returned along with false.
-func (s *Session) GetReplicaContainer(replicaId int32) (*Container, bool) {
+func (s *Session) GetReplicaContainer(replicaId int32) (scheduling.KernelContainer, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -280,14 +279,14 @@ func (s *Session) SetContext(ctx context.Context) {
 }
 
 // ResourceUtilization returns the current ResourceUtilization of the Session.
-func (s *Session) ResourceUtilization() *resource.Utilization {
+func (s *Session) ResourceUtilization() scheduling.Utilization {
 	return s.resourceUtilization
 }
 
 // SetResourceUtilization sets the value of the Session's resourceUtilization field to the given value.
 //
 // Note: this method is thread-safe.
-func (s *Session) SetResourceUtilization(util *resource.Utilization) {
+func (s *Session) SetResourceUtilization(util scheduling.Utilization) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -313,13 +312,13 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 	defer s.mu.Unlock()
 
 	if s.IsTraining() {
-		s.log.Error("Session cannot transition to state \"%s\" -- Session is already training!", SessionStateExpectingTraining)
-		err := fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", scheduling.ErrInvalidStateTransition, s.sessionState, SessionStateExpectingTraining)
+		s.log.Error("Session cannot transition to state \"%s\" -- Session is already training!", scheduling.SessionStateExpectingTraining)
+		err := fmt.Errorf("%w: cannot transition from state '%s' to state '%s'", scheduling.ErrInvalidStateTransition, s.sessionState, scheduling.SessionStateExpectingTraining)
 		return promise.Resolved(s.instance, err)
 	}
 
-	if err := s.transition(SessionStateExpectingTraining); err != nil {
-		s.log.Error("Could not transition to state \"%s\" because: %v", SessionStateExpectingTraining, err)
+	if err := s.transition(scheduling.SessionStateExpectingTraining); err != nil {
+		s.log.Error("Could not transition to state \"%s\" because: %v", scheduling.SessionStateExpectingTraining, err)
 		return promise.Resolved(s.instance, err)
 	}
 
@@ -337,13 +336,13 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 // of DistributedKernelClient.
 //
 // DistributedKernelClient::handleSmrLeadTaskMessage --> Kernel::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
-func (s *Session) SessionStartedTraining(container *Container, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
+func (s *Session) SessionStartedTraining(container scheduling.KernelContainer, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
 	s.log.Debug("Training starting. Current state: %s.", s.GetState().String())
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.transition(SessionStateTraining); err != nil {
+	if err := s.transition(scheduling.SessionStateTraining); err != nil {
 		s.log.Warn("Failed to start training because: %v", err)
 		return promise.Resolved(s.instance, err)
 	}
@@ -370,14 +369,14 @@ func (s *Session) SessionStartedTraining(container *Container, snapshot types.Ho
 	}
 
 	s.trainingContainer = container
-	if err := TrainingStartedInContainer(s.trainingContainer, snapshot); err != nil {
+	if err := s.trainingContainer.TrainingStartedInContainer(); err != nil {
 		s.log.Error("Failed to start training in container %s: %v", container.String(), err)
 		return promise.Resolved(s.instance, err)
 	}
 
 	s.trainingStart = time.Now()
 
-	s.log.Debug("Container %s began training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().ID)
+	s.log.Debug("Container %s began training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().GetID())
 
 	return promise.Resolved(s.instance)
 }
@@ -401,7 +400,7 @@ func (s *Session) SessionStoppedTraining(snapshot types.HostResourceSnapshot[typ
 func UnsafeTrainingStopped(s *Session, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) promise.Promise {
 	s.log.Debug("Training stopping. Current state: %s.", s.sessionState.String())
 
-	if err := s.transition(SessionStateIdle); err != nil {
+	if err := s.transition(scheduling.SessionStateIdle); err != nil {
 		s.log.Warn("Failed to stop training because: %v", err)
 		return promise.Resolved(s.instance, err)
 	}
@@ -411,7 +410,7 @@ func UnsafeTrainingStopped(s *Session, snapshot types.HostResourceSnapshot[types
 		return promise.Resolved(s.instance, ErrMissingTrainingContainer)
 	}
 
-	if err := ContainerStoppedTraining(s.trainingContainer, snapshot); err != nil {
+	if err := s.trainingContainer.ContainerStoppedTraining(); err != nil {
 		s.log.Error("Failed to stop training in active container: %v", err)
 		return promise.Resolved(s.instance, err)
 	}
@@ -423,7 +422,7 @@ func UnsafeTrainingStopped(s *Session, snapshot types.HostResourceSnapshot[types
 	latestInteractivePriority := s.updateInteractivePriority("training stopped")
 	s.interactivePriorityHistory.AddValue(latestInteractivePriority)
 
-	s.log.Debug("%s has stopped training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().ID)
+	s.log.Debug("%s has stopped training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().GetID())
 	return promise.Resolved(s.instance)
 }
 
@@ -435,7 +434,7 @@ func (s *Session) MigrationStarted() promise.Promise {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.transition(SessionStateMigrating); err != nil {
+	if err := s.transition(scheduling.SessionStateMigrating); err != nil {
 		s.log.Warn("Failed to initiate migration because: %v", err)
 		return promise.Resolved(s.instance, err)
 	}
@@ -452,7 +451,7 @@ func (s *Session) MigrationComplete() promise.Promise {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.transition(SessionStateIdle); err != nil {
+	if err := s.transition(scheduling.SessionStateIdle); err != nil {
 		s.log.Warn("Failed to conclude migration because: %v", err)
 		return promise.Resolved(s.instance, err)
 	}
@@ -484,7 +483,7 @@ func (s *Session) SessionStarted() promise.Promise {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if err := s.transition(SessionStateIdle); err != nil {
+	if err := s.transition(scheduling.SessionStateIdle); err != nil {
 		s.log.Warn("Failed to terminate session because: %v", err)
 		return promise.Resolved(s.instance, err)
 	}
@@ -510,7 +509,7 @@ func (s *Session) SessionStopped() promise.Promise {
 	}
 
 	// Transition to the 'SessionStateStopped' state.
-	if err := s.transition(SessionStateStopped); err != nil {
+	if err := s.transition(scheduling.SessionStateStopped); err != nil {
 		s.log.Warn("Failed to terminate session because: %v", err)
 		return promise.Resolved(nil, err)
 	}
@@ -537,23 +536,23 @@ func (s *Session) SessionStopped() promise.Promise {
 
 // IsStopped returns true if the Session has been terminated.
 func (s *Session) IsStopped() bool {
-	return s.sessionState == SessionStateStopped
+	return s.sessionState == scheduling.SessionStateStopped
 }
 
 // IsIdle returns true if the Session is currently idle, meaning that none of its replicas are currently training.
 func (s *Session) IsIdle() bool {
-	return s.sessionState == SessionStateIdle
+	return s.sessionState == scheduling.SessionStateIdle
 }
 
 // IsMigrating returns true if one or more replicas are currently migrating from one Host to another.
 func (s *Session) IsMigrating() bool {
-	return s.sessionState == SessionStateMigrating
+	return s.sessionState == scheduling.SessionStateMigrating
 }
 
 // IsTraining returns true if the Session is actively training.
 // Otherwise, IsTraining returns false.
 func (s *Session) IsTraining() bool {
-	return s.sessionState == SessionStateTraining
+	return s.sessionState == scheduling.SessionStateTraining
 }
 
 func (s *Session) transition(targetState scheduling.SessionState) error {
@@ -624,8 +623,8 @@ func (s *Session) updateInteractivePriority(reason string) float64 {
 		s.interactivePriority = 100000 // obsoleted: float64(s.meta.GPU.GPUs) * s.MigrationTime()
 		s.interactivePriorityExplanation = "initialization(no training history)"
 	} else {
-		s.interactivePriority = float64(s.resourceUtilization.NumGpus) * math.Pow(s.MigrationTime(), 2.0) / s.TrainingTime().Avg()
-		s.interactivePriorityExplanation = fmt.Sprintf("update after %s(%d * %.2f^2 / %.2f)", reason, s.resourceUtilization.NumGpus, s.MigrationTime(), s.TrainingTime().Avg())
+		s.interactivePriority = float64(s.resourceUtilization.GetNumGpus()) * math.Pow(s.MigrationTime(), 2.0) / s.TrainingTime().Avg()
+		s.interactivePriorityExplanation = fmt.Sprintf("update after %s(%d * %.2f^2 / %.2f)", reason, s.resourceUtilization.GetNumGpus(), s.MigrationTime(), s.TrainingTime().Avg())
 	}
 
 	return s.interactivePriority
@@ -648,7 +647,7 @@ func (s *Session) calculatePreemptionPriority() (preemptionPriority float64) {
 	} else {
 		s.preemptionPriorityExplanation = "is training"
 
-		preemptionPriority = float64(s.resourceUtilization.NumGpus) * s.MigrationTime()
+		preemptionPriority = float64(s.resourceUtilization.GetNumGpus()) * s.MigrationTime()
 	}
 
 	s.preemptionPriorityHistory.AddValue(preemptionPriority)
