@@ -24,9 +24,9 @@ pushd ~/go/pkg
 
 if [ "$1" != "" ]; then
     GIT_TOKEN=$1
-    git clone https://Scusemua@$(GIT_TOKEN)github.com/zhangjyr/distributed-notebook
+    git clone https://Scusemua@$(GIT_TOKEN)github.com/scusemua/distributed-notebook
 else 
-    git clone https://Scusemua@github.com/zhangjyr/distributed-notebook
+    git clone https://Scusemua@github.com/scusemua/distributed-notebook
 fi 
 
 popd
@@ -242,7 +242,7 @@ if ! command stat gopy &> /dev/null; then
 fi 
 
 if ! command stat distributed-notebook &> /dev/null; then 
-    git clone https://github.com/zhangjyr/distributed-notebook.git
+    git clone https://github.com/scusemua/distributed-notebook.git
 fi 
 
 popd

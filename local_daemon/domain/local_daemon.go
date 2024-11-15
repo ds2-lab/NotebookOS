@@ -2,10 +2,10 @@ package domain
 
 import (
 	"context"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"google.golang.org/grpc"
 
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
+	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 )
 
 type SchedulerDaemon interface {

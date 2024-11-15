@@ -1,11 +1,11 @@
 package placer
 
 import (
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/index"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/index"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"sync"
 )
 

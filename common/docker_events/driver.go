@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"github.com/google/uuid"
-	"github.com/zhangjyr/distributed-notebook/common/docker_events/forwarder"
-	"github.com/zhangjyr/distributed-notebook/common/docker_events/observer"
+	"github.com/scusemua/distributed-notebook/common/docker_events/forwarder"
+	"github.com/scusemua/distributed-notebook/common/docker_events/observer"
 )
 
 func main() {

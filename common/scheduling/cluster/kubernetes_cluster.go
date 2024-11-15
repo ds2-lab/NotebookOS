@@ -3,11 +3,11 @@ package cluster
 import (
 	"fmt"
 	"github.com/Scusemua/go-utils/promise"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/placer"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/scheduler"
-	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 )
 
 type KubernetesCluster struct {

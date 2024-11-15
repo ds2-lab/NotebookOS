@@ -3,9 +3,9 @@ package daemon
 import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
+	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/local_daemon/domain"
 )
 
 // MembershipScheduler is a scheduling.Scheduler that for testing the membership changing.

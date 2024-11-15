@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/zhangjyr/distributed-notebook/common/container"
+	"github.com/scusemua/distributed-notebook/common/container"
 	"time"
 )
 

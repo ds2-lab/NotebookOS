@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
-	"github.com/zhangjyr/distributed-notebook/common/mock_metrics"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/mock_metrics"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"go.uber.org/mock/gomock"
 	"sync"
 	"time"
@@ -18,7 +18,7 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
 )
 
 const (

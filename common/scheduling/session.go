@@ -2,8 +2,8 @@ package scheduling
 
 import (
 	"github.com/Scusemua/go-utils/promise"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"golang.org/x/net/context"
 	"time"
 )

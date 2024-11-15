@@ -4,9 +4,9 @@ import (
 	"errors"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/resource"
-	distNbTesting "github.com/zhangjyr/distributed-notebook/common/testing"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
+	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
+	"github.com/scusemua/distributed-notebook/common/types"
 )
 
 var _ = Describe("AllocationManager Standard Tests", func() {

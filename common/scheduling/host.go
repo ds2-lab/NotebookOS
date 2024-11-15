@@ -2,10 +2,10 @@ package scheduling
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"google.golang.org/grpc/connectivity"
 	"time"
 )

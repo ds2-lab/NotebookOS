@@ -2,7 +2,7 @@ package device
 
 import (
 	"context"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"net"
 	"os"
 	"path"
@@ -14,7 +14,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/fsnotify/fsnotify"
 	"github.com/pkg/errors"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
+	"github.com/scusemua/distributed-notebook/local_daemon/domain"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/klog/v2"

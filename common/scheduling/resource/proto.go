@@ -1,8 +1,8 @@
 package resource
 
 import (
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"time"
 )
 

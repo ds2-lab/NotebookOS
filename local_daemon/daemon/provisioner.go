@@ -3,7 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"net"
 
 	"github.com/Scusemua/go-utils/config"

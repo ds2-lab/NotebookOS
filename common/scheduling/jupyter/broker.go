@@ -2,9 +2,9 @@ package jupyter
 
 import (
 	"errors"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	commonTypes "github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	commonTypes "github.com/scusemua/distributed-notebook/common/types"
 	"reflect"
 	"sync"
 )

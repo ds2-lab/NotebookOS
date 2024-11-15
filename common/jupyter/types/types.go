@@ -3,7 +3,7 @@ package types
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"strings"
 )
 

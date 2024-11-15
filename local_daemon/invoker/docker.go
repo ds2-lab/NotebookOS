@@ -5,8 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"net/url"
 	"os"
 	"os/exec"
@@ -18,8 +18,8 @@ import (
 
 	"github.com/Scusemua/go-utils/config"
 	"github.com/google/uuid"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
 )
 
 const (

@@ -14,11 +14,11 @@ import (
 	reflect "reflect"
 	time "time"
 
-	client "github.com/zhangjyr/distributed-notebook/common/jupyter/client"
-	types "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	proto "github.com/zhangjyr/distributed-notebook/common/proto"
-	scheduling "github.com/zhangjyr/distributed-notebook/common/scheduling"
-	types0 "github.com/zhangjyr/distributed-notebook/common/types"
+	client "github.com/scusemua/distributed-notebook/common/jupyter/client"
+	types "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	proto "github.com/scusemua/distributed-notebook/common/proto"
+	scheduling "github.com/scusemua/distributed-notebook/common/scheduling"
+	types0 "github.com/scusemua/distributed-notebook/common/types"
 	gomock "go.uber.org/mock/gomock"
 )
 

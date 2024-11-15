@@ -1,7 +1,7 @@
 package proto
 
 import (
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"reflect"
 	"time"

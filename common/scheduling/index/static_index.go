@@ -3,7 +3,7 @@ package index
 import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"slices"
 	"sync"
 )

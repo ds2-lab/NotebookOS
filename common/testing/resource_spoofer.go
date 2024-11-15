@@ -3,9 +3,9 @@ package testing
 import (
 	"github.com/google/uuid"
 	"github.com/onsi/ginkgo/v2"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/resource"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"

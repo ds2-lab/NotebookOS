@@ -2,8 +2,8 @@ package scheduling
 
 import (
 	"github.com/Scusemua/go-utils/promise"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 	"golang.org/x/net/context"
 )
 

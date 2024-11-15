@@ -1,6 +1,6 @@
 package router
 
-import "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+import "github.com/scusemua/distributed-notebook/common/jupyter/types"
 
 // RouterMessageHandler defines the interface of messages that a JupyterRouter can intercept and handle.
 type RouterMessageHandler func(RouterInfo, *types.JupyterMessage) error

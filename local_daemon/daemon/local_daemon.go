@@ -10,10 +10,10 @@ import (
 	"github.com/opentracing/opentracing-go"
 	"github.com/petermattis/goid"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/zhangjyr/distributed-notebook/common/consul"
-	"github.com/zhangjyr/distributed-notebook/common/docker_events/notification_manager"
-	"github.com/zhangjyr/distributed-notebook/common/docker_events/observer"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/consul"
+	"github.com/scusemua/distributed-notebook/common/docker_events/notification_manager"
+	"github.com/scusemua/distributed-notebook/common/docker_events/observer"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"log"
@@ -23,8 +23,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
@@ -32,16 +32,16 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/common/jupyter/client"
+	"github.com/scusemua/distributed-notebook/common/jupyter/router"
+	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 
-	"github.com/zhangjyr/distributed-notebook/local_daemon/device"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/invoker"
+	"github.com/scusemua/distributed-notebook/local_daemon/device"
+	"github.com/scusemua/distributed-notebook/local_daemon/domain"
+	"github.com/scusemua/distributed-notebook/local_daemon/invoker"
 )
 
 const (

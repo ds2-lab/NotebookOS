@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/prometheus/client_golang/prometheus"
-	jupyterTypes "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	jupyterTypes "github.com/scusemua/distributed-notebook/common/jupyter/types"
 	"net/http"
 	"sync"
 	"time"
@@ -15,7 +15,7 @@ import (
 	"github.com/gin-gonic/contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils"
 )
 
 const (

@@ -5,9 +5,9 @@ import (
 	"github.com/Scusemua/go-utils/cache"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"sync/atomic"
 	"time"
 )

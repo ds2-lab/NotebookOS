@@ -2,7 +2,7 @@ package scheduling
 
 import (
 	"encoding/json"
-	"github.com/zhangjyr/distributed-notebook/common/configuration"
+	"github.com/scusemua/distributed-notebook/common/configuration"
 	"log"
 	"math"
 	"strings"

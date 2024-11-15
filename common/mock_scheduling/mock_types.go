@@ -15,9 +15,9 @@ import (
 	time "time"
 
 	promise "github.com/Scusemua/go-utils/promise"
-	proto "github.com/zhangjyr/distributed-notebook/common/proto"
-	scheduling "github.com/zhangjyr/distributed-notebook/common/scheduling"
-	types "github.com/zhangjyr/distributed-notebook/common/types"
+	proto "github.com/scusemua/distributed-notebook/common/proto"
+	scheduling "github.com/scusemua/distributed-notebook/common/scheduling"
+	types "github.com/scusemua/distributed-notebook/common/types"
 	gomock "go.uber.org/mock/gomock"
 )
 

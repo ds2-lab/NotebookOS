@@ -1,8 +1,8 @@
 package index
 
 import (
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"log"
 	"math/rand"
 	"slices"

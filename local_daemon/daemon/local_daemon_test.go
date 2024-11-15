@@ -2,22 +2,22 @@ package daemon
 
 import (
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	types2 "github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	types2 "github.com/scusemua/distributed-notebook/common/types"
 
 	"github.com/Scusemua/go-utils/config"
 	"github.com/go-zeromq/zmq4"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/scusemua/distributed-notebook/common/jupyter/client"
+	"github.com/scusemua/distributed-notebook/common/jupyter/mock_client"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/local_daemon/device"
+	"github.com/scusemua/distributed-notebook/local_daemon/domain"
+	"github.com/scusemua/distributed-notebook/local_daemon/mock_device"
 	"github.com/shopspring/decimal"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/mock_client"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/device"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/mock_device"
 	"go.uber.org/mock/gomock"
 )
 

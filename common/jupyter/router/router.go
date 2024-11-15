@@ -5,14 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"strings"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/server"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	commonTypes "github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/server"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	commonTypes "github.com/scusemua/distributed-notebook/common/types"
 )
 
 const (

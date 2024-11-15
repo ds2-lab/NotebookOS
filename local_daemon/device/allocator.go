@@ -3,7 +3,7 @@ package device
 import (
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"path/filepath"
 	"sync"
 
@@ -18,7 +18,7 @@ import (
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
+	"github.com/scusemua/distributed-notebook/local_daemon/domain"
 )
 
 var (

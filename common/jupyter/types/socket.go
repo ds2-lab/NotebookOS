@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/go-zeromq/zmq4"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 )
 
 const (

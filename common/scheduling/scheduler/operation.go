@@ -2,13 +2,13 @@ package scheduler
 
 import (
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/zhangjyr/distributed-notebook/gateway/domain"
+	"github.com/scusemua/distributed-notebook/gateway/domain"
 )
 
 type AddReplicaOperation struct {

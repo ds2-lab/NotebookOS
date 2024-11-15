@@ -3,14 +3,14 @@ package jupyter
 import (
 	"context"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/Scusemua/go-utils/promise"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
 )
 
 const (

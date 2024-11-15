@@ -1,10 +1,10 @@
 package scheduling
 
 import (
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
-	jupyterTypes "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/router"
+	jupyterTypes "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"golang.org/x/net/context"
 	"time"
 )

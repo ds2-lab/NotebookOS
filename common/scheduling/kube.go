@@ -1,8 +1,8 @@
 package scheduling
 
 import (
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"golang.org/x/net/context"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"

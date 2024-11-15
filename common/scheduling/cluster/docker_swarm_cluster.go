@@ -3,11 +3,11 @@ package cluster
 import (
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/placer"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/scheduler"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"strings"
 )

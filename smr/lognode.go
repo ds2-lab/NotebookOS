@@ -40,7 +40,7 @@ import (
 
 	"github.com/colinmarc/hdfs/v2"
 	"github.com/google/uuid"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/raft/v3"

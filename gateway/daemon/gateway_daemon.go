@@ -6,11 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	jupyterScheduling "github.com/scusemua/distributed-notebook/common/scheduling/jupyter"
+	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/shopspring/decimal"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
-	jupyterScheduling "github.com/zhangjyr/distributed-notebook/common/scheduling/jupyter"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/resource"
 	"log"
 	"math/rand"
 	"net"
@@ -21,7 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
@@ -37,13 +37,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	dockerClient "github.com/docker/docker/client"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/router"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
-	"github.com/zhangjyr/distributed-notebook/gateway/domain"
+	"github.com/scusemua/distributed-notebook/common/jupyter/router"
+	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/gateway/domain"
 )
 
 const (

@@ -1,4 +1,4 @@
-module github.com/zhangjyr/distributed-notebook
+module github.com/scusemua/distributed-notebook
 
 go 1.21
 

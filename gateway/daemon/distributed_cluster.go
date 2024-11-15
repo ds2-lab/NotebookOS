@@ -7,8 +7,8 @@ import (
 	"net"
 	"sync/atomic"
 
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 

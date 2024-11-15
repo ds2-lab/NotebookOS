@@ -1,6 +1,6 @@
 package index
 
-import "github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
+import "github.com/scusemua/distributed-notebook/common/scheduling/entity"
 
 // HostCriteriaFunction is used by a ClusterIndexQuerier, specifically in its implementation of
 // SeekMultipleFrom, to determine if a Host will be considered viable by the Caller before returning it.

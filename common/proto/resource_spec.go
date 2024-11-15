@@ -1,8 +1,8 @@
 package proto
 
 import (
+	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
-	"github.com/zhangjyr/distributed-notebook/common/types"
 )
 
 func NewResourceSpec(cpu int32, memory float32, gpu int32, vram float32) *ResourceSpec {

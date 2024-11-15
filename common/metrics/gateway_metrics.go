@@ -6,7 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"net/http"
 )
 

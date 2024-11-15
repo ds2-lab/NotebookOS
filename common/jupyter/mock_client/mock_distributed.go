@@ -13,10 +13,10 @@ import (
 	context "context"
 	reflect "reflect"
 
-	client "github.com/zhangjyr/distributed-notebook/common/jupyter/client"
-	types "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	metrics "github.com/zhangjyr/distributed-notebook/common/metrics"
-	proto "github.com/zhangjyr/distributed-notebook/common/proto"
+	client "github.com/scusemua/distributed-notebook/common/jupyter/client"
+	types "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	metrics "github.com/scusemua/distributed-notebook/common/metrics"
+	proto "github.com/scusemua/distributed-notebook/common/proto"
 	gomock "go.uber.org/mock/gomock"
 )
 

@@ -2,8 +2,8 @@ package cluster
 
 import (
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

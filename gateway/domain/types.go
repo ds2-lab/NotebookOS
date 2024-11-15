@@ -3,11 +3,11 @@ package domain
 import (
 	"encoding/json"
 	"github.com/Scusemua/go-utils/config"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/client"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/client"
+	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"strings"
 )

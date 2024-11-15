@@ -6,11 +6,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils"
 )
 
 const (

@@ -1,6 +1,6 @@
 package scheduler
 
-import "github.com/zhangjyr/distributed-notebook/common/scheduling"
+import "github.com/scusemua/distributed-notebook/common/scheduling"
 
 type clusterSchedulerInternal interface {
 	scheduling.Scheduler

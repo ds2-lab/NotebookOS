@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"io"
 	"log"
 	"math"
@@ -22,9 +22,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/petermattis/goid"
 
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 )
 
 const (

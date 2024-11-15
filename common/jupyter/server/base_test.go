@@ -5,8 +5,8 @@ import (
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
 )
 
 const (

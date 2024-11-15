@@ -2,11 +2,11 @@ package testing
 
 import (
 	"github.com/google/uuid"
-	"github.com/zhangjyr/distributed-notebook/common/mock_proto"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/entity"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling/resource"
+	"github.com/scusemua/distributed-notebook/common/mock_proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"go.uber.org/mock/gomock"
 )
 

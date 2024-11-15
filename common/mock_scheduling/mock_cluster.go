@@ -15,9 +15,9 @@ import (
 
 	promise "github.com/Scusemua/go-utils/promise"
 	decimal "github.com/shopspring/decimal"
-	metrics "github.com/zhangjyr/distributed-notebook/common/metrics"
-	scheduling "github.com/zhangjyr/distributed-notebook/common/scheduling"
-	hashmap "github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	metrics "github.com/scusemua/distributed-notebook/common/metrics"
+	scheduling "github.com/scusemua/distributed-notebook/common/scheduling"
+	hashmap "github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	gomock "go.uber.org/mock/gomock"
 )
 

@@ -8,7 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/google/uuid"
-	"github.com/zhangjyr/distributed-notebook/smr"
+	"github.com/scusemua/distributed-notebook/smr"
 )
 
 const store = "store"

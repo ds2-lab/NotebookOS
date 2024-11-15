@@ -3,7 +3,7 @@ package device
 import (
 	"context"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"os"
 	"time"
 

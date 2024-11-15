@@ -4,15 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Scusemua/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/go-zeromq/zmq4"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils"
 )
 
 const (

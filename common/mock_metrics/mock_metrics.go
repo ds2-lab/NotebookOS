@@ -14,8 +14,8 @@ import (
 	time "time"
 
 	gin "github.com/gin-gonic/gin"
-	types "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	metrics "github.com/zhangjyr/distributed-notebook/common/metrics"
+	types "github.com/scusemua/distributed-notebook/common/jupyter/types"
+	metrics "github.com/scusemua/distributed-notebook/common/metrics"
 	gomock "go.uber.org/mock/gomock"
 )
 

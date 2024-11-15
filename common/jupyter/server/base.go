@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
 )
 
 var (

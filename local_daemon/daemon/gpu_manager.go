@@ -2,15 +2,15 @@ package daemon
 
 import (
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"sync"
 	"time"
 
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
 )
 
 // gpuResourceMetricsCallback is a callback function that is supposed to be triggered whenever resources

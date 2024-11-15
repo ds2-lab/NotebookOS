@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"log"
 	"net"
 	"net/http"
@@ -20,8 +20,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/go-zeromq/zmq4"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/testing/fake_kernel"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/testing/fake_kernel"
 )
 
 var (

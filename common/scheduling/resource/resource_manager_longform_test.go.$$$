@@ -5,8 +5,8 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/zhangjyr/distributed-notebook/common/scheduling"
-	"github.com/zhangjyr/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/types"
 )
 
 func containsOffendingResourceKind(lst []scheduling.ResourceKind, target scheduling.ResourceKind) bool {

@@ -10,8 +10,8 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/go-zeromq/zmq4"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
 )
 
 type SocketWrapper struct {

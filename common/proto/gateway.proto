@@ -2,9 +2,9 @@ syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/zhangjyr/distributed-notebook/common/proto";
+option go_package = "github.com/scusemua/distributed-notebook/common/proto";
 option java_multiple_files = true;
-option java_package = "com.github.zhangjyr.distributed-notebook.common.proto";
+option java_package = "com.github.scusemua.distributed-notebook.common.proto";
 option java_outer_classname = "GatewayProto";
 
 package gateway;

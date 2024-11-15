@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/scusemua/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"sync"
 )
 

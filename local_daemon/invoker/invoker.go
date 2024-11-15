@@ -2,10 +2,10 @@ package invoker
 
 import (
 	"context"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"time"
 
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/types"
 )
 
 type StatucChangedHandler func(old jupyter.KernelStatus, new jupyter.KernelStatus)
