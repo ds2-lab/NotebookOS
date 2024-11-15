@@ -42,9 +42,14 @@ type ResourceSpec struct {
 	GPUs     float64 `json:"gpus"`
 }
 
-// OversubscriptionQuerierFunction is a function used by Host's to compare their subscription ratio against the
-// Cluster's subscription ratio/factor. This is used to determine if a Host is fit to serve a Container or not.
-type OversubscriptionQuerierFunction func(ratio decimal.Decimal) decimal.Decimal
+type SubscriptionQuerier interface {
+	// GetOversubscriptionFactor is a function used by Host instances to compare their subscription ratio against the
+	// Cluster's subscription ratio/factor. This is used to determine if a Host is fit to serve a Container or not.
+	GetOversubscriptionFactor(ratio decimal.Decimal) decimal.Decimal
+
+	// SubscriptionRatio returns the subscription ratio of the Cluster.
+	SubscriptionRatio() float64
+}
 
 // unsafeApplyResourceSnapshotToHost does the actual work of the ApplyResourceSnapshotToHost function, but
 // no locks are acquired.
@@ -68,7 +73,7 @@ func unsafeApplyResourceSnapshotToHost(h *Host, snapshot types.HostResourceSnaps
 			scheduling.ErrOldSnapshot, h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
 	}
 
-	err := ApplySnapshotToResourceWrapper(h.resourceManager, snapshot)
+	err := resource.ApplySnapshotToResourceWrapper(h.resourceManager, snapshot)
 	if err != nil {
 		h.log.Error("Failed to apply snapshot %s to host %s (ID=%s) because: %v",
 			snapshot.String(), h.NodeName, h.ID, err)
@@ -85,48 +90,48 @@ type Host struct {
 
 	log logger.Logger
 
-	latestGpuInfo                  *proto.GpuInfo                       // latestGpuInfo is the latest GPU info of this host scheduler.
-	syncMutex                      sync.Mutex                           // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
-	schedulingMutex                sync.Mutex                           // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating ComputeResource on the Host.
-	meta                           hashmap.HashMap[string, interface{}] // meta is a map of metadata.
-	conn                           *grpc.ClientConn                     // conn is the gRPC connection to the Host.
-	Addr                           string                               // Addr is the Host's address.
-	NodeName                       string                               // NodeName is the Host's name (for printing/logging).
-	metricsProvider                scheduling.MetricsProvider           // Provides access to metrics relevant to the Host.
-	ID                             string                               // ID is the unique ID of this host.
-	containers                     hashmap.HashMap[string, *Container]  // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
-	reservations                   hashmap.HashMap[string, time.Time]   // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
-	trainingContainers             []*Container                         // trainingContainers are the actively-training kernel replicas.
-	seenSessions                   []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec                   *types.DecimalSpec                   // resourceSpec is the spec describing the total ComputeResource available on the Host, not impacted by allocations.
-	lastReschedule                 types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	errorCallback                  scheduling.ErrorCallback             // errorCallback is a function to be called if a Host appears to be dead.
-	pendingContainers              types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
-	enabled                        bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
-	excludedFromScheduling         bool                                 // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
-	isBeingConsideredForScheduling atomic.Int32                         // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
-	CreatedAt                      time.Time                            // CreatedAt is the time at which the Host was created.
-	resourceManager                *resource.Manager                    // resourcesWrapper wraps all the Host's ComputeResource.
-	LastRemoteSync                 time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
-	isContainedWithinIndex         bool                                 // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
-	ProperlyInitialized            bool                                 // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
-	numReplicasPerKernel           int                                  // The number of replicas per kernel.
+	latestGpuInfo                  *proto.GpuInfo                                      // latestGpuInfo is the latest GPU info of this host scheduler.
+	syncMutex                      sync.Mutex                                          // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
+	schedulingMutex                sync.Mutex                                          // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating ComputeResource on the Host.
+	meta                           hashmap.HashMap[string, interface{}]                // meta is a map of metadata.
+	conn                           *grpc.ClientConn                                    // conn is the gRPC connection to the Host.
+	Addr                           string                                              // Addr is the Host's address.
+	NodeName                       string                                              // NodeName is the Host's name (for printing/logging).
+	metricsProvider                scheduling.MetricsProvider                          // Provides access to metrics relevant to the Host.
+	ID                             string                                              // ID is the unique ID of this host.
+	containers                     hashmap.HashMap[string, scheduling.KernelContainer] // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
+	reservations                   hashmap.HashMap[string, time.Time]                  // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
+	trainingContainers             []scheduling.KernelContainer                        // trainingContainers are the actively-training kernel replicas.
+	seenSessions                   []string                                            // seenSessions are the sessions that have been scheduled onto this host at least once.
+	resourceSpec                   *types.DecimalSpec                                  // resourceSpec is the spec describing the total ComputeResource available on the Host, not impacted by allocations.
+	lastReschedule                 types.StatFloat64                                   // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	errorCallback                  scheduling.ErrorCallback                            // errorCallback is a function to be called if a Host appears to be dead.
+	pendingContainers              types.StatInt32                                     // pendingContainers is the number of Containers that are scheduled on the host.
+	enabled                        bool                                                // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
+	excludedFromScheduling         bool                                                // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
+	isBeingConsideredForScheduling atomic.Int32                                        // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
+	CreatedAt                      time.Time                                           // CreatedAt is the time at which the Host was created.
+	resourceManager                *resource.Manager                                   // resourcesWrapper wraps all the Host's ComputeResource.
+	LastRemoteSync                 time.Time                                           // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
+	isContainedWithinIndex         bool                                                // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
+	ProperlyInitialized            bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
+	numReplicasPerKernel           int                                                 // The number of replicas per kernel.
 
 	// lastSnapshot is the last HostResourceSnapshot to have been applied successfully to this Host.
 	lastSnapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
 
-	// OversubscriptionQuerierFunction is used to query the oversubscription factor given the host's
+	// SubscriptionQuerier is used to query the oversubscription factor given the host's
 	// subscription ratio and the Cluster's subscription ratio.
-	OversubscriptionQuerierFunction OversubscriptionQuerierFunction
+	SubscriptionQuerier SubscriptionQuerier
 
 	// Cached penalties
-	sip               cache.InlineCache // Scale-in penalty.
-	sipSession        *Session          // Scale-in penalty session.
+	sip               cache.InlineCache      // Scale-in penalty.
+	sipSession        scheduling.UserSession // Scale-in penalty session.
 	subscribedRatio   decimal.Decimal
 	penaltyList       cache.InlineCache
 	penalties         []cachedPenalty
 	penaltyValidity   bool
-	schedulerPoolType SchedulerPoolType
+	schedulerPoolType scheduling.SchedulerPoolType
 	heapIndex         int
 }
 
@@ -179,7 +184,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 //
 // If NewHost is called directly, then the conn field of the Host will not be populated. To populate this field,
 // call NewHostWithConn instead.
-func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int,
+func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int, querier SubscriptionQuerier,
 	metricsProvider scheduling.MetricsProvider, localGatewayClient proto.LocalGatewayClient, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
@@ -232,26 +237,26 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		confirmedId.NodeName, confirmedId.Id, resourceSpec.String())
 
 	host := &Host{
-		LocalGatewayClient:              localGatewayClient,
-		latestGpuInfo:                   gpuInfoResp,
-		ID:                              id,
-		NodeName:                        confirmedId.NodeName,
-		Addr:                            addr,
-		resourceSpec:                    resourceSpec,
-		numReplicasPerKernel:            numReplicasPerKernel,
-		metricsProvider:                 metricsProvider,
-		log:                             config.GetLogger(fmt.Sprintf("Host %s ", id)),
-		containers:                      hashmap.NewCornelkMap[string, *Container](5),
-		reservations:                    hashmap.NewCornelkMap[string, time.Time](5),
-		trainingContainers:              make([]*Container, 0, int(resourceSpec.GPU())),
-		penalties:                       make([]cachedPenalty, int(resourceSpec.GPU())),
-		seenSessions:                    make([]string, int(resourceSpec.GPU())),
-		meta:                            hashmap.NewCornelkMap[string, interface{}](64),
-		errorCallback:                   errorCallback,
-		enabled:                         true,
-		CreatedAt:                       time.Now(),
-		OversubscriptionQuerierFunction: cluster.GetOversubscriptionFactor,
-		ProperlyInitialized:             true,
+		LocalGatewayClient:   localGatewayClient,
+		latestGpuInfo:        gpuInfoResp,
+		ID:                   id,
+		NodeName:             confirmedId.NodeName,
+		Addr:                 addr,
+		resourceSpec:         resourceSpec,
+		numReplicasPerKernel: numReplicasPerKernel,
+		metricsProvider:      metricsProvider,
+		log:                  config.GetLogger(fmt.Sprintf("Host %s ", id)),
+		containers:           hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
+		reservations:         hashmap.NewCornelkMap[string, time.Time](5),
+		trainingContainers:   make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
+		penalties:            make([]cachedPenalty, int(resourceSpec.GPU())),
+		seenSessions:         make([]string, int(resourceSpec.GPU())),
+		meta:                 hashmap.NewCornelkMap[string, interface{}](64),
+		errorCallback:        errorCallback,
+		enabled:              true,
+		CreatedAt:            time.Now(),
+		SubscriptionQuerier:  querier,
+		ProperlyInitialized:  true,
 	}
 
 	host.resourceManager = resource.NewManager(resourceSpec)
@@ -267,13 +272,13 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 }
 
 // NewHostWithConn creates and returns a new *Host.
-func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int,
+func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int, querier SubscriptionQuerier,
 	metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
-	host, err := NewHost(id, addr, millicpus, memMb, vramGb, numReplicasPerKernel, metricsProvider, localGatewayClient, errorCallback)
+	host, err := NewHost(id, addr, millicpus, memMb, vramGb, numReplicasPerKernel, querier, metricsProvider, localGatewayClient, errorCallback)
 	if err != nil {
 		// We need to return host here, in case the error is ErrRestoreRequired, as a host IS returned in that case.
 		// It's a host with only some fields filled-in so that it can be used to restore the existing host.
@@ -326,7 +331,7 @@ func (h *Host) ExcludeFromScheduling() bool {
 	return true
 }
 
-func (h *Host) Containers() hashmap.HashMap[string, *Container] {
+func (h *Host) Containers() hashmap.HashMap[string, scheduling.KernelContainer] {
 	return h.containers
 }
 
@@ -383,11 +388,11 @@ func (h *Host) ConsiderForScheduling() bool {
 	return true
 }
 
-func (h *Host) SchedulerPoolType() SchedulerPoolType {
+func (h *Host) SchedulerPoolType() scheduling.SchedulerPoolType {
 	return h.schedulerPoolType
 }
 
-func (h *Host) SetSchedulerPoolType(schedulerPoolType SchedulerPoolType) {
+func (h *Host) SetSchedulerPoolType(schedulerPoolType scheduling.SchedulerPoolType) {
 	h.schedulerPoolType = schedulerPoolType
 }
 
@@ -398,7 +403,7 @@ func (h *Host) SetIdx(idx int) {
 
 func (h *Host) Compare(h2 interface{}) float64 {
 	switch h.schedulerPoolType {
-	case SchedulerPoolTypeUndersubscribed:
+	case scheduling.SchedulerPoolTypeUndersubscribed:
 		// Max heap.
 		switch v := h2.(type) {
 		case float64:
@@ -436,7 +441,7 @@ func (h *Host) RecomputeSubscribedRatio() decimal.Decimal {
 	if h.numReplicasPerKernel == 0 {
 		divisor = decimal.NewFromFloat(1.0)
 	} else {
-		divisor = h.numReplicasPerKernel
+		divisor = decimal.NewFromFloat(float64(h.numReplicasPerKernel))
 	}
 	h.subscribedRatio = h.PlacedGPUs().Div(h.resourceSpec.GPUs).Div(divisor)
 
@@ -463,14 +468,14 @@ func (h *Host) SubscribedRatioAsDecimal() decimal.Decimal {
 // OversubscriptionFactor returns the result of passing the Host's current subscribedRatio
 // to its OversubscriptionQuerierFunction field/function.
 func (h *Host) OversubscriptionFactor() decimal.Decimal {
-	return h.OversubscriptionQuerierFunction(h.subscribedRatio)
+	return h.SubscriptionQuerier.GetOversubscriptionFactor(h.subscribedRatio)
 }
 
 // ToVirtualDockerNode converts a Host struct to a proto.VirtualDockerNode struct and
 // returns a pointer to the new proto.VirtualDockerNode.
 func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 	dockerContainers := make([]*proto.DockerContainer, 0, h.containers.Len())
-	h.containers.Range(func(_ string, container *Container) (contd bool) {
+	h.containers.Range(func(_ string, container scheduling.KernelContainer) (contd bool) {
 		dockerContainers = append(dockerContainers, container.ToDockerContainer())
 		return true
 	})
@@ -531,7 +536,7 @@ func (h *Host) SynchronizeResourceInformation() error {
 	defer h.schedulingMutex.Unlock()
 
 	// Manager around the protobuf struct so that it satisfies the required interface.
-	protoSnapshotWrapper := &ProtoNodeResourcesSnapshotWrapper{
+	protoSnapshotWrapper := &resource.ProtoNodeResourcesSnapshotWrapper{
 		NodeResourcesSnapshotWithContainers: snapshotWithContainers,
 	}
 
@@ -555,25 +560,25 @@ func (h *Host) SynchronizeResourceInformation() error {
 // PlacedMemoryMB returns the total amount of memory scheduled onto the Host, which is computed as the
 // sum of the Host's pending memory and the Host's committed memory, in megabytes.
 func (h *Host) PlacedMemoryMB() decimal.Decimal {
-	return h.resourceManager.pendingResources.memoryMB.Add(h.resourceManager.committedResources.memoryMB)
+	return h.resourceManager.PendingResources().MemoryMbAsDecimal().Add(h.resourceManager.CommittedResources().MemoryMbAsDecimal())
 }
 
 // PlacedGPUs returns the total number of GPUs scheduled onto the Host, which is computed as the
 // sum of the Host's pending GPUs and the Host's committed GPUs.
 func (h *Host) PlacedGPUs() decimal.Decimal {
-	return h.resourceManager.pendingResources.gpus.Add(h.resourceManager.committedResources.gpus)
+	return h.resourceManager.PendingResources().GPUsAsDecimal().Add(h.resourceManager.CommittedResources().GPUsAsDecimal())
 }
 
 // PlacedCPUs returns the total number of Millicpus scheduled onto the Host, which is computed as the
 // sum of the Host's pending Millicpus and the Host's committed Millicpus.
 func (h *Host) PlacedCPUs() decimal.Decimal {
-	return h.resourceManager.pendingResources.millicpus.Add(h.resourceManager.committedResources.millicpus)
+	return h.resourceManager.PendingResources().MillicpusAsDecimal().Add(h.resourceManager.CommittedResources().MillicpusAsDecimal())
 }
 
 // computeHypotheticalSubscriptionRatio computes what the Host's (over)subscription ratios would be for CPU, Memory,
 // and GPU, if it were to serve a Container with the given types.Spec resource request/requirements.
 func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) (decimal.Decimal, decimal.Decimal, decimal.Decimal) {
-	divisor := h.Cluster.NumReplicasAsDecimal()
+	divisor := decimal.NewFromFloat(float64(h.numReplicasPerKernel))
 
 	// Convert the given types.Spec to a *types.DecimalSpec.
 	var decimalSpec *types.DecimalSpec
@@ -586,25 +591,25 @@ func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) 
 
 	var cpuRatio, memRatio, gpuRatio decimal.Decimal
 
-	if h.resourceManager.specResources.millicpus.Equals(decimal.Zero) {
+	if h.resourceManager.SpecResources().MillicpusAsDecimal().Equals(decimal.Zero) {
 		cpuRatio = decimal.Zero
 	} else {
 		totalCPUs := h.PlacedCPUs().Add(decimalSpec.Millicpus)
-		cpuRatio = totalCPUs.Div(h.resourceManager.specResources.millicpus).Div(divisor)
+		cpuRatio = totalCPUs.Div(h.resourceManager.SpecResources().MillicpusAsDecimal()).Div(divisor)
 	}
 
-	if h.resourceManager.specResources.memoryMB.Equals(decimal.Zero) {
+	if h.resourceManager.SpecResources().MemoryMbAsDecimal().Equals(decimal.Zero) {
 		memRatio = decimal.Zero
 	} else {
 		totalMemory := h.PlacedMemoryMB().Add(decimalSpec.MemoryMb)
-		memRatio = totalMemory.Div(h.resourceManager.specResources.memoryMB).Div(divisor)
+		memRatio = totalMemory.Div(h.resourceManager.SpecResources().MemoryMbAsDecimal()).Div(divisor)
 	}
 
-	if h.resourceManager.specResources.gpus.Equals(decimal.Zero) {
+	if h.resourceManager.SpecResources().GPUsAsDecimal().Equals(decimal.Zero) {
 		gpuRatio = decimal.Zero
 	} else {
 		totalGPUs := h.PlacedGPUs().Add(decimalSpec.GPUs)
-		gpuRatio = totalGPUs.Div(h.resourceManager.specResources.gpus).Div(divisor)
+		gpuRatio = totalGPUs.Div(h.resourceManager.SpecResources().GPUsAsDecimal()).Div(divisor)
 	}
 
 	return cpuRatio, memRatio, gpuRatio
@@ -618,11 +623,11 @@ func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) 
 func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
 	cpuRatio, memRatio, gpuRatio := h.computeHypotheticalSubscriptionRatio(resourceRequest)
 
-	willOversubscribeCpu := h.OversubscriptionQuerierFunction(cpuRatio).GreaterThanOrEqual(decimal.Zero)
-	willOversubscribeMemory := h.OversubscriptionQuerierFunction(memRatio).GreaterThanOrEqual(decimal.Zero)
-	willOversubscribeGpu := h.OversubscriptionQuerierFunction(gpuRatio).GreaterThanOrEqual(decimal.Zero)
+	willOversubscribeCpu := h.SubscriptionQuerier.GetOversubscriptionFactor(cpuRatio).GreaterThanOrEqual(decimal.Zero)
+	willOversubscribeMemory := h.SubscriptionQuerier.GetOversubscriptionFactor(memRatio).GreaterThanOrEqual(decimal.Zero)
+	willOversubscribeGpu := h.SubscriptionQuerier.GetOversubscriptionFactor(gpuRatio).GreaterThanOrEqual(decimal.Zero)
 
-	subscriptionRatio := h.Cluster.ClusterScheduler().SubscriptionRatio()
+	subscriptionRatio := h.SubscriptionQuerier.SubscriptionRatio()
 
 	h.log.Debug("Computed over-subscription ratios for resource request: %v. Current subscription ratio: %.4f.\n"+
 		"CPU Ratio: %s (Will Oversubscribe? %v), Memory Ratio: %s (Will Oversubscribe? %v), GPU Ratio: %s (Will Oversubscribe? %v)",
@@ -637,7 +642,7 @@ func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
 // This method only checks against the Host's "spec" (i.e., the total ComputeResource available on the Host,
 // not taking into account current resource allocations).
 func (h *Host) CanServeContainerWithError(resourceRequest types.Spec) (bool, error) {
-	err := h.resourceManager.specResources.ValidateWithError(resourceRequest)
+	err := h.resourceManager.SpecResources().ValidateWithError(resourceRequest)
 	if err != nil {
 		return false, err
 	}
@@ -651,7 +656,7 @@ func (h *Host) CanServeContainerWithError(resourceRequest types.Spec) (bool, err
 //
 // CanServeContainer returns true when the Host could serve the hypothetical kernel and false when the Host could not.
 func (h *Host) CanServeContainer(resourceRequest types.Spec) bool {
-	return h.resourceManager.specResources.Validate(resourceRequest)
+	return h.resourceManager.SpecResources().Validate(resourceRequest)
 }
 
 // CanCommitResources returns a boolean indicating whether this Host could commit the specified resource request
@@ -661,7 +666,7 @@ func (h *Host) CanServeContainer(resourceRequest types.Spec) bool {
 // CanCommitResources returns true if the Host could commit/reserve the given ComputeResource right now.
 // Otherwise, CanCommitResources returns false.
 func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
-	return h.resourceManager.idleResources.Validate(types.ToDecimalSpec(resourceRequest))
+	return h.resourceManager.IdleResources().Validate(types.ToDecimalSpec(resourceRequest))
 }
 
 // ReleaseReservation is to be called when a resource reservation should be released because the
@@ -716,7 +721,7 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec) (bool, error) {
 
 	// Increment the pending resources on the host, which represents the reservation.
 	// TODO: Synchronizing will erase this.
-	if err := h.resourceManager.pendingResources.Add(spec.DecimalSpecFromKernelSpec()); err != nil {
+	if err := h.resourceManager.PendingResources().Add(spec.DecimalSpecFromKernelSpec()); err != nil {
 		h.log.Error("Cannot reserve resources for a replica of kernel %s; error encountered while incrementing host's pending resources: %v.", spec.Id, err)
 		return false, err
 	}
@@ -731,46 +736,8 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec) (bool, error) {
 	return true, nil
 }
 
-// updateLocalGpuInfoFromRemote updates the local info pertaining to GPU usage information
-// with the "actual" GPU usage retrieved from the remote host associated with this Host struct.
-func (h *Host) updateLocalGpuInfoFromRemote(remoteInfo *proto.GpuInfo) {
-	numDifferences := 0
-	localIdleGpus := h.resourceManager.idleResources.GPUs()
-	if localIdleGpus != float64(remoteInfo.IdleGPUs) {
-		h.log.Warn("Local idle GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", localIdleGpus, remoteInfo.IdleGPUs)
-		h.resourceManager.idleResources.gpus = decimal.NewFromFloat(float64(remoteInfo.IdleGPUs))
-		numDifferences += 1
-	}
-
-	localPendingGPUs := h.resourceManager.pendingResources.GPUs()
-	if localPendingGPUs != float64(remoteInfo.PendingGPUs) {
-		h.log.Warn("Local pending GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", localPendingGPUs, remoteInfo.PendingGPUs)
-		h.resourceManager.pendingResources.gpus = decimal.NewFromFloat(float64(remoteInfo.PendingGPUs))
-		numDifferences += 1
-	}
-
-	localCommittedGPUs := h.resourceManager.committedResources.GPUs()
-	if localCommittedGPUs != float64(remoteInfo.CommittedGPUs) {
-		h.log.Warn("Local committed GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", localCommittedGPUs, remoteInfo.CommittedGPUs)
-		h.resourceManager.committedResources.gpus = decimal.NewFromFloat(float64(remoteInfo.CommittedGPUs))
-		numDifferences += 1
-	}
-
-	if h.ResourceSpec().GPU() != float64(remoteInfo.SpecGPUs) {
-		h.log.Warn("Local spec GPUs (%.0f) do not match latest remote update (%d). Updating local info now...", h.ResourceSpec().GPU(), remoteInfo.SpecGPUs)
-		h.ResourceSpec().UpdateSpecGPUs(float64(remoteInfo.SpecGPUs))
-		numDifferences += 1
-	}
-
-	if numDifferences > 0 {
-		h.log.Warn("Finished remote-to-local GPU update. Number of differences: %d.", numDifferences)
-	}
-
-	h.latestGpuInfo = remoteInfo
-}
-
 // Restore restores the state of a Host from another Host.
-func (h *Host) Restore(restoreFrom *Host, callback ErrorCallback) error {
+func (h *Host) Restore(restoreFrom *Host, callback scheduling.ErrorCallback) error {
 	h.SetErrorCallback(callback)
 	h.LocalGatewayClient = restoreFrom.LocalGatewayClient
 	h.resourceSpec = restoreFrom.resourceSpec
@@ -797,7 +764,7 @@ func (h *Host) Enable(includeInScheduling bool) error {
 			_ = h.IncludeForScheduling()
 		}
 
-		return fmt.Errorf("%w: host \"%s\" is already enabled", ErrInvalidHost, h.ID)
+		return fmt.Errorf("%w: host \"%s\" is already enabled", scheduling.ErrInvalidHost, h.ID)
 	}
 
 	h.enabled = true
@@ -813,7 +780,7 @@ func (h *Host) Enable(includeInScheduling bool) error {
 // If the Host is already disabled, then this returns an error.
 func (h *Host) Disable() error {
 	if !h.enabled {
-		return fmt.Errorf("%w: host \"%s\" is already disabled", ErrInvalidHost, h.ID)
+		return fmt.Errorf("%w: host \"%s\" is already disabled", scheduling.ErrInvalidHost, h.ID)
 	}
 
 	h.enabled = false
@@ -825,7 +792,7 @@ func (h *Host) Disable() error {
 //
 // If there's an error while updating the local view of the resource counts of the Host, then we attempt to
 // synchronize with the remote Host and try again. If that fails, then we just return an error.
-func (h *Host) doContainerRemovedResourceUpdate(container *Container) {
+func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelContainer) {
 	// TODO: Check for deadlock.
 	syncLocked := h.syncMutex.TryLock()
 
@@ -849,7 +816,7 @@ func (h *Host) doContainerRemovedResourceUpdate(container *Container) {
 				if containerOnHost.GetReplicaId() == container.ReplicaId() && containerOnHost.GetKernelId() == container.KernelID() {
 					// Found the host in the snapshot, so the removal of its resources hasn't already been applied.
 					// TODO: Race condition (unless we have the locking of syncMutex up above).
-					err = h.resourceManager.pendingResources.Subtract(container.ResourceSpec())
+					err = h.resourceManager.PendingResources().Subtract(container.ResourceSpec())
 					found = true
 					break
 				}
@@ -861,7 +828,7 @@ func (h *Host) doContainerRemovedResourceUpdate(container *Container) {
 			}
 		} else {
 			// We either don't have a snapshot at all, or we don't have a recent-enough snapshot.
-			err = h.resourceManager.pendingResources.Subtract(container.ResourceSpec())
+			err = h.resourceManager.PendingResources().Subtract(container.ResourceSpec())
 		}
 
 		h.syncMutex.Unlock()
@@ -883,23 +850,23 @@ func (h *Host) doContainerRemovedResourceUpdate(container *Container) {
 }
 
 // ContainerStoppedTraining is to be called when a Container stops training on a Host.
-func (h *Host) ContainerStoppedTraining(container *Container) error {
+func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
 	if _, ok := h.containers.Load(container.KernelID()); !ok {
 		h.log.Error("Cannot find container for replica %d of kernel %s on host %s (ID=%s).",
-			container.ReplicaId(), container.KernelReplica, h.NodeName, h.ID)
+			container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
 		return ErrInvalidContainer
 	}
 
-	if err := h.resourceManager.committedResources.Subtract(container.ResourceSpec()); err != nil {
+	if err := h.resourceManager.CommittedResources().Subtract(container.ResourceSpec()); err != nil {
 		return err
 	}
-	if err := h.resourceManager.pendingResources.Add(container.ResourceSpec()); err != nil {
+	if err := h.resourceManager.PendingResources().Add(container.ResourceSpec()); err != nil {
 		return err
 	}
-	if err := h.resourceManager.idleResources.Add(container.ResourceSpec()); err != nil {
+	if err := h.resourceManager.IdleResources().Add(container.ResourceSpec()); err != nil {
 		return err
 	}
 
@@ -907,23 +874,23 @@ func (h *Host) ContainerStoppedTraining(container *Container) error {
 }
 
 // ContainerStartedTraining is to be called when a Container begins training on a Host.
-func (h *Host) ContainerStartedTraining(container *Container) error {
+func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
 	if _, ok := h.containers.Load(container.KernelID()); !ok {
 		h.log.Error("Cannot find container for replica %d of kernel %s on host %s (ID=%s).",
-			container.ReplicaId(), container.KernelReplica, h.NodeName, h.ID)
+			container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
 		return ErrInvalidContainer
 	}
 
-	if err := h.resourceManager.committedResources.Add(container.ResourceSpec()); err != nil {
+	if err := h.resourceManager.CommittedResources().Add(container.ResourceSpec()); err != nil {
 		return err
 	}
-	if err := h.resourceManager.pendingResources.Subtract(container.ResourceSpec()); err != nil {
+	if err := h.resourceManager.PendingResources().Subtract(container.ResourceSpec()); err != nil {
 		return err
 	}
-	if err := h.resourceManager.idleResources.Subtract(container.ResourceSpec()); err != nil {
+	if err := h.resourceManager.IdleResources().Subtract(container.ResourceSpec()); err != nil {
 		return err
 	}
 
@@ -931,7 +898,7 @@ func (h *Host) ContainerStartedTraining(container *Container) error {
 }
 
 // ContainerRemoved is to be called when a Container is stopped and removed from the Host.
-func (h *Host) ContainerRemoved(container *Container) error {
+func (h *Host) ContainerRemoved(container scheduling.KernelContainer) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
@@ -952,7 +919,7 @@ func (h *Host) ContainerRemoved(container *Container) error {
 }
 
 // ContainerScheduled is to be called when a Container is scheduled onto the Host.
-func (h *Host) ContainerScheduled(container *Container) error {
+func (h *Host) ContainerScheduled(container scheduling.KernelContainer) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
@@ -980,12 +947,12 @@ func (h *Host) ContainerScheduled(container *Container) error {
 }
 
 // ErrorCallback returns the Host's ErrorCallback field.
-func (h *Host) ErrorCallback() ErrorCallback {
+func (h *Host) ErrorCallback() scheduling.ErrorCallback {
 	return h.errorCallback
 }
 
 // SetErrorCallback sets the Host's ErrorCallback field.
-func (h *Host) SetErrorCallback(callback ErrorCallback) {
+func (h *Host) SetErrorCallback(callback scheduling.ErrorCallback) {
 	h.errorCallback = callback
 }
 
@@ -994,22 +961,22 @@ func (h *Host) getPenalty(cached *cachedPenalty, gpus int) (*cachedPenalty, erro
 		return cached, nil
 	}
 
-	list := h.penaltyList.Value().(*PenaltyContainers)
+	list := h.penaltyList.Value().(*scheduling.PenaltyContainers)
 	penalty, preempted, err := list.Penalty(float64(gpus))
 	// Cache valid result only
 	cached.penalty = penalty
 	cached.preemptions = list.ContainerList[:preempted]
 	cached.valid = err == nil
-	cached.explain = fmt.Sprintf("candidates: %s", list.ContainerList[0].ContainerStatistics().Explain(ExplainPreemptionPriority))
+	cached.explain = fmt.Sprintf("candidates: %s", list.ContainerList[0].ContainerStatistics().Explain(scheduling.ExplainPreemptionPriority))
 	for i := 1; i < preempted; i++ {
-		cached.explain += fmt.Sprintf(", %s", list.ContainerList[i].ContainerStatistics().Explain(ExplainPreemptionPriority))
+		cached.explain += fmt.Sprintf(", %s", list.ContainerList[i].ContainerStatistics().Explain(scheduling.ExplainPreemptionPriority))
 	}
 
 	h.log.Trace("Cached penalty for %du: %.2f", gpus, cached.penalty)
 	return cached, err
 }
 
-func (h *Host) Penalty(gpus float64) (float64, PreemptionInfo, error) {
+func (h *Host) Penalty(gpus float64) (float64, scheduling.PreemptionInfo, error) {
 	// Find number of GPUs required to preempt trainings.
 	bucket := int(math.Ceil(gpus) - h.IdleGPUs())
 	if bucket <= 0 {
@@ -1024,8 +991,8 @@ func (h *Host) Penalty(gpus float64) (float64, PreemptionInfo, error) {
 	return penalty.penalty, penalty, nil
 }
 
-func (h *Host) getSIP(sess *Session) float64 {
-	numGPUs := sess.ResourceUtilization().NumGpusAsFloat()
+func (h *Host) getSIP(sess scheduling.UserSession) float64 {
+	numGPUs := float64(sess.ResourceUtilization().GetNumGpus())
 
 	penalty, _, err := h.Penalty(numGPUs)
 	if err != nil {
@@ -1035,17 +1002,17 @@ func (h *Host) getSIP(sess *Session) float64 {
 
 	rb := h.getRB(sess.SessionStatistics().InteractivePriority(), numGPUs)
 	h.log.Debug("Cached sip for session %v: %.2f(%.2f-%.2f). IP: %.4f (%s).", sess, rb-penalty, rb, penalty,
-		sess.SessionStatistics().InteractivePriority(), sess.SessionStatistics().Explain(ExplainInteractivePriority))
+		sess.SessionStatistics().InteractivePriority(), sess.SessionStatistics().Explain(scheduling.ExplainInteractivePriority))
 	return rb - penalty
 }
 
 func (h *Host) getRB(sessRB float64, required float64) float64 {
 	//idleGPUs := h.idleGPUs.Load()
-	idleGPUs := h.resourceManager.idleResources.GPUs()
+	idleGPUs := h.resourceManager.IdleResources().GPUs()
 	extras := 0.0
 	if idleGPUs > required {
 		//extras = idleGPUs / h.pendingGPUs.Load()
-		extras = idleGPUs / h.resourceManager.pendingResources.GPUs()
+		extras = idleGPUs / h.resourceManager.PendingResources().GPUs()
 	}
 	rb := sessRB * (extras + 1) / float64(h.pendingContainers.Load())
 	h.log.Debug("Calculated RB: %.4f\n", h.ID, rb)
@@ -1056,10 +1023,10 @@ func (h *Host) validatePenaltyList(_ interface{}) bool {
 	return h.penaltyValidity
 }
 
-func (h *Host) updatePenaltyList(cached *PenaltyContainers) *PenaltyContainers {
+func (h *Host) updatePenaltyList(cached *scheduling.PenaltyContainers) *scheduling.PenaltyContainers {
 	h.penaltyValidity = true
 	if cached == nil {
-		cached = &PenaltyContainers{ContainerList: ContainerList(h.trainingContainers)}
+		cached = &scheduling.PenaltyContainers{ContainerList: scheduling.ContainerList(h.trainingContainers)}
 	} else {
 		cached.ContainerList = h.trainingContainers
 	}
@@ -1071,7 +1038,7 @@ func (h *Host) updatePenaltyList(cached *PenaltyContainers) *PenaltyContainers {
 // specified kernel.
 func (h *Host) HasAnyReplicaOfKernel(kernelId string) bool {
 	found := false
-	h.containers.Range(func(_ string, container *Container) (contd bool) {
+	h.containers.Range(func(_ string, container scheduling.KernelContainer) (contd bool) {
 		if container.KernelID() == kernelId {
 			found = true
 			return false // Stop iterating.
@@ -1087,7 +1054,7 @@ func (h *Host) HasAnyReplicaOfKernel(kernelId string) bool {
 // to the given replica of the given kernel.
 func (h *Host) HasSpecificReplicaOfKernel(kernelId string, replicaId int32) bool {
 	found := false
-	h.containers.Range(func(_ string, container *Container) (contd bool) {
+	h.containers.Range(func(_ string, container scheduling.KernelContainer) (contd bool) {
 		if container.KernelID() == kernelId && container.ReplicaId() == replicaId {
 			found = true
 			return false // Stop iterating.
@@ -1099,11 +1066,11 @@ func (h *Host) HasSpecificReplicaOfKernel(kernelId string, replicaId int32) bool
 	return found
 }
 
-// GetAnyReplicaOfKernel returns the *Container corresponding to any replica of the specified kernel if such a
+// GetAnyReplicaOfKernel returns the scheduling.KernelContainer corresponding to any replica of the specified kernel if such a
 // Container is currently scheduled/provisioned on this Host. If not, then nil is returned.
-func (h *Host) GetAnyReplicaOfKernel(kernelId string) *Container {
-	var targetContainer *Container
-	h.containers.Range(func(_ string, container *Container) (contd bool) {
+func (h *Host) GetAnyReplicaOfKernel(kernelId string) scheduling.KernelContainer {
+	var targetContainer scheduling.KernelContainer
+	h.containers.Range(func(_ string, container scheduling.KernelContainer) (contd bool) {
 		if container.KernelID() == kernelId {
 			targetContainer = container
 			return false // Stop iterating.
@@ -1115,11 +1082,11 @@ func (h *Host) GetAnyReplicaOfKernel(kernelId string) *Container {
 	return targetContainer
 }
 
-// GetSpecificReplicaOfKernel returns the *Container corresponding to the specified replica of the specified kernel,
+// GetSpecificReplicaOfKernel returns the scheduling.KernelContainer corresponding to the specified replica of the specified kernel,
 // if that Container is currently scheduled/provisioned on this Host. If not, then nil is returned.
-func (h *Host) GetSpecificReplicaOfKernel(kernelId string, replicaId int32) *Container {
-	var targetContainer *Container
-	h.containers.Range(func(_ string, container *Container) (contd bool) {
+func (h *Host) GetSpecificReplicaOfKernel(kernelId string, replicaId int32) scheduling.KernelContainer {
+	var targetContainer scheduling.KernelContainer
+	h.containers.Range(func(_ string, container scheduling.KernelContainer) (contd bool) {
 		if container.KernelID() == kernelId && container.ReplicaId() == replicaId {
 			targetContainer = container
 			return false // Stop iterating.
@@ -1186,48 +1153,48 @@ func (h *Host) Priority(session scheduling.UserSession) float64 {
 
 // IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
 func (h *Host) IdleGPUs() float64 {
-	return h.resourceManager.idleResources.GPUs()
+	return h.resourceManager.IdleResources().GPUs()
 }
 
 // PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
 func (h *Host) PendingGPUs() float64 {
-	return h.resourceManager.pendingResources.GPUs()
+	return h.resourceManager.PendingResources().GPUs()
 }
 
 // CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
 func (h *Host) CommittedGPUs() float64 {
-	return h.resourceManager.committedResources.GPUs()
+	return h.resourceManager.CommittedResources().GPUs()
 }
 
 func (h *Host) IdleCPUs() float64 {
-	return h.resourceManager.idleResources.Millicpus()
+	return h.resourceManager.IdleResources().Millicpus()
 }
 
 func (h *Host) PendingCPUs() float64 {
-	return h.resourceManager.pendingResources.Millicpus()
+	return h.resourceManager.PendingResources().Millicpus()
 }
 
 func (h *Host) CommittedCPUs() float64 {
-	return h.resourceManager.committedResources.Millicpus()
+	return h.resourceManager.CommittedResources().Millicpus()
 }
 
 func (h *Host) IdleMemoryMb() float64 {
-	return h.resourceManager.idleResources.MemoryMB()
+	return h.resourceManager.IdleResources().MemoryMB()
 }
 
 func (h *Host) PendingMemoryMb() float64 {
-	return h.resourceManager.pendingResources.MemoryMB()
+	return h.resourceManager.PendingResources().MemoryMB()
 }
 
 func (h *Host) CommittedMemoryMb() float64 {
-	return h.resourceManager.committedResources.MemoryMB()
+	return h.resourceManager.CommittedResources().MemoryMB()
 }
 
-func (h *Host) IdleVRAM() float64 { return h.resourceManager.idleResources.MemoryMB() }
+func (h *Host) IdleVRAM() float64 { return h.resourceManager.IdleResources().MemoryMB() }
 
-func (h *Host) PendingVRAM() float64 { return h.resourceManager.pendingResources.MemoryMB() }
+func (h *Host) PendingVRAM() float64 { return h.resourceManager.PendingResources().MemoryMB() }
 
-func (h *Host) CommittedVRAM() float64 { return h.resourceManager.committedResources.VRAM() }
+func (h *Host) CommittedVRAM() float64 { return h.resourceManager.CommittedResources().VRAM() }
 
 // ResourceSpec the types.Spec defining the ComputeResource available on the Host.
 func (h *Host) ResourceSpec() types.ValidatableResourceSpec {
@@ -1242,17 +1209,17 @@ func (h *Host) CurrentResourcesToString() string {
 
 // IdleResources returns a types.Spec encapsulating the IdleResources on the Host.
 func (h *Host) IdleResources() *types.DecimalSpec {
-	return h.resourceManager.idleResources.ToDecimalSpec()
+	return h.resourceManager.IdleResources().ToDecimalSpec()
 }
 
 // PendingResources returns a types.Spec encapsulating the PendingResources on the Host.
 func (h *Host) PendingResources() *types.DecimalSpec {
-	return h.resourceManager.pendingResources.ToDecimalSpec()
+	return h.resourceManager.PendingResources().ToDecimalSpec()
 }
 
 // CommittedResources returns a types.Spec encapsulating the idle ComputeResource on the Host.
 func (h *Host) CommittedResources() *types.DecimalSpec {
-	return h.resourceManager.committedResources.ToDecimalSpec()
+	return h.resourceManager.CommittedResources().ToDecimalSpec()
 }
 
 func (h *Host) ScaleInPriority() float64 {
@@ -1260,37 +1227,37 @@ func (h *Host) ScaleInPriority() float64 {
 }
 
 func (h *Host) AddToPendingResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.pendingResources.Add(spec)
+	err := h.resourceManager.PendingResources().Add(spec)
 	h.RecomputeSubscribedRatio()
 	return err
 }
 
 func (h *Host) AddToIdleResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.idleResources.Add(spec)
+	err := h.resourceManager.IdleResources().Add(spec)
 	h.RecomputeSubscribedRatio()
 	return err
 }
 
 func (h *Host) AddToCommittedResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.committedResources.Add(spec)
+	err := h.resourceManager.CommittedResources().Add(spec)
 	h.RecomputeSubscribedRatio()
 	return err
 }
 
 func (h *Host) SubtractFromPendingResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.pendingResources.Subtract(spec)
+	err := h.resourceManager.PendingResources().Subtract(spec)
 	h.RecomputeSubscribedRatio()
 	return err
 }
 
 func (h *Host) SubtractFromIdleResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.idleResources.Subtract(spec)
+	err := h.resourceManager.IdleResources().Subtract(spec)
 	h.RecomputeSubscribedRatio()
 	return err
 }
 
 func (h *Host) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.committedResources.Subtract(spec)
+	err := h.resourceManager.CommittedResources().Subtract(spec)
 	h.RecomputeSubscribedRatio()
 	return err
 }
