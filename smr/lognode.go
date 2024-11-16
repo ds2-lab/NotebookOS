@@ -21,10 +21,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/scusemua/distributed-notebook/smr/storage"
 	"io"
 	"io/fs"
 	"log"
-	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"net/url"
@@ -65,6 +65,9 @@ const (
 	NewSerializedStateBaseFileName string = "serialized_state_new"
 	DoneString                     string = "DONE"
 	VersionText                    string = "1.0.1"
+
+	hdfsRemoteStorage  string = "hdfs"
+	redisRemoteStorage string = "redis"
 )
 
 var (
@@ -178,6 +181,8 @@ type LogNode struct {
 
 	deploymentMode string
 
+	storageProvider storage.Provider
+
 	hdfsClient   *hdfs.Client  // HDFS client for reading/writing the data directory during migrations.
 	hdfsReadTime time.Duration // hdfsReadTime is the amount of time spent reading data from HDFS.
 
@@ -256,7 +261,7 @@ func CreateBytes(len byte) []byte {
 // The store_path is used as the actual data directory.
 // hdfs_data_directory is (possibly) the path to the data directory within HDFS, meaning
 // we were migrated and our data directory was written to HDFS so that we could retrieve it.
-func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFromHdfs bool, peerAddresses []string, peerIDs []int, join bool, httpDebugPort int, deploymentMode string) *LogNode {
+func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteStorage string, shouldLoadDataFromRemoteStorage bool, peerAddresses []string, peerIDs []int, join bool, httpDebugPort int, deploymentMode string) *LogNode {
 	defer finalize()
 	_, _ = fmt.Fprintf(os.Stderr, "Creating a new LogNode [version %v].\n", VersionText)
 
@@ -269,8 +274,11 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 
 	_, _ = fmt.Fprintf(os.Stderr, "Checking validity of hdfs hostname.\n")
 
-	if len(hdfsHostname) == 0 {
-		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Cannot connect to HDFS; no hostname received.")
+	remoteStorage = strings.TrimSpace(remoteStorage)
+	remoteStorage = strings.ToLower(remoteStorage)
+
+	if len(remoteStorageHostname) == 0 {
+		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Cannot connect to remote storage %s; no hostname received.", remoteStorage)
 		return nil
 	}
 
@@ -292,7 +300,7 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 		proposalRegistry:       hashmap.NewConcurrentMap[smrContext](32),
 		snapshotterReady:       make(chan LogSnapshotter, 1),
 		dataDir:                storePath, // The base path of store_path is the persistent ID.
-		shouldLoadDataFromHdfs: shouldLoadDataFromHdfs,
+		shouldLoadDataFromHdfs: shouldLoadDataFromRemoteStorage,
 		httpDebugPort:          httpDebugPort,
 		deploymentMode:         deploymentMode,
 	}
@@ -335,76 +343,26 @@ func NewLogNode(storePath string, id int, hdfsHostname string, shouldLoadDataFro
 		node.peers[peerId] = peerAddr
 	}
 
-	node.sugaredLogger.Infof("Connecting to HDFS at '%s'", hdfsHostname)
-	fmt.Printf("Connecting to HDFS at '%s'\n", hdfsHostname)
-
-	hdfsClient, err := hdfs.NewClient(hdfs.ClientOptions{
-		Addresses: []string{hdfsHostname},
-		User:      "jovyan",
-		NamenodeDialFunc: func(ctx context.Context, network, address string) (net.Conn, error) {
-			conn, err := (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext(ctx, network, address)
-			if err != nil {
-				node.sugaredLogger.Errorf("Failed to dial HDFS DataNode at address '%s' with network '%s' because: %v", address, network, err)
-				return nil, err
-			}
-			return conn, nil
-		},
-		// Temporary work-around to deal with Kubernetes networking issues with HDFS.
-		// The HDFS NameNode returns the IP for the client to use to connect to the DataNode for reading/writing file blocks.
-		// At least for development/testing, I am using a local Kubernetes cluster and a local HDFS deployment.
-		// So, the HDFS NameNode returns the local IP address. But since Kubernetes Pods have their own local host, they cannot use this to connect to the HDFS DataNode.
-		DatanodeDialFunc: func(ctx context.Context, network, address string) (net.Conn, error) {
-			if deploymentMode == "LOCAL" || deploymentMode == "DOCKER_COMPOSE" {
-				// If it is local, then we just use the loopback address (or whatever) to the host,
-				// which is where the data node is running.
-				originalAddress := address
-				dataNodeAddress := strings.Split(hdfsHostname, ":")[0]
-				dataNodePort := strings.Split(address, ":")[1]                // Get the port that the DataNode is using. Discard the IP address.
-				address = fmt.Sprintf("%s:%s", dataNodeAddress, dataNodePort) // returns the IP address that will enable the local k8s Pods to find the local DataNode.
-				node.logger.Debug("Modified HDFS DataNode address.", zap.String("original_address", originalAddress), zap.String("updated_address", address))
-			}
-
-			node.logger.Info("Dialing HDFS DataNode.", zap.String("datanode_address", address))
-
-			childCtx, cancel := context.WithTimeout(ctx, time.Second*30)
-			defer cancel()
-
-			conn, err := (&net.Dialer{
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-				DualStack: true,
-			}).DialContext(childCtx, network, address)
-			if err != nil {
-				node.sugaredLogger.Errorf("Failed to dial HDFS DataNode at address '%s' because: %v", address, err)
-				return nil, err
-			}
-
-			return conn, nil
-		},
-	})
-
-	if err != nil {
-		node.logger.Error("Failed to create HDFS client.", zap.String("hdfsHostname", hdfsHostname), zap.Error(err))
-		// log.Fatalf("Failed to create HDFS client (addr=%s) because: %v\n", hdfsHostname, err)
-		return nil
+	if remoteStorage == hdfsRemoteStorage {
+		node.storageProvider = storage.NewHdfsProvider(remoteStorageHostname, deploymentMode)
+	} else if remoteStorage == redisRemoteStorage {
+		node.storageProvider = storage.NewRedisProvider(remoteStorageHostname, deploymentMode)
 	} else {
-		node.sugaredLogger.Infof("Successfully connected to HDFS at '%s'", hdfsHostname)
-		fmt.Printf("Successfully connected to HDFS at '%s'\n", hdfsHostname)
-		node.hdfsClient = hdfsClient
+		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Invalid remote storage specified: \"%s\". Must be \"hdfs\" or \"redis\".",
+			remoteStorage)
+		return nil
+	}
+
+	if node.storageProvider == nil {
+		node.logger.Error("Failed to connect to remote storage.",
+			zap.String("remote_storage", remoteStorage),
+			zap.String("hostname", remoteStorageHostname))
+		return nil
 	}
 
 	// TODO(Ben): Read the data directory from HDFS.
-	// if hdfs_data_directory != "" {
-	if shouldLoadDataFromHdfs {
+	if shouldLoadDataFromRemoteStorage {
 		node.logger.Info(fmt.Sprintf("Reading data directory from HDFS now: %s.", node.dataDir))
-
-		// if hdfs_data_directory != node.waldir {
-		// 	node.logger.Error("The HDFS data directory and the local data directory must be the same; they are not.", zap.String("hdfs_data_directory", hdfs_data_directory), zap.String("data_directory", node.data_dir))
-		// 	return nil
-		// }
 
 		// TODO: Make configurable, or make this interval longer to support larger recoveries.
 		// Alternatively, have the Goroutine that's reading the data from HDFS periodically indicate that it is still alive/making progress,

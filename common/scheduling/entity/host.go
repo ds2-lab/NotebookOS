@@ -291,6 +291,11 @@ func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramG
 	return host, nil
 }
 
+// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote Local Daemon.
+func (h *Host) GetGrpcConnection() *grpc.ClientConn {
+	return h.conn
+}
+
 func (h *Host) IsContainedWithinIndex() bool {
 	return h.isContainedWithinIndex
 }

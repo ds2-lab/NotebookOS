@@ -51,12 +51,12 @@ func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer
 }
 
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
-func (s *KubernetesScheduler) addReplicaSetup(kernelId string, addReplicaOp *AddReplicaOperation) {
+func (s *KubernetesScheduler) addReplicaSetup(kernelId string, addReplicaOp *scheduling.AddReplicaOperation) {
 	s.containerEventHandler.RegisterChannel(kernelId, addReplicaOp.ReplicaStartedChannel())
 }
 
 // postScheduleKernelReplica is called immediately after ScheduleKernelReplica is called.
-func (s *KubernetesScheduler) postScheduleKernelReplica(kernelId string, addReplicaOp *AddReplicaOperation) {
+func (s *KubernetesScheduler) postScheduleKernelReplica(kernelId string, addReplicaOp *scheduling.AddReplicaOperation) {
 	// In Kubernetes deployments, the key is the Pod name, which is also the kernel ID + replica suffix.
 	// In Docker deployments, the container name isn't really the container's name, but its ID, which is a hash
 	// or something like that.

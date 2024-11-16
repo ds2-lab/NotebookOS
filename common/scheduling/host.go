@@ -6,6 +6,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"time"
 )
@@ -25,6 +26,8 @@ type PreemptionInfo interface {
 type Host interface {
 	proto.LocalGatewayClient
 
+	// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote Local Daemon.
+	GetGrpcConnection() *grpc.ClientConn
 	GetLocalGatewayClient() proto.LocalGatewayClient
 	GetNodeName() string
 	GetID() string

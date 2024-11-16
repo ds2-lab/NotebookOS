@@ -11,9 +11,10 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
-	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"github.com/shopspring/decimal"
+	"log"
 	"math"
 	"sync"
 	"time"
@@ -69,17 +70,17 @@ type BaseScheduler struct {
 	addReplicaMutex sync.Mutex
 
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
-	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]]
+	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]]
 
 	// Mapping from new kernel-replica key (i.e., <kernel-id>-<replica-id>) to AddReplicaOperation.
-	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, *AddReplicaOperation]
+	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, *scheduling.AddReplicaOperation]
 
 	// Mapping from NewPodName to chan string.
 	// In theory, it's possible to receive a PodCreated notification from Kubernetes AFTER the replica within the new Pod
 	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
 	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
 	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
-	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *AddReplicaOperation]
+	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *scheduling.AddReplicaOperation]
 
 	candidateHostMutex sync.Mutex
 
@@ -147,9 +148,9 @@ func NewBaseScheduler(cluster scheduling.Cluster, placer scheduling.Placer, host
 		minimumCapacity:                          int32(opts.MinimumNumNodes),
 		maxSubscribedRatio:                       decimal.NewFromFloat(opts.MaxSubscribedRatio),
 		subscriptionRatio:                        decimal.NewFromFloat(opts.MaxSubscribedRatio),
-		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]](64),
-		addReplicaOperationsByKernelReplicaId:    hashmap.NewCornelkMap[string, *AddReplicaOperation](64),
-		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *AddReplicaOperation](64),
+		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]](64),
+		addReplicaOperationsByKernelReplicaId:    hashmap.NewCornelkMap[string, *scheduling.AddReplicaOperation](64),
+		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *scheduling.AddReplicaOperation](64),
 		kernelProvider:                           kernelProvider,
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
@@ -364,7 +365,7 @@ func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelRep
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in HDFS.
-func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host) (*AddReplicaOperation, error) {
+func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts scheduling.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host) (*scheduling.AddReplicaOperation, error) {
 	var kernelId = in.KernelId
 	var persistentId = in.PersistentId
 
@@ -386,7 +387,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 	// The spec to be used for the new replica that is created during the migration.
 	var newReplicaSpec = kernel.PrepareNewReplica(persistentId, smrNodeId)
 
-	addReplicaOp := NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
+	addReplicaOp := scheduling.NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
 	key := fmt.Sprintf("%s-%d", addReplicaOp.KernelId(), addReplicaOp.ReplicaId())
 	s.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
 
@@ -398,7 +399,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 	s.addReplicaMutex.Lock()
 	ops, ok := s.activeAddReplicaOpsPerKernel.Load(kernelId)
 	if !ok {
-		ops = orderedmap.NewOrderedMap[string, *AddReplicaOperation]()
+		ops = orderedmap.NewOrderedMap[string, *scheduling.AddReplicaOperation]()
 	}
 	ops.Set(addReplicaOp.OperationID(), addReplicaOp)
 	s.activeAddReplicaOpsPerKernel.Store(kernelId, ops)
@@ -475,6 +476,18 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 
 	// Return nil on success.
 	return addReplicaOp, nil
+}
+
+func (s *BaseScheduler) GetActiveAddReplicaOperationsForKernel(kernelId string) (*orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation], bool) {
+	return s.activeAddReplicaOpsPerKernel.Load(kernelId)
+}
+
+func (s *BaseScheduler) GetAddReplicaOperation(id string) (*scheduling.AddReplicaOperation, bool) {
+	return s.addReplicaOperationsByKernelReplicaId.Load(id)
+}
+
+func (s *BaseScheduler) GetAddReplicaOperationManager() hashmap.HashMap[string, *scheduling.AddReplicaOperation] {
+	return s.addReplicaOperationsByKernelReplicaId
 }
 
 // UpdateRatio updates the Cluster's subscription ratio.
@@ -594,7 +607,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 	}
 
 	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
-	opts := NewAddReplicaWaitOptions(true, true, true)
+	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
 	addReplicaOp, err := s.addReplica(replicaSpec, opts, dataDirectory, []scheduling.Host{originalHost})
 	if err != nil {
 		s.log.Error("Failed to add new replica %d to kernel %s: %v", kernelReplica.ReplicaID(), kernelReplica.ID(), err)
@@ -669,7 +682,7 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 		}
 	}
 
-	s.log.Info("Calling PrepareToMigrate RPC targeting host %s (ID=%s) of replica %d of kernel %s now.",
+	s.log.Debug("Calling PrepareToMigrate RPC targeting host %s (ID=%s) of replica %d of kernel %s now.",
 		originalHost.GetNodeName(), originalHost.GetID(), kernelReplica.ReplicaID(), kernelReplica.ID())
 
 	replicaInfo := &proto.ReplicaInfo{
@@ -682,6 +695,16 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 	defer cancel()
 
 	go func() {
+		gRpcClientConnection := originalHost.GetGrpcConnection()
+
+		if gRpcClientConnection == nil {
+			log.Fatalf(utils.RedStyle.Render("gRPC Client Connection with host %s (ID=%s) is nil."),
+				originalHost.GetNodeName(), originalHost.GetID())
+		}
+
+		s.log.Debug("State of gRPC ClientConn with host %s (ID=%s): %s (%v)", originalHost.GetNodeName(),
+			originalHost.GetID(), gRpcClientConnection.GetState().String(), gRpcClientConnection.GetState())
+
 		// Issue the 'prepare-to-migrate' request. We panic if there was an error.
 		resp, err := originalHost.PrepareToMigrate(ctx, replicaInfo)
 		if err != nil {

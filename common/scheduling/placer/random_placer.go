@@ -4,7 +4,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
-	"github.com/scusemua/distributed-notebook/common/types"
 )
 
 // RandomPlacer is a simple placer that places sessions randomly.
@@ -78,10 +77,9 @@ func (placer *RandomPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *RandomPlacer) findHost(blacklist []interface{}, spec types.Spec) scheduling.Host {
+func (placer *RandomPlacer) findHost(blacklist []interface{}, kernelSpec *proto.KernelSpec) scheduling.Host {
 	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost scheduling.Host) bool {
-		viable, _ := placer.hostIsViable(candidateHost, spec)
-		return viable
+		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec)
 	}, blacklist)
 
 	if len(hosts) > 0 {

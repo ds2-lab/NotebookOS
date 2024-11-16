@@ -6,8 +6,8 @@ type clusterSchedulerInternal interface {
 	scheduling.Scheduler
 
 	// addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
-	addReplicaSetup(kernelId string, addReplicaOp *AddReplicaOperation)
+	addReplicaSetup(kernelId string, addReplicaOp *scheduling.AddReplicaOperation)
 
 	// postScheduleKernelReplica is called immediately after ScheduleKernelReplica is called.
-	postScheduleKernelReplica(kernelId string, addReplicaOp *AddReplicaOperation)
+	postScheduleKernelReplica(kernelId string, addReplicaOp *scheduling.AddReplicaOperation)
 }

@@ -3,8 +3,10 @@ package scheduling
 import (
 	"context"
 	"fmt"
+	"github.com/elliotchance/orderedmap/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"strings"
 	"time"
@@ -54,6 +56,10 @@ type KernelScheduler interface {
 
 	// RemoveReplicaFromHost removes the specified replica from its Host.
 	RemoveReplicaFromHost(kernelReplica KernelReplica) error
+
+	GetAddReplicaOperationManager() hashmap.HashMap[string, *AddReplicaOperation]
+
+	GetActiveAddReplicaOperationsForKernel(kernelId string) (*orderedmap.OrderedMap[string, *AddReplicaOperation], bool)
 }
 
 type HostScheduler interface {

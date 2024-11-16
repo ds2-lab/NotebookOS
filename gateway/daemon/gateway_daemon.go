@@ -28,7 +28,6 @@ import (
 
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	"github.com/elliotchance/orderedmap/v2"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	"github.com/hashicorp/yamux"
@@ -239,19 +238,6 @@ type ClusterGatewayImpl struct {
 	// to keep track of the notifications that we've received so we can discard duplicates.
 	kernelRegisteredNotifications *hashmap.CornelkMap[string, *proto.KernelRegistrationNotification]
 
-	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
-	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduler.AddReplicaOperation]]
-
-	// Mapping from new kernel-replica key (i.e., <kernel-id>-<replica-id>) to AddReplicaOperation.
-	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, *scheduler.AddReplicaOperation]
-
-	// Mapping from NewPodName to chan string.
-	// In theory, it's possible to receive a PodCreated notification from Kubernetes AFTER the replica within the new Pod
-	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
-	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
-	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
-	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *scheduler.AddReplicaOperation]
-
 	// Used to wait for an explicit notification that a particular node was successfully removed from its SMR cluster.
 	// smrNodeRemovedNotifications *hashmap.CornelkMap[string, chan struct{}]
 
@@ -329,32 +315,29 @@ type ClusterGatewayImpl struct {
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
 	clusterGateway := &ClusterGatewayImpl{
-		id:                                       uuid.New().String(),
-		connectionOptions:                        opts,
-		createdAt:                                time.Now(),
-		transport:                                "tcp",
-		ip:                                       opts.IP,
-		DebugMode:                                clusterDaemonOptions.CommonOptions.DebugMode,
-		availablePorts:                           utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
-		kernels:                                  hashmap.NewCornelkMap[string, scheduling.Kernel](128),
-		kernelIdToKernel:                         hashmap.NewCornelkMap[string, scheduling.Kernel](128),
-		kernelSpecs:                              hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
-		waitGroups:                               hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
-		kernelRegisteredNotifications:            hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](128),
-		cleaned:                                  make(chan struct{}),
-		smrPort:                                  clusterDaemonOptions.SMRPort,
-		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *scheduler.AddReplicaOperation]](64),
-		addReplicaOperationsByKernelReplicaId:    hashmap.NewCornelkMap[string, *scheduler.AddReplicaOperation](64),
-		kernelsStarting:                          hashmap.NewCornelkMap[string, chan struct{}](64),
-		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *scheduler.AddReplicaOperation](64),
-		hdfsNameNodeEndpoint:                     clusterDaemonOptions.HdfsNameNodeEndpoint,
-		dockerNetworkName:                        clusterDaemonOptions.DockerNetworkName,
-		numResendAttempts:                        clusterDaemonOptions.NumResendAttempts,
-		MessageAcknowledgementsEnabled:           clusterDaemonOptions.MessageAcknowledgementsEnabled,
-		initialClusterSize:                       clusterDaemonOptions.InitialClusterSize,
-		initialConnectionPeriod:                  time.Second * time.Duration(clusterDaemonOptions.InitialClusterConnectionPeriodSec),
-		prometheusInterval:                       time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
-		gatewayPrometheusManager:                 nil,
+		id:                             uuid.New().String(),
+		connectionOptions:              opts,
+		createdAt:                      time.Now(),
+		transport:                      "tcp",
+		ip:                             opts.IP,
+		DebugMode:                      clusterDaemonOptions.CommonOptions.DebugMode,
+		availablePorts:                 utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
+		kernels:                        hashmap.NewCornelkMap[string, scheduling.Kernel](128),
+		kernelIdToKernel:               hashmap.NewCornelkMap[string, scheduling.Kernel](128),
+		kernelSpecs:                    hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
+		waitGroups:                     hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
+		kernelRegisteredNotifications:  hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](128),
+		cleaned:                        make(chan struct{}),
+		smrPort:                        clusterDaemonOptions.SMRPort,
+		kernelsStarting:                hashmap.NewCornelkMap[string, chan struct{}](64),
+		hdfsNameNodeEndpoint:           clusterDaemonOptions.HdfsNameNodeEndpoint,
+		dockerNetworkName:              clusterDaemonOptions.DockerNetworkName,
+		numResendAttempts:              clusterDaemonOptions.NumResendAttempts,
+		MessageAcknowledgementsEnabled: clusterDaemonOptions.MessageAcknowledgementsEnabled,
+		initialClusterSize:             clusterDaemonOptions.InitialClusterSize,
+		initialConnectionPeriod:        time.Second * time.Duration(clusterDaemonOptions.InitialClusterConnectionPeriodSec),
+		prometheusInterval:             time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
+		gatewayPrometheusManager:       nil,
 	}
 
 	for _, configFunc := range configs {
@@ -1650,7 +1633,8 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// We load-and-delete the entry so that, if we migrate the same replica again in the future, then we can't load
 	// the old AddReplicaOperation struct...
 	key := fmt.Sprintf("%s-%d", in.KernelId, in.ReplicaId)
-	addReplicaOp, ok := d.addReplicaOperationsByKernelReplicaId.LoadAndDelete(key)
+	// addReplicaOp, ok := d.addReplicaOperationsByKernelReplicaId.LoadAndDelete(key)
+	addReplicaOp, ok := d.Scheduler().GetAddReplicaOperationManager().LoadAndDelete(key)
 
 	if !ok {
 		errorMessage := fmt.Errorf("could not find AddReplicaOperation struct under key \"%s\"", key)
@@ -2798,14 +2782,15 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 //
 // This looks for the most-recently-added AddReplicaOperation associated with the specified replica of the specified kernel.
 // If `mustBeActive` is true, then we skip any AddReplicaOperation structs that have already been marked as completed.
-func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (*scheduler.AddReplicaOperation, bool) {
+func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(kernelId string, smrNodeId int32) (*scheduling.AddReplicaOperation, bool) {
 	d.addReplicaMutex.Lock()
 	defer d.addReplicaMutex.Unlock()
 
 	d.log.Debug("Searching for an active AddReplicaOperation for replica %d of kernel \"%s\".",
 		smrNodeId, kernelId)
 
-	activeOps, ok := d.activeAddReplicaOpsPerKernel.Load(kernelId)
+	//activeOps, ok := d.activeAddReplicaOpsPerKernel.Load(kernelId)
+	activeOps, ok := d.Scheduler().GetActiveAddReplicaOperationsForKernel(kernelId)
 	if !ok {
 		return nil, false
 	}
@@ -2813,7 +2798,7 @@ func (d *ClusterGatewayImpl) getAddReplicaOperationByKernelIdAndNewReplicaId(ker
 	d.log.Debug("Number of AddReplicaOperation struct(s) associated with kernel \"%s\": %d",
 		kernelId, activeOps.Len())
 
-	var op *scheduler.AddReplicaOperation
+	var op *scheduling.AddReplicaOperation
 	// Iterate from newest to oldest, which entails beginning at the back.
 	// We want to return the newest AddReplicaOperation that matches the replica ID for this kernel.
 	for el := activeOps.Back(); el != nil; el = el.Prev() {

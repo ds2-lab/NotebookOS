@@ -84,7 +84,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 		blacklist = append(blacklist, host.GetMeta(s.placer.GetIndex().GetMetadataKey()))
 	}
 
-	host := s.placer.FindHost(blacklist, replicaSpec.FullSpecFromKernelReplicaSpec())
+	host := s.placer.FindHost(blacklist, replicaSpec.Kernel)
 	if host == nil {
 		return nil, scheduling.ErrInsufficientHostsAvailable
 	}
@@ -95,12 +95,12 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 }
 
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
-func (s *DockerScheduler) addReplicaSetup(_ string, _ *AddReplicaOperation) {
+func (s *DockerScheduler) addReplicaSetup(_ string, _ *scheduling.AddReplicaOperation) {
 	// no-op
 }
 
 // postScheduleKernelReplica is called immediately after ScheduleKernelReplica is called.
-func (s *DockerScheduler) postScheduleKernelReplica(_ string, _ *AddReplicaOperation) {
+func (s *DockerScheduler) postScheduleKernelReplica(_ string, _ *scheduling.AddReplicaOperation) {
 	// no-op
 }
 
