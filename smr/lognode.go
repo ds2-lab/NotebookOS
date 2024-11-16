@@ -223,6 +223,8 @@ type LogNode struct {
 	sugaredLogger *zap.SugaredLogger
 
 	httpDebugPort int // Http debug server
+
+	atom zap.AtomicLevel
 }
 
 var defaultSnapshotCount uint64 = 10000
@@ -294,15 +296,12 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		shouldLoadDataFromRemoteStorage: shouldLoadDataFromRemoteStorage,
 		httpDebugPort:                   httpDebugPort,
 		deploymentMode:                  deploymentMode,
+		atom:                            zap.NewAtomicLevelAt(zap.DebugLevel),
 	}
 
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Failed to create Zap Development logger because: %v\n", err)
-		return nil
-	}
-	node.logger = logger
-	node.sugaredLogger = logger.Sugar()
+	core := zapcore.NewCore(zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()), os.Stdout, node.atom)
+	node.logger = zap.New(core, zap.Development())
+	node.sugaredLogger = node.logger.Sugar()
 
 	if node.sugaredLogger == nil {
 		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Failed to create sugared version of Zap development logger.")
@@ -340,9 +339,9 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		zap.String("remote_storage", remoteStorage))
 
 	if remoteStorage == hdfsRemoteStorage {
-		node.storageProvider = storage.NewHdfsProvider(remoteStorageHostname, deploymentMode, node.id)
+		node.storageProvider = storage.NewHdfsProvider(remoteStorageHostname, deploymentMode, node.id, &node.atom)
 	} else if remoteStorage == redisRemoteStorage {
-		node.storageProvider = storage.NewRedisProvider(remoteStorageHostname, deploymentMode, node.id)
+		node.storageProvider = storage.NewRedisProvider(remoteStorageHostname, deploymentMode, node.id, &node.atom)
 	} else {
 		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Invalid remote storage specified: \"%s\". Must be \"hdfs\" or \"redis\".",
 			remoteStorage)
@@ -356,7 +355,7 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		return nil
 	}
 
-	err = node.storageProvider.Connect()
+	err := node.storageProvider.Connect()
 	if err != nil {
 		node.logger.Error("Failed to connect to remote storage.",
 			zap.String("hostname", remoteStorageHostname),

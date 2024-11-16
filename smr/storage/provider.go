@@ -49,7 +49,7 @@ type baseProvider struct {
 	instance Provider
 }
 
-func newBaseProvider(hostname string, deploymentMode string, nodeId int) *baseProvider {
+func newBaseProvider(hostname string, deploymentMode string, nodeId int, atom *zap.AtomicLevel) *baseProvider {
 	provider := &baseProvider{
 		hostname:       hostname,
 		deploymentMode: deploymentMode,

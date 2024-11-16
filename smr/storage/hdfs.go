@@ -28,8 +28,8 @@ type HdfsProvider struct {
 	hdfsClient   *hdfs.Client
 }
 
-func NewHdfsProvider(hostname string, deploymentMode string, nodeId int) *HdfsProvider {
-	baseProvider := newBaseProvider(hostname, deploymentMode, nodeId)
+func NewHdfsProvider(hostname string, deploymentMode string, nodeId int, atom *zap.AtomicLevel) *HdfsProvider {
+	baseProvider := newBaseProvider(hostname, deploymentMode, nodeId, atom)
 
 	provider := &HdfsProvider{
 		baseProvider: baseProvider,

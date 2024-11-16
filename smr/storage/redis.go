@@ -32,8 +32,8 @@ type RedisProvider struct {
 	redisClient *redis.Client
 }
 
-func NewRedisProvider(hostname string, deploymentMode string, nodeId int) *RedisProvider {
-	baseProvider := newBaseProvider(hostname, deploymentMode, nodeId)
+func NewRedisProvider(hostname string, deploymentMode string, nodeId int, atom *zap.AtomicLevel) *RedisProvider {
+	baseProvider := newBaseProvider(hostname, deploymentMode, nodeId, atom)
 
 	provider := &RedisProvider{
 		baseProvider:  baseProvider,
@@ -83,6 +83,8 @@ func (p *RedisProvider) Connect() error {
 }
 
 func (p *RedisProvider) WriteDataDirectory(serializedState []byte, datadir string, waldir string, snapdir string) error {
+	st := time.Now()
+
 	p.logger.Debug("Writing data directory to Redis.",
 		zap.String("WAL directory", waldir),
 		zap.String("snapshot directory", snapdir),
@@ -119,6 +121,13 @@ func (p *RedisProvider) WriteDataDirectory(serializedState []byte, datadir strin
 	if err != nil {
 		return err
 	}
+
+	p.logger.Debug("Successfully wrote data directory and serialized state to Redis.",
+		zap.String("WAL directory", waldir),
+		zap.String("snapshot directory", snapdir),
+		zap.String("data directory", datadir),
+		zap.Int("serialized_state_num_bytes", len(serializedState)),
+		zap.Duration("time_elapsed", time.Since(st)))
 
 	return nil
 }
@@ -207,6 +216,8 @@ func (p *RedisProvider) writePathsToRedis(key string, paths []interface{}) error
 }
 
 func (p *RedisProvider) ReadDataDirectory(progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error) {
+	st := time.Now()
+
 	serializedStateBytes, err := p.readSerializedStateFromRedis(datadir)
 	if err != nil {
 		return nil, err
@@ -220,6 +231,13 @@ func (p *RedisProvider) ReadDataDirectory(progressChannel chan<- string, datadir
 
 	// Read the snapshot directory.
 	err = p.readDirectoryFromRedis(snapdir, progressChannel)
+
+	p.logger.Debug("Successfully read data directory and serialized state from Redis.",
+		zap.String("WAL directory", waldir),
+		zap.String("snapshot directory", snapdir),
+		zap.String("data directory", datadir),
+		zap.Int("serialized_state_num_bytes", len(serializedStateBytes)),
+		zap.Duration("time_elapsed", time.Since(st)))
 
 	return serializedStateBytes, err
 }
