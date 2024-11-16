@@ -2269,7 +2269,7 @@ class DistributedKernel(IPythonKernel):
                                    base_path=store,
                                    kernel_id=self.kernel_id,
                                    num_replicas=self.num_replicas,
-                                   hostname=self.remote_storage_hostname,
+                                   remote_storage_hostname=self.remote_storage_hostname,
                                    should_read_data=self.should_read_data_from_remote_storage,
                                    peer_addresses=peer_addresses,
                                    peer_ids=ids,

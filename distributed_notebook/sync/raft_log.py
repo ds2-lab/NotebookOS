@@ -57,8 +57,8 @@ class RaftLog(object):
             node_id: int,
             kernel_id: str,
             base_path: str = "/store",
-            hostname: str = "172.17.0.1:9000",
-            # data_directory: str = "/storage",
+            remote_storage_hostname: str = "172.17.0.1:9000",
+            remote_storage:str = "hdfs",
             should_read_data: bool = False,
             peer_addresses: Optional[Iterable[int]] = None,
             peer_ids: Optional[Iterable[int]] = None,
@@ -75,7 +75,7 @@ class RaftLog(object):
             deployment_mode: str = "LOCAL",
     ):
         self._shouldSnapshotCallback = None
-        if len(hostname) == 0:
+        if len(remote_storage_hostname) == 0:
             raise ValueError("RemoteStorage hostname is empty.")
 
         if peer_addresses is None:
@@ -128,7 +128,8 @@ class RaftLog(object):
             self.logger.error(f"Error while creating persistent datastore directory \"{base_path}\": {ex}")
 
         self.logger.info("persistent store path: %s" % self._persistent_store_path)
-        self.logger.info("remote storage hostname: \"%s\"" % hostname)
+        self.logger.info("remote storage hostname: \"%s\"" % remote_storage_hostname)
+        self.logger.info("remote_storage: \"%s\"", remote_storage)
         self.logger.info("should read data from RemoteStorage: \"%s\"" % should_read_data)
         self.logger.info("peer addresses: %s" % peer_addresses)
         self.logger.info("peer smr node IDs: %s" % peer_ids)
@@ -141,7 +142,8 @@ class RaftLog(object):
 
         self._log_node = self.create_log_node(
             node_id=node_id,
-            hostname=hostname,
+            remote_storage_hostname=remote_storage_hostname,
+            remote_storage=remote_storage,
             should_read_data=should_read_data,
             peer_addrs=peer_addresses,
             peer_ids=peer_ids,
@@ -270,7 +272,8 @@ class RaftLog(object):
     def create_log_node(
             self,
             node_id: int,
-            hostname: str = "172.17.0.1:9000",
+            remote_storage_hostname: str = "172.17.0.1:9000",
+            remote_storage: str = "hdfs",
             should_read_data: bool = False,
             peer_addrs: Iterable[str] = None,
             peer_ids: Iterable[int] = None,
@@ -284,7 +287,7 @@ class RaftLog(object):
         if peer_addrs is None:
             peer_addrs = []
 
-        log_node: LogNode = NewLogNode(self._persistent_store_path, node_id, hostname, should_read_data,
+        log_node: LogNode = NewLogNode(self._persistent_store_path, node_id, remote_storage_hostname, remote_storage, should_read_data,
                                        Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port, deployment_mode)
         self.logger.info("<< RETURNED FROM GO CODE (NewLogNode)")
         sys.stderr.flush()
