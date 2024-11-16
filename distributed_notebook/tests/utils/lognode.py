@@ -28,9 +28,9 @@ class SpoofedLogNode(object):
         self.log.debug(f"SpoofedLogNode::__init__ called with kwargs={kwargs}.")
 
     # Upper-case because the real LogNode calls into Golang methods, which are upper-case.
-    def HdfsReadLatencyMilliseconds(self, *args, **kwargs) -> int:
+    def RemoteStorageReadLatencyMilliseconds(self, *args, **kwargs) -> int:
         f_code: CodeType = inspect.currentframe().f_back.f_code
-        print(f"SpoofedLogNode::HdfsReadLatencyMilliseconds called by function '{f_code.co_name}' from "
+        print(f"SpoofedLogNode::RemoteStorageReadLatencyMilliseconds called by function '{f_code.co_name}' from "
               f"{extract_last_two_parts(f_code.co_filename)}::{f_code.co_firstlineno} with args {args} and kwargs {kwargs}.")
         return 0
 
@@ -48,7 +48,7 @@ class SpoofedLogNode(object):
                        f"{extract_last_two_parts(f_code.co_filename)}::{f_code.co_firstlineno} with args {args} and kwargs {kwargs}.")
         return True
 
-    def CloseHdfsClient(self, *args, **kwargs):
+    def CloseRemoteStorageClient(self, *args, **kwargs):
         f_code: CodeType = inspect.currentframe().f_back.f_code
-        self.log.debug(f"SpoofedLogNode::CloseHdfsClient called by function '{f_code.co_name}' from "
+        self.log.debug(f"SpoofedLogNode::CloseRemoteStorageClient called by function '{f_code.co_name}' from "
                        f"{extract_last_two_parts(f_code.co_filename)}::{f_code.co_firstlineno} with args {args} and kwargs {kwargs}.")

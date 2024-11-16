@@ -10,6 +10,11 @@ const (
 	Connected    ConnectionStatus = "CONNECTED"
 	Connecting   ConnectionStatus = "CONNECTING"
 	Disconnected ConnectionStatus = "DISCONNECTED"
+
+	SerializedStateDirectory       string = "serialized_raft_log_states"
+	SerializedStateBaseFileName    string = "serialized_state.json"
+	SerializedStateFileExtension   string = ".json"
+	NewSerializedStateBaseFileName string = "serialized_state_new"
 )
 
 // ConnectionStatus indicates the status of the connection with the remote storage.
@@ -20,8 +25,15 @@ type ConnectionStatus string
 type Provider interface {
 	Connect() error
 
+	Close() error
+
 	// ConnectionStatus returns the current ConnectionStatus of the Provider.
 	ConnectionStatus() ConnectionStatus
+
+	// WriteDataDirectory writes the data directory for this Raft node from local storage to remote storage.
+	WriteDataDirectory(serializedState []byte, datadir string, waldir string, snapdir string) error
+
+	ReadDataDirectory(progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error)
 }
 
 type baseProvider struct {
@@ -32,15 +44,17 @@ type baseProvider struct {
 
 	hostname       string
 	deploymentMode string
+	nodeId         int
 
 	instance Provider
 }
 
-func newBaseProvider(hostname string, deploymentMode string) *baseProvider {
+func newBaseProvider(hostname string, deploymentMode string, nodeId int) *baseProvider {
 	provider := &baseProvider{
 		hostname:       hostname,
 		deploymentMode: deploymentMode,
 		status:         Disconnected,
+		nodeId:         nodeId,
 	}
 
 	logger, err := zap.NewDevelopment()

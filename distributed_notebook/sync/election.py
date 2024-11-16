@@ -248,6 +248,16 @@ class Election(object):
         except AttributeError:
             self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
+        try:
+            getattr(self, "logger")
+        except AttributeError:
+            self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(self.term_number))
+            self.logger.setLevel(logging.DEBUG)
+            ch = logging.StreamHandler()
+            ch.setLevel(logging.DEBUG)
+            ch.setFormatter(ColoredLogFormatter())
+            self.logger.addHandler(ch)
+
     @property
     def jupyter_message_id(self) -> str:
         """

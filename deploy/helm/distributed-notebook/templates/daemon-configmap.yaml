@@ -17,7 +17,7 @@ data:
     iopub-port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
     iosub-port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
     ack-port: {{ .Values.local_daemon.network.jupyter.ack_port }}
-    hdfs-namenode-endpoint: {{ .Values.hdfs.namenode_endpoint }}
+    remote-storage-endpoint: {{ .Values.remote_storage.hostname }}
     debug: {{ .Values.common.debug }}
     direct: false
     num-replicas: 3

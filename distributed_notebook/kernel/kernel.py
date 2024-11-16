@@ -157,8 +157,8 @@ class DistributedKernel(IPythonKernel):
     hostname: Union[str, Unicode] = Unicode(
         help="""Hostname of the Pod encapsulating this distributed kernel replica""").tag(config=False)
 
-    hdfs_namenode_hostname: Union[str, Unicode] = Unicode(
-        help="""Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.""").tag(config=True)
+    remote_storage_hostname: Union[str, Unicode] = Unicode(
+        help="""Hostname of the remotestorage. The SyncLog's RemoteStorage client will connect to this.""").tag(config=True)
 
     kernel_id: Union[str, Unicode] = Unicode(help="""The ID of the kernel.""").tag(config=False)
 
@@ -272,18 +272,18 @@ class DistributedKernel(IPythonKernel):
                 subsystem="jupyter",
                 name="kernel_lead_proposals_total",
                 documentation="Total number of 'LEAD' proposals.")
-            self.hdfs_read_latency_milliseconds: Histogram = Histogram(
+            self.remote_storage_read_latency_milliseconds: Histogram = Histogram(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
-                name="kernel_hdfs_read_latency_milliseconds",
-                documentation="The amount of time the kernel spent reading data from HDFS.",
+                name="kernel_remote_storage_read_latency_milliseconds",
+                documentation="The amount of time the kernel spent reading data from RemoteStorage.",
                 unit="milliseconds",
                 buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
-            self.hdfs_write_latency_milliseconds: Histogram = Histogram(
+            self.remote_storage_write_latency_milliseconds: Histogram = Histogram(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
-                name="kernel_hdfs_write_latency_milliseconds",
-                documentation="The amount of time the kernel spent writing data to HDFS.",
+                name="kernel_remote_storage_write_latency_milliseconds",
+                documentation="The amount of time the kernel spent writing data to RemoteStorage.",
                 unit="milliseconds",
                 buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
             self.registration_time_milliseconds: Histogram = Histogram(
@@ -402,11 +402,11 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Session ID: \"%s\"" % session_id)
         self.log.info("Kernel ID: \"%s\"" % self.kernel_id)
         self.log.info("Pod name: \"%s\"" % self.pod_name)
-        self.log.info("HDFS NameNode hostname: \"%s\"" %
-                      self.hdfs_namenode_hostname)
+        self.log.info("RemoteStorage hostname: \"%s\"" %
+                      self.remote_storage_hostname)
 
-        if len(self.hdfs_namenode_hostname) == 0:
-            raise ValueError("The HDFS hostname is empty. Was it specified in the configuration file?")
+        if len(self.remote_storage_hostname) == 0:
+            raise ValueError("The RemoteStorage hostname is empty. Was it specified in the configuration file?")
 
         try:
             # The amount of CPU used by this kernel replica (when training) in millicpus (1/1000th of a CPU core).
@@ -447,7 +447,7 @@ class DistributedKernel(IPythonKernel):
         self.persistent_store_cv = asyncio.Condition()
 
         # If we're part of a migration operation, then it will be set when we register with the local daemon.
-        self.should_read_data_from_hdfs: bool = False
+        self.should_read_data_from_remote_storage: bool = False
 
         connection_info: dict[str, Any] = {}
         try:
@@ -619,19 +619,19 @@ class DistributedKernel(IPythonKernel):
         self.smr_nodes_map = {int(node_id_str): (node_addr + ":" + str(self.smr_port))
                               for node_id_str, node_addr in replicas.items()}
 
-        # If we're part of a migration operation, then we should receive both a persistent ID AND an HDFS Data Directory.
+        # If we're part of a migration operation, then we should receive both a persistent ID AND an RemoteStorage Data Directory.
         # If we're not part of a migration operation, then we'll JUST receive the persistent ID.
         if "persistent_id" in response_dict:
             self.log.info("Received persistent ID from registration: \"%s\"" % response_dict["persistent_id"])
             self.persistent_id = response_dict["persistent_id"]
 
         # We'll also use this as an indicator of whether we should simulate additional checkpointing overhead.
-        self.should_read_data_from_hdfs = response_dict.get("should_read_data_from_hdfs", False)
+        self.should_read_data_from_remote_storage = response_dict.get("should_read_data_from_remote_storage", False)
 
-        if self.should_read_data_from_hdfs:
-            self.log.debug("We SHOULD read data from HDFS.")
+        if self.should_read_data_from_remote_storage:
+            self.log.debug("We SHOULD read data from RemoteStorage.")
         else:
-            self.log.debug("We should NOT read data from HDFS.")
+            self.log.debug("We should NOT read data from RemoteStorage.")
 
         if "debug_port" in response_dict:
             self.debug_port: int = int(response_dict["debug_port"])
@@ -1781,7 +1781,7 @@ class DistributedKernel(IPythonKernel):
                 try:
                     self.synclog.close()
                     self.log.info(
-                        "SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
+                        "SyncLog closed successfully. Writing etcd-Raft data directory to RemoteStorage now.")
                 except Exception:
                     self.log.error(
                         "Failed to close the SyncLog for replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
@@ -1830,7 +1830,7 @@ class DistributedKernel(IPythonKernel):
 
             self.synclog_stopped = True
             self.log.info(
-                "SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
+                "SyncLog closed successfully. Writing etcd-Raft data directory to RemoteStorage now.")
         except Exception as e:
             self.log.error("Failed to close the SyncLog for replica %d of kernel %s.",
                            self.smr_node_id, self.kernel_id)
@@ -1842,46 +1842,46 @@ class DistributedKernel(IPythonKernel):
             self.report_error(f"Failed to Close SyncLog for Replica {self.smr_node_id} of Kernel {self.kernel_id}",
                               error_message=str(e))
 
-            # Attempt to close the HDFS client.
-            self.synclog.close_hdfs_client()
+            # Attempt to close the RemoteStorage client.
+            self.synclog.close_remote_storage_client()
 
             return gen_error_response(e), False
 
-        # Step 2: copy the data directory to HDFS
+        # Step 2: copy the data directory to RemoteStorage
         try:
             write_start: float = time.time()
-            waldir_path: str = await self.synclog.write_data_dir_to_hdfs()
+            waldir_path: str = await self.synclog.write_data_dir_to_remote_storage()
             write_duration_ms: float = (time.time() - write_start) * 1.0e3
             if self.prometheus_enabled:
-                self.hdfs_write_latency_milliseconds.observe(write_duration_ms)
+                self.remote_storage_write_latency_milliseconds.observe(write_duration_ms)
             self.log.info(
-                "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % waldir_path)
+                "Wrote etcd-Raft data directory to RemoteStorage. Path: \"%s\"" % waldir_path)
         except Exception as e:
-            self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s",
+            self.log.error("Failed to write the data directory of replica %d of kernel %s to RemoteStorage: %s",
                            self.smr_node_id, self.kernel_id, str(e))
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self.log.error(frame)
 
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
-            self.report_error("Failed to Write HDFS Data Directory", error_message=str(e))
+            self.report_error("Failed to Write remote_storage Data Directory", error_message=str(e))
 
-            # Attempt to close the HDFS client.
-            self.synclog.close_hdfs_client()
+            # Attempt to close the RemoteStorage client.
+            self.synclog.close_remote_storage_client()
 
             return gen_error_response(e), False
 
         try:
-            self.synclog.close_hdfs_client()
+            self.synclog.close_remote_storage_client()
         except Exception as e:
-            self.log.error("Failed to close the HDFS client within the LogNode.")
+            self.log.error("Failed to close the RemoteStorage client within the LogNode.")
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self.log.error(frame)
 
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
             self.report_error(
-                f"Failed to Close HDFS Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}",
+                f"Failed to Close RemoteStorage Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}",
                 error_message=str(e))
 
             # We don't return an error here, though. 
@@ -2179,7 +2179,7 @@ class DistributedKernel(IPythonKernel):
                 f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup.")
             return
 
-        self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now...")
+        self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now. Error message: {error_message}")
         self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
             title=error_title,
             message=error_message,
@@ -2269,16 +2269,15 @@ class DistributedKernel(IPythonKernel):
                                    base_path=store,
                                    kernel_id=self.kernel_id,
                                    num_replicas=self.num_replicas,
-                                   hdfs_hostname=self.hdfs_namenode_hostname,
-                                   should_read_data_from_hdfs=self.should_read_data_from_hdfs,
-                                   # data_directory = self.hdfs_data_directory,
+                                   hostname=self.remote_storage_hostname,
+                                   should_read_data=self.should_read_data_from_remote_storage,
                                    peer_addresses=peer_addresses,
                                    peer_ids=ids,
                                    join=self.smr_join,
                                    debug_port=self.debug_port,
                                    report_error_callback=self.report_error,
                                    send_notification_func=self.send_notification,
-                                   hdfs_read_latency_callback=self.hdfs_read_latency_callback,
+                                   remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
                                    deployment_mode=self.deployment_mode,
                                    election_timeout_seconds=self.election_timeout_seconds)
         except Exception as ex:
@@ -2303,17 +2302,17 @@ class DistributedKernel(IPythonKernel):
 
         return self.synclog
 
-    def hdfs_read_latency_callback(self, latency_ms: int):
+    def remote_storage_read_latency_callback(self, latency_ms: int):
         """
-        This is a callback passed to the RaftLog so that it can publish the HDFS read latency to Prometheus.
+        This is a callback passed to the RaftLog so that it can publish the RemoteStorage read latency to Prometheus.
         Args:
-            latency_ms: the latency incurred by the LogNode's HDFS read operation(s).
+            latency_ms: the latency incurred by the LogNode's RemoteStorage read operation(s).
         """
         if latency_ms < 0:
             return
 
         if self.prometheus_enabled:
-            self.hdfs_read_latency_milliseconds.observe(latency_ms)
+            self.remote_storage_read_latency_milliseconds.observe(latency_ms)
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):
         self.log.debug("Running cell: %s" % str(raw_cell))

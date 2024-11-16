@@ -35,7 +35,7 @@ type AddReplicaOperation struct {
 	persistentId          string                               // Persistent ID of replica.
 	replicaHostname       string                               // The IP address of the new replica.
 	spec                  *proto.KernelReplicaSpec             // Spec for the new replica that is created during the add operation.
-	dataDirectory         string                               // Path to etcd-raft data directory in HDFS.
+	dataDirectory         string                               // Path to etcd-raft data directory in RemoteStorage.
 	metadata              hashmap.HashMap[string, interface{}] // Arbitrary metadata associated with this domain.AddReplicaOperation.
 	createdAt             time.Time                            // createdAt is the time at which the AddReplicaOperation struct was created.
 
@@ -66,14 +66,14 @@ func NewAddReplicaOperation(client Kernel, spec *proto.KernelReplicaSpec, dataDi
 	return op
 }
 
-// True if the new replica should read data from HDFS; otherwise, false.
+// True if the new replica should read data from RemoteStorage; otherwise, false.
 // I guess, for addReplicaOps, this will always be true?
 // So, maybe this field is unnecessary...
-// func (op *AddReplicaOperation) ShouldReadDataFromHdfs() bool {
-// 	return op.shouldReadDataFromHdfs
+// func (op *AddReplicaOperation) ShouldReadDataFromRemoteStorage() bool {
+// 	return op.shouldReadDataFromRemoteStorage
 // }
 
-// DataDirectory returns the path to etcd-raft data directory in HDFS.
+// DataDirectory returns the path to etcd-raft data directory in RemoteStorage.
 func (op *AddReplicaOperation) DataDirectory() string {
 	return op.dataDirectory
 }

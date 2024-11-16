@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/smr/storage"
 	"io"
-	"io/fs"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -31,14 +30,12 @@ import (
 	"os"
 	"os/signal"
 	"path"
-	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/colinmarc/hdfs/v2"
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
@@ -50,8 +47,6 @@ import (
 	stats "go.etcd.io/etcd/server/v3/etcdserver/api/v2stats"
 	"go.etcd.io/etcd/server/v3/wal"
 	"go.etcd.io/etcd/server/v3/wal/walpb"
-	"golang.org/x/exp/rand"
-
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -71,11 +66,11 @@ const (
 )
 
 var (
-	ProposalDeadline   = 1 * time.Minute
-	ErrClosed          = errors.New("node closed")
-	ErrEOF             = io.EOF.Error() // For python module to check if io.EOF is returned
-	ErrHdfsClientIsNil = errors.New("hdfs client is nil; cannot close it")
-	sig                = make(chan os.Signal, 1)
+	ProposalDeadline          = 1 * time.Minute
+	ErrClosed                 = errors.New("node closed")
+	ErrEOF                    = io.EOF.Error() // For python module to check if io.EOF is returned
+	ErrRemoteStorageClientNil = errors.New("remote storage client is nil; cannot close it")
+	sig                       = make(chan os.Signal, 1)
 )
 
 type StateValueCallback func(ReadCloser, int, string) string
@@ -183,18 +178,16 @@ type LogNode struct {
 
 	storageProvider storage.Provider
 
-	hdfsClient   *hdfs.Client  // HDFS client for reading/writing the data directory during migrations.
-	hdfsReadTime time.Duration // hdfsReadTime is the amount of time spent reading data from HDFS.
+	remoteStorageReadTime time.Duration // remoteStorageReadTime is the amount of time spent reading data from remote storage.
 
 	id    int            // Client ID for raft session
 	peers map[int]string // Raft peer URLs. For now, just used during start. ID of Nth peer is N+1. Each address should be prefixed by "http://"
 	join  bool           // Node is joining an existing cluster
 
-	waldir                 string // Path to WAL directory
-	snapdir                string // Path to snapshot directory
-	dataDir                string // The raft data directory. Note: the base path of store_path is the persistent ID.
-	shouldLoadDataFromHdfs bool
-	// hdfs_data_directory string // The location of the backed-up data directory within HDFS. If it is the empty string, then it is invalid. If it is non-empty, then it should be identical to the data_dir.
+	waldir                          string // Path to WAL directory
+	snapdir                         string // Path to snapshot directory
+	dataDir                         string // The raft data directory. Note: the base path of store_path is the persistent ID.
+	shouldLoadDataFromRemoteStorage bool
 
 	confState        raftpb.ConfState
 	snapshotIndex    uint64
@@ -222,7 +215,7 @@ type LogNode struct {
 	// Bridges
 	config *LogNodeConfig
 
-	// This field will be populated by ReadDataDirectoryFromHDFS
+	// This field will be populated by ReadDataDirectoryFromRemoteStorage method
 	// if there is a serialized state file to be read.
 	serializedStateBytes []byte
 
@@ -259,8 +252,6 @@ func CreateBytes(len byte) []byte {
 // To shut down, close proposeC and read errorC.
 //
 // The store_path is used as the actual data directory.
-// hdfs_data_directory is (possibly) the path to the data directory within HDFS, meaning
-// we were migrated and our data directory was written to HDFS so that we could retrieve it.
 func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteStorage string, shouldLoadDataFromRemoteStorage bool, peerAddresses []string, peerIDs []int, join bool, httpDebugPort int, deploymentMode string) *LogNode {
 	defer finalize()
 	_, _ = fmt.Fprintf(os.Stderr, "Creating a new LogNode [version %v].\n", VersionText)
@@ -272,7 +263,7 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		return nil
 	}
 
-	_, _ = fmt.Fprintf(os.Stderr, "Checking validity of hdfs hostname.\n")
+	_, _ = fmt.Fprintf(os.Stderr, "Checking validity of remote storage hostname.\n")
 
 	remoteStorage = strings.TrimSpace(remoteStorage)
 	remoteStorage = strings.ToLower(remoteStorage)
@@ -285,24 +276,24 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 	_, _ = fmt.Fprintf(os.Stderr, "Creating LogNode struct now.\n")
 
 	node := &LogNode{
-		proposeC:               make(chan *proposalContext),
-		confChangeC:            make(chan *confChangeContext),
-		commitC:                make(chan *commit),
-		errorC:                 make(chan error, 1),
-		id:                     id,
-		join:                   join,
-		snapCount:              defaultSnapshotCount,
-		stopChannel:            make(chan struct{}),
-		httpStopChannel:        make(chan struct{}),
-		httpDoneChannel:        make(chan struct{}),
-		numChanges:             0,
-		deniedChanges:          0,
-		proposalRegistry:       hashmap.NewConcurrentMap[smrContext](32),
-		snapshotterReady:       make(chan LogSnapshotter, 1),
-		dataDir:                storePath, // The base path of store_path is the persistent ID.
-		shouldLoadDataFromHdfs: shouldLoadDataFromRemoteStorage,
-		httpDebugPort:          httpDebugPort,
-		deploymentMode:         deploymentMode,
+		proposeC:                        make(chan *proposalContext),
+		confChangeC:                     make(chan *confChangeContext),
+		commitC:                         make(chan *commit),
+		errorC:                          make(chan error, 1),
+		id:                              id,
+		join:                            join,
+		snapCount:                       defaultSnapshotCount,
+		stopChannel:                     make(chan struct{}),
+		httpStopChannel:                 make(chan struct{}),
+		httpDoneChannel:                 make(chan struct{}),
+		numChanges:                      0,
+		deniedChanges:                   0,
+		proposalRegistry:                hashmap.NewConcurrentMap[smrContext](32),
+		snapshotterReady:                make(chan LogSnapshotter, 1),
+		dataDir:                         storePath, // The base path of store_path is the persistent ID.
+		shouldLoadDataFromRemoteStorage: shouldLoadDataFromRemoteStorage,
+		httpDebugPort:                   httpDebugPort,
+		deploymentMode:                  deploymentMode,
 	}
 
 	logger, err := zap.NewDevelopment()
@@ -344,9 +335,9 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 	}
 
 	if remoteStorage == hdfsRemoteStorage {
-		node.storageProvider = storage.NewHdfsProvider(remoteStorageHostname, deploymentMode)
+		node.storageProvider = storage.NewHdfsProvider(remoteStorageHostname, deploymentMode, node.id)
 	} else if remoteStorage == redisRemoteStorage {
-		node.storageProvider = storage.NewRedisProvider(remoteStorageHostname, deploymentMode)
+		node.storageProvider = storage.NewRedisProvider(remoteStorageHostname, deploymentMode, node.id)
 	} else {
 		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Invalid remote storage specified: \"%s\". Must be \"hdfs\" or \"redis\".",
 			remoteStorage)
@@ -360,12 +351,12 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		return nil
 	}
 
-	// TODO(Ben): Read the data directory from HDFS.
+	// TODO(Ben): Read the data directory from remote storage.
 	if shouldLoadDataFromRemoteStorage {
-		node.logger.Info(fmt.Sprintf("Reading data directory from HDFS now: %s.", node.dataDir))
+		node.logger.Info(fmt.Sprintf("Reading data directory from remote storage now: %s.", node.dataDir))
 
 		// TODO: Make configurable, or make this interval longer to support larger recoveries.
-		// Alternatively, have the Goroutine that's reading the data from HDFS periodically indicate that it is still alive/making progress,
+		// Alternatively, have the Goroutine that's reading the data from remote storage periodically indicate that it is still alive/making progress,
 		// and as long as that is happening, we continue waiting, with a timeout such that no progress after <timeout> means the whole operation has failed.
 		timeoutInterval := 60 * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), timeoutInterval)
@@ -374,19 +365,19 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		st := time.Now()
 		progressChan := make(chan string, 8)
 		errorChan := make(chan error)
-		go func(ctx context.Context) {
+		go func() {
 			signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
 			defer finalize()
 
 			// TODO(Ben): Read the 'serialized state' file as well, and return that data back to the Python layer.
-			serializedStateBytes, err := node.ReadDataDirectoryFromHDFS(ctx, progressChan)
+			serializedStateBytes, err := node.readDataDirectoryFromRemoteStorage(progressChan)
 			if err != nil {
 				errorChan <- err
 				return
 			}
 			node.serializedStateBytes = serializedStateBytes
 			progressChan <- DoneString
-		}(ctx)
+		}()
 
 		tickInterval := 10 * time.Second
 		ticker := time.NewTicker(tickInterval)
@@ -397,10 +388,10 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 			case msg := <-progressChan:
 				{
 					if msg == DoneString { // If we received the special 'DONE' message, then we're done reading the entire data directory.
-						node.hdfsReadTime = time.Since(st)
-						node.logger.Info("Successfully read entire data directory from HDFS to local storage and received serialized state from other goroutine.", zap.Duration("time_elapsed", node.hdfsReadTime))
+						node.remoteStorageReadTime = time.Since(st)
+						node.logger.Info("Successfully read entire data directory from remote storage to local storage and received serialized state from other goroutine.", zap.Duration("time_elapsed", node.remoteStorageReadTime))
 						done = true
-					} else /* The message we received will be the path of whatever file or directory was copied from remote storage (HDFS) to our local file system */ {
+					} else /* The message we received will be the path of whatever file or directory was copied from remote storage to our local file system */ {
 						node.logger.Debug("Made progress.", zap.String("msg", msg))
 						noProgress = 0
 					}
@@ -414,13 +405,15 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 			case <-ctx.Done():
 				{
 					err := ctx.Err()
-					node.logger.Error("Operation to read data from HDFS timed-out.", zap.Duration("timeout_interval", timeoutInterval), zap.Error(err))
+					node.logger.Error("Operation to read data from remote storage timed-out.",
+						zap.Duration("timeout_interval", timeoutInterval), zap.Error(err))
 					ticker.Stop()
 					return nil
 				}
 			case err := <-errorChan:
 				{
-					node.logger.Error("Error while reading data directory from HDFS.", zap.Error(err), zap.String("data_dir", node.dataDir), zap.String("waldir", node.waldir), zap.String("data_directory", node.dataDir))
+					node.logger.Error("Error while reading data directory from remote storage.",
+						zap.Error(err), zap.String("data_dir", node.dataDir), zap.String("waldir", node.waldir), zap.String("data_directory", node.dataDir))
 					ticker.Stop()
 					return nil
 				}
@@ -429,7 +422,8 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 
 		ticker.Stop()
 	} else {
-		node.logger.Info("We've not been instructed to retrieve any data directory from HDFS.", zap.String("data_directory", node.dataDir), zap.String("waldir", node.waldir))
+		node.logger.Info("We've not been instructed to retrieve any data directory from remote storage.",
+			zap.String("data_directory", node.dataDir), zap.String("waldir", node.waldir))
 	}
 
 	debug.SetPanicOnFault(true)
@@ -457,19 +451,19 @@ func (node *LogNode) ServeHttpDebug() {
 	}()
 }
 
-// HdfsReadLatencyMilliseconds returns the latency of the HDFS read operation(s) performed by the LogNode.
-// If the LogNode did not read data from HDFS, then -1 is returned.
-func (node *LogNode) HdfsReadLatencyMilliseconds() int {
-	if !node.shouldLoadDataFromHdfs {
+// RemoteStorageReadLatencyMilliseconds returns the latency of the remote storage read operation(s) performed by the LogNode.
+// If the LogNode did not read data from remote storage, then -1 is returned.
+func (node *LogNode) RemoteStorageReadLatencyMilliseconds() int {
+	if !node.shouldLoadDataFromRemoteStorage {
 		return -1
 	}
 
-	return int(node.hdfsReadTime.Milliseconds())
+	return int(node.remoteStorageReadTime.Milliseconds())
 }
 
-// ConnectedToHDFS returns true if we successfully connected to HDFS.
-func (node *LogNode) ConnectedToHDFS() bool {
-	return node.hdfsClient != nil
+// ConnectedToRemoteStorage returns true if we successfully connected to remote storage.
+func (node *LogNode) ConnectedToRemoteStorage() bool {
+	return node.storageProvider.ConnectionStatus() == storage.Connected
 }
 
 func (node *LogNode) NumChanges() int {
@@ -512,7 +506,7 @@ func (node *LogNode) StartAndWait(config *LogNodeConfig) {
 }
 
 // GetSerializedState returns the serialized_state_json field.
-// This field is populated by ReadDataDirectoryFromHDFS if there is a serialized state file to be read.
+// This field is populated by ReadDataDirectoryFromRemoteStorage if there is a serialized state file to be read.
 // It is only required during migration/error recovery.
 func (node *LogNode) GetSerializedState() []byte {
 	node.sugaredLogger.Debugf("Returning serialized state of size/length %d.", len(node.serializedStateBytes))
@@ -645,7 +639,7 @@ func (node *LogNode) WaitToClose() (lastErr error) {
 
 // Close closes the LogNode.
 //
-// NOTE: Close does NOT close the HDFS client.
+// NOTE: Close does NOT close the remote storage client.
 // This is because, when migrating a raft cluster member, we must first stop the raft
 // node before copying the contents of its data directory.
 func (node *LogNode) Close() error {
@@ -661,22 +655,22 @@ func (node *LogNode) Close() error {
 	return lastErr
 }
 
-func (node *LogNode) CloseHdfsClient() error {
-	if node.hdfsClient != nil {
-		err := node.hdfsClient.Close()
+func (node *LogNode) CloseRemoteStorageClient() error {
+	if node.storageProvider != nil {
+		err := node.storageProvider.Close()
 		if err != nil {
-			node.logger.Error("Error while closing HDFS client.", zap.Error(err))
+			node.logger.Error("Error while closing remote storage client.", zap.Error(err))
 			return err
 		}
 	} else {
-		node.logger.Warn("HDFS Client is nil. Will skip closing it.")
-		return ErrHdfsClientIsNil
+		node.logger.Warn("Remote storage client is nil. Will skip closing it.")
+		return ErrRemoteStorageClientNil
 	}
 
 	return nil
 }
 
-// IMPORTANT: This does NOT close the HDFS client.
+// IMPORTANT: This does NOT close the remote storage client.
 // This is because, when migrating a raft cluster member, we must first stop the raft
 // node before copying the contents of its data directory.
 func (node *LogNode) close() {
@@ -845,342 +839,27 @@ func (node *LogNode) entriesToApply(ents []raftpb.Entry) (nents []raftpb.Entry) 
 	return nents
 }
 
-// readRaftLogSerializedStateFromHdfs reads the RaftLog's serialized state data from HDFS.
-func (node *LogNode) readRaftLogSerializedStateFromHdfs() (serializedStateBytes []byte, err error) {
-	serializedStateBytes = make([]byte, 0)
+func (node *LogNode) readDataDirectoryFromRemoteStorage(progressChan chan<- string) ([]byte, error) {
+	return node.storageProvider.ReadDataDirectory(progressChan, node.dataDir, node.waldir, node.snapdir)
+}
 
-	// serialized_state_file := filepath.Join(node.waldir, SerializedStateFile)
-	serializedStateFileDir := filepath.Join(node.dataDir, SerializedStateDirectory)
-	serializedStateFilename := SerializedStateBaseFileName + fmt.Sprintf("-node%d", node.id) + SerializedStateFileExtension
-	serializedStateFilepath := filepath.Join(serializedStateFileDir, serializedStateFilename)
-	if _, err = node.hdfsClient.Stat(serializedStateFilepath); err == nil {
-		serializedStateBytes, err = node.hdfsClient.ReadFile(serializedStateFilepath)
+// WriteDataDirectoryToRemoteStorage writes the data directory for this Raft node from local storage to remote storage.
+func (node *LogNode) WriteDataDirectoryToRemoteStorage(serializedState []byte, resolve ResolveCallback) {
+	go func() {
+		err := node.storageProvider.WriteDataDirectory(serializedState, node.dataDir, node.waldir, node.snapdir)
+
 		if err != nil {
-			node.logger.Error("Failed to read 'serialized state' from file.", zap.String("path", serializedStateFilepath), zap.Error(err))
+			node.logger.Error("Error while writing data directory to remote storage.", zap.Error(err))
+
+			if resolve != nil {
+				resolve(node.waldir, toCError(err))
+			}
+
 			return
 		}
 
-		node.logger.Debug("Read serialized state contents from file.", zap.String("path", serializedStateFilepath))
-	} else {
-		node.logger.Debug("Did not find a serialized state file. Hopefully you weren't expecting one!")
-	}
-
-	return
-}
-
-// readDirectoryFromHdfs walks the file tree rooted at `dir` in HDFS, including the `dir` directory itself.
-// Copy each directory and each file contained therein for all directories within the file tree rooted at `dir`, including `dir` itself (and any files in `dir`).
-func (node *LogNode) readDirectoryFromHdfs(dir string, progressChan chan<- string) error {
-	node.sugaredLogger.Debugf("Walking directory (in HDFS), copying remote files and directories to local storage: '%s'", dir)
-	walkErr := node.hdfsClient.Walk(dir, func(path string, info fs.FileInfo, err error) error {
-		node.sugaredLogger.Debugf("Processing file system object at path \"%s\"", path)
-		node.sugaredLogger.Debugf("Base name: \"%s\", Len: %d bytes, Mode: %v, ModTime: %v, IsDir: %v", info.Name(), info.Size(), info.Mode(), info.ModTime(), info.IsDir())
-
-		if info.IsDir() {
-			// node.sugaredLogger.Debugf("Found remote directory '%s'", path)
-			err := os.MkdirAll(path, os.FileMode(0777))
-			if err != nil {
-				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.sugaredLogger.Errorf("Exception encountered while trying to create local directory '%s': %v", path, err)
-				return err
-			}
-
-			progressChan <- path
-			node.sugaredLogger.Debugf("Successfully created local directory '%s'", path)
-		} else {
-			// node.sugaredLogger.Debugf("Found remote file '%s'", path)
-			err := node.hdfsClient.CopyToLocal(path, path)
-
-			if err != nil {
-				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.sugaredLogger.Errorf("Exception encountered while trying to copy remote-to-local for file '%s': %v", path, err)
-				return err
-			}
-
-			progressChan <- path
-			node.sugaredLogger.Debugf("Successfully copied remote HDFS file to local file system: '%s'", path)
-		}
-
-		return nil
-	})
-
-	if walkErr != nil {
-		node.sugaredLogger.Errorf("Exception encountered while trying to copy HDFS file or directory '%s' to local storage: %v", node.dataDir, walkErr)
-		return walkErr
-	}
-
-	node.sugaredLogger.Debugf("Successfully read all data from HDFS directory: \"%s\".", dir)
-
-	return nil
-}
-
-// ReadDataDirectoryFromHDFS reads the data directory for this Raft node back from HDFS to local storage.
-//
-// This assumes the HDFS path and the local path are identical.
-func (node *LogNode) ReadDataDirectoryFromHDFS(ctx context.Context, progressChan chan<- string) ([]byte, error) {
-	serializedStateBytes, err := node.readRaftLogSerializedStateFromHdfs()
-	if err != nil {
-		return nil, err
-	}
-
-	// Read the WAL dir (write-ahead log).
-	err = node.readDirectoryFromHdfs(node.waldir, progressChan)
-	if err != nil {
-		return serializedStateBytes, err
-	}
-
-	// Read the snapshot directory.
-	err = node.readDirectoryFromHdfs(node.snapdir, progressChan)
-
-	return serializedStateBytes, err
-}
-
-// writeRaftLogSerializedStateToHdfs writes the RaftLog's serialized state to HDFS.
-func (node *LogNode) writeRaftLogSerializedStateToHdfs(serializedState []byte) error {
-	serializedStateFileDir := filepath.Join(node.dataDir, SerializedStateDirectory)
-	err := node.hdfsClient.MkdirAll(serializedStateFileDir, os.FileMode(0777))
-	if err != nil {
-		// If we return an error from this function, then WalkDir will stop entirely and return that error.
-		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory for serialized RaftLog states '%s': %v", serializedStateFileDir, err), zap.String("directory", serializedStateFileDir), zap.Error(err))
-		return err
-	}
-
-	serializedStateFilename := SerializedStateBaseFileName + fmt.Sprintf("-node%d", node.id) + SerializedStateFileExtension
-	serializedStateFilepath := filepath.Join(serializedStateFileDir, serializedStateFilename)
-	// new_serialized_state_filepath := filepath.Join(serialized_state_file_dir, SerializedStateFile)
-
-	var alreadyExists = false
-	if _, err := node.hdfsClient.Stat(serializedStateFilepath); err == nil {
-		// The file already exists. We'll write our state to another file.
-		// If that is successful, then we'll delete the old one and replace it with the new one.
-		newSerializedStateFilename := NewSerializedStateBaseFileName + fmt.Sprintf("-node%d", node.id) + SerializedStateFileExtension
-		serializedStateFilepath = filepath.Join(serializedStateFileDir, newSerializedStateFilename)
-		alreadyExists = true
-	}
-
-	writer, err := node.hdfsClient.Create(serializedStateFilepath)
-	if err != nil {
-		node.logger.Error("Failed to create 'serialized state' file.", zap.String("path", serializedStateFilepath), zap.Error(err))
-
-		// TODO: Handle gracefully, somehow?
-		return err
-	}
-
-	_, err = writer.Write(serializedState)
-	if err != nil {
-		node.logger.Error("Error while writing serialized state to file.", zap.String("path", serializedStateFilepath), zap.Error(err))
-		_ = writer.Close() // This could also fail.
-		return err
-	}
-
-	st := time.Now()
-
-	for time.Since(st) < (time.Minute * 2) {
-		err = writer.Close()
-
-		if err == nil { /* Success */
-			break
-		}
-
-		// If replication is in progress, then we'll sleep for a few seconds before trying again.
-		if hdfs.IsErrReplicating(err) {
-			node.logger.Error("Cannot close serialized state file; replication is in progress.", zap.Duration("time-elapsed", time.Since(st)))
-
-			// Sleep for a random interval between 2 and 5 seconds.
-			// rand.Intn(4) generates an intenger in the range [0, 4] (i.e., 0, 1, 2, or 3).
-			// The minimum is thus 2, and the maximum is 5.
-			time.Sleep(time.Second * time.Duration(rand.Intn(4)+2))
-			continue
-		}
-
-		// Some other error.
-		// TODO: Handle this more gracefully?
-		node.logger.Error("Failed to close serialized state file.", zap.String("path", serializedStateFilepath), zap.Error(err))
-		return err
-	}
-
-	// If there was already an existing 'serialized state' file in the data directory, then we'll now delete the old one and replace it with the new one.
-	if alreadyExists {
-		destFilename := SerializedStateBaseFileName + fmt.Sprintf("-node%d", node.id) + SerializedStateFileExtension
-		destFilepath := filepath.Join(serializedStateFileDir, destFilename)
-
-		// Remove the existing file. We'll copy the new one in its place.
-		err = node.hdfsClient.Remove(destFilepath)
-
-		if err != nil {
-			node.logger.Error("Failed to remove existing 'serialized state' file.", zap.String("path", destFilepath), zap.Error(err))
-			// Don't return here. Try the rename operation, in case the file was already deleted for some reason.
-		}
-
-		// Rename the new one, which has the same name with a "_new" suffix.
-		err = node.hdfsClient.Rename(serializedStateFilepath /* serialized_state_new.json */, destFilepath /* serialized_state.json */)
-		if err != nil {
-			node.logger.Error("Failed to rename new 'serialized state' file.", zap.String("old_path", serializedStateFilepath), zap.String("new_path", destFilepath))
-		}
-	}
-
-	node.logger.Debug("Successfully wrote 'serialized state' to file.", zap.String("path", serializedStateFilepath))
-
-	return nil
-}
-
-// Write the specified local directory to the same path within HDFS.
-func (node *LogNode) writeLocalDirectoryToHdfs(dir string) error {
-	// Walk through the entire etcd-raft data directory, copying each file one-at-a-time to HDFS.
-	walkdirErr := filepath.WalkDir(dir, func(path string, d os.DirEntry, errArg error) error {
-		// Note: the first entry found is the base directory passed to filepath.WalkDir (node.data_dir in this case).
-		if d.IsDir() {
-			node.logger.Info(fmt.Sprintf("Found local directory '%s'", path), zap.String("directory", path))
-			err := node.hdfsClient.MkdirAll(path, os.FileMode(0777))
-			if err != nil {
-				// If we return an error from this function, then WalkDir will stop entirely and return that error.
-				node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory '%s': %v", path, err), zap.String("directory", path), zap.Error(err))
-				return err
-			}
-
-			node.logger.Info(fmt.Sprintf("Successfully created remote (HDFS) directory: '%s'", path), zap.String("directory", path))
-		} else {
-			node.logger.Info(fmt.Sprintf("Found local file '%s'", path), zap.String("file", path))
-
-			// If the file already exists...
-			if _, err := node.hdfsClient.Stat(path); err == nil {
-				// ... then we need to remove it and re-write it.
-				// TODO (Ben): Can we optimize this so that we only need to add the new data?
-				err = node.hdfsClient.Remove(path)
-				if err != nil {
-					node.logger.Error("Failed to remove existing file during re-write process.", zap.String("path", path), zap.Error(err))
-					return err
-				}
-			}
-
-			var numTries = 1
-
-			// The node.hdfsClient has a CopyLocalToRemote function which does exactly what the code below does.
-			// The only difference is that we retry remote.Close() in a loop until it stops returning ErrReplicating and succeeds.
-			// Because hdfsClient.CopyLocalToRemote doesn't do this, we don't call that function and instead inline that function's logic below.
-
-			// Open the local file that we'll be copying.
-			local, err := os.Open(path)
-			if err != nil {
-				return err
-			}
-
-			// Create the remote file that we'll be copying to.
-			// TODO: Switch to using Append to only write the new data.
-			// TODO: Persist data back to intermediate storage in the background.
-			remote, err := node.hdfsClient.Create(path)
-			if err != nil {
-				return err
-			}
-
-			// Copy the local file to the remote HDFS file.
-			// TODO: Switch to using Append to only write the new data.
-			_, err = io.Copy(remote, local)
-			if err != nil {
-				node.logger.Error("Failed to copy local file to HDFS.", zap.String("path", path), zap.Error(err))
-				_ = remote.Close()
-				return err
-			}
-
-			// Close the local file.
-			_ = local.Close()
-
-			// Close the remote file.
-			// Like the HDFS Java client, we'll keep retrying the Close operation if we receive an ErrReplicating.
-			for {
-				// Try to close the remote (HDFS) file.
-				err := remote.Close()
-
-				// If we received an error, then we'll handle it in one of two ways, depending on what the error is...
-				if err != nil {
-					// If it is a replication error, then we'll simply retry with exponential backoff until we close without an error.
-					// This is what the Java HDFS client does.
-					if hdfs.IsErrReplicating(err) {
-						node.sugaredLogger.Warnf("Could not close file \"%s\" on attempt #%d; data is still being replicated. Will retry.", path, numTries)
-						time.Sleep(time.Second * 2 * time.Duration(numTries))
-						numTries += 1
-						continue
-					} else {
-						// It's not a ErrReplication error, so something else went wrong...
-						// If we return an error from this function, then WalkDir will stop entirely and return that error.
-						node.sugaredLogger.Errorf("Exception encountered while trying to copy local-to-remote for file '%s': %v", path, err)
-						return err
-					}
-				}
-
-				// We successfully closed the remote file, so let's break out of the for-loop.
-				break
-			}
-
-			node.logger.Info(fmt.Sprintf("Successfully copied local file to HDFS: '%s'", path), zap.String("file", path))
-		}
-		return nil
-	})
-
-	return walkdirErr
-}
-
-// WriteDataDirectoryToHDFS writes the data directory for this Raft node from local storage to HDFS.
-func (node *LogNode) WriteDataDirectoryToHDFS(serializedState []byte, resolve ResolveCallback) {
-	go node.writeDataDirectoryToHDFSImpl(serializedState, resolve)
-}
-
-// writeDataDirectoryToHDFSImpl writes the data directory for this Raft node from local storage to HDFS.
-// This is intended to be called by a separate goroutine in the `LogNode::WriteDataDirectoryToHDFS` function.
-// This enables the LogNode::WriteDataDirectoryToHDFS function to return immediately, so that Python can simply
-// call await on the associated future and not block the IO loop.
-func (node *LogNode) writeDataDirectoryToHDFSImpl(serializedState []byte, resolve ResolveCallback) {
-	node.logger.Debug("Writing data directory to HDFS.", zap.String("data directory", node.dataDir), zap.String("WAL directory", node.waldir), zap.String("snapshot directory", node.snapdir))
-
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT, syscall.SIGSEGV)
-	debug.SetPanicOnFault(true)
-	err := node.hdfsClient.MkdirAll(node.waldir, os.FileMode(0777))
-	if err != nil {
-		// If we return an error from this function, then WalkDir will stop entirely and return that error.
-		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory for node's WAL directory '%s': %v", node.waldir, err), zap.String("wal-directory", node.waldir), zap.Error(err))
-		return
-	}
-
-	err = node.hdfsClient.MkdirAll(node.snapdir, os.FileMode(0777))
-	if err != nil {
-		// If we return an error from this function, then WalkDir will stop entirely and return that error.
-		node.logger.Error(fmt.Sprintf("Exception encountered while trying to create HDFS directory for node's snapshot directory '%s': %v", node.snapdir, err), zap.String("snapdir-directory", node.snapdir), zap.Error(err))
-		return
-	}
-
-	err = node.writeRaftLogSerializedStateToHdfs(serializedState)
-	if err != nil {
-		node.logger.Error("Failed to write the RaftLog's serialized state to HDFS.", zap.Error(err))
-		resolve(fmt.Sprintf("Failed to write the RaftLog's serialized state to HDFS because: %v", err), toCError(err))
-	}
-
-	// Write the WAL directory to HDFS.
-	walDirErr := node.writeLocalDirectoryToHdfs(node.waldir)
-	if walDirErr != nil {
-		resolve(fmt.Sprintf("Exception encountered while writing WAL directory \"%s\" to HDFS: %v", node.waldir, walDirErr), toCError(walDirErr))
-
-		if resolve != nil {
-			resolve(node.waldir, toCError(walDirErr))
-		}
-
-		return
-	}
-
-	// Write the snapshot directory to HDFS.
-	snapDirErr := node.writeLocalDirectoryToHdfs(node.snapdir)
-	if snapDirErr != nil {
-		resolve(fmt.Sprintf("Exception encountered while writing snapshot directory \"%s\" to HDFS: %v", node.snapdir, snapDirErr), toCError(snapDirErr))
-
-		if resolve != nil {
-			resolve(node.snapdir, toCError(snapDirErr))
-		}
-
-		return
-	}
-
-	if resolve != nil {
 		resolve(node.waldir, toCError(nil))
-	}
+	}()
 }
 
 // publishEntries writes committed log entries to commit channel and returns

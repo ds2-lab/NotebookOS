@@ -12,8 +12,8 @@ type RedisProvider struct {
 	redisClient *redis.Client
 }
 
-func NewRedisProvider(hostname string, deploymentMode string) *RedisProvider {
-	baseProvider := newBaseProvider(hostname, deploymentMode)
+func NewRedisProvider(hostname string, deploymentMode string, nodeId int) *RedisProvider {
+	baseProvider := newBaseProvider(hostname, deploymentMode, nodeId)
 
 	provider := &RedisProvider{
 		baseProvider:  baseProvider,
@@ -22,6 +22,14 @@ func NewRedisProvider(hostname string, deploymentMode string) *RedisProvider {
 	}
 
 	return provider
+}
+
+func (p *RedisProvider) Close() error {
+	if p.redisClient == nil {
+		return nil
+	}
+
+	return p.redisClient.Close()
 }
 
 // SetDatabase sets the database number to use when connecting to Redis.
@@ -48,4 +56,12 @@ func (p *RedisProvider) Connect() error {
 	})
 
 	return nil
+}
+
+func (p *RedisProvider) WriteDataDirectory(serializedState []byte, datadir string, waldir string, snapdir string) error {
+	panic("Not implemented")
+}
+
+func (p *RedisProvider) ReadDataDirectory(progressChannel chan<- string, datadir string, waldir string, snapdir string) ([]byte, error) {
+	panic("Not implemented")
 }

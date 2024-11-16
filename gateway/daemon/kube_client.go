@@ -77,7 +77,7 @@ type BasicKubeClient struct {
 	mutex                  sync.Mutex                                 // Synchronize atomic operations, such as scaling-up/down a CloneSet.
 	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string] // Mapping from Kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
 	scaleDownChannels      *cmap.ConcurrentMap[string, chan struct{}] // Mapping from Pod name a channel, each of which would correspond to a scale-down operation.
-	hdfsNameNodeEndpoint   string                                     // Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
+	remoteStorageEndpoint  string                                     // Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
 	schedulingPolicy       string                                     // Scheduling policy.
 	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
 	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
@@ -102,14 +102,14 @@ func NewKubeClient(gatewayDaemon ClusterGateway, clusterDaemonOptions *domain.Cl
 		scaleUpChannels:        &scaleUpChannels,
 		scaleDownChannels:      &scaleDownChannels,
 		podWatcherStopChan:     make(chan struct{}),
-		hdfsNameNodeEndpoint:   clusterDaemonOptions.HdfsNameNodeEndpoint,
+		remoteStorageEndpoint:  clusterDaemonOptions.RemoteStorageEndpoint,
 		notebookImageName:      clusterDaemonOptions.NotebookImageName,
 		notebookImageTag:       clusterDaemonOptions.NotebookImageTag,
 		checkpointingEnabled:   clusterDaemonOptions.SimulateCheckpointingLatency,
 	}
 
-	if client.hdfsNameNodeEndpoint == "" {
-		panic("The HDFS NameNode endpoint cannot be \"\"")
+	if client.remoteStorageEndpoint == "" {
+		panic("The remote storage endpoint cannot be \"\"")
 	}
 
 	config.InitLogger(&client.log, client)
@@ -1499,7 +1499,7 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *proto.KernelReplicaSpe
 			SMRNodes:                replicas,
 			SMRJoin:                 spec.Join,
 			SMRPort:                 c.smrPort,
-			HdfsNameNodeEndpoint:    c.hdfsNameNodeEndpoint,
+			RemoteStorageEndpoint:   c.remoteStorageEndpoint,
 			RegisterWithLocalDaemon: true,
 			LocalDaemonAddr:         "", // This is only used in Docker mode.
 		},

@@ -205,8 +205,8 @@ type SchedulerDaemonImpl struct {
 	// Manages resource allocations on behalf of the Local Daemon.
 	resourceManager *resource.AllocationManager
 
-	// Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
-	hdfsNameNodeEndpoint string
+	// Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
+	remoteStorageEndpoint string
 
 	// Base directory in which the persistent store data is stored when running in docker mode.
 	dockerStorageBase string
@@ -225,7 +225,7 @@ type SchedulerDaemonImpl struct {
 
 	// Indicates whether we're running within WSL (Windows Subsystem for Linux).
 	// If we are, then there is some additional configuration required for the kernel containers in order for
-	// them to be able to connect to HDFS running in the host (WSL).
+	// them to be able to connect to remote storage running in the host (WSL).
 	usingWSL bool
 
 	// If true, then the kernels will be executed within GDB.
@@ -288,7 +288,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		smrPort:                            localDaemonOptions.SMRPort,
 		virtualGpuPluginServer:             virtualGpuPluginServer,
 		deploymentMode:                     types.DeploymentMode(localDaemonOptions.DeploymentMode),
-		hdfsNameNodeEndpoint:               localDaemonOptions.HdfsNameNodeEndpoint,
+		remoteStorageEndpoint:              localDaemonOptions.RemoteStorageEndpoint,
 		dockerStorageBase:                  localDaemonOptions.DockerStorageBase,
 		usingWSL:                           localDaemonOptions.UsingWSL,
 		DebugMode:                          localDaemonOptions.CommonOptions.DebugMode,
@@ -349,8 +349,8 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		}
 	}
 
-	if len(localDaemonOptions.HdfsNameNodeEndpoint) == 0 {
-		panic("HDFS NameNode endpoint is empty.")
+	if len(localDaemonOptions.RemoteStorageEndpoint) == 0 {
+		panic("remote storage endpoint is empty.")
 	}
 
 	switch localDaemonOptions.SchedulingPolicy {
@@ -1043,7 +1043,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 	)
 	if d.deploymentMode == types.KubernetesMode {
 		invokerOpts := &invoker.DockerInvokerOptions{
-			HdfsNameNodeEndpoint:         d.hdfsNameNodeEndpoint,
+			RemoteStorageEndpoint:        d.remoteStorageEndpoint,
 			KernelDebugPort:              -1,
 			DockerStorageBase:            d.dockerStorageBase,
 			UsingWSL:                     d.usingWSL,
@@ -1313,12 +1313,11 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		d.log.Debug("Including persistent store ID \"%s\" in notification response to replica %d of kernel %s.", response.GetPersistentId(), response.Id, kernel.ID())
 		payload["persistent_id"] = response.GetPersistentId()
 		kernel.SetPersistentID(response.GetPersistentId())
-		// hdfsDataDirectoryExpected = true
 	} else {
 		d.log.Debug("No persistent ID to include in response.")
 	}
 
-	payload["should_read_data_from_hdfs"] = response.ShouldReadDataFromHdfs
+	payload["should_read_data_from_remote_storage"] = response.ShouldReadDataFromRemoteStorage
 
 	// if response.DataDirectory != nil && response.GetDataDirectory() != "" {
 	// 	d.log.Debug("Including data directory \"%s\" in notification response to replica %d of kernel %s.", response.GetDataDirectory(), response.Id, kernel.ID())
@@ -1878,7 +1877,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	var kernelInvoker invoker.KernelInvoker
 	if d.DockerMode() {
 		invokerOpts := &invoker.DockerInvokerOptions{
-			HdfsNameNodeEndpoint:         d.hdfsNameNodeEndpoint,
+			RemoteStorageEndpoint:        d.remoteStorageEndpoint,
 			KernelDebugPort:              int(in.DockerModeKernelDebugPort),
 			DockerStorageBase:            d.dockerStorageBase,
 			UsingWSL:                     d.usingWSL,

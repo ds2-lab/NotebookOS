@@ -89,8 +89,8 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 		return nil, scheduling.ErrInsufficientHostsAvailable
 	}
 
-	s.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.",
-		host.GetID, kernelId, replicaSpec.ReplicaId, host.GetID())
+	s.log.Debug("Selected host %s (ID=%s) as target for migration. Will migrate kernel %s-%d to host %s.",
+		host.GetNodeName(), host.GetID(), kernelId, replicaSpec.ReplicaId, host.GetNodeName())
 	return host, nil
 }
 

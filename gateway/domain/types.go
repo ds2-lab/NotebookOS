@@ -80,8 +80,8 @@ func (o *ClusterDaemonOptions) ValidateClusterDaemonOptions() {
 		o.PrometheusPort = DefaultPrometheusPort
 	}
 
-	if len(o.HdfsNameNodeEndpoint) == 0 {
-		panic("HDFS NameNode endpoint is empty.")
+	if len(o.RemoteStorageEndpoint) == 0 {
+		panic("remote storage endpoint is empty.")
 	}
 }
 

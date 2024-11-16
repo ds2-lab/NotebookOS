@@ -91,7 +91,7 @@ def mock_create_log_node(*args, **mock_kwargs):
 
 
 async def create_kernel(
-        hdfs_namenode_hostname: str = "127.0.0.1:10000",
+        remote_storage_hostname: str = "127.0.0.1:10000",
         kernel_id: str = DefaultKernelId,
         smr_port: int = 8000,
         smr_node_id: int = 1,
@@ -112,7 +112,7 @@ async def create_kernel(
         smr_nodes = []
 
     keyword_args = {
-        "hdfs_namenode_hostname": hdfs_namenode_hostname,
+        "remote_storage_hostname": remote_storage_hostname,
         "kernel_id": kernel_id,
         "smr_port": smr_port,
         "smr_node_id": smr_node_id,
@@ -135,7 +135,7 @@ async def create_kernel(
     kernel.control_stream = SpoofedStream()
     kernel.control_thread.start()
     kernel.num_replicas = 3
-    kernel.should_read_data_from_hdfs = False
+    kernel.should_read_data_from_remote_storage = False
     kernel.deployment_mode = "DOCKER_SWARM"
     kernel.session = SpoofedSession()
     # kernel.store = FakePersistentStorePath
@@ -147,8 +147,8 @@ async def create_kernel(
     #                          base_path=kernel.store,
     #                          kernel_id=kernel.kernel_id,
     #                          num_replicas=kernel.num_replicas,
-    #                          hdfs_hostname=kernel.hdfs_namenode_hostname,
-    #                          should_read_data_from_hdfs=kernel.should_read_data_from_hdfs,
+    #                          hdfs_hostname=kernel.remote_storage_hostname,
+    #                          should_read_data_from_remote_storage=kernel.should_read_data_from_remote_storage,
     #                          peer_addrs=[],
     #                          peer_ids=[],
     #                          join=kernel.smr_join,
@@ -177,7 +177,7 @@ async def create_kernel(
 
 @pytest_asyncio.fixture
 async def kernel(
-        hdfs_namenode_hostname: str = "127.0.0.1:10000",
+        remote_storage_hostname: str = "127.0.0.1:10000",
         kernel_id: str = DefaultKernelId,
         smr_port: int = 8000,
         smr_node_id: int = 1,
@@ -193,7 +193,7 @@ async def kernel(
         smr_nodes = []
 
     return await create_kernel(
-        hdfs_namenode_hostname=hdfs_namenode_hostname,
+        remote_storage_hostname=remote_storage_hostname,
         kernel_id=kernel_id,
         smr_port=smr_port,
         smr_node_id=smr_node_id,

@@ -364,7 +364,7 @@ func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelRep
 // Parameters:
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
-// - dataDirectory (string): Path to etcd-raft data directory in HDFS.
+// - dataDirectory (string): Path to etcd-raft data directory in RemoteStorage.
 func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts scheduling.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host) (*scheduling.AddReplicaOperation, error) {
 	var kernelId = in.KernelId
 	var persistentId = in.PersistentId

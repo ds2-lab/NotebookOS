@@ -241,8 +241,8 @@ type ClusterGatewayImpl struct {
 	// Used to wait for an explicit notification that a particular node was successfully removed from its SMR cluster.
 	// smrNodeRemovedNotifications *hashmap.CornelkMap[string, chan struct{}]
 
-	// Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.
-	hdfsNameNodeEndpoint string
+	// Hostname of the RemoteStorage NameNode. The SyncLog's RemoteStorage client will connect to this.
+	remoteStorageEndpoint string
 
 	// Kubernetes client. This is shared with the associated internalCluster Gateway.
 	kubeClient scheduling.KubeClient
@@ -330,7 +330,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		cleaned:                        make(chan struct{}),
 		smrPort:                        clusterDaemonOptions.SMRPort,
 		kernelsStarting:                hashmap.NewCornelkMap[string, chan struct{}](64),
-		hdfsNameNodeEndpoint:           clusterDaemonOptions.HdfsNameNodeEndpoint,
+		remoteStorageEndpoint:          clusterDaemonOptions.RemoteStorageEndpoint,
 		dockerNetworkName:              clusterDaemonOptions.DockerNetworkName,
 		numResendAttempts:              clusterDaemonOptions.NumResendAttempts,
 		MessageAcknowledgementsEnabled: clusterDaemonOptions.MessageAcknowledgementsEnabled,
@@ -1743,12 +1743,12 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	persistentId := addReplicaOp.PersistentID()
 	// dataDirectory := addReplicaOp.DataDirectory()
 	response := &proto.KernelRegistrationNotificationResponse{
-		Id:                     replicaSpec.ReplicaId,
-		Replicas:               updatedReplicas,
-		PersistentId:           &persistentId,
-		ShouldReadDataFromHdfs: true,
-		ResourceSpec:           replicaSpec.Kernel.ResourceSpec,
-		SmrPort:                int32(d.smrPort),
+		Id:                              replicaSpec.ReplicaId,
+		Replicas:                        updatedReplicas,
+		PersistentId:                    &persistentId,
+		ShouldReadDataFromRemoteStorage: true,
+		ResourceSpec:                    replicaSpec.Kernel.ResourceSpec,
+		SmrPort:                         int32(d.smrPort),
 	}
 
 	d.Unlock()
@@ -1973,12 +1973,12 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	persistentId := kernel.PersistentID()
 	response := &proto.KernelRegistrationNotificationResponse{
-		Id:                     replicaId,
-		Replicas:               waitGroup.GetReplicas(),
-		PersistentId:           &persistentId,
-		ResourceSpec:           kernelSpec.ResourceSpec,
-		SmrPort:                int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
-		ShouldReadDataFromHdfs: false,
+		Id:                              replicaId,
+		Replicas:                        waitGroup.GetReplicas(),
+		PersistentId:                    &persistentId,
+		ResourceSpec:                    kernelSpec.ResourceSpec,
+		SmrPort:                         int32(d.smrPort), // The kernel should already have this info, but we'll send it anyway.
+		ShouldReadDataFromRemoteStorage: false,
 		// DataDirectory: nil,
 	}
 

@@ -90,7 +90,7 @@ var (
 			"num_resend_attempts": 1,
 			"acks_enabled": false,
 			"scheduling-policy": "static",
-			"hdfs-namenode-endpoint": "host.docker.internal:10000",
+			"remote-storage-endpoint": "host.docker.internal:10000",
 			"smr-port": 8080,
 			"debug_mode": true,
 			"debug_port": 9996,

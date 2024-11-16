@@ -146,7 +146,7 @@ type DistributedKernelConfig struct {
 	SMRNodes                []string `json:"smr_nodes"`
 	SMRJoin                 bool     `json:"smr_join"`
 	PersistentID            string   `json:"persistent_id,omitempty"`
-	HdfsNameNodeEndpoint    string   `json:"hdfs_namenode_hostname"`
+	RemoteStorageEndpoint   string   `json:"remote_storage_hostname"`
 	RegisterWithLocalDaemon bool     `json:"should_register_with_local_daemon"`
 	LocalDaemonAddr         string   `json:"local_daemon_addr"` // Only used in Docker mode.
 }
