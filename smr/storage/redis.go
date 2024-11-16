@@ -49,11 +49,15 @@ func (p *RedisProvider) SetRedisPassword(password string) {
 }
 
 func (p *RedisProvider) Connect() error {
+	p.status = Connecting
+
 	p.redisClient = redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
 		Password: p.password,      // no password set
 		DB:       p.databaseIndex, // use default DB
 	})
+
+	p.status = Connected
 
 	return nil
 }

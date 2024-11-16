@@ -51,7 +51,7 @@ func (p *HdfsProvider) Close() error {
 	if p.hdfsClient == nil {
 		return nil
 	}
-	
+
 	return p.hdfsClient.Close()
 }
 
@@ -59,6 +59,8 @@ func (p *HdfsProvider) Connect() error {
 	p.sugaredLogger.Debug("Connecting to remote storage",
 		zap.String("remote_storage", "hdfs"),
 		zap.String("hostname", p.hostname))
+
+	p.status = Connecting
 
 	hdfsClient, err := hdfs.NewClient(hdfs.ClientOptions{
 		Addresses: []string{p.hostname},
@@ -116,6 +118,8 @@ func (p *HdfsProvider) Connect() error {
 		fmt.Printf("Successfully connected to HDFS at '%s'\n", p.hostname)
 		p.hdfsClient = hdfsClient
 	}
+
+	p.status = Connected
 
 	return nil
 }
