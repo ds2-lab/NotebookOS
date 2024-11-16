@@ -128,7 +128,9 @@ func (p *HdfsProvider) Connect() error {
 func (p *HdfsProvider) WriteDataDirectory(serializedState []byte, datadir string, waldir string, snapdir string) error {
 	p.logger.Debug("Writing data directory to HDFS.",
 		zap.String("WAL directory", waldir),
-		zap.String("snapshot directory", snapdir))
+		zap.String("snapshot directory", snapdir),
+		zap.String("data directory", datadir),
+		zap.Int("num_bytes", len(serializedState)))
 
 	debug.SetPanicOnFault(true)
 	err := p.hdfsClient.MkdirAll(waldir, os.FileMode(0777))
