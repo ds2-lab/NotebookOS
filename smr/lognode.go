@@ -334,6 +334,11 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		node.peers[peerId] = peerAddr
 	}
 
+	node.logger.Info("Creating remote storage provider now.",
+		zap.String("hostname", remoteStorageHostname),
+		zap.String("deployment_mode", deploymentMode),
+		zap.String("remote_storage", remoteStorage))
+
 	if remoteStorage == hdfsRemoteStorage {
 		node.storageProvider = storage.NewHdfsProvider(remoteStorageHostname, deploymentMode, node.id)
 	} else if remoteStorage == redisRemoteStorage {
@@ -345,10 +350,19 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 	}
 
 	if node.storageProvider == nil {
-		node.logger.Error("Failed to connect to remote storage.",
+		node.logger.Error("Failed to create remote storage provider.",
 			zap.String("remote_storage", remoteStorage),
 			zap.String("hostname", remoteStorageHostname))
 		return nil
+	}
+
+	err = node.storageProvider.Connect()
+	if err != nil {
+		node.logger.Error("Failed to connect to remote storage.",
+			zap.String("hostname", remoteStorageHostname),
+			zap.String("deployment_mode", deploymentMode),
+			zap.String("remote_storage", remoteStorage),
+			zap.Error(err))
 	}
 
 	// TODO(Ben): Read the data directory from remote storage.
@@ -392,7 +406,7 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 						node.logger.Info("Successfully read entire data directory from remote storage to local storage and received serialized state from other goroutine.", zap.Duration("time_elapsed", node.remoteStorageReadTime))
 						done = true
 					} else /* The message we received will be the path of whatever file or directory was copied from remote storage to our local file system */ {
-						node.logger.Debug("Made progress.", zap.String("msg", msg))
+						node.logger.Info("Made progress.", zap.String("msg", msg))
 						noProgress = 0
 					}
 				}
@@ -476,7 +490,7 @@ type startError struct {
 }
 
 func (node *LogNode) Start(config *LogNodeConfig) bool {
-	node.sugaredLogger.Debugf("LogNode %d is starting with config: %v", node.id, config.String())
+	node.sugaredLogger.Infof("LogNode %d is starting with config: %v", node.id, config.String())
 
 	node.config = config
 	if !config.Debug {
@@ -509,7 +523,7 @@ func (node *LogNode) StartAndWait(config *LogNodeConfig) {
 // This field is populated by ReadDataDirectoryFromRemoteStorage if there is a serialized state file to be read.
 // It is only required during migration/error recovery.
 func (node *LogNode) GetSerializedState() []byte {
-	node.sugaredLogger.Debugf("Returning serialized state of size/length %d.", len(node.serializedStateBytes))
+	node.sugaredLogger.Infof("Returning serialized state of size/length %d.", len(node.serializedStateBytes))
 	return node.serializedStateBytes
 }
 
@@ -581,7 +595,7 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 	defer finalize()
 
 	if resolve == nil {
-		// node.logger.Debug("No Python callback provided. Using default resolve callback.")
+		// node.logger.Info("No Python callback provided. Using default resolve callback.")
 		resolve = node.defaultResolveCallback
 	}
 	// else {
@@ -607,10 +621,10 @@ func (node *LogNode) propose(ctx smrContext, proposer func(smrContext) error, re
 	}
 	node.logger.Info("Value appended", zap.String("key", msg), zap.String("id", ctx.ID()))
 	if resolve != nil {
-		node.logger.Debug("Calling `resolve` callback.", zap.Any("resolve-callback", resolve), zap.String("msg", msg))
+		node.logger.Info("Calling `resolve` callback.", zap.Any("resolve-callback", resolve), zap.String("msg", msg))
 		resolve(msg, toCError(nil))
 	} else {
-		node.logger.Debug("There is no `resolve` callback to invoke.", zap.String("msg", msg))
+		node.logger.Info("There is no `resolve` callback to invoke.", zap.String("msg", msg))
 	}
 }
 
@@ -707,11 +721,11 @@ func (node *LogNode) close() {
 func (node *LogNode) start(startErrorChan chan<- startError) {
 	defer finalize()
 
-	node.sugaredLogger.Debugf("LogNode %d is beginning start procedure now.", node.id)
+	node.sugaredLogger.Infof("LogNode %d is beginning start procedure now.", node.id)
 	debug.SetPanicOnFault(true)
 
 	if node.isSnapEnabled() {
-		node.logger.Debug("Snapshots are enabled.")
+		node.logger.Info("Snapshots are enabled.")
 		if !fileutil.Exist(node.snapdir) {
 			if err := os.Mkdir(node.snapdir, 0750); err != nil {
 				node.logFatalf("LogNode: cannot create directory \"%s\" for snapshot because: %v", node.snapdir, err)
@@ -731,7 +745,7 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 	node.raftStorage = raft.NewMemoryStorage()
 	if node.isWALEnabled() {
 		oldWALExists = wal.Exist(node.waldir)
-		node.logger.Debug(fmt.Sprintf("WAL is enabled. Old WAL ('%s') available? %v", node.waldir, oldWALExists))
+		node.logger.Info(fmt.Sprintf("WAL is enabled. Old WAL ('%s') available? %v", node.waldir, oldWALExists))
 		node.wal = node.replayWAL()
 		if node.wal == nil {
 			startErrorChan <- startError{
@@ -747,7 +761,7 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 	// signal replay has finished
 	node.snapshotterReady <- node.snapshotter
 
-	node.logger.Debug("Replaying has completed.")
+	node.logger.Info("Replaying has completed.")
 
 	rpeers := make([]raft.Peer, 0, len(node.peers))
 	for id, peer := range node.peers {
@@ -765,10 +779,10 @@ func (node *LogNode) start(startErrorChan chan<- startError) {
 	}
 
 	if oldWALExists || node.join {
-		node.sugaredLogger.Debugf("LogNode %d will be restarting, as the old WAL directory is available (%v), and/or we've been told to join (%v).", node.id, oldWALExists, node.join)
+		node.sugaredLogger.Infof("LogNode %d will be restarting, as the old WAL directory is available (%v), and/or we've been told to join (%v).", node.id, oldWALExists, node.join)
 		node.node = raft.RestartNode(c)
 	} else {
-		node.sugaredLogger.Debugf("LogNode %d will be starting (as if for the first time), as the old WAL directory is not available (%v) and we've not been instructed to join (%v).", node.id, oldWALExists, node.join)
+		node.sugaredLogger.Infof("LogNode %d will be starting (as if for the first time), as the old WAL directory is not available (%v) and we've not been instructed to join (%v).", node.id, oldWALExists, node.join)
 		node.node = raft.StartNode(c, rpeers)
 	}
 
@@ -994,21 +1008,21 @@ func (node *LogNode) openWAL(snapshot *raftpb.Snapshot) *wal.WAL {
 
 // replayWAL replays WAL entries into the raft instance.
 func (node *LogNode) replayWAL() *wal.WAL {
-	node.logger.Debug("Replaying WAL now.")
+	node.logger.Info("Replaying WAL now.")
 	snapshot := node.loadSnapshot()
 	// Restore kernel from snapshot
 	if snapshot != nil && !raft.IsEmptySnap(*snapshot) {
-		node.logger.Debug("Will attempt to restore kernel from snapshot.")
+		node.logger.Info("Will attempt to restore kernel from snapshot.")
 		if node.config.onRestore == nil {
 			node.logFatalf("LogNode %d: no RestoreCallback configured on start.", node.id)
 			return nil
 		}
-		node.sugaredLogger.Debugf("Passing snapshot.Data (of length %d) to onRestore callback now.", len(snapshot.Data))
+		node.sugaredLogger.Infof("Passing snapshot.Data (of length %d) to onRestore callback now.", len(snapshot.Data))
 		if err := fromCError(node.config.onRestore(&readerWrapper{reader: bytes.NewBuffer(snapshot.Data)}, len(snapshot.Data))); err != nil {
 			node.logFatalf("LogNode %d: failed to restore states (%v)", node.id, err)
 			return nil
 		}
-		node.logger.Debug("Successfully restored data from Raft snapshot.", zap.Int("snapshot-size-bytes", len(snapshot.Data)))
+		node.logger.Info("Successfully restored data from Raft snapshot.", zap.Int("snapshot-size-bytes", len(snapshot.Data)))
 	}
 
 	w := node.openWAL(snapshot)
@@ -1017,7 +1031,7 @@ func (node *LogNode) replayWAL() *wal.WAL {
 		return w
 	}
 
-	node.logger.Debug("Successfully opened WAL via snapshot")
+	node.logger.Info("Successfully opened WAL via snapshot")
 
 	// Recover the in-memory storage from persistent snapshot, state and entries.
 	_, st, ents, err := w.ReadAll()
@@ -1026,14 +1040,14 @@ func (node *LogNode) replayWAL() *wal.WAL {
 		return nil
 	}
 	if snapshot != nil {
-		node.logger.Debug("Applying Snapshot to RaftStorage now.")
+		node.logger.Info("Applying Snapshot to RaftStorage now.")
 		err = node.raftStorage.ApplySnapshot(*snapshot)
 		if err != nil {
 			node.logFatalf("LogNode %d: error encountered while applying WAL snapshot to Raft storage: %v", node.id, err)
 		}
 	}
-	node.sugaredLogger.Debugf("Recovered Raft HardState from WAL snapshot. Term: %d. Vote: %d. Commit: %v.", st.Term, st.Vote, st.Commit)
-	node.sugaredLogger.Debugf("Recovered %d entry/entries from WAL snapshot.", len(ents))
+	node.sugaredLogger.Infof("Recovered Raft HardState from WAL snapshot. Term: %d. Vote: %d. Commit: %v.", st.Term, st.Vote, st.Commit)
+	node.sugaredLogger.Infof("Recovered %d entry/entries from WAL snapshot.", len(ents))
 	err = node.raftStorage.SetHardState(st)
 	if err != nil {
 		node.logFatalf("LogNode %d: error encountered while setting Raft HardState to the HardState recovered from WAL snapshot: %v", node.id, err)
@@ -1109,7 +1123,7 @@ func (node *LogNode) publishSnapshot(snapshotToSave raftpb.Snapshot) {
 		node.logFatalf("no RestoreCallback configured on start.")
 		return
 	}
-	node.sugaredLogger.Debugf("Calling onRestore callback with snapshotToSave.Data of length %d", len(snapshotToSave.Data))
+	node.sugaredLogger.Infof("Calling onRestore callback with snapshotToSave.Data of length %d", len(snapshotToSave.Data))
 	node.config.onRestore(&readerWrapper{reader: bytes.NewBuffer(snapshotToSave.Data)}, len(snapshotToSave.Data))
 
 	node.confState = snapshotToSave.Metadata.ConfState
@@ -1306,7 +1320,7 @@ func (node *LogNode) serveChannels(startErrorChan chan<- startError) {
 		case rd := <-node.node.Ready():
 			// if len(rd.CommittedEntries) > 0 || rd.HardState.Commit > 0 || len(rd.Entries) > 0 {
 			// node.logger.Info("ready", zap.Int("num-committed-entries", len(rd.CommittedEntries)), zap.Uint64("hardstate.commit", rd.HardState.Commit))
-			// node.sugaredLogger.Debugf("Storing Raft entries to WAL. NumCommittedEntries: %d. NumEntries: %d. NumMessages: %d. HardState: [Term: %d, Vote: %d, Commit: %d].", len(rd.CommittedEntries), len(rd.Entries), len(rd.Messages), rd.HardState.Term, rd.HardState.Vote, rd.HardState.Commit)
+			// node.sugaredLogger.Infof("Storing Raft entries to WAL. NumCommittedEntries: %d. NumEntries: %d. NumMessages: %d. HardState: [Term: %d, Vote: %d, Commit: %d].", len(rd.CommittedEntries), len(rd.Entries), len(rd.Messages), rd.HardState.Term, rd.HardState.Vote, rd.HardState.Commit)
 			// }
 
 			if node.wal != nil {
