@@ -266,6 +266,41 @@ services:
       - ./dashboard_backend/custom_event_sequences:{{ dashboard_backend_config_directory }}/custom_event_sequences
       - ./dashboard_backend/.env:/go/.env
 
+  {% if distributed_notebook_remote_storage_type == 'redis' %}
+  redis:
+    image: redis:latest
+    networks:
+    - traefik-public
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=redis"
+      - "logging=promtail"
+      - "logging_jobname=redis"
+    deploy:
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: dnsrr
+      labels:
+        - "app=distributed_cluster"
+        - "component=redis"
+        - "logging=promtail"
+        - "logging_jobname=redis"
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.notebook-dashboard-http.entryPoints=http"
+        - "traefik.http.routers.notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/redis`)"
+        - "traefik.http.routers.notebook-dashboard-http.service=redis"
+        - "traefik.http.services.notebook-dashboard.loadbalancer.server.port={{ redis_port }}"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf # Mount custom config file
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"] # Enables AOF persistence for durability
+  {% endif %}
+
 volumes:
   coredumps_volume:
   prometheus_data:
