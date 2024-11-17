@@ -160,6 +160,9 @@ class DistributedKernel(IPythonKernel):
     remote_storage_hostname: Union[str, Unicode] = Unicode(
         help="""Hostname of the remotestorage. The SyncLog's RemoteStorage client will connect to this.""").tag(config=True)
 
+    remote_storage: Union[str, Unicode] = Unicode(
+        help = "The type of remote storage we're using. Valid options, as of right now, are 'hdfs' and 'redis'.", default_value='hdfs').tag(config=True)
+
     kernel_id: Union[str, Unicode] = Unicode(help="""The ID of the kernel.""").tag(config=False)
 
     # data_directory: Union[str, Unicode] = Unicode(help="""The etcd-raft WAL/data directory. This will always be equal to the empty string unless we're created during a migration operation.""").tag(config=False)
@@ -2270,6 +2273,7 @@ class DistributedKernel(IPythonKernel):
                                    kernel_id=self.kernel_id,
                                    num_replicas=self.num_replicas,
                                    remote_storage_hostname=self.remote_storage_hostname,
+                                   remote_storage=self.remote_storage,
                                    should_read_data=self.should_read_data_from_remote_storage,
                                    peer_addresses=peer_addresses,
                                    peer_ids=ids,

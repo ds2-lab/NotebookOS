@@ -69,15 +69,37 @@ func (p *RedisProvider) SetRedisPassword(password string) {
 }
 
 func (p *RedisProvider) Connect() error {
+	p.logger.Debug("Connecting to remote storage",
+		zap.String("remote_storage", "redis"),
+		zap.String("hostname", p.hostname))
+
 	p.status = Connecting
 
 	p.redisClient = redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
+		Addr:     p.hostname,
 		Password: p.password,      // no password set
 		DB:       p.databaseIndex, // use default DB
 	})
 
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	res, err := p.redisClient.Ping(ctx).Result()
+	if err != nil {
+		p.logger.Error("Failed to connect to remote storage.",
+			zap.String("remote_storage", "redis"),
+			zap.String("hostname", p.hostname),
+			zap.Error(err))
+
+		return err
+	}
+
 	p.status = Connected
+
+	p.logger.Debug("Successfully connected to remote storage",
+		zap.String("remote_storage", "redis"),
+		zap.String("hostname", p.hostname),
+		zap.String("res", res))
 
 	return nil
 }

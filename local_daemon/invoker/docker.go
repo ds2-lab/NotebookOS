@@ -102,6 +102,7 @@ type DockerInvoker struct {
 	id                           string                           // Uniquely identifies this Invoker instance.
 	kernelDebugPort              int                              // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
 	remoteStorageEndpoint        string                           // Endpoint of the remote storage.
+	remoteStorage                string                           // Type of remote storage, either 'hdfs' or 'redis'
 	dockerStorageBase            string                           // Base directory in which the persistent store data is stored.
 	containerCreatedAt           time.Time                        // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
 	containerCreated             bool                             // containerCreated is a bool indicating whether kernel the container has been created.
@@ -120,6 +121,9 @@ type DockerInvoker struct {
 type DockerInvokerOptions struct {
 	// RemoteStorageEndpoint is the endpoint of the remote storage.
 	RemoteStorageEndpoint string
+
+	// RemoteStorage is the type of remote storage, either 'hdfs' or 'redis'
+	RemoteStorage string
 
 	// KernelDebugPort is the debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
 	KernelDebugPort int
@@ -170,6 +174,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		targetMountDir:               utils.GetEnv(TargetMountDirectory, TargetMountDirectoryDefault),
 		smrPort:                      smrPort,
 		remoteStorageEndpoint:        opts.RemoteStorageEndpoint,
+		remoteStorage:                opts.RemoteStorage,
 		id:                           uuid.NewString(),
 		kernelDebugPort:              opts.KernelDebugPort,
 		dockerNetworkName:            dockerNetworkName,
@@ -537,6 +542,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			RegisterWithLocalDaemon: true,
 			LocalDaemonAddr:         hostname,
 			RemoteStorageEndpoint:   ivk.remoteStorageEndpoint,
+			RemoteStorage:           ivk.remoteStorage,
 		},
 	}
 	if spec.PersistentId != nil {

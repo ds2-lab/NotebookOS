@@ -78,6 +78,7 @@ type BasicKubeClient struct {
 	scaleUpChannels        *cmap.ConcurrentMap[string, []chan string] // Mapping from Kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
 	scaleDownChannels      *cmap.ConcurrentMap[string, chan struct{}] // Mapping from Pod name a channel, each of which would correspond to a scale-down operation.
 	remoteStorageEndpoint  string                                     // Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
+	remoteStorage          string                                     // The type of remote storage we're using (hdfs or redis).
 	schedulingPolicy       string                                     // Scheduling policy.
 	notebookImageName      string                                     // Name of the docker image to use for the jupyter notebook/kernel image
 	notebookImageTag       string                                     // Tag to use for the jupyter notebook/kernel image
@@ -103,6 +104,7 @@ func NewKubeClient(gatewayDaemon ClusterGateway, clusterDaemonOptions *domain.Cl
 		scaleDownChannels:      &scaleDownChannels,
 		podWatcherStopChan:     make(chan struct{}),
 		remoteStorageEndpoint:  clusterDaemonOptions.RemoteStorageEndpoint,
+		remoteStorage:          clusterDaemonOptions.RemoteStorage,
 		notebookImageName:      clusterDaemonOptions.NotebookImageName,
 		notebookImageTag:       clusterDaemonOptions.NotebookImageTag,
 		checkpointingEnabled:   clusterDaemonOptions.SimulateCheckpointingLatency,
@@ -1500,6 +1502,7 @@ func (c *BasicKubeClient) prepareConfigFileContents(spec *proto.KernelReplicaSpe
 			SMRJoin:                 spec.Join,
 			SMRPort:                 c.smrPort,
 			RemoteStorageEndpoint:   c.remoteStorageEndpoint,
+			RemoteStorage:           c.remoteStorage,
 			RegisterWithLocalDaemon: true,
 			LocalDaemonAddr:         "", // This is only used in Docker mode.
 		},

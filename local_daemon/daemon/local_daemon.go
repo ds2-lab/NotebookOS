@@ -208,6 +208,9 @@ type SchedulerDaemonImpl struct {
 	// Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
 	remoteStorageEndpoint string
 
+	// Type of remote storage, 'hdfs' or 'redis'
+	remoteStorage string
+
 	// Base directory in which the persistent store data is stored when running in docker mode.
 	dockerStorageBase string
 
@@ -289,6 +292,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		virtualGpuPluginServer:             virtualGpuPluginServer,
 		deploymentMode:                     types.DeploymentMode(localDaemonOptions.DeploymentMode),
 		remoteStorageEndpoint:              localDaemonOptions.RemoteStorageEndpoint,
+		remoteStorage:                      localDaemonOptions.RemoteStorage,
 		dockerStorageBase:                  localDaemonOptions.DockerStorageBase,
 		usingWSL:                           localDaemonOptions.UsingWSL,
 		DebugMode:                          localDaemonOptions.CommonOptions.DebugMode,
@@ -1044,6 +1048,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 	if d.deploymentMode == types.KubernetesMode {
 		invokerOpts := &invoker.DockerInvokerOptions{
 			RemoteStorageEndpoint:        d.remoteStorageEndpoint,
+			RemoteStorage:                d.remoteStorage,
 			KernelDebugPort:              -1,
 			DockerStorageBase:            d.dockerStorageBase,
 			UsingWSL:                     d.usingWSL,
@@ -1878,6 +1883,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	if d.DockerMode() {
 		invokerOpts := &invoker.DockerInvokerOptions{
 			RemoteStorageEndpoint:        d.remoteStorageEndpoint,
+			RemoteStorage:                d.remoteStorage,
 			KernelDebugPort:              int(in.DockerModeKernelDebugPort),
 			DockerStorageBase:            d.dockerStorageBase,
 			UsingWSL:                     d.usingWSL,

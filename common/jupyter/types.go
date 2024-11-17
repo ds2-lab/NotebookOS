@@ -147,12 +147,14 @@ type DistributedKernelConfig struct {
 	SMRJoin                 bool     `json:"smr_join"`
 	PersistentID            string   `json:"persistent_id,omitempty"`
 	RemoteStorageEndpoint   string   `json:"remote_storage_hostname"`
+	RemoteStorage           string   `json:"remote_storage"`
 	RegisterWithLocalDaemon bool     `json:"should_register_with_local_daemon"`
 	LocalDaemonAddr         string   `json:"local_daemon_addr"` // Only used in Docker mode.
 }
 
 func (c DistributedKernelConfig) String() string {
-	return fmt.Sprintf("StorageBase: %s, SMRPort: %d, SMRNodeID: %d, SMRJoin: %v, PersistentID: %s, SMRNodes: %s", c.StorageBase, c.SMRPort, c.SMRNodeID, c.SMRJoin, c.PersistentID, strings.Join(c.SMRNodes, ","))
+	return fmt.Sprintf("StorageBase: %s, SMRPort: %d, SMRNodeID: %d, SMRJoin: %v, PersistentID: %s, SMRNodes: %s, RemoteStorage: %s, RemoteStorageEndpoint: %s",
+		c.StorageBase, c.SMRPort, c.SMRNodeID, c.SMRJoin, c.PersistentID, strings.Join(c.SMRNodes, ","), c.RemoteStorage, c.RemoteStorageEndpoint)
 }
 
 type ConfigFile struct {

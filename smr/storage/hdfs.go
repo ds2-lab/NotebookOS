@@ -56,7 +56,7 @@ func (p *HdfsProvider) Close() error {
 }
 
 func (p *HdfsProvider) Connect() error {
-	p.sugaredLogger.Debug("Connecting to remote storage",
+	p.logger.Debug("Connecting to remote storage",
 		zap.String("remote_storage", "hdfs"),
 		zap.String("hostname", p.hostname))
 
