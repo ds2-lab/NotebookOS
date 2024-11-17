@@ -84,6 +84,14 @@
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
 
+- name: Create the redis.conf file for Redis using the associated template.
+  template:
+    src: redis.conf.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/redis/redis.conf"
+    mode: 0640
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
 - name: Create the gateway.yml file for the Cluster Gateway component using the associated template.
   template:
     src: gateway.yml.j2
