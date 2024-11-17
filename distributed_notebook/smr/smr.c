@@ -2427,51 +2427,6 @@ PyObject * _wrap__smr_smr_Set_ProposalDeadline(PyObject * PYBINDGEN_UNUSED(dummy
 
 
 PyObject *
-_wrap__smr_smr_WriteCloser_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    char *retval;
-    int64_t _handle;
-    const char *keywords[] = {"_handle", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
-        return NULL;
-    }
-    retval = smr_WriteCloser_Close(_handle);
-    if (PyErr_Occurred()) {
-        if (retval != NULL) free(retval);
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "s", retval);
-    free(retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_WriteCloser_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
-_wrap__smr_smr_WriteCloser_Write(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    int64_t retval;
-    int64_t _handle;
-    int64_t p;
-    const char *keywords[] = {"_handle", "p", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LL", (char **) keywords, &_handle, &p)) {
-        return NULL;
-    }
-    retval = smr_WriteCloser_Write(_handle, p);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    py_retval = Py_BuildValue((char *) "L", retval);
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_WriteCloser_Write(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
 _wrap__smr_smr_LogSnapshotter_Load(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
 {
     PyObject *py_retval;
@@ -2670,6 +2625,51 @@ _wrap__smr_smr_ReadCloser_Read(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *arg
     return py_retval;
 }
 PyObject * _wrap__smr_smr_ReadCloser_Read(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_WriteCloser_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    char *retval;
+    int64_t _handle;
+    const char *keywords[] = {"_handle", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "L", (char **) keywords, &_handle)) {
+        return NULL;
+    }
+    retval = smr_WriteCloser_Close(_handle);
+    if (PyErr_Occurred()) {
+        if (retval != NULL) free(retval);
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "s", retval);
+    free(retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_WriteCloser_Close(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_WriteCloser_Write(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    int64_t retval;
+    int64_t _handle;
+    int64_t p;
+    const char *keywords[] = {"_handle", "p", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "LL", (char **) keywords, &_handle, &p)) {
+        return NULL;
+    }
+    retval = smr_WriteCloser_Write(_handle, p);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    py_retval = Py_BuildValue((char *) "L", retval);
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_WriteCloser_Write(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
 
 
 PyObject *
@@ -3622,29 +3622,6 @@ PyObject * _wrap__smr_smr_NewConfig(PyObject *PYBINDGEN_UNUSED(_args), PyObject 
 
 
 PyObject *
-_wrap__smr_smr_PrintTestMessage(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
-{
-    PyObject *py_retval;
-    bool goRun;
-    PyObject *py_goRun;
-    const char *keywords[] = {"goRun", NULL};
-
-    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "O", (char **) keywords, &py_goRun)) {
-        return NULL;
-    }
-    goRun = (bool) PyObject_IsTrue(py_goRun);
-    smr_PrintTestMessage(goRun);
-    if (PyErr_Occurred()) {
-        return NULL;
-    }
-    Py_INCREF(Py_None);
-    py_retval = Py_None;
-    return py_retval;
-}
-PyObject * _wrap__smr_smr_PrintTestMessage(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
-
-
-PyObject *
 _wrap__smr_smr_CreateBytes(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
 {
     PyObject *py_retval;
@@ -3667,6 +3644,29 @@ _wrap__smr_smr_CreateBytes(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, P
     return py_retval;
 }
 PyObject * _wrap__smr_smr_CreateBytes(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
+
+
+PyObject *
+_wrap__smr_smr_PrintTestMessage(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs)
+{
+    PyObject *py_retval;
+    bool goRun;
+    PyObject *py_goRun;
+    const char *keywords[] = {"goRun", NULL};
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, (char *) "O", (char **) keywords, &py_goRun)) {
+        return NULL;
+    }
+    goRun = (bool) PyObject_IsTrue(py_goRun);
+    smr_PrintTestMessage(goRun);
+    if (PyErr_Occurred()) {
+        return NULL;
+    }
+    Py_INCREF(Py_None);
+    py_retval = Py_None;
+    return py_retval;
+}
+PyObject * _wrap__smr_smr_PrintTestMessage(PyObject * PYBINDGEN_UNUSED(dummy), PyObject *args, PyObject *kwargs);
 
 
 PyObject *
@@ -3823,8 +3823,6 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_Set_ErrEOF", (PyCFunction) _wrap__smr_smr_Set_ErrEOF, METH_KEYWORDS|METH_VARARGS, "smr_Set_ErrEOF(val)\n\ntype: val: char *" },
     {(char *) "smr_ProposalDeadline", (PyCFunction) _wrap__smr_smr_ProposalDeadline, METH_NOARGS, "smr_ProposalDeadline()\n\n" },
     {(char *) "smr_Set_ProposalDeadline", (PyCFunction) _wrap__smr_smr_Set_ProposalDeadline, METH_KEYWORDS|METH_VARARGS, "smr_Set_ProposalDeadline(val)\n\ntype: val: int64_t" },
-    {(char *) "smr_WriteCloser_Close", (PyCFunction) _wrap__smr_smr_WriteCloser_Close, METH_KEYWORDS|METH_VARARGS, "smr_WriteCloser_Close(_handle)\n\ntype: _handle: int64_t" },
-    {(char *) "smr_WriteCloser_Write", (PyCFunction) _wrap__smr_smr_WriteCloser_Write, METH_KEYWORDS|METH_VARARGS, "smr_WriteCloser_Write(_handle, p)\n\ntype: _handle: int64_t\ntype: p: int64_t" },
     {(char *) "smr_LogSnapshotter_Load", (PyCFunction) _wrap__smr_smr_LogSnapshotter_Load, METH_KEYWORDS|METH_VARARGS, "smr_LogSnapshotter_Load(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_LogSnapshotter_LoadNewestAvailable", (PyCFunction) _wrap__smr_smr_LogSnapshotter_LoadNewestAvailable, METH_KEYWORDS|METH_VARARGS, "smr_LogSnapshotter_LoadNewestAvailable(_handle, arg_0)\n\ntype: _handle: int64_t\ntype: arg_0: int64_t" },
     {(char *) "smr_LogSnapshotter_SaveSnap", (PyCFunction) _wrap__smr_smr_LogSnapshotter_SaveSnap, METH_KEYWORDS|METH_VARARGS, "smr_LogSnapshotter_SaveSnap(_handle, arg_0)\n\ntype: _handle: int64_t\ntype: arg_0: int64_t" },
@@ -3834,6 +3832,8 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_LogStorage_SaveSnapshot", (PyCFunction) _wrap__smr_smr_LogStorage_SaveSnapshot, METH_KEYWORDS|METH_VARARGS, "smr_LogStorage_SaveSnapshot(_handle, arg_0, goRun)\n\ntype: _handle: int64_t\ntype: arg_0: int64_t\ntype: goRun: bool" },
     {(char *) "smr_ReadCloser_Close", (PyCFunction) _wrap__smr_smr_ReadCloser_Close, METH_KEYWORDS|METH_VARARGS, "smr_ReadCloser_Close(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_ReadCloser_Read", (PyCFunction) _wrap__smr_smr_ReadCloser_Read, METH_KEYWORDS|METH_VARARGS, "smr_ReadCloser_Read(_handle, p)\n\ntype: _handle: int64_t\ntype: p: int64_t" },
+    {(char *) "smr_WriteCloser_Close", (PyCFunction) _wrap__smr_smr_WriteCloser_Close, METH_KEYWORDS|METH_VARARGS, "smr_WriteCloser_Close(_handle)\n\ntype: _handle: int64_t" },
+    {(char *) "smr_WriteCloser_Write", (PyCFunction) _wrap__smr_smr_WriteCloser_Write, METH_KEYWORDS|METH_VARARGS, "smr_WriteCloser_Write(_handle, p)\n\ntype: _handle: int64_t\ntype: p: int64_t" },
     {(char *) "smr_Bytes_CTor", (PyCFunction) _wrap__smr_smr_Bytes_CTor, METH_NOARGS, "smr_Bytes_CTor()\n\n" },
     {(char *) "smr_Bytes_Bytes", (PyCFunction) _wrap__smr_smr_Bytes_Bytes, METH_KEYWORDS|METH_VARARGS, "smr_Bytes_Bytes(_handle)\n\ntype: _handle: int64_t" },
     {(char *) "smr_Bytes_Len", (PyCFunction) _wrap__smr_smr_Bytes_Len, METH_KEYWORDS|METH_VARARGS, "smr_Bytes_Len(_handle)\n\ntype: _handle: int64_t" },
@@ -3879,8 +3879,8 @@ static PyMethodDef _smr_functions[] = {
     {(char *) "smr_SMRContext_Cancel", (PyCFunction) _wrap__smr_smr_SMRContext_Cancel, METH_KEYWORDS|METH_VARARGS, "smr_SMRContext_Cancel(_handle, goRun)\n\ntype: _handle: int64_t\ntype: goRun: bool" },
     {(char *) "smr_NewLogNode", (PyCFunction) _wrap__smr_smr_NewLogNode, METH_KEYWORDS|METH_VARARGS, "smr_NewLogNode(storePath, id, remoteStorageHostname, remoteStorage, shouldLoadDataFromRemoteStorage, peerAddresses, peerIDs, join, httpDebugPort, deploymentMode)\n\ntype: storePath: char *\ntype: id: int64_t\ntype: remoteStorageHostname: char *\ntype: remoteStorage: char *\ntype: shouldLoadDataFromRemoteStorage: bool\ntype: peerAddresses: int64_t\ntype: peerIDs: int64_t\ntype: join: bool\ntype: httpDebugPort: int64_t\ntype: deploymentMode: char *" },
     {(char *) "smr_NewConfig", (PyCFunction) _wrap__smr_smr_NewConfig, METH_NOARGS, "smr_NewConfig()\n\n" },
-    {(char *) "smr_PrintTestMessage", (PyCFunction) _wrap__smr_smr_PrintTestMessage, METH_KEYWORDS|METH_VARARGS, "smr_PrintTestMessage(goRun)\n\ntype: goRun: bool" },
     {(char *) "smr_CreateBytes", (PyCFunction) _wrap__smr_smr_CreateBytes, METH_KEYWORDS|METH_VARARGS, "smr_CreateBytes(len)\n\ntype: len: uint8_t" },
+    {(char *) "smr_PrintTestMessage", (PyCFunction) _wrap__smr_smr_PrintTestMessage, METH_KEYWORDS|METH_VARARGS, "smr_PrintTestMessage(goRun)\n\ntype: goRun: bool" },
     {(char *) "smr_NewBytes", (PyCFunction) _wrap__smr_smr_NewBytes, METH_KEYWORDS|METH_VARARGS, "smr_NewBytes(bytes, len)\n\ntype: bytes: char *\ntype: len: int" },
     {NULL, NULL, 0, NULL}
 };
