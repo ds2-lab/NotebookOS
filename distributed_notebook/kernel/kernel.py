@@ -19,10 +19,12 @@ from hmac import compare_digest
 from multiprocessing import Process, Queue
 from threading import Lock
 from typing import Union, Optional, Dict, Any
+from numbers import Number
 
 import debugpy
 import grpc
 import zmq
+from fabric.testing.fixtures import remote
 from ipykernel import jsonutil
 from ipykernel.ipkernel import IPythonKernel
 from jupyter_client.jsonutil import extract_dates
@@ -38,6 +40,7 @@ from ..logging import ColoredLogFormatter
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.election import Election
 from ..sync.errors import DiscardMessageError
+from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer
 
 
 # from traitlets.traitlets import Set
@@ -230,6 +233,11 @@ class DistributedKernel(IPythonKernel):
         self.message_acknowledgements_enabled: bool = True  # default to True
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
+
+        # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
+        self.remote_storages: Dict[str, SimulatedCheckpointer] = {}
+        self.resource_requests: list[Dict[str, Number | List[Number]]] = []
+        self.current_resource_request: Optional[Dict[str, Number | List[Number]]] = None
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
@@ -1177,6 +1185,61 @@ class DistributedKernel(IPythonKernel):
         )
         self.log.debug(f"Sent 'ACK' for {stream_name} {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
 
+    def register_remote_storage_definition(self, remote_storage_definition: Dict[str, Any]):
+        """
+        Convert the remote storage definition that was extracted from the metadata of an "execute_request" or
+        "yield_request" message to a SimulatedCheckpointer object and store the new SimulatedCheckpointer object
+        in our remote_storages mapping.
+        """
+        if len(remote_storage_definition) == 0:
+            return
+
+        remote_storage_name: str = remote_storage_definition.get("name", "")
+
+        if remote_storage_name == "":
+            self.log.warning(f"Received non-empty remote storage definition with no name: {remote_storage_definition}")
+            return
+
+        if remote_storage_name not in self.remote_storages:
+            self.log.debug(f"Remote storage \"{remote_storage_name}\" is already registered.")
+            return
+
+        remote_storage: SimulatedCheckpointer = SimulatedCheckpointer(**remote_storage_definition)
+        self.remote_storages[remote_storage.name] = remote_storage
+
+        self.log.debug(f"Successfully registered new remote storage \"{remote_storage_name}\".")
+
+    async def process_execute_request_metadata(self, msg_id: str, msg_type: str, metadata: Dict[str, Any]):
+        """
+        Process the metadata included in a shell "execute_request" or "yield_request" message.
+        """
+        self.log.debug(f"Processing metadata of \"{msg_type}\" request \"{msg_id}\": {metadata}")
+
+        if metadata is None:
+            return
+
+        resource_request: Dict[str, Any] = metadata.get("resource_request", {})
+
+        remote_storage_definition: Dict[str, Any] = metadata.get("remote_storage_definition", {})
+
+        workload_id: str = metadata.get("workload_id")
+
+        if len(resource_request) > 0:
+            self.log.debug(f"Extracted ResourceRequest from \"{msg_type}\" metadata: {resource_request}")
+
+            self.resource_requests.append(resource_request)
+            self.current_resource_request = resource_request
+
+        if len(remote_storage_definition) > 0:
+            self.log.debug(f"Extracted ResourceRequest from \"{msg_type}\" metadata: {remote_storage_definition}")
+
+            self.register_remote_storage_definition(remote_storage_definition)
+
+        if len(workload_id) > 0:
+            self.log.debug(f"Extracted workload ID from \"{msg_type}\" metadata: {workload_id}")
+
+        pass
+
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
         start_time: float = time.time()
@@ -1213,6 +1276,8 @@ class DistributedKernel(IPythonKernel):
         stop_on_error = content.get("stop_on_error", True)
 
         metadata = self.init_metadata(parent)
+
+        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], metadata)
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -1466,6 +1531,8 @@ class DistributedKernel(IPythonKernel):
         stop_on_error = content.get("stop_on_error", True)
 
         metadata = self.init_metadata(parent)
+
+        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], metadata)
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
