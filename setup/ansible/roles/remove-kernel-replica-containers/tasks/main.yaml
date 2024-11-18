@@ -4,22 +4,38 @@
     containers_filters:
       label: component=kernel_replica
   register: docker_info
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
 - name: Print the Names of the kernel replica containers that will be removed
   debug:
     msg: "Kernel Replica Container IDs: {{ item['Names'] }}"
   loop: "{{ docker_info.containers }}"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
 - name: Print the IDs of the kernel replica containers that will be removed
   debug:
     msg: "Kernel Replica Container IDs: {{ item['Id'] }}"
   loop: "{{ docker_info.containers }}"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
 - name: Remove kernel replica containers
   docker_container:
     name: "{{ item }}"
     state: absent
   loop: "{{ docker_info.containers | map(attribute='Id') | list }}"
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
 
 #- name: "Remove kernel replica containers"
 #  shell: docker ps --filter "label=component=kernel_replica" -q | xargs docker rm --force

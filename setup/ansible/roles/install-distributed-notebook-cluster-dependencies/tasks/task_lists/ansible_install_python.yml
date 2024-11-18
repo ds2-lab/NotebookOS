@@ -131,3 +131,13 @@
     python_dir: "{{ python_build_dir }}/Python-{{ python_version }}"
     pip_executable: "/usr/local/bin/pip{{ python_short_version }}"
     ansible_python_interpreter: "{{ python_dir }}/python"
+
+- name: Ensure the requests package is installed
+  shell: ". {{ profile_file}} && {{ python_virtual_env_dir }}/bin/pip3 install requests"
+  args:
+    chdir: "{{ gopath }}/pkg/{{ git_repo_name }}"
+  register: install_result
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
