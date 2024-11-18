@@ -313,6 +313,17 @@ message GetVirtualDockerNodesResponse {
   repeated VirtualDockerNode nodes = 1;
 }
 
+// RemoteStorageDefinition defines a simulated remote storage to use for checkpointing by the kernel replicas.
+message RemoteStorageDefinition {
+  string name = 1;
+  int64 downloadRate = 2;
+  int64 uploadRate = 3;
+  float downloadVariancePercent = 4;
+  float uploadVariancePercent = 5;
+  float readFailureChancePercentage = 6;
+  float writeFailureChancePercentage = 7;
+}
+
 // VirtualDockerNode represents/describes a "virtual" node within the Docker Swarm cluster.
 // Docker Swarm clusters have a concept of nodes -- they can span multiple machines or VMs.
 // Each Docker Swarm node hosts containers. Virtual nodes correspond to Local Daemons.
