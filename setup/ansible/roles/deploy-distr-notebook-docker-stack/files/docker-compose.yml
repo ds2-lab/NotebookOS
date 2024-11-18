@@ -133,26 +133,41 @@ services:
       restart_policy:
         condition: on-failure
 
-  dashboard_backend:
-    image: scusemua/distributed-notebook-dashboard-backend:latest
-    ports: 9000
-    labels:
-      traefik.enable: "true"
+  notebook-dashboard:
+    image: "scusemua/distributed-notebook-dashboard-backend:latest"
+    networks:
+      - traefik-public
+    environment:
+      - "DASHBOARD_CONFIG_DIR=/etc/distributed-notebook-cluster"
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=notebook_dashboard"
+      - "logging=promtail"
+      - "logging_jobname=notebook_dashboard"
+      - "prometheus.metrics.port=8089"
     deploy:
       restart_policy:
         condition: on-failure
+      endpoint_mode: dnsrr
+      labels:
+        - "app=distributed_cluster"
+        - "component=notebook_dashboard"
+        - "logging=promtail"
+        - "logging_jobname=notebook_dashboard"
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+        - "prometheus-metrics-provider=true"
+
+        - "traefik.http.routers.notebook-dashboard-http.entryPoints=http"
+        - "traefik.http.routers.notebook-dashboard-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/notebook-dashboard`)"
+        - "traefik.http.routers.notebook-dashboard-http.service=notebook-dashboard"
+        - "traefik.http.services.notebook-dashboard.loadbalancer.server.port={{ dashboard_backend_server_port }}"
     volumes:
       - ./dashboard-backend/config-docker.yaml:/etc/distributed-notebook-cluster/dashboard.yaml
       - ./dashboard-backend/workload-presets-file.yaml:/etc/distributed-notebook-cluster/workload-presets-file.yaml
       - ./dashboard-backend/custom_event_sequences:/etc/distributed-notebook-cluster/custom_event_sequences
       - ./dashboard-backend/.env:/go/.env
-
-#  dashboard_frontend:
-#    image: scusemua/distributed-notebook-dashboard-frontend:latest
-#    ports: 8001
-#    deploy:
-#      restart_policy:
-#        condition: on-failure
 
 volumes:
   coredumps_volume:
