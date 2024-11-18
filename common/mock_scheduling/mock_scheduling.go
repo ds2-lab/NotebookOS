@@ -15,6 +15,7 @@ import (
 	time "time"
 
 	promise "github.com/Scusemua/go-utils/promise"
+	orderedmap "github.com/elliotchance/orderedmap/v2"
 	prometheus "github.com/prometheus/client_golang/prometheus"
 	jupyter "github.com/scusemua/distributed-notebook/common/jupyter"
 	messaging "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
@@ -449,6 +450,18 @@ func (mr *MockClusterMockRecorder) Placer() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Placer", reflect.TypeOf((*MockCluster)(nil).Placer))
 }
 
+// RangeOverDisabledHosts mocks base method.
+func (m *MockCluster) RangeOverDisabledHosts(f func(string, scheduling.Host) bool) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "RangeOverDisabledHosts", f)
+}
+
+// RangeOverDisabledHosts indicates an expected call of RangeOverDisabledHosts.
+func (mr *MockClusterMockRecorder) RangeOverDisabledHosts(f any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RangeOverDisabledHosts", reflect.TypeOf((*MockCluster)(nil).RangeOverDisabledHosts), f)
+}
+
 // RangeOverHosts mocks base method.
 func (m *MockCluster) RangeOverHosts(f func(string, scheduling.Host) bool) {
 	m.ctrl.T.Helper()
@@ -645,6 +658,35 @@ func (m *MockScheduler) DeployNewKernel(ctx context.Context, kernelSpec *proto.K
 func (mr *MockSchedulerMockRecorder) DeployNewKernel(ctx, kernelSpec, blacklistedHosts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployNewKernel", reflect.TypeOf((*MockScheduler)(nil).DeployNewKernel), ctx, kernelSpec, blacklistedHosts)
+}
+
+// GetActiveAddReplicaOperationsForKernel mocks base method.
+func (m *MockScheduler) GetActiveAddReplicaOperationsForKernel(kernelId string) (*orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation], bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveAddReplicaOperationsForKernel", kernelId)
+	ret0, _ := ret[0].(*orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation])
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// GetActiveAddReplicaOperationsForKernel indicates an expected call of GetActiveAddReplicaOperationsForKernel.
+func (mr *MockSchedulerMockRecorder) GetActiveAddReplicaOperationsForKernel(kernelId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveAddReplicaOperationsForKernel", reflect.TypeOf((*MockScheduler)(nil).GetActiveAddReplicaOperationsForKernel), kernelId)
+}
+
+// GetAddReplicaOperationManager mocks base method.
+func (m *MockScheduler) GetAddReplicaOperationManager() hashmap.HashMap[string, *scheduling.AddReplicaOperation] {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAddReplicaOperationManager")
+	ret0, _ := ret[0].(hashmap.HashMap[string, *scheduling.AddReplicaOperation])
+	return ret0
+}
+
+// GetAddReplicaOperationManager indicates an expected call of GetAddReplicaOperationManager.
+func (mr *MockSchedulerMockRecorder) GetAddReplicaOperationManager() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAddReplicaOperationManager", reflect.TypeOf((*MockScheduler)(nil).GetAddReplicaOperationManager))
 }
 
 // GetCandidateHosts mocks base method.
@@ -1275,17 +1317,17 @@ func (m *MockPlacer) EXPECT() *MockPlacerMockRecorder {
 }
 
 // FindHost mocks base method.
-func (m *MockPlacer) FindHost(blacklist []any, metrics types.Spec) scheduling.Host {
+func (m *MockPlacer) FindHost(blacklist []any, kernelSpec *proto.KernelSpec) scheduling.Host {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindHost", blacklist, metrics)
+	ret := m.ctrl.Call(m, "FindHost", blacklist, kernelSpec)
 	ret0, _ := ret[0].(scheduling.Host)
 	return ret0
 }
 
 // FindHost indicates an expected call of FindHost.
-func (mr *MockPlacerMockRecorder) FindHost(blacklist, metrics any) *gomock.Call {
+func (mr *MockPlacerMockRecorder) FindHost(blacklist, kernelSpec any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindHost", reflect.TypeOf((*MockPlacer)(nil).FindHost), blacklist, metrics)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindHost", reflect.TypeOf((*MockPlacer)(nil).FindHost), blacklist, kernelSpec)
 }
 
 // FindHosts mocks base method.
@@ -1800,6 +1842,20 @@ func (m *MockHost) GetConnectionState() connectivity.State {
 func (mr *MockHostMockRecorder) GetConnectionState() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConnectionState", reflect.TypeOf((*MockHost)(nil).GetConnectionState))
+}
+
+// GetGrpcConnection mocks base method.
+func (m *MockHost) GetGrpcConnection() *grpc.ClientConn {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGrpcConnection")
+	ret0, _ := ret[0].(*grpc.ClientConn)
+	return ret0
+}
+
+// GetGrpcConnection indicates an expected call of GetGrpcConnection.
+func (mr *MockHostMockRecorder) GetGrpcConnection() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGrpcConnection", reflect.TypeOf((*MockHost)(nil).GetGrpcConnection))
 }
 
 // GetID mocks base method.

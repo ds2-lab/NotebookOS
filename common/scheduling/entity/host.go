@@ -503,6 +503,7 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		PendingMemory:   float32(h.resourceManager.PendingResources().MemoryMB()),
 		PendingGpu:      float32(h.resourceManager.PendingResources().GPUs()),
 		PendingVRAM:     float32(h.resourceManager.PendingResources().VRAM()),
+		Enabled:         h.Enabled(),
 	}
 }
 

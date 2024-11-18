@@ -414,6 +414,13 @@ func (c *BaseCluster) RangeOverHosts(f func(key string, value scheduling.Host) b
 	c.hosts.Range(f)
 }
 
+// RangeOverDisabledHosts executes the provided function on each disabled Host in the Cluster.
+//
+// Importantly, this function does NOT lock the hostsMutex.
+func (c *BaseCluster) RangeOverDisabledHosts(f func(key string, value scheduling.Host) bool) {
+	c.DisabledHosts.Range(f)
+}
+
 // RemoveHost removes the Host with the specified ID.
 func (c *BaseCluster) RemoveHost(hostId string) {
 	c.scalingOpMutex.Lock()

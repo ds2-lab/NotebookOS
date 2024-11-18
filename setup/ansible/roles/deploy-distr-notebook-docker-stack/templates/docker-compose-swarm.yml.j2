@@ -268,7 +268,7 @@ services:
 
 {% if distributed_notebook_remote_storage_type == 'redis' %}
   redis:
-    image: redis:latest
+    image: scusemua/redis:latest
     networks:
     - traefik-public
     labels: # Container labels
@@ -295,8 +295,8 @@ services:
         - "traefik.http.services.redis.loadbalancer.server.port={{ redis_port }}"
     volumes:
       - redis_data:/data
-      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf # Mount custom config file
-    command: ["redis-server", "/usr/local/etc/redis/redis.conf"] # Enables AOF persistence for durability
+      - ./redis/redis.conf:/home/redis/redis.conf # Mount custom config file
+    command: ["redis-server", "/home/redis/redis.conf"] # Enables AOF persistence for durability
 {% endif %}
 
 volumes:

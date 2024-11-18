@@ -30,9 +30,16 @@ type KubernetesScheduler struct {
 }
 
 func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, kernelProvider KernelProvider, hostSpec types.Spec,
-	kubeClient scheduling.KubeClient, opts *scheduling.SchedulerOptions) (*KubernetesScheduler, error) {
+	kubeClient scheduling.KubeClient, notificationBroker NotificationBroker, opts *scheduling.SchedulerOptions) (*KubernetesScheduler, error) {
 
-	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider, opts)
+	baseScheduler := newBaseSchedulerBuilder().
+		WithCluster(cluster).
+		WithHostMapper(hostMapper).
+		WithPlacer(placer).
+		WithHostSpec(hostSpec).
+		WithKernelProvider(kernelProvider).
+		WithNotificationBroker(notificationBroker).
+		WithOptions(opts).Build()
 
 	kubernetesScheduler := &KubernetesScheduler{
 		BaseScheduler:            baseScheduler,

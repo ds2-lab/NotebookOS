@@ -775,6 +775,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			})
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
+			Expect(clusterGateway.cluster).ToNot(BeNil())
+
 			kernelId = uuid.NewString()
 
 			resourceSpec = &proto.ResourceSpec{
@@ -805,6 +807,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				MemoryMb:  decimal.NewFromFloat(1000),
 			}).AnyTimes()
 			mockedKernel.EXPECT().ID().Return(kernelId).AnyTimes()
+			mockedKernel.EXPECT().RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(),
+				gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
 			mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, mockedKernel)
 
@@ -1144,9 +1148,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
 
+			var shellHandlerWaitGroup sync.WaitGroup
+			shellHandlerWaitGroup.Add(1)
 			go func() {
+				defer GinkgoRecover()
 				err = clusterGateway.ShellHandler(nil, jMsg)
-				Expect(err).ToNot(BeNil())
+				Expect(err).To(BeNil())
+				shellHandlerWaitGroup.Done()
 			}()
 
 			wg.Wait()
@@ -1194,6 +1202,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			execReply3 := getExecuteReplyMessage(3)
 			Expect(execReply3).ToNot(BeNil())
+
+			shellHandlerWaitGroup.Wait()
 		})
 	})
 

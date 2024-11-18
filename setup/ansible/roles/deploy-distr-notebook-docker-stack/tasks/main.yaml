@@ -58,7 +58,7 @@
   template:
     src: ./dashboard/dashboard_backend_config.yaml.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/config-docker.yaml"
-    mode: 0640
+    mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
 
@@ -66,7 +66,7 @@
   template:
     src: ./dashboard/dashboard_workload_presets.yaml.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload-presets-file.yaml"
-    mode: 0640
+    mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
 
@@ -74,7 +74,7 @@
   template:
     src: ./dashboard/dashboard_env.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/.env"
-    mode: 0640
+    mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
 
@@ -82,7 +82,7 @@
   template:
     src: redis.conf.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/redis/redis.conf"
-    mode: 0640
+    mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
   become: true
@@ -91,7 +91,7 @@
   template:
     src: gateway.yml.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/gateway/gateway.yml"
-    mode: 0640
+    mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
 
@@ -103,7 +103,7 @@
   template:
     src: daemon.yml.j2
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/local_daemon/daemon.yml"
-    mode: 0640
+    mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
 

@@ -358,6 +358,8 @@ message VirtualDockerNode {
   string address = 16;
   // CreatedAt is the time that the node was created.
   google.protobuf.Timestamp createdAt = 17;
+  // Enabled indicates whether the Host is enabled or disabled.
+  bool enabled = 18;
 }
 
 // DockerContainer describes a Docker container.

@@ -439,17 +439,24 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),
 	}
 
+	// Note: we don't construct the scheduling.Cluster struct within the switch statement below.
+	// We construct the scheduling.Cluster struct immediately following the switch statement.
+	var (
+		clusterPlacer scheduling.Placer
+		clusterType   cluster.Type
+		err           error
+	)
 	switch clusterDaemonOptions.DeploymentMode {
 	case "":
 		{
 			clusterGateway.log.Info("No 'deployment_mode' specified. Running in default mode: LOCAL mode.")
-			break
+			panic("Not supported")
 		}
 	case "local":
 		{
 			clusterGateway.log.Info("Running in LOCAL mode.")
 			clusterGateway.deploymentMode = types.LocalMode
-			break
+			panic("Not supported")
 		}
 	case "docker":
 		{
@@ -476,14 +483,13 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			dockerEventHandler := NewDockerEventHandler()
 			clusterGateway.containerEventHandler = dockerEventHandler
 
-			randomPlacer, err := placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
+			clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
 			if err != nil {
 				clusterGateway.log.Error("Failed to create Random Placer: %v", err)
 				panic(err)
 			}
 
-			clusterGateway.cluster = cluster.NewDockerComposeCluster(clusterGateway.hostSpec, randomPlacer, clusterGateway,
-				clusterGateway, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+			clusterType = cluster.DockerCompose
 			break
 		}
 	case "docker-swarm":
@@ -498,14 +504,13 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			clusterGateway.dockerApiClient = apiClient
 
-			randomPlacer, err := placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
+			clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
 			if err != nil {
 				clusterGateway.log.Error("Failed to create Random Placer: %v", err)
 				panic(err)
 			}
 
-			clusterGateway.cluster = cluster.NewDockerSwarmCluster(clusterGateway.hostSpec, randomPlacer, clusterGateway,
-				clusterGateway, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+			clusterType = cluster.DockerSwarm
 
 			break
 		}
@@ -517,14 +522,13 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
 			clusterGateway.containerEventHandler = clusterGateway.kubeClient
 
-			randomPlacer, err := placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
+			clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
 			if err != nil {
 				clusterGateway.log.Error("Failed to create Random Placer: %v", err)
 				panic(err)
 			}
 
-			clusterGateway.cluster = cluster.NewKubernetesCluster(clusterGateway.kubeClient, randomPlacer, clusterGateway.hostSpec,
-				clusterGateway, clusterGateway, clusterGateway.gatewayPrometheusManager, &clusterSchedulerOptions)
+			clusterType = cluster.Kubernetes
 
 			break
 		}
@@ -539,6 +543,24 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			os.Exit(1)
 		}
 	}
+
+	// This is where we actually construct the scheduling.Cluster struct.
+	distributedNotebookCluster, err := cluster.NewBuilder(clusterType).
+		WithKubeClient(clusterGateway.kubeClient).
+		WithHostSpec(clusterGateway.hostSpec).
+		WithPlacer(clusterPlacer).
+		WithHostMapper(clusterGateway).
+		WithKernelProvider(clusterGateway).
+		WithClusterMetricsProvider(clusterGateway.gatewayPrometheusManager).
+		WithNotificationBroker(clusterGateway).
+		WithOptions(&clusterSchedulerOptions).
+		BuildCluster()
+	if err != nil {
+		clusterGateway.log.Error("Failed to construct scheduling.Cluster: %v", err)
+		panic(err)
+	}
+
+	clusterGateway.cluster = distributedNotebookCluster
 
 	if clusterGateway.gatewayPrometheusManager != nil {
 		clusterGateway.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())
@@ -572,6 +594,14 @@ func (d *ClusterGatewayImpl) SetDistributedClientProvider(provider client.Distri
 
 func (d *ClusterGatewayImpl) SetClusterOptions(options *scheduling.SchedulerOptions) {
 	d.ClusterOptions = options
+}
+
+func (d *ClusterGatewayImpl) SendErrorNotification(errorName string, errorMessage string) {
+	go d.notifyDashboardOfError(errorName, errorMessage)
+}
+
+func (d *ClusterGatewayImpl) SendInfoNotification(title string, message string) {
+	go d.notifyDashboardOfInfo(title, message)
 }
 
 func (d *ClusterGatewayImpl) Scheduler() scheduling.Scheduler {
@@ -3087,16 +3117,16 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 	nodes := make([]*proto.VirtualDockerNode, 0, d.cluster.Len())
 
 	d.cluster.RangeOverHosts(func(_ string, host scheduling.Host) (contd bool) {
-		//d.log.Debug("Host %s (ID=%s):", host.GetNodeName(), host.GetID())
-		//d.log.Debug("Idle resources: %s", host.IdleResources().String())
-		//d.log.Debug("Pending resources: %s", host.PendingResources().String())
-		//d.log.Debug("Committed resources: %s", host.CommittedResources().String())
-		//d.log.Debug("Spec resources: %s", host.ResourceSpec().String())
-
 		virtualDockerNode := host.ToVirtualDockerNode()
 		nodes = append(nodes, virtualDockerNode)
 
-		//d.log.Debug("Returning VirtualDockerNode: %s\n", virtualDockerNode.String())
+		return true
+	})
+
+	d.cluster.RangeOverDisabledHosts(func(_ string, host scheduling.Host) (cont bool) {
+		virtualDockerNode := host.ToVirtualDockerNode()
+		nodes = append(nodes, virtualDockerNode)
+
 		return true
 	})
 

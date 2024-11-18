@@ -35,8 +35,16 @@ type DockerScheduler struct {
 	dockerModeKernelDebugPort atomic.Int32
 }
 
-func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
-	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider, opts)
+func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec,
+	kernelProvider KernelProvider, notificationBroker NotificationBroker, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
+	baseScheduler := newBaseSchedulerBuilder().
+		WithCluster(cluster).
+		WithHostMapper(hostMapper).
+		WithPlacer(placer).
+		WithHostSpec(hostSpec).
+		WithKernelProvider(kernelProvider).
+		WithNotificationBroker(notificationBroker).
+		WithOptions(opts).Build()
 
 	dockerScheduler := &DockerScheduler{
 		BaseScheduler: baseScheduler,

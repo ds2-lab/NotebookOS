@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/scusemua/distributed-notebook/common/proto"
@@ -21,7 +20,7 @@ import (
 )
 
 const (
-	SchedulerInvalidationThreshold = 0.1
+	InvalidationThreshold = 0.1
 )
 
 // schedulingNotification is a struct that is sent over a channel to notify the "main" goroutine handling the
@@ -54,6 +53,7 @@ type KernelProvider interface {
 
 type NotificationBroker interface {
 	SendErrorNotification(errorName string, errorMessage string)
+	SendInfoNotification(title string, message string)
 }
 
 type BaseScheduler struct {
@@ -124,68 +124,20 @@ type BaseScheduler struct {
 	log logger.Logger
 }
 
-func NewBaseScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *scheduling.SchedulerOptions) *BaseScheduler {
-	clusterScheduler := &BaseScheduler{
-		cluster:                                  cluster,
-		hostMapper:                               hostMapper,
-		gpusPerHost:                              float64(opts.GpusPerHost),
-		virtualGpusPerHost:                       int32(opts.VirtualGpusPerHost),
-		scalingFactor:                            opts.ScalingFactor,
-		scalingLimit:                             opts.ScalingLimit,
-		maximumHostsToReleaseAtOnce:              int32(opts.MaximumHostsToReleaseAtOnce),
-		scalingIntervalSec:                       int32(opts.ScalingInterval),
-		predictiveAutoscalingEnabled:             opts.PredictiveAutoscalingEnabled,
-		scalingBufferSize:                        int32(opts.ScalingBufferSize),
-		stRatio:                                  types.NewMovingStatFromWindow(5),
-		opts:                                     opts,
-		remoteSynchronizationInterval:            time.Second * time.Duration(opts.GpuPollIntervalSeconds),
-		placer:                                   placer,
-		hostSpec:                                 hostSpec,
-		oversubscribed:                           make(types.Heap, 0, 10),
-		undersubscribed:                          make(types.Heap, 0, 10),
-		idleHosts:                                make(types.Heap, 0, 10),
-		maximumCapacity:                          int32(opts.MaximumNumNodes),
-		minimumCapacity:                          int32(opts.MinimumNumNodes),
-		maxSubscribedRatio:                       decimal.NewFromFloat(opts.MaxSubscribedRatio),
-		subscriptionRatio:                        decimal.NewFromFloat(opts.MaxSubscribedRatio),
-		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]](64),
-		addReplicaOperationsByKernelReplicaId:    hashmap.NewCornelkMap[string, *scheduling.AddReplicaOperation](64),
-		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *scheduling.AddReplicaOperation](64),
-		kernelProvider:                           kernelProvider,
-	}
-	config.InitLogger(&clusterScheduler.log, clusterScheduler)
-
-	if opts.GpuPollIntervalSeconds <= 0 {
-		clusterScheduler.remoteSynchronizationInterval = time.Second * 5
-	}
-
-	if clusterScheduler.scalingIntervalSec < 0 {
-		clusterScheduler.scalingIntervalSec = 30
-		clusterScheduler.scalingInterval = time.Second * time.Duration(30)
-	}
-
-	if clusterScheduler.log.GetLevel() == logger.LOG_LEVEL_ALL {
-		clusterScheduler.log.Debug("Scheduling Configuration:")
-		clusterScheduler.log.Debug("GpusPerHost: %.2f", clusterScheduler.gpusPerHost)
-		clusterScheduler.log.Debug("VirtualGpusPerHost: %d", clusterScheduler.virtualGpusPerHost)
-		clusterScheduler.log.Debug("ScalingFactor: %.2f", clusterScheduler.scalingFactor)
-		clusterScheduler.log.Debug("ScalingLimit: %.2f", clusterScheduler.scalingLimit)
-		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d", clusterScheduler.maximumHostsToReleaseAtOnce)
-		clusterScheduler.log.Debug("ScalingInterval: %d", clusterScheduler.scalingIntervalSec)
-		clusterScheduler.log.Debug("PredictiveAutoscalingEnabled: %v", clusterScheduler.predictiveAutoscalingEnabled)
-		clusterScheduler.log.Debug("ScalingBufferSize: %d", clusterScheduler.scalingBufferSize)
-		clusterScheduler.log.Debug("GPU Refresh Interval: %v", clusterScheduler.remoteSynchronizationInterval)
-	}
-
-	return clusterScheduler
-}
-
 func (s *BaseScheduler) sendErrorNotification(errorName string, errorMessage string) {
 	if s.notificationBroker == nil {
 		return
 	}
 
 	s.notificationBroker.SendErrorNotification(errorName, errorMessage)
+}
+
+func (s *BaseScheduler) sendInfoNotification(title string, message string) {
+	if s.notificationBroker == nil {
+		return
+	}
+
+	s.notificationBroker.SendInfoNotification(title, message)
 }
 
 func (s *BaseScheduler) WithNotificationBroker(notificationBroker NotificationBroker) {
@@ -329,12 +281,20 @@ func (s *BaseScheduler) MinimumCapacity() int32 {
 // We simulate this using node taints.
 func (s *BaseScheduler) AddHost() error {
 	p := s.cluster.RequestHosts(context.Background(), 1) /* s.hostSpec */
-	err := p.Error()
+
+	result, err := p.Result()
 	if err != nil {
 		s.log.Error("Failed to add new host because: %v", err)
+		s.sendErrorNotification("Failed to Add Host to Cluster", err.Error())
 		return err
 	}
 
+	message := ""
+	if result != nil {
+		message = result.(ScaleOperationResult).String()
+	}
+
+	s.sendInfoNotification("Successfully Added Host to Cluster", message)
 	return nil
 }
 
@@ -342,11 +302,20 @@ func (s *BaseScheduler) AddHost() error {
 // We simulate this using node taints.
 func (s *BaseScheduler) RemoveHost(hostId string) error {
 	p := s.cluster.ReleaseSpecificHosts(context.Background(), []string{hostId})
-	err := p.Error()
+
+	result, err := p.Result()
 	if err != nil {
-		s.log.Error("Failed to release host %s because: %v", hostId, err)
+		s.log.Error("Failed to remove host %s because: %v", hostId, err)
+		s.sendErrorNotification(fmt.Sprintf("Failed to Remove Host %s from the Cluster", hostId), err.Error())
 		return err
 	}
+
+	message := ""
+	if result != nil {
+		message = result.(ScaleOperationResult).String()
+	}
+
+	s.sendInfoNotification(fmt.Sprintf("Successfully Removed Host %s from the Cluster", hostId), message)
 
 	return nil
 }
@@ -871,7 +840,7 @@ func (s *BaseScheduler) designateSubscriptionPoolType(host scheduling.Host, pool
 }
 
 func (s *BaseScheduler) validate() {
-	if s.invalidated > SchedulerInvalidationThreshold {
+	if s.invalidated > InvalidationThreshold {
 		// StaticPlacerMaxSubscribedRatio increase, release oversubscribed hosts to under-subscribed hosts.
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
 			s.log.Debug("Apply subscription ratio change %.4f -> %.4f, add under-subscription hosts to candidate pool",
@@ -886,7 +855,7 @@ func (s *BaseScheduler) validate() {
 
 		s.lastSubscribedRatio = s.pendingSubscribedRatio
 		s.invalidated = 0.0
-	} else if s.invalidated < (-1 * SchedulerInvalidationThreshold) {
+	} else if s.invalidated < (-1 * InvalidationThreshold) {
 		s.lastSubscribedRatio = s.pendingSubscribedRatio
 		s.invalidated = 0.0
 	}

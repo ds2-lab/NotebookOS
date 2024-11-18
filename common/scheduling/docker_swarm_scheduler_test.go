@@ -162,7 +162,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 		Expect(err).To(BeNil())
 		Expect(clusterPlacer).ToNot(BeNil())
 
-		dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil, nil, &opts.ClusterDaemonOptions.SchedulerOptions)
+		dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil, nil, nil, &opts.ClusterDaemonOptions.SchedulerOptions)
 		Expect(dockerCluster).ToNot(BeNil())
 
 		genericScheduler := dockerCluster.Scheduler()
