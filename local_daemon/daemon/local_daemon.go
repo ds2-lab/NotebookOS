@@ -1871,12 +1871,23 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 		return nil, ErrExistingReplicaAlreadyRunning
 	}
 
-	invocationError := d.resourceManager.KernelReplicaScheduled(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
-	// invocationError := d.resourceManager.AllocatePendingGPUs(decimal.NewFromFloat(float64(in.Kernel.ResourceSpec.Gpu)), in.ReplicaID, in.Kernel.Id)
-	if invocationError != nil {
+	// We always create a pending resource allocation (i.e., for any scheduling policy).
+	allocationError := d.resourceManager.KernelReplicaScheduled(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
+	if allocationError != nil {
 		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
-			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, invocationError)
-		return nil, status.Error(codes.Internal, invocationError.Error())
+			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, allocationError)
+		return nil, status.Error(codes.Internal, allocationError.Error())
+	}
+
+	// If we're performing FCFS batch scheduling, then we commit resources right away.
+	if d.schedulingPolicy == SchedulingPolicyFcfsBatch {
+		allocationError = d.resourceManager.CommitResources(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec, false)
+
+		if allocationError != nil {
+			d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
+				in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, allocationError)
+			return nil, status.Error(codes.Internal, allocationError.Error())
+		}
 	}
 
 	var kernelInvoker invoker.KernelInvoker
@@ -1930,25 +1941,25 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 		return nil, errorMessage
 	}
 
-	connInfo, invocationError := kernelInvoker.InvokeWithContext(ctx, in)
-	if invocationError != nil {
+	connInfo, allocationError := kernelInvoker.InvokeWithContext(ctx, in)
+	if allocationError != nil {
 		go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            fmt.Sprintf("Failed to Create Container for Kernel %s-%d", in.Kernel.Id, in.ReplicaId),
-			Message:          invocationError.Error(),
+			Message:          allocationError.Error(),
 			NotificationType: 0,
 			Panicked:         false,
 		})
-		return nil, status.Errorf(codes.Internal, invocationError.Error())
+		return nil, status.Errorf(codes.Internal, allocationError.Error())
 	}
 
 	// Initialize kernel client with new context.
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, kernelInvoker)
 
-	listenPorts, invocationError := d.availablePorts.RequestPorts()
-	if invocationError != nil {
-		d.log.Error("Failed to request listen ports for new kernel %s because: %v", in.ID(), invocationError)
-		return nil, invocationError
+	listenPorts, allocationError := d.availablePorts.RequestPorts()
+	if allocationError != nil {
+		d.log.Error("Failed to request listen ports for new kernel %s because: %v", in.ID(), allocationError)
+		return nil, allocationError
 	}
 
 	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, d.numResendAttempts,
@@ -1962,10 +1973,10 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
 
-	info, invocationError := d.initializeKernelClient(in.Kernel.Id, connInfo, kernel)
-	if invocationError != nil {
+	info, allocationError := d.initializeKernelClient(in.Kernel.Id, connInfo, kernel)
+	if allocationError != nil {
 		d.log.Error("Failed to initialize replica %d of kernel %s.", in.ReplicaId, in.Kernel.Id)
-		return nil, invocationError
+		return nil, allocationError
 	}
 
 	// Buffered so we don't get stuck sending a "stop" notification to a goroutine that is processed an "execute_request" message.
@@ -3160,35 +3171,34 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.KernelReplica,
 
 		d.log.Debug("%v leads the task, GPU required (%v), notify the scheduler. Resources required: %v.", kernel, leadMessage.GPURequired, kernel.ResourceSpec())
 
-		// We pass the ResourceSpec, which for now should be identical to the resource request already stored within the ResourceManager.
-		// However, we may eventually submit updated resource requests on a per-training-event basis, so we just want the API to
-		// support being able to adjust the resource requests dynamically.
-		//
-		// TODO: Verify that all the cases in which the ResourceManager panics are legitimately panic-worthy, rather than scenarios
-		// that could arise during regular operation and should just be handled using the failure handler of whatever
-		// scheduling procedure we have in place.
-		//if err = d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec()); err != nil {
-		//	d.log.Error("Could not allocate resources to replica %d of kernel %s because: %v.", kernel.ReplicaID(), kernel.ID(), err)
-		//	go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-		//		Title:            "Resource Commitment Failed",
-		//		Message:          fmt.Sprintf("Failed to commit resources to replica %d of kernel %s because: %v", kernel.ReplicaID(), kernel.ID(), err),
-		//		NotificationType: 0,
-		//		Panicked:         true,
-		//	})
-		//	panic(err) // TODO(Ben): Handle gracefully.
-		//}
-		if err = d.resourceManager.PromoteReservation(kernel.ReplicaID(), kernel.ID()); err != nil {
-			d.log.Error("Our attempt to promote reserved resources of replica %d of kernel %s failed because: %v.",
-				kernel.ReplicaID(), kernel.ID(), err)
+		if d.schedulingPolicy == SchedulingPolicyFcfsBatch && !d.resourceManager.ReplicaHasCommittedResources(kernel.ReplicaID(), kernel.ID()) {
+			d.log.Error("Replica %d of kernel %s does not already have resources committed to it.", kernel.ReplicaID(), kernel.ID())
 			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-				Id:    uuid.NewString(),
-				Title: "Promotion of Resource Reservation Failed",
-				Message: fmt.Sprintf("Could not promote resource reservation for replica %d of kernel %s because: %v",
-					kernel.ReplicaID(), kernel.ID(), err),
+				Id:               uuid.NewString(),
+				Title:            fmt.Sprintf("Replica %d of Kernel %s Does Not Already Have Resources Committed to It", kernel.ReplicaID(), kernel.ID()),
+				Message:          "Resources should already be committed to the kernel because we're using FCFS batch scheduling.",
 				NotificationType: 0,
 				Panicked:         true,
 			})
-			panic(err) // TODO(Ben): Handle gracefully.
+
+			return fmt.Errorf("replica %d of kernel %s does not already have resources committed to it", kernel.ReplicaID(), kernel.ID())
+		} else if d.schedulingPolicy != SchedulingPolicyFcfsBatch {
+			d.log.Debug("Promoting resource reservation of replica %d of kernel %s now.", kernel.ReplicaID(), kernel.ID())
+			err = d.resourceManager.PromoteReservation(kernel.ReplicaID(), kernel.ID())
+			if err != nil {
+				d.log.Error("Our attempt to promote reserved resources of replica %d of kernel %s failed because: %v.",
+					kernel.ReplicaID(), kernel.ID(), err)
+				go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+					Id:    uuid.NewString(),
+					Title: "Promotion of Resource Reservation Failed",
+					Message: fmt.Sprintf("Could not promote resource reservation for replica %d of kernel %s because: %v",
+						kernel.ReplicaID(), kernel.ID(), err),
+					NotificationType: 0,
+					Panicked:         true,
+				})
+				//panic(err) // TODO(Ben): Handle gracefully.
+				return err
+			}
 		}
 
 		// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
@@ -3201,7 +3211,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.KernelReplica,
 		// Note: we don't really need to pass the snapshot here, as it isn't used in the Local Daemon.
 		_ = kernel.KernelStartedTraining()
 
-		// Don't return here -- we want his to be forwarded to the internalCluster Gateway.
+		// Don't return here -- we want this to be forwarded to the internalCluster Gateway.
 		// return commonTypes.ErrStopPropagation
 	} else if messageType == messaging.MessageTypeLeadAfterYield {
 		// TODO(Ben): Need a better way to propagate errors back to the user, either at the Jupyter Notebook or the Workload Driver.
