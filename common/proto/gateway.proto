@@ -318,8 +318,8 @@ message RemoteStorageDefinition {
   string name = 1;
   int64 downloadRate = 2;
   int64 uploadRate = 3;
-  float downloadVariancePercent = 4;
-  float uploadVariancePercent = 5;
+  float downloadRateVariancePercentage = 4;
+  float uploadRateVariancePercentage = 5;
   float readFailureChancePercentage = 6;
   float writeFailureChancePercentage = 7;
 }

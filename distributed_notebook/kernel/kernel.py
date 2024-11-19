@@ -17,14 +17,13 @@ import uuid
 from concurrent import futures
 from hmac import compare_digest
 from multiprocessing import Process, Queue
+from numbers import Number
 from threading import Lock
 from typing import Union, Optional, Dict, Any
-from numbers import Number
 
 import debugpy
 import grpc
 import zmq
-from fabric.testing.fixtures import remote
 from ipykernel import jsonutil
 from ipykernel.ipkernel import IPythonKernel
 from jupyter_client.jsonutil import extract_dates
@@ -41,9 +40,6 @@ from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.election import Election
 from ..sync.errors import DiscardMessageError
 from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer
-
-
-# from traitlets.traitlets import Set
 
 
 def sigabrt_handler(sig, frame):
@@ -161,10 +157,12 @@ class DistributedKernel(IPythonKernel):
         help="""Hostname of the Pod encapsulating this distributed kernel replica""").tag(config=False)
 
     remote_storage_hostname: Union[str, Unicode] = Unicode(
-        help="""Hostname of the remotestorage. The SyncLog's RemoteStorage client will connect to this.""").tag(config=True)
+        help="""Hostname of the remotestorage. The SyncLog's RemoteStorage client will connect to this.""").tag(
+        config=True)
 
     remote_storage: Union[str, Unicode] = Unicode(
-        help = "The type of remote storage we're using. Valid options, as of right now, are 'hdfs' and 'redis'.", default_value='hdfs').tag(config=True)
+        help="The type of remote storage we're using. Valid options, as of right now, are 'hdfs' and 'redis'.",
+        default_value='hdfs').tag(config=True)
 
     kernel_id: Union[str, Unicode] = Unicode(help="""The ID of the kernel.""").tag(config=False)
 
@@ -237,7 +235,7 @@ class DistributedKernel(IPythonKernel):
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
         self.remote_storages: Dict[str, SimulatedCheckpointer] = {}
         self.resource_requests: list[Dict[str, Number | List[Number]]] = []
-        self.current_resource_request: Optional[Dict[str, Number | List[Number]]] = None
+        self.current_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = None
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
@@ -1120,7 +1118,7 @@ class DistributedKernel(IPythonKernel):
         # Start the synchronizer.
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
         self.synchronizer = Synchronizer(
-            sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO, node_id = self.smr_node_id)  # type: ignore
+            sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO, node_id=self.smr_node_id)  # type: ignore
 
         sync_log.set_fast_forward_executions_handler(self.synchronizer.fast_forward_execution_count)
 
@@ -1185,11 +1183,15 @@ class DistributedKernel(IPythonKernel):
         )
         self.log.debug(f"Sent 'ACK' for {stream_name} {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
 
-    def register_remote_storage_definition(self, remote_storage_definition: Dict[str, Any]):
+    def register_remote_storage_definition(self, remote_storage_definition: Dict[str, Any]) -> Optional[str]:
         """
         Convert the remote storage definition that was extracted from the metadata of an "execute_request" or
         "yield_request" message to a SimulatedCheckpointer object and store the new SimulatedCheckpointer object
         in our remote_storages mapping.
+
+        Returns:
+            the name of the included remote storage, or None if no remote storage was included.
+            the name is returned regardless of whether the remote storage had already been registered or not.
         """
         if len(remote_storage_definition) == 0:
             return
@@ -1198,31 +1200,34 @@ class DistributedKernel(IPythonKernel):
 
         if remote_storage_name == "":
             self.log.warning(f"Received non-empty remote storage definition with no name: {remote_storage_definition}")
-            return
+            return None
 
         if remote_storage_name not in self.remote_storages:
             self.log.debug(f"Remote storage \"{remote_storage_name}\" is already registered.")
-            return
+            return remote_storage_name
 
         remote_storage: SimulatedCheckpointer = SimulatedCheckpointer(**remote_storage_definition)
         self.remote_storages[remote_storage.name] = remote_storage
 
         self.log.debug(f"Successfully registered new remote storage \"{remote_storage_name}\".")
 
-    async def process_execute_request_metadata(self, msg_id: str, msg_type: str, metadata: Dict[str, Any]):
+        return remote_storage_name
+
+    async def process_execute_request_metadata(self, msg_id: str, msg_type: str, metadata: Dict[str, Any]) -> Optional[
+        str]:
         """
         Process the metadata included in a shell "execute_request" or "yield_request" message.
         """
         self.log.debug(f"Processing metadata of \"{msg_type}\" request \"{msg_id}\": {metadata}")
 
         if metadata is None:
-            return
+            return None
 
         resource_request: Dict[str, Any] = metadata.get("resource_request", {})
 
         remote_storage_definition: Dict[str, Any] = metadata.get("remote_storage_definition", {})
 
-        workload_id: str = metadata.get("workload_id")
+        workload_id: str = metadata.get("workload_id", "")
 
         if len(resource_request) > 0:
             self.log.debug(f"Extracted ResourceRequest from \"{msg_type}\" metadata: {resource_request}")
@@ -1230,15 +1235,16 @@ class DistributedKernel(IPythonKernel):
             self.resource_requests.append(resource_request)
             self.current_resource_request = resource_request
 
+        remote_storage_name: Optional[str] = None
         if len(remote_storage_definition) > 0:
             self.log.debug(f"Extracted ResourceRequest from \"{msg_type}\" metadata: {remote_storage_definition}")
 
-            self.register_remote_storage_definition(remote_storage_definition)
+            remote_storage_name = self.register_remote_storage_definition(remote_storage_definition)
 
         if len(workload_id) > 0:
             self.log.debug(f"Extracted workload ID from \"{msg_type}\" metadata: {workload_id}")
 
-        pass
+        return remote_storage_name
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -1277,7 +1283,11 @@ class DistributedKernel(IPythonKernel):
 
         metadata = self.init_metadata(parent)
 
-        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], metadata)
+        # Process the metadata included in the request.
+        # If we get back a remote storage name, then we'll use it to simulate I/O after we finish the execution.
+        remote_storage_name: str[Optional] = await self.process_execute_request_metadata(parent_header["msg_id"],
+                                                                                         parent_header["msg_type"],
+                                                                                         metadata)
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -1292,6 +1302,7 @@ class DistributedKernel(IPythonKernel):
             "store_history": store_history,
             "user_expressions": user_expressions,
             "allow_stdin": allow_stdin,
+            "remote_storage_name": remote_storage_name,
         }
 
         if self._do_exec_accepted_params["cell_meta"]:
@@ -1353,11 +1364,12 @@ class DistributedKernel(IPythonKernel):
         # Wait for the task to end. By not returning here, we ensure that we cannot process any additional
         # "execute_request" messages until all replicas have finished.
 
-        # TODO: Might there still be race conditions where one replica starts processing a future "exectue_request"
+        # TODO: Might there still be race conditions where one replica starts processing a future "execute_request"
         #       message before the others, and possibly starts a new election and proposes something before the
         #       others do?
         self.log.debug(f"Waiting for election {term_number} "
                        "to be totally finished before returning from execute_request function.")
+
         await task
 
         end_time: float = time.time()
@@ -1645,6 +1657,7 @@ class DistributedKernel(IPythonKernel):
             store_history: bool = True,
             user_expressions: dict = None,
             allow_stdin: bool = False,
+            remote_storage_name: Optional[str] = None,
             *,
             cell_meta=None,
             cell_id=None
@@ -1654,6 +1667,7 @@ class DistributedKernel(IPythonKernel):
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
+            remote_storage_name: the name of the remote storage that we should use for (simulated) checkpointing
             cell_meta:
             cell_id:
             code (str): The code to be executed.
@@ -1776,13 +1790,14 @@ class DistributedKernel(IPythonKernel):
             assert self.execution_count is not None
             self.log.info("Synchronized. End of sync execution: {}".format(term_number))
 
-            await self.schedule_notify_execution_complete(term_number)
+            if remote_storage_name is not None:
+                await self.simulate_remote_checkpointing(remote_storage_name)
 
-            return reply_content
+            await self.schedule_notify_execution_complete(term_number)
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
 
-            return gen_error_response(eye)
+            reply_content = gen_error_response(eye)
         except DiscardMessageError as dme:
             self.log.warning(f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
                              f"as election for term {term_number} was skipped: {dme}")
@@ -1794,13 +1809,58 @@ class DistributedKernel(IPythonKernel):
                 notification_type=WarningNotification,
             )
 
-            return gen_error_response(dme)
+            reply_content = gen_error_response(dme)
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
 
             self.report_error("Execution Error", str(e))
 
-            return gen_error_response(e)
+            reply_content = gen_error_response(e)
+
+        return reply_content
+
+    async def simulate_remote_checkpointing(self, remote_storage_name: str):
+        self.log.info(f'Need to simulate checkpointing with remote storage "{remote_storage_name}"')
+
+        simulated_checkpointer: Optional[SimulatedCheckpointer] = self.remote_storages.get(remote_storage_name, None)
+
+        # Verify that the requested SimulatedCheckpointer has been registered, as we cannot perform the
+        # simulated checkpointing if it has not been registered.
+        if simulated_checkpointer is None:
+            self.report_error(f'Unknown Remote Storage "{remote_storage_name}"',
+                              f'Could not find requested remote storage "{remote_storage_name}" to simulate '
+                              f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"')
+            return
+
+        # Verify that we have a resource request, as we need to know how much state we're checkpointing.
+        if self.current_resource_request is None:
+            self.report_error('No Current Resource Request',
+                              f'Kernel {self.kernel_id} does not have a resource request, so it cannot '
+                              f'simulate checkpointing with specified remote storage "{remote_storage_name}"...')
+            return
+
+        vram_gb: float | int = self.current_resource_request.get("vram", -1)
+
+        if vram_gb == -1:
+            self.report_error('Current Resource Request Does Not Specify VRAM',
+                              f'The current resource request for {self.kernel_id} does not have a VRAM entry, '
+                              f'so the kernel cannot simulate checkpointing with specified remote storage "{remote_storage_name}"...')
+            return
+
+        vram_bytes: int = int(vram_gb * 1e9)
+
+        start_time: float = time.time()
+        try:
+            simulated_checkpointer.upload_data(size_bytes=int(vram_bytes))
+        except Exception as ex:
+            self.log.error(f"{type(ex).__name__} while simulating checkpointing with remote storage "
+                           f"{remote_storage_name} and data of size {vram_bytes} bytes: {ex}")
+            self.report_error(f'Kernel "{self.kernel_id}" Failed to Simulate Checkpointing',
+                              f"{type(ex).__name__} while simulating checkpointing with remote storage "
+                              f"{remote_storage_name} and data of size {vram_bytes} bytes: {ex}")
+
+        self.log.debug(f"Finished simulated checkpointing of {vram_bytes} bytes to remote storage "
+                          f"{remote_storage_name} in {time.time() - start_time} seconds.")
 
     async def schedule_notify_execution_complete(self, term_number: int):
         """
@@ -2249,7 +2309,8 @@ class DistributedKernel(IPythonKernel):
                 f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup.")
             return
 
-        self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now. Error message: {error_message}")
+        self.log.debug(
+            f"Sending 'error_report' message for error \"{error_title}\" now. Error message: {error_message}")
         self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
             title=error_title,
             message=error_message,
