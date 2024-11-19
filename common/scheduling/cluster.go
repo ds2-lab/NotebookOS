@@ -44,7 +44,7 @@ type ClusterHostManager interface {
 	ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise
 
 	// RemoveHost removes the Host with the specified ID.
-	// This is called when a Local Daemon loses connection.
+	// This is called when a DefaultSchedulingPolicy Daemon loses connection.
 	RemoveHost(hostId string)
 
 	// NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.

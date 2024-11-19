@@ -272,7 +272,7 @@ func (c *DockerComposeCluster) unsafeGetTargetedScaleInCommand(targetScale int32
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
 //
-// DockerComposeCluster scales-in by disabling Local Daemon nodes while leaving their containers active and running.
+// DockerComposeCluster scales-in by disabling DefaultSchedulingPolicy Daemon nodes while leaving their containers active and running.
 //
 // This is because Docker Compose does not allow you to specify the container to be terminated when scaling-down
 // a docker compose service.

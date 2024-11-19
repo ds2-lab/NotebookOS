@@ -7,6 +7,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/gateway/daemon"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ type AbstractPlacer struct {
 	log             logger.Logger
 	numReplicas     int
 	instance        internalPlacer
+	daemon.SchedulingPolicy
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.

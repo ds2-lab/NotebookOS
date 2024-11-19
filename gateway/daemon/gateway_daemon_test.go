@@ -932,7 +932,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			select {
 			case <-ctx.Done():
-				GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on Local Daemons by Placer.\n")
+				GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on DefaultSchedulingPolicy Daemons by Placer.\n")
 				Expect(false).To(BeTrue())
 			case <-doneChan:
 				{
@@ -1265,7 +1265,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(placer.NumHostsInIndex()).To(Equal(0))
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
 
-				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
+				By("Not disabling the first 'InitialClusterSize' DefaultSchedulingPolicy Daemons that connect to the Cluster Gateway.")
 
 				clusterSize := 0
 				for i := 0; i < InitialClusterSize; i++ {
@@ -1293,7 +1293,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(cluster.NumDisabledHosts()).To(Equal(0))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
 
-				By("Disabling any additional Local Daemons that connect to the Cluster Gateway during the Initial Connection Period after the first 'InitialClusterSize' Local Daemons have already connected.")
+				By("Disabling any additional DefaultSchedulingPolicy Daemons that connect to the Cluster Gateway during the Initial Connection Period after the first 'InitialClusterSize' DefaultSchedulingPolicy Daemons have already connected.")
 
 				numDisabledHosts := 0
 				for i := InitialClusterSize; i < InitialClusterSize*2; i++ {
@@ -1591,7 +1591,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				select {
 				case <-ctx.Done():
-					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on Local Daemons by Placer.\n")
+					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on DefaultSchedulingPolicy Daemons by Placer.\n")
 					Expect(false).To(BeTrue())
 				case <-doneChan:
 					{
@@ -1884,7 +1884,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				select {
 				case <-ctx.Done():
-					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on Local Daemons by Placer.\n")
+					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on DefaultSchedulingPolicy Daemons by Placer.\n")
 					Expect(false).To(BeTrue())
 				case <-doneChan:
 					{

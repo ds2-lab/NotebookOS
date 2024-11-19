@@ -26,7 +26,7 @@ type PreemptionInfo interface {
 type Host interface {
 	proto.LocalGatewayClient
 
-	// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote Local Daemon.
+	// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote DefaultSchedulingPolicy Daemon.
 	GetGrpcConnection() *grpc.ClientConn
 	GetLocalGatewayClient() proto.LocalGatewayClient
 	GetNodeName() string
@@ -62,11 +62,13 @@ type Host interface {
 	CanServeContainer(resourceRequest types.Spec) bool
 	CanCommitResources(resourceRequest types.Spec) bool
 	ReleaseReservation(spec *proto.KernelSpec) error
-	ReserveResources(spec *proto.KernelSpec) (bool, error)
+	ReserveResources(spec *proto.KernelSpec, usePendingResources bool) (bool, error)
 	Restore(restoreFrom Host, callback ErrorCallback) error
 	Enabled() bool
 	Enable(includeInScheduling bool) error
 	Disable() error
+	CommitResources(spec *types.DecimalSpec) error   // CommitResources commits the specified resources and returns nil on success.
+	UncommitResources(spec *types.DecimalSpec) error // UncommitResources releases the specified resources and returns nil on success.
 	ContainerStoppedTraining(container KernelContainer) error
 	ContainerStartedTraining(container KernelContainer) error
 	ContainerRemoved(container KernelContainer) error

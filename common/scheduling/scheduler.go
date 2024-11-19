@@ -15,7 +15,16 @@ import (
 const (
 	SchedulerPoolTypeUndersubscribed SchedulerPoolType = 1
 	SchedulerPoolTypeOversubscribed  SchedulerPoolType = 2
+
+	DefaultSchedulingPolicy Policy = "default"
+	Static                  Policy = "static"
+	DynamicV3               Policy = "dynamic-v3"
+	DynamicV4               Policy = "dynamic-v4"
+	FcfsBatch               Policy = "fcfs-batch"
 )
+
+// Policy indicates the scheduling policy/methodology/algorithm that the internalCluster Gateway is configured to use.
+type Policy string
 
 type SchedulerPoolType int
 

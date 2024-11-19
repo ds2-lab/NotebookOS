@@ -100,7 +100,7 @@ type DistributedKernelClient struct {
 	nextNodeId int32
 
 	// activeExecution is the current execution request that should be being processed by the kernels,
-	// assuming the Local Daemons forward the requests in the correct order.
+	// assuming the DefaultSchedulingPolicy Daemons forward the requests in the correct order.
 	activeExecution *scheduling.ActiveExecution
 
 	// activeExecutionsByExecuteRequestMsgId is a map used to keep track of all scheduling.ActiveExecutions

@@ -138,7 +138,7 @@ type Host struct {
 // newHostForRestoration creates and returns a new Host to be used only for restoring an existing Host.
 // That is, newHostForRestoration should never be used to create a *Host struct for non-restorative purposes.
 //
-// Restoration occurs when a Local Daemon that was already connected to the Cluster Gateway reconnects, such as
+// Restoration occurs when a DefaultSchedulingPolicy Daemon that was already connected to the Cluster Gateway reconnects, such as
 // after suffering from a network partition/lost connection.
 //
 // newHostForRestoration always returns a non-nil error. It either returns an error returned by the network
@@ -148,7 +148,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 	gpuInfoResp, gpuFetchError := localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
 	if gpuFetchError != nil {
 		log.Printf(utils.RedStyle.Render("[ERROR] Failed to fetch latest GPU information from "+
-			"existing+reconnecting Local Daemon %s (ID=%s)\n"), confirmedId.NodeName, confirmedId.Id)
+			"existing+reconnecting DefaultSchedulingPolicy Daemon %s (ID=%s)\n"), confirmedId.NodeName, confirmedId.Id)
 		return nil, gpuFetchError
 	}
 
@@ -166,7 +166,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 	// with the values of this new Host struct.
 	//
 	// The most important is probably the LocalGatewayClient, as that ensures that the
-	// existing Host struct has a new, valid connection to the remote Local Daemon.
+	// existing Host struct has a new, valid connection to the remote DefaultSchedulingPolicy Daemon.
 	host := &Host{
 		ID:                   confirmedId.Id,
 		resourceSpec:         resourceSpec,
@@ -214,7 +214,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 
 	// If the node already exists, then we need to restore it, rather than create an entirely new node.
 	if confirmedId.Existing {
-		log.Printf("[INFO] New Local Daemon connection is actually from an existing Local Daemon "+
+		log.Printf("[INFO] New DefaultSchedulingPolicy Daemon connection is actually from an existing DefaultSchedulingPolicy Daemon "+
 			"(%s, ID=%s) that is reconnecting.\n", confirmedId.NodeName, confirmedId.Id)
 		return newHostForRestoration(localGatewayClient, confirmedId, millicpus, memMb, vramGb, numReplicasPerKernel)
 	}
@@ -233,7 +233,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		VRam:      decimal.NewFromFloat(vramGb),
 	}
 
-	log.Printf("Registering brand new Local Daemon %s (ID=%s) with the following resource spec: %s.",
+	log.Printf("Registering brand new DefaultSchedulingPolicy Daemon %s (ID=%s) with the following resource spec: %s.",
 		confirmedId.NodeName, confirmedId.Id, resourceSpec.String())
 
 	host := &Host{
@@ -291,7 +291,7 @@ func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramG
 	return host, nil
 }
 
-// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote Local Daemon.
+// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote DefaultSchedulingPolicy Daemon.
 func (h *Host) GetGrpcConnection() *grpc.ClientConn {
 	return h.conn
 }
@@ -694,7 +694,7 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 // a boolean flag indicating whether the resource reservation was completed successfully.
 //
 // If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
-func (h *Host) ReserveResources(spec *proto.KernelSpec) (bool, error) {
+func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool) (bool, error) {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
@@ -882,17 +882,7 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 		return ErrInvalidContainer
 	}
 
-	if err := h.resourceManager.CommittedResources().Subtract(container.ResourceSpec()); err != nil {
-		return err
-	}
-	if err := h.resourceManager.PendingResources().Add(container.ResourceSpec()); err != nil {
-		return err
-	}
-	if err := h.resourceManager.IdleResources().Add(container.ResourceSpec()); err != nil {
-		return err
-	}
-
-	return nil
+	return h.unsafeUncommitResources(container.ResourceSpec())
 }
 
 func (h *Host) IsProperlyInitialized() bool {
@@ -910,13 +900,55 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 		return ErrInvalidContainer
 	}
 
-	if err := h.resourceManager.CommittedResources().Add(container.ResourceSpec()); err != nil {
+	return h.unsafeCommitResources(container.ResourceSpec())
+}
+
+// UncommitResources releases the specified resources and returns nil on success.
+// UncommitResources is thread safe.
+func (h *Host) UncommitResources(spec *types.DecimalSpec) error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	return h.unsafeUncommitResources(spec)
+}
+
+// unsafeUncommitResources releases the specified resources and returns nil on success.
+// unsafeUncommitResources is not thread safe and should only be called with the schedulingMutex already held.
+func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec) error {
+	var err error
+	if err = h.resourceManager.CommittedResources().Subtract(spec); err != nil {
 		return err
 	}
-	if err := h.resourceManager.PendingResources().Subtract(container.ResourceSpec()); err != nil {
+	if err = h.resourceManager.PendingResources().Add(spec); err != nil {
 		return err
 	}
-	if err := h.resourceManager.IdleResources().Subtract(container.ResourceSpec()); err != nil {
+	if err = h.resourceManager.IdleResources().Add(spec); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// CommitResources commits the specified resources and returns nil on success.
+// CommitResources is thread safe.
+func (h *Host) CommitResources(spec *types.DecimalSpec) error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	return h.unsafeCommitResources(spec)
+}
+
+// unsafeCommitResources commits the specified resources and returns nil on success.
+// unsafeCommitResources is not thread safe and should only be called with the schedulingMutex already held.
+func (h *Host) unsafeCommitResources(spec *types.DecimalSpec) error {
+	var err error
+	if err = h.resourceManager.CommittedResources().Add(spec); err != nil {
+		return err
+	}
+	if err = h.resourceManager.PendingResources().Subtract(spec); err != nil {
+		return err
+	}
+	if err = h.resourceManager.IdleResources().Subtract(spec); err != nil {
 		return err
 	}
 

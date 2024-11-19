@@ -26,7 +26,7 @@ const (
 	signatureScheme string = "hmac-sha256"
 )
 
-var _ = Describe("Local Daemon Tests", func() {
+var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 	var (
 		schedulerDaemon  *SchedulerDaemonImpl
 		vgpuPluginServer device.VirtualGpuPluginServer
