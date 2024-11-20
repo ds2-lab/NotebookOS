@@ -2644,7 +2644,15 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 // TODO: >> training stopped notification, then it needs to match up with the current training, maybe in a queue structure, so that out-of-order >>
 // TODO: >> messages can be handled properly.
 func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *messaging.JupyterMessage) error {
-	d.log.Debug("Received execute_reply from kernel %s.", kernelId)
+	d.log.Debug("Received \"execute_reply\" with JupyterID=\"%s\" from kernel %s.", kernelId, msg.JupyterMessageId())
+
+	// If this message is actually from a failed attempt to handle all replicas proposing 'yield', then we just
+	// return immediately. The execution wasn't successful. We want this error to be sent back to the client.
+	if msg.IsFailedExecuteRequest {
+		d.log.Warn("\"execute_reply\" with JupyterID=\"%s\" from kernel %s is from a failed 'all replicas yielded' handler...",
+			kernelId, msg.JupyterMessageId())
+		return nil
+	}
 
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {
@@ -2654,10 +2662,7 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *messagi
 	}
 
 	activeExecution := kernel.ActiveExecution()
-	if activeExecution == nil {
-		d.log.Error("No active execution registered for kernel %s...", kernelId)
-		// return nil
-	} else if activeExecution.GetExecuteRequestMessageId() != msg.JupyterParentMessageId() {
+	if activeExecution != nil && activeExecution.GetExecuteRequestMessageId() != msg.JupyterParentMessageId() {
 		// It's possible that we receive an "execute_reply" for execution i AFTER the "smr_lead_task" message for
 		// execution i+1 (i.e., out of order). When this happens, we just stop the current training upon receiving
 		// the "smr_lead_task" message for execution i+1. If and when we receive the "execute_reply" message for
@@ -2691,10 +2696,14 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *messagi
 				activeExecution.String(), oldActiveExecution.String())
 			d.log.Error(utils.RedStyle.Render("Received out of order \"smr_lead_task\" and \"execute_reply\" messages from kernel %s.\n"), kernelId)
 		}
+	} else if activeExecution == nil {
+		d.log.Error("No active execution registered for kernel %s...", kernelId)
 	}
 
-	d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
-		With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
+	if d.gatewayPrometheusManager != nil && d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec != nil {
+		d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
+			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
+	}
 
 	if _, err := kernel.ExecutionComplete(msg); err != nil {
 		return err

@@ -331,6 +331,11 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 	for len(hostsMap) < n && index.numShuffles.Load() < loopUntilNumShuffles {
 		candidateHost, nextPos = index.unsafeSeek(blacklist, metrics...)
 
+		if candidateHost == nil {
+			index.log.Warn("Index returned nil host.")
+			return hosts, nextPos
+		}
+
 		// In case we reshuffled, make sure we haven't already received this host.
 		// If indeed it is new, then we'll add it to the host map.
 		if _, loaded := hostsMap[candidateHost.GetID()]; !loaded {

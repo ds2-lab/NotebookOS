@@ -842,6 +842,7 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplica
 
 		errWhileHandlingYield := c.handleExecutionYieldedNotification(replica, msg)
 		if errWhileHandlingYield != nil {
+			msg.IsFailedExecuteRequest = true
 			return errWhileHandlingYield, true
 		}
 
@@ -887,16 +888,14 @@ func (c *DistributedKernelClient) getRequestContext(ctx context.Context, typ mes
 
 // sendRequestToReplica is called when forwarding requests to more than one replica. This method forwards the given
 // request to the specified scheduling.KernelReplica.
+//
+// If we're in debug mode, then the given messaging.JupyterMessage will be a unique clone/copy of the original
+// messaging.JupyterMessage, so that each replica can operate/use its own unique messaging.JupyterMessage, and thus
+// there won't be issues with concurrently modifying the messaging.JupyterMessage instances, or with the fact that
+// each replica will want to add its own unique request trace to the messaging.JupyterMessage.
 func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targetReplica scheduling.KernelReplica,
-	jMsg *messaging.JupyterMessage, typ messaging.MessageType, responseReceivedWg *sync.WaitGroup, numResponsesSoFar *atomic.Int32,
+	jupyterMessage *messaging.JupyterMessage, typ messaging.MessageType, responseReceivedWg *sync.WaitGroup, numResponsesSoFar *atomic.Int32,
 	responseHandler scheduling.KernelReplicaMessageHandler) {
-
-	var jupyterMessage *messaging.JupyterMessage
-	if c.debugMode {
-		jupyterMessage = jMsg.Clone()
-	} else {
-		jupyterMessage = jMsg
-	}
 
 	if jupyterMessage.JupyterMessageType() == messaging.ShellExecuteRequest || jupyterMessage.JupyterMessageType() == messaging.ShellYieldRequest {
 		targetReplica.(*KernelReplicaClient).SentExecuteRequest(jupyterMessage)
@@ -937,7 +936,7 @@ func (c *DistributedKernelClient) replaceMessageContentWithError(resp *messaging
 		OriginalContent: originalContent,
 	}
 
-	err = resp.JupyterFrames.EncodeContent(errorMessage)
+	err = resp.JupyterFrames.EncodeContent(&errorMessage)
 	if err != nil {
 		c.log.Error("Failed to encode replacement content of \"%s\" message \"%s\" (JupyterID=\"%s\") during content replacement: %v",
 			resp.JupyterMessageType(), resp.RequestId, resp.JupyterMessageId(), err)
@@ -990,7 +989,7 @@ func (c *DistributedKernelClient) getResponseForwarder(handler scheduling.Kernel
 				c.log.Error("Error while pre-processing shell response for Jupyter \"%s\" message \"%s\" (JupyterID=\"%s\") targeting kernel \"%s\": %v",
 					response.JupyterMessageType(), response.RequestId, response.JupyterParentMessageId(), c.id, shellPreprocessingError)
 
-				replacementError := c.replaceMessageContentWithError(response, "", "")
+				replacementError := c.replaceMessageContentWithError(response, "Internal Processing Error", shellPreprocessingError.Error())
 				if replacementError != nil {
 					c.log.Error("Failed to replace content of %s \"%s\" message because: %v",
 						socketType.String(), response.JupyterMessageType(), replacementError)
@@ -1133,9 +1132,32 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	numResponsesExpected := 0
 	numResponsesSoFar := atomic.Int32{}
 
+	// We create a slice of JupyterMessages here, with length equal to the number of replicas that we have.
+	//
+	// In debug mode, we clone the message for each replica. We do this because we'll be adding request traces
+	// to the buffers of the message, and we want each replica to be able to add its own request trace.
+	//
+	// It would be bad if the replicas concurrently modified the same jupyter message, so we clone it and send
+	// each replica its own unique copy.
+	jupyterMessages := make([]*messaging.JupyterMessage, 0, len(c.replicas))
+	for _, _ = range replicas {
+		var jupyterMessage *messaging.JupyterMessage
+		if c.debugMode {
+			// I believe we clone the message so we can embed our own independent data in the metadata/buffers frames,
+			// like the request trace for this specific replica. We don't want to be writing to the buffers frames of the
+			// same JupyterMessage as our peer replicas, so we clone it first.
+			jupyterMessage = jMsg.Clone()
+		} else {
+			// Non-debug mode, so we just include a pointer to the same jupyter message 3 times in the slice.
+			jupyterMessage = jMsg
+		}
+
+		jupyterMessages = append(jupyterMessages, jupyterMessage)
+	}
+
 	// Iterate over each replica and forward the request to that kernel replica's Local Daemon,
 	// which will then route the request to the kernel replica itself.
-	for _, kernel := range replicas {
+	for idx, kernel := range replicas {
 		if kernel == nil {
 			continue
 		}
@@ -1143,7 +1165,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 		responseReceivedWg.Add(1)
 
 		numResponsesExpected += 1
-		go c.sendRequestToReplica(ctx, kernel, jMsg, typ, &responseReceivedWg, &numResponsesSoFar, responseHandler)
+		go c.sendRequestToReplica(ctx, kernel, jupyterMessages[idx], typ, &responseReceivedWg, &numResponsesSoFar, responseHandler)
 	}
 
 	if done != nil {
