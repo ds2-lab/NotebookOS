@@ -474,7 +474,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			dockerEventHandler := NewDockerEventHandler()
 			clusterGateway.containerEventHandler = dockerEventHandler
 
-			clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
+			clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas, clusterGateway.schedulingPolicy)
 			if err != nil {
 				clusterGateway.log.Error("Failed to create Random Placer: %v", err)
 				panic(err)
@@ -495,7 +495,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 			clusterGateway.dockerApiClient = apiClient
 
-			clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
+			clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas, clusterGateway.schedulingPolicy)
 			if err != nil {
 				clusterGateway.log.Error("Failed to create Random Placer: %v", err)
 				panic(err)
@@ -513,7 +513,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.kubeClient = NewKubeClient(clusterGateway, clusterDaemonOptions)
 			clusterGateway.containerEventHandler = clusterGateway.kubeClient
 
-			clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas)
+			clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, clusterDaemonOptions.NumReplicas, clusterGateway.schedulingPolicy)
 			if err != nil {
 				clusterGateway.log.Error("Failed to create Random Placer: %v", err)
 				panic(err)

@@ -14,8 +14,8 @@ type RandomPlacer struct {
 }
 
 // NewRandomPlacer creates a new RandomPlacer.
-func NewRandomPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int) (*RandomPlacer, error) {
-	basePlacer := NewAbstractPlacer(metricsProvider, numReplicas)
+func NewRandomPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.Policy) (*RandomPlacer, error) {
+	basePlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
 	randomPlacer := &RandomPlacer{
 		AbstractPlacer: basePlacer,
 		index:          index.NewRandomClusterIndex(100),
@@ -38,7 +38,7 @@ func (placer *RandomPlacer) NumHostsInIndex() int {
 // tryReserveResourcesOnHost attempts to reserve resources for a future replica of the specified kernel
 // on the specified host, returning true if the reservation was created successfully.
 func (placer *RandomPlacer) tryReserveResourcesOnHost(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec) bool {
-	reserved, err := candidateHost.ReserveResources(kernelSpec)
+	reserved, err := candidateHost.ReserveResources(kernelSpec, placer.reservationShouldUsePendingResources())
 
 	if err != nil {
 		placer.log.Error("Error while attempting to reserve resources for replica of kernel %s on host %s (ID=%s): %v",

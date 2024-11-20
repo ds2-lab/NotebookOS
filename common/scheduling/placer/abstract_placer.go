@@ -7,7 +7,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
-	"github.com/scusemua/distributed-notebook/gateway/daemon"
 	"sync"
 	"time"
 
@@ -17,22 +16,31 @@ import (
 // AbstractPlacer implements basic place/reclaim functionality.
 // AbstractPlacer should not be used directly. Instead, embed it in your placer implementation.
 type AbstractPlacer struct {
-	mu              sync.Mutex
-	metricsProvider scheduling.MetricsProvider
-	log             logger.Logger
-	numReplicas     int
-	instance        internalPlacer
-	daemon.SchedulingPolicy
+	mu               sync.Mutex
+	metricsProvider  scheduling.MetricsProvider
+	log              logger.Logger
+	numReplicas      int
+	instance         internalPlacer
+	schedulingPolicy scheduling.Policy
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.
-func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int) *AbstractPlacer {
+func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.Policy) *AbstractPlacer {
 	placer := &AbstractPlacer{
-		metricsProvider: metricsProvider,
-		numReplicas:     numReplicas,
+		metricsProvider:  metricsProvider,
+		numReplicas:      numReplicas,
+		schedulingPolicy: schedulingPolicy,
 	}
 	config.InitLogger(&placer.log, placer)
 	return placer
+}
+
+// reservationShouldUsePendingResources returns true if resource reservations on candidate hosts should be made
+// using pending resources, and false if they should be made using committed resources.
+//
+// They are only made using committed resources when using FCFS batch scheduling.
+func (placer *AbstractPlacer) reservationShouldUsePendingResources() bool {
+	return placer.schedulingPolicy != scheduling.FcfsBatch
 }
 
 // FindHosts returns a list of hosts that can satisfy the resourceSpec.

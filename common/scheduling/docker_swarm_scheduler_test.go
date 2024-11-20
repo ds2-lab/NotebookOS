@@ -158,7 +158,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 
-		clusterPlacer, err = placer.NewRandomPlacer(nil, 3)
+		clusterPlacer, err = placer.NewRandomPlacer(nil, 3, scheduling.DefaultSchedulingPolicy)
 		Expect(err).To(BeNil())
 		Expect(clusterPlacer).ToNot(BeNil())
 

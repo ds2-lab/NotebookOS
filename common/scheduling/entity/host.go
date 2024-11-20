@@ -100,7 +100,7 @@ type Host struct {
 	metricsProvider                scheduling.MetricsProvider                          // Provides access to metrics relevant to the Host.
 	ID                             string                                              // ID is the unique ID of this host.
 	containers                     hashmap.HashMap[string, scheduling.KernelContainer] // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
-	reservations                   hashmap.HashMap[string, time.Time]                  // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
+	reservations                   hashmap.HashMap[string, *resourceReservation]       // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
 	trainingContainers             []scheduling.KernelContainer                        // trainingContainers are the actively-training kernel replicas.
 	seenSessions                   []string                                            // seenSessions are the sessions that have been scheduled onto this host at least once.
 	resourceSpec                   *types.DecimalSpec                                  // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
@@ -247,7 +247,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		metricsProvider:      metricsProvider,
 		log:                  config.GetLogger(fmt.Sprintf("Host %s ", id)),
 		containers:           hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
-		reservations:         hashmap.NewCornelkMap[string, time.Time](5),
+		reservations:         hashmap.NewCornelkMap[string, *resourceReservation](5),
 		trainingContainers:   make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
 		penalties:            make([]cachedPenalty, int(resourceSpec.GPU())),
 		seenSessions:         make([]string, int(resourceSpec.GPU())),
@@ -678,7 +678,10 @@ func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 // ReleaseReservation is to be called when a resource reservation should be released because the
 // scheduling of the associated replica of the associated kernel is being aborted.
 func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
-	_, loadedReservation := h.reservations.LoadAndDelete(spec.Id)
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	reservation, loadedReservation := h.reservations.LoadAndDelete(spec.Id)
 	if !loadedReservation {
 		h.log.Error("Cannot release resource reservation associated with kernel %s; no reservations found.", spec.Id)
 		return fmt.Errorf("%w: kernel %s", ErrReservationNotFound, spec.Id)
@@ -686,6 +689,26 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 
 	// No longer being considered.
 	h.isBeingConsideredForScheduling.Add(-1)
+
+	if !reservation.CreatedUsingPendingResources {
+		err := h.unsafeUncommitResources(spec.DecimalSpecFromKernelSpec())
+		if err != nil {
+			h.log.Error("Failed to release committed resource reservation for a replica of kernel %s: %v.",
+				spec.Id, err)
+			return err
+		}
+
+		// Now we'll need to decrement the pending resources, as unsafeUncommitResources increments them.
+	}
+
+	err := h.resourceManager.PendingResources().Subtract(spec.DecimalSpecFromKernelSpec())
+	if err != nil {
+		h.log.Error("Cannot release reserved resources for a replica of kernel %s; "+
+			"error encountered while decrementing host's pending resources: %v.", spec.Id, err)
+		return err
+	}
+
+	h.RecomputeSubscribedRatio()
 
 	return nil
 }
@@ -708,9 +731,10 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 
 	// Check if there's already a reservation for some (not-yet-scheduled) replica of the target kernel.
 	// TODO: If there's an error creating the container, we need to release the resource reservation on the Host.
-	reservationCreationTimestamp, reservationLoaded := h.reservations.Load(spec.Id)
+	reservation, reservationLoaded := h.reservations.Load(spec.Id)
 	if reservationLoaded {
-		h.log.Debug("Cannot reserve resources for a replica of kernel %s; have existing reservation for that kernel created %v ago.", spec.Id, time.Since(reservationCreationTimestamp))
+		h.log.Debug("Cannot reserve resources for a replica of kernel %s; have existing reservation for that kernel created %v ago.",
+			spec.Id, time.Since(reservation.CreationTimestamp))
 		return false, nil
 	}
 
@@ -726,7 +750,6 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 	}
 
 	// Increment the pending resources on the host, which represents the reservation.
-	// TODO: Synchronizing will erase this.
 	if err := h.resourceManager.PendingResources().Add(spec.DecimalSpecFromKernelSpec()); err != nil {
 		h.log.Error("Cannot reserve resources for a replica of kernel %s; error encountered while incrementing host's pending resources: %v.", spec.Id, err)
 		return false, err
@@ -734,7 +757,7 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 
 	oldSubscribedRatio := h.subscribedRatio
 	h.RecomputeSubscribedRatio()
-	h.reservations.Store(spec.Id, time.Now())
+	h.reservations.Store(spec.Id, newResourceReservation(h.ID, time.Now(), usePendingResources))
 
 	h.log.Debug("Successfully reserved resources for new replica of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
 		spec.Id, oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
@@ -995,7 +1018,7 @@ func (h *Host) ContainerScheduled(container scheduling.KernelContainer) error {
 	}
 
 	h.log.Debug("Container %s was officially started on onto Host %s %v after reservation was created.",
-		container.String(), h.ID, time.Since(reservation))
+		container.String(), h.ID, time.Since(reservation.CreationTimestamp))
 
 	// Container was scheduled onto us, so we're no longer being considered for scheduling, as the scheduling
 	// operation concluded (and scheduled a replica onto us).
