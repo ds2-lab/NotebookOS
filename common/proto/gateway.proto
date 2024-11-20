@@ -406,6 +406,23 @@ message Pong {
   repeated RequestTrace requestTraces = 4;
 }
 
+// Individual Trace that is encapsulated within a larger RequestTrace.
+message Trace {
+  string id = 1;
+  string name = 2;
+  int64 startTimeUnixMilliseconds = 3;
+  int64 endTimeUnixMilliseconds = 4;
+}
+
+message NewRequestTrace {
+  string messageId = 1;
+  string messageType = 2;
+  string kernelId = 3;
+  int32 replicaId = 4;
+  string requestTraceUuid = 5;
+  repeated Trace traces = 6;
+}
+
 message RequestTrace {
   string messageId = 1;
   string messageType = 2;
