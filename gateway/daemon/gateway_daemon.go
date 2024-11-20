@@ -2627,6 +2627,8 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 	}
 
 	if err := d.forwardRequest(kernel, messaging.ShellMessage, msg); err != nil {
+		d.log.Error("Error while handling/forwarding shell \"%s\" message \"%s\" (JupyterID=\"%s\"): %v.",
+			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
 		return err
 	}
 
@@ -2984,8 +2986,8 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 		//}
 	}
 
-	d.log.Debug(utils.DarkGreenStyle.Render("[gid=%d] Forwarding %v response from kernel %s via %s: %v"),
-		goroutineId, typ, from.ID(), socket.Name, msg)
+	d.log.Debug(utils.DarkGreenStyle.Render("[gid=%d] Forwarding %v \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s via %s: %v"),
+		goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, msg)
 	zmqMsg := *msg.GetZmqMsg()
 	sendStart := time.Now()
 	err := socket.Send(zmqMsg)

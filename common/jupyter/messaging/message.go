@@ -148,6 +148,19 @@ const (
 	MessageKernelStatusStarting = "starting"
 )
 
+// MessageErrorWithOldContent is similar to MessageError; however, MessageErrorWithOldContent is used
+// when we're replacing the content of a Jupyter message with a custom error message.
+//
+// MessageErrorWithOldContent has an additional field (relative to MessageError) in which the original content
+// of the Jupyter message is stored.
+type MessageErrorWithOldContent struct {
+	*MessageError
+
+	// OriginalContent contains the original content of the Jupyter message whose content is being replaced
+	// with a custom error message.
+	OriginalContent map[string]interface{} `json:"original_content"`
+}
+
 type MessageError struct {
 	Status   string `json:"status"`
 	ErrName  string `json:"ename"`

@@ -1342,7 +1342,8 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shou
 
 			_, err = request.SetComplete()
 			if err != nil {
-				panic(fmt.Sprintf("Request transition to 'completed' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
+				panic(fmt.Sprintf("Request transition to 'completed' state failed for %s \"%s\" request %s (JupyterID=%s): %v",
+					socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
 			}
 		}
 
