@@ -809,7 +809,8 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
 
 				Expect(bigHost1.NumReservations()).To(Equal(1))
-				Expect(bigHost1.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+				Expect(bigHost1.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeFalse())
+				Expect(bigHost1.CommittedResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 
 				i = len(hosts)
 				bigHost2, _, _, err := addHost(i, largerHostSpec, false, dockerCluster, mockCtrl)
@@ -825,10 +826,37 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				Expect(candidateHosts[1]).To(Equal(bigHost2))
 
 				Expect(bigHost1.NumReservations()).To(Equal(1))
-				Expect(bigHost1.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+				reservation, loaded := bigHost1.GetReservation(kernelId)
+				Expect(loaded).To(BeTrue())
+				// Matches kernel.
+				Expect(reservation.GetKernelId()).To(Equal(kernelId))
+				// Matches host.
+				Expect(reservation.GetHostId()).To(Equal(bigHost1.GetID()))
+				// Not pending.
+				Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+				// Created recently.
+				Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+				// Correct amount of resources.
+				Expect(reservation.GetResourcesReserved().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+
+				Expect(bigHost1.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeFalse())
+				Expect(bigHost1.CommittedResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 
 				Expect(bigHost2.NumReservations()).To(Equal(1))
-				Expect(bigHost2.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+				reservation, loaded = bigHost1.GetReservation(kernelId)
+				Expect(loaded).To(BeTrue())
+				// Matches kernel.
+				Expect(reservation.GetKernelId()).To(Equal(kernelId))
+				// Matches host.
+				Expect(reservation.GetHostId()).To(Equal(bigHost1.GetID()))
+				// Not pending.
+				Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+				// Created recently.
+				Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+				// Correct amount of resources.
+				Expect(reservation.GetResourcesReserved().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+				Expect(bigHost2.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeFalse())
+				Expect(bigHost2.CommittedResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 
 				smallKernelKey := uuid.NewString()
 				smallKernelId := uuid.NewString()
@@ -859,10 +887,51 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				for _, candidateHost := range candidateHosts {
 					if candidateHost.ResourceSpec().GPU() > 8 {
 						Expect(candidateHost.NumReservations()).To(Equal(2))
-						Expect(candidateHost.PendingResources().Equals(combinedSpec)).To(BeTrue())
+						reservation, loaded := candidateHost.GetReservation(smallKernelId)
+						Expect(loaded).To(BeTrue())
+						// Matches kernel.
+						Expect(reservation.GetKernelId()).To(Equal(smallKernelId))
+						// Matches host.
+						Expect(reservation.GetHostId()).To(Equal(candidateHost.GetID()))
+						// Not pending.
+						Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+						// Created recently.
+						Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+						// Correct amount of resources.
+						Expect(reservation.GetResourcesReserved().Equals(smallKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+
+						reservation, loaded = candidateHost.GetReservation(kernelId)
+						Expect(loaded).To(BeTrue())
+						// Matches kernel.
+						Expect(reservation.GetKernelId()).To(Equal(kernelId))
+						// Matches host.
+						Expect(reservation.GetHostId()).To(Equal(candidateHost.GetID()))
+						// Not pending.
+						Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+						// Created recently.
+						Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+						// Correct amount of resources.
+						Expect(reservation.GetResourcesReserved().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+
+						Expect(candidateHost.PendingResources().Equals(combinedSpec)).To(BeFalse())
+						Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
 					} else {
 						Expect(candidateHost.NumReservations()).To(Equal(1))
-						Expect(candidateHost.PendingResources().Equals(smallKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+						reservation, loaded := candidateHost.GetReservation(smallKernelId)
+						Expect(loaded).To(BeTrue())
+						// Matches kernel.
+						Expect(reservation.GetKernelId()).To(Equal(smallKernelId))
+						// Matches host.
+						Expect(reservation.GetHostId()).To(Equal(candidateHost.GetID()))
+						// Not pending.
+						Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+						// Created recently.
+						Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+						// Correct amount of resources.
+						Expect(reservation.GetResourcesReserved().Equals(smallKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+
+						Expect(candidateHost.PendingResources().Equals(smallKernelSpec.DecimalSpecFromKernelSpec())).To(BeFalse())
+						Expect(candidateHost.CommittedResources().Equals(smallKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 					}
 				}
 			})
