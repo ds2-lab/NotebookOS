@@ -2547,30 +2547,33 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *messaging.JupyterMessage,
 		d.notifyClusterGatewayAndPanic("Unexpected Message Status in \"execute_reply\" Message", errorMessage, errorMessage)
 	}
 
-	// Release any resources committed to the kernel replica, as it is done training and does not need the resources
-	// to be actively-bound/committed to it anymore.
-	//
-	// This may fail, as sometimes, the replica will not have resources allocated to it, such as if it
-	// proposed 'YIELD' during its leader election (like if there were not enough resources available on
-	// the node for it to train if it were to have won).
-	d.log.Debug("Attempting to release committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
-	if err = d.resourceManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID()); err != nil && releaseResourcesMustSucceed {
-		errorMessage := fmt.Sprintf("Failed to release GPUs allocated to leader replica %d of kernel %s because: %v",
-			kernelClient.ReplicaID(), kernel.ID(), err)
-		d.log.Error(errorMessage)
-		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            "Failed to Release Committed Resources",
-			Message:          errorMessage,
-			NotificationType: 0,
-			Panicked:         false,
-		})
-	} else if err == nil {
-		// Again, if the error is non-nil, that doesn't necessarily mean the system is in an error state.
-		// There are cases where we'll have told the replica to yield and did not reserve any resources for it.
-		// These are described in greater detail in the comment(s) above.
-		d.log.Debug("Successfully released committed resources from replica %d of kernel %s.",
-			kernelClient.ReplicaID(), kernel.ID())
+	// Check if we should be releasing resources at this point or not.
+	if d.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+		// Release any resources committed to the kernel replica, as it is done training and does not need the resources
+		// to be actively-bound/committed to it anymore.
+		//
+		// This may fail, as sometimes, the replica will not have resources allocated to it, such as if it
+		// proposed 'YIELD' during its leader election (like if there were not enough resources available on
+		// the node for it to train if it were to have won).
+		d.log.Debug("Attempting to release committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
+		if err = d.resourceManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID()); err != nil && releaseResourcesMustSucceed {
+			errorMessage := fmt.Sprintf("Failed to release GPUs allocated to leader replica %d of kernel %s because: %v",
+				kernelClient.ReplicaID(), kernel.ID(), err)
+			d.log.Error(errorMessage)
+			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Id:               uuid.NewString(),
+				Title:            "Failed to Release Committed Resources",
+				Message:          errorMessage,
+				NotificationType: 0,
+				Panicked:         false,
+			})
+		} else if err == nil {
+			// Again, if the error is non-nil, that doesn't necessarily mean the system is in an error state.
+			// There are cases where we'll have told the replica to yield and did not reserve any resources for it.
+			// These are described in greater detail in the comment(s) above.
+			d.log.Debug("Successfully released committed resources from replica %d of kernel %s.",
+				kernelClient.ReplicaID(), kernel.ID())
+		}
 	}
 
 	if shouldCallTrainingStopped {
