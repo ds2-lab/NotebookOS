@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
@@ -166,6 +167,10 @@ const (
 	MessageStatusOK          = "ok"
 	MessageStatusError       = "error"
 	MessageErrYieldExecution = "ExecutionYieldError"
+)
+
+var (
+	ErrExecutionYielded = errors.New("kernel replica failed to lead the execution")
 )
 
 type MessageShutdownRequest struct {

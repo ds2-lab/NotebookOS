@@ -977,7 +977,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	// Create a host scheduler client and register it.
 	host, err := entity.NewHostWithConn(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
 		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, d.cluster.NumReplicas(), d.cluster, d.gatewayPrometheusManager,
-		gConn, d.localDaemonDisconnected)
+		gConn, d.Scheduler().GetResourceBindingMode(), d.localDaemonDisconnected)
 
 	if err != nil {
 		if errors.Is(err, entity.ErrRestoreRequired) {

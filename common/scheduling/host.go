@@ -67,8 +67,6 @@ type Host interface {
 	Enabled() bool
 	Enable(includeInScheduling bool) error
 	Disable() error
-	CommitResources(spec *types.DecimalSpec) error   // CommitResources commits the specified resources and returns nil on success.
-	UncommitResources(spec *types.DecimalSpec) error // UncommitResources releases the specified resources and returns nil on success.
 	ContainerStoppedTraining(container KernelContainer) error
 	ContainerStartedTraining(container KernelContainer) error
 	ContainerRemoved(container KernelContainer) error

@@ -111,22 +111,27 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 	case string(scheduling.DefaultSchedulingPolicy):
 		{
 			clusterScheduler.schedulingPolicy = scheduling.DefaultSchedulingPolicy
+			clusterScheduler.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
 		}
 	case string(scheduling.Static):
 		{
 			clusterScheduler.schedulingPolicy = scheduling.Static
+			clusterScheduler.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
 		}
 	case string(scheduling.DynamicV3):
 		{
 			clusterScheduler.schedulingPolicy = scheduling.DynamicV3
+			clusterScheduler.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
 		}
 	case string(scheduling.DynamicV4):
 		{
 			clusterScheduler.schedulingPolicy = scheduling.DynamicV4
+			clusterScheduler.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
 		}
 	case string(scheduling.FcfsBatch):
 		{
 			clusterScheduler.schedulingPolicy = scheduling.FcfsBatch
+			clusterScheduler.resourceBindingMode = scheduling.BindResourcesWhenContainerScheduled
 		}
 	default:
 		{

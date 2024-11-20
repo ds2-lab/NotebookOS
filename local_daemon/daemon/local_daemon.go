@@ -120,7 +120,9 @@ type SchedulerDaemonImpl struct {
 
 	virtualGpuPluginServer device.VirtualGpuPluginServer
 
-	schedulingPolicy scheduling.Policy
+	schedulingPolicy    scheduling.Policy
+	resourceBindingMode scheduling.ResourceBindingMode
+
 	proto.UnimplementedLocalGatewayServer
 	proto.UnimplementedKernelErrorReporterServer
 	router *router.Router
@@ -355,16 +357,19 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	case string(scheduling.DefaultSchedulingPolicy):
 		{
 			daemon.schedulingPolicy = scheduling.DefaultSchedulingPolicy
+			daemon.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
 			daemon.log.Debug("Using the 'DEFAULT' scheduling policy.")
 		}
 	case string(scheduling.Static):
 		{
 			daemon.schedulingPolicy = scheduling.Static
+			daemon.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
 			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
 		}
 	case string(scheduling.DynamicV3):
 		{
 			daemon.schedulingPolicy = scheduling.DynamicV3
+			daemon.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
 			daemon.log.Debug("Using the 'DYNAMIC v3' scheduling policy.")
 
 			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
@@ -372,6 +377,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	case string(scheduling.DynamicV4):
 		{
 			daemon.schedulingPolicy = scheduling.DynamicV4
+			daemon.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
 			daemon.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
 
 			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
@@ -379,6 +385,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	case string(scheduling.FcfsBatch):
 		{
 			daemon.schedulingPolicy = scheduling.FcfsBatch
+			daemon.resourceBindingMode = scheduling.BindResourcesWhenContainerScheduled
 			daemon.log.Debug("Using the 'FCFS Batch' scheduling policy.")
 		}
 	default:
@@ -1874,7 +1881,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	}
 
 	// If we're performing FCFS batch scheduling, then we commit resources right away.
-	if d.schedulingPolicy == scheduling.FcfsBatch {
+	if d.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
 		allocationError = d.resourceManager.CommitResources(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec, false)
 
 		if allocationError != nil {
@@ -3163,21 +3170,33 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.KernelReplica,
 			return err
 		}
 
-		d.log.Debug("%v leads the task, GPU required (%v), notify the scheduler. Resources required: %v.", kernel, leadMessage.GPURequired, kernel.ResourceSpec())
+		d.log.Debug("%v leads the task, GPU required (%v), notify the scheduler. Resources required: %v.",
+			kernel, leadMessage.GPURequired, kernel.ResourceSpec())
 
-		if d.schedulingPolicy == scheduling.FcfsBatch && !d.resourceManager.ReplicaHasCommittedResources(kernel.ReplicaID(), kernel.ID()) {
-			d.log.Error("Replica %d of kernel %s does not already have resources committed to it.", kernel.ReplicaID(), kernel.ID())
+		// If we're supposed to commit the resources when the container is scheduled, then it should already have
+		// resources commited to it. If it doesn't, then that's problematic.
+		if d.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled &&
+			!d.resourceManager.ReplicaHasCommittedResources(kernel.ReplicaID(), kernel.ID()) {
+
+			d.log.Error("Replica %d of kernel %s does not already have resources committed to it.",
+				kernel.ReplicaID(), kernel.ID())
 			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-				Id:               uuid.NewString(),
-				Title:            fmt.Sprintf("Replica %d of Kernel %s Does Not Already Have Resources Committed to It", kernel.ReplicaID(), kernel.ID()),
+				Id: uuid.NewString(),
+				Title: fmt.Sprintf("Replica %d of Kernel %s Does Not Already Have Resources Committed to It",
+					kernel.ReplicaID(), kernel.ID()),
 				Message:          "Resources should already be committed to the kernel because we're using FCFS batch scheduling.",
 				NotificationType: 0,
 				Panicked:         true,
 			})
 
-			return fmt.Errorf("replica %d of kernel %s does not already have resources committed to it", kernel.ReplicaID(), kernel.ID())
-		} else if d.schedulingPolicy != scheduling.FcfsBatch {
-			d.log.Debug("Promoting resource reservation of replica %d of kernel %s now.", kernel.ReplicaID(), kernel.ID())
+			return fmt.Errorf("replica %d of kernel %s does not already have resources committed to it",
+				kernel.ReplicaID(), kernel.ID())
+		}
+
+		// If we're supposed to bind resources at training start, then we'd better do that now.
+		if d.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+			d.log.Debug("Promoting resource reservation of replica %d of kernel %s now.",
+				kernel.ReplicaID(), kernel.ID())
 			err = d.resourceManager.PromoteReservation(kernel.ReplicaID(), kernel.ID())
 			if err != nil {
 				d.log.Error("Our attempt to promote reserved resources of replica %d of kernel %s failed because: %v.",

@@ -31,31 +31,31 @@ type ContainerStatistics interface {
 	ScaleOutPriority() float64
 }
 type KernelContainer interface {
-	ToDockerContainer() *proto.DockerContainer
-	StartedAt() time.Time
 	Address() string
-	GetClient() KernelReplica
-	SetClient(client KernelReplica)
-	ContainerStatistics() ContainerStatistics
+	ContainedStopped() error
 	ContainerID() string
-	ReplicaId() int32
-	KernelID() string
-	String() string
-	Session() UserSession
+	ContainerState() ContainerState
+	ContainerStatistics() ContainerStatistics
+	ContainerStoppedTraining() error
+	Explain(key ExplainerEntry) string
+	GetClient() KernelReplica
 	Host() Host
-	SetHost(Host)
 	InteractivePriority() float64
 	InvalidateInteractivePriority()
-	PreemptionPriority() float64
-	ContainerStoppedTraining() error
-	TrainingStartedInContainer() error
-	Explain(key ExplainerEntry) string
-	ContainerState() ContainerState
-	IsStopped() bool
 	IsIdle() bool
 	IsMigrating() bool
+	IsStopped() bool
 	IsTraining() bool
+	KernelID() string
+	PreemptionPriority() float64
+	ReplicaId() int32
 	ResourceSpec() *types.DecimalSpec
 	ScaleOutPriority() float64
-	ContainedStopped() error
+	Session() UserSession
+	SetClient(client KernelReplica)
+	SetHost(Host)
+	StartedAt() time.Time
+	String() string
+	ToDockerContainer() *proto.DockerContainer
+	TrainingStartedInContainer() error
 }

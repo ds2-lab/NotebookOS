@@ -116,6 +116,7 @@ type Host struct {
 	isContainedWithinIndex         bool                                                // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
 	ProperlyInitialized            bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
 	numReplicasPerKernel           int                                                 // The number of replicas per kernel.
+	resourceBindingMode            scheduling.ResourceBindingMode                      // resourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly when they are uncommitted from containers as well.
 
 	// lastSnapshot is the last HostResourceSnapshot to have been applied successfully to this Host.
 	lastSnapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
@@ -185,7 +186,8 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 // If NewHost is called directly, then the conn field of the Host will not be populated. To populate this field,
 // call NewHostWithConn instead.
 func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int, querier SubscriptionQuerier,
-	metricsProvider scheduling.MetricsProvider, localGatewayClient proto.LocalGatewayClient, errorCallback scheduling.ErrorCallback) (*Host, error) {
+	metricsProvider scheduling.MetricsProvider, localGatewayClient proto.LocalGatewayClient, resourceBindingMode scheduling.ResourceBindingMode,
+	errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
 	confirmedId, err := localGatewayClient.SetID(context.Background(), &proto.HostId{Id: id})
@@ -254,6 +256,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		meta:                 hashmap.NewCornelkMap[string, interface{}](64),
 		errorCallback:        errorCallback,
 		enabled:              true,
+		resourceBindingMode:  resourceBindingMode,
 		CreatedAt:            time.Now(),
 		SubscriptionQuerier:  querier,
 		ProperlyInitialized:  true,
@@ -273,12 +276,12 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 
 // NewHostWithConn creates and returns a new *Host.
 func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int, querier SubscriptionQuerier,
-	metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn, errorCallback scheduling.ErrorCallback) (*Host, error) {
+	metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn, resourceBindingMode scheduling.ResourceBindingMode, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
-	host, err := NewHost(id, addr, millicpus, memMb, vramGb, numReplicasPerKernel, querier, metricsProvider, localGatewayClient, errorCallback)
+	host, err := NewHost(id, addr, millicpus, memMb, vramGb, numReplicasPerKernel, querier, metricsProvider, localGatewayClient, resourceBindingMode, errorCallback)
 	if err != nil {
 		// We need to return host here, in case the error is ErrRestoreRequired, as a host IS returned in that case.
 		// It's a host with only some fields filled-in so that it can be used to restore the existing host.
@@ -855,61 +858,75 @@ func (h *Host) Disable() error {
 //
 // If there's an error while updating the local view of the resource counts of the Host, then we attempt to
 // synchronize with the remote Host and try again. If that fails, then we just return an error.
-func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelContainer) {
+func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelContainer) error {
 	// TODO: Check for deadlock.
-	syncLocked := h.syncMutex.TryLock()
+	//syncLocked := h.syncMutex.TryLock()
+	//
+	//// If we fail to sync-lock, then we're presumably in the process of synchronizing (or applying a new snapshot),
+	//// in which case we'll just skip updating our local view of the resources of the remote host, as that update is
+	//// already underway.
+	//var err error
+	//if syncLocked {
+	//	// If our last snapshot from the remote host was received after the container started, and that last snapshot
+	//	// does not show the container as being scheduled on the host, then we can skip updating the state locally,
+	//	// as we've already synchronized with the remote host post-removal.
+	//	if h.lastSnapshot != nil && h.lastSnapshot.GetGoTimestamp().After(container.StartedAt()) {
+	//		containers := h.lastSnapshot.GetContainers()
+	//		found := false
+	//
+	//		// Check the containers. If the container being removed is one of 'em, then we'll update the local view
+	//		// of the resources on the remote host. If the container is not one of 'em, then the host had already
+	//		// removed it when we last synchronized with the host, so we can skip the local resource count update
+	//		// (or else we'll be applying it twice).
+	//		for _, containerOnHost := range containers {
+	//			if containerOnHost.GetReplicaId() == container.ReplicaId() && containerOnHost.GetKernelId() == container.KernelID() {
+	//				// Found the host in the snapshot, so the removal of its resources hasn't already been applied.
+	//				err = h.resourceManager.PendingResources().Subtract(container.ResourceSpec())
+	//				found = true
+	//				break
+	//			}
+	//		}
+	//
+	//		if !found {
+	//			h.log.Debug("Did not find container for replica %d of kernel %s in last snapshot from host %s (ID=%s). Skipping local resource update.",
+	//				container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
+	//		}
+	//	} else {
+	//		// We either don't have a snapshot at all, or we don't have a recent-enough snapshot.
+	//		err = h.resourceManager.PendingResources().Subtract(container.ResourceSpec())
+	//	}
+	//
+	//	h.syncMutex.Unlock()
+	//} else {
+	//	h.log.Warn("Failed to sync-lock host %s (ID=%s) while removing container for replica %d of kernel %s. Skipping local resource update.",
+	//		h.NodeName, h.ID, container.ReplicaId(), container.KernelID())
+	//}
 
-	// If we fail to sync-lock, then we're presumably in the process of synchronizing (or applying a new snapshot),
-	// in which case we'll just skip updating our local view of the resources of the remote host, as that update is
-	// already underway.
-	var err error
-	if syncLocked {
-		// If our last snapshot from the remote host was received after the container started, and that last snapshot
-		// does not show the container as being scheduled on the host, then we can skip updating the state locally,
-		// as we've already synchronized with the remote host post-removal.
-		if h.lastSnapshot != nil && h.lastSnapshot.GetGoTimestamp().After(container.StartedAt()) {
-			containers := h.lastSnapshot.GetContainers()
-			found := false
+	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
+		h.log.Debug("Releasing committed resources from container for replica %d of kernel %s during eviction process: %s",
+			container.ReplicaId(), container.KernelID(), container.ResourceSpec().String())
 
-			// Check the containers. If the container being removed is one of 'em, then we'll update the local view
-			// of the resources on the remote host. If the container is not one of 'em, then the host had already
-			// removed it when we last synchronized with the host, so we can skip the local resource count update
-			// (or else we'll be applying it twice).
-			for _, containerOnHost := range containers {
-				if containerOnHost.GetReplicaId() == container.ReplicaId() && containerOnHost.GetKernelId() == container.KernelID() {
-					// Found the host in the snapshot, so the removal of its resources hasn't already been applied.
-					// TODO: Race condition (unless we have the locking of syncMutex up above).
-					err = h.resourceManager.PendingResources().Subtract(container.ResourceSpec())
-					found = true
-					break
-				}
-			}
-
-			if !found {
-				h.log.Debug("Did not find container for replica %d of kernel %s in last snapshot from host %s (ID=%s). Skipping local resource update.",
-					container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
-			}
-		} else {
-			// We either don't have a snapshot at all, or we don't have a recent-enough snapshot.
-			err = h.resourceManager.PendingResources().Subtract(container.ResourceSpec())
+		err := h.unsafeUncommitResources(container.ResourceSpec())
+		if err != nil {
+			h.log.Error("Failed to release committed resources %s from container for replica %d of kernel %s during eviction process: %v",
+				container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), err)
+			return err
 		}
-
-		h.syncMutex.Unlock()
-	} else {
-		h.log.Debug("Failed to sync-lock host %s (ID=%s) while removing container for replica %d of kernel %s. Skipping local resource update.",
-			h.NodeName, h.ID, container.ReplicaId(), container.KernelID())
 	}
 
-	if err == nil {
-		h.log.Debug("Cleanly updated resources after removing container for replica %d of kernel %s from host %s (ID=%s)",
-			container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
-		return
+	h.log.Debug("Releasing pending resources from container for replica %d of kernel %s during eviction process: %s",
+		container.ReplicaId(), container.KernelID(), container.ResourceSpec().String())
+	err := h.resourceManager.PendingResources().Subtract(container.ResourceSpec())
+	if err != nil {
+		h.log.Error("Could not cleanly remove Container %s from Host %s due to resource-related issue (though the container WAS still removed): %v",
+			container.ContainerID(), h.ID, err)
+		return err
 	}
 
-	// TODO: Should we bother forcing a synchronization here?
+	h.log.Debug("Cleanly updated resources after removing container for replica %d of kernel %s from host %s (ID=%s)",
+		container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
 
-	h.log.Warn("Could not cleanly remove Container %s from Host %s due to resource-related issue (though the container WAS still removed): %v",
-		container.ContainerID(), h.ID, err)
+	return nil
 }
 
 // ContainerStoppedTraining is to be called when a Container stops training on a Host.
@@ -923,7 +940,13 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 		return ErrInvalidContainer
 	}
 
-	return h.unsafeUncommitResources(container.ResourceSpec())
+	// If the resource binding mode is instead BindResourcesWhenContainerScheduled, then we do not
+	// uncommit the resources until the container is actually evicted.
+	if h.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+		return h.unsafeUncommitResources(container.ResourceSpec())
+	}
+
+	return nil
 }
 
 func (h *Host) IsProperlyInitialized() bool {
@@ -941,12 +964,19 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 		return ErrInvalidContainer
 	}
 
-	return h.unsafeCommitResources(container.ResourceSpec())
+	// If the resource binding mode is instead BindResourcesWhenContainerScheduled, then they're already
+	// committed to the container, and so we don't have to do anything else and can just return nil,
+	// as we do below.
+	if h.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+		return h.unsafeCommitResources(container.ResourceSpec())
+	}
+
+	return nil
 }
 
-// UncommitResources releases the specified resources and returns nil on success.
-// UncommitResources is thread safe.
-func (h *Host) UncommitResources(spec *types.DecimalSpec) error {
+// uncommitResources releases the specified resources and returns nil on success.
+// uncommitResources is thread safe.
+func (h *Host) uncommitResources(spec *types.DecimalSpec) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
@@ -970,9 +1000,9 @@ func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec) error {
 	return nil
 }
 
-// CommitResources commits the specified resources and returns nil on success.
-// CommitResources is thread safe.
-func (h *Host) CommitResources(spec *types.DecimalSpec) error {
+// commitResources commits the specified resources and returns nil on success.
+// commitResources is thread safe.
+func (h *Host) commitResources(spec *types.DecimalSpec) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
@@ -1010,10 +1040,14 @@ func (h *Host) ContainerRemoved(container scheduling.KernelContainer) error {
 
 	h.pendingContainers.Sub(1)
 
-	h.doContainerRemovedResourceUpdate(container)
+	err := h.doContainerRemovedResourceUpdate(container)
+	if err != nil {
+		h.log.Error("Error while updating resources of host while evicting container %s: %v",
+			container.ContainerID(), err)
+		return err
+	}
 
 	h.RecomputeSubscribedRatio()
-
 	return nil
 }
 

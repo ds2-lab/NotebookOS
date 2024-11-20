@@ -59,6 +59,7 @@ func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 		dockerScheduler.log.Error("Initial retrieval of Docker nodes failed: %v", err)
 	}
 
+	// Note: if I re-enable this, then I need to revisit Host::doContainerRemovedResourceUpdate.
 	// go dockerScheduler.pollForResourceData()
 
 	return dockerScheduler, nil

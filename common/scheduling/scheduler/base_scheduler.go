@@ -85,6 +85,9 @@ type BaseScheduler struct {
 
 	candidateHostMutex sync.Mutex
 
+	// resourceBindingMode describes when resources are committed and uncommitted from Containers.
+	resourceBindingMode scheduling.ResourceBindingMode
+
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
 	//-//-//-//-//-//-//-//-//-//
@@ -123,6 +126,10 @@ type BaseScheduler struct {
 	pendingSubscribedRatio float64
 
 	log logger.Logger
+}
+
+func (s *BaseScheduler) GetResourceBindingMode() scheduling.ResourceBindingMode {
+	return s.resourceBindingMode
 }
 
 func (s *BaseScheduler) sendErrorNotification(errorName string, errorMessage string) {

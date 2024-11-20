@@ -813,8 +813,7 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplica
 	}
 
 	var msgErr messaging.MessageError
-	err := json.Unmarshal(*msg.JupyterFrames.ContentFrame(), &msgErr)
-	if err != nil {
+	if err := json.Unmarshal(*msg.JupyterFrames.ContentFrame(), &msgErr); err != nil {
 		c.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v", replica.ReplicaID(), c.id, err)
 		return err, false
 	}
@@ -826,9 +825,10 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplica
 
 	activeExec := c.getActiveExecution(msg.JupyterParentMessageId(), replica)
 	if activeExec != nil && c.debugMode { // Replies are only saved if debug mode is enabled.
-		err = activeExec.RegisterReply(replica.ReplicaID(), msg, true)
+		err := activeExec.RegisterReply(replica.ReplicaID(), msg, true)
 		if err != nil {
 			c.log.Error("Failed to register \"execute_reply\" message: %v", err)
+			return err, false
 		}
 	}
 
@@ -839,11 +839,16 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplica
 
 	if msgErr.ErrName == messaging.MessageErrYieldExecution {
 		replica.ReceivedExecuteReply(msg)
+
 		errWhileHandlingYield := c.handleExecutionYieldedNotification(replica, msg)
-		return errors.Join(errors.New(msgErr.ErrValue), errWhileHandlingYield), true
+		if errWhileHandlingYield != nil {
+			return errWhileHandlingYield, true
+		}
+
+		return messaging.ErrExecutionYielded, true
 	}
 
-	return err, false
+	return nil, false
 }
 
 // markExecutionAsComplete records that the ActiveExecution of the DistributedKernelClient has been executed.
@@ -898,9 +903,23 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 		if typ == messaging.ShellMessage {
 			// "Preprocess" the response, which involves checking if it is a YIELD notification, and handling a situation in which ALL replicas have proposed 'YIELD'.
-			_, yielded := c.preprocessShellResponse(replica.(*KernelReplicaClient), msg)
-			if yielded {
+			shellPreprocessingError, yielded := c.preprocessShellResponse(replica.(*KernelReplicaClient), msg)
+
+			// If we yielded, then the expectation is that the shellPreprocessingError will be a
+			// messaging.ErrExecutionYielded. This is fine. But if the shellPreprocessingError is not a
+			// messaging.ErrExecutionYielded (and is instead some other error), then that's problematic.
+			//
+			// For example, maybe all the replicas yielded, and then the handler for that was called, but that
+			// handler encountered an error. In that case, we'll need to propagate the error back to the client.
+			// So, we can't return nil here (in that scenario).
+			if yielded && errors.Is(shellPreprocessingError, messaging.ErrExecutionYielded) {
 				return nil
+			}
+
+			if shellPreprocessingError != nil {
+				c.log.Debug("Error while pre-processing shell response for Jupyter \"%s\" message \"%s\" (JupyterID=\"%s\") targeting kernel \"%s\": %v",
+					msg.JupyterMessageType(), msg.RequestId, msg.JupyterParentMessageId(), c.id, shellPreprocessingError)
+				return shellPreprocessingError
 			}
 		}
 

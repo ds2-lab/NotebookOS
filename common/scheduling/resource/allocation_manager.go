@@ -926,6 +926,8 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 	// First, check if the allocation is of type CommittedAllocation.
 	// If so, then we'll first release the committed HostResources before unsubscribing the pending HostResources.
 	if allocation.IsCommitted() {
+		m.log.Debug("Releasing resources committed to evicted replica %d of kernel %s now.", replicaId, kernelId)
+
 		// Perform the resource count adjustments associated with releasing committed HostResources.
 		// We'll pass allocatedResources ourselves (non-nil), as we need the *types.DecimalSpec
 		// later on in the ReplicaEvicted method.
@@ -935,6 +937,8 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 		// internal counters that keep track of the number of pending and committed resource allocations.
 		m.unsafeDemoteCommittedAllocationToPendingAllocation(allocation)
 	}
+
+	m.log.Debug("Releasing pending resources assigned to evicted replica %d of kernel %s now.", replicaId, kernelId)
 
 	// Next, unsubscribe the pending HostResources.
 	err := m.unsafeUnsubscribePendingResources(allocatedResources, key)
@@ -946,7 +950,8 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 
 	m.log.Debug("Evicted replica %d of kernel %s, releasing the following pending HostResources: %v.",
 		replicaId, kernelId, allocation.ToSpecString())
-	m.log.Debug("After removal: %s.", m.resourcesWrapper.pendingResources.String())
+	m.log.Debug("Committed resources after removal: %s.", m.resourcesWrapper.CommittedResources().String())
+	m.log.Debug("Pending resources after removal: %s.", m.resourcesWrapper.PendingResources().String())
 
 	// Update Prometheus metrics.
 	// m.resourceMetricsCallback(m.Manager)
