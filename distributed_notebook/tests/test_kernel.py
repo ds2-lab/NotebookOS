@@ -124,6 +124,7 @@ async def create_kernel(
         init_persistent_store: bool = True,
         call_start: bool = True,
         local_tcp_server_port: int = -1,
+        checkpointing_enabled: bool = False,
         persistent_id: Optional[str] = None,
         resource_request: Optional[Dict[str, Any]] = None,
         remote_storage_definitions: Optional[Dict[str, Any]] = None,
@@ -155,6 +156,7 @@ async def create_kernel(
         "storage_base": storage_base,
         "local_tcp_server_port": local_tcp_server_port,
         "persistent_id": persistent_id,
+        "checkpointing_enabled": checkpointing_enabled,
     }
 
     keyword_args.update(kwargs)
@@ -2509,6 +2511,11 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
     """
     global CommittedValues
 
+    if os.environ.get("SIMULATE_CHECKPOINTING_LATENCY"):
+        assert kernel.checkpointing_enabled
+    else:
+        assert not kernel.checkpointing_enabled
+
     unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
 
@@ -2616,6 +2623,11 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
             init_persistent_store=False,
             call_start=True)
         assert new_kernel is not None
+
+        if os.environ.get("SIMULATE_CHECKPOINTING_LATENCY"):
+            assert new_kernel.checkpointing_enabled
+        else:
+            assert not new_kernel.checkpointing_enabled
 
         # with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "create_log_node", mock_create_log_node):
         # init_persistent_store_task: asyncio.Task[str] = asyncio.create_task(kernel.init_persistent_store_with_persistent_id(FakePersistentStorePath), name = "Initialize Persistent Store")
@@ -2737,18 +2749,21 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         remote_storage: SimulatedCheckpointer = list(new_kernel.remote_storages.values())[0]
         assert remote_storage is not None
 
-        assert remote_storage.total_num_read_ops == 1
-        assert remote_storage.total_num_write_ops == 1
+        if os.environ.get("SIMULATE_CHECKPOINTING_LATENCY"):
+            assert new_kernel.checkpointing_enabled
+            assert remote_storage.total_num_read_ops == 1
+            assert remote_storage.total_num_write_ops == 0
 
-        assert len(remote_storage.read_latencies) == 1
-        assert len(remote_storage.write_latencies) == 0
+            assert len(remote_storage.read_latencies) == 1
+            assert len(remote_storage.write_latencies) == 0
 
-        # Should be about 2.
-        assert 1 <= remote_storage.read_latencies[0] <= 3
+            # Should be about 2.
+            assert 1.5e3 <= remote_storage.read_latencies[0] <= 2.5e3
 
-        # Should be about 4.
-        # assert 4 <= remote_storage.write_latencies[0] <= 5
-
+            # Should be about 4.
+            # assert 4 <= remote_storage.write_latencies[0] <= 5
+        else:
+            assert not new_kernel.checkpointing_enabled
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
@@ -2759,7 +2774,6 @@ async def test_get_election_metadata(kernel: DistributedKernel, execution_reques
 
     unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
-    synchronizer: Synchronizer = kernel.synchronizer
     raftLog: RaftLog = kernel.synclog
 
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()

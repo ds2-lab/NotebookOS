@@ -380,7 +380,12 @@ class DistributedKernel(IPythonKernel):
 
         self.log.info("Kwargs: %s" % str(kwargs))
 
-        self.checkpointing_enabled: bool = len(os.environ.get("SIMULATE_CHECKPOINTING_LATENCY", "")) > 0
+        self.checkpointing_enabled: bool = False
+        if len(os.environ.get("SIMULATE_CHECKPOINTING_LATENCY", "")) > 0:
+            self.checkpointing_enabled = True
+        elif "checkpointing_enabled" in kwargs:
+            self.checkpointing_enabled = kwargs.get("checkpointing_enabled", False)
+
         if self.checkpointing_enabled:
             self.log.debug("Checkpointing Latency Simulation is enabled.")
         else:
@@ -1880,6 +1885,10 @@ class DistributedKernel(IPythonKernel):
 
         io_type must be "read", "write", "upload", or "download" (case-insensitive).
         """
+        if not self.checkpointing_enabled:
+            self.log.debug(f"Checkpointing is disabled. Skipping simulation of network {io_type} "
+                           f"targeting remote storage {remote_storage_name}.")
+
         if io_type is None:
             raise ValueError("must specify an IO type")
 
