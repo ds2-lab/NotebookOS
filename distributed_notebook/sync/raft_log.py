@@ -1158,10 +1158,14 @@ class RaftLog(object):
 
         # Add the resource request entry, if available.
         if last_resource_request is not None:
+            self.logger.debug(f"Adding 'last_resource_request' entry to data dictionary for serialized state: "
+                              f"{last_resource_request}")
             data_dict["last_resource_request"] = last_resource_request
 
         # Add the remote storage definitions entry, if available.
         if remote_storage_definitions is not None:
+            self.logger.debug(f"Adding 'remote_storage_definitions' entry to data dictionary for serialized state: "
+                              f"{remote_storage_definitions}")
             data_dict["remote_storage_definitions"] = remote_storage_definitions
 
         self.logger.debug(f"RaftLog {self._node_id} returning state dictionary containing {len(data_dict)} entries:")
@@ -1274,13 +1278,14 @@ class RaftLog(object):
 
         if self._loaded_serialized_state_callback is not None:
             last_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = data_dict.get(
-                "last_resource_request", {})
-            remote_storage_definitions: Optional[Dict[str, Any]] = data_dict.get("remote_storage_definitions", {})
+                "last_resource_request", None)
+            remote_storage_definitions: Optional[Dict[str, Any]] = data_dict.get("remote_storage_definitions", None)
 
-            state_dict: dict[str, dict[str, Any]] = {
-                "last_resource_request": last_resource_request,
-                "remote_storage_definitions": remote_storage_definitions
-            }
+            state_dict: dict[str, dict[str, Any]] = {}
+            if last_resource_request is not None:
+                state_dict["last_resource_request"] = last_resource_request
+            if remote_storage_definitions is not None:
+                state_dict["remote_storage_definitions"] = remote_storage_definitions
 
             self.logger.debug("Calling 'loaded serialized state' callback now.")
 
@@ -2232,7 +2237,7 @@ class RaftLog(object):
 
     async def write_data_dir_to_remote_storage(
             self,
-            resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = None,
+            last_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = None,
             remote_storage_definitions: Optional[Dict[str, Any]] = None
     ):
         """
@@ -2241,7 +2246,7 @@ class RaftLog(object):
         self.logger.info("Writing etcd-Raft data directory to RemoteStorage.")
 
         serialized_state: bytes = self._get_serialized_state(
-            last_resource_request=resource_request,
+            last_resource_request=last_resource_request,
             remote_storage_definitions=remote_storage_definitions
         )
         self.logger.info("Serialized important state to be written along with etcd-Raft data. Size: %d bytes." % len(

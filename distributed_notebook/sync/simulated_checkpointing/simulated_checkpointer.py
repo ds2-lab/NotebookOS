@@ -35,6 +35,66 @@ def get_new_rate(base_rate: int, percent_deviation: float)->int:
     else:
         return base_rate - rate_adjustment
 
+
+def format_rate(rate_bytes: float = 0) -> str:
+    """
+    Given a rate whose units are bytes/second, return a string representation of the given rate, such that
+    the string displays the largest units for which the rate is >= 1 unit/sec.
+
+    The largest supported units are petabytes (PB) while the smallest are bytes.
+
+    Examples:
+    1_000_000_000 --> 1 GB/sec
+        1_000_000 --> 1 MB/sec
+          100_000 --> 100 KB/sec
+           10_000 --> 10 KB/sec
+            1_000 --> 1 KB/sec
+              100 --> 100 bytes/sec
+    """
+    if rate_bytes > 1e9:
+        return "%.2f GB/sec" % (rate_bytes / 1.0e9)
+    if rate_bytes > 1e6:
+        return "%.2f MB/sec" % (rate_bytes / 1.0e6)
+    if rate_bytes > 1e3:
+        return "%.2f KB/sec" % (rate_bytes / 1.0e3)
+    return "%.2f bytes/sec" % rate_bytes
+
+
+def format_size(size_bytes: float = 0) -> str:
+    """
+    Given a size in bytes, return a string representation of the size with the largest units
+    for which the size >= 1 unit.
+
+    The largest supported units are petabytes (PB) while the smallest are bytes.
+
+    Examples:
+    1_000_000_000 --> 1 GB
+        1_000_000 --> 1 MB
+          100_000 --> 100 KB
+           10_000 --> 10 KB
+            1_000 --> 1 KB
+              100 --> 100 bytes
+    """
+    if size_bytes > 1e12:
+        return "%.2f PB" % (size_bytes/1.0e12)
+    if size_bytes > 1e9:
+        return "%.2f GB" % (size_bytes/1.0e9)
+    if size_bytes > 1e6:
+        return "%.2f MB" % (size_bytes/1.0e6)
+    if size_bytes > 1e3:
+        return "%.2f KB" % (size_bytes/1.0e3)
+    return "%.2f bytes" % size_bytes
+
+def get_estimated_io_time_seconds(size_bytes: float = 0, rate: float = 0):
+    if size_bytes < 0:
+        raise ValueError(f"invalid IO size: {size_bytes} bytes. IO size must be >= 0.")
+
+    if rate <= 0:
+        raise ValueError(f"invalid IO rate: {rate} bytes/second. IO rate must be > 0.")
+
+    return size_bytes / rate
+
+
 class SimulatedCheckpointer(object):
     def __init__(
             self,
@@ -137,11 +197,22 @@ class SimulatedCheckpointer(object):
         # This is set each time we simulate an upload/write.
         self.last_write_timestamp: float = -1
 
+    @property
+    def upload_rate_formatted(self) -> str:
+        return format_rate(self.upload_rate)
+
+    @property
+    def download_rate_formatted(self) -> str:
+        return format_rate(self.download_rate)
+
+    def __str__(self):
+        return f"{self.name} [DownloadRate={self.download_rate_formatted},UploadRate={self.upload_rate_formatted}]"
+
+    def __repr__(self):
+        return self.__str__()
+
     def __getstate__(self) -> dict[str, Any]:
         state: dict[str, Any] = self.__dict__.copy()
-        del state["_pick_and_propose_winner_future"]
-        del state["election_finished_event"]
-        del state["election_finished_condition_waiter_loop"]
         del state["logger"]
 
         return state
@@ -158,6 +229,24 @@ class SimulatedCheckpointer(object):
             ch = logging.StreamHandler()
             ch.setFormatter(ColoredLogFormatter())
             self.logger.addHandler(ch)
+
+    def get_estimated_write_time_seconds(self, write_size_bytes: float = 0, rate: float = -1) -> float:
+        if write_size_bytes < 0:
+            raise ValueError(f"invalid write size: {write_size_bytes} bytes. write size must be >= 0.")
+
+        if rate < 0:
+            rate = get_new_rate(self.upload_rate, self.upload_variance_percent)
+
+        return get_estimated_io_time_seconds(size_bytes = write_size_bytes, rate = rate)
+
+    def get_estimated_read_time_seconds(self, read_size_bytes: float = 0, rate: float = -1) -> float:
+        if read_size_bytes < 0:
+            raise ValueError(f"invalid read size: {read_size_bytes} bytes. read size must be >= 0.")
+
+        if rate < 0:
+            rate = get_new_rate(self.download_rate, self.download_variance_percent)
+
+        return get_estimated_io_time_seconds(size_bytes = read_size_bytes, rate = rate)
 
     def __simulate_network_io_operation(
             self,
@@ -183,7 +272,8 @@ class SimulatedCheckpointer(object):
             was estimated to take at the beginning, based on its initial transfer rate.
         """
         current_rate: int = get_new_rate(base_rate, rate_variance_percent)
-        initial_estimated_time_required_ms: float = (size_bytes / current_rate) * 1.0e3
+        initial_estimated_time_required_seconds: float = get_estimated_io_time_seconds(size_bytes = size_bytes, rate = current_rate)
+        initial_estimated_time_required_ms: float = initial_estimated_time_required_seconds * 1.0e3
         estimated_time_required_ms: float = initial_estimated_time_required_ms
 
         if size_bytes == 0:
@@ -244,7 +334,7 @@ class SimulatedCheckpointer(object):
                     remaining_transfer_size: int = bytes_remaining
                     units = "bytes"
 
-                estimated_time_required_sec: float = bytes_remaining / current_rate
+                estimated_time_required_sec: float = get_estimated_io_time_seconds(size_bytes = bytes_remaining, rate = current_rate)
                 self.logger.info(f"Remaining data: {remaining_transfer_size} {units}. "
                                   f"Estimated time remaining: {round(estimated_time_required_sec * 1.0e3, 4)} ms.\n")
 

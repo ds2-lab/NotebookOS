@@ -4,7 +4,7 @@ import os
 import shutil
 import sys
 from collections import OrderedDict
-from typing import Optional
+from typing import Optional, Dict, Any
 from unittest import mock
 import uuid
 
@@ -18,6 +18,7 @@ from distributed_notebook.sync import Synchronizer, RaftLog, SyncAST
 from distributed_notebook.sync.election import Election, ExecutionCompleted, AllReplicasProposedYield
 from distributed_notebook.sync.log import ElectionProposalKey, LeaderElectionProposal, \
     LeaderElectionVote, Checkpointer, ExecutionCompleteNotification, SynchronizedValue, KEY_CATCHUP
+from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer
 from distributed_notebook.tests.utils.lognode import SpoofedLogNode
 from distributed_notebook.tests.utils.session import SpoofedSession
 from distributed_notebook.tests.utils.stream import SpoofedStream
@@ -89,6 +90,24 @@ def mock_create_log_node(*args, **mock_kwargs):
 
     return SpoofedLogNode(**mock_kwargs)
 
+DefaultResourceRequest: Dict[str, Any] = {
+    "gpus": 1,
+    "cpus": 1000,
+    "memory_mb": 512,
+    "vram": 0.5,
+}
+
+DefaultRemoteStorageDefinitions: Dict[str, Any] = {
+    "AWS S3": {
+        "name": "AWS S3",
+        "download_rate": 250_000_000,
+        "upload_rate": 100_000_000,
+        "download_variance_percent": 0.05,
+        "upload_variance_percent": 0.05,
+        "read_failure_chance_percentage": 0.0,
+        "write_failure_chance_percentage": 0.0
+    },
+}
 
 async def create_kernel(
         remote_storage_hostname: str = "127.0.0.1:10000",
@@ -106,10 +125,21 @@ async def create_kernel(
         call_start: bool = True,
         local_tcp_server_port: int = -1,
         persistent_id: Optional[str] = None,
+        resource_request: Optional[Dict[str, Any]] = None,
+        remote_storage_definitions: Optional[Dict[str, Any]] = None,
         **kwargs
 ) -> DistributedKernel:
+    global DefaultResourceRequest
+    global DefaultRemoteStorageDefinitions
+
     if smr_nodes is None:
         smr_nodes = []
+
+    if resource_request is None:
+        resource_request = DefaultResourceRequest
+
+    if remote_storage_definitions is None:
+        remote_storage_definitions = DefaultRemoteStorageDefinitions
 
     keyword_args = {
         "remote_storage_hostname": remote_storage_hostname,
@@ -138,27 +168,17 @@ async def create_kernel(
     kernel.should_read_data_from_remote_storage = False
     kernel.deployment_mode = "DOCKER_SWARM"
     kernel.session = SpoofedSession()
-    # kernel.store = FakePersistentStorePath
     kernel.prometheus_port = -1
     kernel.debug_port = -1
     kernel.kernel_id = DefaultKernelId
 
-    # kernel.synclog = RaftLog(kernel.smr_node_id,
-    #                          base_path=kernel.store,
-    #                          kernel_id=kernel.kernel_id,
-    #                          num_replicas=kernel.num_replicas,
-    #                          hdfs_hostname=kernel.remote_storage_hostname,
-    #                          should_read_data_from_remote_storage=kernel.should_read_data_from_remote_storage,
-    #                          peer_addrs=[],
-    #                          peer_ids=[],
-    #                          join=kernel.smr_join,
-    #                          debug_port=kernel.debug_port,
-    #                          report_error_callback=kernel.report_error,
-    #                          send_notification_func=kernel.send_notification,
-    #                          hdfs_read_latency_callback=kernel.hdfs_read_latency_callback,
-    #                          deploymentMode=kernel.deployment_mode)
-    #
-    # kernel.synchronizer = Synchronizer(kernel.synclog, module=None, opts=CHECKPOINT_AUTO)
+    if resource_request is not None:
+        kernel.current_resource_request = resource_request
+        kernel.resource_requests.append(resource_request)
+
+    if remote_storage_definitions is not None:
+        for name, definition in remote_storage_definitions.items():
+            kernel.register_remote_storage_definition(definition)
 
     if call_start:
         kernel.start()
@@ -2513,7 +2533,7 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
 
         assert isinstance(args[0], RaftLog)
 
-        raftlog_state_serialized: bytes = args[0]._get_serialized_state()
+        raftlog_state_serialized: bytes = args[0]._get_serialized_state(**kwargs)
 
         write_data_dir_to_remote_storage_future.set_result(raftlog_state_serialized)
 
@@ -2668,6 +2688,13 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         await new_kernel.init_synchronizer_event.wait()
         await new_kernel.start_synchronizer_event.wait()
 
+        assert new_kernel.current_resource_request is not None
+        assert new_kernel.resource_requests is not None
+        assert len(new_kernel.resource_requests) > 0
+
+        assert new_kernel.remote_storages is not None
+        assert len(new_kernel.remote_storages) == 1
+
         catchup_awaitable: asyncio.Future[SynchronizedValue] = catchup_future
         if catchup_future.get_loop() != loop:
             catchup_awaitable = loop.create_future()
@@ -2683,7 +2710,7 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
             asyncio.run_coroutine_threadsafe(wait_target(), catchup_future.get_loop())
 
         try:
-            await asyncio.wait_for(catchup_awaitable, 5)
+            await asyncio.wait_for(catchup_awaitable, 10)
         except TimeoutError:
             unit_test_logger.debug("[ERROR] New RaftLog's '_catchup_future' timed-out.")
 
@@ -2703,6 +2730,24 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
 
         await new_kernel.init_persistent_store_event.wait()
         unit_test_logger.debug("New Persistent Store initialized.")
+
+        assert new_kernel.remote_storages is not None
+        assert len(new_kernel.remote_storages) == 1
+
+        remote_storage: SimulatedCheckpointer = list(new_kernel.remote_storages.values())[0]
+        assert remote_storage is not None
+
+        assert remote_storage.total_num_read_ops == 1
+        assert remote_storage.total_num_write_ops == 1
+
+        assert len(remote_storage.read_latencies) == 1
+        assert len(remote_storage.write_latencies) == 0
+
+        # Should be about 2.
+        assert 1 <= remote_storage.read_latencies[0] <= 3
+
+        # Should be about 4.
+        # assert 4 <= remote_storage.write_latencies[0] <= 5
 
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)

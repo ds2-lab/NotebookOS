@@ -39,7 +39,8 @@ from ..logging import ColoredLogFormatter
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.election import Election
 from ..sync.errors import DiscardMessageError
-from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer
+from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer, get_estimated_io_time_seconds, \
+    format_size
 
 
 def sigabrt_handler(sig, frame):
@@ -1140,7 +1141,7 @@ class DistributedKernel(IPythonKernel):
         # And the RaftLog is started by the Synchronizer, within Synchronizer::start.
         if self.synclog.needs_to_catch_up:
             self.log.debug("We need to catchup with our peers, but before we do that, we must simulate checkpointing.")
-            await self.simulate_remote_checkpointing(None)
+            await self.simulate_remote_checkpointing(None, io_type="download")
 
             self.log.debug("RaftLog will need to propose a \"catch up\" value "
                            "so that it can tell when it has caught up with its peers.")
@@ -1161,7 +1162,7 @@ class DistributedKernel(IPythonKernel):
 
         return store_path
 
-    def get_most_recently_used_remote_storage(self)->Optional[SimulatedCheckpointer]:
+    def get_most_recently_used_remote_storage(self) -> Optional[SimulatedCheckpointer]:
         """
         Return the SimulatedCheckpointer that was most recently used for any simulated network I/O operation.
 
@@ -1217,16 +1218,7 @@ class DistributedKernel(IPythonKernel):
         )
         self.log.debug(f"Sent 'ACK' for {stream_name} {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
 
-    def register_remote_storage_definition(self, remote_storage_definition: Dict[str, Any]) -> Optional[str]:
-        """
-        Convert the remote storage definition that was extracted from the metadata of an "execute_request" or
-        "yield_request" message to a SimulatedCheckpointer object and store the new SimulatedCheckpointer object
-        in our remote_storages mapping.
-
-        Returns:
-            the name of the included remote storage, or None if no remote storage was included.
-            the name is returned regardless of whether the remote storage had already been registered or not.
-        """
+    def register_remote_storage_definition_from_dict(self, remote_storage_definition: Dict[str, Any]) -> Optional[str]:
         if len(remote_storage_definition) == 0:
             return
 
@@ -1236,14 +1228,40 @@ class DistributedKernel(IPythonKernel):
             self.log.warning(f"Received non-empty remote storage definition with no name: {remote_storage_definition}")
             return None
 
-        if remote_storage_name not in self.remote_storages:
+        if remote_storage_name in self.remote_storages:
             self.log.debug(f"Remote storage \"{remote_storage_name}\" is already registered.")
             return remote_storage_name
 
         remote_storage: SimulatedCheckpointer = SimulatedCheckpointer(**remote_storage_definition)
         self.remote_storages[remote_storage.name] = remote_storage
 
-        self.log.debug(f"Successfully registered new remote storage \"{remote_storage_name}\".")
+        self.log.debug(
+            f"Successfully registered new remote storage from dictionary definition: \"{remote_storage_name}\".")
+
+        return remote_storage_name
+
+    def register_remote_storage_definition(self, remote_storage_definition: Dict[str, Any] | SimulatedCheckpointer) -> \
+    Optional[str]:
+        """
+        Convert the remote storage definition that was extracted from the metadata of an "execute_request" or
+        "yield_request" message to a SimulatedCheckpointer object and store the new SimulatedCheckpointer object
+        in our remote_storages mapping.
+
+        Returns:
+            the name of the included remote storage, or None if no remote storage was included.
+            the name is returned regardless of whether the remote storage had already been registered or not.
+        """
+        if isinstance(remote_storage_definition, dict):
+            return self.register_remote_storage_definition_from_dict(remote_storage_definition)
+
+        remote_storage_name: str = remote_storage_definition.name
+        if remote_storage_name in self.remote_storages:
+            self.log.debug(f"Remote storage \"{remote_storage_name}\" is already registered.")
+            return remote_storage_name
+
+        self.remote_storages[remote_storage_name] = remote_storage_definition
+
+        self.log.debug(f"Successfully registered new remote storage: \"{remote_storage_name}\".")
 
         return remote_storage_name
 
@@ -1825,7 +1843,7 @@ class DistributedKernel(IPythonKernel):
             self.log.info("Synchronized. End of sync execution: {}".format(term_number))
 
             if remote_storage_name is not None:
-                await self.simulate_remote_checkpointing(remote_storage_name)
+                await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
 
             await self.schedule_notify_execution_complete(term_number)
         except ExecutionYieldError as eye:
@@ -1853,13 +1871,22 @@ class DistributedKernel(IPythonKernel):
 
         return reply_content
 
-    async def simulate_remote_checkpointing(self, remote_storage_name: Optional[str]):
+    async def simulate_remote_checkpointing(self, remote_storage_name: Optional[str], io_type: Optional[str] = None):
         """
         Simulate checkpointing using the current resource request and the specified remote storage name.
 
         If the specified remote storage name is None or the empty string, then the most-recently-used remote storage
         will be used again.
+
+        io_type must be "read", "write", "upload", or "download" (case-insensitive).
         """
+        if io_type is None:
+            raise ValueError("must specify an IO type")
+
+        io_type = io_type.lower()
+        if io_type != "read" and io_type != "write" and io_type != "upload" and io_type != "download":
+            raise ValueError(f"unknown/unsupported IO type specified: \"{io_type}\"")
+
         if self.current_resource_request is None:
             self.log.error("Current resource request is None; cannot simulate checkpointing...")
             self.report_error('No Current Resource Request',
@@ -1886,8 +1913,12 @@ class DistributedKernel(IPythonKernel):
             if simulated_checkpointer is None:
                 assert self.remote_storages is None or len(self.remote_storages) == 0
                 self.log.warning("No simulated check-pointers identified.")
+
+            self.log.debug(
+                f"Identified remote storage \"{simulated_checkpointer.name}\" as most-recently-used checkpointer.")
         else:
-            simulated_checkpointer: Optional[SimulatedCheckpointer] = self.remote_storages.get(remote_storage_name, None)
+            simulated_checkpointer: Optional[SimulatedCheckpointer] = self.remote_storages.get(remote_storage_name,
+                                                                                               None)
 
         # Verify that the requested SimulatedCheckpointer has been registered, as we cannot perform the
         # simulated checkpointing if it has not been registered.
@@ -1907,18 +1938,33 @@ class DistributedKernel(IPythonKernel):
 
         vram_bytes: int = int(vram_gb * 1e9)
 
+        rate_formatted: str = ""
+        rate: float | int = -1
+        if io_type == "read" or io_type == "download":
+            rate_formatted = simulated_checkpointer.download_rate_formatted
+            rate = simulated_checkpointer.download_rate
+            simulation_func: t.Callable[[int | float], None] = simulated_checkpointer.download_data
+        else:
+            rate_formatted = simulated_checkpointer.upload_rate_formatted
+            rate = simulated_checkpointer.upload_rate
+            simulation_func: t.Callable[[int | float], None] = simulated_checkpointer.upload_data
+
         start_time: float = time.time()
         try:
-            simulated_checkpointer.upload_data(size_bytes=int(vram_bytes))
+            self.log.debug(f"Simulating remote {io_type} of size {format_size(vram_bytes)} "
+                           f"bytes targeting remote storage {simulated_checkpointer.name}. "
+                           f"I/O rate: {rate_formatted}. "
+                           f"Expected time to complete I/O operation: {get_estimated_io_time_seconds(size_bytes=vram_bytes, rate=rate)} seconds.")
+            simulation_func(int(vram_bytes))
         except Exception as ex:
             self.log.error(f"{type(ex).__name__} while simulating checkpointing with remote storage "
-                           f"{remote_storage_name} and data of size {vram_bytes} bytes: {ex}")
+                           f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {ex}")
             self.report_error(f'Kernel "{self.kernel_id}" Failed to Simulate Checkpointing',
                               f"{type(ex).__name__} while simulating checkpointing with remote storage "
-                              f"{remote_storage_name} and data of size {vram_bytes} bytes: {ex}")
+                              f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {ex}")
 
-        self.log.debug(f"Finished simulated checkpointing of {vram_bytes} bytes to remote storage "
-                          f"{remote_storage_name} in {time.time() - start_time} seconds.")
+        self.log.debug(f"Finished simulated checkpointing of {format_size(vram_bytes)} bytes to remote storage "
+                       f"{remote_storage_name} in {time.time() - start_time} seconds.")
 
     async def schedule_notify_execution_complete(self, term_number: int):
         """
@@ -2039,9 +2085,13 @@ class DistributedKernel(IPythonKernel):
         try:
             write_start: float = time.time()
 
+            self.log.debug("Preparing to write state to remote storage. "
+                           f"Current resource request: {self.current_resource_request}. "
+                           f"Remote storages ({len(self.remote_storages)}): {self.remote_storages}.")
+
             waldir_path: str = await self.synclog.write_data_dir_to_remote_storage(
-                resource_request = self.current_resource_request,
-                remote_storage_definitions = self.remote_storages
+                last_resource_request=self.current_resource_request,
+                remote_storage_definitions=self.remote_storages
             )
 
             write_duration_ms: float = (time.time() - write_start) * 1.0e3
@@ -2511,9 +2561,11 @@ class DistributedKernel(IPythonKernel):
         """
         self.log.debug("'loaded serialized state' callback is executing within the DistributedKernel.")
 
-        last_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = state.get("last_resource_request", None)
+        last_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = state.get(
+            "last_resource_request", None)
         if last_resource_request is not None:
-            self.log.debug(f"Recovered last resource request (before migration) from serialized state: {last_resource_request}")
+            self.log.debug(
+                f"Recovered last resource request (before migration) from serialized state: {last_resource_request}")
 
             self.resource_requests.append(last_resource_request)
             self.current_resource_request = last_resource_request
