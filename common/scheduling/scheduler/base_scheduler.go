@@ -201,6 +201,11 @@ func (s *BaseScheduler) TryGetCandidateHosts(hosts []scheduling.Host, kernelSpec
 	return hosts
 }
 
+func (s *BaseScheduler) isScalingEnabled() bool {
+	// If we're using FCFS Batch Scheduling, then we cannot scale in or out.
+	return s.SchedulingPolicy() != scheduling.FcfsBatch
+}
+
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -222,7 +227,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {
 		hosts = s.TryGetCandidateHosts(hosts, kernelSpec)
 
-		if len(hosts) < s.opts.NumReplicas {
+		if len(hosts) < s.opts.NumReplicas && s.isScalingEnabled() {
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
 				len(hosts), s.opts.NumReplicas, kernelSpec.Id)
 
