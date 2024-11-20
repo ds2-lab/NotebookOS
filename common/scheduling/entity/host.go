@@ -100,7 +100,7 @@ type Host struct {
 	metricsProvider                scheduling.MetricsProvider                          // Provides access to metrics relevant to the Host.
 	ID                             string                                              // ID is the unique ID of this host.
 	containers                     hashmap.HashMap[string, scheduling.KernelContainer] // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
-	reservations                   hashmap.HashMap[string, *resourceReservation]       // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
+	reservations                   hashmap.HashMap[string, *Reservation]               // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
 	trainingContainers             []scheduling.KernelContainer                        // trainingContainers are the actively-training kernel replicas.
 	seenSessions                   []string                                            // seenSessions are the sessions that have been scheduled onto this host at least once.
 	resourceSpec                   *types.DecimalSpec                                  // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
@@ -247,7 +247,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		metricsProvider:      metricsProvider,
 		log:                  config.GetLogger(fmt.Sprintf("Host %s ", id)),
 		containers:           hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
-		reservations:         hashmap.NewCornelkMap[string, *resourceReservation](5),
+		reservations:         hashmap.NewCornelkMap[string, *Reservation](5),
 		trainingContainers:   make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
 		penalties:            make([]cachedPenalty, int(resourceSpec.GPU())),
 		seenSessions:         make([]string, int(resourceSpec.GPU())),
@@ -756,13 +756,31 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 	}
 
 	oldSubscribedRatio := h.subscribedRatio
-	h.RecomputeSubscribedRatio()
-	h.reservations.Store(spec.Id, newResourceReservation(h.ID, time.Now(), usePendingResources))
 
+	if !usePendingResources {
+		h.log.Debug("Upgrading pending resource reservation to committed for new replica of kernel %s.", spec.Id)
+		err := h.unsafeCommitResources(spec.DecimalSpecFromKernelSpec())
+		if err != nil {
+			h.log.Error("Failed to upgrade pending resource reservation to committed for new replica of kernel %s because: %v",
+				spec.Id, err)
+
+			return false, err
+		}
+
+		h.log.Debug("Successfully upgraded pending resource reservation to committed for new replica of kernel %s.", spec.Id)
+	}
+
+	h.RecomputeSubscribedRatio()
 	h.log.Debug("Successfully reserved resources for new replica of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
 		spec.Id, oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
+	h.reservations.Store(spec.Id, NewReservation(h.ID, spec.Id, time.Now(), usePendingResources, spec.DecimalSpecFromKernelSpec()))
 
 	return true, nil
+}
+
+// GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
+func (h *Host) GetReservation(kernelId string) (scheduling.ResourceReservation, bool) {
+	return h.reservations.Load(kernelId)
 }
 
 func (h *Host) GetResourceSpec() types.Spec {

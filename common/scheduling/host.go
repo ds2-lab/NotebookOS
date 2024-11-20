@@ -86,6 +86,7 @@ type Host interface {
 	LastReschedule() types.StatFloat64Field
 	TimeSinceLastSynchronizationWithRemote() time.Duration
 	SetMeta(key HostMetaKey, value interface{})
+	GetReservation(kernelId string) (ResourceReservation, bool) // GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
 	GetMeta(key HostMetaKey) interface{}
 	Priority(session UserSession) float64
 	IdleGPUs() float64
