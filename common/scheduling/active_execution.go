@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/goccy/go-json"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -27,6 +28,50 @@ var (
 	ErrProposalAlreadyReceived = errors.New("we already received a proposal from that replica")
 )
 
+type proposal struct {
+	Key    string `json:"key"`
+	Reason string `json:"reason"`
+}
+
+func newProposal(k string, r string) *proposal {
+	return &proposal{
+		Key:    k,
+		Reason: r,
+	}
+}
+
+func (p *proposal) GetKey() string {
+	return p.Key
+}
+
+func (p *proposal) GetReason() string {
+	return p.Reason
+}
+
+func (p *proposal) IsYield() bool {
+	return p.Key == KeyYield
+}
+
+func (p *proposal) IsLead() bool {
+	return p.Key == KeyLead
+}
+
+func (p *proposal) String() string {
+	m, err := json.Marshal(p)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+}
+
+type ElectionProposal interface {
+	GetKey() string
+	GetReason() string
+	IsYield() bool
+	IsLead() bool
+}
+
 // ActiveExecution encapsulates the submission of a single 'execute_request' message for a particular kernel.
 // We observe the results of the SMR proposal protocol and take action accordingly, depending upon the results.
 // For example, if all replicas of the kernel issue 'YIELD' roles, then we will need to perform some sort of
@@ -44,7 +89,7 @@ type ActiveExecution struct {
 	NumReplicas             int                                               // The number of replicas that the kernel had with the execution request was originally received.
 	numLeadRoles            int                                               // Number of 'LEAD' roles issued.
 	numYieldRoles           int                                               // Number of 'YIELD' roles issued.
-	roles                   map[int32]string                                  // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
+	roles                   map[int32]ElectionProposal                        // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
 	nextAttempt             *ActiveExecution                                  // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
 	previousAttempt         *ActiveExecution                                  // The retry that preceded this one, if this is not the first attempt.
 	msg                     *messaging.JupyterMessage                         // The original 'execute_request' message.
@@ -110,7 +155,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *me
 		ExecutionId:             uuid.NewString(),
 		SessionId:               msg.JupyterSession(),
 		AttemptId:               attemptId,
-		roles:                   make(map[int32]string, 3),
+		roles:                   make(map[int32]ElectionProposal, 3),
 		KernelId:                kernelId,
 		NumReplicas:             numReplicas,
 		Replies:                 hashmap.NewCornelkMap[int32, *messaging.JupyterMessage](numReplicas),
@@ -268,19 +313,19 @@ func (e *ActiveExecution) ReceivedLeadNotification(smrNodeId int32) error {
 		return ErrProposalAlreadyReceived
 	}
 
-	e.roles[smrNodeId] = KeyLead
+	e.roles[smrNodeId] = newProposal(KeyLead, "")
 	e.numLeadRoles += 1
 
 	return nil
 }
 
 // ReceivedYieldNotification records that the specified replica ultimately yielded and did not lead the election.
-func (e *ActiveExecution) ReceivedYieldNotification(smrNodeId int32) error {
+func (e *ActiveExecution) ReceivedYieldNotification(smrNodeId int32, yieldReason string) error {
 	if _, ok := e.roles[smrNodeId]; ok {
 		return ErrProposalAlreadyReceived
 	}
 
-	e.roles[smrNodeId] = KeyYield
+	e.roles[smrNodeId] = newProposal(KeyYield, yieldReason)
 	e.numYieldRoles += 1
 
 	if e.numYieldRoles == e.NumReplicas {
@@ -294,6 +339,16 @@ func (e *ActiveExecution) ReceivedYieldNotification(smrNodeId int32) error {
 // It's more like the number of unique replicas from which we've received a proposal.
 func (e *ActiveExecution) NumRolesReceived() int {
 	return e.numLeadRoles + e.numYieldRoles
+}
+
+func (e *ActiveExecution) RangeRoles(rangeFunc func(int32, ElectionProposal) bool) {
+	for smrNodeId, role := range e.roles {
+		shouldContinue := rangeFunc(smrNodeId, role)
+
+		if !shouldContinue {
+			return
+		}
+	}
 }
 
 //func (e *ActiveExecution) LinkPreviousAttempt(previousAttempt *ActiveExecution) {

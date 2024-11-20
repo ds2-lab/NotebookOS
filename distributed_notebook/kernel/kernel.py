@@ -1667,6 +1667,14 @@ class DistributedKernel(IPythonKernel):
         # block, before an error) and always clear the payload system.
         reply_content["payload"] = self.shell.payload_manager.read_payload()
 
+        # If there was a reason for why we were explicitly told to YIELD included in the metadata of the
+        # "yield_request" message, then we'll include it in our response as well as in our response's metadata.
+        request_metadata: dict[str, Any] = parent.get("metadata", {})
+        if "yield-reason" in request_metadata:
+            yield_reason:str = request_metadata["yield-reason"]
+            reply_content["yield-reason"] = yield_reason
+            metadata["yield-reason"] = yield_reason
+
         # Be aggressive about clearing the payload because we don't want
         # it to sit in memory until the next execute_request comes in.
         self.shell.payload_manager.clear_payload()

@@ -812,7 +812,7 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplica
 		return nil, false
 	}
 
-	var msgErr messaging.MessageError
+	var msgErr *messaging.MessageErrorWithYieldReason
 	if err := json.Unmarshal(*msg.JupyterFrames.ContentFrame(), &msgErr); err != nil {
 		c.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v", replica.ReplicaID(), c.id, err)
 		return err, false
@@ -840,10 +840,10 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplica
 	if msgErr.ErrName == messaging.MessageErrYieldExecution {
 		replica.ReceivedExecuteReply(msg)
 
-		errWhileHandlingYield := c.handleExecutionYieldedNotification(replica, msg)
+		errWhileHandlingYield := c.handleExecutionYieldedNotification(replica, msgErr, msg)
 		if errWhileHandlingYield != nil {
 			msg.IsFailedExecuteRequest = true
-			return errWhileHandlingYield, true
+			return errors.Join(errWhileHandlingYield, fmt.Errorf("%s: %s", msgErr.ErrName, msgErr.ErrValue)), true
 		}
 
 		return messaging.ErrExecutionYielded, true
@@ -1583,7 +1583,7 @@ func (c *DistributedKernelClient) getActiveExecution(msgId string, replica *Kern
 // handleExecutionYieldedNotification registers the 'yield' proposal with the kernel's current scheduling.ActiveExecution
 // struct. If we find that we've received all three proposals, and they were ALL 'yield', then we'll handle the situation
 // according to the scheduling policy that we've been configured to use.
-func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *KernelReplicaClient, msg *messaging.JupyterMessage) error {
+func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *KernelReplicaClient, msgErr *messaging.MessageErrorWithYieldReason, msg *messaging.JupyterMessage) error {
 	// targetExecuteRequestId is the Jupyter message ID of the "execute_request" message associated
 	// with the 'YIELD' proposal that we just received.
 	targetExecuteRequestId := msg.JupyterParentMessageId()
@@ -1599,7 +1599,7 @@ func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *Ke
 	}
 
 	// Mark that we received the 'YIELD' proposal for the associated ActiveExecution.
-	err := associatedActiveExecution.ReceivedYieldNotification(replica.ReplicaID())
+	err := associatedActiveExecution.ReceivedYieldNotification(replica.ReplicaID(), msgErr.YieldReason)
 
 	var currentStatus string
 	if associatedActiveExecution == c.activeExecution {
@@ -1610,18 +1610,37 @@ func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *Ke
 	c.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for %s ActiveExecution associated with \"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
 		replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, associatedActiveExecution.NumRolesReceived(), associatedActiveExecution.GetNumReplicas(), replica.ID())
 
-	if errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
-		if currentStatus == "current" {
-			return c.handleFailedExecutionAllYielded()
-		} else {
-			// This just really shouldn't happen...
-			log.Fatalf(utils.RedStyle.Render("[ERROR] All replicas have proposed 'YIELD' for non-current ActiveExecution associated with \"execute_request\" \"%s\"...\n"), targetExecuteRequestId)
-		}
-	} else if err != nil {
+	// If we have a non-nil error and it isn't just that all the replicas proposed YIELD, then return it directly.
+	if err != nil && !errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
 		c.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for %s ActiveExecution associated with \"execute_request\" \"%s\": %v",
 			replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, err)
 
 		return err
+	}
+
+	// If we have a non-nil error, and it's just that all replicas proposed YIELD, then we'll call the handler.
+	if errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
+		if currentStatus != "current" {
+			// This just really shouldn't happen...
+			log.Fatalf(utils.RedStyle.Render("[ERROR] All replicas have proposed 'YIELD' for non-current ActiveExecution associated with \"execute_request\" \"%s\"...\n"), targetExecuteRequestId)
+		}
+
+		// Concatenate all the yield reasons. We'll return them along with the error returned by
+		// handleFailedExecutionAllYielded if handleFailedExecutionAllYielded returns a non-nil error.
+		yieldErrors := make([]error, 0, 4)
+		associatedActiveExecution.RangeRoles(func(i int32, proposal scheduling.ElectionProposal) bool {
+			yieldError := fmt.Errorf("replica %d proposed \"YIELD\" because: %s", i, proposal.GetReason())
+			yieldErrors = append(yieldErrors, yieldError)
+			return true
+		})
+
+		// Call the handler. If it returns an error, then we'll join that error with the YIELD errors, and return
+		// them all together.
+		handlerError := c.handleFailedExecutionAllYielded()
+		if handlerError != nil {
+			allErrors := append([]error{handlerError}, yieldErrors...)
+			return errors.Join(allErrors...)
+		}
 	}
 
 	return nil

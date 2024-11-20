@@ -171,6 +171,24 @@ func (m *MessageErrorWithOldContent) String() string {
 	return string(out)
 }
 
+// MessageErrorWithYieldReason is a wrapper around MessageError with an additional YieldReason field, in case
+// the error is an 'execution yielded' error, and the replica that encountered this error was explicitly instructed
+// to yield, and a reason was provided.
+type MessageErrorWithYieldReason struct {
+	*MessageError
+
+	YieldReason string `json:"yield-reason"`
+}
+
+func (m *MessageErrorWithYieldReason) String() string {
+	out, err := json.Marshal(m)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(out)
+}
+
 type MessageError struct {
 	Status   string `json:"status"`
 	ErrName  string `json:"ename"`

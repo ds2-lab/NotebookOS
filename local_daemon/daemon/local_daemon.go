@@ -2716,7 +2716,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *messaging.JupyterMessag
 	// to reserve resources for this kernel replica in anticipation of its leader election.
 	idleResourcesBeforeReservation := d.resourceManager.IdleResources()
 	shouldYield := differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest()
-	if !shouldYield {
+	if !shouldYield && d.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
 		// We didn't want to bother reserving resources for this kernel replica if its either been explicitly told
 		// to yield, or if another replica of the same kernel was explicitly expected to yield. But now that we know
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
