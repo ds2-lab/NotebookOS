@@ -83,12 +83,15 @@ type BaseCluster struct {
 	// validateCapacityInterval is how frequently the Cluster should validate its capacity,
 	// scaling-in or scaling-out depending on the current load and whatnot.
 	validateCapacityInterval time.Duration
+
+	opts *scheduling.SchedulerOptions
 }
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
 // This function is for package-internal or file-internal use only.
 func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer, clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string) *BaseCluster {
 	cluster := &BaseCluster{
+		opts:                     opts,
 		gpusPerHost:              opts.GetGpusPerHost(),
 		numReplicas:              opts.GetNumReplicas(),
 		numReplicasDecimal:       decimal.NewFromInt(int64(opts.GetNumReplicas())),
@@ -760,10 +763,19 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	return promise.Resolved(result)
 }
 
+func (c *BaseCluster) isScalingEnabled() bool {
+	// If we're using FCFS Batch Scheduling, then we cannot scale in or out.
+	return c.scheduler.SchedulingPolicy() != scheduling.FcfsBatch
+}
+
 // ScaleToSize scales the Cluster to the specified number of Host instances.
 //
 // If n <= NUM_REPLICAS, then ScaleToSize returns with an error.
 func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise {
+	if !c.isScalingEnabled() {
+		return promise.Resolved(nil, scheduling.ErrSchedulingProhibitedBySchedulingPolicy)
+	}
+
 	currentNumNodes := int32(c.Len())
 
 	// Are we trying to scale-down below the minimum cluster size? If so, return an error.

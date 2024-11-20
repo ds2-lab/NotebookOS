@@ -417,7 +417,7 @@ message Trace {
   int64 durationMicroseconds = 7;
 }
 
-message NewRequestTrace {
+message RequestTraceUpdated {
   string messageId = 1;
   string messageType = 2;
   string kernelId = 3;

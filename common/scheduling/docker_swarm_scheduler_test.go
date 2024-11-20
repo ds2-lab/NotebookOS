@@ -935,6 +935,67 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					}
 				}
 			})
+
+			It("Will fail to schedule replicas and not attempt to scale if resources are unavailable", func() {
+				validateVariablesNonNil()
+
+				kernel1Id := uuid.NewString()
+				kernel1Key := uuid.NewString()
+				kernel1ResourceSpec := proto.NewResourceSpec(1250, 2000, 8 /* too many */, 4)
+
+				kernel1Spec := &proto.KernelSpec{
+					Id:              kernel1Id,
+					Session:         kernel1Id,
+					Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+					SignatureScheme: jupyter.JupyterSignatureScheme,
+					Key:             kernel1Key,
+					ResourceSpec:    kernel1ResourceSpec,
+				}
+
+				candidateHosts, err := dockerScheduler.GetCandidateHosts(context.Background(), kernel1Spec)
+				Expect(err).To(BeNil())
+				Expect(candidateHosts).ToNot(BeNil())
+				Expect(len(candidateHosts)).To(Equal(3))
+
+				kernel2Id := uuid.NewString()
+				kernel2Key := uuid.NewString()
+				kernel2ResourceSpec := proto.NewResourceSpec(1250, 2000, 1 /* too many */, 4)
+
+				kernel2Spec := &proto.KernelSpec{
+					Id:              kernel2Id,
+					Session:         kernel2Id,
+					Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+					SignatureScheme: jupyter.JupyterSignatureScheme,
+					Key:             kernel2Key,
+					ResourceSpec:    kernel2ResourceSpec,
+				}
+
+				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), kernel2Spec)
+				Expect(err).ToNot(BeNil())
+				Expect(candidateHosts).To(BeNil())
+				Expect(len(candidateHosts)).To(Equal(0))
+			})
+
+			It("Will correctly return an error when requested to scale up or down", func() {
+				validateVariablesNonNil()
+
+				initialSize := len(hosts)
+				Expect(initialSize).To(Equal(dockerCluster.NumReplicas()))
+
+				p := dockerCluster.ScaleToSize(context.Background(), int32(initialSize+1))
+				Expect(p).ToNot(BeNil())
+
+				err := p.Error()
+				Expect(err).ToNot(BeNil())
+				Expect(errors.Is(err, scheduling.ErrSchedulingProhibitedBySchedulingPolicy)).To(BeTrue())
+
+				p = dockerCluster.ScaleToSize(context.Background(), int32(initialSize-1))
+				Expect(p).ToNot(BeNil())
+
+				err = p.Error()
+				Expect(err).ToNot(BeNil())
+				Expect(errors.Is(err, scheduling.ErrSchedulingProhibitedBySchedulingPolicy)).To(BeTrue())
+			})
 		})
 	})
 })

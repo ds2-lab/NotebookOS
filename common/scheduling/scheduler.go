@@ -122,6 +122,7 @@ type Scheduler interface {
 
 	// Placer returns the Placer used by the scheduling.Scheduler.
 	Placer() Placer
+	SchedulingPolicy() Policy
 }
 
 type KubernetesClusterScheduler interface {

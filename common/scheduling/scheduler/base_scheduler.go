@@ -63,6 +63,7 @@ type BaseScheduler struct {
 	placer             scheduling.Placer
 	kernelProvider     KernelProvider
 	notificationBroker NotificationBroker
+	schedulingPolicy   scheduling.Policy
 
 	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
 	// kernels (or other resources) and could occur in-parallel (such as being triggered
@@ -150,6 +151,10 @@ func (s *BaseScheduler) WithHostMapper(mapper HostMapper) {
 
 func (s *BaseScheduler) SetHostSpec(spec types.Spec) {
 	s.hostSpec = spec
+}
+
+func (s *BaseScheduler) SchedulingPolicy() scheduling.Policy {
+	return s.schedulingPolicy
 }
 
 // GetOversubscriptionFactor returns the oversubscription factor calculated as the difference between

@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/elliotchance/orderedmap/v2"
@@ -106,6 +107,33 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		clusterScheduler.scalingInterval = time.Second * time.Duration(30)
 	}
 
+	switch b.options.SchedulingPolicy {
+	case string(scheduling.DefaultSchedulingPolicy):
+		{
+			clusterScheduler.schedulingPolicy = scheduling.DefaultSchedulingPolicy
+		}
+	case string(scheduling.Static):
+		{
+			clusterScheduler.schedulingPolicy = scheduling.Static
+		}
+	case string(scheduling.DynamicV3):
+		{
+			clusterScheduler.schedulingPolicy = scheduling.DynamicV3
+		}
+	case string(scheduling.DynamicV4):
+		{
+			clusterScheduler.schedulingPolicy = scheduling.DynamicV4
+		}
+	case string(scheduling.FcfsBatch):
+		{
+			clusterScheduler.schedulingPolicy = scheduling.FcfsBatch
+		}
+	default:
+		{
+			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", b.options.SchedulingPolicy))
+		}
+	}
+
 	if clusterScheduler.log.GetLevel() == logger.LOG_LEVEL_ALL {
 		clusterScheduler.log.Debug("Scheduling Configuration:")
 		clusterScheduler.log.Debug("GpusPerHost: %.2f", clusterScheduler.gpusPerHost)
@@ -117,6 +145,7 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		clusterScheduler.log.Debug("PredictiveAutoscalingEnabled: %v", clusterScheduler.predictiveAutoscalingEnabled)
 		clusterScheduler.log.Debug("ScalingBufferSize: %d", clusterScheduler.scalingBufferSize)
 		clusterScheduler.log.Debug("GPU Refresh Interval: %v", clusterScheduler.remoteSynchronizationInterval)
+		clusterScheduler.log.Debug("Scheduling policy: %v", clusterScheduler.schedulingPolicy)
 	}
 
 	return clusterScheduler
