@@ -412,6 +412,9 @@ message Trace {
   string name = 2;
   int64 startTimeUnixMilliseconds = 3;
   int64 endTimeUnixMilliseconds = 4;
+  google.protobuf.Timestamp startTimestamp = 5;
+  google.protobuf.Timestamp endTimestamp = 6;
+  int64 durationMicroseconds = 7;
 }
 
 message NewRequestTrace {
