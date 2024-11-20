@@ -2506,29 +2506,29 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         unit_test_logger.debug(f"\nMocked RaftLog::close called with args {args} and kwargs {kwargs}.")
         close_future.set_result(1)
 
-    write_data_dir_to_hdfs_future: asyncio.Future[bytes] = loop.create_future()
+    write_data_dir_to_remote_storage_future: asyncio.Future[bytes] = loop.create_future()
 
-    async def mocked_raftlog_write_data_dir_to_hdfs(*args, **kwargs):
-        unit_test_logger.debug(f"\nMocked RaftLog::write_data_dir_to_hdfs called with args {args} and kwargs {kwargs}.")
+    async def mocked_raftlog_write_data_dir_to_remote_storage(*args, **kwargs):
+        unit_test_logger.debug(f"\nMocked RaftLog::write_data_dir_to_remote_storage called with args {args} and kwargs {kwargs}.")
 
         assert isinstance(args[0], RaftLog)
 
         raftlog_state_serialized: bytes = args[0]._get_serialized_state()
 
-        write_data_dir_to_hdfs_future.set_result(raftlog_state_serialized)
+        write_data_dir_to_remote_storage_future.set_result(raftlog_state_serialized)
 
         return FakePersistentStorePath
 
     # with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "close", mocked_raftlog_close):
     with mock.patch.multiple(distributed_notebook.sync.raft_log.RaftLog,
                              close=mocked_raftlog_close,
-                             write_data_dir_to_hdfs=mocked_raftlog_write_data_dir_to_hdfs):
+                             write_data_dir_to_remote_storage=mocked_raftlog_write_data_dir_to_remote_storage):
         await kernel.prepare_to_migrate_request(None, [], {})
 
     assert close_future.done()
     assert close_future.result() == 1
 
-    assert write_data_dir_to_hdfs_future.done()
+    assert write_data_dir_to_remote_storage_future.done()
 
     spoofed_session: SpoofedSession = kernel.session
     assert spoofed_session is not None
@@ -2545,15 +2545,11 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
     assert spoofed_session.num_send_calls == 5
     assert len(spoofed_session.message_types_sent) == 5
 
-    serialized_state: bytes = write_data_dir_to_hdfs_future.result()
+    serialized_state: bytes = write_data_dir_to_remote_storage_future.result()
     assert serialized_state is not None
     assert isinstance(serialized_state, bytes)
 
     catchup_with_peers_future: asyncio.Future[int] = loop.create_future()
-
-    async def mock_catchup_with_peers(*args, **kwargs):
-        unit_test_logger.debug(f"Mocked RaftLog::catchup_with_peers called with args {args} and kwargs {kwargs}")
-        catchup_with_peers_future.set_result(1)
 
     def mock_retrieve_serialized_state_from_remote_storage(*args, **kwargs):
         unit_test_logger.debug(

@@ -3,6 +3,8 @@ import random
 import time
 import math
 
+from typing import Any
+
 from ...logging.color_formatter import ColoredLogFormatter
 
 def get_new_rate(base_rate: int, percent_deviation: float)->int:
@@ -122,44 +124,40 @@ class SimulatedCheckpointer(object):
         self.read_latencies: list[float] = []
         self.write_latencies: list[float] = []
 
-    async def async_upload_data(self, size_bytes: float = 0):
-        """
-        Asynchronously simulate a write I/O operation.
+        # Note:
+        # We take advantage of the fact that the last_io_timestamp field is initialized to -1 in particular in the
+        # DistributedKernel::get_most_recently_used_remote_storage method. So, if we change the initial value of
+        # last_io_timestamp, then we'll need to update the DistributedKernel::get_most_recently_used_remote_storage
+        # method.
 
-        Args:
-            size_bytes: the size of the data to be written in bytes.
-alc
+        # This is set each time we simulate an upload/write or download/read.
+        self.last_io_timestamp: float = -1
+        # This is set each time we simulate a download/read.
+        self.last_read_timestamp: float = -1
+        # This is set each time we simulate an upload/write.
+        self.last_write_timestamp: float = -1
 
-        Raises a TimeoutError if the simulated I/O operation fails.
-        """
-        start_time: float = time.time()
+    def __getstate__(self) -> dict[str, Any]:
+        state: dict[str, Any] = self.__dict__.copy()
+        del state["_pick_and_propose_winner_future"]
+        del state["election_finished_event"]
+        del state["election_finished_condition_waiter_loop"]
+        del state["logger"]
 
-        stop_time: float = time.time()
-        latency_ms: float = (stop_time - start_time) * 1.0e3
+        return state
 
-        self.total_num_io_ops += 1
-        self.total_num_write_ops += 1
-        self.num_successful_write_ops += 1
-        self.write_latencies.append(latency_ms)
+    def __setstate__(self, state: dict[str, Any]):
+        self.__dict__.update(state)
 
-    async def async_download_data(self, size_bytes: float = 0):
-        """
-        Asynchronously simulate a write I/O operation.
-
-        Args:
-            size_bytes: the size of the data to be written in bytes.
-
-        Raises a TimeoutError if the simulated I/O operation fails.
-        """
-        start_time: float = time.time()
-
-        stop_time: float = time.time()
-        latency_ms: float = (stop_time - start_time) * 1.0e3
-
-        self.total_num_io_ops += 1
-        self.total_num_read_ops += 1
-        self.num_successful_read_ops += 1
-        self.read_latencies.append(latency_ms)
+        try:
+            getattr(self, "logger")
+        except AttributeError:
+            self.logger: logging.Logger = logging.getLogger(f"SimulatedCheckpointer[{self.name}] ")
+            self.logger.setLevel(logging.DEBUG)
+            self.logger.propagate = False
+            ch = logging.StreamHandler()
+            ch.setFormatter(ColoredLogFormatter())
+            self.logger.addHandler(ch)
 
     def __simulate_network_io_operation(
             self,
@@ -272,6 +270,8 @@ alc
             raise ValueError(f"Invalid upload size specified: {size_bytes} bytes. value must be positive.")
 
         start_time: float = time.time()
+        self.last_write_timestamp = start_time
+        self.last_io_timestamp = start_time
         success, estimated_time_required_ms = self.__simulate_network_io_operation(
             size_bytes = size_bytes,
             base_rate = self.upload_rate,
@@ -317,6 +317,8 @@ alc
             raise ValueError(f"Invalid download size specified: {size_bytes} bytes. value must be positive.")
 
         start_time: float = time.time()
+        self.last_read_timestamp = start_time
+        self.last_io_timestamp = start_time
         success, estimated_time_required_ms = self.__simulate_network_io_operation(
             size_bytes = size_bytes,
             base_rate = self.download_rate,
@@ -375,8 +377,6 @@ alc
 
     read_data = download_data  # alias for download_data
     write_data = upload_data  # alias for upload_data
-    async_read_data = async_download_data  # alias for async_download_data
-    async_write_data = async_upload_data  # alias for async_upload_data
 
 def test_simulated_checkpointer():
     aws_s3 = SimulatedCheckpointer(
