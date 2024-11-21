@@ -1,11 +1,13 @@
-from jupyter_server.services.kernels.kernelmanager import MappingKernelManager
+from jupyter_server.services.kernels.kernelmanager import MappingKernelManager, emit_kernel_action_event, \
+    AsyncMappingKernelManager
 from jupyter_server.utils import ApiPath
 from jupyter_server.services.kernels.kernelmanager import ServerKernelManager
 from jupyter_server._tz import isoformat
+from overrides import overrides
 
 import uuid
 
-class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
+class DistributedKernelManager(AsyncMappingKernelManager, ServerKernelManager):
     """Subclass of MappingKernelManager exposing more control over certain aspects of the kernels, such as their IDs.
     """
     def __init__(self, **kwargs):
@@ -24,9 +26,16 @@ class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
         """
         return str(uuid.uuid4())
 
+    @overrides
+    @emit_kernel_action_event(
+        success_msg="Kernel {kernel_id} was started.",
+    )
+    async def start_kernel(self, *args, **kwargs) -> str:
+        return await self._async_start_kernel(*args, **kwargs)
+
     async def _async_start_kernel(  # type:ignore[override]
             self, *, kernel_id: str | None = None, path: ApiPath | None = None, **kwargs: str
-        ):
+        ) -> str:
         self.num_kernels_starting += 1
 
         self.log.info("_async_start_kernel() called. kernel_id = %s, path = %s, num_kernels_starting = %d" % (kernel_id, str(path), self.num_kernels_starting))
@@ -42,8 +51,6 @@ class DistributedKernelManager(MappingKernelManager, ServerKernelManager):
         self.num_kernels_starting -= 1
 
         return returned_kernel_id
-
-    start_kernel = _async_start_kernel
 
     def kernel_model(self, kernel_id):
         """Return a JSON-safe dict representing a kernel

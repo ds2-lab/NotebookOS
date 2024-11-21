@@ -221,7 +221,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 	var (
 		numTries    = 0
 		maxAttempts = 3
-		bestAttempt = -1
+		bestAttempt = 0
 		hosts       []scheduling.Host
 	)
 	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {

@@ -1555,6 +1555,28 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	err = d.cluster.Scheduler().DeployNewKernel(ctx, in, []scheduling.Host{ /* No blacklisted hosts */ })
 	if err != nil {
 		d.log.Error("Error while deploying infrastructure for new kernel %s's: %v", in.Id, err)
+
+		// Clean up everything since we failed to create the kernel.
+		d.kernelIdToKernel.Delete(in.Id)
+		d.kernelsStarting.Delete(in.Id)
+		d.kernels.Delete(in.Id)
+		d.kernelSpecs.Delete(in.Id)
+		d.waitGroups.Delete(in.Id)
+
+		listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
+		returnPortsErr := d.availablePorts.ReturnPorts(listenPorts)
+		if returnPortsErr != nil {
+			d.log.Warn("Failed to return listen ports %d and %d after failing to launch new kernel \"%s\" because: %v",
+				kernel.ShellListenPort(), kernel.IOPubListenPort(), in.Id, err)
+		}
+
+		closeKernelError := kernel.Close()
+		if closeKernelError != nil {
+			d.log.Warn("Error while closing failed-to-be-created kernel \"%s\": %v", in.Id, closeKernelError)
+		}
+
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Create Kernel \"%s\"", in.Id), err.Error())
+
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
