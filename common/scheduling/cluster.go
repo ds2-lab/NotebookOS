@@ -44,7 +44,7 @@ type ClusterHostManager interface {
 	ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise
 
 	// RemoveHost removes the Host with the specified ID.
-	// This is called when a Local Daemon loses connection.
+	// This is called when a DefaultSchedulingPolicy Daemon loses connection.
 	RemoveHost(hostId string)
 
 	// NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
@@ -55,10 +55,15 @@ type ClusterHostManager interface {
 	// GetHost returns the Host with the given ID, if one exists.
 	GetHost(hostId string) (Host, bool)
 
-	// RangeOverHosts executes the provided function on each Host in the Cluster.
+	// RangeOverHosts executes the provided function on each enabled Host in the Cluster.
 	//
 	// Importantly, this function does NOT lock the hostsMutex.
 	RangeOverHosts(f func(key string, value Host) bool)
+
+	// RangeOverDisabledHosts executes the provided function on each disabled Host in the Cluster.
+	//
+	// Importantly, this function does NOT lock the hostsMutex.
+	RangeOverDisabledHosts(f func(key string, value Host) bool)
 
 	// ReadLockHosts locks the underlying host manager such that no Host instances can be added or removed.
 	ReadLockHosts()

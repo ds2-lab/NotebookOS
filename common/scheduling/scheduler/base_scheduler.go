@@ -5,22 +5,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
-	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"github.com/shopspring/decimal"
+	"log"
 	"math"
 	"sync"
 	"time"
 )
 
 const (
-	SchedulerInvalidationThreshold = 0.1
+	InvalidationThreshold = 0.1
 )
 
 // schedulingNotification is a struct that is sent over a channel to notify the "main" goroutine handling the
@@ -53,6 +53,7 @@ type KernelProvider interface {
 
 type NotificationBroker interface {
 	SendErrorNotification(errorName string, errorMessage string)
+	SendInfoNotification(title string, message string)
 }
 
 type BaseScheduler struct {
@@ -62,6 +63,7 @@ type BaseScheduler struct {
 	placer             scheduling.Placer
 	kernelProvider     KernelProvider
 	notificationBroker NotificationBroker
+	schedulingPolicy   scheduling.Policy
 
 	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
 	// kernels (or other resources) and could occur in-parallel (such as being triggered
@@ -69,19 +71,22 @@ type BaseScheduler struct {
 	addReplicaMutex sync.Mutex
 
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
-	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]]
+	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]]
 
 	// Mapping from new kernel-replica key (i.e., <kernel-id>-<replica-id>) to AddReplicaOperation.
-	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, *AddReplicaOperation]
+	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, *scheduling.AddReplicaOperation]
 
 	// Mapping from NewPodName to chan string.
 	// In theory, it's possible to receive a PodCreated notification from Kubernetes AFTER the replica within the new Pod
 	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
 	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
 	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
-	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *AddReplicaOperation]
+	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *scheduling.AddReplicaOperation]
 
 	candidateHostMutex sync.Mutex
+
+	// resourceBindingMode describes when resources are committed and uncommitted from Containers.
+	resourceBindingMode scheduling.ResourceBindingMode
 
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
@@ -123,60 +128,8 @@ type BaseScheduler struct {
 	log logger.Logger
 }
 
-func NewBaseScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *scheduling.SchedulerOptions) *BaseScheduler {
-	clusterScheduler := &BaseScheduler{
-		cluster:                                  cluster,
-		hostMapper:                               hostMapper,
-		gpusPerHost:                              float64(opts.GpusPerHost),
-		virtualGpusPerHost:                       int32(opts.VirtualGpusPerHost),
-		scalingFactor:                            opts.ScalingFactor,
-		scalingLimit:                             opts.ScalingLimit,
-		maximumHostsToReleaseAtOnce:              int32(opts.MaximumHostsToReleaseAtOnce),
-		scalingIntervalSec:                       int32(opts.ScalingInterval),
-		predictiveAutoscalingEnabled:             opts.PredictiveAutoscalingEnabled,
-		scalingBufferSize:                        int32(opts.ScalingBufferSize),
-		stRatio:                                  types.NewMovingStatFromWindow(5),
-		opts:                                     opts,
-		remoteSynchronizationInterval:            time.Second * time.Duration(opts.GpuPollIntervalSeconds),
-		placer:                                   placer,
-		hostSpec:                                 hostSpec,
-		oversubscribed:                           make(types.Heap, 0, 10),
-		undersubscribed:                          make(types.Heap, 0, 10),
-		idleHosts:                                make(types.Heap, 0, 10),
-		maximumCapacity:                          int32(opts.MaximumNumNodes),
-		minimumCapacity:                          int32(opts.MinimumNumNodes),
-		maxSubscribedRatio:                       decimal.NewFromFloat(opts.MaxSubscribedRatio),
-		subscriptionRatio:                        decimal.NewFromFloat(opts.MaxSubscribedRatio),
-		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *AddReplicaOperation]](64),
-		addReplicaOperationsByKernelReplicaId:    hashmap.NewCornelkMap[string, *AddReplicaOperation](64),
-		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *AddReplicaOperation](64),
-		kernelProvider:                           kernelProvider,
-	}
-	config.InitLogger(&clusterScheduler.log, clusterScheduler)
-
-	if opts.GpuPollIntervalSeconds <= 0 {
-		clusterScheduler.remoteSynchronizationInterval = time.Second * 5
-	}
-
-	if clusterScheduler.scalingIntervalSec < 0 {
-		clusterScheduler.scalingIntervalSec = 30
-		clusterScheduler.scalingInterval = time.Second * time.Duration(30)
-	}
-
-	if clusterScheduler.log.GetLevel() == logger.LOG_LEVEL_ALL {
-		clusterScheduler.log.Debug("Scheduling Configuration:")
-		clusterScheduler.log.Debug("GpusPerHost: %.2f", clusterScheduler.gpusPerHost)
-		clusterScheduler.log.Debug("VirtualGpusPerHost: %d", clusterScheduler.virtualGpusPerHost)
-		clusterScheduler.log.Debug("ScalingFactor: %.2f", clusterScheduler.scalingFactor)
-		clusterScheduler.log.Debug("ScalingLimit: %.2f", clusterScheduler.scalingLimit)
-		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d", clusterScheduler.maximumHostsToReleaseAtOnce)
-		clusterScheduler.log.Debug("ScalingInterval: %d", clusterScheduler.scalingIntervalSec)
-		clusterScheduler.log.Debug("PredictiveAutoscalingEnabled: %v", clusterScheduler.predictiveAutoscalingEnabled)
-		clusterScheduler.log.Debug("ScalingBufferSize: %d", clusterScheduler.scalingBufferSize)
-		clusterScheduler.log.Debug("GPU Refresh Interval: %v", clusterScheduler.remoteSynchronizationInterval)
-	}
-
-	return clusterScheduler
+func (s *BaseScheduler) GetResourceBindingMode() scheduling.ResourceBindingMode {
+	return s.resourceBindingMode
 }
 
 func (s *BaseScheduler) sendErrorNotification(errorName string, errorMessage string) {
@@ -185,6 +138,14 @@ func (s *BaseScheduler) sendErrorNotification(errorName string, errorMessage str
 	}
 
 	s.notificationBroker.SendErrorNotification(errorName, errorMessage)
+}
+
+func (s *BaseScheduler) sendInfoNotification(title string, message string) {
+	if s.notificationBroker == nil {
+		return
+	}
+
+	s.notificationBroker.SendInfoNotification(title, message)
 }
 
 func (s *BaseScheduler) WithNotificationBroker(notificationBroker NotificationBroker) {
@@ -197,6 +158,10 @@ func (s *BaseScheduler) WithHostMapper(mapper HostMapper) {
 
 func (s *BaseScheduler) SetHostSpec(spec types.Spec) {
 	s.hostSpec = spec
+}
+
+func (s *BaseScheduler) SchedulingPolicy() scheduling.Policy {
+	return s.schedulingPolicy
 }
 
 // GetOversubscriptionFactor returns the oversubscription factor calculated as the difference between
@@ -236,6 +201,11 @@ func (s *BaseScheduler) TryGetCandidateHosts(hosts []scheduling.Host, kernelSpec
 	return hosts
 }
 
+func (s *BaseScheduler) isScalingEnabled() bool {
+	// If we're using FCFS Batch Scheduling, then we cannot scale in or out.
+	return s.SchedulingPolicy() != scheduling.FcfsBatch
+}
+
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -251,13 +221,13 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 	var (
 		numTries    = 0
 		maxAttempts = 3
-		bestAttempt = -1
+		bestAttempt = 0
 		hosts       []scheduling.Host
 	)
 	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {
 		hosts = s.TryGetCandidateHosts(hosts, kernelSpec)
 
-		if len(hosts) < s.opts.NumReplicas {
+		if len(hosts) < s.opts.NumReplicas && s.isScalingEnabled() {
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
 				len(hosts), s.opts.NumReplicas, kernelSpec.Id)
 
@@ -328,12 +298,20 @@ func (s *BaseScheduler) MinimumCapacity() int32 {
 // We simulate this using node taints.
 func (s *BaseScheduler) AddHost() error {
 	p := s.cluster.RequestHosts(context.Background(), 1) /* s.hostSpec */
-	err := p.Error()
+
+	result, err := p.Result()
 	if err != nil {
 		s.log.Error("Failed to add new host because: %v", err)
+		s.sendErrorNotification("Failed to Add Host to Cluster", err.Error())
 		return err
 	}
 
+	message := ""
+	if result != nil {
+		message = result.(ScaleOperationResult).String()
+	}
+
+	s.sendInfoNotification("Successfully Added Host to Cluster", message)
 	return nil
 }
 
@@ -341,11 +319,20 @@ func (s *BaseScheduler) AddHost() error {
 // We simulate this using node taints.
 func (s *BaseScheduler) RemoveHost(hostId string) error {
 	p := s.cluster.ReleaseSpecificHosts(context.Background(), []string{hostId})
-	err := p.Error()
+
+	result, err := p.Result()
 	if err != nil {
-		s.log.Error("Failed to release host %s because: %v", hostId, err)
+		s.log.Error("Failed to remove host %s because: %v", hostId, err)
+		s.sendErrorNotification(fmt.Sprintf("Failed to Remove Host %s from the Cluster", hostId), err.Error())
 		return err
 	}
+
+	message := ""
+	if result != nil {
+		message = result.(ScaleOperationResult).String()
+	}
+
+	s.sendInfoNotification(fmt.Sprintf("Successfully Removed Host %s from the Cluster", hostId), message)
 
 	return nil
 }
@@ -363,8 +350,8 @@ func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelRep
 // Parameters:
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
-// - dataDirectory (string): Path to etcd-raft data directory in HDFS.
-func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host) (*AddReplicaOperation, error) {
+// - dataDirectory (string): Path to etcd-raft data directory in RemoteStorage.
+func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts scheduling.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host) (*scheduling.AddReplicaOperation, error) {
 	var kernelId = in.KernelId
 	var persistentId = in.PersistentId
 
@@ -386,7 +373,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 	// The spec to be used for the new replica that is created during the migration.
 	var newReplicaSpec = kernel.PrepareNewReplica(persistentId, smrNodeId)
 
-	addReplicaOp := NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
+	addReplicaOp := scheduling.NewAddReplicaOperation(kernel, newReplicaSpec, dataDirectory)
 	key := fmt.Sprintf("%s-%d", addReplicaOp.KernelId(), addReplicaOp.ReplicaId())
 	s.addReplicaOperationsByKernelReplicaId.Store(key, addReplicaOp)
 
@@ -398,7 +385,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 	s.addReplicaMutex.Lock()
 	ops, ok := s.activeAddReplicaOpsPerKernel.Load(kernelId)
 	if !ok {
-		ops = orderedmap.NewOrderedMap[string, *AddReplicaOperation]()
+		ops = orderedmap.NewOrderedMap[string, *scheduling.AddReplicaOperation]()
 	}
 	ops.Set(addReplicaOp.OperationID(), addReplicaOp)
 	s.activeAddReplicaOpsPerKernel.Store(kernelId, ops)
@@ -475,6 +462,18 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts domain.AddReplica
 
 	// Return nil on success.
 	return addReplicaOp, nil
+}
+
+func (s *BaseScheduler) GetActiveAddReplicaOperationsForKernel(kernelId string) (*orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation], bool) {
+	return s.activeAddReplicaOpsPerKernel.Load(kernelId)
+}
+
+func (s *BaseScheduler) GetAddReplicaOperation(id string) (*scheduling.AddReplicaOperation, bool) {
+	return s.addReplicaOperationsByKernelReplicaId.Load(id)
+}
+
+func (s *BaseScheduler) GetAddReplicaOperationManager() hashmap.HashMap[string, *scheduling.AddReplicaOperation] {
+	return s.addReplicaOperationsByKernelReplicaId
 }
 
 // UpdateRatio updates the Cluster's subscription ratio.
@@ -594,7 +593,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 	}
 
 	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
-	opts := NewAddReplicaWaitOptions(true, true, true)
+	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
 	addReplicaOp, err := s.addReplica(replicaSpec, opts, dataDirectory, []scheduling.Host{originalHost})
 	if err != nil {
 		s.log.Error("Failed to add new replica %d to kernel %s: %v", kernelReplica.ReplicaID(), kernelReplica.ID(), err)
@@ -669,20 +668,61 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 		}
 	}
 
-	s.log.Info("Calling PrepareToMigrate RPC targeting replica %d of kernel %s now.",
-		originalHost.GetID(), kernelReplica.ID())
+	s.log.Debug("Calling PrepareToMigrate RPC targeting host %s (ID=%s) of replica %d of kernel %s now.",
+		originalHost.GetNodeName(), originalHost.GetID(), kernelReplica.ReplicaID(), kernelReplica.ID())
 
 	replicaInfo := &proto.ReplicaInfo{
 		ReplicaId: kernelReplica.ReplicaID(),
 		KernelId:  kernelReplica.ID(),
 	}
 
-	// Issue the 'prepare-to-migrate' request. We panic if there was an error.
-	resp, err := originalHost.PrepareToMigrate(context.TODO(), replicaInfo)
-	if err != nil {
-		s.log.Error("Failed to add replica %d of kernel %s to SMR cluster because: %v",
-			originalHost.GetID(), kernelReplica.ID(), err)
-		return "", err
+	resultChan := make(chan interface{}, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	defer cancel()
+
+	go func() {
+		gRpcClientConnection := originalHost.GetGrpcConnection()
+
+		if gRpcClientConnection == nil {
+			log.Fatalf(utils.RedStyle.Render("gRPC Client Connection with host %s (ID=%s) is nil."),
+				originalHost.GetNodeName(), originalHost.GetID())
+		}
+
+		s.log.Debug("State of gRPC ClientConn with host %s (ID=%s): %s (%v)", originalHost.GetNodeName(),
+			originalHost.GetID(), gRpcClientConnection.GetState().String(), gRpcClientConnection.GetState())
+
+		// Issue the 'prepare-to-migrate' request. We panic if there was an error.
+		resp, err := originalHost.PrepareToMigrate(ctx, replicaInfo)
+		if err != nil {
+			s.log.Error("Failed to add replica %d of kernel %s to SMR cluster because: %v",
+				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+			resultChan <- err
+		} else {
+			resultChan <- resp
+		}
+	}()
+
+	var resp *proto.PrepareToMigrateResponse
+	select {
+	case <-ctx.Done():
+		{
+			s.log.Error("Timed-out waiting for response from host %s (ID=%s) for 'prepare-to-migrate' request for replica %d of kernel %s...",
+				originalHost.GetNodeName(), originalHost.GetID(), kernelReplica.ReplicaID(), kernelReplica.ID())
+			return "", fmt.Errorf("timed out")
+		}
+	case res := <-resultChan:
+		{
+			switch res.(type) {
+			case *proto.PrepareToMigrateResponse:
+				{
+					resp = res.(*proto.PrepareToMigrateResponse)
+				}
+			case error:
+				{
+					return "", res.(error)
+				}
+			}
+		}
 	}
 
 	dataDirectory := resp.DataDir
@@ -817,7 +857,7 @@ func (s *BaseScheduler) designateSubscriptionPoolType(host scheduling.Host, pool
 }
 
 func (s *BaseScheduler) validate() {
-	if s.invalidated > SchedulerInvalidationThreshold {
+	if s.invalidated > InvalidationThreshold {
 		// StaticPlacerMaxSubscribedRatio increase, release oversubscribed hosts to under-subscribed hosts.
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
 			s.log.Debug("Apply subscription ratio change %.4f -> %.4f, add under-subscription hosts to candidate pool",
@@ -832,7 +872,7 @@ func (s *BaseScheduler) validate() {
 
 		s.lastSubscribedRatio = s.pendingSubscribedRatio
 		s.invalidated = 0.0
-	} else if s.invalidated < (-1 * SchedulerInvalidationThreshold) {
+	} else if s.invalidated < (-1 * InvalidationThreshold) {
 		s.lastSubscribedRatio = s.pendingSubscribedRatio
 		s.invalidated = 0.0
 	}

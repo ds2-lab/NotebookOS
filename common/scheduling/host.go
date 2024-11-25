@@ -6,6 +6,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"time"
 )
@@ -25,6 +26,8 @@ type PreemptionInfo interface {
 type Host interface {
 	proto.LocalGatewayClient
 
+	// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote DefaultSchedulingPolicy Daemon.
+	GetGrpcConnection() *grpc.ClientConn
 	GetLocalGatewayClient() proto.LocalGatewayClient
 	GetNodeName() string
 	GetID() string
@@ -59,7 +62,7 @@ type Host interface {
 	CanServeContainer(resourceRequest types.Spec) bool
 	CanCommitResources(resourceRequest types.Spec) bool
 	ReleaseReservation(spec *proto.KernelSpec) error
-	ReserveResources(spec *proto.KernelSpec) (bool, error)
+	ReserveResources(spec *proto.KernelSpec, usePendingResources bool) (bool, error)
 	Restore(restoreFrom Host, callback ErrorCallback) error
 	Enabled() bool
 	Enable(includeInScheduling bool) error
@@ -81,6 +84,7 @@ type Host interface {
 	LastReschedule() types.StatFloat64Field
 	TimeSinceLastSynchronizationWithRemote() time.Duration
 	SetMeta(key HostMetaKey, value interface{})
+	GetReservation(kernelId string) (ResourceReservation, bool) // GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
 	GetMeta(key HostMetaKey) interface{}
 	Priority(session UserSession) float64
 	IdleGPUs() float64

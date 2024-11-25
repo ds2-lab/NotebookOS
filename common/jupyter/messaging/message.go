@@ -2,12 +2,14 @@ package messaging
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -147,6 +149,46 @@ const (
 	MessageKernelStatusStarting = "starting"
 )
 
+// MessageErrorWithOldContent is similar to MessageError; however, MessageErrorWithOldContent is used
+// when we're replacing the content of a Jupyter message with a custom error message.
+//
+// MessageErrorWithOldContent has an additional field (relative to MessageError) in which the original content
+// of the Jupyter message is stored.
+type MessageErrorWithOldContent struct {
+	*MessageError
+
+	// OriginalContent contains the original content of the Jupyter message whose content is being replaced
+	// with a custom error message.
+	OriginalContent map[string]interface{} `json:"original_content"`
+}
+
+func (m *MessageErrorWithOldContent) String() string {
+	out, err := json.Marshal(m)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(out)
+}
+
+// MessageErrorWithYieldReason is a wrapper around MessageError with an additional YieldReason field, in case
+// the error is an 'execution yielded' error, and the replica that encountered this error was explicitly instructed
+// to yield, and a reason was provided.
+type MessageErrorWithYieldReason struct {
+	*MessageError
+
+	YieldReason string `json:"yield-reason"`
+}
+
+func (m *MessageErrorWithYieldReason) String() string {
+	out, err := json.Marshal(m)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(out)
+}
+
 type MessageError struct {
 	Status   string `json:"status"`
 	ErrName  string `json:"ename"`
@@ -166,6 +208,10 @@ const (
 	MessageStatusOK          = "ok"
 	MessageStatusError       = "error"
 	MessageErrYieldExecution = "ExecutionYieldError"
+)
+
+var (
+	ErrExecutionYielded = errors.New("kernel replica failed to lead the execution")
 )
 
 type MessageShutdownRequest struct {
@@ -435,6 +481,10 @@ type ExecuteRequestMetadata struct {
 	// replica would execute the code. This is only sent on the return (i.e., "execute_reply").
 	ElectionMetadata *ElectionMetadata `json:"election_metadata" mapstructure:"resource_snapshot,omitempty"`
 
+	// RemoteStorageDefinition defines the remote storage that should be used by the kernel when simulating
+	// checkpointing its state.
+	RemoteStorageDefinition *proto.RemoteStorageDefinition `json:"remote_storage_definition" mapstructure:"remote_storage_definition"`
+
 	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
 	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.
 	OtherMetadata map[string]interface{} `mapstructure:",remain"`
@@ -483,6 +533,11 @@ type JupyterMessage struct {
 	key string
 	// Indicates whether the key field has been set.
 	keySet bool
+
+	// IsFailedExecuteRequest is a flag indicating whether this JupyterMessage contains a failed "execute_request"
+	// (or really, a failed "execute_reply" or "yield_reply"), in which there was an error while executing the "all
+	// replicas yielded" handler.
+	IsFailedExecuteRequest bool
 
 	parentHeaderDecoded bool
 	headerDecoded       bool
@@ -793,6 +848,7 @@ func (m *JupyterMessage) Validate() error {
 func (m *JupyterMessage) SetMessageType(typ string) {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
+		debug.PrintStack()
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
 	}
 	header.MsgType = JupyterMessageType(typ)
@@ -802,6 +858,7 @@ func (m *JupyterMessage) SetMessageType(typ string) {
 func (m *JupyterMessage) SetDate(date string) {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
+		debug.PrintStack()
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
 	}
 	header.Date = date
@@ -812,6 +869,7 @@ func (m *JupyterMessage) SetDate(date string) {
 func (m *JupyterMessage) JupyterMessageType() string {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
+		debug.PrintStack()
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
 	}
 	return string(header.MsgType)
@@ -822,6 +880,7 @@ func (m *JupyterMessage) JupyterMessageType() string {
 func (m *JupyterMessage) JupyterParentMessageType() string {
 	parentHeader := m.GetParentHeader() // Instantiate the header in case it isn't already.
 	if parentHeader == nil {
+		debug.PrintStack()
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s.\n", m.msg.String()))
 	}
 	return string(parentHeader.MsgType)
@@ -831,6 +890,7 @@ func (m *JupyterMessage) JupyterParentMessageType() string {
 func (m *JupyterMessage) JupyterMessageDate() string {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
+		debug.PrintStack()
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
 	}
 	return header.Date
@@ -840,6 +900,7 @@ func (m *JupyterMessage) JupyterMessageDate() string {
 func (m *JupyterMessage) JupyterSession() string {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
+		debug.PrintStack()
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
 	}
 	return header.Session
@@ -849,6 +910,7 @@ func (m *JupyterMessage) JupyterSession() string {
 func (m *JupyterMessage) JupyterUsername() string {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
+		debug.PrintStack()
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
 	}
 	return header.Username
@@ -858,6 +920,7 @@ func (m *JupyterMessage) JupyterUsername() string {
 func (m *JupyterMessage) JupyterVersion() string {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
+		debug.PrintStack()
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
 	}
 	return header.Version
@@ -867,6 +930,7 @@ func (m *JupyterMessage) JupyterVersion() string {
 func (m *JupyterMessage) JupyterMessageId() string {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
+		debug.PrintStack()
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
 	}
 	return header.MsgID

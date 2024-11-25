@@ -130,6 +130,7 @@ services:
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--web.listen-address=0.0.0.0:8500"
+      - "--storage.tsdb.retention.time=120d"
       # - "--web.external-url=http://{{ hostvars['swarm-leader'].ansible_host }}/prometheus"
       # - "--web.route-prefix=/"
       # - "--web.enable-admin-api"
@@ -266,11 +267,45 @@ services:
       - ./dashboard_backend/custom_event_sequences:{{ dashboard_backend_config_directory }}/custom_event_sequences
       - ./dashboard_backend/.env:/go/.env
 
+{% if distributed_notebook_remote_storage_type == 'redis' %}
+  redis:
+    image: scusemua/redis:latest
+    networks:
+    - traefik-public
+    labels: # Container labels
+      - "app=distributed_cluster"
+      - "component=redis"
+      - "logging=promtail"
+      - "logging_jobname=redis"
+    deploy:
+      restart_policy:
+        condition: on-failure
+      endpoint_mode: dnsrr
+      labels:
+        - "app=distributed_cluster"
+        - "component=redis"
+        - "logging=promtail"
+        - "logging_jobname=redis"
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik-public"
+        - "traefik.constraint-label=traefik-public"
+
+        - "traefik.http.routers.redis-http.entryPoints=http"
+        - "traefik.http.routers.redis-http.rule=Host(`{{ hostvars['swarm-leader'].ansible_host }}`) && PathPrefix(`/redis`)"
+        - "traefik.http.routers.redis-http.service=redis"
+        - "traefik.http.services.redis.loadbalancer.server.port={{ redis_port }}"
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/home/redis/redis.conf # Mount custom config file
+    command: ["redis-server", "/home/redis/redis.conf"] # Enables AOF persistence for durability
+{% endif %}
+
 volumes:
   coredumps_volume:
   prometheus_data:
   grafana_data:
   loki_data:
+  redis_data:
 
 networks:
   # Use the previously created public network "traefik-public", shared with other

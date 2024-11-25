@@ -17,6 +17,7 @@ import uuid
 from concurrent import futures
 from hmac import compare_digest
 from multiprocessing import Process, Queue
+from numbers import Number
 from threading import Lock
 from typing import Union, Optional, Dict, Any
 
@@ -38,9 +39,8 @@ from ..logging import ColoredLogFormatter
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.election import Election
 from ..sync.errors import DiscardMessageError
-
-
-# from traitlets.traitlets import Set
+from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer, get_estimated_io_time_seconds, \
+    format_size
 
 
 def sigabrt_handler(sig, frame):
@@ -157,8 +157,13 @@ class DistributedKernel(IPythonKernel):
     hostname: Union[str, Unicode] = Unicode(
         help="""Hostname of the Pod encapsulating this distributed kernel replica""").tag(config=False)
 
-    hdfs_namenode_hostname: Union[str, Unicode] = Unicode(
-        help="""Hostname of the HDFS NameNode. The SyncLog's HDFS client will connect to this.""").tag(config=True)
+    remote_storage_hostname: Union[str, Unicode] = Unicode(
+        help="""Hostname of the remotestorage. The SyncLog's RemoteStorage client will connect to this.""").tag(
+        config=True)
+
+    remote_storage: Union[str, Unicode] = Unicode(
+        help="The type of remote storage we're using. Valid options, as of right now, are 'hdfs' and 'redis'.",
+        default_value='hdfs').tag(config=True)
 
     kernel_id: Union[str, Unicode] = Unicode(help="""The ID of the kernel.""").tag(config=False)
 
@@ -228,6 +233,15 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
 
+        # This is set to True in self.loaded_serialized_state_callback, which is called by the RaftLog after it
+        # loads its serialized state from intermediate storage.
+        self.loaded_serialized_state: bool = False
+
+        # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
+        self.remote_storages: Dict[str, SimulatedCheckpointer] = {}
+        self.resource_requests: list[Dict[str, Number | List[Number]]] = []
+        self.current_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = None
+
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
         self.log.setLevel(logging.DEBUG)
@@ -272,18 +286,18 @@ class DistributedKernel(IPythonKernel):
                 subsystem="jupyter",
                 name="kernel_lead_proposals_total",
                 documentation="Total number of 'LEAD' proposals.")
-            self.hdfs_read_latency_milliseconds: Histogram = Histogram(
+            self.remote_storage_read_latency_milliseconds: Histogram = Histogram(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
-                name="kernel_hdfs_read_latency_milliseconds",
-                documentation="The amount of time the kernel spent reading data from HDFS.",
+                name="kernel_remote_storage_read_latency_milliseconds",
+                documentation="The amount of time the kernel spent reading data from RemoteStorage.",
                 unit="milliseconds",
                 buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
-            self.hdfs_write_latency_milliseconds: Histogram = Histogram(
+            self.remote_storage_write_latency_milliseconds: Histogram = Histogram(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
-                name="kernel_hdfs_write_latency_milliseconds",
-                documentation="The amount of time the kernel spent writing data to HDFS.",
+                name="kernel_remote_storage_write_latency_milliseconds",
+                documentation="The amount of time the kernel spent writing data to RemoteStorage.",
                 unit="milliseconds",
                 buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
             self.registration_time_milliseconds: Histogram = Histogram(
@@ -366,7 +380,12 @@ class DistributedKernel(IPythonKernel):
 
         self.log.info("Kwargs: %s" % str(kwargs))
 
-        self.checkpointing_enabled: bool = len(os.environ.get("SIMULATE_CHECKPOINTING_LATENCY", "")) > 0
+        self.checkpointing_enabled: bool = False
+        if len(os.environ.get("SIMULATE_CHECKPOINTING_LATENCY", "")) > 0:
+            self.checkpointing_enabled = True
+        elif "checkpointing_enabled" in kwargs:
+            self.checkpointing_enabled = kwargs.get("checkpointing_enabled", False)
+
         if self.checkpointing_enabled:
             self.log.debug("Checkpointing Latency Simulation is enabled.")
         else:
@@ -402,11 +421,11 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Session ID: \"%s\"" % session_id)
         self.log.info("Kernel ID: \"%s\"" % self.kernel_id)
         self.log.info("Pod name: \"%s\"" % self.pod_name)
-        self.log.info("HDFS NameNode hostname: \"%s\"" %
-                      self.hdfs_namenode_hostname)
+        self.log.info("RemoteStorage hostname: \"%s\"" %
+                      self.remote_storage_hostname)
 
-        if len(self.hdfs_namenode_hostname) == 0:
-            raise ValueError("The HDFS hostname is empty. Was it specified in the configuration file?")
+        if len(self.remote_storage_hostname) == 0:
+            raise ValueError("The RemoteStorage hostname is empty. Was it specified in the configuration file?")
 
         try:
             # The amount of CPU used by this kernel replica (when training) in millicpus (1/1000th of a CPU core).
@@ -447,7 +466,7 @@ class DistributedKernel(IPythonKernel):
         self.persistent_store_cv = asyncio.Condition()
 
         # If we're part of a migration operation, then it will be set when we register with the local daemon.
-        self.should_read_data_from_hdfs: bool = False
+        self.should_read_data_from_remote_storage: bool = False
 
         connection_info: dict[str, Any] = {}
         try:
@@ -619,19 +638,19 @@ class DistributedKernel(IPythonKernel):
         self.smr_nodes_map = {int(node_id_str): (node_addr + ":" + str(self.smr_port))
                               for node_id_str, node_addr in replicas.items()}
 
-        # If we're part of a migration operation, then we should receive both a persistent ID AND an HDFS Data Directory.
+        # If we're part of a migration operation, then we should receive both a persistent ID AND an RemoteStorage Data Directory.
         # If we're not part of a migration operation, then we'll JUST receive the persistent ID.
         if "persistent_id" in response_dict:
             self.log.info("Received persistent ID from registration: \"%s\"" % response_dict["persistent_id"])
             self.persistent_id = response_dict["persistent_id"]
 
         # We'll also use this as an indicator of whether we should simulate additional checkpointing overhead.
-        self.should_read_data_from_hdfs = response_dict.get("should_read_data_from_hdfs", False)
+        self.should_read_data_from_remote_storage = response_dict.get("should_read_data_from_remote_storage", False)
 
-        if self.should_read_data_from_hdfs:
-            self.log.debug("We SHOULD read data from HDFS.")
+        if self.should_read_data_from_remote_storage:
+            self.log.debug("We SHOULD read data from RemoteStorage.")
         else:
-            self.log.debug("We should NOT read data from HDFS.")
+            self.log.debug("We should NOT read data from RemoteStorage.")
 
         if "debug_port" in response_dict:
             self.debug_port: int = int(response_dict["debug_port"])
@@ -1109,7 +1128,7 @@ class DistributedKernel(IPythonKernel):
         # Start the synchronizer.
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
         self.synchronizer = Synchronizer(
-            sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO, node_id = self.smr_node_id)  # type: ignore
+            sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO, node_id=self.smr_node_id)  # type: ignore
 
         sync_log.set_fast_forward_executions_handler(self.synchronizer.fast_forward_execution_count)
 
@@ -1126,6 +1145,9 @@ class DistributedKernel(IPythonKernel):
         # The catch-up process involves appending a new value and waiting until it gets committed. This cannot be done until the RaftLog has started.
         # And the RaftLog is started by the Synchronizer, within Synchronizer::start.
         if self.synclog.needs_to_catch_up:
+            self.log.debug("We need to catchup with our peers, but before we do that, we must simulate checkpointing.")
+            await self.simulate_remote_checkpointing(None, io_type="download")
+
             self.log.debug("RaftLog will need to propose a \"catch up\" value "
                            "so that it can tell when it has caught up with its peers.")
             await self.synclog.catchup_with_peers()
@@ -1144,6 +1166,33 @@ class DistributedKernel(IPythonKernel):
             self.persistent_store_cv.notify_all()
 
         return store_path
+
+    def get_most_recently_used_remote_storage(self) -> Optional[SimulatedCheckpointer]:
+        """
+        Return the SimulatedCheckpointer that was most recently used for any simulated network I/O operation.
+
+        If there are no remote storages registered, then this will return None.
+        """
+        if self.remote_storages is None or len(self.remote_storages) == 0:
+            return None
+
+        last_io_timestamp: float = float('-inf')
+        most_recently_used_checkpointer: Optional[SimulatedCheckpointer] = None
+        for name, checkpointer in self.remote_storages.items():
+            if checkpointer.last_io_timestamp > last_io_timestamp:
+                last_io_timestamp = checkpointer.last_io_timestamp
+                most_recently_used_checkpointer = checkpointer
+
+        # We either should've identified a SimulatedCheckpointer to return, or we should have no
+        # SimulatedCheckpointer objects registered.
+        #
+        # Even if no SimulatedCheckpointer objects were ever used, their last_io_timestamp field is initialized
+        # to -1, whereas our local last_io_timestamp variable is initialized to negative infinity, so we should've
+        # selected the first SimulatedCheckpointer we encountered if it is the case that no registered
+        # SimulatedCheckpointer objects have ever been used.
+        assert most_recently_used_checkpointer is not None or len(self.remote_storages) == 0
+
+        return most_recently_used_checkpointer
 
     async def check_persistent_store(self):
         """Check if persistent store is ready. If initializing, wait. The future return True if ready."""
@@ -1173,6 +1222,86 @@ class DistributedKernel(IPythonKernel):
             ident=ident,
         )
         self.log.debug(f"Sent 'ACK' for {stream_name} {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
+
+    def register_remote_storage_definition_from_dict(self, remote_storage_definition: Dict[str, Any]) -> Optional[str]:
+        if len(remote_storage_definition) == 0:
+            return
+
+        remote_storage_name: str = remote_storage_definition.get("name", "")
+
+        if remote_storage_name == "":
+            self.log.warning(f"Received non-empty remote storage definition with no name: {remote_storage_definition}")
+            return None
+
+        if remote_storage_name in self.remote_storages:
+            self.log.debug(f"Remote storage \"{remote_storage_name}\" is already registered.")
+            return remote_storage_name
+
+        remote_storage: SimulatedCheckpointer = SimulatedCheckpointer(**remote_storage_definition)
+        self.remote_storages[remote_storage.name] = remote_storage
+
+        self.log.debug(
+            f"Successfully registered new remote storage from dictionary definition: \"{remote_storage_name}\".")
+
+        return remote_storage_name
+
+    def register_remote_storage_definition(self, remote_storage_definition: Dict[str, Any] | SimulatedCheckpointer) -> \
+    Optional[str]:
+        """
+        Convert the remote storage definition that was extracted from the metadata of an "execute_request" or
+        "yield_request" message to a SimulatedCheckpointer object and store the new SimulatedCheckpointer object
+        in our remote_storages mapping.
+
+        Returns:
+            the name of the included remote storage, or None if no remote storage was included.
+            the name is returned regardless of whether the remote storage had already been registered or not.
+        """
+        if isinstance(remote_storage_definition, dict):
+            return self.register_remote_storage_definition_from_dict(remote_storage_definition)
+
+        remote_storage_name: str = remote_storage_definition.name
+        if remote_storage_name in self.remote_storages:
+            self.log.debug(f"Remote storage \"{remote_storage_name}\" is already registered.")
+            return remote_storage_name
+
+        self.remote_storages[remote_storage_name] = remote_storage_definition
+
+        self.log.debug(f"Successfully registered new remote storage: \"{remote_storage_name}\".")
+
+        return remote_storage_name
+
+    async def process_execute_request_metadata(self, msg_id: str, msg_type: str, metadata: Dict[str, Any]) -> Optional[
+        str]:
+        """
+        Process the metadata included in a shell "execute_request" or "yield_request" message.
+        """
+        self.log.debug(f"Processing metadata of \"{msg_type}\" request \"{msg_id}\": {metadata}")
+
+        if metadata is None:
+            return None
+
+        resource_request: Dict[str, Any] = metadata.get("resource_request", {})
+
+        remote_storage_definition: Dict[str, Any] = metadata.get("remote_storage_definition", {})
+
+        workload_id: str = metadata.get("workload_id", "")
+
+        if len(resource_request) > 0:
+            self.log.debug(f"Extracted ResourceRequest from \"{msg_type}\" metadata: {resource_request}")
+
+            self.resource_requests.append(resource_request)
+            self.current_resource_request = resource_request
+
+        remote_storage_name: Optional[str] = None
+        if len(remote_storage_definition) > 0:
+            self.log.debug(f"Extracted ResourceRequest from \"{msg_type}\" metadata: {remote_storage_definition}")
+
+            remote_storage_name = self.register_remote_storage_definition(remote_storage_definition)
+
+        if len(workload_id) > 0:
+            self.log.debug(f"Extracted workload ID from \"{msg_type}\" metadata: {workload_id}")
+
+        return remote_storage_name
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -1211,6 +1340,12 @@ class DistributedKernel(IPythonKernel):
 
         metadata = self.init_metadata(parent)
 
+        # Process the metadata included in the request.
+        # If we get back a remote storage name, then we'll use it to simulate I/O after we finish the execution.
+        remote_storage_name: str[Optional] = await self.process_execute_request_metadata(parent_header["msg_id"],
+                                                                                         parent_header["msg_type"],
+                                                                                         metadata)
+
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
         if not silent:
@@ -1224,6 +1359,7 @@ class DistributedKernel(IPythonKernel):
             "store_history": store_history,
             "user_expressions": user_expressions,
             "allow_stdin": allow_stdin,
+            "remote_storage_name": remote_storage_name,
         }
 
         if self._do_exec_accepted_params["cell_meta"]:
@@ -1285,11 +1421,12 @@ class DistributedKernel(IPythonKernel):
         # Wait for the task to end. By not returning here, we ensure that we cannot process any additional
         # "execute_request" messages until all replicas have finished.
 
-        # TODO: Might there still be race conditions where one replica starts processing a future "exectue_request"
+        # TODO: Might there still be race conditions where one replica starts processing a future "execute_request"
         #       message before the others, and possibly starts a new election and proposes something before the
         #       others do?
         self.log.debug(f"Waiting for election {term_number} "
                        "to be totally finished before returning from execute_request function.")
+
         await task
 
         end_time: float = time.time()
@@ -1464,6 +1601,8 @@ class DistributedKernel(IPythonKernel):
 
         metadata = self.init_metadata(parent)
 
+        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], metadata)
+
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
         if not silent:
@@ -1528,6 +1667,14 @@ class DistributedKernel(IPythonKernel):
         # block, before an error) and always clear the payload system.
         reply_content["payload"] = self.shell.payload_manager.read_payload()
 
+        # If there was a reason for why we were explicitly told to YIELD included in the metadata of the
+        # "yield_request" message, then we'll include it in our response as well as in our response's metadata.
+        request_metadata: dict[str, Any] = parent.get("metadata", {})
+        if "yield-reason" in request_metadata:
+            yield_reason:str = request_metadata["yield-reason"]
+            reply_content["yield-reason"] = yield_reason
+            metadata["yield-reason"] = yield_reason
+
         # Be aggressive about clearing the payload because we don't want
         # it to sit in memory until the next execute_request comes in.
         self.shell.payload_manager.clear_payload()
@@ -1575,6 +1722,7 @@ class DistributedKernel(IPythonKernel):
             store_history: bool = True,
             user_expressions: dict = None,
             allow_stdin: bool = False,
+            remote_storage_name: Optional[str] = None,
             *,
             cell_meta=None,
             cell_id=None
@@ -1584,6 +1732,7 @@ class DistributedKernel(IPythonKernel):
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
+            remote_storage_name: the name of the remote storage that we should use for (simulated) checkpointing
             cell_meta:
             cell_id:
             code (str): The code to be executed.
@@ -1706,13 +1855,14 @@ class DistributedKernel(IPythonKernel):
             assert self.execution_count is not None
             self.log.info("Synchronized. End of sync execution: {}".format(term_number))
 
-            await self.schedule_notify_execution_complete(term_number)
+            if remote_storage_name is not None:
+                await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
 
-            return reply_content
+            await self.schedule_notify_execution_complete(term_number)
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
 
-            return gen_error_response(eye)
+            reply_content = gen_error_response(eye)
         except DiscardMessageError as dme:
             self.log.warning(f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
                              f"as election for term {term_number} was skipped: {dme}")
@@ -1724,13 +1874,114 @@ class DistributedKernel(IPythonKernel):
                 notification_type=WarningNotification,
             )
 
-            return gen_error_response(dme)
+            reply_content = gen_error_response(dme)
         except Exception as e:
             self.log.error("Execution error: {}...".format(e))
 
             self.report_error("Execution Error", str(e))
 
-            return gen_error_response(e)
+            reply_content = gen_error_response(e)
+
+        return reply_content
+
+    async def simulate_remote_checkpointing(self, remote_storage_name: Optional[str], io_type: Optional[str] = None):
+        """
+        Simulate checkpointing using the current resource request and the specified remote storage name.
+
+        If the specified remote storage name is None or the empty string, then the most-recently-used remote storage
+        will be used again.
+
+        io_type must be "read", "write", "upload", or "download" (case-insensitive).
+        """
+        if not self.checkpointing_enabled:
+            self.log.debug(f"Checkpointing is disabled. Skipping simulation of network {io_type} "
+                           f"targeting remote storage {remote_storage_name}.")
+
+        if io_type is None:
+            raise ValueError("must specify an IO type")
+
+        io_type = io_type.lower()
+        if io_type != "read" and io_type != "write" and io_type != "upload" and io_type != "download":
+            raise ValueError(f"unknown/unsupported IO type specified: \"{io_type}\"")
+
+        if self.current_resource_request is None:
+            self.log.error("Current resource request is None; cannot simulate checkpointing...")
+            self.report_error('No Current Resource Request',
+                              f'Kernel {self.kernel_id} does not have a resource request, so it cannot '
+                              f'simulate checkpointing with specified remote storage "{remote_storage_name}"...')
+            return
+
+        if self.current_resource_request.get("vram", 0) == 0:
+            self.log.debug("Latest resource request specifies 0GB for VRAM. Nothing to checkpoint.")
+            return
+
+        if self.remote_storages is None or len(self.remote_storages) == 0:
+            self.log.warning("No remote storages registered; cannot simulate checkpointing...")
+            self.report_error(f'Unknown Remote Storage "{remote_storage_name}"',
+                              f'Could not find requested remote storage "{remote_storage_name}" to simulate '
+                              f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"')
+            return
+
+        if remote_storage_name is None or remote_storage_name == "":
+            self.log.info("No remote storage specified. Will select most-recently-used remote storage.")
+            # If we have more than one remote storage registered, then we'll just use whatever remote storage was
+            # used most recently.
+            simulated_checkpointer: Optional[SimulatedCheckpointer] = self.get_most_recently_used_remote_storage()
+            if simulated_checkpointer is None:
+                assert self.remote_storages is None or len(self.remote_storages) == 0
+                self.log.warning("No simulated check-pointers identified.")
+
+            self.log.debug(
+                f"Identified remote storage \"{simulated_checkpointer.name}\" as most-recently-used checkpointer.")
+        else:
+            simulated_checkpointer: Optional[SimulatedCheckpointer] = self.remote_storages.get(remote_storage_name,
+                                                                                               None)
+
+        # Verify that the requested SimulatedCheckpointer has been registered, as we cannot perform the
+        # simulated checkpointing if it has not been registered.
+        if simulated_checkpointer is None:
+            self.report_error(f'Unknown Remote Storage "{remote_storage_name}"',
+                              f'Could not find requested remote storage "{remote_storage_name}" to simulate '
+                              f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"')
+            return
+
+        vram_gb: float | int = self.current_resource_request.get("vram", -1)
+
+        if vram_gb == -1:
+            self.report_error('Current Resource Request Does Not Specify VRAM',
+                              f'The current resource request for {self.kernel_id} does not have a VRAM entry, '
+                              f'so the kernel cannot simulate checkpointing with specified remote storage "{remote_storage_name}"...')
+            return
+
+        vram_bytes: int = int(vram_gb * 1e9)
+
+        rate_formatted: str = ""
+        rate: float | int = -1
+        if io_type == "read" or io_type == "download":
+            rate_formatted = simulated_checkpointer.download_rate_formatted
+            rate = simulated_checkpointer.download_rate
+            simulation_func: t.Callable[[int | float], None] = simulated_checkpointer.download_data
+        else:
+            rate_formatted = simulated_checkpointer.upload_rate_formatted
+            rate = simulated_checkpointer.upload_rate
+            simulation_func: t.Callable[[int | float], None] = simulated_checkpointer.upload_data
+
+        start_time: float = time.time()
+        try:
+            self.log.debug(f"Simulating remote {io_type} of size {format_size(vram_bytes)} "
+                           f"bytes targeting remote storage {simulated_checkpointer.name}. "
+                           f"I/O rate: {rate_formatted}. "
+                           f"Expected time to complete I/O operation: {get_estimated_io_time_seconds(size_bytes=vram_bytes, rate=rate)} seconds.")
+            simulation_func(int(vram_bytes))
+        except Exception as ex:
+            self.log.error(f"{type(ex).__name__} while simulating checkpointing with remote storage "
+                           f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {ex}")
+            self.report_error(f'Kernel "{self.kernel_id}" Failed to Simulate Checkpointing',
+                              f"{type(ex).__name__} while simulating checkpointing with remote storage "
+                              f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {ex}")
+
+        self.log.debug(f"Finished simulated checkpointing of {format_size(vram_bytes)} bytes to remote storage "
+                       f"{remote_storage_name} in {time.time() - start_time} seconds.")
 
     async def schedule_notify_execution_complete(self, term_number: int):
         """
@@ -1781,7 +2032,7 @@ class DistributedKernel(IPythonKernel):
                 try:
                     self.synclog.close()
                     self.log.info(
-                        "SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
+                        "SyncLog closed successfully. Writing etcd-Raft data directory to RemoteStorage now.")
                 except Exception:
                     self.log.error(
                         "Failed to close the SyncLog for replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
@@ -1830,7 +2081,7 @@ class DistributedKernel(IPythonKernel):
 
             self.synclog_stopped = True
             self.log.info(
-                "SyncLog closed successfully. Writing etcd-Raft data directory to HDFS now.")
+                "SyncLog closed successfully. Writing etcd-Raft data directory to RemoteStorage now.")
         except Exception as e:
             self.log.error("Failed to close the SyncLog for replica %d of kernel %s.",
                            self.smr_node_id, self.kernel_id)
@@ -1842,46 +2093,55 @@ class DistributedKernel(IPythonKernel):
             self.report_error(f"Failed to Close SyncLog for Replica {self.smr_node_id} of Kernel {self.kernel_id}",
                               error_message=str(e))
 
-            # Attempt to close the HDFS client.
-            self.synclog.close_hdfs_client()
+            # Attempt to close the RemoteStorage client.
+            self.synclog.close_remote_storage_client()
 
             return gen_error_response(e), False
 
-        # Step 2: copy the data directory to HDFS
+        # Step 2: copy the data directory to RemoteStorage
         try:
             write_start: float = time.time()
-            waldir_path: str = await self.synclog.write_data_dir_to_hdfs()
+
+            self.log.debug("Preparing to write state to remote storage. "
+                           f"Current resource request: {self.current_resource_request}. "
+                           f"Remote storages ({len(self.remote_storages)}): {self.remote_storages}.")
+
+            waldir_path: str = await self.synclog.write_data_dir_to_remote_storage(
+                last_resource_request=self.current_resource_request,
+                remote_storage_definitions=self.remote_storages
+            )
+
             write_duration_ms: float = (time.time() - write_start) * 1.0e3
             if self.prometheus_enabled:
-                self.hdfs_write_latency_milliseconds.observe(write_duration_ms)
+                self.remote_storage_write_latency_milliseconds.observe(write_duration_ms)
             self.log.info(
-                "Wrote etcd-Raft data directory to HDFS. Path: \"%s\"" % waldir_path)
+                "Wrote etcd-Raft data directory to RemoteStorage. Path: \"%s\"" % waldir_path)
         except Exception as e:
-            self.log.error("Failed to write the data directory of replica %d of kernel %s to HDFS: %s",
+            self.log.error("Failed to write the data directory of replica %d of kernel %s to RemoteStorage: %s",
                            self.smr_node_id, self.kernel_id, str(e))
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self.log.error(frame)
 
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
-            self.report_error("Failed to Write HDFS Data Directory", error_message=str(e))
+            self.report_error("Failed to Write remote_storage Data Directory", error_message=str(e))
 
-            # Attempt to close the HDFS client.
-            self.synclog.close_hdfs_client()
+            # Attempt to close the RemoteStorage client.
+            self.synclog.close_remote_storage_client()
 
             return gen_error_response(e), False
 
         try:
-            self.synclog.close_hdfs_client()
+            self.synclog.close_remote_storage_client()
         except Exception as e:
-            self.log.error("Failed to close the HDFS client within the LogNode.")
+            self.log.error("Failed to close the RemoteStorage client within the LogNode.")
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self.log.error(frame)
 
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
             self.report_error(
-                f"Failed to Close HDFS Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}",
+                f"Failed to Close RemoteStorage Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}",
                 error_message=str(e))
 
             # We don't return an error here, though. 
@@ -2179,7 +2439,8 @@ class DistributedKernel(IPythonKernel):
                 f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup.")
             return
 
-        self.log.debug(f"Sending 'error_report' message for error \"{error_title}\" now...")
+        self.log.debug(
+            f"Sending 'error_report' message for error \"{error_title}\" now. Error message: {error_message}")
         self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
             title=error_title,
             message=error_message,
@@ -2269,18 +2530,19 @@ class DistributedKernel(IPythonKernel):
                                    base_path=store,
                                    kernel_id=self.kernel_id,
                                    num_replicas=self.num_replicas,
-                                   hdfs_hostname=self.hdfs_namenode_hostname,
-                                   should_read_data_from_hdfs=self.should_read_data_from_hdfs,
-                                   # data_directory = self.hdfs_data_directory,
+                                   remote_storage_hostname=self.remote_storage_hostname,
+                                   remote_storage=self.remote_storage,
+                                   should_read_data=self.should_read_data_from_remote_storage,
                                    peer_addresses=peer_addresses,
                                    peer_ids=ids,
                                    join=self.smr_join,
                                    debug_port=self.debug_port,
                                    report_error_callback=self.report_error,
                                    send_notification_func=self.send_notification,
-                                   hdfs_read_latency_callback=self.hdfs_read_latency_callback,
+                                   remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
                                    deployment_mode=self.deployment_mode,
-                                   election_timeout_seconds=self.election_timeout_seconds)
+                                   election_timeout_seconds=self.election_timeout_seconds,
+                                   loaded_serialized_state_callback=self.loaded_serialized_state_callback)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
 
@@ -2303,17 +2565,49 @@ class DistributedKernel(IPythonKernel):
 
         return self.synclog
 
-    def hdfs_read_latency_callback(self, latency_ms: int):
+    def loaded_serialized_state_callback(self, state: Optional[dict[str, dict[str, Any]]] = None):
         """
-        This is a callback passed to the RaftLog so that it can publish the HDFS read latency to Prometheus.
+        This is a callback passed to the RaftLog.
+
+        If this kernel was just migrated, then the RaftLog will read some state from intermediate storage.
+
+        Most of this state belongs to the RaftLog object, but we pass some data to the RaftLog before migrating
+        that we'd like to recover, if possible.
+
+        The RaftLog will pass us that data via this callback.
+        """
+        self.log.debug("'loaded serialized state' callback is executing within the DistributedKernel.")
+
+        last_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = state.get(
+            "last_resource_request", None)
+        if last_resource_request is not None:
+            self.log.debug(
+                f"Recovered last resource request (before migration) from serialized state: {last_resource_request}")
+
+            self.resource_requests.append(last_resource_request)
+            self.current_resource_request = last_resource_request
+
+        remote_storage_definitions: Optional[Dict[str, Any]] = state.get("remote_storage_definitions", None)
+        if remote_storage_definitions is not None:
+            self.log.debug(f"Recovered remote storage definitions from serialized state: {remote_storage_definitions}")
+
+            for remote_storage_name, remote_storage_definition in remote_storage_definitions.items():
+                self.log.debug(f"Registering remote storage loaded from serialized state: \"{remote_storage_name}\"")
+                self.register_remote_storage_definition(remote_storage_definition)
+
+        self.loaded_serialized_state = True
+
+    def remote_storage_read_latency_callback(self, latency_ms: int):
+        """
+        This is a callback passed to the RaftLog so that it can publish the RemoteStorage read latency to Prometheus.
         Args:
-            latency_ms: the latency incurred by the LogNode's HDFS read operation(s).
+            latency_ms: the latency incurred by the LogNode's RemoteStorage read operation(s).
         """
         if latency_ms < 0:
             return
 
         if self.prometheus_enabled:
-            self.hdfs_read_latency_milliseconds.observe(latency_ms)
+            self.remote_storage_read_latency_milliseconds.observe(latency_ms)
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):
         self.log.debug("Running cell: %s" % str(raw_cell))

@@ -28,7 +28,7 @@ type DockerComposeCluster struct {
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
 func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
-	clusterMetricsProvider scheduling.MetricsProvider, opts *scheduling.SchedulerOptions) *DockerComposeCluster {
+	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker, opts *scheduling.SchedulerOptions) *DockerComposeCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerComposeCluster")
 
@@ -37,7 +37,7 @@ func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, host
 		DisabledHosts: hashmap.NewConcurrentMap[scheduling.Host](256),
 	}
 
-	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider, opts)
+	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider, notificationBroker, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Docker Compose Scheduler: %v", err)
 		panic(err)
@@ -272,7 +272,7 @@ func (c *DockerComposeCluster) unsafeGetTargetedScaleInCommand(targetScale int32
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
 //
-// DockerComposeCluster scales-in by disabling Local Daemon nodes while leaving their containers active and running.
+// DockerComposeCluster scales-in by disabling DefaultSchedulingPolicy Daemon nodes while leaving their containers active and running.
 //
 // This is because Docker Compose does not allow you to specify the container to be terminated when scaling-down
 // a docker compose service.

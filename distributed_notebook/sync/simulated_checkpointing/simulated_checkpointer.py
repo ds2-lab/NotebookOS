@@ -3,6 +3,8 @@ import random
 import time
 import math
 
+from typing import Any
+
 from ...logging.color_formatter import ColoredLogFormatter
 
 def get_new_rate(base_rate: int, percent_deviation: float)->int:
@@ -32,6 +34,66 @@ def get_new_rate(base_rate: int, percent_deviation: float)->int:
         return base_rate + rate_adjustment
     else:
         return base_rate - rate_adjustment
+
+
+def format_rate(rate_bytes: float = 0) -> str:
+    """
+    Given a rate whose units are bytes/second, return a string representation of the given rate, such that
+    the string displays the largest units for which the rate is >= 1 unit/sec.
+
+    The largest supported units are petabytes (PB) while the smallest are bytes.
+
+    Examples:
+    1_000_000_000 --> 1 GB/sec
+        1_000_000 --> 1 MB/sec
+          100_000 --> 100 KB/sec
+           10_000 --> 10 KB/sec
+            1_000 --> 1 KB/sec
+              100 --> 100 bytes/sec
+    """
+    if rate_bytes > 1e9:
+        return "%.2f GB/sec" % (rate_bytes / 1.0e9)
+    if rate_bytes > 1e6:
+        return "%.2f MB/sec" % (rate_bytes / 1.0e6)
+    if rate_bytes > 1e3:
+        return "%.2f KB/sec" % (rate_bytes / 1.0e3)
+    return "%.2f bytes/sec" % rate_bytes
+
+
+def format_size(size_bytes: float = 0) -> str:
+    """
+    Given a size in bytes, return a string representation of the size with the largest units
+    for which the size >= 1 unit.
+
+    The largest supported units are petabytes (PB) while the smallest are bytes.
+
+    Examples:
+    1_000_000_000 --> 1 GB
+        1_000_000 --> 1 MB
+          100_000 --> 100 KB
+           10_000 --> 10 KB
+            1_000 --> 1 KB
+              100 --> 100 bytes
+    """
+    if size_bytes > 1e12:
+        return "%.2f PB" % (size_bytes/1.0e12)
+    if size_bytes > 1e9:
+        return "%.2f GB" % (size_bytes/1.0e9)
+    if size_bytes > 1e6:
+        return "%.2f MB" % (size_bytes/1.0e6)
+    if size_bytes > 1e3:
+        return "%.2f KB" % (size_bytes/1.0e3)
+    return "%.2f bytes" % size_bytes
+
+def get_estimated_io_time_seconds(size_bytes: float = 0, rate: float = 0):
+    if size_bytes < 0:
+        raise ValueError(f"invalid IO size: {size_bytes} bytes. IO size must be >= 0.")
+
+    if rate <= 0:
+        raise ValueError(f"invalid IO rate: {rate} bytes/second. IO rate must be > 0.")
+
+    return size_bytes / rate
+
 
 class SimulatedCheckpointer(object):
     def __init__(
@@ -122,44 +184,69 @@ class SimulatedCheckpointer(object):
         self.read_latencies: list[float] = []
         self.write_latencies: list[float] = []
 
-    async def async_upload_data(self, size_bytes: float = 0):
-        """
-        Asynchronously simulate a write I/O operation.
+        # Note:
+        # We take advantage of the fact that the last_io_timestamp field is initialized to -1 in particular in the
+        # DistributedKernel::get_most_recently_used_remote_storage method. So, if we change the initial value of
+        # last_io_timestamp, then we'll need to update the DistributedKernel::get_most_recently_used_remote_storage
+        # method.
 
-        Args:
-            size_bytes: the size of the data to be written in bytes.
-alc
+        # This is set each time we simulate an upload/write or download/read.
+        self.last_io_timestamp: float = -1
+        # This is set each time we simulate a download/read.
+        self.last_read_timestamp: float = -1
+        # This is set each time we simulate an upload/write.
+        self.last_write_timestamp: float = -1
 
-        Raises a TimeoutError if the simulated I/O operation fails.
-        """
-        start_time: float = time.time()
+    @property
+    def upload_rate_formatted(self) -> str:
+        return format_rate(self.upload_rate)
 
-        stop_time: float = time.time()
-        latency_ms: float = (stop_time - start_time) * 1.0e3
+    @property
+    def download_rate_formatted(self) -> str:
+        return format_rate(self.download_rate)
 
-        self.total_num_io_ops += 1
-        self.total_num_write_ops += 1
-        self.num_successful_write_ops += 1
-        self.write_latencies.append(latency_ms)
+    def __str__(self):
+        return f"{self.name} [DownloadRate={self.download_rate_formatted},UploadRate={self.upload_rate_formatted}]"
 
-    async def async_download_data(self, size_bytes: float = 0):
-        """
-        Asynchronously simulate a write I/O operation.
+    def __repr__(self):
+        return self.__str__()
 
-        Args:
-            size_bytes: the size of the data to be written in bytes.
+    def __getstate__(self) -> dict[str, Any]:
+        state: dict[str, Any] = self.__dict__.copy()
+        del state["logger"]
 
-        Raises a TimeoutError if the simulated I/O operation fails.
-        """
-        start_time: float = time.time()
+        return state
 
-        stop_time: float = time.time()
-        latency_ms: float = (stop_time - start_time) * 1.0e3
+    def __setstate__(self, state: dict[str, Any]):
+        self.__dict__.update(state)
 
-        self.total_num_io_ops += 1
-        self.total_num_read_ops += 1
-        self.num_successful_read_ops += 1
-        self.read_latencies.append(latency_ms)
+        try:
+            getattr(self, "logger")
+        except AttributeError:
+            self.logger: logging.Logger = logging.getLogger(f"SimulatedCheckpointer[{self.name}] ")
+            self.logger.setLevel(logging.DEBUG)
+            self.logger.propagate = False
+            ch = logging.StreamHandler()
+            ch.setFormatter(ColoredLogFormatter())
+            self.logger.addHandler(ch)
+
+    def get_estimated_write_time_seconds(self, write_size_bytes: float = 0, rate: float = -1) -> float:
+        if write_size_bytes < 0:
+            raise ValueError(f"invalid write size: {write_size_bytes} bytes. write size must be >= 0.")
+
+        if rate < 0:
+            rate = get_new_rate(self.upload_rate, self.upload_variance_percent)
+
+        return get_estimated_io_time_seconds(size_bytes = write_size_bytes, rate = rate)
+
+    def get_estimated_read_time_seconds(self, read_size_bytes: float = 0, rate: float = -1) -> float:
+        if read_size_bytes < 0:
+            raise ValueError(f"invalid read size: {read_size_bytes} bytes. read size must be >= 0.")
+
+        if rate < 0:
+            rate = get_new_rate(self.download_rate, self.download_variance_percent)
+
+        return get_estimated_io_time_seconds(size_bytes = read_size_bytes, rate = rate)
 
     def __simulate_network_io_operation(
             self,
@@ -185,7 +272,8 @@ alc
             was estimated to take at the beginning, based on its initial transfer rate.
         """
         current_rate: int = get_new_rate(base_rate, rate_variance_percent)
-        initial_estimated_time_required_ms: float = (size_bytes / current_rate) * 1.0e3
+        initial_estimated_time_required_seconds: float = get_estimated_io_time_seconds(size_bytes = size_bytes, rate = current_rate)
+        initial_estimated_time_required_ms: float = initial_estimated_time_required_seconds * 1.0e3
         estimated_time_required_ms: float = initial_estimated_time_required_ms
 
         if size_bytes == 0:
@@ -246,7 +334,7 @@ alc
                     remaining_transfer_size: int = bytes_remaining
                     units = "bytes"
 
-                estimated_time_required_sec: float = bytes_remaining / current_rate
+                estimated_time_required_sec: float = get_estimated_io_time_seconds(size_bytes = bytes_remaining, rate = current_rate)
                 self.logger.info(f"Remaining data: {remaining_transfer_size} {units}. "
                                   f"Estimated time remaining: {round(estimated_time_required_sec * 1.0e3, 4)} ms.\n")
 
@@ -272,6 +360,8 @@ alc
             raise ValueError(f"Invalid upload size specified: {size_bytes} bytes. value must be positive.")
 
         start_time: float = time.time()
+        self.last_write_timestamp = start_time
+        self.last_io_timestamp = start_time
         success, estimated_time_required_ms = self.__simulate_network_io_operation(
             size_bytes = size_bytes,
             base_rate = self.upload_rate,
@@ -317,6 +407,8 @@ alc
             raise ValueError(f"Invalid download size specified: {size_bytes} bytes. value must be positive.")
 
         start_time: float = time.time()
+        self.last_read_timestamp = start_time
+        self.last_io_timestamp = start_time
         success, estimated_time_required_ms = self.__simulate_network_io_operation(
             size_bytes = size_bytes,
             base_rate = self.download_rate,
@@ -375,8 +467,6 @@ alc
 
     read_data = download_data  # alias for download_data
     write_data = upload_data  # alias for upload_data
-    async_read_data = async_download_data  # alias for async_download_data
-    async_write_data = async_upload_data  # alias for async_upload_data
 
 def test_simulated_checkpointer():
     aws_s3 = SimulatedCheckpointer(

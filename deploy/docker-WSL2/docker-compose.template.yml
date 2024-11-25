@@ -172,6 +172,17 @@ services:
       - {@current_directory}/grafana/grafana.ini:/etc/grafana/grafana.ini
       - grafana_data:/var/lib/grafana
 
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf # Mount custom config file
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"] # Enables AOF persistence for durability
+    restart: unless-stopped
+
   dashboard_backend:
     image: scusemua/distributed-notebook-dashboard-backend:latest
     ports:

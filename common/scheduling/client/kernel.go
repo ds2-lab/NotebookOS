@@ -60,7 +60,7 @@ type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica scheduli
 // These KernelClients are then wrapped/managed by a distributedKernelClientImpl, which is only
 // used by the Gateway.
 //
-// Used by both the Gateway and Local Daemon components.
+// Used by both the Gateway and DefaultSchedulingPolicy Daemon components.
 type KernelReplicaClient struct {
 	*server.BaseServer
 	scheduling.SessionManager
@@ -82,7 +82,7 @@ type KernelReplicaClient struct {
 	iopubListenPort                  int                                                // Port that the KernelReplicaClient::iopub socket listens on.
 	PodOrContainerName               string                                             // Name of the Pod or Container housing the associated distributed kernel replica container.
 	nodeName                         string                                             // Name of the node that the Pod or Container is running on.
-	ready                            bool                                               // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
+	ready                            bool                                               // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the DefaultSchedulingPolicy Daemon.
 	yieldNextExecutionRequest        bool                                               // If true, then we will yield the next 'execute_request'.
 	hostId                           string                                             // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
 	host                             scheduling.Host                                    // The host that the kernel replica is running on.
@@ -108,7 +108,7 @@ type KernelReplicaClient struct {
 	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback
 
 	// If true, then this client exists on the internalCluster Gateway.
-	// If false, then this client exists on the Local Daemon.
+	// If false, then this client exists on the DefaultSchedulingPolicy Daemon.
 	//
 	// To be clear, this indicates whether this client struct exists within the memory of the internalCluster Gateway.
 	// This is NOT referring to whether the remote client (i.e., the client that this KernelClient is connected to) is on the cluster gateway or local daemon.
@@ -189,7 +189,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 			s.Name = fmt.Sprintf("Kernel-%s", spec.Kernel.Id)
 			s.DebugMode = debugMode
 
-			/* Kernel clients should ACK messages that they're forwarding when the local kernel client lives on the Local Daemon. */
+			/* Kernel clients should ACK messages that they're forwarding when the local kernel client lives on the DefaultSchedulingPolicy Daemon. */
 			s.ShouldAckMessages = shouldAckMessages
 			// s.Sockets.Ack = messaging.NewSocket(Socket: zmq4.NewReq(s.Ctx), Port: info.AckPort}
 			// IOPub is lazily initialized for different subclasses.
@@ -344,7 +344,7 @@ func (c *KernelReplicaClient) LastTrainingTimePrometheusUpdate() time.Time {
 
 // KernelStartedTraining should be called when the kernel associated with this client begins actively training.
 //
-// In the Local Daemon, this is called in the handleSMRLeadTask method.
+// In the DefaultSchedulingPolicy Daemon, this is called in the handleSMRLeadTask method.
 //
 // In the internalCluster Gateway, this is called in the handleSmrLeadTaskMessage method of DistributedKernelClient.
 func (c *KernelReplicaClient) KernelStartedTraining() error {
@@ -372,7 +372,7 @@ func (c *KernelReplicaClient) KernelStartedTraining() error {
 
 	// The following code is only executed within the internalCluster Gateway.
 	container := c.Container()
-	if container != nil { // Container will be nil on Local Daemons; they don't track resources this way.
+	if container != nil { // Container will be nil on DefaultSchedulingPolicy Daemons; they don't track resources this way.
 		p := container.Session().SessionStartedTraining(container)
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to start training for session %s: %v", container.Session().ID(), err)
@@ -523,7 +523,7 @@ func (c *KernelReplicaClient) recreateControlSocket() *messaging.Socket {
 
 	var remoteName = messaging.RemoteNameUnspecified
 	if c.isGatewayClient {
-		// The remote client is the kernel client on one of the Local Daemons.
+		// The remote client is the kernel client on one of the DefaultSchedulingPolicy Daemons.
 		remoteName = fmt.Sprintf("K-LD-Ctrl[%s]", c.id)
 	} else {
 		// The remote client is the Jupyter kernel replica itself.
@@ -566,7 +566,7 @@ func (c *KernelReplicaClient) recreateShellSocket() *messaging.Socket {
 
 	var remoteName = messaging.RemoteNameUnspecified
 	if c.isGatewayClient {
-		// The remote client is the kernel client on one of the Local Daemons.
+		// The remote client is the kernel client on one of the DefaultSchedulingPolicy Daemons.
 		remoteName = fmt.Sprintf("K-LD-Shell[%s]", c.id)
 	} else {
 		// The remote client is the Jupyter kernel replica itself.
@@ -593,7 +593,7 @@ func (c *KernelReplicaClient) recreateStdinSocket() *messaging.Socket {
 
 	var remoteName = messaging.RemoteNameUnspecified
 	if c.isGatewayClient {
-		// The remote client is the kernel client on one of the Local Daemons.
+		// The remote client is the kernel client on one of the DefaultSchedulingPolicy Daemons.
 		remoteName = fmt.Sprintf("K-LD-Stdin[%s]", c.id)
 	} else {
 		// The remote client is the Jupyter kernel replica itself.
@@ -616,7 +616,7 @@ func (c *KernelReplicaClient) recreateHeartbeatSocket() *messaging.Socket {
 
 	var remoteName = messaging.RemoteNameUnspecified
 	if c.isGatewayClient {
-		// The remote client is the kernel client on one of the Local Daemons.
+		// The remote client is the kernel client on one of the DefaultSchedulingPolicy Daemons.
 		remoteName = fmt.Sprintf("K-LD-HB[%s]", c.id)
 	} else {
 		// The remote client is the Jupyter kernel replica itself.
@@ -772,7 +772,7 @@ func (c *KernelReplicaClient) String() string {
 }
 
 // IsReady returns true if the replica has registered and joined its SMR cluster.
-// Only used by the internalCluster Gateway, not by the Local Daemon.
+// Only used by the internalCluster Gateway, not by the DefaultSchedulingPolicy Daemon.
 func (c *KernelReplicaClient) IsReady() bool {
 	return c.ready
 }
@@ -783,7 +783,7 @@ func (c *KernelReplicaClient) HostId() string {
 }
 
 // SetReady designates the replica as ready.
-// SetReady is only used by the internalCluster Gateway, not by the Local Daemon.
+// SetReady is only used by the internalCluster Gateway, not by the DefaultSchedulingPolicy Daemon.
 func (c *KernelReplicaClient) SetReady() {
 	c.log.Debug("Kernel %s-%d has been designated as ready.", c.id, c.replicaId)
 	c.ready = true

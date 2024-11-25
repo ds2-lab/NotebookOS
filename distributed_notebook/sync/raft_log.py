@@ -57,9 +57,9 @@ class RaftLog(object):
             node_id: int,
             kernel_id: str,
             base_path: str = "/store",
-            hdfs_hostname: str = "172.17.0.1:9000",
-            # data_directory: str = "/storage",
-            should_read_data_from_hdfs: bool = False,
+            remote_storage_hostname: str = "172.17.0.1:9000",
+            remote_storage: str = "hdfs",
+            should_read_data: bool = False,
             peer_addresses: Optional[Iterable[int]] = None,
             peer_ids: Optional[Iterable[int]] = None,
             num_replicas: int = 3,
@@ -69,14 +69,15 @@ class RaftLog(object):
             election_tick: int = 1,  # Raft-related
             report_error_callback: Callable[[str, str], None] = None,
             send_notification_func: Callable[[str, str, int], None] = None,
-            hdfs_read_latency_callback: Optional[Callable[[int], None]] = None,
+            remote_storage_read_latency_callback: Optional[Callable[[int], None]] = None,
             fast_forward_execution_count_handler: Callable[[], None] = None,
+            loaded_serialized_state_callback: Callable[[dict[str, Any]], None] = None,
             election_timeout_seconds: float = 10,
             deployment_mode: str = "LOCAL",
     ):
         self._shouldSnapshotCallback = None
-        if len(hdfs_hostname) == 0:
-            raise ValueError("HDFS hostname is empty.")
+        if len(remote_storage_hostname) == 0:
+            raise ValueError("RemoteStorage hostname is empty.")
 
         if peer_addresses is None:
             peer_addresses = []
@@ -116,7 +117,9 @@ class RaftLog(object):
         self._send_notification_func = send_notification_func
         self._deployment_mode = deployment_mode
         self._leader_term_before_migration: int = -1
-        self._fast_forward_execution_count_handler = fast_forward_execution_count_handler
+        self._fast_forward_execution_count_handler: Callable[[], None] = fast_forward_execution_count_handler
+        self._loaded_serialized_state_callback: Callable[
+            [dict[str, dict[str, Any]]], None] = loaded_serialized_state_callback
 
         # How long to wait to receive other proposals before making a decision (if we can, like if we
         # have at least received one LEAD proposal).
@@ -128,8 +131,9 @@ class RaftLog(object):
             self.logger.error(f"Error while creating persistent datastore directory \"{base_path}\": {ex}")
 
         self.logger.info("persistent store path: %s" % self._persistent_store_path)
-        self.logger.info("hdfs_hostname: \"%s\"" % hdfs_hostname)
-        self.logger.info("should read data from HDFS: \"%s\"" % should_read_data_from_hdfs)
+        self.logger.info("remote storage hostname: \"%s\"" % remote_storage_hostname)
+        self.logger.info("remote_storage: \"%s\"", remote_storage)
+        self.logger.info("should read data from RemoteStorage: \"%s\"" % should_read_data)
         self.logger.info("peer addresses: %s" % peer_addresses)
         self.logger.info("peer smr node IDs: %s" % peer_ids)
         self.logger.info("join: %s" % join)
@@ -141,8 +145,9 @@ class RaftLog(object):
 
         self._log_node = self.create_log_node(
             node_id=node_id,
-            hdfs_hostname=hdfs_hostname,
-            should_read_data_from_hdfs=should_read_data_from_hdfs,
+            remote_storage_hostname=remote_storage_hostname,
+            remote_storage=remote_storage,
+            should_read_data=should_read_data,
             peer_addrs=peer_addresses,
             peer_ids=peer_ids,
             join=join,
@@ -152,15 +157,16 @@ class RaftLog(object):
 
         self.logger.info(f"Successfully created LogNode {node_id}.")
 
-        hdfs_read_latency: int = self._log_node.HdfsReadLatencyMilliseconds()
-        if hdfs_read_latency > 0:
-            self.logger.debug(f"Retrieved HDFS read latency of {hdfs_read_latency} milliseconds from LogNode.")
+        remote_storage_read_latency: int = self._log_node.RemoteStorageReadLatencyMilliseconds()
+        if remote_storage_read_latency > 0:
+            self.logger.debug(
+                f"Retrieved remote storage read latency of {remote_storage_read_latency} milliseconds from LogNode.")
 
-            if hdfs_read_latency_callback is not None:
-                hdfs_read_latency_callback(hdfs_read_latency)
+            if remote_storage_read_latency_callback is not None:
+                remote_storage_read_latency_callback(remote_storage_read_latency)
             else:
                 self.logger.warning(
-                    "Callback for reporting HDFS read latency is None. Cannot report HDFS read latency.")
+                    "Callback for reporting remote storage read latency is None. Cannot report remote storage read latency.")
 
         # Indicates whether we've created the first Election / at least one Election
         self.__created_first_election: bool = False
@@ -270,21 +276,29 @@ class RaftLog(object):
     def create_log_node(
             self,
             node_id: int,
-            hdfs_hostname: str = "172.17.0.1:9000",
-            should_read_data_from_hdfs: bool = False,
-            peer_addrs: Iterable[str] = [],
-            peer_ids: Iterable[int] = [],
+            remote_storage_hostname: str = "172.17.0.1:9000",
+            remote_storage: str = "hdfs",
+            should_read_data: bool = False,
+            peer_addrs: Iterable[str] = None,
+            peer_ids: Iterable[int] = None,
             join: bool = False,
             debug_port: int = 8464,
             deployment_mode: str = "LOCAL",
     ) -> LogNode:
-        log_node: LogNode = NewLogNode(self._persistent_store_path, node_id, hdfs_hostname, should_read_data_from_hdfs,
+        if peer_ids is None:
+            peer_ids = []
+
+        if peer_addrs is None:
+            peer_addrs = []
+
+        log_node: LogNode = NewLogNode(self._persistent_store_path, node_id, remote_storage_hostname, remote_storage,
+                                       should_read_data,
                                        Slice_string(peer_addrs), Slice_int(peer_ids), join, debug_port, deployment_mode)
         self.logger.info("<< RETURNED FROM GO CODE (NewLogNode)")
         sys.stderr.flush()
         sys.stdout.flush()
 
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.ConnectedToHDFS)")
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.ConnectedToRemoteStorage)")
         sys.stderr.flush()
         sys.stdout.flush()
         if log_node is None:
@@ -292,12 +306,12 @@ class RaftLog(object):
             sys.stderr.flush()
             sys.stdout.flush()
             raise RuntimeError("Failed to create LogNode.")
-        elif not log_node.ConnectedToHDFS():
-            self.logger.error("The LogNode failed to connect to HDFS.")
+        elif not log_node.ConnectedToRemoteStorage():
+            self.logger.error("The LogNode failed to connect to RemoteStorage.")
             sys.stderr.flush()
             sys.stdout.flush()
-            raise RuntimeError("The LogNode failed to connect to HDFS")
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.ConnectedToHDFS)")
+            raise RuntimeError("The LogNode failed to connect to RemoteStorage")
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.ConnectedToRemoteStorage)")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -528,7 +542,8 @@ class RaftLog(object):
                               f"{notification.election_term}. Skipping ahead by {notification.election_term} term number(s).")
 
         # Define a function to create and skip elections so we can skip ahead as far as is necessary.
-        def create_and_skip_election(election_term: int = -1, set_election_complete: bool = True, jupyter_message_id: str = ""):
+        def create_and_skip_election(election_term: int = -1, set_election_complete: bool = True,
+                                     jupyter_message_id: str = ""):
             """
             Create an election for the specified term, optionally skipping it immediately.
             """
@@ -540,7 +555,8 @@ class RaftLog(object):
                 f"set_election_complete={set_election_complete}, jupyter_message_id={jupyter_message_id}")
 
             # Create a new election.
-            election: Election = Election(election_term, self._num_replicas, jupyter_message_id, timeout_seconds = self._election_timeout_sec)
+            election: Election = Election(election_term, self._num_replicas, jupyter_message_id,
+                                          timeout_seconds=self._election_timeout_sec)
             self._elections[election_term] = election
 
             if jupyter_message_id != "":
@@ -572,7 +588,8 @@ class RaftLog(object):
             create_and_skip_election(term_number, set_election_complete=True)
 
         # We call this one more time outside the for-loop so that we can pass set_election_complete as False instead of True.
-        create_and_skip_election(notification.election_term, set_election_complete=False, jupyter_message_id =notification.jupyter_message_id)
+        create_and_skip_election(notification.election_term, set_election_complete=False,
+                                 jupyter_message_id=notification.jupyter_message_id)
 
         self._leader_id = notification.proposer_id
         self._leader_term = notification.election_term
@@ -1114,11 +1131,15 @@ class RaftLog(object):
         val.set_should_end_execution(should_end_execution)
         return val
 
-    def _get_serialized_state(self) -> bytes:
+    def _get_serialized_state(
+            self,
+            last_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = None,
+            remote_storage_definitions: Optional[Dict[str, Any]] = None
+    ) -> bytes:
         """
-        Serialize important state so that it can be written to HDFS (for recovery purposes).
+        Serialize important state so that it can be written to RemoteStorage (for recovery purposes).
         
-        This return value of this function should be passed to the `self._log_node.WriteDataDirectoryToHDFS` function.
+        This return value of this function should be passed to the `self._log_node.WriteDataDirectoryToRemoteStorage` function.
         """
         data_dict: dict = {
             "kernel_id": self._kernel_id,  # string
@@ -1134,6 +1155,18 @@ class RaftLog(object):
             "current_election": self._current_election,  # Election object
             "last_completed_election": self._last_completed_election,  # Election object
         }
+
+        # Add the resource request entry, if available.
+        if last_resource_request is not None:
+            self.logger.debug(f"Adding 'last_resource_request' entry to data dictionary for serialized state: "
+                              f"{last_resource_request}")
+            data_dict["last_resource_request"] = last_resource_request
+
+        # Add the remote storage definitions entry, if available.
+        if remote_storage_definitions is not None:
+            self.logger.debug(f"Adding 'remote_storage_definitions' entry to data dictionary for serialized state: "
+                              f"{remote_storage_definitions}")
+            data_dict["remote_storage_definitions"] = remote_storage_definitions
 
         self.logger.debug(f"RaftLog {self._node_id} returning state dictionary containing {len(data_dict)} entries:")
         for key, val in data_dict.items():
@@ -1180,8 +1213,8 @@ class RaftLog(object):
     def load_and_apply_serialized_state(self) -> bool:
         """
         Retrieve the serialized state read by the Go-level LogNode. 
-        This state is read from HDFS during migration/error recovery.
-        Update our local state with the state retrieved from HDFS.
+        This state is read from RemoteStorage during migration/error recovery.
+        Update our local state with the state retrieved from RemoteStorage.
 
         Returns:
             (bool) True if serialized state was loaded, indicating that this replica was started after an eviction/migration.
@@ -1242,6 +1275,21 @@ class RaftLog(object):
             self._future_io_loop.set_debug(True)
         except RuntimeError:
             self.logger.error("Failed to get running event loop from asyncio module.")
+
+        if self._loaded_serialized_state_callback is not None:
+            last_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = data_dict.get(
+                "last_resource_request", None)
+            remote_storage_definitions: Optional[Dict[str, Any]] = data_dict.get("remote_storage_definitions", None)
+
+            state_dict: dict[str, dict[str, Any]] = {}
+            if last_resource_request is not None:
+                state_dict["last_resource_request"] = last_resource_request
+            if remote_storage_definitions is not None:
+                state_dict["remote_storage_definitions"] = remote_storage_definitions
+
+            self.logger.debug("Calling 'loaded serialized state' callback now.")
+
+            self._loaded_serialized_state_callback(state_dict)
 
         return True
 
@@ -1431,7 +1479,8 @@ class RaftLog(object):
         assert self._current_election is None or self._current_election.code_execution_completed_successfully or self._current_election.was_skipped
 
         # Create a new election. We don't have an existing election to restart/use.
-        election: Election = Election(term_number, self._num_replicas, jupyter_message_id, timeout_seconds = self._election_timeout_sec)
+        election: Election = Election(term_number, self._num_replicas, jupyter_message_id,
+                                      timeout_seconds=self._election_timeout_sec)
         self._elections[term_number] = election
         self._elections_by_jupyter_message_id[jupyter_message_id] = election
 
@@ -1563,7 +1612,8 @@ class RaftLog(object):
                 self._create_new_election(term_number=target_term_number, jupyter_message_id=jupyter_message_id)
                 return True
 
-            if target_term_number == self.current_election_term and (self._current_election.is_active or self._current_election.is_in_failed_state):
+            if target_term_number == self.current_election_term and (
+                    self._current_election.is_active or self._current_election.is_in_failed_state):
                 self.logger.debug(f"Validating or restarting existing/current election for term {target_term_number}.")
                 self._validate_or_restart_current_election(term_number=target_term_number,
                                                            jupyter_message_id=jupyter_message_id,
@@ -1577,11 +1627,13 @@ class RaftLog(object):
                 target_election = self._elections_by_jupyter_message_id.get(jupyter_message_id)
 
                 if target_election is None:
-                    self.logger.debug(f"Failed to find existing election associated with Jupyter message ID {jupyter_message_id}.")
+                    self.logger.debug(
+                        f"Failed to find existing election associated with Jupyter message ID {jupyter_message_id}.")
                 else:
-                    self.logger.debug(f"Found existing election associated with Jupyter message ID {jupyter_message_id}. "
-                                      f"Election has term {target_election.term_number} and is in state "
-                                      f"{target_election.election_state.get_name()}.")
+                    self.logger.debug(
+                        f"Found existing election associated with Jupyter message ID {jupyter_message_id}. "
+                        f"Election has term {target_election.term_number} and is in state "
+                        f"{target_election.election_state.get_name()}.")
 
             if target_election is not None:
                 if target_election.was_skipped:
@@ -1596,7 +1648,7 @@ class RaftLog(object):
 
             if target_term_number == self.current_election_term and not self._current_election.voting_phase_completed_successfully and not self._current_election.code_execution_completed_successfully:
                 self._handle_unexpected_election(term_number=target_term_number)
-                return False # The above method raises an exception, so we won't actually return.
+                return False  # The above method raises an exception, so we won't actually return.
 
             self._create_new_election(term_number=target_term_number, jupyter_message_id=jupyter_message_id)
             return True
@@ -2093,23 +2145,23 @@ class RaftLog(object):
 
         self.logger.info("Successfully started RaftLog and LogNode.")
 
-    # Close the LogNode's HDFS client.
-    def close_hdfs_client(self) -> None:
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.CloseHdfsClient)")
+    # Close the LogNode's RemoteStorage client.
+    def close_remote_storage_client(self) -> None:
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.CloseRemoteStorageClient)")
         sys.stderr.flush()
         sys.stdout.flush()
 
-        self._log_node.CloseHdfsClient()
+        self._log_node.CloseRemoteStorageClient()
 
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.CloseHdfsClient)")
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.CloseRemoteStorageClient)")
         sys.stderr.flush()
         sys.stdout.flush()
 
-    # IMPORTANT: This does NOT close the HDFS client within the LogNode.
+    # IMPORTANT: This does NOT close the RemoteStorage client within the LogNode.
     # This is because, when migrating a raft cluster member, we must first stop the raft
     # node before copying the contents of its data directory.
     #
-    # To close the HDFS client within the LogNode, call the `closeHdfsClient` method.
+    # To close the RemoteStorage client within the LogNode, call the `CloseRemoteStorageClient` method.
     def close(self) -> None:
         """
         Ensure all async coroutines have completed. Clean up resources. Stop the LogNode.
@@ -2183,30 +2235,37 @@ class RaftLog(object):
 
         self._snapshotCallback = snapshotCallback
 
-    async def write_data_dir_to_hdfs(self):
+    async def write_data_dir_to_remote_storage(
+            self,
+            last_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = None,
+            remote_storage_definitions: Optional[Dict[str, Any]] = None
+    ):
         """
-        Write the contents of the etcd-Raft data directory to HDFS.
+        Write the contents of the etcd-Raft data directory to RemoteStorage.
         """
-        self.logger.info("Writing etcd-Raft data directory to HDFS.")
+        self.logger.info("Writing etcd-Raft data directory to RemoteStorage.")
 
-        serialized_state: bytes = self._get_serialized_state()
+        serialized_state: bytes = self._get_serialized_state(
+            last_resource_request=last_resource_request,
+            remote_storage_definitions=remote_storage_definitions
+        )
         self.logger.info("Serialized important state to be written along with etcd-Raft data. Size: %d bytes." % len(
             serialized_state))
 
-        future, resolve = self._get_callback(future_name="write_data_hdfs")
+        future, resolve = self._get_callback(future_name="write_data_remote_storage")
 
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.WriteDataDirectoryToHDFS)")
+        self.logger.info(">> CALLING INTO GO CODE (_log_node.WriteDataDirectoryToRemoteStorage)")
         sys.stderr.flush()
         sys.stdout.flush()
 
         # This will return immediately, as the actual work of the method is performed by a separate goroutine.
-        self._log_node.WriteDataDirectoryToHDFS(Slice_byte(serialized_state), resolve)
+        self._log_node.WriteDataDirectoryToRemoteStorage(Slice_byte(serialized_state), resolve)
 
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.WriteDataDirectoryToHDFS)")
+        self.logger.info("<< RETURNED FROM GO CODE (_log_node.WriteDataDirectoryToRemoteStorage)")
         sys.stderr.flush()
         sys.stdout.flush()
 
-        # Wait for the data to be written to HDFS without blocking the IO loop.
+        # Wait for the data to be written to RemoteStorage without blocking the IO loop.
         waldir_path: str = await future.result()
         return waldir_path
 

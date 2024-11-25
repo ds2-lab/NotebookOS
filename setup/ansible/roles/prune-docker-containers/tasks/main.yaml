@@ -1,0 +1,9 @@
+- name: Prune unused Docker containers
+  ansible.builtin.command:
+    cmd: docker container prune -f
+  become: yes
+  register: prune_result
+
+- name: Show prune results
+  debug:
+    msg: "{{ prune_result.stdout_lines }}"

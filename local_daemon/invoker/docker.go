@@ -101,7 +101,8 @@ type DockerInvoker struct {
 	closing                      int32                            // Indicates whether the container is closing/shutting down.
 	id                           string                           // Uniquely identifies this Invoker instance.
 	kernelDebugPort              int                              // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
-	hdfsNameNodeEndpoint         string                           // Endpoint of the HDFS NameNode.
+	remoteStorageEndpoint        string                           // Endpoint of the remote storage.
+	remoteStorage                string                           // Type of remote storage, either 'hdfs' or 'redis'
 	dockerStorageBase            string                           // Base directory in which the persistent store data is stored.
 	containerCreatedAt           time.Time                        // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
 	containerCreated             bool                             // containerCreated is a bool indicating whether kernel the container has been created.
@@ -118,8 +119,11 @@ type DockerInvoker struct {
 }
 
 type DockerInvokerOptions struct {
-	// HdfsNameNodeEndpoint is the endpoint of the HDFS namenode.
-	HdfsNameNodeEndpoint string
+	// RemoteStorageEndpoint is the endpoint of the remote storage.
+	RemoteStorageEndpoint string
+
+	// RemoteStorage is the type of remote storage, either 'hdfs' or 'redis'
+	RemoteStorage string
 
 	// KernelDebugPort is the debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
 	KernelDebugPort int
@@ -129,7 +133,7 @@ type DockerInvokerOptions struct {
 
 	// UsingWSL indicates whether we're running within WSL (Windows Subsystem for Linux).
 	// If we are, then there is some additional configuration required for the kernel containers in order for
-	// them to be able to connect to HDFS running in the host (WSL).
+	// them to be able to connect to remote storage running in the host (WSL).
 	UsingWSL bool
 
 	// RunKernelsInGdb specifies that, if true, then the kernels will be run in GDB.
@@ -156,8 +160,8 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		smrPort = KernelSMRPortDefault
 	}
 
-	if len(opts.HdfsNameNodeEndpoint) == 0 {
-		panic("HDFS NameNode endpoint is empty.")
+	if len(opts.RemoteStorageEndpoint) == 0 {
+		panic("remote storage endpoint is empty.")
 	}
 
 	var dockerNetworkName = os.Getenv(DockerNetworkNameEnv)
@@ -169,7 +173,8 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		hostMountDir:                 utils.GetEnv(HostMountDirectory, HostMountDirectoryDefault),
 		targetMountDir:               utils.GetEnv(TargetMountDirectory, TargetMountDirectoryDefault),
 		smrPort:                      smrPort,
-		hdfsNameNodeEndpoint:         opts.HdfsNameNodeEndpoint,
+		remoteStorageEndpoint:        opts.RemoteStorageEndpoint,
+		remoteStorage:                opts.RemoteStorage,
 		id:                           uuid.NewString(),
 		kernelDebugPort:              opts.KernelDebugPort,
 		dockerNetworkName:            dockerNetworkName,
@@ -536,7 +541,8 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			SMRJoin:                 spec.Join,
 			RegisterWithLocalDaemon: true,
 			LocalDaemonAddr:         hostname,
-			HdfsNameNodeEndpoint:    ivk.hdfsNameNodeEndpoint,
+			RemoteStorageEndpoint:   ivk.remoteStorageEndpoint,
+			RemoteStorage:           ivk.remoteStorage,
 		},
 	}
 	if spec.PersistentId != nil {

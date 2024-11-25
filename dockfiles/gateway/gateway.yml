@@ -9,7 +9,7 @@ stdin-port: 19003
 iopub-port: 19004
 iosub-port: 19005
 ack-port: 19006
-hdfs-namenode-endpoint: host.docker.internal:10000
+remote-storage-endpoint: host.docker.internal:10000
 debug: true
 direct: false
 num-replicas: 3

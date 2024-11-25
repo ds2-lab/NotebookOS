@@ -16,7 +16,10 @@ starting-resource-port: 9007
 debug_port: 9996
 num-resource-ports: 256
 provisioner: "gateway:8081"
-hdfs-namenode-endpoint: host.docker.internal:10000
+#remote-storage-endpoint: host.docker.internal:10000
+#remote-storage: hdfs
+remote-storage: redis
+remote-storage-endpoint: redis:6379
 debug: true
 direct: false
 num-replicas: 3
@@ -29,7 +32,8 @@ use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter
 notebook-image-tag: latest
-scheduling-policy: static
+# scheduling-policy: static
+scheduling-policy: fcfs-batch
 subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.05

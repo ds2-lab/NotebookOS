@@ -313,6 +313,17 @@ message GetVirtualDockerNodesResponse {
   repeated VirtualDockerNode nodes = 1;
 }
 
+// RemoteStorageDefinition defines a simulated remote storage to use for checkpointing by the kernel replicas.
+message RemoteStorageDefinition {
+  string name = 1;
+  int64 downloadRate = 2;
+  int64 uploadRate = 3;
+  float downloadRateVariancePercentage = 4;
+  float uploadRateVariancePercentage = 5;
+  float readFailureChancePercentage = 6;
+  float writeFailureChancePercentage = 7;
+}
+
 // VirtualDockerNode represents/describes a "virtual" node within the Docker Swarm cluster.
 // Docker Swarm clusters have a concept of nodes -- they can span multiple machines or VMs.
 // Each Docker Swarm node hosts containers. Virtual nodes correspond to Local Daemons.
@@ -358,6 +369,8 @@ message VirtualDockerNode {
   string address = 16;
   // CreatedAt is the time that the node was created.
   google.protobuf.Timestamp createdAt = 17;
+  // Enabled indicates whether the Host is enabled or disabled.
+  bool enabled = 18;
 }
 
 // DockerContainer describes a Docker container.
@@ -391,6 +404,26 @@ message Pong {
   bool success = 2;
   string msg = 3; // For adding extra details if the ping fails.
   repeated RequestTrace requestTraces = 4;
+}
+
+// Individual Trace that is encapsulated within a larger RequestTrace.
+message Trace {
+  string id = 1;
+  string name = 2;
+  int64 startTimeUnixMilliseconds = 3;
+  int64 endTimeUnixMilliseconds = 4;
+  google.protobuf.Timestamp startTimestamp = 5;
+  google.protobuf.Timestamp endTimestamp = 6;
+  int64 durationMicroseconds = 7;
+}
+
+message RequestTraceUpdated {
+  string messageId = 1;
+  string messageType = 2;
+  string kernelId = 3;
+  int32 replicaId = 4;
+  string requestTraceUuid = 5;
+  repeated Trace traces = 6;
 }
 
 message RequestTrace {
@@ -536,8 +569,8 @@ service LocalGateway {
   rpc UpdateReplicaAddr(ReplicaInfoWithAddr) returns (Void) {}
 
   // Used to instruct a specific kernel replica to prepare to be migrated to a new node.
-  // This involves writing the contents of the etcd-raft data directory to HDFS so that
-  // it can be read back from HDFS by the new replica.
+  // This involves writing the contents of the etcd-raft data directory to remote storage so that
+  // it can be read back from make build-linux-amd64 by the new replica.
   rpc PrepareToMigrate(ReplicaInfo) returns (PrepareToMigrateResponse) {}
 
   // ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of
@@ -788,7 +821,7 @@ message KernelRegistrationNotificationResponse {
   map<int32, string> replicas = 2;
   int32 smrPort = 3;
   ResourceSpec resourceSpec = 4;
-  bool shouldReadDataFromHdfs = 5;
+  bool shouldReadDataFromRemoteStorage = 5;
   optional string persistentId = 6;
   // optional string dataDirectory = 6;
   // int32 dockerKernelDebugPort = 7;

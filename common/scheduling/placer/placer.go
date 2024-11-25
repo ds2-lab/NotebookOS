@@ -4,7 +4,6 @@ import (
 	"errors"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/types"
 )
 
 var (
@@ -18,7 +17,7 @@ type internalPlacer interface {
 
 	// findHost returns a host that can satisfy the resourceSpec.
 	// This is the Placer-implementation-specific logic of the Placer.FindHost method.
-	findHost(blacklist []interface{}, metrics types.Spec) scheduling.Host
+	findHost(blacklist []interface{}, kernelSpec *proto.KernelSpec) scheduling.Host
 
 	// findHosts iterates over the Host instances in the index, attempting to reserve the requested resources
 	// on each Host until either the requested number of Host instances has been found, or until all Host
@@ -29,11 +28,4 @@ type internalPlacer interface {
 	//
 	// This is the Placer-implementation-specific logic of the Placer.FindHosts method.
 	findHosts(kernelSpec *proto.KernelSpec, numHosts int) []scheduling.Host
-
-	// hostIsViable returns a tuple (bool, bool).
-	// First bool represents whether the host is viable.
-	// Second bool indicates whether the host was successfully locked. This does not mean that it is still locked.
-	// Merely that we were able to lock it when we tried. If we locked it and found that the host wasn't viable,
-	// then we'll have unlocked it before hostIsViable returns.
-	hostIsViable(candidateHost scheduling.Host, spec types.Spec) (bool, bool)
 }

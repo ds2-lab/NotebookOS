@@ -1,20 +1,32 @@
-package scheduler
+package scheduling
 
 import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/scusemua/distributed-notebook/gateway/domain"
 )
+
+type MetadataKey string
+
+func (k MetadataKey) String() string {
+	return string(k)
+}
+
+// AddReplicaWaitOptions define options for add replica operations.
+// We always wait for the scale-out to occur.
+type AddReplicaWaitOptions interface {
+	WaitRegistered() bool  // If true, wait for the replica registration to occur.
+	WaitSmrJoined() bool   // If true, wait for the SMR joined notification.
+	ReuseSameNodeId() bool // If true, reuse the same SMR node ID for the new node.
+}
 
 type AddReplicaOperation struct {
 	id                    string                               // Unique identifier of the add operation.
 	kernelId              string                               // ID of the kernel for which a replica is being added.
-	client                scheduling.Kernel                    // distributedKernelClientImpl of the kernel for which we're migrating a replica.
+	client                Kernel                               // distributedKernelClientImpl of the kernel for which we're migrating a replica.
 	smrNodeId             int32                                // The SMR Node ID of the replica that is being added.
 	podOrContainerStarted bool                                 // True if a new Pod has been started for the replica that is being added. Otherwise, false.
 	replicaJoinedSMR      bool                                 // True if the new replica has joined the SMR cluster. Otherwise, false.
@@ -23,7 +35,7 @@ type AddReplicaOperation struct {
 	persistentId          string                               // Persistent ID of replica.
 	replicaHostname       string                               // The IP address of the new replica.
 	spec                  *proto.KernelReplicaSpec             // Spec for the new replica that is created during the add operation.
-	dataDirectory         string                               // Path to etcd-raft data directory in HDFS.
+	dataDirectory         string                               // Path to etcd-raft data directory in RemoteStorage.
 	metadata              hashmap.HashMap[string, interface{}] // Arbitrary metadata associated with this domain.AddReplicaOperation.
 	createdAt             time.Time                            // createdAt is the time at which the AddReplicaOperation struct was created.
 
@@ -32,7 +44,7 @@ type AddReplicaOperation struct {
 	replicaJoinedSmrChannel      chan struct{} // Used to notify that the new replica has joined its SMR cluster.
 }
 
-func NewAddReplicaOperation(client scheduling.Kernel, spec *proto.KernelReplicaSpec, dataDirectory string) *AddReplicaOperation {
+func NewAddReplicaOperation(client Kernel, spec *proto.KernelReplicaSpec, dataDirectory string) *AddReplicaOperation {
 	op := &AddReplicaOperation{
 		id:                           uuid.New().String(),
 		client:                       client,
@@ -54,14 +66,14 @@ func NewAddReplicaOperation(client scheduling.Kernel, spec *proto.KernelReplicaS
 	return op
 }
 
-// True if the new replica should read data from HDFS; otherwise, false.
+// True if the new replica should read data from RemoteStorage; otherwise, false.
 // I guess, for addReplicaOps, this will always be true?
 // So, maybe this field is unnecessary...
-// func (op *AddReplicaOperation) ShouldReadDataFromHdfs() bool {
-// 	return op.shouldReadDataFromHdfs
+// func (op *AddReplicaOperation) ShouldReadDataFromRemoteStorage() bool {
+// 	return op.shouldReadDataFromRemoteStorage
 // }
 
-// DataDirectory returns the path to etcd-raft data directory in HDFS.
+// DataDirectory returns the path to etcd-raft data directory in RemoteStorage.
 func (op *AddReplicaOperation) DataDirectory() string {
 	return op.dataDirectory
 }
@@ -115,7 +127,7 @@ func (op *AddReplicaOperation) OperationID() string {
 }
 
 // Kernel returns the *client.DistributedKernelClient of the kernel for which we're migrating a replica.
-func (op *AddReplicaOperation) Kernel() scheduling.Kernel {
+func (op *AddReplicaOperation) Kernel() Kernel {
 	return op.client
 }
 
@@ -221,13 +233,13 @@ func (op *AddReplicaOperation) SetReplicaStarted() {
 }
 
 // GetMetadata returns a piece of metadata associated with the given MetadataKey, or nil if no such metadata exists.
-func (op *AddReplicaOperation) GetMetadata(key domain.MetadataKey) (value interface{}, loaded bool) {
+func (op *AddReplicaOperation) GetMetadata(key MetadataKey) (value interface{}, loaded bool) {
 	value, loaded = op.metadata.Load(key.String())
 	return
 }
 
 // SetMetadata stores a piece of metadata under the given MetadataKey.
-func (op *AddReplicaOperation) SetMetadata(key domain.MetadataKey, value interface{}) {
+func (op *AddReplicaOperation) SetMetadata(key MetadataKey, value interface{}) {
 	op.metadata.Store(key.String(), value)
 }
 
@@ -237,7 +249,7 @@ type addReplicaWaitOptionsImpl struct {
 	reuseSameNodeId bool
 }
 
-func NewAddReplicaWaitOptions(waitRegistered bool, waitSmrJoined bool, reuseSameNodeId bool) domain.AddReplicaWaitOptions {
+func NewAddReplicaWaitOptions(waitRegistered bool, waitSmrJoined bool, reuseSameNodeId bool) AddReplicaWaitOptions {
 	return &addReplicaWaitOptionsImpl{
 		waitRegistered:  waitRegistered,
 		waitSmrJoined:   waitSmrJoined,

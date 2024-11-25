@@ -1856,8 +1856,8 @@ class LocalGatewayServicer(object):
 
     def PrepareToMigrate(self, request, context):
         """Used to instruct a specific kernel replica to prepare to be migrated to a new node.
-        This involves writing the contents of the etcd-raft data directory to HDFS so that
-        it can be read back from HDFS by the new replica.
+        This involves writing the contents of the etcd-raft data directory to remote storage so that
+        it can be read back from make build-linux-amd64 by the new replica.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

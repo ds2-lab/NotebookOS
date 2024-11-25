@@ -3,8 +3,10 @@ package scheduling
 import (
 	"context"
 	"fmt"
+	"github.com/elliotchance/orderedmap/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"strings"
 	"time"
@@ -13,9 +15,30 @@ import (
 const (
 	SchedulerPoolTypeUndersubscribed SchedulerPoolType = 1
 	SchedulerPoolTypeOversubscribed  SchedulerPoolType = 2
+
+	DefaultSchedulingPolicy Policy = "default"
+	Static                  Policy = "static"
+	DynamicV3               Policy = "dynamic-v3"
+	DynamicV4               Policy = "dynamic-v4"
+	FcfsBatch               Policy = "fcfs-batch"
+
+	// BindResourcesAtTrainingStart indicates that resources are to be committed when training begins and
+	// uncommitted when training ends.
+	BindResourcesAtTrainingStart ResourceBindingMode = "BindResourcesAtTrainingStart"
+
+	// BindResourcesWhenContainerScheduled indicates that resources are to be committed when a container is
+	// scheduled and only uncommitted when that container is evicted.
+	BindResourcesWhenContainerScheduled ResourceBindingMode = "BindResourcesWhenContainerScheduled"
 )
 
+// Policy indicates the scheduling policy/methodology/algorithm that the internalCluster Gateway is configured to use.
+type Policy string
+
 type SchedulerPoolType int
+
+// ResourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly
+// when they are uncommitted from containers as well.
+type ResourceBindingMode string
 
 // ErrorDuringScheduling is a custom error for when the scheduling of a new kernel fails.
 type ErrorDuringScheduling struct {
@@ -54,6 +77,10 @@ type KernelScheduler interface {
 
 	// RemoveReplicaFromHost removes the specified replica from its Host.
 	RemoveReplicaFromHost(kernelReplica KernelReplica) error
+
+	GetAddReplicaOperationManager() hashmap.HashMap[string, *AddReplicaOperation]
+
+	GetActiveAddReplicaOperationsForKernel(kernelId string) (*orderedmap.OrderedMap[string, *AddReplicaOperation], bool)
 }
 
 type HostScheduler interface {
@@ -94,6 +121,12 @@ type SchedulerMetricsManager interface {
 	RemoteSynchronizationInterval() time.Duration
 }
 
+// PolicyManager is an interface that exposes methods for reporting what policies the Scheduler is configured to use.
+type PolicyManager interface {
+	SchedulingPolicy() Policy
+	GetResourceBindingMode() ResourceBindingMode
+}
+
 // Scheduler defines the interface of a scheduler for the Cluster.
 //
 // The scheduler is ultimately responsible for deciding where to schedule kernel replicas, when and where to migrate
@@ -104,6 +137,7 @@ type Scheduler interface {
 	KernelScheduler
 	HostScheduler
 	SchedulerMetricsManager
+	PolicyManager
 
 	// Placer returns the Placer used by the scheduling.Scheduler.
 	Placer() Placer

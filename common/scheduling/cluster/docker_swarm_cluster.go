@@ -24,7 +24,7 @@ type DockerSwarmCluster struct {
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally by the
 // DockerSwarmCluster for scheduling decisions.
 func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
-	clusterMetricsProvider scheduling.MetricsProvider, opts *scheduling.SchedulerOptions) *DockerSwarmCluster {
+	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker, opts *scheduling.SchedulerOptions) *DockerSwarmCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerSwarmCluster")
 
@@ -32,7 +32,7 @@ func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMa
 		BaseCluster: baseCluster,
 	}
 
-	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider, opts)
+	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider, notificationBroker, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Docker Swarm Cluster Scheduler: %v", err)
 		panic(err)
@@ -255,7 +255,7 @@ func (c *DockerSwarmCluster) unsafeGetTargetedScaleInCommand(targetScale int32, 
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
 //
-// DockerSwarmCluster scales-in by disabling Local Daemon nodes while leaving their containers active and running.
+// DockerSwarmCluster scales-in by disabling DefaultSchedulingPolicy Daemon nodes while leaving their containers active and running.
 //
 // This is because Docker Compose does not allow you to specify the container to be terminated when scaling-down
 // a docker compose service.

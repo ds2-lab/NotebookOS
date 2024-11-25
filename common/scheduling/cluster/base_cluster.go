@@ -83,12 +83,15 @@ type BaseCluster struct {
 	// validateCapacityInterval is how frequently the Cluster should validate its capacity,
 	// scaling-in or scaling-out depending on the current load and whatnot.
 	validateCapacityInterval time.Duration
+
+	opts *scheduling.SchedulerOptions
 }
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
 // This function is for package-internal or file-internal use only.
 func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer, clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string) *BaseCluster {
 	cluster := &BaseCluster{
+		opts:                     opts,
 		gpusPerHost:              opts.GetGpusPerHost(),
 		numReplicas:              opts.GetNumReplicas(),
 		numReplicasDecimal:       decimal.NewFromInt(int64(opts.GetNumReplicas())),
@@ -414,6 +417,13 @@ func (c *BaseCluster) RangeOverHosts(f func(key string, value scheduling.Host) b
 	c.hosts.Range(f)
 }
 
+// RangeOverDisabledHosts executes the provided function on each disabled Host in the Cluster.
+//
+// Importantly, this function does NOT lock the hostsMutex.
+func (c *BaseCluster) RangeOverDisabledHosts(f func(key string, value scheduling.Host) bool) {
+	c.DisabledHosts.Range(f)
+}
+
 // RemoveHost removes the Host with the specified ID.
 func (c *BaseCluster) RemoveHost(hostId string) {
 	c.scalingOpMutex.Lock()
@@ -597,9 +607,9 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	targetNumNodes := n + currentNumNodes
 
 	if targetNumNodes < c.maximumCapacity {
-		c.log.Error("Cannot add %d Local Daemon Docker node(s) from the Cluster, "+
+		c.log.Error("Cannot add %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster, "+
 			"as doing so would violate the Cluster's maximum capacity constraint of %d.", n, c.maximumCapacity)
-		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: "+
 			"adding %d nodes would violate maximum capacity constraint of %d",
 			scheduling.ErrInvalidTargetNumHosts, n, c.maximumCapacity))
@@ -649,17 +659,17 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	targetNumNodes := currentNumNodes - n
 
 	if targetNumNodes < c.minimumCapacity {
-		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the Cluster, "+
+		c.log.Error("Cannot remove %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster, "+
 			"as doing so would violate the Cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
-		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: "+
 			"removing %d nodes would violate minimum capacity constraint of %d",
 			scheduling.ErrInvalidTargetNumHosts, n, c.minimumCapacity))
 	}
 
 	if targetNumNodes < int32(c.numReplicas) {
-		c.log.Error("Cannot remove %d specific Local Daemon Docker node(s) from the Cluster", n)
-		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Cannot remove %d specific DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster", n)
+		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, scheduling.ErrInvalidTargetNumHosts)
 	}
 
@@ -704,15 +714,15 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	targetNumNodes := currentNumNodes - n
 
 	if targetNumNodes < int32(c.numReplicas) {
-		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the Cluster", n)
-		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Cannot remove %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster", n)
+		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, scheduling.ErrInvalidTargetNumHosts)
 	}
 
 	if targetNumNodes < c.minimumCapacity {
-		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the Cluster, "+
+		c.log.Error("Cannot remove %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster, "+
 			"as doing so would violate the Cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
-		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: "+
 			"removing %d nodes would violate minimum capacity constraint of %d",
 			scheduling.ErrInvalidTargetNumHosts, n, c.minimumCapacity))
@@ -753,16 +763,25 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	return promise.Resolved(result)
 }
 
+func (c *BaseCluster) isScalingEnabled() bool {
+	// If we're using FCFS Batch Scheduling, then we cannot scale in or out.
+	return c.scheduler.SchedulingPolicy() != scheduling.FcfsBatch
+}
+
 // ScaleToSize scales the Cluster to the specified number of Host instances.
 //
 // If n <= NUM_REPLICAS, then ScaleToSize returns with an error.
 func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise {
+	if !c.isScalingEnabled() {
+		return promise.Resolved(nil, scheduling.ErrSchedulingProhibitedBySchedulingPolicy)
+	}
+
 	currentNumNodes := int32(c.Len())
 
 	// Are we trying to scale-down below the minimum cluster size? If so, return an error.
 	if targetNumNodes < int32(c.numReplicas) {
-		c.log.Error("Cannot scale to size of %d Local Daemon Docker node(s) from the Cluster", targetNumNodes)
-		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Cannot scale to size of %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster", targetNumNodes)
+		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: targetNumNodes=%d", scheduling.ErrInvalidTargetNumHosts, targetNumNodes))
 	}
 

@@ -10,7 +10,7 @@ iopub-port: 49004
 iosub-port: 49005
 ack-port: 49006
 transport: tcp
-hdfs-namenode-endpoint: 127.0.0.1:9000
+remote-storage-endpoint: 127.0.0.1:9000
 debug: true
 direct: false
 node_name: 2

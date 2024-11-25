@@ -90,7 +90,7 @@ var (
 			"num_resend_attempts": 1,
 			"acks_enabled": false,
 			"scheduling-policy": "static",
-			"hdfs-namenode-endpoint": "host.docker.internal:10000",
+			"remote-storage-endpoint": "host.docker.internal:10000",
 			"smr-port": 8080,
 			"debug_mode": true,
 			"debug_port": 9996,
@@ -744,6 +744,469 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		})
 	})
 
+	Context("Migrating Kernels", func() {
+		var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
+		var kernelId string
+		var mockedKernelSpec *proto.KernelSpec
+		var mockedKernel *mock_scheduling.MockKernel
+		var resourceSpec *proto.ResourceSpec
+
+		BeforeEach(func() {
+			config.LogLevel = logger.LOG_LEVEL_ALL
+
+			abstractServer = &server.AbstractServer{
+				DebugMode: true,
+				Log:       config.GetLogger("TestAbstractServer"),
+			}
+
+			var options *domain.ClusterGatewayOptions
+			err := json.Unmarshal([]byte(GatewayOptsAsJsonString), &options)
+			if err != nil {
+				panic(err)
+			}
+
+			mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
+
+			// fmt.Printf("Gateway options:\n%s\n", options.PrettyString(2))
+			clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
+				globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
+				srv.SetClusterOptions(&options.SchedulerOptions)
+				srv.SetDistributedClientProvider(mockedDistributedKernelClientProvider)
+			})
+			config.InitLogger(&clusterGateway.log, clusterGateway)
+
+			Expect(clusterGateway.cluster).ToNot(BeNil())
+
+			kernelId = uuid.NewString()
+
+			resourceSpec = &proto.ResourceSpec{
+				Gpu:    2,
+				Vram:   2,
+				Cpu:    1250,
+				Memory: 2048,
+			}
+
+			mockedKernel, mockedKernelSpec = initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec)
+
+			Expect(mockedKernelSpec).ToNot(BeNil())
+			mockedKernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
+			mockedKernel.EXPECT().KernelSpec().Return(&proto.KernelSpec{
+				Id:              kernelId,
+				Session:         kernelId,
+				SignatureScheme: signatureScheme,
+				Key:             "23d90942-8c3de3a713a5c3611792b7a5",
+				ResourceSpec: &proto.ResourceSpec{
+					Gpu:    2,
+					Cpu:    100,
+					Memory: 1000,
+				},
+			}).AnyTimes()
+			mockedKernel.EXPECT().ResourceSpec().Return(&types.DecimalSpec{
+				GPUs:      decimal.NewFromFloat(2),
+				Millicpus: decimal.NewFromFloat(100),
+				MemoryMb:  decimal.NewFromFloat(1000),
+			}).AnyTimes()
+			mockedKernel.EXPECT().ID().Return(kernelId).AnyTimes()
+			mockedKernel.EXPECT().RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(),
+				gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+
+			mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, mockedKernel)
+
+			mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, mockedKernel)
+
+			cluster := clusterGateway.cluster
+
+			host1Id := uuid.NewString()
+			node1Name := "TestNode1"
+			host1Spoofer := distNbTesting.NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
+			host1, localGatewayClient1, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
+
+			host2Id := uuid.NewString()
+			node2Name := "TestNode2"
+			host2Spoofer := distNbTesting.NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
+			host2, localGatewayClient2, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
+
+			host3Id := uuid.NewString()
+			node3Name := "TestNode3"
+			host3Spoofer := distNbTesting.NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
+			host3, localGatewayClient3, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
+
+			By("Correctly registering the first Host")
+
+			// Add first host.
+			err = clusterGateway.registerNewHost(host1)
+
+			By("Correctly registering the second Host")
+
+			// Add second host.
+			err = clusterGateway.registerNewHost(host2)
+
+			By("Correctly registering the third Host")
+
+			// Add third host.
+			err = clusterGateway.registerNewHost(host3)
+
+			var startKernelReplicaCalled sync.WaitGroup
+			startKernelReplicaCalled.Add(3)
+
+			startKernelReturnValChan1 := make(chan *proto.KernelConnectionInfo)
+			startKernelReturnValChan2 := make(chan *proto.KernelConnectionInfo)
+			startKernelReturnValChan3 := make(chan *proto.KernelConnectionInfo)
+
+			localGatewayClient1.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+				GinkgoWriter.Printf("LocalGateway #1 has called spoofed StartKernelReplica\n")
+
+				// defer GinkgoRecover()
+
+				err := host1Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
+				err = host1Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
+
+				startKernelReplicaCalled.Done()
+
+				GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #1 to be passed via channel.\n")
+				ret := <-startKernelReturnValChan1
+
+				GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #1: %v\n", ret)
+
+				return ret, nil
+			})
+
+			localGatewayClient2.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+				GinkgoWriter.Printf("LocalGateway #2 has called spoofed StartKernelReplica\n")
+
+				// defer GinkgoRecover()
+
+				err := host1Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
+				err = host1Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
+
+				startKernelReplicaCalled.Done()
+
+				GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #2 to be passed via channel.\n")
+				ret := <-startKernelReturnValChan2
+
+				GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #2: %v\n", ret)
+
+				return ret, nil
+			})
+
+			localGatewayClient3.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+				GinkgoWriter.Printf("LocalGateway #3 has called spoofed StartKernelReplica\n")
+
+				// defer GinkgoRecover()
+
+				err := host1Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
+				err = host1Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
+
+				startKernelReplicaCalled.Done()
+
+				GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #3 to be passed via channel.\n")
+				ret := <-startKernelReturnValChan3
+
+				GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #3: %v\n", ret)
+
+				return ret, nil
+			})
+
+			By("Correctly initiating the creation of a new kernel")
+
+			startKernelReturnValChan := make(chan *proto.KernelConnectionInfo)
+			go func() {
+				connInfo, _ := clusterGateway.StartKernel(context.Background(), mockedKernelSpec)
+				startKernelReturnValChan <- connInfo
+			}()
+
+			doneChan := make(chan interface{}, 1)
+			go func() {
+				startKernelReplicaCalled.Wait()
+				doneChan <- struct{}{}
+			}()
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*1)
+			defer cancel()
+
+			select {
+			case <-ctx.Done():
+				GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on DefaultSchedulingPolicy Daemons by Placer.\n")
+				Expect(false).To(BeTrue())
+			case <-doneChan:
+				{
+					// Do nothing / continue with the unit test
+				}
+			}
+
+			By("Correctly handling the KernelConnectionInfo")
+
+			startKernelReturnValChan1 <- &proto.KernelConnectionInfo{
+				Ip:              "0.0.0.0",
+				Transport:       "tcp",
+				ControlPort:     9000,
+				ShellPort:       9001,
+				StdinPort:       9002,
+				HbPort:          9003,
+				IopubPort:       9004,
+				IosubPort:       9005,
+				SignatureScheme: messaging.JupyterSignatureScheme,
+				Key:             kernelKey,
+			}
+			startKernelReturnValChan2 <- &proto.KernelConnectionInfo{
+				Ip:              "0.0.0.0",
+				Transport:       "tcp",
+				ControlPort:     9000,
+				ShellPort:       9001,
+				StdinPort:       9002,
+				HbPort:          9003,
+				IopubPort:       9004,
+				IosubPort:       9005,
+				SignatureScheme: messaging.JupyterSignatureScheme,
+				Key:             kernelKey,
+			}
+			startKernelReturnValChan3 <- &proto.KernelConnectionInfo{
+				Ip:              "0.0.0.0",
+				Transport:       "tcp",
+				ControlPort:     9000,
+				ShellPort:       9001,
+				StdinPort:       9002,
+				HbPort:          9003,
+				IopubPort:       9004,
+				IosubPort:       9005,
+				SignatureScheme: messaging.JupyterSignatureScheme,
+				Key:             kernelKey,
+			}
+
+			time.Sleep(time.Millisecond * 125)
+
+			var notifyKernelRegisteredCalled sync.WaitGroup
+			notifyKernelRegisteredCalled.Add(3)
+
+			By("Correctly notifying that the kernel registered")
+
+			sleepIntervals := make(chan time.Duration, 3)
+			notifyKernelRegistered := func(replicaId int32, targetHost scheduling.Host) {
+				// defer GinkgoRecover()
+
+				log.Printf("Notifying Gateway that replica %d has registered.\n", replicaId)
+
+				time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25 /* 25 - 50 */))
+				time.Sleep(<-sleepIntervals)
+
+				ctx := context.WithValue(context.Background(), SkipValidationKey, "true")
+				_, _ = clusterGateway.NotifyKernelRegistered(ctx, &proto.KernelRegistrationNotification{
+					ConnectionInfo: &proto.KernelConnectionInfo{
+						Ip:              "0.0.0.0",
+						Transport:       "tcp",
+						ControlPort:     9000,
+						ShellPort:       9001,
+						StdinPort:       9002,
+						HbPort:          9003,
+						IopubPort:       9004,
+						IosubPort:       9005,
+						SignatureScheme: messaging.JupyterSignatureScheme,
+						Key:             kernelKey,
+					},
+					KernelId:           kernelId,
+					SessionId:          "N/A",
+					ReplicaId:          replicaId,
+					HostId:             targetHost.GetID(),
+					KernelIp:           "0.0.0.0",
+					PodOrContainerName: "kernel1pod",
+					NodeName:           targetHost.GetNodeName(),
+					NotificationId:     uuid.NewString(),
+				})
+
+				notifyKernelRegisteredCalled.Done()
+			}
+
+			sleepIntervals <- time.Millisecond * 250
+			sleepIntervals <- time.Millisecond * 250
+			sleepIntervals <- time.Millisecond * 750
+
+			go notifyKernelRegistered(1, host1)
+			go notifyKernelRegistered(2, host2)
+			go notifyKernelRegistered(3, host3)
+
+			notifyKernelRegisteredCalled.Wait()
+
+			time.Sleep(time.Millisecond * 250)
+
+			var smrReadyCalled sync.WaitGroup
+			smrReadyCalled.Add(3)
+			callSmrReady := func(replicaId int32) {
+				// defer GinkgoRecover()
+
+				time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25 /* 25 - 50 */))
+				time.Sleep(<-sleepIntervals)
+
+				_, _ = clusterGateway.SmrReady(context.Background(), &proto.SmrReadyNotification{
+					KernelId:     kernelId,
+					ReplicaId:    replicaId,
+					PersistentId: persistentId,
+					Address:      "0.0.0.0",
+				})
+
+				smrReadyCalled.Done()
+			}
+
+			sleepIntervals <- time.Millisecond * 500
+			sleepIntervals <- time.Millisecond * 250
+			sleepIntervals <- time.Millisecond * 750
+
+			By("Correctly calling SMR ready and handling that correctly")
+
+			go callSmrReady(1)
+			go callSmrReady(2)
+			go callSmrReady(3)
+
+			smrReadyCalled.Wait()
+
+			<-startKernelReturnValChan
+
+			go func() {
+				defer GinkgoRecover()
+
+				if err := clusterGateway.router.Close(); err != nil {
+					clusterGateway.log.Error("Failed to cleanly shutdown router because: %v", err)
+				}
+
+				// Close the listener
+				if clusterGateway.listener != nil {
+					if err := clusterGateway.listener.Close(); err != nil {
+						clusterGateway.log.Error("Failed to cleanly shutdown listener because: %v", err)
+					}
+				}
+			}()
+
+			mockedKernel.EXPECT().Status().AnyTimes().Return(jupyter.KernelStatusRunning)
+		})
+
+		AfterEach(func() {
+			if err := clusterGateway.router.Close(); err != nil {
+				clusterGateway.log.Error("Failed to cleanly shutdown router because: %v", err)
+			}
+
+			// Close the listener
+			if clusterGateway.listener != nil {
+				if err := clusterGateway.listener.Close(); err != nil {
+					clusterGateway.log.Error("Failed to cleanly shutdown listener because: %v", err)
+				}
+			}
+		})
+
+		It("Will correctly migrate a kernel replica when using static scheduling", func() {
+			unsignedExecuteRequestFrames := [][]byte{
+				[]byte("<IDS|MSG>"),
+				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+				[]byte(""), /* Header */
+				[]byte(""), /* Parent executeRequestMessageHeader*/
+				[]byte(""), /* Metadata */
+				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+			}
+
+			executeRequestMessageHeader := &messaging.MessageHeader{
+				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
+				Username: "",
+				Session:  kernelId,
+				Date:     "2024-04-03T22:55:52.605Z",
+				MsgType:  "execute_request",
+				Version:  "5.2",
+			}
+
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteRequestFrames)
+			err := jFrames.EncodeHeader(executeRequestMessageHeader)
+			Expect(err).To(BeNil())
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
+			msg := &zmq4.Msg{
+				Frames: frames,
+				Type:   zmq4.UsrMsg,
+			}
+			jMsg := messaging.NewJupyterMessage(msg)
+
+			loadedKernel, loaded := clusterGateway.kernels.Load(kernelId)
+			Expect(loaded).To(BeTrue())
+			Expect(loadedKernel).ToNot(BeNil())
+			Expect(loadedKernel).To(Equal(mockedKernel))
+
+			var wg sync.WaitGroup
+			wg.Add(1)
+
+			var activeExecution *scheduling.ActiveExecution
+			mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
+				Expect(attemptId).To(Equal(1))
+				Expect(msg).ToNot(BeNil())
+				Expect(msg).To(Equal(jMsg))
+
+				activeExecution = scheduling.NewActiveExecution(kernelId, attemptId, 3, msg)
+				wg.Done()
+
+				return activeExecution
+			}).Times(1)
+
+			fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
+
+			var shellHandlerWaitGroup sync.WaitGroup
+			shellHandlerWaitGroup.Add(1)
+			go func() {
+				defer GinkgoRecover()
+				err = clusterGateway.ShellHandler(nil, jMsg)
+				Expect(err).To(BeNil())
+				shellHandlerWaitGroup.Done()
+			}()
+
+			wg.Wait()
+			Expect(activeExecution).ToNot(BeNil())
+
+			getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
+				unsignedExecuteReplyFrames := [][]byte{
+					[]byte("<IDS|MSG>"),
+					[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+					[]byte(""), /* Header */
+					[]byte(""), /* Parent executeReplyMessageHeader*/
+					[]byte(""), /* Metadata */
+					[]byte("{\"status\": \"error\", \"ename\": \"ExecutionYieldError\", \"evalue\": \"ExecutionYieldError\"}"),
+				}
+
+				executeReplyMessageHeader := &messaging.MessageHeader{
+					MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a528",
+					Username: "",
+					Session:  kernelId,
+					Date:     "2024-04-03T22:56:52.605Z",
+					MsgType:  "execute_reply",
+					Version:  "5.2",
+				}
+
+				executeReplyJFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteReplyFrames)
+				err := jFrames.EncodeParentHeader(executeRequestMessageHeader)
+				Expect(err).To(BeNil())
+				err = executeReplyJFrames.EncodeHeader(executeReplyMessageHeader)
+				Expect(err).To(BeNil())
+				frames, _ := executeReplyJFrames.Sign(signatureScheme, []byte(kernelKey))
+				msg := &zmq4.Msg{
+					Frames: frames,
+					Type:   zmq4.UsrMsg,
+				}
+				jMsg := messaging.NewJupyterMessage(msg)
+
+				return jMsg
+			}
+
+			execReply1 := getExecuteReplyMessage(1)
+			Expect(execReply1).ToNot(BeNil())
+
+			execReply2 := getExecuteReplyMessage(2)
+			Expect(execReply2).ToNot(BeNil())
+
+			execReply3 := getExecuteReplyMessage(3)
+			Expect(execReply3).ToNot(BeNil())
+
+			shellHandlerWaitGroup.Wait()
+		})
+	})
+
 	Context("DockerCluster", func() {
 		Context("Initial Connection Period", func() {
 			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
@@ -802,7 +1265,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(placer.NumHostsInIndex()).To(Equal(0))
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
 
-				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
+				By("Not disabling the first 'InitialClusterSize' DefaultSchedulingPolicy Daemons that connect to the Cluster Gateway.")
 
 				clusterSize := 0
 				for i := 0; i < InitialClusterSize; i++ {
@@ -830,7 +1293,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(cluster.NumDisabledHosts()).To(Equal(0))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
 
-				By("Disabling any additional Local Daemons that connect to the Cluster Gateway during the Initial Connection Period after the first 'InitialClusterSize' Local Daemons have already connected.")
+				By("Disabling any additional DefaultSchedulingPolicy Daemons that connect to the Cluster Gateway during the Initial Connection Period after the first 'InitialClusterSize' DefaultSchedulingPolicy Daemons have already connected.")
 
 				numDisabledHosts := 0
 				for i := InitialClusterSize; i < InitialClusterSize*2; i++ {
@@ -1128,7 +1591,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				select {
 				case <-ctx.Done():
-					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on Local Daemons by Placer.\n")
+					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on DefaultSchedulingPolicy Daemons by Placer.\n")
 					Expect(false).To(BeTrue())
 				case <-doneChan:
 					{
@@ -1421,7 +1884,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				select {
 				case <-ctx.Done():
-					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on Local Daemons by Placer.\n")
+					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on DefaultSchedulingPolicy Daemons by Placer.\n")
 					Expect(false).To(BeTrue())
 				case <-doneChan:
 					{

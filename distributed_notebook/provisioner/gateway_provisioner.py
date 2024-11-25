@@ -354,7 +354,8 @@ class GatewayProvisioner(KernelProvisionerBase):
 
         return self.gatewayStub
 
-    def _try_close(self) -> None:
+    async def _try_close(self) -> None:
         if self.autoclose and self.gatewayChannel is not None:
-            asyncio.get_event_loop().run_until_complete(self.gatewayChannel.close())
+            # asyncio.get_event_loop().run_until_complete(self.gatewayChannel.close())
+            await self.gatewayChannel.close()
             self.gatewayChannel = None

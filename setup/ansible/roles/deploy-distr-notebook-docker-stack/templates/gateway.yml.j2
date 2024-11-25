@@ -9,7 +9,12 @@ stdin-port: 9003
 iopub-port: 9004
 iosub-port: 9005
 ack-port: 9006
-hdfs-namenode-endpoint: {{ hostvars['namenode'].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ hadoop_namenode_port }}
+{% if distributed_notebook_remote_storage_type == 'hdfs' %}
+remote-storage-endpoint: {{ hostvars['namenode'].ansible_default_ipv4.address | default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ hadoop_namenode_port }}
+{% elif distributed_notebook_remote_storage_type == 'redis' %}
+remote-storage-endpoint: redis:{{ redis_port }}
+{% endif %}
+remote-storage: {{ distributed_notebook_remote_storage_type }}
 debug: {{ gateway_debug_logging_enabled }}
 direct: false
 num-replicas: {{ distributed_notebook_num_replicas }}

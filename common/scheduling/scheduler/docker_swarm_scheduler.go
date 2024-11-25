@@ -35,8 +35,16 @@ type DockerScheduler struct {
 	dockerModeKernelDebugPort atomic.Int32
 }
 
-func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec, kernelProvider KernelProvider, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
-	baseScheduler := NewBaseScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider, opts)
+func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec,
+	kernelProvider KernelProvider, notificationBroker NotificationBroker, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
+	baseScheduler := newBaseSchedulerBuilder().
+		WithCluster(cluster).
+		WithHostMapper(hostMapper).
+		WithPlacer(placer).
+		WithHostSpec(hostSpec).
+		WithKernelProvider(kernelProvider).
+		WithNotificationBroker(notificationBroker).
+		WithOptions(opts).Build()
 
 	dockerScheduler := &DockerScheduler{
 		BaseScheduler: baseScheduler,
@@ -51,6 +59,7 @@ func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 		dockerScheduler.log.Error("Initial retrieval of Docker nodes failed: %v", err)
 	}
 
+	// Note: if I re-enable this, then I need to revisit Host::doContainerRemovedResourceUpdate.
 	// go dockerScheduler.pollForResourceData()
 
 	return dockerScheduler, nil
@@ -84,23 +93,23 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 		blacklist = append(blacklist, host.GetMeta(s.placer.GetIndex().GetMetadataKey()))
 	}
 
-	host := s.placer.FindHost(blacklist, replicaSpec.FullSpecFromKernelReplicaSpec())
+	host := s.placer.FindHost(blacklist, replicaSpec.Kernel)
 	if host == nil {
 		return nil, scheduling.ErrInsufficientHostsAvailable
 	}
 
-	s.log.Debug("Selected host %s as target for migration. Will migrate kernel %s-%d to host %s.",
-		host.GetID, kernelId, replicaSpec.ReplicaId, host.GetID())
+	s.log.Debug("Selected host %s (ID=%s) as target for migration. Will migrate kernel %s-%d to host %s.",
+		host.GetNodeName(), host.GetID(), kernelId, replicaSpec.ReplicaId, host.GetNodeName())
 	return host, nil
 }
 
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
-func (s *DockerScheduler) addReplicaSetup(_ string, _ *AddReplicaOperation) {
+func (s *DockerScheduler) addReplicaSetup(_ string, _ *scheduling.AddReplicaOperation) {
 	// no-op
 }
 
 // postScheduleKernelReplica is called immediately after ScheduleKernelReplica is called.
-func (s *DockerScheduler) postScheduleKernelReplica(_ string, _ *AddReplicaOperation) {
+func (s *DockerScheduler) postScheduleKernelReplica(_ string, _ *scheduling.AddReplicaOperation) {
 	// no-op
 }
 
@@ -410,26 +419,26 @@ func (s *DockerScheduler) pollForResourceData() {
 				numConsecutiveFailures += 1
 				numConsecutiveFailuresPerHost[hostId] = numConsecutiveFailures
 
-				s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s (consecutive: %d): %v",
+				s.log.Error("Failed to refresh resource usage information from DefaultSchedulingPolicy Daemon %s on Node %s (consecutive: %d): %v",
 					hostId, host.GetNodeName(), numConsecutiveFailures, err)
 
 				// If we've failed 3 or more consecutive times, then we may just assume that the scheduler is dead.
 				if numConsecutiveFailures >= ConsecutiveFailuresWarning {
 					// If the gRPC connection to the scheduler is in the transient failure or shutdown state, then we'll just assume it is dead.
 					if host.GetConnectionState() == connectivity.TransientFailure || host.GetConnectionState() == connectivity.Shutdown {
-						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.",
+						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from DefaultSchedulingPolicy Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.",
 							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String(), host.GetID())
 						s.log.Error(errorMessage)
-						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "Local Daemon Connectivity Error", errorMessage)
+						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "DefaultSchedulingPolicy Daemon Connectivity Error", errorMessage)
 					} else if numConsecutiveFailures >= ConsecutiveFailuresBad {
 						// If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
-						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.",
+						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from DefaultSchedulingPolicy Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.",
 							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String(), host.GetID())
 						s.log.Error(errorMessage)
-						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "Local Daemon Connectivity Error", errorMessage)
+						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "DefaultSchedulingPolicy Daemon Connectivity Error", errorMessage)
 					} else {
 						// Otherwise, we won't assume it is dead yet...
-						s.log.Warn("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...",
+						s.log.Warn("Failed %d consecutive times to retrieve GPU info from DefaultSchedulingPolicy Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...",
 							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String())
 					}
 				}
@@ -461,7 +470,7 @@ func (s *DockerScheduler) refreshClusterNodes() error {
 		hostId := host.GetID()
 		err := host.SynchronizeResourceInformation()
 		if err != nil {
-			s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s: %v",
+			s.log.Error("Failed to refresh resource usage information from DefaultSchedulingPolicy Daemon %s on Node %s: %v",
 				hostId, host.GetNodeName(), err)
 			errs = append(errs, err)
 		}
