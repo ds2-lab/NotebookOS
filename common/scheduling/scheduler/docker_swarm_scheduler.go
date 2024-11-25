@@ -7,7 +7,9 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
+	"google.golang.org/grpc/status"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -342,11 +344,11 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 						in.Id, time.Since(st), responsesRequired)
 				}
 
-				return &scheduling.ErrorDuringScheduling{
+				return status.Error(codes.Internal, (&scheduling.ErrorDuringScheduling{
 					UnderlyingError:           err,
 					HostsWithOrphanedReplicas: hostsWithOrphanedReplica,
 					ScheduledReplicaIDs:       replicasScheduled,
-				}
+				}).Error())
 			}
 		// Received response.
 		case notification := <-resultChan:

@@ -209,7 +209,7 @@ func (s *BaseScheduler) isScalingEnabled() bool {
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
-// GetCandidateHosts will automatically request that new Host instances be provisioned and added to the Cluster
+// GetCandidateHosts will automatically request that new Host instances be provisioned and added to the Cluster) S
 // if it fails to find sufficiently many viable Host instances. This process will be attempted three times.
 // If GetCandidateHosts is unsuccessful (at finding sufficiently many viable hosts) after those three attempts,
 // then GetCandidateHosts will give up and return an error.
@@ -225,18 +225,25 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		hosts       []scheduling.Host
 	)
 	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {
-		hosts = s.TryGetCandidateHosts(hosts, kernelSpec)
+		hosts = s.TryGetCandidateHosts(hosts, kernelSpec) // note: this function executes atomically.
 
-		if len(hosts) < s.opts.NumReplicas && s.isScalingEnabled() {
+		if len(hosts) < s.opts.NumReplicas {
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
 				len(hosts), s.opts.NumReplicas, kernelSpec.Id)
 
+			if !s.isScalingEnabled() {
+				s.log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
+				break // Give up.
+			}
+
 			numHostsRequired := s.opts.NumReplicas - len(hosts)
-			s.log.Debug("Will attempt to provision %d new host(s).", numHostsRequired)
+			s.log.Debug("Will attempt to provision %d new host(s) so that we can serve kernel %s.",
+				numHostsRequired, kernelSpec.Id)
 
 			p := s.cluster.RequestHosts(ctx, int32(numHostsRequired))
 			if err := p.Error(); err != nil {
-				s.log.Error("Cluster failed to provision %d additional host(s) for us because: %v", numHostsRequired, err)
+				s.log.Error("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+					numHostsRequired, kernelSpec.Id, err)
 			}
 
 			numTries += 1
@@ -247,12 +254,15 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 
 			if (numTries + 1) < maxAttempts {
 				// Don't want to print this if we've just used up our last try, so to speak.
-				s.log.Debug("Trying again to find %d hosts to serve replicas of kernel %s.", s.opts.NumReplicas, kernelSpec.Id)
+				s.log.Debug("Trying again to find %d hosts to serve replicas of kernel %s.",
+					s.opts.NumReplicas, kernelSpec.Id)
 			}
-		} else {
-			s.log.Debug("Found %d hosts to serve replicas of kernel %s: %v", s.opts.NumReplicas, kernelSpec.Id, hosts)
-			break
+
+			continue
 		}
+
+		s.log.Debug("Found %d hosts to serve replicas of kernel %s: %v",
+			s.opts.NumReplicas, kernelSpec.Id, hosts)
 	}
 
 	// Check if we were able to reserve the requested number of hosts.
@@ -271,8 +281,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 			}
 		}
 
-		return nil, fmt.Errorf("%w: could only find at-most %d/%d required hosts to serve replicas of kernel %s",
-			scheduling.ErrInsufficientHostsAvailable, bestAttempt, s.opts.NumReplicas, kernelSpec.Id)
+		return nil, scheduling.ErrInsufficientHostsAvailable
 	}
 
 	return hosts, nil

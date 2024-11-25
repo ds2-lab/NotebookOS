@@ -1575,9 +1575,18 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 			d.log.Warn("Error while closing failed-to-be-created kernel \"%s\": %v", in.Id, closeKernelError)
 		}
 
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Create Kernel \"%s\"", in.Id), err.Error())
+		// Only notify if there's an "actual" error.
+		if !errors.Is(err, scheduling.ErrInsufficientHostsAvailable) {
+			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Create Kernel \"%s\"", in.Id), err.Error())
+		}
 
-		return nil, status.Error(codes.Internal, err.Error())
+		// The error should already be compatible with gRPC. But just in case it isn't...
+		_, ok := status.FromError(err)
+		if !ok {
+			err = status.Error(codes.Internal, err.Error())
+		}
+
+		return nil, err
 	}
 
 	// Wait for all replicas to be created.
@@ -1917,6 +1926,11 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		// Must be holding the main mutex before calling handleAddedReplicaRegistration.
 		// It will release the lock.
 		result, err := d.handleAddedReplicaRegistration(in, kernel, waitGroup)
+
+		if _, ok := status.FromError(err); !ok {
+			err = status.Error(codes.Internal, err.Error())
+		}
+
 		return result, err
 	} else {
 		d.log.Debug("There are 0 active add-replica operations targeting kernel %s.", kernel.ID())
@@ -2043,7 +2057,7 @@ func (d *ClusterGatewayImpl) ForceLocalDaemonToReconnect(_ context.Context, in *
 
 	host, ok := d.cluster.GetHost(daemonId)
 	if !ok {
-		return nil, scheduling.ErrHostNotFound
+		return nil, status.Error(codes.InvalidArgument, scheduling.ErrHostNotFound.Error())
 	}
 
 	_, err := host.ReconnectToGateway(context.Background(), &proto.ReconnectToGatewayRequest{
@@ -2052,6 +2066,11 @@ func (d *ClusterGatewayImpl) ForceLocalDaemonToReconnect(_ context.Context, in *
 
 	if err != nil {
 		d.log.Error("Error while instruction DefaultSchedulingPolicy Daemon %s to reconnect to us: %v", daemonId, err)
+
+		if _, ok := status.FromError(err); !ok {
+			err = status.Error(codes.Internal, err.Error())
+		}
+
 		return nil, err
 	}
 
@@ -2193,7 +2212,13 @@ func (d *ClusterGatewayImpl) KillKernel(_ context.Context, in *proto.KernelId) (
 	d.log.Debug("KillKernel RPC called for kernel %s.", in.Id)
 
 	// Call the impl rather than the RPC stub.
-	return d.stopKernelImpl(in)
+	ret, err = d.stopKernelImpl(in)
+
+	if _, ok := status.FromError(err); !ok {
+		err = status.Error(codes.Internal, err.Error())
+	}
+
+	return ret, err
 }
 
 // GetId returns the ID of the ClusterGatewayImpl.
@@ -2281,10 +2306,16 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 }
 
 // StopKernel stops a kernel.
-func (d *ClusterGatewayImpl) StopKernel(_ context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
+func (d *ClusterGatewayImpl) StopKernel(_ context.Context, in *proto.KernelId) (*proto.Void, error) {
 	d.log.Debug("StopKernel RPC called for kernel %s.", in.Id)
 
-	return d.stopKernelImpl(in)
+	ret, err := d.stopKernelImpl(in)
+
+	if _, ok := status.FromError(err); !ok {
+		err = status.Error(codes.Internal, err.Error())
+	}
+
+	return ret, err
 }
 
 // WaitKernel waits for a kernel to exit.

@@ -1,14 +1,15 @@
-import asyncio
 import pprint
 import signal
 from typing import Any, Dict, List, Optional, Union
 
 import grpc
 from grpc import aio
+from grpc.aio import AioRpcError
 from jupyter_client.connect import KernelConnectionInfo
 from jupyter_client.provisioning.provisioner_base import KernelProvisionerBase
 from traitlets.config import Unicode
 
+from .kernel_creation_error import KernelCreationError
 from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import LocalGatewayStub
 
@@ -167,7 +168,8 @@ class GatewayProvisioner(KernelProvisionerBase):
         """
         assert self.parent is not None
         self.num_kernels_creating += 1
-        self.log.info("launch_kernel[self.parent.session.session: %s, num_kernels_creating: %d]" % (str(self.parent.session.session), self.num_kernels_creating))
+        self.log.info("launch_kernel[self.parent.session.session: %s, num_kernels_creating: %d]" % (
+            str(self.parent.session.session), self.num_kernels_creating))
 
         if "resource_spec" in kwargs:
             resource_spec: dict[str, float | int] = kwargs["resource_spec"]
@@ -222,17 +224,44 @@ class GatewayProvisioner(KernelProvisionerBase):
 
             self.num_kernels_creating -= 1
             return conn_info
+        except AioRpcError as e:
+            grpc_status_code: grpc.StatusCode = e.code()
+            debug_error_str: str = e.debug_error_string()
+            details: Optional[str] = e.details()
+
+            self.log.error(f"Failed to launch kernel '{self._kernel_id}'")
+            self.log.error(f"gRPC Error Code: {grpc_status_code}")
+            self.log.error(f"Debug String from Server: {debug_error_str}")
+
+            if details is not None:
+                self.log.error(f"Error details: {details}")
+
+            await self._try_close()
+            self.num_kernels_creating -= 1
+
+            # raise RuntimeError(f"gRPC Error {error_code}: {debug_error_str}")
+            raise KernelCreationError(
+                f"failed to create kernel {self._kernel_id}",
+                grpc_status_code=grpc_status_code,
+                grpc_debug_error_str=debug_error_str,
+                grpc_details=details
+            )
         except grpc.RpcError as e:
             self.log.error(f"Failed to launch kernel \"{self._kernel_id}\" because of grpc.RpcError: {e}")
-            self._try_close()
-            self.num_kernels_creating -= 1
-            raise RuntimeError(f"Failed to launch kernel because of grpc.RpcError: {e}")
-        except Exception as e:
-            self.log.error(f"Failed to launch kernel \"{self._kernel_id}\" due to exception of type {type(e).__name__}: {e}")
-            self._try_close()
-            self.num_kernels_creating -= 1
-            raise RuntimeError(f"Failed to launch kernel due to exception of type {type(e).__name__}: {e}")
 
+            await self._try_close()
+            self.num_kernels_creating -= 1
+
+            # Re-raise the exception, but wrap it in a runtime error this time.
+            raise RuntimeError(str(e))
+        except Exception as e:
+            self.log.error(f"Failed to launch kernel \"{self._kernel_id}\" due to "
+                           f"exception of type {type(e).__name__}: {e}")
+
+            await self._try_close()
+            self.num_kernels_creating -= 1
+
+            raise RuntimeError(f"Failed to launch kernel due to exception of type {type(e).__name__}: {e}")
 
     async def cleanup(self, restart: bool = False) -> None:
         """
