@@ -449,7 +449,11 @@ func (m *AllocationManager) ReplicaHasCommittedResources(replicaId int32, kernel
 		return false
 	}
 
-	return alloc.IsNonZero()
+	// Commented out:
+	//
+	// Some sessions will not request any resources.
+	// return alloc.IsNonZero()
+	return alloc != nil
 }
 
 // ReplicaHasCommittedGPUs returns true if the specified kernel replica has GPUs committed to it.
