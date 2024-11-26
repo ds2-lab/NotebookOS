@@ -63,7 +63,7 @@ type BaseScheduler struct {
 	placer             scheduling.Placer
 	kernelProvider     KernelProvider
 	notificationBroker NotificationBroker
-	schedulingPolicy   scheduling.PolicyName
+	schedulingPolicy   scheduling.PolicyKey
 
 	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
 	// kernels (or other resources) and could occur in-parallel (such as being triggered
@@ -160,7 +160,7 @@ func (s *BaseScheduler) SetHostSpec(spec types.Spec) {
 	s.hostSpec = spec
 }
 
-func (s *BaseScheduler) SchedulingPolicy() scheduling.PolicyName {
+func (s *BaseScheduler) SchedulingPolicy() scheduling.PolicyKey {
 	return s.schedulingPolicy
 }
 

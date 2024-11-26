@@ -102,7 +102,7 @@ type SchedulerMetricsManager interface {
 
 // PolicyManager is an interface that exposes methods for reporting what policies the Scheduler is configured to use.
 type PolicyManager interface {
-	SchedulingPolicy() PolicyName
+	SchedulingPolicy() PolicyKey
 	GetResourceBindingMode() ResourceBindingMode
 }
 

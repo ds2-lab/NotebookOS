@@ -156,7 +156,7 @@ type ClusterGatewayImpl struct {
 	createdAt time.Time
 
 	// schedulingPolicy refers to the scheduling policy/methodology/algorithm that the internalCluster Gateway is configured to use.
-	schedulingPolicy scheduling.PolicyName
+	schedulingPolicy scheduling.PolicyKey
 	proto.UnimplementedClusterGatewayServer
 	proto.UnimplementedLocalGatewayServer
 	router *router.Router
