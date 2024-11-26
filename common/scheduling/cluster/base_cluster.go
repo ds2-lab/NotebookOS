@@ -765,7 +765,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 
 func (c *BaseCluster) isScalingEnabled() bool {
 	// If we're using FCFS Batch Scheduling, then we cannot scale in or out.
-	return c.scheduler.SchedulingPolicy() != scheduling.FcfsBatch
+	return c.scheduler.PolicyKey() != scheduling.FcfsBatch
 }
 
 // ScaleToSize scales the Cluster to the specified number of Host instances.

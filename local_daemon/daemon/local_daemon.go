@@ -15,6 +15,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/docker_events/observer"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
+	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
@@ -120,8 +121,7 @@ type SchedulerDaemonImpl struct {
 
 	virtualGpuPluginServer device.VirtualGpuPluginServer
 
-	schedulingPolicy    scheduling.PolicyKey
-	resourceBindingMode scheduling.ResourceBindingMode
+	schedulingPolicy scheduling.Policy
 
 	proto.UnimplementedLocalGatewayServer
 	proto.UnimplementedKernelErrorReporterServer
@@ -353,46 +353,12 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		panic("remote storage endpoint is empty.")
 	}
 
-	switch localDaemonOptions.SchedulingPolicy {
-	case string(scheduling.DefaultSchedulingPolicy):
-		{
-			daemon.schedulingPolicy = scheduling.DefaultSchedulingPolicy
-			daemon.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
-			daemon.log.Debug("Using the 'DEFAULT' scheduling policy.")
-		}
-	case string(scheduling.Static):
-		{
-			daemon.schedulingPolicy = scheduling.Static
-			daemon.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
-			daemon.log.Debug("Using the 'STATIC' scheduling policy.")
-		}
-	case string(scheduling.DynamicV3):
-		{
-			daemon.schedulingPolicy = scheduling.DynamicV3
-			daemon.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
-			daemon.log.Debug("Using the 'DYNAMIC v3' scheduling policy.")
-
-			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
-		}
-	case string(scheduling.DynamicV4):
-		{
-			daemon.schedulingPolicy = scheduling.DynamicV4
-			daemon.resourceBindingMode = scheduling.BindResourcesAtTrainingStart
-			daemon.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
-
-			panic("The 'DYNAMIC' scheduling policy is not yet supported.")
-		}
-	case string(scheduling.FcfsBatch):
-		{
-			daemon.schedulingPolicy = scheduling.FcfsBatch
-			daemon.resourceBindingMode = scheduling.BindResourcesWhenContainerScheduled
-			daemon.log.Debug("Using the 'FCFS Batch' scheduling policy.")
-		}
-	default:
-		{
-			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", localDaemonOptions.SchedulingPolicy))
-		}
+	schedulingPolicy, err := policy.GetSchedulingPolicy(&localDaemonOptions.SchedulerOptions)
+	if err != nil {
+		panic(err)
 	}
+	daemon.schedulingPolicy = schedulingPolicy
+	daemon.log.Debug("Scheduling policy: %s", schedulingPolicy.Name())
 
 	switch localDaemonOptions.DeploymentMode {
 	case "":
@@ -1881,7 +1847,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	}
 
 	// If we're performing FCFS batch scheduling, then we commit resources right away.
-	if d.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
+	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
 		allocationError = d.resourceManager.CommitResources(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec, false)
 
 		if allocationError != nil {
@@ -2548,7 +2514,7 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *messaging.JupyterMessage,
 	}
 
 	// Check if we should be releasing resources at this point or not.
-	if d.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
 		// Release any resources committed to the kernel replica, as it is done training and does not need the resources
 		// to be actively-bound/committed to it anymore.
 		//
@@ -2622,7 +2588,8 @@ func (d *SchedulerDaemonImpl) updateKernelResourceSpec(kernel scheduling.KernelR
 // resourceRequestAdjustmentEnabled returns true if dynamically adjusting resource requests is enabled
 // based on the configured scheduling policy used by the cluster.
 func (d *SchedulerDaemonImpl) resourceRequestAdjustmentEnabled() bool {
-	return d.schedulingPolicy == scheduling.Static || d.schedulingPolicy == scheduling.DynamicV3 || d.schedulingPolicy == scheduling.DynamicV4
+	// return d.policyKey == scheduling.Static || d.policyKey == scheduling.DynamicV3 || d.policyKey == scheduling.DynamicV4
+	return d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart
 }
 
 // processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.
@@ -2719,7 +2686,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *messaging.JupyterMessag
 	// to reserve resources for this kernel replica in anticipation of its leader election.
 	idleResourcesBeforeReservation := d.resourceManager.IdleResources()
 	shouldYield := differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest()
-	if !shouldYield && d.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+	if !shouldYield && d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
 		// We didn't want to bother reserving resources for this kernel replica if its either been explicitly told
 		// to yield, or if another replica of the same kernel was explicitly expected to yield. But now that we know
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
@@ -3178,7 +3145,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.KernelReplica,
 
 		// If we're supposed to commit the resources when the container is scheduled, then it should already have
 		// resources commited to it. If it doesn't, then that's problematic.
-		if d.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled &&
+		if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled &&
 			!d.resourceManager.ReplicaHasCommittedResources(kernel.ReplicaID(), kernel.ID()) {
 
 			d.log.Error("Replica %d of kernel %s does not already have resources committed to it.",
@@ -3197,7 +3164,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.KernelReplica,
 		}
 
 		// If we're supposed to bind resources at training start, then we'd better do that now.
-		if d.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+		if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
 			d.log.Debug("Promoting resource reservation of replica %d of kernel %s now.",
 				kernel.ReplicaID(), kernel.ID())
 			err = d.resourceManager.PromoteReservation(kernel.ReplicaID(), kernel.ID())

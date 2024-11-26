@@ -14,7 +14,7 @@ type AutoScalingFcfsBatchSchedulingPolicy struct {
 	*FcfsBatchSchedulingPolicy
 }
 
-func NewAutoScalingFcfsBatchSchedulingPolicy(opts *scheduling.ScalingConfiguration) *AutoScalingFcfsBatchSchedulingPolicy {
+func NewAutoScalingFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) *AutoScalingFcfsBatchSchedulingPolicy {
 	return &AutoScalingFcfsBatchSchedulingPolicy{
 		FcfsBatchSchedulingPolicy: NewFcfsBatchSchedulingPolicy(opts),
 	}

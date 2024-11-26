@@ -63,7 +63,7 @@ type BaseScheduler struct {
 	placer             scheduling.Placer
 	kernelProvider     KernelProvider
 	notificationBroker NotificationBroker
-	schedulingPolicy   scheduling.PolicyKey
+	policyKey          scheduling.PolicyKey
 
 	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
 	// kernels (or other resources) and could occur in-parallel (such as being triggered
@@ -88,22 +88,25 @@ type BaseScheduler struct {
 	// resourceBindingMode describes when resources are committed and uncommitted from Containers.
 	resourceBindingMode scheduling.ResourceBindingMode
 
+	// schedulingPolicy specifies the scheduling behavior for the scheduling.Cluster and scheduling.Scheduler.
+	schedulingPolicy scheduling.Policy
+
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
 	//-//-//-//-//-//-//-//-//-//
-	gpusPerHost                  float64       // The number of actual GPUs that are available for use on each node/host.
-	virtualGpusPerHost           int32         // The number of virtual GPUs per host.
-	scalingFactor                float64       // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
-	maximumHostsToReleaseAtOnce  int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	scalingIntervalSec           int32         // How often to call UpdateRatio in seconds.
-	scalingInterval              time.Duration // How often to call UpdateRatio .
-	scalingLimit                 float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
-	canScaleIn                   bool          // Can the Cluster/Placer scale-in?
-	predictiveAutoscalingEnabled bool          // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
-	scalingBufferSize            int32         // How many extra hosts we provision so that we can quickly scale if needed.
-	minimumCapacity              int32         // The minimum number of nodes we must have available at any time.
-	maximumCapacity              int32         // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+	//gpusPerHost                  float64       // The number of actual GPUs that are available for use on each node/host.
+	//virtualGpusPerHost           int32         // The number of virtual GPUs per host.
+	//scalingFactor                float64       // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	//maximumHostsToReleaseAtOnce  int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	//scalingIntervalSec           int32         // How often to call UpdateRatio in seconds.
+	//scalingInterval              time.Duration // How often to call UpdateRatio .
+	//scalingLimit                 float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
+	//predictiveAutoscalingEnabled bool          // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
+	//scalingBufferSize            int32         // How many extra hosts we provision so that we can quickly scale if needed.
+	//minimumCapacity              int32         // The minimum number of nodes we must have available at any time.
+	//maximumCapacity              int32         // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
 
+	canScaleIn                    bool                         // Can the Cluster/Placer scale-in?
 	opts                          *scheduling.SchedulerOptions // Configuration options.
 	hostSpec                      types.Spec                   // The types.Spec used when creating new Host instances.
 	remoteSynchronizationInterval time.Duration                // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
@@ -161,7 +164,11 @@ func (s *BaseScheduler) SetHostSpec(spec types.Spec) {
 	s.hostSpec = spec
 }
 
-func (s *BaseScheduler) SchedulingPolicy() scheduling.PolicyKey {
+func (s *BaseScheduler) PolicyKey() scheduling.PolicyKey {
+	return s.policyKey
+}
+
+func (s *BaseScheduler) Policy() scheduling.Policy {
 	return s.schedulingPolicy
 }
 
@@ -204,7 +211,7 @@ func (s *BaseScheduler) TryGetCandidateHosts(hosts []scheduling.Host, kernelSpec
 
 func (s *BaseScheduler) isScalingEnabled() bool {
 	// If we're using FCFS Batch Scheduling, then we cannot scale in or out.
-	return s.SchedulingPolicy() != scheduling.FcfsBatch
+	return s.PolicyKey() != scheduling.FcfsBatch
 }
 
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
@@ -301,7 +308,7 @@ func (s *BaseScheduler) RemoteSynchronizationInterval() time.Duration {
 
 // MinimumCapacity returns the minimum number of nodes we must have available at any time.
 func (s *BaseScheduler) MinimumCapacity() int32 {
-	return s.minimumCapacity
+	return s.schedulingPolicy.ScalingConfiguration().MinimumCapacity
 }
 
 // AddHost adds a new node to the kubernetes Cluster.
@@ -518,7 +525,7 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 		s.log.Debug("Recomputed subscription ratio as %s.", s.subscriptionRatio.StringFixed(4))
 		s.rebalance(avg)
 
-		if !skipValidateCapacity && s.scalingIntervalSec > 0 && time.Since(s.lastCapacityValidation) >= s.scalingInterval {
+		if !skipValidateCapacity && s.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec > 0 && time.Since(s.lastCapacityValidation) >= s.schedulingPolicy.ScalingConfiguration().ScalingInterval {
 			s.ValidateCapacity()
 		}
 
@@ -751,10 +758,17 @@ func (s *BaseScheduler) ValidateCapacity() {
 		return true
 	})
 
+	scalingFactor := s.schedulingPolicy.ScalingConfiguration().ScalingFactor
+	gpusPerHost := s.schedulingPolicy.ScalingConfiguration().GpusPerHost
+	scalingLimit := s.schedulingPolicy.ScalingConfiguration().ScalingLimit
+	scalingBufferSize := s.schedulingPolicy.ScalingConfiguration().ScalingBufferSize
+	predictiveAutoscalingEnabled := s.schedulingPolicy.ScalingConfiguration().PredictiveAutoscalingEnabled
+	maximumHostsToReleaseAtOnce := s.schedulingPolicy.ScalingConfiguration().MaximumHostsToReleaseAtOnce
+
 	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                      // The minimum number of hosts required to satisfy the Cluster's current committed GPUs.
 	minNumHosts := int32(s.opts.NumReplicas)
-	scaledOutNumHosts := int32(math.Ceil(float64(load) * s.scalingFactor / s.gpusPerHost)) // The number of hosts we would scale-out to based on the configured scaling factor.
-	limit := int32(math.Ceil(float64(load) * s.scalingLimit / s.gpusPerHost))              // The maximum number of hosts we're permitted to scale-out to.
+	scaledOutNumHosts := int32(math.Ceil(float64(load) * scalingFactor / gpusPerHost)) // The number of hosts we would scale-out to based on the configured scaling factor.
+	limit := int32(math.Ceil(float64(load) * scalingLimit / gpusPerHost))              // The maximum number of hosts we're permitted to scale-out to.
 
 	s.log.Debug("Validating Cluster Capacity. MinNumHosts: %d, ScaledOutNumHosts: %d, Limit: %d",
 		minNumHosts, scaledOutNumHosts, limit)
@@ -766,8 +780,8 @@ func (s *BaseScheduler) ValidateCapacity() {
 	// so the minimum capacity of the host pool is the analogous value to use in my code. I'm just not sure if it will
 	// result in the intended behavior as I set the minimum capacity of the host pool more so from an economic standpoint
 	// to take advantage of reserved pricing.
-	if scaledOutNumHosts < (minNumHosts + s.scalingBufferSize) {
-		scaledOutNumHosts = minNumHosts + s.scalingBufferSize
+	if scaledOutNumHosts < (minNumHosts + scalingBufferSize) {
+		scaledOutNumHosts = minNumHosts + scalingBufferSize
 		s.log.Debug("Adjusted scaledOutNumHosts: %d.", scaledOutNumHosts)
 	}
 	if limit < minNumHosts+4 {
@@ -781,7 +795,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 	}
 	oldNumHosts := int32(s.cluster.Len())
 	// Only scale-out if that feature is enabled.
-	if s.predictiveAutoscalingEnabled && s.cluster.CanPossiblyScaleOut() && oldNumHosts < scaledOutNumHosts {
+	if predictiveAutoscalingEnabled && s.cluster.CanPossiblyScaleOut() && oldNumHosts < scaledOutNumHosts {
 		// Scaling out
 		numProvisioned := 0
 		targetNumProvisioned := scaledOutNumHosts - oldNumHosts
@@ -823,7 +837,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 	}
 
 	// Should we scale in?
-	if !s.canScaleIn || !s.predictiveAutoscalingEnabled || load <= limit {
+	if !s.canScaleIn || !predictiveAutoscalingEnabled || load <= limit {
 		return
 	}
 
@@ -835,11 +849,11 @@ func (s *BaseScheduler) ValidateCapacity() {
 
 	numToRelease := int32(s.cluster.Len()) - limit
 	if numToRelease > 0 {
-		if numToRelease > s.maximumHostsToReleaseAtOnce {
+		if numToRelease > maximumHostsToReleaseAtOnce {
 			if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-				s.log.Debug("Decreased the number of idle hosts to release from %d to the maximum allowed value of %s.", numToRelease, s.maximumHostsToReleaseAtOnce)
+				s.log.Debug("Decreased the number of idle hosts to release from %d to the maximum allowed value of %s.", numToRelease, maximumHostsToReleaseAtOnce)
 			}
-			numToRelease = s.maximumHostsToReleaseAtOnce
+			numToRelease = maximumHostsToReleaseAtOnce
 		}
 
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {

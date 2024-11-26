@@ -85,6 +85,9 @@ type Policy interface {
 
 	// ResourceScalingPolicy returns the ResourceScalingPolicy of the target scheduling Policy.
 	ResourceScalingPolicy() ResourceScalingPolicy
+
+	// ScalingConfiguration returns the ScalingConfiguration of the target AutoscalingPolicy.
+	ScalingConfiguration() *ScalingConfiguration
 }
 
 // ResourceScalingPolicy defines the configuration of resource scaling (i.e., adding and/or removing Host instances ),
@@ -142,9 +145,6 @@ type AutoscalingPolicy interface {
 
 	// AutomaticScalingInEnabled returns a flag indicating whether the Cluster can automatically remove Host instances.
 	AutomaticScalingInEnabled() bool
-
-	// ScalingConfiguration returns the ScalingConfiguration of the target AutoscalingPolicy.
-	ScalingConfiguration() *ScalingConfiguration
 }
 
 // ManualScalingPolicy defines the configuration of manually-triggered scaling (i.e., manually adding or removing

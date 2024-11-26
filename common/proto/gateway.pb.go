@@ -300,7 +300,7 @@ type DashboardRegistrationResponse struct {
 	// Valid options include "local", "docker-compose", "docker-swarm", and "kubernetes".
 	DeploymentMode string `protobuf:"bytes,1,opt,name=DeploymentMode,proto3" json:"DeploymentMode,omitempty"`
 	// SchedulingMode indicates the scheduling policy that the Cluster Gateway has been configured to use.
-	SchedulingPolicy string `protobuf:"bytes,2,opt,name=SchedulingPolicy,proto3" json:"SchedulingPolicy,omitempty"`
+	SchedulingPolicy string `protobuf:"bytes,2,opt,name=PolicyKey,proto3" json:"PolicyKey,omitempty"`
 	// NumReplicas refers to the number of replicas that each Jupyter kernel is configured to have.
 	NumReplicas int32 `protobuf:"varint,3,opt,name=NumReplicas,proto3" json:"NumReplicas,omitempty"`
 }
