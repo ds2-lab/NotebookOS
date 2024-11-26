@@ -17,12 +17,14 @@ const (
 	SessionStateMigrating         SessionState = "SESSION_MIGRATING"          // Indicates that one or more replicas are currently migrating to new Hosts.
 )
 
+// SessionState defines the various lifecycle states that a UserSession can be in at any given time.
 type SessionState string
 
 func (s SessionState) String() string {
 	return string(s)
 }
 
+// SessionStatistic exposes an API related to a single statistic of a UserSession.
 type SessionStatistic interface {
 	Add(val float64)
 	Sum() float64
@@ -33,6 +35,7 @@ type SessionStatistic interface {
 	LastN(n int64) float64
 }
 
+// UserSession encapsulates a long-running Notebook session associated with a single particular user.
 type UserSession interface {
 	Lock()
 	Unlock()
@@ -70,6 +73,8 @@ type UserSession interface {
 	GetReplicaContainer(replicaId int32) (KernelContainer, bool)
 }
 
+// SessionStatistics is an interface that maintains/reports/provides access to the various statistical quantities
+// and metrics associated with a particular UserSession.
 type SessionStatistics interface {
 	Explainer
 

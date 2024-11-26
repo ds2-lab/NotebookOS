@@ -21,11 +21,11 @@ type AbstractPlacer struct {
 	log              logger.Logger
 	numReplicas      int
 	instance         internalPlacer
-	schedulingPolicy scheduling.Policy
+	schedulingPolicy scheduling.PolicyName
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.
-func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.Policy) *AbstractPlacer {
+func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.PolicyName) *AbstractPlacer {
 	placer := &AbstractPlacer{
 		metricsProvider:  metricsProvider,
 		numReplicas:      numReplicas,

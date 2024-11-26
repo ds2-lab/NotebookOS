@@ -120,7 +120,7 @@ type SchedulerDaemonImpl struct {
 
 	virtualGpuPluginServer device.VirtualGpuPluginServer
 
-	schedulingPolicy    scheduling.Policy
+	schedulingPolicy    scheduling.PolicyName
 	resourceBindingMode scheduling.ResourceBindingMode
 
 	proto.UnimplementedLocalGatewayServer

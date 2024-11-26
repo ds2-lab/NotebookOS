@@ -17,7 +17,7 @@ type StaticPlacer struct {
 }
 
 // NewStaticPlacer creates a new StaticPlacer.
-func NewStaticPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.Policy) (*StaticPlacer, error) {
+func NewStaticPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.PolicyName) (*StaticPlacer, error) {
 	basePlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
 
 	staticPlacer := &StaticPlacer{

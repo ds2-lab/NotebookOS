@@ -14,7 +14,7 @@ type RandomPlacer struct {
 }
 
 // NewRandomPlacer creates a new RandomPlacer.
-func NewRandomPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.Policy) (*RandomPlacer, error) {
+func NewRandomPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.PolicyName) (*RandomPlacer, error) {
 	basePlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
 	randomPlacer := &RandomPlacer{
 		AbstractPlacer: basePlacer,
