@@ -264,7 +264,9 @@ services:
     volumes:
       - ./dashboard_backend/config-docker.yaml:{{ dashboard_backend_config_directory }}/dashboard.yaml
       - ./dashboard_backend/workload-presets-file.yaml:{{ dashboard_backend_config_directory }}/workload-presets-file.yaml
+      - ./dashboard_backend/workload-templates-file.yaml:{{ dashboard_backend_config_directory }}/workload-templates-file.yaml
       - ./dashboard_backend/custom_event_sequences:{{ dashboard_backend_config_directory }}/custom_event_sequences
+      - ./dashboard_backend/workload_templates:{{ dashboard_backend_config_directory }}/workload_templates
       - ./dashboard_backend/.env:/go/.env
 
 {% if distributed_notebook_remote_storage_type == 'redis' %}

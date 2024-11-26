@@ -1,0 +1,105 @@
+{
+  "workloadTitle": "b48f412f-e232-4363-bd6b-b088ea9203d3",
+  "workloadSeed": 0,
+  "timescaleAdjustmentFactor": 0.1,
+  "numberOfSessions": 2,
+  "debugLoggingEnabled": true,
+  "remoteStorageDefinition": {
+    "name": "AWS S3",
+    "downloadRate": 200000000,
+    "uploadRate": 125000000,
+    "downloadRateVariancePercentage": 5,
+    "uploadRateVariancePercentage": 5,
+    "readFailureChancePercentage": 0,
+    "writeFailureChancePercentage": 0
+  },
+  "sessions": [
+    {
+      "id": "10688020-bad6-44a5-9f7a-a2f76236652c",
+      "start_tick": 1,
+      "stop_tick": 10,
+      "num_training_events": 1,
+      "selected_training_event": 0,
+      "trainings": [
+        {
+          "start_tick": 2,
+          "duration_in_ticks": 6,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "vram_usage_gb": 0.125,
+          "num_gpus": 8,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "341e9424-75aa-4ade-8a04-60f112b3b7f5",
+      "start_tick": 2,
+      "stop_tick": 10,
+      "num_training_events": 1,
+      "selected_training_event": 0,
+      "trainings": [
+        {
+          "start_tick": 2,
+          "duration_in_ticks": 6,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "vram_usage_gb": 0.125,
+          "num_gpus": 8,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            },
+            {
+              "utilization": 50
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "name": "AWS S3"
+}

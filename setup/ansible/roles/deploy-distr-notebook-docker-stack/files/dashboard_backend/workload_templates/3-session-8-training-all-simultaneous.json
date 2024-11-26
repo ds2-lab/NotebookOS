@@ -1,0 +1,576 @@
+{
+  "workloadTitle": "fbd167c2-7578-459c-90d6-aea85839d5fc",
+  "workloadSeed": 0,
+  "timescaleAdjustmentFactor": 0.1,
+  "numberOfSessions": 3,
+  "debugLoggingEnabled": true,
+  "sessions": [
+    {
+      "id": "1a713a25-3057-45b7-9f80-0f50c7e30b5c",
+      "start_tick": 1,
+      "stop_tick": 34,
+      "num_training_events": 8,
+      "selected_training_event": "0",
+      "trainings": [
+        {
+          "start_tick": 2,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 6,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 10,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 14,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 18,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 22,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 26,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 30,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4849834d-ddb4-4a5f-a206-34a205eeea54",
+      "start_tick": 1,
+      "stop_tick": 34,
+      "num_training_events": 8,
+      "selected_training_event": 0,
+      "trainings": [
+        {
+          "start_tick": 2,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 6,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 10,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 14,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 18,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 22,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 26,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 30,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "c087ce18-d688-41a8-8cd3-46853c80614f",
+      "start_tick": 1,
+      "stop_tick": 34,
+      "num_training_events": 8,
+      "selected_training_event": 0,
+      "trainings": [
+        {
+          "start_tick": 2,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 6,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 10,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 14,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 18,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 22,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 26,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        },
+        {
+          "DefaultTrainingEventField": {
+            "start_tick": 2,
+            "duration_in_ticks": 2,
+            "millicpus": 100,
+            "mem_usage_mb": 0.25,
+            "num_gpus": 1,
+            "gpu_utilizations": [
+              {
+                "utilization": 50
+              }
+            ]
+          },
+          "start_tick": 30,
+          "duration_in_ticks": 2,
+          "millicpus": 100,
+          "mem_usage_mb": 0.25,
+          "num_gpus": 1,
+          "gpu_utilizations": [
+            {
+              "utilization": 50
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
