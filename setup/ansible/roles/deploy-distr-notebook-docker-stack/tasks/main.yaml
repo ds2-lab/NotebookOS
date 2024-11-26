@@ -54,10 +54,33 @@
     - prometheus
     - update-prometheus-config
 
+- name: Check if "dashboard_workload_templates.yaml.j2" exists
+  stat:
+    path: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2"
+  register: dashboard_template_check
+
+- name: Set the dashboard backend 'workloads template' template file to use
+  set_fact:
+    workload_template_template_file: >-
+      {{ 'dashboard_workload_templates.yaml.j2' if dashboard_template_check.stat.exists
+         else 'default_dashboard_workload_templates.yaml.j2' }}
+
+- name: Print the dashboard backend 'workloads template' template file that will be used
+  debug:
+    msg: "Will use the following file to template the workload-template-file.yaml config file: {{ workload_template_template_file }}"
+
 - name: Create the dashboard_workload_templates.yaml file for the Cluster Backend using the provided template.
   template:
-    src: dashboard/dashboard_workload_templates.yaml.j2
+    src: "dashboard/{{ workload_template_template_file }}"
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload-templates-file.yaml"
+    mode: 0777
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+
+- name: Synchronize the workload templates directory.
+  synchronize:
+    src: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload_templates"
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload_templates"
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
