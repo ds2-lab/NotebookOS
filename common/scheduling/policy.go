@@ -8,6 +8,7 @@ const (
 	DynamicV3               PolicyKey = "dynamic-v3"
 	DynamicV4               PolicyKey = "dynamic-v4"
 	FcfsBatch               PolicyKey = "fcfs-batch"
+	AutoScalingFcfsBatch    PolicyKey = "auto-scaling-fcfs-batch"
 	Reservation             PolicyKey = "reservation"
 
 	// BindResourcesAtTrainingStart indicates that resources are to be committed when training begins and

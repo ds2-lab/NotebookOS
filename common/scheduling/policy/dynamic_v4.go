@@ -12,6 +12,18 @@ func NewDynamicV4Policy(opts *scheduling.SchedulerOptions) *DynamicV4Policy {
 	}
 }
 
+func (p *DynamicV4Policy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
+	return p
+}
+
+func (p *DynamicV4Policy) PreExecutionStatePolicy() scheduling.PreExecutionStatePolicy {
+	return p
+}
+
+func (p *DynamicV4Policy) ResourceScalingPolicy() scheduling.ResourceScalingPolicy {
+	return p
+}
+
 func (p *DynamicV4Policy) PolicyKey() scheduling.PolicyKey {
 	return scheduling.DynamicV3
 }

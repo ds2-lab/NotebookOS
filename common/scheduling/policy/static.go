@@ -12,6 +12,18 @@ func NewStaticPolicy(opts *scheduling.SchedulerOptions) *StaticPolicy {
 	}
 }
 
+func (p *StaticPolicy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
+	return p
+}
+
+func (p *StaticPolicy) PreExecutionStatePolicy() scheduling.PreExecutionStatePolicy {
+	return p
+}
+
+func (p *StaticPolicy) ResourceScalingPolicy() scheduling.ResourceScalingPolicy {
+	return p
+}
+
 func (p *StaticPolicy) PolicyKey() scheduling.PolicyKey {
 	return scheduling.Static
 }
