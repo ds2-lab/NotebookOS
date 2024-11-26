@@ -54,12 +54,27 @@
     - prometheus
     - update-prometheus-config
 
-- name: Check if "dashboard_workload_templates.yaml.j2" exists
-  stat:
-    path: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2"
+- name: Print target (local) path of 'dashboard_workload_templates.yaml.j2'
+  debug:
+    msg: "Local path: {{ playbook_dir }}/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2"
+
+- name: Check if 'dashboard_workload_templates.yaml.j2' exists locally
+  local_action: "stat path={{ playbook_dir }}/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2"
+  become: no
   register: dashboard_template_check
 
+- name: Copy the 'dashboard_workload_templates.yaml.j2' file if it exists locally
+  copy: "src='{{ playbook_dir }}/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2' dest='{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2'"
+  when: dashboard_template_check.stat.exists
+
 - name: Set the dashboard backend 'workloads template' template file to use
+  set_fact:
+    workload_template_template_file: >-
+      {{ 'dashboard_workload_templates.yaml.j2' if dashboard_template_check.stat.exists
+         else 'default_dashboard_workload_templates.yaml.j2' }}
+
+- name: Set the dashboard backend 'workloads template' template file to use
+  delegate_to: localhost
   set_fact:
     workload_template_template_file: >-
       {{ 'dashboard_workload_templates.yaml.j2' if dashboard_template_check.stat.exists
@@ -81,9 +96,7 @@
   synchronize:
     src: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload_templates"
     dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload_templates"
-    mode: 0777
-    owner: "{{ remote_username }}"
-    group: "{{ remote_username }}"
+    mode: push
 
 - name: Create the config-docker.yaml file for the Dashboard Backend component using the associated template.
   template:
