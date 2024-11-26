@@ -91,18 +91,19 @@ type BaseScheduler struct {
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
 	//-//-//-//-//-//-//-//-//-//
-	gpusPerHost                   float64                      // The number of actual GPUs that are available for use on each node/host.
-	virtualGpusPerHost            int32                        // The number of virtual GPUs per host.
-	scalingFactor                 float64                      // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
-	maximumHostsToReleaseAtOnce   int32                        // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	scalingIntervalSec            int32                        // How often to call UpdateRatio in seconds.
-	scalingInterval               time.Duration                // How often to call UpdateRatio .
-	scalingLimit                  float64                      // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
-	canScaleIn                    bool                         // Can the Cluster/Placer scale-in?
-	predictiveAutoscalingEnabled  bool                         // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
-	scalingBufferSize             int32                        // How many extra hosts we provision so that we can quickly scale if needed.
-	minimumCapacity               int32                        // The minimum number of nodes we must have available at any time.
-	maximumCapacity               int32                        // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+	gpusPerHost                  float64       // The number of actual GPUs that are available for use on each node/host.
+	virtualGpusPerHost           int32         // The number of virtual GPUs per host.
+	scalingFactor                float64       // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	maximumHostsToReleaseAtOnce  int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	scalingIntervalSec           int32         // How often to call UpdateRatio in seconds.
+	scalingInterval              time.Duration // How often to call UpdateRatio .
+	scalingLimit                 float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
+	canScaleIn                   bool          // Can the Cluster/Placer scale-in?
+	predictiveAutoscalingEnabled bool          // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
+	scalingBufferSize            int32         // How many extra hosts we provision so that we can quickly scale if needed.
+	minimumCapacity              int32         // The minimum number of nodes we must have available at any time.
+	maximumCapacity              int32         // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+
 	opts                          *scheduling.SchedulerOptions // Configuration options.
 	hostSpec                      types.Spec                   // The types.Spec used when creating new Host instances.
 	remoteSynchronizationInterval time.Duration                // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.

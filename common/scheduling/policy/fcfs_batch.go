@@ -11,10 +11,13 @@ import "github.com/scusemua/distributed-notebook/common/scheduling"
 // Because KernelContainer instances are short-lived, FcfsBatchSchedulingPolicy effectively uses dynamic resource
 // management.
 type FcfsBatchSchedulingPolicy struct {
+	scalingConfiguration *scheduling.ScalingConfiguration
 }
 
-func NewFcfsBatchSchedulingPolicy() *FcfsBatchSchedulingPolicy {
-	return &FcfsBatchSchedulingPolicy{}
+func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) *FcfsBatchSchedulingPolicy {
+	return &FcfsBatchSchedulingPolicy{
+		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+	}
 }
 
 func (p *FcfsBatchSchedulingPolicy) PolicyKey() scheduling.PolicyKey {
@@ -77,6 +80,10 @@ func (p *FcfsBatchSchedulingPolicy) AutomaticScalingOutEnabled() bool {
 
 func (p *FcfsBatchSchedulingPolicy) AutomaticScalingInEnabled() bool {
 	return false
+}
+
+func (p *FcfsBatchSchedulingPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
+	return p.scalingConfiguration
 }
 
 ////////////////////////////////////////

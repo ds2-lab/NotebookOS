@@ -74,6 +74,7 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		virtualGpusPerHost:                       int32(b.options.VirtualGpusPerHost),
 		scalingFactor:                            b.options.ScalingFactor,
 		scalingLimit:                             b.options.ScalingLimit,
+		scalingInterval:                          time.Second * time.Duration(b.options.ScalingInterval),
 		maximumHostsToReleaseAtOnce:              int32(b.options.MaximumHostsToReleaseAtOnce),
 		scalingIntervalSec:                       int32(b.options.ScalingInterval),
 		predictiveAutoscalingEnabled:             b.options.PredictiveAutoscalingEnabled,

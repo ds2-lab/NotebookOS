@@ -2,7 +2,15 @@ package policy
 
 import "github.com/scusemua/distributed-notebook/common/scheduling"
 
-type DynamicV3Policy struct{}
+type DynamicV3Policy struct {
+	scalingConfiguration *scheduling.ScalingConfiguration
+}
+
+func NewDynamicV3Policy(opts *scheduling.SchedulerOptions) *DynamicV3Policy {
+	return &DynamicV3Policy{
+		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+	}
+}
 
 func (p *DynamicV3Policy) PolicyKey() scheduling.PolicyKey {
 	return scheduling.DynamicV3
@@ -46,6 +54,10 @@ func (p *DynamicV3Policy) AutomaticScalingOutEnabled() bool {
 
 func (p *DynamicV3Policy) AutomaticScalingInEnabled() bool {
 	return true
+}
+
+func (p *DynamicV3Policy) ScalingConfiguration() *scheduling.ScalingConfiguration {
+	return p.scalingConfiguration
 }
 
 ////////////////////////////////////////

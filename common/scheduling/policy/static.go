@@ -3,6 +3,13 @@ package policy
 import "github.com/scusemua/distributed-notebook/common/scheduling"
 
 type StaticPolicy struct {
+	scalingConfiguration *scheduling.ScalingConfiguration
+}
+
+func NewStaticPolicy(opts *scheduling.SchedulerOptions) *StaticPolicy {
+	return &StaticPolicy{
+		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+	}
 }
 
 func (p *StaticPolicy) PolicyKey() scheduling.PolicyKey {
@@ -35,6 +42,10 @@ func (p *StaticPolicy) AutoscalingPolicy() scheduling.AutoscalingPolicy {
 
 func (p *StaticPolicy) ManualScalingPolicy() scheduling.ManualScalingPolicy {
 	return p
+}
+
+func (p *StaticPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
+	return p.scalingConfiguration
 }
 
 //////////////////////////////////////

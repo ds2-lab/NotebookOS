@@ -1,5 +1,7 @@
 package scheduling
 
+import "time"
+
 const (
 	DefaultSchedulingPolicy PolicyKey = "default"
 	Static                  PolicyKey = "static"
@@ -94,6 +96,43 @@ type ResourceScalingPolicy interface {
 	ManualScalingPolicy() ManualScalingPolicy
 }
 
+// ScalingConfiguration encapsulates the various parameters related to auto-scaling.
+type ScalingConfiguration struct {
+	GpusPerHost                  float64       // The number of actual GPUs that are available for use on each node/host.
+	VirtualGpusPerHost           int32         // The number of virtual GPUs per host.
+	ScalingFactor                float64       // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	MaximumHostsToReleaseAtOnce  int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	ScalingIntervalSec           int32         // How often to call UpdateRatio in seconds.
+	ScalingInterval              time.Duration // How often to call UpdateRatio .
+	ScalingLimit                 float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
+	PredictiveAutoscalingEnabled bool          // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
+	ScalingBufferSize            int32         // How many extra hosts we provision so that we can quickly scale if needed.
+	MinimumCapacity              int32         // The minimum number of nodes we must have available at any time.
+	MaximumCapacity              int32         // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+}
+
+// NewScalingConfiguration creates a new ScalingConfiguration struct, populating its field with the corresponding
+// fields from the given SchedulerOptions struct, and returns a pointer to the new ScalingConfiguration struct.
+func NewScalingConfiguration(opts *SchedulerOptions) *ScalingConfiguration {
+	if opts == nil {
+		panic("SchedulerOptions cannot be nil when creating a new ScalingConfiguration struct")
+	}
+
+	return &ScalingConfiguration{
+		GpusPerHost:                  float64(opts.GpusPerHost),
+		VirtualGpusPerHost:           int32(opts.VirtualGpusPerHost),
+		ScalingFactor:                opts.ScalingFactor,
+		MaximumHostsToReleaseAtOnce:  int32(opts.MaximumHostsToReleaseAtOnce),
+		ScalingIntervalSec:           int32(opts.ScalingInterval),
+		ScalingInterval:              time.Second * time.Duration(opts.ScalingInterval),
+		ScalingLimit:                 opts.ScalingLimit,
+		PredictiveAutoscalingEnabled: opts.PredictiveAutoscalingEnabled,
+		ScalingBufferSize:            int32(opts.ScalingBufferSize),
+		MinimumCapacity:              int32(opts.MinimumNumNodes),
+		MaximumCapacity:              int32(opts.MaximumNumNodes),
+	}
+}
+
 // AutoscalingPolicy defines the auto-scaling configuration (i.e., automatically adding or removing Host instances
 // to/from the Cluster).
 type AutoscalingPolicy interface {
@@ -102,6 +141,9 @@ type AutoscalingPolicy interface {
 
 	// AutomaticScalingInEnabled returns a flag indicating whether the Cluster can automatically remove Host instances.
 	AutomaticScalingInEnabled() bool
+
+	// ScalingConfiguration returns the ScalingConfiguration of the target AutoscalingPolicy.
+	ScalingConfiguration() *ScalingConfiguration
 }
 
 // ManualScalingPolicy defines the configuration of manually-triggered scaling (i.e., manually adding or removing

@@ -8,7 +8,15 @@ import "github.com/scusemua/distributed-notebook/common/scheduling"
 // ReservationPolicy employs auto-scaling, but ReservationPolicy does not employ dynamic resource management.
 // Under ReservationPolicy, resources are bound to scheduling.KernelContainer instances for the duration of the
 // lifetime of the associated scheduling.UserSession.
-type ReservationPolicy struct{}
+type ReservationPolicy struct {
+	scalingConfiguration *scheduling.ScalingConfiguration
+}
+
+func NewReservationPolicy(opts *scheduling.SchedulerOptions) *ReservationPolicy {
+	return &ReservationPolicy{
+		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+	}
+}
 
 func (p *ReservationPolicy) PolicyKey() scheduling.PolicyKey {
 	return scheduling.Reservation
@@ -64,6 +72,10 @@ func (p *ReservationPolicy) AutomaticScalingOutEnabled() bool {
 
 func (p *ReservationPolicy) AutomaticScalingInEnabled() bool {
 	return true
+}
+
+func (p *ReservationPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
+	return p.scalingConfiguration
 }
 
 //////////////////////////////////////////
