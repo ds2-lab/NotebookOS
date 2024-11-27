@@ -200,6 +200,23 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 	return kernel
 }
 
+// SetSignatureScheme sets the SignatureScheme field of the ConnectionInfo of the server.AbstractServer underlying the
+// DistributedKernelClient.
+func (c *DistributedKernelClient) SetSignatureScheme(signatureScheme string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.server.Meta.SignatureScheme = signatureScheme
+}
+
+// SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the DistributedKernelClient.
+func (c *DistributedKernelClient) SetKernelKey(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.server.Meta.Key = key
+}
+
 // TemporaryKernelReplicaClient returns the TemporaryKernelReplicaClient struct used by the DistributedKernelClient.
 //
 // TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
@@ -617,25 +634,10 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 	c.replicas[r.ReplicaID()] = r
 	c.mu.Unlock()
 
-	// On adding replica, we keep the position of the replica in the kernel aligned with the replica ID.
-	// The replica ID starts with 1.
-	// if int(r.ReplicaID()) > cap(c.replicas) {
-	// 	newArr := make([]scheduling.KernelReplica, cap(c.replicas)*2)
-	// 	copy(newArr, c.replicas)
-	// 	c.replicas = newArr[:r.ReplicaID()]
-	// } else if int(r.ReplicaID()) > len(c.replicas) {
-	// 	c.replicas = c.replicas[:r.ReplicaID()]
-	// }
-	// if c.replicas[r.ReplicaID()-1] == nil {
-	// 	// New added replica, or no size change for the replacement.
-	// 	c.size++
-	// }
-	// c.replicas[r.ReplicaID()-1] = r
-	// Once a replica is available, the kernel is ready.
 	if statusChanged := c.setStatus(jupyter.KernelStatusInitializing, jupyter.KernelStatusRunning); statusChanged {
 		// Update signature scheme and key.
-		c.server.Meta.SignatureScheme = r.ConnectionInfo().SignatureScheme
-		c.server.Meta.Key = r.ConnectionInfo().Key
+		c.SetSignatureScheme(r.ConnectionInfo().SignatureScheme)
+		c.SetKernelKey(r.ConnectionInfo().Key)
 
 		c.log.Debug("Replica %d of kernel %s is available. Kernel is ready. Assigned signature scheme \"%s\" and key \"%s\"",
 			r.ReplicaID(), c.id, r.ConnectionInfo().SignatureScheme, r.ConnectionInfo().Key)

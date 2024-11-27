@@ -2249,8 +2249,8 @@ func (d *SchedulerDaemonImpl) ShellHandler(_ router.Info, msg *messaging.Jupyter
 	session := msg.JupyterSession()
 	kernel, ok := d.kernels.Load(session)
 	msgType := msg.JupyterMessageType()
-	if !ok && (msgType == messaging.ShellKernelInfoRequest || msgType == messaging.ShellExecuteRequest) {
-		// Register kernel on ShellKernelInfoRequest
+	if !ok && (msgType == messaging.KernelInfoRequest || msgType == messaging.ShellExecuteRequest) {
+		// Register kernel on KernelInfoRequest
 		if msg.DestinationId == "" {
 			return domain.ErrKernelIDRequired
 		}

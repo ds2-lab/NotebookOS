@@ -99,11 +99,11 @@ var _ = Describe("AbstractServer", func() {
 	Context("Reliable Message Delivery", func() {
 		It("Will re-send messages until an ACK is received", func() {
 			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, messaging.ShellMessage, gomock.Any()).MaxTimes(1)
-			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MinTimes(3).MaxTimes(3)
-			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddMessageE2ELatencyObservation(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddAckReceivedLatency(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddNumSendAttemptsRequiredObservation(float64(3), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MinTimes(3).MaxTimes(3)
+			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddMessageE2ELatencyObservation(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddAckReceivedLatency(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddNumSendAttemptsRequiredObservation(float64(3), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)
 
 			err := server.Listen(server.Sockets.Shell)
 			Expect(err).To(BeNil())
@@ -225,7 +225,7 @@ var _ = Describe("AbstractServer", func() {
 			headerMap := make(map[string]string)
 			headerMap["msg_id"] = msgId
 			headerMap["date"] = "2018-11-07T00:25:00.073876Z"
-			headerMap["msg_type"] = messaging.ShellKernelInfoRequest
+			headerMap["msg_type"] = messaging.KernelInfoRequest
 			headerMap["session"] = kernelId
 			header, _ := json.Marshal(&headerMap)
 
@@ -253,7 +253,7 @@ var _ = Describe("AbstractServer", func() {
 			fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame: %d\nMsg.Frames length: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), len(msg.Frames))
 
 			Expect(requestTrace.MessageId).To(Equal(msgId))
-			Expect(requestTrace.MessageType).To(Equal(messaging.ShellKernelInfoRequest))
+			Expect(requestTrace.MessageType).To(Equal(messaging.KernelInfoRequest))
 			Expect(requestTrace.KernelId).To(Equal(kernelId))
 
 			m, err := json.Marshal(&proto.JupyterRequestTraceFrame{RequestTrace: requestTrace})
@@ -311,11 +311,11 @@ var _ = Describe("AbstractServer", func() {
 
 		It("Will halt the retry procedure upon receiving an ACK.", func() {
 			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, messaging.ShellMessage, gomock.Any()).MaxTimes(1)
-			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MinTimes(1).MaxTimes(1)
-			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddMessageE2ELatencyObservation(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddAckReceivedLatency(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
-			clientMetricsProvider.EXPECT().AddNumSendAttemptsRequiredObservation(float64(1), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.ShellKernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MinTimes(1).MaxTimes(1)
+			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddMessageE2ELatencyObservation(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddAckReceivedLatency(gomock.Any(), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)
+			clientMetricsProvider.EXPECT().AddNumSendAttemptsRequiredObservation(float64(1), clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)
 
 			err := server.Listen(server.Sockets.Shell)
 			Expect(err).To(BeNil())
@@ -484,7 +484,7 @@ var _ = Describe("AbstractServer", func() {
 			fmt.Printf("[b] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
 
 			Expect(requestTrace.MessageId).To(Equal(msgId))
-			Expect(requestTrace.MessageType).To(Equal(messaging.ShellKernelInfoRequest))
+			Expect(requestTrace.MessageType).To(Equal(messaging.KernelInfoRequest))
 			Expect(requestTrace.KernelId).To(Equal(DEST_KERNEL_ID))
 
 			m, err := json.Marshal(&proto.JupyterRequestTraceFrame{RequestTrace: requestTrace})

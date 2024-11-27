@@ -23,8 +23,9 @@ const (
 	ShellExecuteRequest        = "execute_request"
 	ShellExecuteReply          = "execute_reply"
 	ShellYieldRequest          = "yield_request"
-	ShellKernelInfoRequest     = "kernel_info_request"
 	ShellShutdownRequest       = "shutdown_request"
+	KernelInfoRequest          = "kernel_info_request"
+	KernelInfoReply            = "kernel_info_reply"
 	MessageTypeShutdownRequest = "shutdown_request"
 	MessageTypeShutdownReply   = "shutdown_reply"
 
@@ -845,13 +846,23 @@ func (m *JupyterMessage) Validate() error {
 	return nil
 }
 
-func (m *JupyterMessage) SetMessageType(typ string) {
+func (m *JupyterMessage) SetMessageType(typ JupyterMessageType) {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
 		debug.PrintStack()
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
 	}
-	header.MsgType = JupyterMessageType(typ)
+	header.MsgType = typ
+	m.header = header
+}
+
+func (m *JupyterMessage) SetMessageId(msgId string) {
+	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
+	if header == nil || err != nil {
+		debug.PrintStack()
+		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
+	}
+	header.MsgID = msgId
 	m.header = header
 }
 

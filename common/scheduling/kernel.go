@@ -113,6 +113,13 @@ type Kernel interface {
 	Shutdown(remover ReplicaRemover, restart bool) error
 	WaitClosed() jupyter.KernelStatus
 
+	// SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the DistributedKernelClient.
+	SetKernelKey(string)
+
+	// SetSignatureScheme sets the SignatureScheme field of the ConnectionInfo of the server.AbstractServer underlying the
+	// DistributedKernelClient.
+	SetSignatureScheme(string)
+
 	// NumActiveExecutionOperations returns the number of ActiveExecution structs registered with
 	// the kernel. This counts both the current ActiveExecution and the length of the queue of
 	// ActiveExecution structs.

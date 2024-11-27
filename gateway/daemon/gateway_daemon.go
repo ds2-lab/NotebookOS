@@ -1637,9 +1637,9 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 // a training event. The Jupyter Server expects at least one IOPub message to be broadcast during the start-up
 // procedure. This satisfies that requirement.
 func (d *ClusterGatewayImpl) sendIoPubStatusesOnStart(kernel scheduling.Kernel) error {
-	iopubSocket := d.router.Socket(messaging.IOMessage)
+	iopubSocket := kernel.Socket(messaging.IOMessage)
 	if iopubSocket == nil {
-		panic("Could not retrieve IOPub socket.")
+		return fmt.Errorf("%w: IO socket", messaging.ErrSocketNotAvailable)
 	}
 
 	// Define a function with which we'll send IOPub status messages.
@@ -1725,6 +1725,13 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	if d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
 		d.log.Debug("Will wait to schedule container(s) for kernel %s until we receive an 'execute_request'.", in.Id)
+
+		// Since we won't be adding any replicas to the kernel right now, we need to assign a value to the
+		// SignatureScheme and Key fields of the ConnectionInfo used by the DistributedKernelClient's server.
+		//
+		// If we skipped this step, then the kernel would not be able to sign messages correctly.
+		kernel.SetSignatureScheme(in.SignatureScheme)
+		kernel.SetKernelKey(in.Key)
 
 		err = d.sendIoPubStatusesOnStart(kernel)
 		if err != nil {
@@ -2756,63 +2763,133 @@ func (d *ClusterGatewayImpl) kernelShellHandler(kernelInfo scheduling.KernelInfo
 	return d.ShellHandler(kernelInfo, msg)
 }
 
+// updateHeaderAndParentHeaderOfArtificialReply updates the header of the specified message.
+//
+// First, the parent header is set as the contents of the current header.
+//
+// Next, the msg_type field of the header is set to the specified messaging.JupyterMessageType. Likewise, the date
+// field of the header is set to the current time, and the msg_id field is set to a newly-generated UUID.
+//
+// updateHeaderAndParentHeaderOfArtificialReply does NOT re-encode/re-sign anything.
+func (d *ClusterGatewayImpl) updateHeaderAndParentHeaderOfArtificialReply(msg *messaging.JupyterMessage, msgType messaging.JupyterMessageType) error {
+	header, err := msg.GetHeader()
+	if err != nil {
+		d.log.Error("Failed to get header of artificial \"%s\" message: %v", msgType.String(), err)
+		return err
+	}
+
+	err = msg.JupyterFrames.EncodeParentHeader(&header)
+	if err != nil {
+		d.log.Error("Failed to encode parent header of artificial \"%s\" message: %v", msgType.String(), err)
+		return err
+	}
+
+	// Update the message type.
+	msg.SetMessageType(msgType)
+
+	// Update the date.
+	msg.SetDate(time.Now().Format(time.RFC3339Nano))
+
+	// Update the message ID.
+	msg.SetMessageId(uuid.NewString())
+
+	return nil
+}
+
+// getArtificialKernelInfoReply creates and returns a "kernel_info_reply"
+func (d *ClusterGatewayImpl) getArtificialKernelInfoReply() map[string]interface{} {
+	content := make(map[string]interface{})
+
+	langaugeInfo := make(map[string]interface{})
+	langaugeInfo["name"] = "Any text"
+	langaugeInfo["mimetype"] = "text/plain"
+	langaugeInfo["file_extension"] = ".txt"
+
+	content["status"] = "ok"
+	content["protocol_version"] = "5.3"
+	content["implementation"] = "Distributed Python 3"
+	content["implementation_version"] = "0.2"
+	content["language_info"] = langaugeInfo
+	content["banner"] = "Distributed kernel - as useful as a parrot"
+	content["help_links"] = []map[string]string{
+		{
+			"text": "Python Reference",
+			"url":  "https://docs.python.org/3.12/",
+		},
+		{
+			"text": "IPython Reference",
+			"url":  "https://ipython.org/documentation.html",
+		},
+		{
+			"text": "NumPy Reference",
+			"url":  "https://docs.scipy.org/doc/numpy/reference/",
+		},
+		{
+			"text": "SciPy Reference",
+			"url":  "https://docs.scipy.org/doc/scipy/reference/",
+		},
+		{
+			"text": "Matplotlib Reference",
+			"url":  "https://matplotlib.org/contents.html/",
+		},
+		{
+			"text": "SymPy Reference",
+			"url":  "http://docs.sympy.org/latest/index.html",
+		},
+		{
+			"text": "pandas Reference",
+			"url":  "https://pandas.pydata.org/pandas-docs/stable/",
+		},
+	}
+
+	return content
+}
+
 // getArtificialResponse returns an artificial messaging.JupyterMessage response when a kernel receives a message and
 // its replica container(s) is/are not actively scheduled.
-func (d *ClusterGatewayImpl) getArtificialResponse(msg *messaging.JupyterMessage, typ messaging.MessageType) (*messaging.JupyterMessage, error) {
+func (d *ClusterGatewayImpl) getArtificialResponse(kernel scheduling.Kernel, msg *messaging.JupyterMessage, typ messaging.MessageType) (*messaging.JupyterMessage, error) {
 	jupyterMsgType := msg.JupyterMessageType()
 	resp := msg.Clone()
 
-	content := make(map[string]interface{})
-	if jupyterMsgType == messaging.ShellKernelInfoRequest {
-		langaugeInfo := make(map[string]interface{})
-		langaugeInfo["name"] = "Any text"
-		langaugeInfo["mimetype"] = "text/plain"
-		langaugeInfo["file_extension"] = ".txt"
-
-		content["status"] = "ok"
-		content["protocol_version"] = "5.3"
-		content["implementation"] = "Distributed Python 3"
-		content["implementation_version"] = "0.2"
-		content["language_info"] = langaugeInfo
-		content["banner"] = "Distributed kernel - as useful as a parrot"
-		content["help_links"] = []map[string]string{
-			{
-				"text": "Python Reference",
-				"url":  "https://docs.python.org/3.12/",
-			},
-			{
-				"text": "IPython Reference",
-				"url":  "https://ipython.org/documentation.html",
-			},
-			{
-				"text": "NumPy Reference",
-				"url":  "https://docs.scipy.org/doc/numpy/reference/",
-			},
-			{
-				"text": "SciPy Reference",
-				"url":  "https://docs.scipy.org/doc/scipy/reference/",
-			},
-			{
-				"text": "Matplotlib Reference",
-				"url":  "https://matplotlib.org/contents.html/",
-			},
-			{
-				"text": "SymPy Reference",
-				"url":  "http://docs.sympy.org/latest/index.html",
-			},
-			{
-				"text": "pandas Reference",
-				"url":  "https://pandas.pydata.org/pandas-docs/stable/",
-			},
-		}
+	var content map[string]interface{}
+	if jupyterMsgType == messaging.KernelInfoRequest {
+		content = d.getArtificialKernelInfoReply()
 	} else {
 		return nil, fmt.Errorf("%w: \"%s\"", ErrUnsupportedMsgTypeForArtificialResponse, jupyterMsgType)
 	}
 
-	err := resp.JupyterFrames.EncodeContent(&content)
+	err := d.updateHeaderAndParentHeaderOfArtificialReply(msg, messaging.KernelInfoReply)
+	if err != nil {
+		d.log.Error("Failed to update header and/or parent header of artificial response to Jupyter %s \"%s\" message: %v",
+			typ.String, jupyterMsgType, err)
+		return nil, err
+	}
+
+	header, err := resp.GetHeader()
+	if err != nil {
+		d.log.Error("Failed to get header for artificial response to Jupyter %s \"%s\" message: %v",
+			typ.String, jupyterMsgType, err)
+		return nil, err
+	}
+
+	err = resp.JupyterFrames.EncodeHeader(&header)
+	if err != nil {
+		d.log.Error("Failed to encode new header for artificial response to Jupyter %s \"%s\" message: %v",
+			typ.String, jupyterMsgType, err)
+		return nil, err
+	}
+
+	err = resp.JupyterFrames.EncodeContent(&content)
 	if err != nil {
 		d.log.Error("Failed to encode content for artificial response to Jupyter %s \"%s\" message: %v",
 			typ.String, jupyterMsgType, err)
+		return nil, err
+	}
+
+	resp.JupyterFrames.Frames, err = resp.JupyterFrames.SignByConnectionInfo(kernel.ConnectionInfo())
+	if err != nil {
+		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v",
+			kernel.ID(), kernel.ConnectionInfo().SignatureScheme, err)
 		return nil, err
 	}
 
@@ -2835,7 +2912,7 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 	if typ != messaging.ShellMessage || msg.JupyterMessageType() != messaging.ShellExecuteRequest {
 		d.log.Debug("Replicas of kernel %s are NOT scheduled. Generating artificial response to %s \"%s\" message %s (JupyterID=\"%s\").",
 			kernel.ID(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
-		return d.getArtificialResponse(msg, typ)
+		return d.getArtificialResponse(kernel, msg, typ)
 	}
 
 	// TODO: We should only bother scheduling a container for an "execute_request".
@@ -2857,8 +2934,8 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterMessage) error {
 	kernel, ok := d.kernels.Load(msg.JupyterSession())
 
-	if !ok && (msg.JupyterMessageType() == messaging.ShellKernelInfoRequest || msg.JupyterMessageType() == messaging.ShellExecuteRequest) {
-		// Register kernel on ShellKernelInfoRequest
+	if !ok && (msg.JupyterMessageType() == messaging.KernelInfoRequest || msg.JupyterMessageType() == messaging.ShellExecuteRequest) {
+		// Register kernel on KernelInfoRequest
 		if msg.DestinationId == "" {
 			return ErrKernelIDRequired
 		}
