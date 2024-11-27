@@ -370,7 +370,7 @@ func (c *DistributedKernelClient) EnqueueActiveExecution(attemptId int, msg *mes
 			msg.JupyterMessageId())
 
 		// Create the next execution attempt.
-		nextExecutionAttempt := scheduling.NewActiveExecution(c.ID(), c.activeExecution.GetAttemptId()+1, c.Size(), msg)
+		nextExecutionAttempt := scheduling.NewActiveExecution(c.ID(), c.activeExecution.GetAttemptId()+1, int(c.targetNumReplicas), msg)
 
 		// Link the previous active execution with the current one (in both directions).
 		nextExecutionAttempt.LinkPreviousAttempt(c.activeExecution)
@@ -390,7 +390,7 @@ func (c *DistributedKernelClient) EnqueueActiveExecution(attemptId int, msg *mes
 		return nextExecutionAttempt
 	}
 
-	newActiveExecution := scheduling.NewActiveExecution(c.id, attemptId, c.Size(), msg)
+	newActiveExecution := scheduling.NewActiveExecution(c.id, attemptId, int(c.targetNumReplicas), msg)
 
 	c.log.Debug("Setting or enqueuing new ActiveExecution targeting kernel %s for new \"execute_request\" \"%s\"",
 		c.id, newActiveExecution.ExecuteRequestMessageId)
