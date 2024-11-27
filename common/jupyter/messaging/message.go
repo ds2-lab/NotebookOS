@@ -696,6 +696,16 @@ func (m *JupyterMessage) EncodeMetadata(metadata map[string]interface{}) (err er
 	return
 }
 
+func (m *JupyterMessage) EncodeMessageHeader(header *MessageHeader) error {
+	err := m.JupyterFrames.EncodeHeader(&header)
+	if err == nil {
+		m.header = header
+		return nil
+	}
+
+	return err
+}
+
 // SetSignatureSchemeIfNotSet sets the signature scheme of the JupyterMessage if it has not already been set.
 func (m *JupyterMessage) SetSignatureSchemeIfNotSet(signatureScheme string) {
 	if !m.signatureSchemeSet {
@@ -958,7 +968,7 @@ func (m *JupyterMessage) JupyterParentMessageId() string {
 }
 
 func (m *JupyterMessage) String() string {
-	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.String())
+	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset(), m.JupyterFrames.String())
 }
 
 func (m *JupyterMessage) StringFormatted() string {

@@ -34,7 +34,7 @@ notebook-image-name: scusemua/jupyter
 notebook-image-tag: latest
 # scheduling-policy: static
 scheduling-policy: fcfs-batch
-subscribed-ratio-update-interval: 1
+# subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.05
 scaling-interval: 30

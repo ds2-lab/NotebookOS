@@ -1331,7 +1331,7 @@ class DistributedKernel(IPythonKernel):
 
         # Process the metadata included in the request.
         # If we get back a remote storage name, then we'll use it to simulate I/O after we finish the execution.
-        remote_storage_name: str[Optional] = await self.process_execute_request_metadata(parent_header["msg_id"],
+        remote_storage_name: Optional[str] = await self.process_execute_request_metadata(parent_header["msg_id"],
                                                                                          parent_header["msg_type"],
                                                                                          metadata)
 
@@ -1504,7 +1504,7 @@ class DistributedKernel(IPythonKernel):
         term_number: int = self.synchronizer.execution_count
         self.log.debug(f"Checking status of previous election (term {term_number}).")
 
-        # If we've not yet created/held the first election, then we have nothing to check. 
+        # If we've not yet created/held the first election, then we have nothing to check.
         if not self.synchronizer.created_first_election():
             return
 

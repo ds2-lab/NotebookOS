@@ -1505,6 +1505,8 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 		panic(err)
 	}
 
+	d.log.Debug("Allocating the following \"listen\" ports to kernel %s: %v", in.Id, listenPorts)
+
 	// Initialize kernel with new context.
 	kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
 		d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.DebugMode, d.executionFailed,
@@ -1528,8 +1530,6 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 
 		return nil, status.Errorf(codes.Internal, err.Error())
 	}
-
-	d.log.Debug("Allocating the following \"listen\" ports to kernel %s: %v", kernel.ID(), listenPorts)
 
 	// Create a new Session for scheduling purposes.
 	resourceUtil := resource.NewEmptyUtilization().
@@ -1633,6 +1633,40 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	return nil
 }
 
+func (d *ClusterGatewayImpl) sendStatusMessage(kernel scheduling.Kernel, executionState string) (*messaging.JupyterMessage, error) {
+	var (
+		msg   zmq4.Msg
+		err   error
+		msgId = uuid.NewString()
+	)
+	frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageIdAndIdentity(msgId, "status", kernel.ID(), "status")
+
+	content := map[string]string{
+		"execution_state": executionState,
+	}
+
+	err = frames.EncodeContent(&content)
+	if err != nil {
+		d.log.Error("Failed to encode content of IOPub status message for kernel \"%s\": %v", kernel.ID(), err)
+		return nil, err
+	}
+
+	msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
+	if err != nil {
+		d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v",
+			kernel.ID(), kernel.ConnectionInfo().SignatureScheme, err)
+		return nil, ErrFailedToVerifyMessage
+	}
+
+	jMsg := messaging.NewJupyterMessage(&msg)
+
+	d.log.Debug("Sending io/iopub message %s (JupyterID=\"%s\") encoding execution state/status of \"%s\" to client of kernel \"%s\" now: %v",
+		jMsg.RequestId, jMsg.JupyterMessageId(), executionState, kernel.ID(), jMsg)
+
+	err = kernel.(*client.DistributedKernelClient).SendIOMessage(jMsg)
+	return jMsg, err
+}
+
 // sendIoPubStatusesOnStart is used by scheduling policies that only create kernel containers when processing
 // a training event. The Jupyter Server expects at least one IOPub message to be broadcast during the start-up
 // procedure. This satisfies that requirement.
@@ -1642,52 +1676,26 @@ func (d *ClusterGatewayImpl) sendIoPubStatusesOnStart(kernel scheduling.Kernel) 
 		return fmt.Errorf("%w: IO socket", messaging.ErrSocketNotAvailable)
 	}
 
-	// Define a function with which we'll send IOPub status messages.
-	sendStatusMessage := func(executionState string) error {
-		var (
-			msg   zmq4.Msg
-			err   error
-			msgId = uuid.NewString()
-		)
-		frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageIdAndIdentity(msgId, messaging.IOMessage.String(), kernel.ID(), "status")
-
-		content := map[string]string{
-			"execution_state": executionState,
-		}
-
-		err = frames.EncodeContent(&content)
-		if err != nil {
-			d.log.Error("Failed to encode content of IOPub status message for kernel \"%s\": %v", kernel.ID(), err)
-			return err
-		}
-
-		msg.Frames, err = frames.SignByConnectionInfo(kernel.ConnectionInfo())
-		if err != nil {
-			d.log.Error("Failed to sign Jupyter message for kernel %s with signature scheme \"%s\" because: %v",
-				kernel.ID(), kernel.ConnectionInfo().SignatureScheme, err)
-			return ErrFailedToVerifyMessage
-		}
-
-		jMsg := messaging.NewJupyterMessage(&msg)
-		return d.sendZmqMessage(jMsg, iopubSocket, kernel.ID())
-	}
-
 	// Send the "starting" status now.
-	err := sendStatusMessage("starting")
+	msg, err := d.sendStatusMessage(kernel, "starting")
 	if err != nil {
 		d.log.Error("Failed to send 'starting' IOPub status message during creation of kernel \"%s\": %v",
 			kernel.ID(), err)
 		return err
+	} else {
+		d.log.Debug("Sent IOPub message: %v", msg)
 	}
 
 	// Send another "status" message in ~2 seconds with the "idle" status.
 	go func(sleepInterval time.Duration) {
 		time.Sleep(sleepInterval)
 
-		err = sendStatusMessage("idle")
+		msg, err = d.sendStatusMessage(kernel, "idle")
 		if err != nil {
 			d.log.Error("Failed to send 'idle' IOPub status message after waiting %v during creation of kernel \"%s\": %v",
 				sleepInterval, kernel.ID(), err)
+		} else {
+			d.log.Debug("Sent IOPub message: %v", msg)
 		}
 	}(time.Millisecond * 2)
 
@@ -2763,39 +2771,6 @@ func (d *ClusterGatewayImpl) kernelShellHandler(kernelInfo scheduling.KernelInfo
 	return d.ShellHandler(kernelInfo, msg)
 }
 
-// updateHeaderAndParentHeaderOfArtificialReply updates the header of the specified message.
-//
-// First, the parent header is set as the contents of the current header.
-//
-// Next, the msg_type field of the header is set to the specified messaging.JupyterMessageType. Likewise, the date
-// field of the header is set to the current time, and the msg_id field is set to a newly-generated UUID.
-//
-// updateHeaderAndParentHeaderOfArtificialReply does NOT re-encode/re-sign anything.
-func (d *ClusterGatewayImpl) updateHeaderAndParentHeaderOfArtificialReply(msg *messaging.JupyterMessage, msgType messaging.JupyterMessageType) error {
-	header, err := msg.GetHeader()
-	if err != nil {
-		d.log.Error("Failed to get header of artificial \"%s\" message: %v", msgType.String(), err)
-		return err
-	}
-
-	err = msg.JupyterFrames.EncodeParentHeader(&header)
-	if err != nil {
-		d.log.Error("Failed to encode parent header of artificial \"%s\" message: %v", msgType.String(), err)
-		return err
-	}
-
-	// Update the message type.
-	msg.SetMessageType(msgType)
-
-	// Update the date.
-	msg.SetDate(time.Now().Format(time.RFC3339Nano))
-
-	// Update the message ID.
-	msg.SetMessageId(uuid.NewString())
-
-	return nil
-}
-
 // getArtificialKernelInfoReply creates and returns a "kernel_info_reply"
 func (d *ClusterGatewayImpl) getArtificialKernelInfoReply() map[string]interface{} {
 	content := make(map[string]interface{})
@@ -2845,34 +2820,57 @@ func (d *ClusterGatewayImpl) getArtificialKernelInfoReply() map[string]interface
 	return content
 }
 
-// getArtificialResponse returns an artificial messaging.JupyterMessage response when a kernel receives a message and
+// generateArtificialResponse returns an artificial messaging.JupyterMessage response when a kernel receives a message and
 // its replica container(s) is/are not actively scheduled.
-func (d *ClusterGatewayImpl) getArtificialResponse(kernel scheduling.Kernel, msg *messaging.JupyterMessage, typ messaging.MessageType) (*messaging.JupyterMessage, error) {
+func (d *ClusterGatewayImpl) generateArtificialResponse(kernel scheduling.Kernel, msg *messaging.JupyterMessage, typ messaging.MessageType) (*messaging.JupyterMessage, error) {
 	jupyterMsgType := msg.JupyterMessageType()
 	resp := msg.Clone()
 
-	var content map[string]interface{}
+	if typ == messaging.ShellMessage {
+		ioMsg, err := d.sendStatusMessage(kernel, "busy")
+		if err != nil {
+			d.log.Error("Failed to send IOPub \"busy\" status message to client of kernel \"%s\": %v",
+				kernel.ID(), err)
+			return nil, err
+		} else {
+			d.log.Debug("Successfully sent IOPub \"busy\" status message to client of kernel \"%s\": %v", kernel.ID(), ioMsg)
+		}
+	}
+
+	var (
+		content      map[string]interface{}
+		responseType messaging.JupyterMessageType
+	)
 	if jupyterMsgType == messaging.KernelInfoRequest {
 		content = d.getArtificialKernelInfoReply()
+		responseType = messaging.KernelInfoReply
 	} else {
 		return nil, fmt.Errorf("%w: \"%s\"", ErrUnsupportedMsgTypeForArtificialResponse, jupyterMsgType)
 	}
 
-	err := d.updateHeaderAndParentHeaderOfArtificialReply(msg, messaging.KernelInfoReply)
-	if err != nil {
-		d.log.Error("Failed to update header and/or parent header of artificial response to Jupyter %s \"%s\" message: %v",
-			typ.String, jupyterMsgType, err)
-		return nil, err
-	}
-
 	header, err := resp.GetHeader()
 	if err != nil {
-		d.log.Error("Failed to get header for artificial response to Jupyter %s \"%s\" message: %v",
-			typ.String, jupyterMsgType, err)
+		d.log.Error("Failed to get header of artificial \"%s\" message: %v", jupyterMsgType, err)
 		return nil, err
 	}
 
-	err = resp.JupyterFrames.EncodeHeader(&header)
+	err = resp.JupyterFrames.EncodeParentHeader(&header)
+	if err != nil {
+		d.log.Error("Failed to encode parent header of artificial \"%s\" message: %v", jupyterMsgType, err)
+		return nil, err
+	}
+
+	// Create the message header.
+	header = &messaging.MessageHeader{
+		Date:     time.Now().UTC().Format(messaging.JavascriptISOString),
+		MsgID:    uuid.NewString(),
+		MsgType:  responseType,
+		Session:  resp.JupyterSession(),
+		Username: resp.JupyterUsername(),
+		Version:  resp.JupyterVersion(),
+	}
+
+	err = resp.EncodeMessageHeader(header)
 	if err != nil {
 		d.log.Error("Failed to encode new header for artificial response to Jupyter %s \"%s\" message: %v",
 			typ.String, jupyterMsgType, err)
@@ -2893,6 +2891,9 @@ func (d *ClusterGatewayImpl) getArtificialResponse(kernel scheduling.Kernel, msg
 		return nil, err
 	}
 
+	d.log.Debug("Returning artificial response to %s \"%s\" message \"%s\" (JupyterID=\"%s\"): %v",
+		typ.String(), jupyterMsgType, resp.RequestId, resp.JupyterMessageId(), resp)
+
 	return resp, nil
 }
 
@@ -2912,7 +2913,7 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 	if typ != messaging.ShellMessage || msg.JupyterMessageType() != messaging.ShellExecuteRequest {
 		d.log.Debug("Replicas of kernel %s are NOT scheduled. Generating artificial response to %s \"%s\" message %s (JupyterID=\"%s\").",
 			kernel.ID(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
-		return d.getArtificialResponse(kernel, msg, typ)
+		return d.generateArtificialResponse(kernel, msg, typ)
 	}
 
 	// TODO: We should only bother scheduling a container for an "execute_request".
@@ -3295,10 +3296,28 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 	}
 
 	if resp != nil {
-		d.log.Debug("Returning artificial response for Jupyter %s \"%s\" message \"%s\" (JupyterID=\"%s\") for kernel \"%s\".",
-			typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), kernel.ID())
+		d.log.Debug("Replying with artificial \"%s\" response for Jupyter %s \"%s\" message \"%s\" (JupyterID=\"%s\") for kernel \"%s\".",
+			resp.JupyterMessageType(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), kernel.ID())
 
-		return d.kernelResponseForwarder(kernel.TemporaryKernelReplicaClient(), typ, resp)
+		err = d.kernelResponseForwarder(kernel.TemporaryKernelReplicaClient(), typ, resp)
+		if err != nil {
+			d.log.Error(utils.DarkGreenStyle.Render("Failed to forward %v \"%s\" response \"%s\" (JupyterID=\"%s\") to client of kernel %s: %v"),
+				goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), kernel.ID(), resp)
+			return err
+		}
+
+		if typ == messaging.ShellMessage {
+			ioMsg, err := d.sendStatusMessage(kernel, "idle")
+			if err != nil {
+				d.log.Error("Failed to send IOPub \"idle\" status message to client of kernel \"%s\": %v",
+					kernel.ID(), err)
+				return err
+			} else {
+				d.log.Debug("Successfully sent IOPub \"idle\" status message to client of kernel \"%s\": %v", kernel.ID(), ioMsg)
+			}
+		}
+
+		return nil
 	}
 
 	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
@@ -3337,7 +3356,7 @@ func (d *ClusterGatewayImpl) sendZmqMessage(msg *messaging.JupyterMessage, socke
 			goid.Get(), socket.Type, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), senderId, socket.Name, err.Error())
 	} else {
 		d.log.Debug("Successfully forwarded %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"): %v",
-			socket.Type, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), messaging.FramesToString(zmqMsg.Frames))
+			socket.Type, msg.JupyterMessageType(), senderId, msg.JupyterMessageId(), messaging.FramesToString(zmqMsg.Frames))
 	}
 
 	return err // Will be nil on success.

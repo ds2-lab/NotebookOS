@@ -1686,6 +1686,11 @@ func (c *DistributedKernelClient) handleFailedExecutionAllYielded() error {
 	return c.executionFailedCallback(c)
 }
 
+func (c *DistributedKernelClient) SendIOMessage(msg *messaging.JupyterMessage) error {
+	zmqMsg := msg.GetZmqMsg()
+	return c.server.Sockets.IO.Send(*zmqMsg)
+}
+
 func (c *DistributedKernelClient) pubIOMessage(msg *messaging.JupyterMessage, status string, how string) error {
 	c.log.Debug("Publishing %v status(%s:%s): %v", messaging.IOMessage, status, how, msg)
 	c.lastBStatusMsg = msg
