@@ -8,6 +8,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"net/url"
 	"os"
 	"os/exec"
@@ -54,14 +55,8 @@ const (
 	VarConfigFile                     = "{config_file}"
 	VarKernelId                       = "{kernel_id}"
 	VarSessionId                      = "{session_id}"
-	VarSpecCpu                        = "{spec_cpu}"
-	VarSpecMemory                     = "{spec_memory}"
-	VarSpecGpu                        = "{spec_gpu}"
-	VarSpecVram                       = "{spec_vram}"
 	VarDebugPort                      = "{kernel_debug_port}"
-	VarPrometheusMetricsPort          = "{prometheus_metrics_port}"
 	VarKernelDebugPyPort              = "{kernel_debugpy_port}"
-	VarDeploymentMode                 = "{deployment_mode}"
 	VarMaybeFlags                     = "{maybe_flags}"
 	VarMaybeGdbFlag                   = "{maybe_gdb}"
 	VarMaybeSimCheckPtLatency         = "{maybe_sim_checkpoint_latency}"
@@ -78,7 +73,7 @@ var (
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
 	dockerMaybeFlags  = "{maybe_gdb}{maybe_sim_checkpoint_latency}{docker_swarm_node_constraint}"
-	dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e PROMETHEUS_METRICS_PORT={prometheus_metrics_port} -e SPEC_CPU={spec_cpu} -e SPEC_MEM={spec_memory} -e SPEC_GPU={spec_gpu} -e SPEC_VRAM={spec_vram} -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} -e DEPLOYMENT_MODE={deployment_mode} {maybe_flags} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label prometheus.metrics.port={prometheus_metrics_port} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster {image}"
+	dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} {maybe_flags} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label prometheus.metrics.port={prometheus_metrics_port} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster {image}"
 	dockerShutdownCmd = "docker stop {container_name}"
 	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
 
@@ -89,26 +84,32 @@ var (
 
 type DockerInvoker struct {
 	LocalInvoker
-	connInfo                     *jupyter.ConnectionInfo
-	opts                         *DockerInvokerOptions
-	tempBase                     string
-	hostMountDir                 string
-	targetMountDir               string
-	invokerCmd                   string                           // Command used to create the Docker container.
-	containerName                string                           // Name of the launched container; this is the empty string before the container is launched.
-	dockerNetworkName            string                           // The name of the Docker network that the Local Daemon container is running within.
-	smrPort                      int                              // Port used by the SMR cluster.
-	closing                      int32                            // Indicates whether the container is closing/shutting down.
-	id                           string                           // Uniquely identifies this Invoker instance.
-	kernelDebugPort              int                              // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
-	remoteStorageEndpoint        string                           // Endpoint of the remote storage.
-	remoteStorage                string                           // Type of remote storage, either 'hdfs' or 'redis'
-	dockerStorageBase            string                           // Base directory in which the persistent store data is stored.
-	containerCreatedAt           time.Time                        // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
-	containerCreated             bool                             // containerCreated is a bool indicating whether kernel the container has been created.
-	containerMetricsProvider     metrics.ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
-	simulateCheckpointingLatency bool                             // simulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of performing checkpointing after a migration (read) and after executing code (write).
-	runKernelsInGdb              bool                             // If true, then the kernels will be run in GDB.
+	connInfo                             *jupyter.ConnectionInfo
+	opts                                 *DockerInvokerOptions
+	tempBase                             string
+	hostMountDir                         string
+	targetMountDir                       string
+	invokerCmd                           string                           // Command used to create the Docker container.
+	containerName                        string                           // Name of the launched container; this is the empty string before the container is launched.
+	dockerNetworkName                    string                           // The name of the Docker network that the Local Daemon container is running within.
+	smrPort                              int                              // Port used by the SMR cluster.
+	closing                              int32                            // Indicates whether the container is closing/shutting down.
+	id                                   string                           // Uniquely identifies this Invoker instance.
+	kernelDebugPort                      int                              // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	remoteStorageEndpoint                string                           // Endpoint of the remote storage.
+	remoteStorage                        string                           // Type of remote storage, either 'hdfs' or 'redis'
+	dockerStorageBase                    string                           // Base directory in which the persistent store data is stored.
+	containerCreatedAt                   time.Time                        // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
+	containerCreated                     bool                             // containerCreated is a bool indicating whether kernel the container has been created.
+	containerMetricsProvider             metrics.ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
+	simulateCheckpointingLatency         bool                             // simulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of performing checkpointing after a migration (read) and after executing code (write).
+	electionTimeoutSeconds               int                              // electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before deciding on a leader
+	deploymentMode                       types.DeploymentMode             // deploymentMode is the deployment mode of the cluster
+	runKernelsInGdb                      bool                             // If true, then the kernels will be run in GDB.
+	prometheusMetricsPort                int                              // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
+	simulateWriteAfterExec               bool                             // Simulate network write after executing code?
+	simulateWriteAfterExecOnCriticalPath bool                             // Should the simulated network write after executing code be on the critical path?
+	workloadId                           string
 
 	// IsInDockerSwarm indicates whether we're running within a Docker Swarm cluster.
 	// If IsInDockerSwarm is false, then we're just a regular docker compose application.
@@ -118,6 +119,8 @@ type DockerInvoker struct {
 	isInDockerSwarm bool
 }
 
+// DockerInvokerOptions encapsulates a number of configuration parameters required by the DockerInvoker in order
+// to properly configure the kernel replica containers.
 type DockerInvokerOptions struct {
 	// RemoteStorageEndpoint is the endpoint of the remote storage.
 	RemoteStorageEndpoint string
@@ -139,10 +142,6 @@ type DockerInvokerOptions struct {
 	// RunKernelsInGdb specifies that, if true, then the kernels will be run in GDB.
 	RunKernelsInGdb bool `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
 
-	// SimulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of
-	// performing checkpointing after a migration (read) and after executing code (write).
-	SimulateCheckpointingLatency bool
-
 	// IsInDockerSwarm indicates whether we're running within a Docker Swarm cluster.
 	// If IsInDockerSwarm is false, then we're just a regular docker compose application.
 	//
@@ -152,6 +151,24 @@ type DockerInvokerOptions struct {
 
 	// PrometheusMetricsPort is the port that the container should serve prometheus metrics on.
 	PrometheusMetricsPort int
+
+	// ElectionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before
+	// deciding on a leader
+	ElectionTimeoutSeconds int
+
+	// SimulateWriteAfterExecOnCriticalPath is a flag indicating whether the kernel should perform a simulated network
+	// write after executing code.
+	SimulateWriteAfterExec bool
+
+	// SimulateWriteAfterExecOnCriticalPath is a flag indicating whether the simulated network write after executing
+	// code should be on the critical path.
+	SimulateWriteAfterExecOnCriticalPath bool
+
+	// SimulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of
+	// performing checkpointing after a migration (read) and after executing code (write).
+	SimulateCheckpointingLatency bool
+
+	WorkloadId string
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider metrics.ContainerMetricsProvider) *DockerInvoker {
@@ -167,55 +184,46 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	var dockerNetworkName = os.Getenv(DockerNetworkNameEnv)
 
 	invoker := &DockerInvoker{
-		connInfo:                     connInfo,
-		opts:                         opts,
-		tempBase:                     utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
-		hostMountDir:                 utils.GetEnv(HostMountDirectory, HostMountDirectoryDefault),
-		targetMountDir:               utils.GetEnv(TargetMountDirectory, TargetMountDirectoryDefault),
-		smrPort:                      smrPort,
-		remoteStorageEndpoint:        opts.RemoteStorageEndpoint,
-		remoteStorage:                opts.RemoteStorage,
-		id:                           uuid.NewString(),
-		kernelDebugPort:              opts.KernelDebugPort,
-		dockerNetworkName:            dockerNetworkName,
-		dockerStorageBase:            opts.DockerStorageBase,
-		runKernelsInGdb:              opts.RunKernelsInGdb,
-		containerMetricsProvider:     containerMetricsProvider,
-		simulateCheckpointingLatency: opts.SimulateCheckpointingLatency,
-		isInDockerSwarm:              opts.IsInDockerSwarm,
+		connInfo:                             connInfo,
+		opts:                                 opts,
+		tempBase:                             utils.GetEnv(DockerTempBase, DockerTempBaseDefault),
+		hostMountDir:                         utils.GetEnv(HostMountDirectory, HostMountDirectoryDefault),
+		targetMountDir:                       utils.GetEnv(TargetMountDirectory, TargetMountDirectoryDefault),
+		smrPort:                              smrPort,
+		remoteStorageEndpoint:                opts.RemoteStorageEndpoint,
+		remoteStorage:                        opts.RemoteStorage,
+		id:                                   uuid.NewString(),
+		kernelDebugPort:                      opts.KernelDebugPort,
+		dockerNetworkName:                    dockerNetworkName,
+		dockerStorageBase:                    opts.DockerStorageBase,
+		runKernelsInGdb:                      opts.RunKernelsInGdb,
+		containerMetricsProvider:             containerMetricsProvider,
+		simulateCheckpointingLatency:         opts.SimulateCheckpointingLatency,
+		isInDockerSwarm:                      opts.IsInDockerSwarm,
+		prometheusMetricsPort:                opts.PrometheusMetricsPort,
+		electionTimeoutSeconds:               opts.ElectionTimeoutSeconds,
+		simulateWriteAfterExec:               opts.SimulateWriteAfterExec,
+		simulateWriteAfterExecOnCriticalPath: opts.SimulateWriteAfterExecOnCriticalPath,
+		workloadId:                           opts.WorkloadId,
+	}
+
+	// This is a DockerInvoker, so it's one of these two.
+	if opts.IsInDockerSwarm {
+		invoker.deploymentMode = types.DockerSwarmMode
+	} else {
+		invoker.deploymentMode = types.DockerComposeMode
 	}
 
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerNetwork, utils.GetEnv(DockerNetworkNameEnv, DockerNetworkNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarStorageVolume, utils.GetEnv(DockerStorageVolume, DockerStorageVolumeDefault))
-	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarPrometheusMetricsPort, fmt.Sprintf("%d", opts.PrometheusMetricsPort))
 
 	maybeFlagCmd := dockerMaybeFlags
 	if invoker.runKernelsInGdb {
 		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeGdbFlag, "-e RUN_IN_GDB=1")
 	} else {
 		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeGdbFlag, "")
-	}
-
-	if invoker.simulateCheckpointingLatency {
-		// The leading space is deliberate.
-		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeSimCheckPtLatency, " -e SIMULATE_CHECKPOINTING_LATENCY=1")
-		maybeFlagCmd = strings.TrimSpace(maybeFlagCmd)
-	} else {
-		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeSimCheckPtLatency, "")
-	}
-
-	if invoker.isInDockerSwarm {
-		invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarDeploymentMode, "DOCKER_SWARM")
-
-		schedulingConstraint := fmt.Sprintf(" -e constraint:node==%s", "")
-		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeDockerSwarmNodeConstraint, schedulingConstraint)
-		maybeFlagCmd = strings.TrimSpace(maybeFlagCmd)
-	} else {
-		invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarDeploymentMode, "DOCKER_COMPOSE")
-
-		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeDockerSwarmNodeConstraint, "")
 	}
 
 	maybeFlagCmd = strings.TrimSpace(maybeFlagCmd)
@@ -328,10 +336,6 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	cmd = strings.ReplaceAll(cmd, VarConfigFile, filepath.Base(configFile))
 	cmd = strings.ReplaceAll(cmd, VarKernelId, spec.Kernel.Id)
 	cmd = strings.ReplaceAll(cmd, VarSessionId, spec.Kernel.Session)
-	cmd = strings.ReplaceAll(cmd, VarSpecCpu, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Cpu))
-	cmd = strings.ReplaceAll(cmd, VarSpecMemory, fmt.Sprintf("%f", spec.Kernel.ResourceSpec.Memory))
-	cmd = strings.ReplaceAll(cmd, VarSpecGpu, fmt.Sprintf("%d", spec.Kernel.ResourceSpec.Gpu))
-	cmd = strings.ReplaceAll(cmd, VarSpecVram, fmt.Sprintf("%f", spec.Kernel.ResourceSpec.Vram))
 	cmd = strings.ReplaceAll(cmd, VarDebugPort, fmt.Sprintf("%d", ivk.kernelDebugPort))
 	cmd = strings.ReplaceAll(cmd, VarKernelDebugPyPort, fmt.Sprintf("%d", ivk.kernelDebugPort+1000))
 
@@ -535,14 +539,23 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 
 	file := &jupyter.ConfigFile{
 		DistributedKernelConfig: jupyter.DistributedKernelConfig{
-			StorageBase:             ivk.dockerStorageBase,
-			SMRNodeID:               int(spec.ReplicaId),
-			SMRNodes:                spec.Replicas,
-			SMRJoin:                 spec.Join,
-			RegisterWithLocalDaemon: true,
-			LocalDaemonAddr:         hostname,
-			RemoteStorageEndpoint:   ivk.remoteStorageEndpoint,
-			RemoteStorage:           ivk.remoteStorage,
+			StorageBase:                  ivk.dockerStorageBase,
+			SMRNodeID:                    int(spec.ReplicaId),
+			SMRNodes:                     spec.Replicas,
+			SMRJoin:                      spec.Join,
+			RegisterWithLocalDaemon:      true,
+			LocalDaemonAddr:              hostname,
+			RemoteStorageEndpoint:        ivk.remoteStorageEndpoint,
+			RemoteStorage:                ivk.remoteStorage,
+			PrometheusServerPort:         ivk.prometheusMetricsPort,
+			SpecCpus:                     float64(spec.Kernel.ResourceSpec.Cpu),
+			SpecMemoryMb:                 float64(spec.Kernel.ResourceSpec.Memory),
+			SpecGpus:                     int(spec.Kernel.ResourceSpec.Gpu),
+			SpecVramGb:                   float64(spec.Kernel.ResourceSpec.Vram),
+			DeploymentMode:               ivk.deploymentMode,
+			SimulateCheckpointingLatency: ivk.simulateCheckpointingLatency,
+			ElectionTimeoutSeconds:       ivk.electionTimeoutSeconds,
+			WorkloadId:                   ivk.workloadId,
 		},
 	}
 	if spec.PersistentId != nil {

@@ -96,6 +96,23 @@ type JupyterFrames struct {
 	Offset int
 }
 
+// NewJupyterFramesWithIdentityAndReservation creates a new JupyterFrames with the specified identity in the
+// very first frame, followed by the DELIM frame, which contains the delimiter JupyterFrameIDSMSG (ie., "<IDS|MSG>").
+func NewJupyterFramesWithIdentityAndReservation(identity string, numReserved int) *JupyterFrames {
+	frames := make([][]byte, JupyterFrameContent+2, numReserved+JupyterFrameBuffers+2)
+	frames[0] = []byte(identity)
+	frames[JupyterFrameStart+1] = JupyterFrameIDSMSG
+	frames[JupyterFrameSignature+1] = JupyterFrameEmpty
+	frames[JupyterFrameHeader+1] = JupyterFrameEmpty
+	frames[JupyterFrameParentHeader+1] = JupyterFrameEmpty
+	frames[JupyterFrameMetadata+1] = JupyterFrameEmpty
+	frames[JupyterFrameContent+1] = JupyterFrameEmpty
+	return &JupyterFrames{
+		Frames: frames,
+		Offset: 1,
+	}
+}
+
 func NewJupyterFramesWithReservation(numReserved int) *JupyterFrames {
 	frames := make([][]byte, JupyterFrameContent+1, numReserved+JupyterFrameBuffers+1)
 	frames[JupyterFrameStart] = JupyterFrameIDSMSG
@@ -114,6 +131,19 @@ func NewJupyterFramesWithHeader(msgType string, session string) *JupyterFrames {
 	frames := NewJupyterFramesWithReservation(1)
 	_ = frames.EncodeHeader(&MessageHeader{
 		MsgID:    uuid.New().String(),
+		Username: MessageHeaderDefaultUsername,
+		Session:  session,
+		Date:     time.Now().UTC().Format(time.RFC3339Nano),
+		MsgType:  JupyterMessageType(msgType),
+		Version:  SMRVersion,
+	})
+	return frames
+}
+
+func NewJupyterFramesWithHeaderAndSpecificMessageIdAndIdentity(msgId string, msgType string, session string, identity string) *JupyterFrames {
+	frames := NewJupyterFramesWithIdentityAndReservation(identity, 1)
+	_ = frames.EncodeHeader(&MessageHeader{
+		MsgID:    msgId,
 		Username: MessageHeaderDefaultUsername,
 		Session:  session,
 		Date:     time.Now().UTC().Format(time.RFC3339Nano),

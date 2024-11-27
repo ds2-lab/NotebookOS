@@ -425,9 +425,10 @@ func (c *BasicKubeClient) DeployDistributedKernels(ctx context.Context, kernel *
 
 	// Prepare the *messaging.ConfigFile.
 	configFileInfo, err := c.prepareConfigFileContents(&proto.KernelReplicaSpec{
-		ReplicaId: DummySMRNodeId, // We'll replace the dummy value with the correct ID when the Pod starts.
-		Replicas:  nil,
-		Kernel:    kernel,
+		ReplicaId:  DummySMRNodeId, // We'll replace the dummy value with the correct ID when the Pod starts.
+		Replicas:   nil,
+		Kernel:     kernel,
+		WorkloadId: kernel.WorkloadId,
 	}, headlessServiceName)
 	if err != nil {
 		c.log.Error("Error while preparing config file: %v.\n", err)

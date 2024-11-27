@@ -84,6 +84,9 @@ type Kernel interface {
 	KernelSpec() *proto.KernelSpec
 	ConnectionInfo() *jupyter.ConnectionInfo
 	Status() jupyter.KernelStatus
+	// ReplicasAreScheduled returns a flag indicating whether the replicas of this Kernel are scheduled.
+	// Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
+	ReplicasAreScheduled() bool
 	AggregateBusyStatus() string
 	BindSession(sess string)
 	Size() int
@@ -116,6 +119,12 @@ type Kernel interface {
 	//
 	// This method is thread safe.
 	NumActiveExecutionOperations() int
+
+	// TemporaryKernelReplicaClient returns the TemporaryKernelReplicaClient struct used by the DistributedKernelClient.
+	//
+	// TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
+	// of a given kernel is/are not scheduled, and that kernel receives a message.
+	TemporaryKernelReplicaClient() KernelReplicaInfo
 }
 
 type KernelReplica interface {

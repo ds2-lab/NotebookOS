@@ -15,7 +15,6 @@ const (
 
 type SchedulerOptions struct {
 	configuration.CommonOptions   `yaml:",inline" name:"common_options" json:"common_options"`
-	VirtualGpusPerHost            int     `name:"num-virtual-gpus-per-node"         json:"num-virtual-gpus-per-node"        yaml:"num-virtual-gpus-per-node"                        description:"The number of virtual GPUs per host."`
 	SubscribedRatioUpdateInterval float64 `name:"subscribed-ratio-update-interval"  json:"subscribed-ratio-update-interval" yaml:"subscribed-ratio-update-interval"                        description:"The interval to update the subscribed ratio."`
 	ScalingFactor                 float64 `name:"scaling-factor"                    json:"scaling-factor"                   yaml:"scaling-factor"                        description:"Defines how many hosts the Cluster will provision based on busy Resources"`
 	ScalingInterval               int     `name:"scaling-interval"                  json:"scaling-interval"                 yaml:"scaling-interval"                        description:"Interval to call validateCapacity, in seconds. Set to 0 to disable routing scaling."`
@@ -26,17 +25,17 @@ type SchedulerOptions struct {
 	MinimumNumNodes               int     `name:"min_cluster_nodes"                 json:"min_cluster_nodes"                yaml:"min_cluster_nodes"                        description:"The minimum number of Cluster nodes we must have available at any time."`
 	MaximumNumNodes               int     `name:"max_cluster_nodes"                 json:"max_cluster_nodes"                yaml:"max_cluster_nodes"                        description:"The maximum number of Cluster nodes we must have available at any time. If this is < 0, then it is unbounded."`
 	GpuPollIntervalSeconds        int     `name:"gpu_poll_interval"                 json:"gpu_poll_interval"                yaml:"gpu_poll_interval"                        description:"How frequently the Cluster Gateway should poll the DefaultSchedulingPolicy Daemons for updated GPU information."`
-	NumReplicas                   int     `name:"num-replicas"                      json:"num-replicas"                     yaml:"num-replicas"                        description:"Number of kernel replicas."`
 	MaxSubscribedRatio            float64 `name:"max-subscribed-ratio"              json:"max-subscribed-ratio"             yaml:"max-subscribed-ratio"                        description:"Maximum subscribed ratio."`
 	ExecutionTimeSamplingWindow   int64   `name:"execution-time-sampling-window"    json:"execution-time-sampling-window"   yaml:"execution-time-sampling-window"                        description:"Window size for moving average of training time. Specify a negative value to compute the average as the average of ALL execution times."`
 	MigrationTimeSamplingWindow   int64   `name:"migration-time-sampling-window"    json:"migration-time-sampling-window"   yaml:"migration-time-sampling-window"                        description:"Window size for moving average of migration time. Specify a negative value to compute the average as the average of ALL migration times."`
 	SchedulerHttpPort             int     `name:"scheduler-http-port"               json:"scheduler-http-port"              yaml:"scheduler-http-port"                        description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
+	// NumReplicas                   int     `name:"num-replicas"                      json:"num-replicas"                     yaml:"num-replicas"                        description:"Number of kernel replicas."`
 }
 
 // GetNumReplicas returns the number of replicas per kernel.
-func (opts *SchedulerOptions) GetNumReplicas() int {
-	return opts.NumReplicas
-}
+//func (opts *SchedulerOptions) GetNumReplicas() int {
+//	return opts.NumReplicas
+//}
 
 // GetGpusPerHost returns the number of allocatable GPUs on each entity.Host.
 func (opts *SchedulerOptions) GetGpusPerHost() int {
@@ -78,11 +77,11 @@ func (opts *SchedulerOptions) String() string {
 func (opts *SchedulerOptions) ValidateClusterSchedulerOptions() {
 	// Validate the minimum capacity.
 	// It must be at least equal to the number of replicas per kernel.
-	if opts.MinimumNumNodes < opts.NumReplicas {
-		log.Printf("[WARNING] minimum number of nodes specified (%d). Value is less than the configured number of replicas (%d). Setting minimum nodes to %d.\n",
-			opts.MinimumNumNodes, opts.NumReplicas, opts.NumReplicas)
-		opts.MinimumNumNodes = opts.NumReplicas
-	}
+	//if opts.MinimumNumNodes < opts.NumReplicas {
+	//	log.Printf("[WARNING] minimum number of nodes specified (%d). Value is less than the configured number of replicas (%d). Setting minimum nodes to %d.\n",
+	//		opts.MinimumNumNodes, opts.NumReplicas, opts.NumReplicas)
+	//	opts.MinimumNumNodes = opts.NumReplicas
+	//}
 
 	// Validate the maximum capacity.
 	// It must be at least equal to the number of replicas per kernel.
@@ -90,11 +89,11 @@ func (opts *SchedulerOptions) ValidateClusterSchedulerOptions() {
 	if opts.MaximumNumNodes < 0 {
 		opts.MaximumNumNodes = math.MaxInt // Essentially unbounded.
 	}
-	if opts.MaximumNumNodes < opts.NumReplicas {
-		log.Printf("[WARNING] Invalid maximum number of nodes specified (%d). Value is less than the configured number of replicas (%d). Setting maximum nodes to %d.\n",
-			opts.MaximumNumNodes, opts.NumReplicas, opts.NumReplicas)
-		opts.MaximumNumNodes = opts.NumReplicas
-	}
+	//if opts.MaximumNumNodes < opts.NumReplicas {
+	//	log.Printf("[WARNING] Invalid maximum number of nodes specified (%d). Value is less than the configured number of replicas (%d). Setting maximum nodes to %d.\n",
+	//		opts.MaximumNumNodes, opts.NumReplicas, opts.NumReplicas)
+	//	opts.MaximumNumNodes = opts.NumReplicas
+	//}
 	if opts.MaximumNumNodes < opts.MinimumNumNodes {
 		log.Printf("[WARNING] Invalid maximum number of nodes specified (%d). Value is less than the configured minimum number of nodes (%d). Setting maximum nodes to %d.\n",
 			opts.MaximumNumNodes, opts.MinimumNumNodes, opts.MinimumNumNodes)

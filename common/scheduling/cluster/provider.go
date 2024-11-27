@@ -6,6 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
@@ -40,6 +41,7 @@ type Provider struct {
 	ClusterMetricsProvider scheduling.MetricsProvider   // Optional.
 	NotificationBroker     scheduler.NotificationBroker // Optional.
 	Options                *scheduling.SchedulerOptions // Required.
+	SchedulingPolicy       scheduling.Policy            // Optional, will be extracted from Options if not specified.
 	KubeClient             scheduling.KubeClient        // Required for Kubernetes clusters. Ignored for others.
 
 	log logger.Logger
@@ -67,6 +69,11 @@ func (b *Provider) WithHostSpec(t types.Spec) *Provider {
 
 func (b *Provider) WithPlacer(sp scheduling.Placer) *Provider {
 	b.Placer = sp
+	return b
+}
+
+func (b *Provider) WithSchedulingPolicy(sp scheduling.Policy) *Provider {
+	b.SchedulingPolicy = sp
 	return b
 }
 
@@ -134,6 +141,16 @@ func (b *Provider) Validate() error {
 		return fmt.Errorf("%w: Options", ErrMissingRequiredArgument)
 	}
 
+	// If unspecified, then we'll create it ourselves here.
+	if b.SchedulingPolicy == nil {
+		schedulingPolicy, err := policy.GetSchedulingPolicy(b.Options)
+		if err != nil {
+			return err
+		}
+
+		b.SchedulingPolicy = schedulingPolicy
+	}
+
 	b.log.Debug("Successfully validated arguments for %s cluster.", b.ClusterType.String())
 	return nil
 }
@@ -151,19 +168,19 @@ func (b *Provider) BuildCluster() (scheduling.Cluster, error) {
 		{
 			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
 			return NewDockerSwarmCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.Options), nil
+				b.NotificationBroker, b.SchedulingPolicy, b.Options), nil
 		}
 	case DockerCompose:
 		{
 			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
 			return NewDockerComposeCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.Options), nil
+				b.NotificationBroker, b.SchedulingPolicy, b.Options), nil
 		}
 	case Kubernetes:
 		{
 			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
 			return NewKubernetesCluster(b.KubeClient, b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.Options), nil
+				b.NotificationBroker, b.SchedulingPolicy, b.Options), nil
 		}
 	default:
 		b.log.Error("Unknown/unsupported cluster type: %v", b.ClusterType.String())

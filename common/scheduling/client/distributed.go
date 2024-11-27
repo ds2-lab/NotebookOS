@@ -74,6 +74,16 @@ type DistributedClientProvider interface {
 		executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider) scheduling.Kernel
 }
 
+// TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
+// of a given kernel is/are not scheduled, and that kernel receives a message.
+type TemporaryKernelReplicaClient struct {
+	*DistributedKernelClient
+}
+
+func (c *TemporaryKernelReplicaClient) ReplicaID() int32 {
+	return 0 // 0 is never used as an actual replica ID, so it indicates that it's a "fake" replica.
+}
+
 // DistributedKernelClient is a client of a Distributed Jupyter Kernel that is used by the Gateway daemon.
 // It wraps individual KernelReplicaClient instances -- one for each replica of the kernel.
 type DistributedKernelClient struct {
@@ -86,10 +96,11 @@ type DistributedKernelClient struct {
 	busyStatus     *AggregateKernelStatus
 	lastBStatusMsg *messaging.JupyterMessage
 
-	spec *proto.KernelSpec
-	// replicas []scheduling.KernelReplica
-	replicas map[int32]scheduling.KernelReplica
-	// size     int
+	temporaryKernelReplicaClient *TemporaryKernelReplicaClient
+
+	spec              *proto.KernelSpec
+	replicas          map[int32]scheduling.KernelReplica
+	targetNumReplicas int32
 
 	persistentId    string
 	shellListenPort int // Port that the KernelReplicaClient::shell socket listens on.
@@ -167,6 +178,7 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 		status:                                jupyter.KernelStatusInitializing,
 		spec:                                  spec,
 		replicas:                              make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.KernelReplica, numReplicas),
+		targetNumReplicas:                     int32(numReplicas),
 		cleaned:                               make(chan struct{}),
 		shellListenPort:                       shellListenPort,
 		iopubListenPort:                       iopubListenPort,
@@ -181,7 +193,19 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 	kernel.SessionManager = NewSessionManager(spec.Session)
 	kernel.busyStatus = NewAggregateKernelStatus(kernel, numReplicas)
 	kernel.log = kernel.server.Log
+
+	temporaryKernelReplicaClient := &TemporaryKernelReplicaClient{kernel}
+	kernel.temporaryKernelReplicaClient = temporaryKernelReplicaClient
+
 	return kernel
+}
+
+// TemporaryKernelReplicaClient returns the TemporaryKernelReplicaClient struct used by the DistributedKernelClient.
+//
+// TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
+// of a given kernel is/are not scheduled, and that kernel receives a message.
+func (c *DistributedKernelClient) TemporaryKernelReplicaClient() scheduling.KernelReplicaInfo {
+	return c.temporaryKernelReplicaClient
 }
 
 // SetSession sets/updates the scheduling.Session associated with the DistributedKernelClient.
@@ -1442,6 +1466,12 @@ func (c *DistributedKernelClient) getWaitResponseOption(key string) interface{} 
 //
 //	return snapshot, nil
 //}
+
+// ReplicasAreScheduled returns a flag indicating whether the replicas of this Kernel are scheduled.
+// Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
+func (c *DistributedKernelClient) ReplicasAreScheduled() bool {
+	return int32(len(c.replicas)) == c.targetNumReplicas
+}
 
 // handleSmrLeadTaskMessage handles an jupyter.MessageTypeSMRLeadTask IO Pub message.
 // TODO: This logic is sort of buried away in a very non-obvious place...

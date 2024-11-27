@@ -195,7 +195,7 @@ func (s *BaseScheduler) TryGetCandidateHosts(hosts []scheduling.Host, kernelSpec
 	s.candidateHostMutex.Lock()
 
 	// Identify the hosts onto which we will place replicas of the kernel.
-	numHostsRequired := s.opts.NumReplicas - len(hosts)
+	numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
 	s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
 		numHostsRequired, kernelSpec.Id, len(hosts))
 
@@ -232,19 +232,19 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		bestAttempt = 0
 		hosts       []scheduling.Host
 	)
-	for numTries < maxAttempts && len(hosts) < s.opts.NumReplicas {
+	for numTries < maxAttempts && len(hosts) < s.schedulingPolicy.NumReplicas() {
 		hosts = s.TryGetCandidateHosts(hosts, kernelSpec) // note: this function executes atomically.
 
-		if len(hosts) < s.opts.NumReplicas {
+		if len(hosts) < s.schedulingPolicy.NumReplicas() {
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
-				len(hosts), s.opts.NumReplicas, kernelSpec.Id)
+				len(hosts), s.schedulingPolicy.NumReplicas(), kernelSpec.Id)
 
 			if !s.isScalingEnabled() {
 				s.log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
 				break // Give up.
 			}
 
-			numHostsRequired := s.opts.NumReplicas - len(hosts)
+			numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
 			s.log.Debug("Will attempt to provision %d new host(s) so that we can serve kernel %s.",
 				numHostsRequired, kernelSpec.Id)
 
@@ -263,21 +263,21 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 			if (numTries + 1) < maxAttempts {
 				// Don't want to print this if we've just used up our last try, so to speak.
 				s.log.Debug("Trying again to find %d hosts to serve replicas of kernel %s.",
-					s.opts.NumReplicas, kernelSpec.Id)
+					s.schedulingPolicy.NumReplicas(), kernelSpec.Id)
 			}
 
 			continue
 		}
 
 		s.log.Debug("Found %d hosts to serve replicas of kernel %s: %v",
-			s.opts.NumReplicas, kernelSpec.Id, hosts)
+			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, hosts)
 	}
 
 	// Check if we were able to reserve the requested number of hosts.
 	// If not, then we need to release any hosts we did reserve.
-	if len(hosts) < s.opts.NumReplicas {
+	if len(hosts) < s.schedulingPolicy.NumReplicas() {
 		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...",
-			s.opts.NumReplicas, kernelSpec.Id, numTries)
+			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, numTries)
 
 		// Release any resource reservations that we created, since we're aborting the scheduling
 		// of the replicas of the kernel.
@@ -297,7 +297,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 
 // DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
 func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
-	return s.instance.DeployNewKernel(ctx, in, blacklistedHosts)
+	return s.instance.DeployKernelReplicas(ctx, in, blacklistedHosts)
 }
 
 // RemoteSynchronizationInterval returns the interval at which the Scheduler synchronizes
@@ -766,9 +766,9 @@ func (s *BaseScheduler) ValidateCapacity() {
 	maximumHostsToReleaseAtOnce := s.schedulingPolicy.ScalingConfiguration().MaximumHostsToReleaseAtOnce
 
 	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                      // The minimum number of hosts required to satisfy the Cluster's current committed GPUs.
-	minNumHosts := int32(s.opts.NumReplicas)
-	scaledOutNumHosts := int32(math.Ceil(float64(load) * scalingFactor / gpusPerHost)) // The number of hosts we would scale-out to based on the configured scaling factor.
-	limit := int32(math.Ceil(float64(load) * scalingLimit / gpusPerHost))              // The maximum number of hosts we're permitted to scale-out to.
+	minNumHosts := int32(s.schedulingPolicy.NumReplicas())
+	scaledOutNumHosts := int32(math.Ceil(float64(load) * scalingFactor / float64(gpusPerHost))) // The number of hosts we would scale-out to based on the configured scaling factor.
+	limit := int32(math.Ceil(float64(load) * scalingLimit / float64(gpusPerHost)))              // The maximum number of hosts we're permitted to scale-out to.
 
 	s.log.Debug("Validating Cluster Capacity. MinNumHosts: %d, ScaledOutNumHosts: %d, Limit: %d",
 		minNumHosts, scaledOutNumHosts, limit)

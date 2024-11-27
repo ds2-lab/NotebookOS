@@ -102,8 +102,7 @@ type ResourceScalingPolicy interface {
 
 // ScalingConfiguration encapsulates the various parameters related to auto-scaling.
 type ScalingConfiguration struct {
-	GpusPerHost                  float64       // The number of actual GPUs that are available for use on each node/host.
-	VirtualGpusPerHost           int32         // The number of virtual GPUs per host.
+	GpusPerHost                  int           // The number of virtual GPUs per host.
 	ScalingFactor                float64       // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
 	MaximumHostsToReleaseAtOnce  int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
 	ScalingIntervalSec           int32         // How often to call UpdateRatio in seconds.
@@ -123,8 +122,7 @@ func NewScalingConfiguration(opts *SchedulerOptions) *ScalingConfiguration {
 	}
 
 	return &ScalingConfiguration{
-		GpusPerHost:                  float64(opts.GpusPerHost),
-		VirtualGpusPerHost:           int32(opts.VirtualGpusPerHost),
+		GpusPerHost:                  opts.GpusPerHost,
 		ScalingFactor:                opts.ScalingFactor,
 		MaximumHostsToReleaseAtOnce:  int32(opts.MaximumHostsToReleaseAtOnce),
 		ScalingIntervalSec:           int32(opts.ScalingInterval),

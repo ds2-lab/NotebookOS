@@ -31,6 +31,7 @@ distributed_notebook_subscribed_scaling_limit: 1.1
 distributed_notebook_subscribed_scaling_in_limit: 2
 distributed_notebook_initial_cluster_size: 4
 distributed_notebook_initial_connection_period: 60
+distributed_notebook_election_timeout_seconds: 3
 
 # Specify 'hdfs' to use HDFS or 'redis' to use Redis.
 distributed_notebook_remote_storage_type: redis

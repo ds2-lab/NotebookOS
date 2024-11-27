@@ -147,6 +147,9 @@ type SchedulerDaemonImpl struct {
 	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
 	prometheusPort int
 
+	// electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before electing a leader
+	electionTimeoutSeconds int
+
 	// outgoingExecuteRequestQueue is used to send "execute_request" messages one-at-a-time to their target kernels.
 	outgoingExecuteRequestQueue hashmap.HashMap[string, chan *enqueuedExecuteRequestMessage]
 	// outgoingExecuteRequestQueueMutexes is a map of mutexes. Keys are kernel IDs. Values are the mutex for the
@@ -256,6 +259,7 @@ type KernelRegistrationPayload struct {
 	Memory             int32                   `json:"memory,omitempty"`
 	Gpu                int32                   `json:"gpu,omitempty"`
 	ConnectionInfo     *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
+	WorkloadId         string                  `json:"workload_id"`
 }
 
 // KernelRegistrationClient represents an incoming connection from local distributed kernel.
@@ -301,6 +305,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
 		MessageAcknowledgementsEnabled:     localDaemonOptions.MessageAcknowledgementsEnabled,
 		SimulateCheckpointingLatency:       localDaemonOptions.SimulateCheckpointingLatency,
+		electionTimeoutSeconds:             localDaemonOptions.ElectionTimeoutSeconds,
 	}
 
 	for _, configFunc := range configs {
@@ -313,6 +318,10 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		daemon.log.Debug("Running in DebugMode.")
 	} else {
 		daemon.log.Debug("Not running in DebugMode.")
+	}
+
+	if daemon.electionTimeoutSeconds <= 0 {
+		daemon.electionTimeoutSeconds = 3
 	}
 
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, daemon.MessageAcknowledgementsEnabled,
@@ -709,9 +718,10 @@ func (d *SchedulerDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 // StartKernel starts a single kernel.
 func (d *SchedulerDaemonImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
 	return d.StartKernelReplica(ctx, &proto.KernelReplicaSpec{
-		ReplicaId: 1,
-		Replicas:  nil,
-		Kernel:    in,
+		ReplicaId:  1,
+		Replicas:   nil,
+		Kernel:     in,
+		WorkloadId: in.WorkloadId,
 	})
 }
 
@@ -984,6 +994,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		NumReplicas:  registrationPayload.NumReplicas, // Can get (from config file).
 		Join:         registrationPayload.Join,        // Can get (from config file).
 		PersistentId: registrationPayload.PersistentId,
+		WorkloadId:   registrationPayload.WorkloadId,
 	}
 
 	d.log.Debug("Kernel replica spec: %v", kernelReplicaSpec)
@@ -1014,15 +1025,18 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 	)
 	if d.deploymentMode == types.KubernetesMode {
 		invokerOpts := &invoker.DockerInvokerOptions{
-			RemoteStorageEndpoint:        d.remoteStorageEndpoint,
-			RemoteStorage:                d.remoteStorage,
-			KernelDebugPort:              -1,
-			DockerStorageBase:            d.dockerStorageBase,
-			UsingWSL:                     d.usingWSL,
-			RunKernelsInGdb:              d.runKernelsInGdb,
-			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
-			IsInDockerSwarm:              d.DockerSwarmMode(),
-			PrometheusMetricsPort:        d.prometheusPort,
+			RemoteStorageEndpoint:                d.remoteStorageEndpoint,
+			RemoteStorage:                        d.remoteStorage,
+			KernelDebugPort:                      -1,
+			DockerStorageBase:                    d.dockerStorageBase,
+			UsingWSL:                             d.usingWSL,
+			RunKernelsInGdb:                      d.runKernelsInGdb,
+			IsInDockerSwarm:                      d.DockerSwarmMode(),
+			PrometheusMetricsPort:                d.prometheusPort,
+			ElectionTimeoutSeconds:               d.electionTimeoutSeconds,
+			SimulateCheckpointingLatency:         d.SimulateCheckpointingLatency,
+			SimulateWriteAfterExec:               d.schedulingPolicy.PostExecutionStatePolicy().ShouldPerformWriteOperation(),
+			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1860,15 +1874,19 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	var kernelInvoker invoker.KernelInvoker
 	if d.DockerMode() {
 		invokerOpts := &invoker.DockerInvokerOptions{
-			RemoteStorageEndpoint:        d.remoteStorageEndpoint,
-			RemoteStorage:                d.remoteStorage,
-			KernelDebugPort:              int(in.DockerModeKernelDebugPort),
-			DockerStorageBase:            d.dockerStorageBase,
-			UsingWSL:                     d.usingWSL,
-			RunKernelsInGdb:              d.runKernelsInGdb,
-			SimulateCheckpointingLatency: d.SimulateCheckpointingLatency,
-			IsInDockerSwarm:              d.DockerSwarmMode(),
-			PrometheusMetricsPort:        d.prometheusPort,
+			RemoteStorageEndpoint:                d.remoteStorageEndpoint,
+			RemoteStorage:                        d.remoteStorage,
+			KernelDebugPort:                      int(in.DockerModeKernelDebugPort),
+			DockerStorageBase:                    d.dockerStorageBase,
+			UsingWSL:                             d.usingWSL,
+			RunKernelsInGdb:                      d.runKernelsInGdb,
+			SimulateCheckpointingLatency:         d.SimulateCheckpointingLatency,
+			IsInDockerSwarm:                      d.DockerSwarmMode(),
+			PrometheusMetricsPort:                d.prometheusPort,
+			ElectionTimeoutSeconds:               d.electionTimeoutSeconds,
+			SimulateWriteAfterExec:               d.schedulingPolicy.PostExecutionStatePolicy().ShouldPerformWriteOperation(),
+			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
+			WorkloadId:                           "",
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.

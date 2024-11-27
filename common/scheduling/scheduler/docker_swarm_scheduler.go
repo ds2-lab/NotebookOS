@@ -38,12 +38,15 @@ type DockerScheduler struct {
 }
 
 func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec,
-	kernelProvider KernelProvider, notificationBroker NotificationBroker, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
+	kernelProvider KernelProvider, notificationBroker NotificationBroker, schedulingPolicy scheduling.Policy,
+	opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
+
 	baseScheduler := newBaseSchedulerBuilder().
 		WithCluster(cluster).
 		WithHostMapper(hostMapper).
 		WithPlacer(placer).
 		WithHostSpec(hostSpec).
+		WithSchedulingPolicy(schedulingPolicy).
 		WithKernelProvider(kernelProvider).
 		WithNotificationBroker(notificationBroker).
 		WithOptions(opts).Build()
@@ -205,8 +208,9 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []s
 			replicaSpec := &proto.KernelReplicaSpec{
 				Kernel:                    in,
 				ReplicaId:                 replicaId,
-				NumReplicas:               int32(s.opts.NumReplicas),
+				NumReplicas:               int32(s.schedulingPolicy.NumReplicas()),
 				DockerModeKernelDebugPort: s.dockerModeKernelDebugPort.Add(1),
+				WorkloadId:                in.WorkloadId,
 			}
 			s.log.Debug("Assigned docker mode kernel replica debug port to %d for replica %d of kernel %s.",
 				replicaSpec.DockerModeKernelDebugPort, replicaSpec.ReplicaId, in.Id)
@@ -240,12 +244,12 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []s
 	return resultChan
 }
 
-// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
+// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
+func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	st := time.Now()
 
 	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.",
-		s.opts.NumReplicas, in.Id, in.ResourceSpec.String())
+		s.schedulingPolicy.NumReplicas(), in.Id, in.ResourceSpec.String())
 
 	deadline, ok := ctx.Deadline()
 	if ok {
@@ -366,7 +370,7 @@ func (s *DockerScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelS
 	}
 
 	s.log.Debug("Successfully scheduled all %d replica(s) of kernel %s in %v.",
-		s.opts.NumReplicas, in.Id, time.Since(st))
+		s.schedulingPolicy.NumReplicas(), in.Id, time.Since(st))
 
 	return nil
 }

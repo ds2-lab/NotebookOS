@@ -19,6 +19,7 @@ type baseSchedulerBuilder struct {
 	hostSpec           types.Spec
 	kernelProvider     KernelProvider
 	notificationBroker NotificationBroker
+	schedulingPolicy   scheduling.Policy // Optional, will be extracted from Options if not specified.
 	options            *scheduling.SchedulerOptions
 }
 
@@ -46,6 +47,11 @@ func (b *baseSchedulerBuilder) WithHostSpec(hostSpec types.Spec) *baseSchedulerB
 	return b
 }
 
+func (b *baseSchedulerBuilder) WithSchedulingPolicy(schedulingPolicy scheduling.Policy) *baseSchedulerBuilder {
+	b.schedulingPolicy = schedulingPolicy
+	return b
+}
+
 func (b *baseSchedulerBuilder) WithKernelProvider(kernelProvider KernelProvider) *baseSchedulerBuilder {
 	b.kernelProvider = kernelProvider
 	return b
@@ -67,6 +73,15 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		panic("Cannot construct BaseScheduler using baseSchedulerBuilder with nil options.")
 	}
 
+	if b.schedulingPolicy == nil {
+		schedulingPolicy, err := policy.GetSchedulingPolicy(b.options)
+		if err != nil {
+			panic(err)
+		}
+
+		b.schedulingPolicy = schedulingPolicy
+	}
+
 	clusterScheduler := &BaseScheduler{
 		cluster:                                  b.cluster,
 		hostMapper:                               b.hostMapper,
@@ -85,6 +100,7 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *scheduling.AddReplicaOperation](64),
 		kernelProvider:                           b.kernelProvider,
 		notificationBroker:                       b.notificationBroker,
+		schedulingPolicy:                         b.schedulingPolicy,
 		//gpusPerHost:                              float64(b.options.GpusPerHost),
 		//virtualGpusPerHost:                       int32(b.options.VirtualGpusPerHost),
 		//scalingFactor:                            b.options.ScalingFactor,
@@ -103,23 +119,12 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		clusterScheduler.remoteSynchronizationInterval = time.Second * 5
 	}
 
-	//if clusterScheduler.scalingIntervalSec < 0 {
-	//	clusterScheduler.scalingIntervalSec = 30
-	//	clusterScheduler.scalingInterval = time.Second * time.Duration(30)
-	//}
-
-	var err error
-	clusterScheduler.schedulingPolicy, err = policy.GetSchedulingPolicy(b.options)
-	if err != nil {
-		panic(err)
-	}
-
 	if clusterScheduler.log.GetLevel() == logger.LOG_LEVEL_ALL {
 		clusterScheduler.log.Debug("Scheduling Configuration:")
 		clusterScheduler.log.Debug("GpusPerHost: %.2f",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().GpusPerHost)
-		clusterScheduler.log.Debug("VirtualGpusPerHost: %d",
-			clusterScheduler.schedulingPolicy.ScalingConfiguration().VirtualGpusPerHost)
+		clusterScheduler.log.Debug("GpusPerHost: %d",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().GpusPerHost)
 		clusterScheduler.log.Debug("ScalingFactor: %.2f",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingFactor)
 		clusterScheduler.log.Debug("ScalingLimit: %.2f",

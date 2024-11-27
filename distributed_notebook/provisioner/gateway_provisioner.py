@@ -191,7 +191,8 @@ class GatewayProvisioner(KernelProvisionerBase):
                 argv=cmd,
                 signatureScheme=self.parent.session.signature_scheme,
                 key=self.parent.session.key,
-                resourceSpec=spec)
+                resourceSpec=spec,
+                workloadId = kwargs.get("workload_id", ""))
 
             self.log.debug(f"Launching kernel {self.kernel_id} with spec: {str(spec)}")
 

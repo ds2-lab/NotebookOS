@@ -31,6 +31,7 @@ class DistributedSessionManager(SessionManager):
             kernel_id: Optional[str] = None,
             session_id: Optional[str] = None,
             resource_spec: Optional[dict[str, float | int]] = None,
+            workload_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Creates a session and returns its model
 
@@ -39,18 +40,28 @@ class DistributedSessionManager(SessionManager):
         name: ModelName(str)
             Usually the model name, like the filename associated with current
             kernel.
-            :param resource_spec:
-            :param session_id:
-            :param kernel_id:
-            :param kernel_name:
-            :param type:
-            :param name:
-            :param path:
+        session_id : str
+            uuid for the session; this method must be given a session_id
+        path : str
+            the path for the given session - seem to be a session id sometime.
+        name : str
+            Usually the model name, like the filename associated with current
+            kernel.
+        type : str
+            the type of the session
+        kernel_name : str
+            the name of the kernel specification to use.  The default kernel name will be used if not provided.
+        kernel_id : str
+            uuid for the new kernel; if none, then a kernel id will be generated automatically for the new kernel.
+        resource_spec : dict[str, int]
+            the resource specification for the new session. kernels of this session will be created with these resource limits within Kubernetes.
+        workload_id : str
+            the ID of the workload in which the session is contained
         """
         self.num_sessions_creating += 1
         self.log.info(
-            "DistributedSessionManager is creating new Session: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, SessionId=%s, ResourceSpec=%s, NumSessionsCreating=%d" % (
-            path, name, type, kernel_name, kernel_id, session_id, str(resource_spec), self.num_sessions_creating))
+            "DistributedSessionManager is creating new Session: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, SessionId=%s, ResourceSpec=%s, WorkloadId=%s, NumSessionsCreating=%d" % (
+            path, name, type, kernel_name, kernel_id, session_id, str(resource_spec), workload_id, self.num_sessions_creating))
 
         if session_id is None:
             session_id = self.new_session_id()
@@ -67,7 +78,7 @@ class DistributedSessionManager(SessionManager):
             pass
         else:
             kernel_id = await self.start_kernel_for_session(
-                session_id, path, name, type, kernel_name, kernel_id=kernel_id, resource_spec=resource_spec,
+                session_id, path, name, type, kernel_name, kernel_id=kernel_id, resource_spec=resource_spec, workload_id=workload_id,
             )
 
         record.kernel_id = kernel_id
@@ -90,6 +101,7 @@ class DistributedSessionManager(SessionManager):
             kernel_name: Optional[KernelName],
             kernel_id: Optional[str] = None,
             resource_spec: Optional[dict[str, float | int]] = None,
+            workload_id: Optional[str] = None,
     ) -> str:
         """Start a new kernel for a given session.
 
@@ -110,6 +122,8 @@ class DistributedSessionManager(SessionManager):
             uuid for the new kernel; if none, then a kernel id will be generated automatically for the new kernel.
         resource_spec : dict[str, int]
             the resource specification for the new session. kernels of this session will be created with these resource limits within Kubernetes.
+        workload_id : str
+            the ID of the workload in which the session is contained
         """
         self.log.info(
             "DistributedSessionManager is starting a new Kernel for Session %s: Path=%s, Name=%s, Type=%s, KernelName=%s, KernelId=%s, ResourceSpec=%s" % (
@@ -126,6 +140,7 @@ class DistributedSessionManager(SessionManager):
                 env=kernel_env,
                 kernel_id=kernel_id,
                 resource_spec=resource_spec,
+                workload_id=workload_id,
             )
         except KernelCreationError as e:
             self.log.error(f"Failed to launch kernel '{kernel_id}'")

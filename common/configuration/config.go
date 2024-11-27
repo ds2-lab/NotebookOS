@@ -20,4 +20,5 @@ type CommonOptions struct {
 	DebugPort                          int    `name:"debug_port"                       json:"debug_port"                        yaml:"debug_port"                          description:"The port for the debug HTTP server."`
 	SimulateCheckpointingLatency       bool   `name:"simulate_checkpointing_latency"   json:"simulate_checkpointing_latency"    yaml:"simulate_checkpointing_latency"      description:"If enabled, then kernels will simulate the latency of performing checkpointing after executing code (write) and after a migration (read)."`
 	DisablePrometheusMetricsPublishing bool   `name:"disable_prometheus_metrics_publishing" json:"disable_prometheus_metrics_publishing"    yaml:"disable_prometheus_metrics_publishing" description:"If passed as true, then the goroutine that publishes Prometheus metrics on an interval will not be created."`
+	ElectionTimeoutSeconds             int    `name:"election_timeout_seconds" json:"election_timeout_seconds" yaml:"election_timeout_seconds" description: "How long kernel leader elections wait to receive all proposals before electing a leader"`
 }

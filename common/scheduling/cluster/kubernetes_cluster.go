@@ -40,7 +40,7 @@ func (c *KubernetesCluster) Scheduler() scheduling.Scheduler {
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
 func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper,
 	kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
-	notificationBroker scheduler.NotificationBroker, opts *scheduling.SchedulerOptions) *KubernetesCluster {
+	notificationBroker scheduler.NotificationBroker, schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) *KubernetesCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "KubernetesCluster")
 	kubernetesCluster := &KubernetesCluster{
@@ -48,7 +48,7 @@ func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec,
 	}
 
 	kubeScheduler, err := scheduler.NewKubernetesScheduler(kubernetesCluster, placer, hostMapper, kernelProvider,
-		hostSpec, kubeClient, notificationBroker, opts)
+		hostSpec, kubeClient, notificationBroker, schedulingPolicy, opts)
 
 	if err != nil {
 		kubernetesCluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)

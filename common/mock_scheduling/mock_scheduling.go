@@ -296,20 +296,6 @@ func (mr *MockClusterMockRecorder) NumReplicas() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumReplicas", reflect.TypeOf((*MockCluster)(nil).NumReplicas))
 }
 
-// NumReplicasAsDecimal mocks base method.
-func (m *MockCluster) NumReplicasAsDecimal() decimal.Decimal {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NumReplicasAsDecimal")
-	ret0, _ := ret[0].(decimal.Decimal)
-	return ret0
-}
-
-// NumReplicasAsDecimal indicates an expected call of NumReplicasAsDecimal.
-func (mr *MockClusterMockRecorder) NumReplicasAsDecimal() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumReplicasAsDecimal", reflect.TypeOf((*MockCluster)(nil).NumReplicasAsDecimal))
-}
-
 // NumScaleInOperationsAttempted mocks base method.
 func (m *MockCluster) NumScaleInOperationsAttempted() int {
 	m.ctrl.T.Helper()
@@ -646,10 +632,10 @@ func (mr *MockSchedulerMockRecorder) AddHost() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddHost", reflect.TypeOf((*MockScheduler)(nil).AddHost))
 }
 
-// DeployNewKernel mocks base method.
-func (m *MockScheduler) DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
+// DeployKernelReplicas mocks base method.
+func (m *MockScheduler) DeployKernelReplicas(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeployNewKernel", ctx, kernelSpec, blacklistedHosts)
+	ret := m.ctrl.Call(m, "DeployKernelReplicas", ctx, kernelSpec, blacklistedHosts)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -657,7 +643,7 @@ func (m *MockScheduler) DeployNewKernel(ctx context.Context, kernelSpec *proto.K
 // DeployNewKernel indicates an expected call of DeployNewKernel.
 func (mr *MockSchedulerMockRecorder) DeployNewKernel(ctx, kernelSpec, blacklistedHosts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployNewKernel", reflect.TypeOf((*MockScheduler)(nil).DeployNewKernel), ctx, kernelSpec, blacklistedHosts)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployKernelReplicas", reflect.TypeOf((*MockScheduler)(nil).DeployKernelReplicas), ctx, kernelSpec, blacklistedHosts)
 }
 
 // GetActiveAddReplicaOperationsForKernel mocks base method.
@@ -759,6 +745,34 @@ func (m *MockScheduler) Placer() scheduling.Placer {
 func (mr *MockSchedulerMockRecorder) Placer() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Placer", reflect.TypeOf((*MockScheduler)(nil).Placer))
+}
+
+// Policy mocks base method.
+func (m *MockScheduler) Policy() scheduling.Policy {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Policy")
+	ret0, _ := ret[0].(scheduling.Policy)
+	return ret0
+}
+
+// Policy indicates an expected call of Policy.
+func (mr *MockSchedulerMockRecorder) Policy() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Policy", reflect.TypeOf((*MockScheduler)(nil).Policy))
+}
+
+// PolicyKey mocks base method.
+func (m *MockScheduler) PolicyKey() scheduling.PolicyKey {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PolicyKey")
+	ret0, _ := ret[0].(scheduling.PolicyKey)
+	return ret0
+}
+
+// PolicyKey indicates an expected call of PolicyKey.
+func (mr *MockSchedulerMockRecorder) PolicyKey() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PolicyKey", reflect.TypeOf((*MockScheduler)(nil).PolicyKey))
 }
 
 // ReleaseIdleHosts mocks base method.
@@ -1962,6 +1976,21 @@ func (mr *MockHostMockRecorder) GetNodeName() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeName", reflect.TypeOf((*MockHost)(nil).GetNodeName))
 }
 
+// GetReservation mocks base method.
+func (m *MockHost) GetReservation(kernelId string) (scheduling.ResourceReservation, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetReservation", kernelId)
+	ret0, _ := ret[0].(scheduling.ResourceReservation)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// GetReservation indicates an expected call of GetReservation.
+func (mr *MockHostMockRecorder) GetReservation(kernelId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetReservation", reflect.TypeOf((*MockHost)(nil).GetReservation), kernelId)
+}
+
 // GetResourceSpec mocks base method.
 func (m *MockHost) GetResourceSpec() types.Spec {
 	m.ctrl.T.Helper()
@@ -2519,18 +2548,18 @@ func (mr *MockHostMockRecorder) ReleaseReservation(spec any) *gomock.Call {
 }
 
 // ReserveResources mocks base method.
-func (m *MockHost) ReserveResources(spec *proto.KernelSpec) (bool, error) {
+func (m *MockHost) ReserveResources(spec *proto.KernelSpec, usePendingResources bool) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReserveResources", spec)
+	ret := m.ctrl.Call(m, "ReserveResources", spec, usePendingResources)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ReserveResources indicates an expected call of ReserveResources.
-func (mr *MockHostMockRecorder) ReserveResources(spec any) *gomock.Call {
+func (mr *MockHostMockRecorder) ReserveResources(spec, usePendingResources any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResources", reflect.TypeOf((*MockHost)(nil).ReserveResources), spec)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResources", reflect.TypeOf((*MockHost)(nil).ReserveResources), spec, usePendingResources)
 }
 
 // ResourceSpec mocks base method.

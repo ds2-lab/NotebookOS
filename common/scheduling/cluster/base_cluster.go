@@ -57,10 +57,6 @@ type BaseCluster struct {
 
 	log logger.Logger
 
-	// numReplicas is the number of replicas for each kernel.
-	numReplicas        int
-	numReplicasDecimal decimal.Decimal
-
 	// minimumCapacity is the minimum number of nodes we must have available at any time.
 	// It must be at least equal to the number of replicas per kernel.
 	minimumCapacity int32
@@ -93,8 +89,6 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 	cluster := &BaseCluster{
 		opts:                     opts,
 		gpusPerHost:              opts.GetGpusPerHost(),
-		numReplicas:              opts.GetNumReplicas(),
-		numReplicasDecimal:       decimal.NewFromInt(int64(opts.GetNumReplicas())),
 		metricsProvider:          clusterMetricsProvider,
 		hosts:                    hashmap.NewConcurrentMap[scheduling.Host](256),
 		sessions:                 hashmap.NewCornelkMap[string, scheduling.UserSession](128),
@@ -219,17 +213,6 @@ func (c *BaseCluster) Sessions() hashmap.HashMap[string, scheduling.UserSession]
 // it is currently not supported unless there is at least one disabled host already within the cluster.
 func (c *BaseCluster) CanPossiblyScaleOut() bool {
 	return c.instance.CanPossiblyScaleOut()
-}
-
-// NumReplicasAsDecimal returns the numer of replicas that each Jupyter kernel has associated with it as
-// a decimal.Decimal struct.
-//
-// This value is typically equal to 3, but may be altered in the system configuration.
-//
-// This API exists as basically an optimization so we can return a cached decimal.Decimal struct,
-// rather than recreate it each time we need it.
-func (c *BaseCluster) NumReplicasAsDecimal() decimal.Decimal {
-	return c.numReplicasDecimal
 }
 
 // GetOversubscriptionFactor returns the oversubscription factor calculated as the difference between
@@ -407,7 +390,7 @@ func (c *BaseCluster) DemandGPUs() float64 {
 // NumReplicas returns the numer of replicas that each Jupyter kernel has associated with it.
 // This is typically equal to 3, but may be altered in the system configuration.
 func (c *BaseCluster) NumReplicas() int {
-	return c.numReplicas
+	return c.scheduler.Policy().NumReplicas()
 }
 
 // RangeOverHosts executes the provided function on each Host in the Cluster.
@@ -667,7 +650,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 			scheduling.ErrInvalidTargetNumHosts, n, c.minimumCapacity))
 	}
 
-	if targetNumNodes < int32(c.numReplicas) {
+	if targetNumNodes < int32(c.NumReplicas()) {
 		c.log.Error("Cannot remove %d specific DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster", n)
 		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, scheduling.ErrInvalidTargetNumHosts)
@@ -713,7 +696,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	currentNumNodes := int32(c.Len())
 	targetNumNodes := currentNumNodes - n
 
-	if targetNumNodes < int32(c.numReplicas) {
+	if targetNumNodes < int32(c.NumReplicas()) {
 		c.log.Error("Cannot remove %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster", n)
 		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, scheduling.ErrInvalidTargetNumHosts)
@@ -779,7 +762,7 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 	currentNumNodes := int32(c.Len())
 
 	// Are we trying to scale-down below the minimum cluster size? If so, return an error.
-	if targetNumNodes < int32(c.numReplicas) {
+	if targetNumNodes < int32(c.NumReplicas()) {
 		c.log.Error("Cannot scale to size of %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster", targetNumNodes)
 		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: targetNumNodes=%d", scheduling.ErrInvalidTargetNumHosts, targetNumNodes))

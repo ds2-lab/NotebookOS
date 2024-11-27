@@ -30,13 +30,15 @@ type KubernetesScheduler struct {
 }
 
 func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, kernelProvider KernelProvider, hostSpec types.Spec,
-	kubeClient scheduling.KubeClient, notificationBroker NotificationBroker, opts *scheduling.SchedulerOptions) (*KubernetesScheduler, error) {
+	kubeClient scheduling.KubeClient, notificationBroker NotificationBroker, schedulingPolicy scheduling.Policy,
+	opts *scheduling.SchedulerOptions) (*KubernetesScheduler, error) {
 
 	baseScheduler := newBaseSchedulerBuilder().
 		WithCluster(cluster).
 		WithHostMapper(hostMapper).
 		WithPlacer(placer).
 		WithHostSpec(hostSpec).
+		WithSchedulingPolicy(schedulingPolicy).
 		WithKernelProvider(kernelProvider).
 		WithNotificationBroker(notificationBroker).
 		WithOptions(opts).Build()
@@ -104,12 +106,12 @@ func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpe
 	return nil
 }
 
-// DeployNewKernel is responsible for creating the necessary infrastructure ot schedule the replicas of a new
+// DeployKernelReplicas is responsible for creating the necessary infrastructure ot schedule the replicas of a new
 // kernel onto Host instances.
 //
 // In the case of KubernetesScheduler, DeployNewKernel uses the Kubernetes API to deploy the necessary Kubernetes
 // Resources to create the new Kernel replicas.
-func (s *KubernetesScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
+func (s *KubernetesScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	if len(blacklistedHosts) > 0 {
 		panic("Support for blacklisted hosts with Kubernetes scheduler may not have been implemented yet (I don't think it has)...")
 	}

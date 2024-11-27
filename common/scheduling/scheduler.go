@@ -46,8 +46,8 @@ type KernelScheduler interface {
 	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
 	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) (*proto.MigrateKernelResponse, error)
 
-	// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-	DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []Host) error
+	// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
+	DeployKernelReplicas(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []Host) error
 
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//

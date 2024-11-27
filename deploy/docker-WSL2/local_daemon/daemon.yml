@@ -57,3 +57,4 @@ run_kernels_in_gdb: true
 acks_enabled: false
 checkpointing_enabled: true
 docker_app_name: distributed_notebook
+election_timeout_seconds: 3

@@ -714,6 +714,7 @@ message KernelReplicaSpec {
   bool join = 5;
   optional string persistentId = 6;
   int32 dockerModeKernelDebugPort = 7;
+  string workloadId = 8;
 }
 
 message ResourceSpec {
@@ -780,6 +781,7 @@ message KernelSpec {
   string signatureScheme = 4; // The signature scheme to use.
   string key = 5; // The key to use for signing messages.
   ResourceSpec resourceSpec = 6; // Resource requirements of the kernel.
+  string workloadId = 7;
 }
 
 // The connection info for a kernel.

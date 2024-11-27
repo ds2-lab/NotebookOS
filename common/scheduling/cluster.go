@@ -180,15 +180,6 @@ type ClusterMetricsManager interface {
 	// This is typically equal to 3, but may be altered in the system configuration.
 	NumReplicas() int
 
-	// NumReplicasAsDecimal returns the numer of replicas that each Jupyter kernel has associated with it as
-	// a decimal.Decimal struct.
-	//
-	// This value is typically equal to 3, but may be altered in the system configuration.
-	//
-	// This API exists as basically an optimization so we can return a cached decimal.Decimal struct,
-	// rather than recreate it each time we need it.
-	NumReplicasAsDecimal() decimal.Decimal
-
 	// GetOversubscriptionFactor returns the oversubscription factor calculated as the difference between
 	// the given ratio and the Cluster's current subscription ratio.
 	//
