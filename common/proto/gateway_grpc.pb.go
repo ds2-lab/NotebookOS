@@ -26,6 +26,7 @@ const (
 	ClusterGateway_SmrReady_FullMethodName               = "/gateway.ClusterGateway/SmrReady"
 	ClusterGateway_SmrNodeAdded_FullMethodName           = "/gateway.ClusterGateway/SmrNodeAdded"
 	ClusterGateway_Notify_FullMethodName                 = "/gateway.ClusterGateway/Notify"
+	ClusterGateway_PingGateway_FullMethodName            = "/gateway.ClusterGateway/PingGateway"
 )
 
 // ClusterGatewayClient is the client API for ClusterGateway service.
@@ -52,6 +53,8 @@ type ClusterGatewayClient interface {
 	SmrNodeAdded(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*Void, error)
 	// Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
 	Notify(ctx context.Context, in *Notification, opts ...grpc.CallOption) (*Void, error)
+	// PingGateway is a no-op for testing connectivity.
+	PingGateway(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
 }
 
 type clusterGatewayClient struct {
@@ -132,6 +135,16 @@ func (c *clusterGatewayClient) Notify(ctx context.Context, in *Notification, opt
 	return out, nil
 }
 
+func (c *clusterGatewayClient) PingGateway(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Void)
+	err := c.cc.Invoke(ctx, ClusterGateway_PingGateway_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ClusterGatewayServer is the server API for ClusterGateway service.
 // All implementations must embed UnimplementedClusterGatewayServer
 // for forward compatibility.
@@ -156,6 +169,8 @@ type ClusterGatewayServer interface {
 	SmrNodeAdded(context.Context, *ReplicaInfo) (*Void, error)
 	// Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
 	Notify(context.Context, *Notification) (*Void, error)
+	// PingGateway is a no-op for testing connectivity.
+	PingGateway(context.Context, *Void) (*Void, error)
 	mustEmbedUnimplementedClusterGatewayServer()
 }
 
@@ -186,6 +201,9 @@ func (UnimplementedClusterGatewayServer) SmrNodeAdded(context.Context, *ReplicaI
 }
 func (UnimplementedClusterGatewayServer) Notify(context.Context, *Notification) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Notify not implemented")
+}
+func (UnimplementedClusterGatewayServer) PingGateway(context.Context, *Void) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PingGateway not implemented")
 }
 func (UnimplementedClusterGatewayServer) mustEmbedUnimplementedClusterGatewayServer() {}
 func (UnimplementedClusterGatewayServer) testEmbeddedByValue()                        {}
@@ -334,6 +352,24 @@ func _ClusterGateway_Notify_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ClusterGateway_PingGateway_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ClusterGatewayServer).PingGateway(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ClusterGateway_PingGateway_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ClusterGatewayServer).PingGateway(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ClusterGateway_ServiceDesc is the grpc.ServiceDesc for ClusterGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -369,23 +405,39 @@ var ClusterGateway_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "Notify",
 			Handler:    _ClusterGateway_Notify_Handler,
 		},
+		{
+			MethodName: "PingGateway",
+			Handler:    _ClusterGateway_PingGateway_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "common/proto/gateway.proto",
 }
 
 const (
-	DistributedCluster_InducePanic_FullMethodName              = "/gateway.DistributedCluster/InducePanic"
-	DistributedCluster_SpoofNotifications_FullMethodName       = "/gateway.DistributedCluster/SpoofNotifications"
-	DistributedCluster_Ping_FullMethodName                     = "/gateway.DistributedCluster/Ping"
-	DistributedCluster_PingKernel_FullMethodName               = "/gateway.DistributedCluster/PingKernel"
-	DistributedCluster_ListKernels_FullMethodName              = "/gateway.DistributedCluster/ListKernels"
-	DistributedCluster_SetTotalVirtualGPUs_FullMethodName      = "/gateway.DistributedCluster/SetTotalVirtualGPUs"
-	DistributedCluster_GetClusterActualGpuInfo_FullMethodName  = "/gateway.DistributedCluster/GetClusterActualGpuInfo"
-	DistributedCluster_GetClusterVirtualGpuInfo_FullMethodName = "/gateway.DistributedCluster/GetClusterVirtualGpuInfo"
-	DistributedCluster_MigrateKernelReplica_FullMethodName     = "/gateway.DistributedCluster/MigrateKernelReplica"
-	DistributedCluster_FailNextExecution_FullMethodName        = "/gateway.DistributedCluster/FailNextExecution"
-	DistributedCluster_RegisterDashboard_FullMethodName        = "/gateway.DistributedCluster/RegisterDashboard"
+	DistributedCluster_InducePanic_FullMethodName                 = "/gateway.DistributedCluster/InducePanic"
+	DistributedCluster_ClusterAge_FullMethodName                  = "/gateway.DistributedCluster/ClusterAge"
+	DistributedCluster_SpoofNotifications_FullMethodName          = "/gateway.DistributedCluster/SpoofNotifications"
+	DistributedCluster_Ping_FullMethodName                        = "/gateway.DistributedCluster/Ping"
+	DistributedCluster_PingKernel_FullMethodName                  = "/gateway.DistributedCluster/PingKernel"
+	DistributedCluster_ListKernels_FullMethodName                 = "/gateway.DistributedCluster/ListKernels"
+	DistributedCluster_SetTotalVirtualGPUs_FullMethodName         = "/gateway.DistributedCluster/SetTotalVirtualGPUs"
+	DistributedCluster_GetClusterActualGpuInfo_FullMethodName     = "/gateway.DistributedCluster/GetClusterActualGpuInfo"
+	DistributedCluster_GetClusterVirtualGpuInfo_FullMethodName    = "/gateway.DistributedCluster/GetClusterVirtualGpuInfo"
+	DistributedCluster_MigrateKernelReplica_FullMethodName        = "/gateway.DistributedCluster/MigrateKernelReplica"
+	DistributedCluster_FailNextExecution_FullMethodName           = "/gateway.DistributedCluster/FailNextExecution"
+	DistributedCluster_RegisterDashboard_FullMethodName           = "/gateway.DistributedCluster/RegisterDashboard"
+	DistributedCluster_GetVirtualDockerNodes_FullMethodName       = "/gateway.DistributedCluster/GetVirtualDockerNodes"
+	DistributedCluster_GetDockerSwarmNodes_FullMethodName         = "/gateway.DistributedCluster/GetDockerSwarmNodes"
+	DistributedCluster_GetNumNodes_FullMethodName                 = "/gateway.DistributedCluster/GetNumNodes"
+	DistributedCluster_SetNumClusterNodes_FullMethodName          = "/gateway.DistributedCluster/SetNumClusterNodes"
+	DistributedCluster_AddClusterNodes_FullMethodName             = "/gateway.DistributedCluster/AddClusterNodes"
+	DistributedCluster_RemoveSpecificClusterNodes_FullMethodName  = "/gateway.DistributedCluster/RemoveSpecificClusterNodes"
+	DistributedCluster_RemoveClusterNodes_FullMethodName          = "/gateway.DistributedCluster/RemoveClusterNodes"
+	DistributedCluster_ModifyClusterNodes_FullMethodName          = "/gateway.DistributedCluster/ModifyClusterNodes"
+	DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName       = "/gateway.DistributedCluster/GetLocalDaemonNodeIDs"
+	DistributedCluster_QueryMessage_FullMethodName                = "/gateway.DistributedCluster/QueryMessage"
+	DistributedCluster_ForceLocalDaemonToReconnect_FullMethodName = "/gateway.DistributedCluster/ForceLocalDaemonToReconnect"
 )
 
 // DistributedClusterClient is the client API for DistributedCluster service.
@@ -397,6 +449,8 @@ const (
 type DistributedClusterClient interface {
 	// Used for debugging/testing. Causes a Panic.
 	InducePanic(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
+	// ClusterAge returns the age of the DistributedCluster as a UnixMilliseconds timestamp.
+	ClusterAge(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterAgeResponse, error)
 	// Used to test notifications.
 	SpoofNotifications(ctx context.Context, in *Void, opts ...grpc.CallOption) (*Void, error)
 	// Used to test connectivity.
@@ -425,6 +479,53 @@ type DistributedClusterClient interface {
 	// established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
 	// Kubernetes), from the Cluster Gateway.
 	RegisterDashboard(ctx context.Context, in *Void, opts ...grpc.CallOption) (*DashboardRegistrationResponse, error)
+	// GetVirtualDockerNodes returns a (pointer to a) GetVirtualDockerNodesResponse struct describing the virtual,
+	// simulated nodes currently provisioned within the cluster.
+	//
+	// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+	// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+	//
+	// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+	// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+	//
+	// If the Cluster is not running in Docker mode, then this will return an error.
+	GetVirtualDockerNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetVirtualDockerNodesResponse, error)
+	// GetDockerSwarmNodes returns a (pointer to a) GetDockerSwarmNodesResponse struct describing the Docker Swarm
+	// nodes that exist within the Docker Swarm cluster.
+	//
+	// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+	// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+	//
+	// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+	// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+	//
+	// If the Cluster is not running in Docker mode, then this will return an error.
+	GetDockerSwarmNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetDockerSwarmNodesResponse, error)
+	// GetNumNodes returns the number of nodes in the cluster.
+	GetNumNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*NumNodesResponse, error)
+	// SetNumClusterNodes is used to scale the number of nodes in the cluster to a specifically value.
+	// This function accepts a SetNumClusterNodesRequest struct, which encodes the target number of nodes.
+	SetNumClusterNodes(ctx context.Context, in *SetNumClusterNodesRequest, opts ...grpc.CallOption) (*SetNumClusterNodesResponse, error)
+	// AddClusterNodes provisions a parameterized number of additional nodes within the cluster.
+	// This function accepts a AddClusterNodesRequest struct, which encodes the number of nodes to add.
+	AddClusterNodes(ctx context.Context, in *AddClusterNodesRequest, opts ...grpc.CallOption) (*AddClusterNodesResponse, error)
+	// RemoveClusterNodes removes the specified nodes from the Docker cluster.
+	// This function accepts a RemoveSpecificClusterNodesRequest struct, which encodes the IDs of the nodes to remove.
+	RemoveSpecificClusterNodes(ctx context.Context, in *RemoveSpecificClusterNodesRequest, opts ...grpc.CallOption) (*RemoveSpecificClusterNodesResponse, error)
+	// RemoveClusterNodes removes the specified number of existing nodes from the Docker cluster.
+	// This function accepts a RemoveClusterNodesRequest struct, which encodes the number of nodes to remove.
+	RemoveClusterNodes(ctx context.Context, in *RemoveClusterNodesRequest, opts ...grpc.CallOption) (*RemoveClusterNodesResponse, error)
+	// ModifyClusterNodes enables the modification of one or more nodes within the cluster.
+	// Modifications include altering the number of GPUs available on the nodes.
+	ModifyClusterNodes(ctx context.Context, in *ModifyClusterNodesRequest, opts ...grpc.CallOption) (*ModifyClusterNodesResponse, error)
+	// GetLocalDaemonNodeIDs returns a string slice containing the host IDs of each local daemon.
+	GetLocalDaemonNodeIDs(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetLocalDaemonNodeIDsResponse, error)
+	// QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
+	// and what the status of that message is (i.e., sent, response received, etc.)
+	QueryMessage(ctx context.Context, in *QueryMessageRequest, opts ...grpc.CallOption) (*QueryMessageResponse, error)
+	// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+	// This is mostly used for testing/debugging the reconnection process.
+	ForceLocalDaemonToReconnect(ctx context.Context, in *ForceLocalDaemonToReconnectRequest, opts ...grpc.CallOption) (*Void, error)
 }
 
 type distributedClusterClient struct {
@@ -439,6 +540,16 @@ func (c *distributedClusterClient) InducePanic(ctx context.Context, in *Void, op
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(Void)
 	err := c.cc.Invoke(ctx, DistributedCluster_InducePanic_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) ClusterAge(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterAgeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterAgeResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_ClusterAge_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -545,6 +656,116 @@ func (c *distributedClusterClient) RegisterDashboard(ctx context.Context, in *Vo
 	return out, nil
 }
 
+func (c *distributedClusterClient) GetVirtualDockerNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetVirtualDockerNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetVirtualDockerNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_GetVirtualDockerNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) GetDockerSwarmNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetDockerSwarmNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetDockerSwarmNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_GetDockerSwarmNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) GetNumNodes(ctx context.Context, in *Void, opts ...grpc.CallOption) (*NumNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NumNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_GetNumNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) SetNumClusterNodes(ctx context.Context, in *SetNumClusterNodesRequest, opts ...grpc.CallOption) (*SetNumClusterNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetNumClusterNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_SetNumClusterNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) AddClusterNodes(ctx context.Context, in *AddClusterNodesRequest, opts ...grpc.CallOption) (*AddClusterNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddClusterNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_AddClusterNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) RemoveSpecificClusterNodes(ctx context.Context, in *RemoveSpecificClusterNodesRequest, opts ...grpc.CallOption) (*RemoveSpecificClusterNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveSpecificClusterNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_RemoveSpecificClusterNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) RemoveClusterNodes(ctx context.Context, in *RemoveClusterNodesRequest, opts ...grpc.CallOption) (*RemoveClusterNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveClusterNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_RemoveClusterNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) ModifyClusterNodes(ctx context.Context, in *ModifyClusterNodesRequest, opts ...grpc.CallOption) (*ModifyClusterNodesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ModifyClusterNodesResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_ModifyClusterNodes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) GetLocalDaemonNodeIDs(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GetLocalDaemonNodeIDsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetLocalDaemonNodeIDsResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) QueryMessage(ctx context.Context, in *QueryMessageRequest, opts ...grpc.CallOption) (*QueryMessageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(QueryMessageResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_QueryMessage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) ForceLocalDaemonToReconnect(ctx context.Context, in *ForceLocalDaemonToReconnectRequest, opts ...grpc.CallOption) (*Void, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Void)
+	err := c.cc.Invoke(ctx, DistributedCluster_ForceLocalDaemonToReconnect_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DistributedClusterServer is the server API for DistributedCluster service.
 // All implementations must embed UnimplementedDistributedClusterServer
 // for forward compatibility.
@@ -554,6 +775,8 @@ func (c *distributedClusterClient) RegisterDashboard(ctx context.Context, in *Vo
 type DistributedClusterServer interface {
 	// Used for debugging/testing. Causes a Panic.
 	InducePanic(context.Context, *Void) (*Void, error)
+	// ClusterAge returns the age of the DistributedCluster as a UnixMilliseconds timestamp.
+	ClusterAge(context.Context, *Void) (*ClusterAgeResponse, error)
 	// Used to test notifications.
 	SpoofNotifications(context.Context, *Void) (*Void, error)
 	// Used to test connectivity.
@@ -582,6 +805,53 @@ type DistributedClusterServer interface {
 	// established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
 	// Kubernetes), from the Cluster Gateway.
 	RegisterDashboard(context.Context, *Void) (*DashboardRegistrationResponse, error)
+	// GetVirtualDockerNodes returns a (pointer to a) GetVirtualDockerNodesResponse struct describing the virtual,
+	// simulated nodes currently provisioned within the cluster.
+	//
+	// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+	// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+	//
+	// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+	// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+	//
+	// If the Cluster is not running in Docker mode, then this will return an error.
+	GetVirtualDockerNodes(context.Context, *Void) (*GetVirtualDockerNodesResponse, error)
+	// GetDockerSwarmNodes returns a (pointer to a) GetDockerSwarmNodesResponse struct describing the Docker Swarm
+	// nodes that exist within the Docker Swarm cluster.
+	//
+	// When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+	// Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+	//
+	// In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+	// we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+	//
+	// If the Cluster is not running in Docker mode, then this will return an error.
+	GetDockerSwarmNodes(context.Context, *Void) (*GetDockerSwarmNodesResponse, error)
+	// GetNumNodes returns the number of nodes in the cluster.
+	GetNumNodes(context.Context, *Void) (*NumNodesResponse, error)
+	// SetNumClusterNodes is used to scale the number of nodes in the cluster to a specifically value.
+	// This function accepts a SetNumClusterNodesRequest struct, which encodes the target number of nodes.
+	SetNumClusterNodes(context.Context, *SetNumClusterNodesRequest) (*SetNumClusterNodesResponse, error)
+	// AddClusterNodes provisions a parameterized number of additional nodes within the cluster.
+	// This function accepts a AddClusterNodesRequest struct, which encodes the number of nodes to add.
+	AddClusterNodes(context.Context, *AddClusterNodesRequest) (*AddClusterNodesResponse, error)
+	// RemoveClusterNodes removes the specified nodes from the Docker cluster.
+	// This function accepts a RemoveSpecificClusterNodesRequest struct, which encodes the IDs of the nodes to remove.
+	RemoveSpecificClusterNodes(context.Context, *RemoveSpecificClusterNodesRequest) (*RemoveSpecificClusterNodesResponse, error)
+	// RemoveClusterNodes removes the specified number of existing nodes from the Docker cluster.
+	// This function accepts a RemoveClusterNodesRequest struct, which encodes the number of nodes to remove.
+	RemoveClusterNodes(context.Context, *RemoveClusterNodesRequest) (*RemoveClusterNodesResponse, error)
+	// ModifyClusterNodes enables the modification of one or more nodes within the cluster.
+	// Modifications include altering the number of GPUs available on the nodes.
+	ModifyClusterNodes(context.Context, *ModifyClusterNodesRequest) (*ModifyClusterNodesResponse, error)
+	// GetLocalDaemonNodeIDs returns a string slice containing the host IDs of each local daemon.
+	GetLocalDaemonNodeIDs(context.Context, *Void) (*GetLocalDaemonNodeIDsResponse, error)
+	// QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
+	// and what the status of that message is (i.e., sent, response received, etc.)
+	QueryMessage(context.Context, *QueryMessageRequest) (*QueryMessageResponse, error)
+	// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+	// This is mostly used for testing/debugging the reconnection process.
+	ForceLocalDaemonToReconnect(context.Context, *ForceLocalDaemonToReconnectRequest) (*Void, error)
 	mustEmbedUnimplementedDistributedClusterServer()
 }
 
@@ -594,6 +864,9 @@ type UnimplementedDistributedClusterServer struct{}
 
 func (UnimplementedDistributedClusterServer) InducePanic(context.Context, *Void) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InducePanic not implemented")
+}
+func (UnimplementedDistributedClusterServer) ClusterAge(context.Context, *Void) (*ClusterAgeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClusterAge not implemented")
 }
 func (UnimplementedDistributedClusterServer) SpoofNotifications(context.Context, *Void) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SpoofNotifications not implemented")
@@ -624,6 +897,39 @@ func (UnimplementedDistributedClusterServer) FailNextExecution(context.Context, 
 }
 func (UnimplementedDistributedClusterServer) RegisterDashboard(context.Context, *Void) (*DashboardRegistrationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterDashboard not implemented")
+}
+func (UnimplementedDistributedClusterServer) GetVirtualDockerNodes(context.Context, *Void) (*GetVirtualDockerNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetVirtualDockerNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) GetDockerSwarmNodes(context.Context, *Void) (*GetDockerSwarmNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDockerSwarmNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) GetNumNodes(context.Context, *Void) (*NumNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetNumNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) SetNumClusterNodes(context.Context, *SetNumClusterNodesRequest) (*SetNumClusterNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetNumClusterNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) AddClusterNodes(context.Context, *AddClusterNodesRequest) (*AddClusterNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddClusterNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) RemoveSpecificClusterNodes(context.Context, *RemoveSpecificClusterNodesRequest) (*RemoveSpecificClusterNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveSpecificClusterNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) RemoveClusterNodes(context.Context, *RemoveClusterNodesRequest) (*RemoveClusterNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveClusterNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) ModifyClusterNodes(context.Context, *ModifyClusterNodesRequest) (*ModifyClusterNodesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ModifyClusterNodes not implemented")
+}
+func (UnimplementedDistributedClusterServer) GetLocalDaemonNodeIDs(context.Context, *Void) (*GetLocalDaemonNodeIDsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLocalDaemonNodeIDs not implemented")
+}
+func (UnimplementedDistributedClusterServer) QueryMessage(context.Context, *QueryMessageRequest) (*QueryMessageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryMessage not implemented")
+}
+func (UnimplementedDistributedClusterServer) ForceLocalDaemonToReconnect(context.Context, *ForceLocalDaemonToReconnectRequest) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ForceLocalDaemonToReconnect not implemented")
 }
 func (UnimplementedDistributedClusterServer) mustEmbedUnimplementedDistributedClusterServer() {}
 func (UnimplementedDistributedClusterServer) testEmbeddedByValue()                            {}
@@ -660,6 +966,24 @@ func _DistributedCluster_InducePanic_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DistributedClusterServer).InducePanic(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_ClusterAge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).ClusterAge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_ClusterAge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).ClusterAge(ctx, req.(*Void))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -844,6 +1168,204 @@ func _DistributedCluster_RegisterDashboard_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DistributedCluster_GetVirtualDockerNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).GetVirtualDockerNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_GetVirtualDockerNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).GetVirtualDockerNodes(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_GetDockerSwarmNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).GetDockerSwarmNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_GetDockerSwarmNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).GetDockerSwarmNodes(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_GetNumNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).GetNumNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_GetNumNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).GetNumNodes(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_SetNumClusterNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetNumClusterNodesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).SetNumClusterNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_SetNumClusterNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).SetNumClusterNodes(ctx, req.(*SetNumClusterNodesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_AddClusterNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddClusterNodesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).AddClusterNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_AddClusterNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).AddClusterNodes(ctx, req.(*AddClusterNodesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_RemoveSpecificClusterNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveSpecificClusterNodesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).RemoveSpecificClusterNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_RemoveSpecificClusterNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).RemoveSpecificClusterNodes(ctx, req.(*RemoveSpecificClusterNodesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_RemoveClusterNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveClusterNodesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).RemoveClusterNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_RemoveClusterNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).RemoveClusterNodes(ctx, req.(*RemoveClusterNodesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_ModifyClusterNodes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ModifyClusterNodesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).ModifyClusterNodes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_ModifyClusterNodes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).ModifyClusterNodes(ctx, req.(*ModifyClusterNodesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_GetLocalDaemonNodeIDs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).GetLocalDaemonNodeIDs(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).GetLocalDaemonNodeIDs(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_QueryMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryMessageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).QueryMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_QueryMessage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).QueryMessage(ctx, req.(*QueryMessageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_ForceLocalDaemonToReconnect_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ForceLocalDaemonToReconnectRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).ForceLocalDaemonToReconnect(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_ForceLocalDaemonToReconnect_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).ForceLocalDaemonToReconnect(ctx, req.(*ForceLocalDaemonToReconnectRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DistributedCluster_ServiceDesc is the grpc.ServiceDesc for DistributedCluster service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -854,6 +1376,10 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InducePanic",
 			Handler:    _DistributedCluster_InducePanic_Handler,
+		},
+		{
+			MethodName: "ClusterAge",
+			Handler:    _DistributedCluster_ClusterAge_Handler,
 		},
 		{
 			MethodName: "SpoofNotifications",
@@ -894,6 +1420,50 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RegisterDashboard",
 			Handler:    _DistributedCluster_RegisterDashboard_Handler,
+		},
+		{
+			MethodName: "GetVirtualDockerNodes",
+			Handler:    _DistributedCluster_GetVirtualDockerNodes_Handler,
+		},
+		{
+			MethodName: "GetDockerSwarmNodes",
+			Handler:    _DistributedCluster_GetDockerSwarmNodes_Handler,
+		},
+		{
+			MethodName: "GetNumNodes",
+			Handler:    _DistributedCluster_GetNumNodes_Handler,
+		},
+		{
+			MethodName: "SetNumClusterNodes",
+			Handler:    _DistributedCluster_SetNumClusterNodes_Handler,
+		},
+		{
+			MethodName: "AddClusterNodes",
+			Handler:    _DistributedCluster_AddClusterNodes_Handler,
+		},
+		{
+			MethodName: "RemoveSpecificClusterNodes",
+			Handler:    _DistributedCluster_RemoveSpecificClusterNodes_Handler,
+		},
+		{
+			MethodName: "RemoveClusterNodes",
+			Handler:    _DistributedCluster_RemoveClusterNodes_Handler,
+		},
+		{
+			MethodName: "ModifyClusterNodes",
+			Handler:    _DistributedCluster_ModifyClusterNodes_Handler,
+		},
+		{
+			MethodName: "GetLocalDaemonNodeIDs",
+			Handler:    _DistributedCluster_GetLocalDaemonNodeIDs_Handler,
+		},
+		{
+			MethodName: "QueryMessage",
+			Handler:    _DistributedCluster_QueryMessage_Handler,
+		},
+		{
+			MethodName: "ForceLocalDaemonToReconnect",
+			Handler:    _DistributedCluster_ForceLocalDaemonToReconnect_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
@@ -1009,6 +1579,124 @@ var ClusterDashboard_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	KernelErrorReporter_Notify_FullMethodName = "/gateway.KernelErrorReporter/Notify"
+)
+
+// KernelErrorReporterClient is the client API for KernelErrorReporter service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+//
+// Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+// If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+// gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+// be submitted to the Cluster Dashboard.
+type KernelErrorReporterClient interface {
+	// Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
+	Notify(ctx context.Context, in *KernelNotification, opts ...grpc.CallOption) (*Void, error)
+}
+
+type kernelErrorReporterClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewKernelErrorReporterClient(cc grpc.ClientConnInterface) KernelErrorReporterClient {
+	return &kernelErrorReporterClient{cc}
+}
+
+func (c *kernelErrorReporterClient) Notify(ctx context.Context, in *KernelNotification, opts ...grpc.CallOption) (*Void, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Void)
+	err := c.cc.Invoke(ctx, KernelErrorReporter_Notify_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// KernelErrorReporterServer is the server API for KernelErrorReporter service.
+// All implementations must embed UnimplementedKernelErrorReporterServer
+// for forward compatibility.
+//
+// KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+//
+// Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+// If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+// gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+// be submitted to the Cluster Dashboard.
+type KernelErrorReporterServer interface {
+	// Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
+	Notify(context.Context, *KernelNotification) (*Void, error)
+	mustEmbedUnimplementedKernelErrorReporterServer()
+}
+
+// UnimplementedKernelErrorReporterServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedKernelErrorReporterServer struct{}
+
+func (UnimplementedKernelErrorReporterServer) Notify(context.Context, *KernelNotification) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Notify not implemented")
+}
+func (UnimplementedKernelErrorReporterServer) mustEmbedUnimplementedKernelErrorReporterServer() {}
+func (UnimplementedKernelErrorReporterServer) testEmbeddedByValue()                             {}
+
+// UnsafeKernelErrorReporterServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to KernelErrorReporterServer will
+// result in compilation errors.
+type UnsafeKernelErrorReporterServer interface {
+	mustEmbedUnimplementedKernelErrorReporterServer()
+}
+
+func RegisterKernelErrorReporterServer(s grpc.ServiceRegistrar, srv KernelErrorReporterServer) {
+	// If the following call pancis, it indicates UnimplementedKernelErrorReporterServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&KernelErrorReporter_ServiceDesc, srv)
+}
+
+func _KernelErrorReporter_Notify_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(KernelNotification)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(KernelErrorReporterServer).Notify(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: KernelErrorReporter_Notify_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(KernelErrorReporterServer).Notify(ctx, req.(*KernelNotification))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// KernelErrorReporter_ServiceDesc is the grpc.ServiceDesc for KernelErrorReporter service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var KernelErrorReporter_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "gateway.KernelErrorReporter",
+	HandlerType: (*KernelErrorReporterServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Notify",
+			Handler:    _KernelErrorReporter_Notify_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "common/proto/gateway.proto",
+}
+
+const (
 	LocalGateway_SetID_FullMethodName                    = "/gateway.LocalGateway/SetID"
 	LocalGateway_StartKernel_FullMethodName              = "/gateway.LocalGateway/StartKernel"
 	LocalGateway_StartKernelReplica_FullMethodName       = "/gateway.LocalGateway/StartKernelReplica"
@@ -1021,22 +1709,25 @@ const (
 	LocalGateway_AddReplica_FullMethodName               = "/gateway.LocalGateway/AddReplica"
 	LocalGateway_UpdateReplicaAddr_FullMethodName        = "/gateway.LocalGateway/UpdateReplicaAddr"
 	LocalGateway_PrepareToMigrate_FullMethodName         = "/gateway.LocalGateway/PrepareToMigrate"
+	LocalGateway_ResourcesSnapshot_FullMethodName        = "/gateway.LocalGateway/ResourcesSnapshot"
 	LocalGateway_GetActualGpuInfo_FullMethodName         = "/gateway.LocalGateway/GetActualGpuInfo"
 	LocalGateway_GetVirtualGpuInfo_FullMethodName        = "/gateway.LocalGateway/GetVirtualGpuInfo"
 	LocalGateway_SetTotalVirtualGPUs_FullMethodName      = "/gateway.LocalGateway/SetTotalVirtualGPUs"
 	LocalGateway_GetVirtualGpuAllocations_FullMethodName = "/gateway.LocalGateway/GetVirtualGpuAllocations"
 	LocalGateway_YieldNextExecution_FullMethodName       = "/gateway.LocalGateway/YieldNextExecution"
+	LocalGateway_ReconnectToGateway_FullMethodName       = "/gateway.LocalGateway/ReconnectToGateway"
 )
 
 // LocalGatewayClient is the client API for LocalGateway service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// The juypter gateway service for host local kernels.
+// The Jupyter gateway service for host local kernels.
 type LocalGatewayClient interface {
-	// SetID sets the local gatway id and return old id for failure tolerance.
+	// SetID sets the local gateway id and return old id for failure tolerance.
+	// This also instructs the Local Daemon associated with the LocalGateway to create a PrometheusManager and begin serving metrics.
 	SetID(ctx context.Context, in *HostId, opts ...grpc.CallOption) (*HostId, error)
-	// StartKernel a kernel or kernel replica.
+	// StartKernel starts a kernel or kernel replica.
 	StartKernel(ctx context.Context, in *KernelSpec, opts ...grpc.CallOption) (*KernelConnectionInfo, error)
 	// StartKernelReplica starts a kernel replica on the local host.
 	StartKernelReplica(ctx context.Context, in *KernelReplicaSpec, opts ...grpc.CallOption) (*KernelConnectionInfo, error)
@@ -1058,20 +1749,32 @@ type LocalGatewayClient interface {
 	// This is primarily used during migrations.
 	UpdateReplicaAddr(ctx context.Context, in *ReplicaInfoWithAddr, opts ...grpc.CallOption) (*Void, error)
 	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
-	// This involves writing the contents of the etcd-raft data directory to HDFS so that
-	// it can be read back from HDFS by the new replica.
+	// This involves writing the contents of the etcd-raft data directory to remote storage so that
+	// it can be read back from make build-linux-amd64 by the new replica.
 	PrepareToMigrate(ctx context.Context, in *ReplicaInfo, opts ...grpc.CallOption) (*PrepareToMigrateResponse, error)
+	// ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of
+	// the current resource quantities on the node.
+	ResourcesSnapshot(ctx context.Context, in *Void, opts ...grpc.CallOption) (*NodeResourcesSnapshotWithContainers, error)
 	// Return the current GPU resource metrics on the node.
+	// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 	GetActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GpuInfo, error)
 	// Return the current vGPU (or "deflated GPU") resource metrics on the node.
+	// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 	GetVirtualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*VirtualGpuInfo, error)
-	// Set the maximum number of vGPU resources availabe on the node.
+	// Set the maximum number of vGPU resources available on the node.
+	// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 	SetTotalVirtualGPUs(ctx context.Context, in *SetVirtualGPUsRequest, opts ...grpc.CallOption) (*VirtualGpuInfo, error)
 	// Return the current vGPU allocations on this node.
+	// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 	GetVirtualGpuAllocations(ctx context.Context, in *Void, opts ...grpc.CallOption) (*VirtualGpuAllocations, error)
 	// Ensure that the next 'execute_request' for the specified kernel fails.
 	// This is to be used exclusively for testing/debugging purposes.
 	YieldNextExecution(ctx context.Context, in *KernelId, opts ...grpc.CallOption) (*Void, error)
+	// ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
+	//
+	// The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
+	// to avoid causing the ReconnectToGateway to encounter an error.
+	ReconnectToGateway(ctx context.Context, in *ReconnectToGatewayRequest, opts ...grpc.CallOption) (*Void, error)
 }
 
 type localGatewayClient struct {
@@ -1202,6 +1905,16 @@ func (c *localGatewayClient) PrepareToMigrate(ctx context.Context, in *ReplicaIn
 	return out, nil
 }
 
+func (c *localGatewayClient) ResourcesSnapshot(ctx context.Context, in *Void, opts ...grpc.CallOption) (*NodeResourcesSnapshotWithContainers, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NodeResourcesSnapshotWithContainers)
+	err := c.cc.Invoke(ctx, LocalGateway_ResourcesSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *localGatewayClient) GetActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GpuInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GpuInfo)
@@ -1252,15 +1965,26 @@ func (c *localGatewayClient) YieldNextExecution(ctx context.Context, in *KernelI
 	return out, nil
 }
 
+func (c *localGatewayClient) ReconnectToGateway(ctx context.Context, in *ReconnectToGatewayRequest, opts ...grpc.CallOption) (*Void, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Void)
+	err := c.cc.Invoke(ctx, LocalGateway_ReconnectToGateway_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LocalGatewayServer is the server API for LocalGateway service.
 // All implementations must embed UnimplementedLocalGatewayServer
 // for forward compatibility.
 //
-// The juypter gateway service for host local kernels.
+// The Jupyter gateway service for host local kernels.
 type LocalGatewayServer interface {
-	// SetID sets the local gatway id and return old id for failure tolerance.
+	// SetID sets the local gateway id and return old id for failure tolerance.
+	// This also instructs the Local Daemon associated with the LocalGateway to create a PrometheusManager and begin serving metrics.
 	SetID(context.Context, *HostId) (*HostId, error)
-	// StartKernel a kernel or kernel replica.
+	// StartKernel starts a kernel or kernel replica.
 	StartKernel(context.Context, *KernelSpec) (*KernelConnectionInfo, error)
 	// StartKernelReplica starts a kernel replica on the local host.
 	StartKernelReplica(context.Context, *KernelReplicaSpec) (*KernelConnectionInfo, error)
@@ -1282,20 +2006,32 @@ type LocalGatewayServer interface {
 	// This is primarily used during migrations.
 	UpdateReplicaAddr(context.Context, *ReplicaInfoWithAddr) (*Void, error)
 	// Used to instruct a specific kernel replica to prepare to be migrated to a new node.
-	// This involves writing the contents of the etcd-raft data directory to HDFS so that
-	// it can be read back from HDFS by the new replica.
+	// This involves writing the contents of the etcd-raft data directory to remote storage so that
+	// it can be read back from make build-linux-amd64 by the new replica.
 	PrepareToMigrate(context.Context, *ReplicaInfo) (*PrepareToMigrateResponse, error)
+	// ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of
+	// the current resource quantities on the node.
+	ResourcesSnapshot(context.Context, *Void) (*NodeResourcesSnapshotWithContainers, error)
 	// Return the current GPU resource metrics on the node.
+	// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 	GetActualGpuInfo(context.Context, *Void) (*GpuInfo, error)
 	// Return the current vGPU (or "deflated GPU") resource metrics on the node.
+	// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 	GetVirtualGpuInfo(context.Context, *Void) (*VirtualGpuInfo, error)
-	// Set the maximum number of vGPU resources availabe on the node.
+	// Set the maximum number of vGPU resources available on the node.
+	// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 	SetTotalVirtualGPUs(context.Context, *SetVirtualGPUsRequest) (*VirtualGpuInfo, error)
 	// Return the current vGPU allocations on this node.
+	// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 	GetVirtualGpuAllocations(context.Context, *Void) (*VirtualGpuAllocations, error)
 	// Ensure that the next 'execute_request' for the specified kernel fails.
 	// This is to be used exclusively for testing/debugging purposes.
 	YieldNextExecution(context.Context, *KernelId) (*Void, error)
+	// ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
+	//
+	// The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
+	// to avoid causing the ReconnectToGateway to encounter an error.
+	ReconnectToGateway(context.Context, *ReconnectToGatewayRequest) (*Void, error)
 	mustEmbedUnimplementedLocalGatewayServer()
 }
 
@@ -1342,6 +2078,9 @@ func (UnimplementedLocalGatewayServer) UpdateReplicaAddr(context.Context, *Repli
 func (UnimplementedLocalGatewayServer) PrepareToMigrate(context.Context, *ReplicaInfo) (*PrepareToMigrateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrepareToMigrate not implemented")
 }
+func (UnimplementedLocalGatewayServer) ResourcesSnapshot(context.Context, *Void) (*NodeResourcesSnapshotWithContainers, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResourcesSnapshot not implemented")
+}
 func (UnimplementedLocalGatewayServer) GetActualGpuInfo(context.Context, *Void) (*GpuInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetActualGpuInfo not implemented")
 }
@@ -1356,6 +2095,9 @@ func (UnimplementedLocalGatewayServer) GetVirtualGpuAllocations(context.Context,
 }
 func (UnimplementedLocalGatewayServer) YieldNextExecution(context.Context, *KernelId) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method YieldNextExecution not implemented")
+}
+func (UnimplementedLocalGatewayServer) ReconnectToGateway(context.Context, *ReconnectToGatewayRequest) (*Void, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReconnectToGateway not implemented")
 }
 func (UnimplementedLocalGatewayServer) mustEmbedUnimplementedLocalGatewayServer() {}
 func (UnimplementedLocalGatewayServer) testEmbeddedByValue()                      {}
@@ -1594,6 +2336,24 @@ func _LocalGateway_PrepareToMigrate_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalGateway_ResourcesSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalGatewayServer).ResourcesSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalGateway_ResourcesSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalGatewayServer).ResourcesSnapshot(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _LocalGateway_GetActualGpuInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Void)
 	if err := dec(in); err != nil {
@@ -1684,6 +2444,24 @@ func _LocalGateway_YieldNextExecution_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalGateway_ReconnectToGateway_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReconnectToGatewayRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalGatewayServer).ReconnectToGateway(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalGateway_ReconnectToGateway_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalGatewayServer).ReconnectToGateway(ctx, req.(*ReconnectToGatewayRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // LocalGateway_ServiceDesc is the grpc.ServiceDesc for LocalGateway service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1740,6 +2518,10 @@ var LocalGateway_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _LocalGateway_PrepareToMigrate_Handler,
 		},
 		{
+			MethodName: "ResourcesSnapshot",
+			Handler:    _LocalGateway_ResourcesSnapshot_Handler,
+		},
+		{
 			MethodName: "GetActualGpuInfo",
 			Handler:    _LocalGateway_GetActualGpuInfo_Handler,
 		},
@@ -1758,6 +2540,10 @@ var LocalGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "YieldNextExecution",
 			Handler:    _LocalGateway_YieldNextExecution_Handler,
+		},
+		{
+			MethodName: "ReconnectToGateway",
+			Handler:    _LocalGateway_ReconnectToGateway_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -1,0 +1,46 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [ ]
+      scheme: http
+      timeout: 10s
+      api_version: v2
+scrape_configs:
+  - job_name: prometheus
+    honor_timestamps: true
+    scrape_interval: 5s
+    scrape_timeout: 5s
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets:
+          - host.docker.internal:8000
+    dns_sd_configs:
+      - names:
+          - gateway
+          - daemon
+        type: A
+        port: 8089
+  - job_name: "docker-containers"
+    # Docker service discovery
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock  # Path to the Docker socket
+        port: 8089
+        refresh_interval: 5s
+    relabel_configs:
+      # Only keep containers that have a `prometheus-job` label.
+      - source_labels: [__meta_docker_container_label_component]
+        regex: kernel_replica
+        action: keep
+      - source_labels: [__meta_docker_container_label_app]
+        regex: distributed_cluster
+        action: keep
+      - source_labels: [__address__]
+        action: replace
+        regex: ([^:]+):.*
+        replacement: $1:8089
+        target_label: __address__

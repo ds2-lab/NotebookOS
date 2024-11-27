@@ -1,194 +1,210 @@
 package scheduling
 
 import (
-	"fmt"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/mason-leap-lab/go-utils/promise"
-	"github.com/zhangjyr/distributed-notebook/common/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils/hashmap"
+	"github.com/Scusemua/go-utils/promise"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
+	"github.com/shopspring/decimal"
+	"golang.org/x/net/context"
 )
 
-var (
-	ErrDuplicatedIndexDefined = fmt.Errorf("duplicated index defined")
-)
+type ClusterSessionManager interface {
+	// Sessions returns a mapping from session ID to Session.
+	Sessions() hashmap.HashMap[string, UserSession]
 
-type ClusterIndexQualification int
+	// AddSession adds a Session to the Cluster.
+	AddSession(sessionId string, session UserSession)
 
-const (
-	CategoryClusterIndex = "BasicCluster"
+	// GetSession returns the Session with the specified ID.
+	//
+	// We return the UserSession so that we can use this in unit tests with a mocked Session.
+	GetSession(sessionID string) (UserSession, bool)
+}
 
-	// ClusterIndexDisqualified indicates that the host has been indexed and unqualified now.
-	ClusterIndexDisqualified ClusterIndexQualification = -1
-	// ClusterIndexUnqualified indicates that the host is not qualified.
-	ClusterIndexUnqualified ClusterIndexQualification = 0
-	// ClusterIndexQualified indicates that the host has been indexed and is still qualified.
-	ClusterIndexQualified ClusterIndexQualification = 1
-	// ClusterIndexNewQualified indicates that the host is newly qualified and should be indexed.
-	ClusterIndexNewQualified ClusterIndexQualification = 2
-)
+type ClusterHostManager interface {
+	// RequestHosts requests n Host instances to be launched and added to the Cluster, where n >= 1.
+	//
+	// If n is 0, then this returns immediately.
+	//
+	// If n is negative, then this returns with an error.
+	RequestHosts(ctx context.Context, n int32) promise.Promise
 
-type ClusterIndexProvider interface {
-	// Category returns the category of the index and the expected value.
-	Category() (category string, expected interface{})
+	// ReleaseSpecificHosts terminates one or more specific Host instances.
+	ReleaseSpecificHosts(ctx context.Context, ids []string) promise.Promise
 
-	// IsQualified returns the actual value according to the index category and whether the host is qualified.
-	// An index provider must be able to track indexed hosts and indicate disqualification.
-	IsQualified(*Host) (actual interface{}, qualified ClusterIndexQualification)
+	// ReleaseHosts terminates n arbitrary Host instances, where n >= 1.
+	//
+	// If n is 0, then ReleaseHosts returns immediately.
+	//
+	// If n is negative, then ReleaseHosts returns with an error.
+	ReleaseHosts(ctx context.Context, n int32) promise.Promise
 
-	// Len returns the number of hosts in the index.
+	// ScaleToSize scales the Cluster to the specified number of Host instances.
+	//
+	// If n <= NUM_REPLICAS, then ScaleToSize returns with an error.
+	ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise
+
+	// RemoveHost removes the Host with the specified ID.
+	// This is called when a DefaultSchedulingPolicy Daemon loses connection.
+	RemoveHost(hostId string)
+
+	// NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
+	// NewHostAddedOrConnected handles the logic of adding the Host to the Cluster, and in particular will handle the
+	// task of locking the required structures during scaling operations.
+	NewHostAddedOrConnected(host Host) error
+
+	// GetHost returns the Host with the given ID, if one exists.
+	GetHost(hostId string) (Host, bool)
+
+	// RangeOverHosts executes the provided function on each enabled Host in the Cluster.
+	//
+	// Importantly, this function does NOT lock the hostsMutex.
+	RangeOverHosts(f func(key string, value Host) bool)
+
+	// RangeOverDisabledHosts executes the provided function on each disabled Host in the Cluster.
+	//
+	// Importantly, this function does NOT lock the hostsMutex.
+	RangeOverDisabledHosts(f func(key string, value Host) bool)
+
+	// ReadLockHosts locks the underlying host manager such that no Host instances can be added or removed.
+	ReadLockHosts()
+
+	// ReadUnlockHosts unlocks the underlying host manager, enabling the addition or removal of Host instances.
+	ReadUnlockHosts()
+
+	// NumDisabledHosts returns the number of Host instances in the Cluster that are in the "disabled" state.
+	NumDisabledHosts() int
+
+	// Len returns the current size of the Cluster (i.e., the number of Host instances within the Cluster).
 	Len() int
-
-	// Add adds a host to the index.
-	Add(*Host)
-
-	// Update updates a host in the index.
-	Update(*Host)
-
-	// Remove removes a host from the index.
-	Remove(*Host)
-
-	// GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.
-	GetMetrics(*Host) (metrics []float64)
 }
 
-type ClusterIndexQuerier interface {
-	// Seek returns the host specified by the metrics.
-	Seek(metrics ...[]float64) (host *Host, pos interface{})
+type ScalingManager interface {
+	ScalingMetricsManager
 
-	// SeekFrom continues the seek from the position.
-	SeekFrom(start interface{}, metrics ...[]float64) (host *Host, pos interface{})
+	// GetScaleInCommand returns the function to be executed to perform a scale-in.
+	// This API exists so each platform-specific Cluster implementation can provide its own platform-specific
+	// logic for scaling-in.
+	//
+	// targetScale specifies the desired size of the Cluster.
+	//
+	// targetHosts specifies any specific hosts that are to be removed.
+	//
+	// resultChan is used to notify a waiting goroutine that the scale-in operation has finished.
+	//
+	// If there's an error, then you send the error over the result chan.
+	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
+	//
+	// IMPORTANT: this method should be called while the hostMutex is already held.
+	GetScaleInCommand(targetNumNodes int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error)
+
+	// GetScaleOutCommand returns the function to be executed to perform a scale-out.
+	// This API exists so each platform-specific Cluster implementation can provide its own platform-specific
+	// logic for scaling-out.
+	//
+	// targetScale specifies the desired size of the Cluster.
+	//
+	// resultChan is used to notify a waiting goroutine that the scale-out operation has finished.
+	//
+	// If there's an error, then you send the error over the result chan.
+	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
+	//
+	// IMPORTANT: this method should be called while the hostMutex is already held.
+	GetScaleOutCommand(targetNumNodes int32, coreLogicDoneChan chan interface{}) func()
+
+	// CanPossiblyScaleOut returns true if the Cluster could possibly scale-out.
+	// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
+	// it is currently not supported unless there is at least one disabled host already within the cluster.
+	CanPossiblyScaleOut() bool
 }
 
-type ClusterIndex interface {
-	ClusterIndexProvider
-	ClusterIndexQuerier
+type ScalingMetricsManager interface {
+	// NumScalingOperationsSucceeded returns the number of scale-in and scale-out operations that have been
+	// completed successfully.
+	NumScalingOperationsSucceeded() int
+
+	// NumScaleOutOperationsSucceeded returns the number of scale-out operations that have been
+	// completed successfully.
+	NumScaleOutOperationsSucceeded() int
+
+	// NumScaleInOperationsSucceeded returns the number of scale-in operations that have been
+	// completed successfully.
+	NumScaleInOperationsSucceeded() int
+
+	// NumScalingOperationsAttempted returns the number of scale-in and scale-out operations that have been
+	// attempted (i.e., count of both successful and failed operations).
+	NumScalingOperationsAttempted() int
+
+	// NumScaleOutOperationsAttempted returns the number of scale-out operations that have been
+	// attempted (i.e., count of both successful and failed operations).
+	NumScaleOutOperationsAttempted() int
+
+	// NumScaleInOperationsAttempted returns the number of scale-in operations that have been
+	// attempted (i.e., count of both successful and failed operations).
+	NumScaleInOperationsAttempted() int
+
+	// NumScalingOperationsFailed returns the number of scale-in and scale-out operations that have failed.
+	NumScalingOperationsFailed() int
+
+	// NumScaleOutOperationsFailed returns the number of scale-out operations that have failed.
+	NumScaleOutOperationsFailed() int
+
+	// NumScaleInOperationsFailed returns the number of scale-in operations that have failed.
+	NumScaleInOperationsFailed() int
 }
 
-// Cluster defines the interface for a BasicCluster that is responsible for:
+type IndexManager interface {
+	// GetIndex returns the IndexProvider whose key is created with the given category and expected values.
+	// The category and expected values are returned by the IndexProvider.Category method.
+	GetIndex(category string, expected interface{}) (IndexProvider, bool)
+
+	// AddIndex adds an index to the BaseCluster. For each category and expected value, there can be only one index.
+	AddIndex(index IndexProvider) error
+}
+
+type ClusterMetricsManager interface {
+	MetricsProvider() MetricsProvider
+
+	// BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
+	BusyGPUs() float64
+
+	// DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
+	DemandGPUs() float64
+
+	// SubscriptionRatio returns the SubscriptionRatio of the Cluster.
+	SubscriptionRatio() float64
+
+	// NodeType returns the type of node provisioned within the Cluster.
+	NodeType() string
+
+	// NumReplicas returns the numer of replicas that each Jupyter kernel has associated with it.
+	// This is typically equal to 3, but may be altered in the system configuration.
+	NumReplicas() int
+
+	// GetOversubscriptionFactor returns the oversubscription factor calculated as the difference between
+	// the given ratio and the Cluster's current subscription ratio.
+	//
+	// Cluster's GetOversubscriptionFactor simply calls the GetOversubscriptionFactor method of the
+	// Cluster's ClusterScheduler.
+	GetOversubscriptionFactor(ratio decimal.Decimal) decimal.Decimal
+}
+
+type ComponentManager interface {
+	// Scheduler returns the Scheduler used by the Cluster.
+	Scheduler() Scheduler
+
+	// Placer returns the Placer used by the Cluster.
+	Placer() Placer
+}
+
+// Cluster defines the interface for a BaseCluster that is responsible for:
 // 1. Launching and terminating hosts.
 // 2. Providing a global view of all hosts with multiple indexes.
 // 3. Providing a statistics of the hosts.
 type Cluster interface {
-	// RequestHost requests a host to be launched.
-	RequestHost(types.Spec) promise.Promise
-
-	// ReleaseHost terminate a host
-	ReleaseHost(id string) promise.Promise
-
-	// GetHostManager returns the host manager of the BasicCluster.
-	GetHostManager() hashmap.HashMap[string, *Host]
-
-	// AddIndex adds an index to the BasicCluster. For each category and expected value, there can be only one index.
-	AddIndex(index ClusterIndexProvider) error
-}
-
-type BasicCluster struct {
-	hosts   hashmap.HashMap[string, *Host]
-	indexes hashmap.BaseHashMap[string, ClusterIndexProvider]
-	log     logger.Logger
-}
-
-func NewCluster() Cluster {
-	cluster := &BasicCluster{
-		hosts:   hashmap.NewConcurrentMap[*Host](256),
-		indexes: hashmap.NewSyncMap[string, ClusterIndexProvider](),
-	}
-	config.InitLogger(&cluster.log, cluster)
-	return cluster
-}
-
-func (c *BasicCluster) RequestHost(spec types.Spec) promise.Promise {
-	return promise.Resolved(nil, promise.ErrNotImplemented)
-}
-
-func (c *BasicCluster) ReleaseHost(id string) promise.Promise {
-	return promise.Resolved(nil, promise.ErrNotImplemented)
-}
-
-func (c *BasicCluster) GetHostManager() hashmap.HashMap[string, *Host] {
-	return c
-}
-
-func (c *BasicCluster) AddIndex(index ClusterIndexProvider) error {
-	category, expected := index.Category()
-	key := fmt.Sprintf("%s:%v", category, expected)
-	if _, ok := c.indexes.Load(key); ok {
-		return ErrDuplicatedIndexDefined
-	}
-
-	c.indexes.Store(key, index)
-	return nil
-}
-
-// onUpdate is called when a host is added to the BasicCluster.
-func (c *BasicCluster) onUpdate(host *Host) {
-	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
-		if _, status := index.IsQualified(host); status == ClusterIndexNewQualified {
-			c.log.Debug("Adding new host to index: %v", host)
-			index.Add(host)
-		} else if status == ClusterIndexQualified {
-			c.log.Debug("Updating existing host within index: %v", host)
-			index.Update(host)
-		} else if status == ClusterIndexDisqualified {
-			c.log.Debug("Removing existing host from index: %v", host)
-			index.Remove(host)
-		} // else unqualified
-		return true
-	})
-}
-
-// onDelete is called when a host is deleted from the BasicCluster.
-func (c *BasicCluster) onDelete(host *Host) {
-	c.indexes.Range(func(key string, index ClusterIndexProvider) bool {
-		if _, status := index.IsQualified(host); status != ClusterIndexUnqualified {
-			index.Remove(host)
-		}
-		return true
-	})
-}
-
-// Hashmap implementation
-
-// Len returns the number of *Host instances in the Cluster.
-func (c *BasicCluster) Len() int {
-	return c.hosts.Len()
-}
-
-func (c *BasicCluster) Load(key string) (*Host, bool) {
-	return c.hosts.Load(key)
-}
-
-func (c *BasicCluster) Store(key string, value *Host) {
-	c.hosts.Store(key, value)
-	c.onUpdate(value)
-}
-
-func (c *BasicCluster) LoadOrStore(key string, value *Host) (*Host, bool) {
-	host, ok := c.hosts.LoadOrStore(key, value)
-	if !ok {
-		c.onUpdate(value)
-	}
-	return host, ok
-}
-
-// CompareAndSwap is not supported in host provisioning and will always return false.
-func (c *BasicCluster) CompareAndSwap(key string, oldValue, newValue *Host) (*Host, bool) {
-	return oldValue, false
-}
-
-func (c *BasicCluster) LoadAndDelete(key string) (*Host, bool) {
-	host, ok := c.hosts.LoadAndDelete(key)
-	if ok {
-		c.onDelete(host)
-	}
-	return host, ok
-}
-
-func (c *BasicCluster) Delete(key string) {
-	c.hosts.LoadAndDelete(key)
-}
-
-func (c *BasicCluster) Range(f func(key string, value *Host) bool) {
-	c.hosts.Range(f)
+	ComponentManager
+	ScalingManager
+	IndexManager
+	ClusterMetricsManager
+	ClusterHostManager
+	ClusterSessionManager
 }

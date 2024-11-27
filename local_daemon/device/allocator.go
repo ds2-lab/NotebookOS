@@ -3,12 +3,12 @@ package device
 import (
 	"errors"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"path/filepath"
 	"sync"
 
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
@@ -18,7 +18,7 @@ import (
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
+	"github.com/scusemua/distributed-notebook/local_daemon/domain"
 )
 
 var (
@@ -46,11 +46,11 @@ type virtualGpuAllocatorImpl struct {
 	allocations map[string]*proto.VirtualGpuAllocation
 }
 
-// Creates a new virtualGpuAllocator using an out-of-cluster config for its Kubernetes client.
+// NewVirtualGpuAllocatorForTesting creates a new virtualGpuAllocator using an out-of-cluster config for its Kubernetes client.
 func NewVirtualGpuAllocatorForTesting(opts *domain.VirtualGpuPluginServerOptions, nodeName string, podCache PodCache, vgpusChangedChan chan interface{}) VirtualGpuAllocator {
 	var kubeconfig string
 	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = filepath.Join(home, ".kube", "config")
+		kubeconfig = filepath.Join(home, ".kubernetes", "config")
 	} else {
 		panic("Cannot find Kubernetes config!")
 	}
@@ -173,10 +173,10 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 
 	candidatePods, err := v.getCandidatePodsForAllocation()
 	if err != nil {
-		errorMessage := fmt.Sprintf("Failed to retrieve candidate pods for allocation because: %v", err)
-		v.log.Error(errorMessage)
-		klog.Error(errorMessage)
-		return nil, fmt.Errorf(errorMessage)
+		errorMessage := fmt.Errorf("failed to retrieve candidate pods for allocation because: %w", err)
+		v.log.Error(errorMessage.Error())
+		klog.Error(errorMessage.Error())
+		return nil, errorMessage
 	}
 
 	var numVirtualGPUsRequested = int32(len(request.DevicesIDs))
@@ -211,16 +211,16 @@ func (v *virtualGpuAllocatorImpl) Allocate(req *pluginapi.AllocateRequest) (*plu
 			klog.V(2).Infof("Returning the following value from virtualGpuPluginServerImpl::Allocate: %v", responses)
 			return responses, nil
 		} else {
-			errorMessage := fmt.Sprintf("failed to allocate vGPUs to pod %s(%s) because: %v", string(candidatePod.UID), candidatePod.Name, err)
-			v.log.Error(errorMessage)
+			errorMessage := fmt.Errorf("failed to allocate vGPUs to pod %s(%s) because: %w", string(candidatePod.UID), candidatePod.Name, err)
+			v.log.Error(errorMessage.Error())
 			klog.Error(errorMessage)
-			return nil, fmt.Errorf(errorMessage)
+			return nil, errorMessage
 		}
 	} else {
-		errorMessage := fmt.Sprintf("could not find candidate Pod for request for %d vGPUs, allocation failed.", len(request.DevicesIDs))
-		v.log.Error(errorMessage)
+		errorMessage := fmt.Errorf("could not find candidate Pod for request for %d vGPUs, allocation failed", len(request.DevicesIDs))
+		v.log.Error(errorMessage.Error())
 		klog.Error(errorMessage)
-		return nil, fmt.Errorf(errorMessage)
+		return nil, errorMessage
 	}
 }
 

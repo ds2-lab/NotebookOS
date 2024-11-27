@@ -1,0 +1,9 @@
+- name: Leave the Docker Swarm cluster
+  docker_swarm:
+    state: absent
+    force: true
+  ignore_errors: true
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"

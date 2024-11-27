@@ -1,0 +1,146 @@
+- name: Test if Docker is installed correctly by running hello-world container
+  command: docker run hello-world
+  register: docker_test_initial
+  failed_when: "'Hello from Docker!' not in docker_test_initial.stdout"
+  ignore_errors: yes
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: Print Docker already installed
+  debug:
+    msg: "{{ 'Docker appears to be installed already: ' + docker_test_initial.stdout if 'Hello from Docker!' in docker_test_initial.stdout else 'Docker is not already installed. Will install Docker now.' }}"
+  when: not docker_test_initial.failed
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: Update package index while installing Docker
+  apt:  # Note: we can use 'yum' for Amazon Linux or Red Hat based distros if we switch to those
+    update_cache: yes
+  when: ansible_distribution == 'Ubuntu' and docker_test_initial.failed
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  become: true
+
+- name: Install required packages (Amazon Linux)
+  yum:
+    name: ['yum-utils', 'device-mapper-persistent-data', 'lvm2']
+    state: present
+  when: ansible_distribution == 'Amazon' and docker_test_initial.failed
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  become: true
+
+- name: Install required packages (Ubuntu)
+  apt:
+    name: ['apt-transport-https', 'ca-certificates', 'curl', 'software-properties-common']
+    state: present
+  when: ansible_distribution == 'Ubuntu' and docker_test_initial.failed
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  become: true
+
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+  when: ansible_distribution == 'Ubuntu' and docker_test_initial.failed
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  become: true
+
+- name: Add Docker repository (Ubuntu)
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+  when: ansible_distribution == 'Ubuntu' and docker_test_initial.failed
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  become: true
+
+- name: Add Docker repository (Amazon Linux)
+  command: amazon-linux-extras enable docker
+  when: ansible_distribution == 'Amazon' and docker_test_initial.failed
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  become: true
+
+- name: Install Docker (Ubuntu)
+  apt:
+    name: docker-ce
+    state: present
+    update_cache: yes
+  when: ansible_distribution == 'Ubuntu' and docker_test_initial.failed
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  become: true
+
+- name: Install Docker (Amazon Linux)
+  yum:
+    name: docker
+    state: present
+  when: ansible_distribution == 'Amazon' and docker_test_initial.failed
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  become: true
+
+- name: Ensure Docker service is started
+  service:
+    name: docker
+    state: started
+    enabled: yes
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  become: true
+
+- name: Add the current user to the docker group
+  user:
+    name: "{{ remote_username }}"
+    groups: docker
+    append: yes
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+  become: true
+
+- name: Test if Docker is installed correctly by running hello-world container
+  command: docker run hello-world
+  register: docker_test
+  failed_when: "'Hello from Docker!' not in docker_test.stdout"
+  ignore_errors: yes
+  when: docker_test_initial.failed
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"
+
+- name: Print Docker installation test result
+  debug:
+    msg: "{{ docker_test.stdout if 'Hello from Docker!' in docker_test.stdout else 'Docker installation test failed. Check the installation.' }}"
+  when: docker_test_initial.failed
+  environment:
+    LD_LIBRARY_PATH: "$LD_LIBRARY_PATH:{{ python_build_dir }}/Python-{{ python_version }}"
+  vars:
+    ansible_python_interpreter: "{{ python_virtual_env_dir }}/bin/python3.12"

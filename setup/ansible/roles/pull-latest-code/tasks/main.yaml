@@ -1,0 +1,42 @@
+#- name: Pull the latest code changes, discarding any local changes.
+#  git:
+#    repo: "{{ git_repo_url }}"
+#    dest: "{{ repo_dest }}"
+#    version: "{{ gitbranch }}"
+#    update: yes
+#    force: true
+#  become: true
+
+- name: Get file information
+  ansible.builtin.stat:
+    path: "{{ go_install_parent_dir }}/go/{{ git_repo_name }}"
+  register: file_info_pre
+
+- name: Print file owner
+  debug:
+    msg: "File owner is {{ file_info_pre.stat.pw_name }}"
+
+- name: Print file group
+  debug:
+    msg: "File group is {{ file_info_pre.stat.gr_name }}"
+
+- name: Recursively change ownership of the go directory
+  ansible.builtin.file:
+    path: "{{ go_install_parent_dir }}/go/{{ git_repo_name }}"
+    recurse: yes
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+  become: true
+
+- name: Get file information
+  ansible.builtin.stat:
+    path: "{{ go_install_parent_dir }}/go/{{ git_repo_name }}"
+  register: file_info_post
+
+- name: Print file owner
+  debug:
+    msg: "File owner is {{ file_info_post.stat.pw_name }}"
+
+- name: Print file group
+  debug:
+    msg: "File group is {{ file_info_post.stat.gr_name }}"

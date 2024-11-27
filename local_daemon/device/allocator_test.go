@@ -3,13 +3,13 @@ package device_test
 import (
 	"fmt"
 
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/device"
-	"github.com/zhangjyr/distributed-notebook/local_daemon/mock_device"
+	"github.com/scusemua/distributed-notebook/local_daemon/device"
+	"github.com/scusemua/distributed-notebook/local_daemon/mock_device"
 	"go.uber.org/mock/gomock"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -18,7 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 
-	"github.com/zhangjyr/distributed-notebook/local_daemon/domain"
+	"github.com/scusemua/distributed-notebook/local_daemon/domain"
 )
 
 // Return the first n device IDs.

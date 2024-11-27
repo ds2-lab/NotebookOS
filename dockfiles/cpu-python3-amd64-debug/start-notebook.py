@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3.12
 # Copyright (c) Jupyter Development Team.
 # Distributed under the terms of the Modified BSD License.
 import os

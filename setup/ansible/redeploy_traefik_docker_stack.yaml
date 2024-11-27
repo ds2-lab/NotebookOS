@@ -1,0 +1,24 @@
+---
+# This playbook first removes the Docker Swarm stack corresponding to the distributed notebook cluster.
+# Once removed, the playbook will recreate the stack.
+
+- name: Remove the Traefik stack on the Docker Swarm cluster
+  hosts: swarm-leader
+  roles:
+    - remove-traefik-docker-stack
+  tags:
+    - docker
+    - swarm
+    - restart_component
+    - reinstall_traefik
+
+- name: Redeploy the Traefik stack on the Docker Swarm cluster
+  hosts: swarm-leader
+  roles:
+    - deploy-traefik-docker-stack
+  tags:
+    - docker
+    - swarm
+    - traefik
+    - reinstall_traefik
+    - restart_component

@@ -165,6 +165,14 @@ func (i *StatInt32) Add(j int32) int32 {
 	return atomic.AddInt32((*int32)(i), j)
 }
 
+func (i *StatInt32) Incr() int32 {
+	return atomic.AddInt32((*int32)(i), 1)
+}
+
+func (i *StatInt32) Decr() int32 {
+	return atomic.AddInt32((*int32)(i), -1)
+}
+
 func (i *StatInt32) Sub(j int32) int32 {
 	return atomic.AddInt32((*int32)(i), ^(j - 1))
 }
@@ -231,6 +239,17 @@ type MovingStat struct {
 
 func NewMovingStat(window int64, n int64, values []float64, last int64, sum [2]float64, active int, resetting int) *MovingStat {
 	return &MovingStat{window: window, n: n, values: values, last: last, sum: sum, active: active, resetting: resetting}
+}
+
+func NewMovingStatFromWindow(window int64) *MovingStat {
+	return &MovingStat{
+		window:    window,
+		n:         0,
+		values:    make([]float64, window),
+		last:      0,
+		active:    0,
+		resetting: 1,
+	}
 }
 
 func (s *MovingStat) Add(val float64) {

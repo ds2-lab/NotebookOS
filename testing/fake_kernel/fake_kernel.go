@@ -7,17 +7,16 @@ import (
 	"net"
 	"sync/atomic"
 
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/go-zeromq/zmq4"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils"
 )
 
 type SocketWrapper struct {
 	zmq4.Socket
 
-	Type types.MessageType
+	Type messaging.MessageType
 }
 
 type FakeKernel struct {
@@ -51,11 +50,11 @@ func NewFakeKernel(replicaId int, session string, key string, baseSocketPort int
 		LocalDaemonRegistrationPort: localDaemonPort - 5, /* This is just how I've configured these test ports; the registration port is 5 less than the main gRPC port */
 		BaseSocketPort:              baseSocketPort,
 		Key:                         key,
-		HeartbeatSocket:             &SocketWrapper{zmq4.NewRep(ctx), types.HBMessage},
-		ControlSocket:               &SocketWrapper{zmq4.NewRouter(ctx), types.ControlMessage},
-		ShellSocket:                 &SocketWrapper{zmq4.NewRouter(ctx), types.ShellMessage},
-		StdinSocket:                 &SocketWrapper{zmq4.NewRouter(ctx), types.StdinMessage},
-		IOPubSocket:                 &SocketWrapper{zmq4.NewPub(ctx), types.IOMessage},
+		HeartbeatSocket:             &SocketWrapper{zmq4.NewRep(ctx), messaging.HBMessage},
+		ControlSocket:               &SocketWrapper{zmq4.NewRouter(ctx), messaging.ControlMessage},
+		ShellSocket:                 &SocketWrapper{zmq4.NewRouter(ctx), messaging.ShellMessage},
+		StdinSocket:                 &SocketWrapper{zmq4.NewRouter(ctx), messaging.StdinMessage},
+		IOPubSocket:                 &SocketWrapper{zmq4.NewPub(ctx), messaging.IOMessage},
 	}
 
 	config.InitLogger(&kernel.log, fullID+" ")
@@ -106,7 +105,7 @@ func (k *FakeKernel) Start() {
 func (k *FakeKernel) RegisterWithLocalDaemon() error {
 	k.log.Debug("Preparing to register with local daemon (port=%d) now.", k.LocalDaemonRegistrationPort)
 
-	connInfo := &types.ConnectionInfo{
+	connInfo := &jupyter.ConnectionInfo{
 		IP:              "127.0.0.1",
 		Transport:       "tcp",
 		HBPort:          k.BaseSocketPort,
@@ -206,7 +205,10 @@ func (k *FakeKernel) Serve(socket *SocketWrapper, sendAcks bool, sendReplies boo
 				copy(messageFrames[i], identity_frame)
 			}
 
-			jFrames := types.JupyterFrames(msg.Frames[delimIndex:])
+			jFrames := messaging.JupyterFrames{
+				Frames: msg.Frames,
+				Offset: delimIndex,
+			}
 			var header map[string]interface{}
 			if err := jFrames.DecodeHeader(&header); err != nil {
 				panic(err)
@@ -234,7 +236,10 @@ func (k *FakeKernel) Serve(socket *SocketWrapper, sendAcks bool, sendReplies boo
 		}
 
 		if sendReplies {
-			jFrames := types.JupyterFrames(msg.Frames[delimIndex:])
+			jFrames := messaging.JupyterFrames{
+				Frames: msg.Frames,
+				Offset: delimIndex,
+			}
 			var header map[string]interface{}
 			if err := jFrames.DecodeHeader(&header); err != nil {
 				panic(err)

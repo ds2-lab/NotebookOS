@@ -69,11 +69,11 @@ endif
 
 gen-python: clean
 	@echo "\nGenerating Go/Python bindings via gopy now"
-	gopy gen -build-tags='-gcflags=all="-N -l"' -output=../distributed_notebook/smr -vm=$(PYTHON3_PATH) github.com/zhangjyr/distributed-notebook/smr
+	gopy gen -build-tags='-gcflags=all="-N -l"' -output=../distributed_notebook/smr -vm=$(PYTHON3_PATH) github.com/scusemua/distributed-notebook/smr
 
 build-python: clean
 	@echo "\nBuilding Python"
-	gopy build -output=../distributed_notebook/smr -build-tags='-gcflags=all="-N -l"' -vm=$(PYTHON3_PATH) github.com/zhangjyr/distributed-notebook/smr -symbols=true 
+	gopy build -output=../distributed_notebook/smr -build-tags='-gcflags=all="-N -l"' -vm=$(PYTHON3_PATH) github.com/scusemua/distributed-notebook/smr -symbols=true
 
 build-common:
 	@echo "\nBuilding 'smr-common' now."

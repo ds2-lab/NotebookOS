@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
-	"github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 )
 
 var (
@@ -16,7 +16,7 @@ var (
 type ServerInfo interface {
 	fmt.Stringer
 
-	Socket(types.MessageType) *types.Socket
+	Socket(messaging.MessageType) *messaging.Socket
 }
 
 // BaseServer exposes the basic operations of a Jupyter server. Get BaseServer from AbstractServer.Server().
@@ -24,37 +24,67 @@ type BaseServer struct {
 	server *AbstractServer
 }
 
-func (s *BaseServer) SendMessage(request types.Request, socket *types.Socket) error {
-	return s.server.SendMessage(request, socket)
+func (s *BaseServer) SendRequest(request messaging.Request, socket *messaging.Socket) error {
+	return s.server.SendRequest(request, socket)
 }
 
-// func (s *BaseServer) SendMessage(requiresACK bool, socket *types.Socket, reqId string, req *zmq4.Msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
-// 	jMsg := types.NewJupyterMessage(req)
-// 	return s.server.SendMessage(requiresACK, socket, reqId, jMsg, dest, sourceKernel, offset)
+func (s *BaseServer) SetComponentId(id string) {
+	s.server.ComponentId = id
+}
+
+// AssignMessagingMetricsProvider sets the MessagingMetricsProvider on the AbstractServer encapsulated by the BaseServer.
+func (s *BaseServer) AssignMessagingMetricsProvider(messagingMetricsProvider metrics.MessagingMetricsProvider) {
+	s.server.MessagingMetricsProvider = messagingMetricsProvider
+}
+
+// func (s *BaseServer) SendRequest(requiresACK bool, socket *messaging.Socket, reqId string, req *zmq4.msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {
+// 	jMsg := messaging.NewJupyterMessage(req)
+// 	return s.server.SendRequest(requiresACK, socket, reqId, jMsg, dest, sourceKernel, offset)
 // }
 
 // RegisterAck begins listening for an ACK for a message with the given ID.
-func (s *BaseServer) RegisterAck(msg *types.JupyterMessage) (chan struct{}, bool) {
-	// _, reqId, _ := types.ExtractDestFrame(msg.Frames)
+func (s *BaseServer) RegisterAck(msg *messaging.JupyterMessage) (chan struct{}, bool) {
+	// _, reqId, _ := types.ExtractDestFrame(msg.JupyterFrames)
 	return s.server.RegisterAck(msg.RequestId)
 }
 
+// RegisterAckForRequest begins listening for an ACK for a message with the given ID.
+func (s *BaseServer) RegisterAckForRequest(req messaging.Request) (chan struct{}, bool) {
+	// _, reqId, _ := types.ExtractDestFrame(msg.JupyterFrames)
+	return s.server.RegisterAck(req.RequestId())
+}
+
 // Socket returns the zmq socket of the given type.
-func (s *BaseServer) Socket(typ types.MessageType) *types.Socket {
+func (s *BaseServer) Socket(typ messaging.MessageType) *messaging.Socket {
 	return s.server.Sockets.All[typ]
+}
+
+// GetSocketPort returns the port of a particular Socket.
+func (s *BaseServer) GetSocketPort(typ messaging.MessageType) int {
+	socket := s.Socket(typ)
+
+	if socket != nil {
+		return socket.Port
+	}
+
+	return -1
 }
 
 // SetIOPubSocket sets the IOPub socket for the server.
 // SetIOPubSocket returns an error if the Socket is already set, as it should only be set once when the IO socket is nil.
-func (s *BaseServer) SetIOPubSocket(iopub *types.Socket) error {
+func (s *BaseServer) SetIOPubSocket(iopub *messaging.Socket) error {
 	if s.server.Sockets.IO != nil {
 		return ErrIOSocketAlreadySet
 	}
 
 	s.server.Sockets.IO = iopub
-	s.server.Sockets.All[types.IOMessage] = iopub
+	s.server.Sockets.All[messaging.IOMessage] = iopub
 
 	return nil
+}
+
+func (s *BaseServer) MessageAcknowledgementsEnabled() bool {
+	return s.server.MessageAcknowledgementsEnabled
 }
 
 // Context returns the context of this server.
@@ -67,31 +97,7 @@ func (s *BaseServer) SetContext(ctx context.Context) {
 	s.server.Ctx = ctx
 }
 
-// Expose abstract server methods.
-// func (s *BaseServer) ExtractDestFrame(frames [][]byte) (kernelID string, reqID string, jOffset int) {
-// 	return s.server.ExtractDestFrame(frames)
-// }
-
-// func (s *BaseServer) AddDestFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte, reqID string) {
-// 	return s.server.AddDestFrame(frames, kernelID, jOffset)
-// }
-
-// func (s *BaseServer) RemoveDestFrame(frames [][]byte, jOffset int) (removed [][]byte) {
-// 	return s.server.RemoveDestFrame(frames, jOffset)
-// }
-
-// func (s *BaseServer) ExtractSourceKernelFrame(frames [][]byte) (kernelID string, jOffset int) {
-// 	return s.server.ExtractSourceKernelFrame(frames)
-// }
-
-// func (s *BaseServer) AddSourceKernelFrame(frames [][]byte, kernelID string, jOffset int) (newFrames [][]byte) {
-// 	return s.server.AddSourceKernelFrame(frames, kernelID, jOffset)
-// }
-
-// func (s *BaseServer) RemoveSourceKernelFrame(frames [][]byte, jOffset int) (removed [][]byte) {
-// 	return s.server.RemoveSourceKernelFrame(frames, jOffset)
-// }
-
-func (s *BaseServer) Close() {
+func (s *BaseServer) Close() error {
 	s.server.CancelCtx()
+	return nil
 }

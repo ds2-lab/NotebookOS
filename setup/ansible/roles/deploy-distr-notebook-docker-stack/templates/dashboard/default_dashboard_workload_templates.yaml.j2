@@ -1,0 +1,24 @@
+- display_name: 3 Concurrent Sessions - 8 Trainings Each
+  filepath: {{ dashboard_backend_config_directory }}//workload_templates/3-session-8-training-all-simultaneous.json
+  num_sessions: 3
+  num_training_events: 24
+  large: false
+  key: 3concurrent8training
+- display_name: 5 Concurrent Sessions - 8 Trainings Each
+  filepath: {{ dashboard_backend_config_directory }}//workload_templates/5-session-8-training-all-simultaneous.json
+  num_sessions: 5
+  num_training_events: 40
+  large: false
+  key: 5concurrent8training
+- display_name: Batch FCFS Basic Test
+  filepath: {{ dashboard_backend_config_directory }}//workload_templates/fcfs_test.json
+  num_sessions: 2
+  num_training_events: 2
+  large: false
+  key: batch_fcfs_test
+- display_name: 4 Sessions Varied Training
+  filepath: {{ dashboard_backend_config_directory }}//workload_templates/four-sessions-varied-training.json
+  num_sessions: 4
+  num_training_events: 16
+  large: false
+  key: 4_sessions_varied_training

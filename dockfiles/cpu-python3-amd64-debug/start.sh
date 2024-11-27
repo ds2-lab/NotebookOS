@@ -26,6 +26,7 @@ unset_explicit_env_vars () {
     fi
 }
 
+ulimit -c unlimited
 
 # Default to starting bash if no command was specified
 if [ $# -eq 0 ]; then
@@ -155,21 +156,35 @@ if [ "$(id -u)" == 0 ]; then
     unset_explicit_env_vars
 
     _log "Running as ${NB_USER}:" "${cmd[@]}"
-    if [[ "${cmd[0]}" == *.sh ]]; then
-        echo "Running bash script in GDB: ${cmd[@]}"
-        sudo --preserve-env --set-home --user "${NB_USER}" \
-            LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
-            PATH="${PATH}" \
-            PYTHONPATH="${PYTHONPATH:-}" \
-            gdb -batch -ex "run" -ex "bt" -ex "generate-core-file" --args bash ${cmd[@]} 2>&1 | grep -v ^"No stack."$ || true
+    # if [[ "${cmd[0]}" == *.sh ]]; then
+    if [[ -z "${RUN_IN_GDB}" ]]; then #
+        _log "Will NOT be running script or executable in GDB."
+        if [[ "${cmd[0]}" == *.sh ]]; then
+            sudo --preserve-env --set-home --user "${NB_USER}" \
+                          LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
+                          PATH="${PATH}" \
+                          PYTHONPATH="${PYTHONPATH:-}" \
+                          bash -x "${cmd[@]}" 2>&1
+        else
+            "${cmd[@]}" 2>&1
+        fi
     else
-        echo "Running executable in GDB: ${cmd[@]}"
-        sudo --preserve-env --set-home --user "${NB_USER}" \
-            LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
-            PATH="${PATH}" \
-            PYTHONPATH="${PYTHONPATH:-}" \
-            RAND_STR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 13; echo)
-            gdb -batch -ex "run" -ex "bt" -ex "generate-core-file core-$RAND_STR" --args ${cmd[@]} 2>&1 | grep -v ^"No stack."$ || true
+        if [[ "${cmd[0]}" == *.sh ]]; then
+            _log "Running bash script in GDB: " "${cmd[@]}"
+            sudo --preserve-env --set-home --user "${NB_USER}" \
+                LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
+                PATH="${PATH}" \
+                PYTHONPATH="${PYTHONPATH:-}" \
+                gdb -batch -ex "run" -ex "bt" -ex "generate-core-file" --args bash -x "${cmd[@]}" 2>&1 | grep -v ^"No stack."$ || true
+        else
+            _log "Running executable in GDB: " "${cmd[@]}"
+            sudo --preserve-env --set-home --user "${NB_USER}" \
+                LD_LIBRARY_PATH="${LD_LIBRARY_PATH}" \
+                PATH="${PATH}" \
+                PYTHONPATH="${PYTHONPATH:-}" \
+                RAND_STR="$(tr -dc A-Za-z0-9 </dev/urandom | head -c 13; echo)"
+                gdb -batch -ex "run" -ex "bt" -ex "generate-core-file core-$RAND_STR" --args "${cmd[@]}" 2>&1 | grep -v ^"No stack."$ || true
+        fi
     fi
         # Notes on how we ensure that the environment that this container is started
         # with is preserved (except vars listed in JUPYTER_ENV_VARS_TO_UNSET) when
@@ -263,16 +278,18 @@ else
     unset_explicit_env_vars
 
     _log "Executing the specified command:" "${cmd[@]}"
-    if [[ "${cmd[0]}" == *.sh ]]; then
-        # echo "Running bash script in GDB: ${cmd[@]}"
-        # screen -d -m -S gdb-kernel gdb -batch -ex "run" -ex "call fflush(0)" -ex "generate-scheduling-file /cores/scheduling.pid" -ex "bt" -ex "py-bt" --args bash ${cmd[@]} 2>&1 | grep -v ^"No stack."$ || true
-        ${cmd[@]} 2>&1
+    # if [[ "${cmd[0]}" == *.sh ]]; then
+    if [[ -z "${RUN_IN_GDB}" ]]; then # If RUN_IN_GDB is not set, then don't run in GDB.
+        _log "Will NOT be running script or executable in GDB."
+        "${cmd[@]}" 2>&1
     else
-        echo "Running executable in GDB: ${cmd[@]}"
+        _log "Running executable in GDB: " "${cmd[@]}"
         RAND_STR=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 13; echo)
         HST=$(hostname -i)
         TS=$(date +"%Y-%m-%d_%H-%M-%S")
-        screen -S gdb-kernel gdb -ex "run" -ex "generate-core-file /cores/core-$HST-$TS" -ex "bt" -ex "py-bt" --args ${cmd[@]} 2>&1
+        screen -S gdb-kernel gdb -ex "run" -ex "generate-core-file /cores/core-$HST-$TS" -ex "bt" -ex "py-bt" --args "${cmd[@]}" 2>&1
+    # else
+    #    "${cmd[@]}" 2>&1
     fi
 
     _log "Notebook exited with code $?"

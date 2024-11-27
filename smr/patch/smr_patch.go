@@ -7,7 +7,7 @@ import "C"
 import (
 	"unsafe"
 
-	"github.com/zhangjyr/distributed-notebook/smr"
+	"github.com/scusemua/distributed-notebook/smr"
 )
 
 // ---- Constructors ---

@@ -1,0 +1,34 @@
+in-cluster: false
+spoof-nodes: false
+spoof-kernels: false
+spoof-specs: false
+server-port: 8000
+workload-presets-file: "/etc/distributed-notebook-cluster/workload-presets-file.yaml"
+gateway-address: gateway:8079
+cluster-dashboard-handler-port: 8078
+websocket-proxy-port: 8077
+admin_username: "admin"
+admin_password: "12345"
+base-url: "/notebook-dashboard"
+
+# Defined separately from the base-url.
+prometheus-endpoint: "/metrics"
+
+# The address of the Jupyter Server.
+frontend-jupyter-server-address: {{ hostvars['swarm-leader'].ansible_host }}/jupyter
+
+# The address of the Jupyter Server to use internally.
+internal-jupyter-server-address: jupyter:8888
+
+# The base path that the Jupyter Server is listening on.
+jupyter-server-base-path: /jupyter
+
+# Used by the WebSocket connection upgrader.
+expected-origin-port: 8000
+expected_websocket_origins: "http://localhost,http://127.0.0.1"
+
+# How long JWT tokens are valid
+token_valid_duration_sec: 3600
+
+# How long users have to refresh their tokens
+token_refresh_interval_sec: 5400

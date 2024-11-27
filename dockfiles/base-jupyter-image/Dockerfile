@@ -18,26 +18,27 @@ RUN sudo apt-get update
 RUN sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
 
 WORKDIR /tmp 
-RUN wget https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz 
-RUN tar -xf Python-3.11.9.tgz
-WORKDIR /tmp/Python-3.11.9
+RUN wget https://www.python.org/ftp/python/3.12.6/Python-3.12.6.tgz 
+RUN tar -xf Python-3.12.6.tgz
+WORKDIR /tmp/Python-3.12.6
 RUN mkdir debug 
-WORKDIR /tmp/Python-3.11.9/debug
+WORKDIR /tmp/Python-3.12.6/debug
 RUN ../configure --with-pydebug --enable-shared 
 RUN make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG" 
 RUN make -j$(nproc) altinstall
 
 RUN sudo apt-get clean
 
-RUN mv /tmp/Python-3.11.9/ /home/jovyan/Python-3.11.9/ 
-RUN chown -R jovyan /home/jovyan/Python-3.11.9/ 
-RUN chmod -R 777 /home/jovyan/Python-3.11.9/  
+RUN mv /tmp/Python-3.12.6/ /home/jovyan/Python-3.12.6/ 
+RUN chown -R jovyan /home/jovyan/Python-3.12.6/ 
+RUN chmod -R 777 /home/jovyan/Python-3.12.6/  
 
-ENV LD_LIBRARY_PATH=/home/jovyan/Python-3.11.9/debug
+ENV LD_LIBRARY_PATH=/home/jovyan/Python-3.12.6/debug
 
 # Install amd version of pytorch and torchvision
 # RUN python3 -m pip install torch torchvision
-RUN /home/jovyan/Python-3.11.9/debug/python -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0 debugpy
+# RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0 debugpy
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==5.28.1 grpcio==1.66.1 grpcio-tools==1.66.1 debugpy
 
 # Switch back to jovyan
 USER jovyan:users
@@ -64,7 +65,8 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vi
 # RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
 # RUN chmod -R 777 /home/jovyan/datasets/*
 
-RUN /home/jovyan/Python-3.11.9/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install --upgrade ipyflow
 
 # Install Golang for debugging.
 RUN cd /tmp && wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz

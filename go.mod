@@ -1,12 +1,15 @@
-module github.com/zhangjyr/distributed-notebook
+module github.com/scusemua/distributed-notebook
 
-go 1.21
+go 1.22
 
-toolchain go1.21.5
+toolchain go1.22.9
 
 replace github.com/go-zeromq/zmq4 => ../zmq4
 
+replace github.com/mitchellh/mapstructure => github.com/go-viper/mapstructure v1.6.0
+
 require (
+	github.com/Scusemua/go-utils v0.1.1
 	github.com/charmbracelet/lipgloss v0.11.0
 	github.com/colinmarc/hdfs/v2 v2.4.0
 	github.com/elliotchance/orderedmap/v2 v2.2.0
@@ -18,7 +21,6 @@ require (
 	github.com/hashicorp/yamux v0.1.1
 	github.com/ianlancetaylor/cgosymbolizer v0.0.0-20240718183735-925f0b3ad234
 	github.com/jackpal/gateway v1.0.15
-	github.com/mason-leap-lab/go-utils v1.3.3
 	github.com/onsi/ginkgo/v2 v2.19.0
 	github.com/onsi/gomega v1.34.1
 	github.com/opentracing-contrib/go-stdlib v1.0.0
@@ -26,6 +28,7 @@ require (
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/petermattis/goid v0.0.0-20240607163614-bb94eb51e7a7
 	github.com/pkg/errors v0.9.1
+	github.com/redis/go-redis/v9 v9.7.0
 	github.com/scusemua/gopy v0.4.12-0.20240729180310-0351d57ab6b0
 	github.com/shopspring/decimal v1.3.1
 	github.com/uber/jaeger-client-go v2.30.0+incompatible
@@ -33,7 +36,7 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.5.2
 	go.etcd.io/etcd/raft/v3 v3.5.2
 	go.etcd.io/etcd/server/v3 v3.5.2
-	go.uber.org/mock v0.4.0
+	go.uber.org/mock v0.5.0
 	go.uber.org/zap v1.21.0
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56
 	google.golang.org/grpc v1.64.0
@@ -51,6 +54,7 @@ require (
 	github.com/Microsoft/go-winio v0.4.14 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/x/ansi v0.1.1 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/docker v27.1.2+incompatible // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
@@ -62,8 +66,10 @@ require (
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
+	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.15 // indirect
+	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/muesli/termenv v0.15.2 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
@@ -88,7 +94,7 @@ require (
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bytedance/sonic v1.11.3 // indirect
-	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/chenzhuoyu/base64x v0.0.0-20230717121745-296ad89f973d // indirect
 	github.com/chenzhuoyu/iasm v0.9.1 // indirect
 	github.com/coreos/go-semver v0.3.0 // indirect
@@ -109,6 +115,7 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.19.0 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
+	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
@@ -143,15 +150,14 @@ require (
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
-	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.1 // indirect
-	github.com/prometheus/client_golang v1.16.0 // indirect
-	github.com/prometheus/client_model v0.4.0 // indirect
-	github.com/prometheus/common v0.44.0 // indirect
-	github.com/prometheus/procfs v0.10.1 // indirect
+	github.com/prometheus/client_golang v1.20.3 // indirect
+	github.com/prometheus/client_model v0.6.1 // indirect
+	github.com/prometheus/common v0.55.0 // indirect
+	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/uber/jaeger-lib v2.4.1+incompatible // indirect
@@ -163,8 +169,8 @@ require (
 	go.uber.org/multierr v1.6.0 // indirect
 	golang.org/x/arch v0.7.0 // indirect
 	golang.org/x/crypto v0.25.0 // indirect
-	golang.org/x/net v0.27.0 // indirect
-	golang.org/x/oauth2 v0.18.0 // indirect
+	golang.org/x/net v0.27.0
+	golang.org/x/oauth2 v0.21.0 // indirect
 	golang.org/x/sys v0.22.0 // indirect
 	golang.org/x/term v0.22.0 // indirect
 	golang.org/x/text v0.16.0 // indirect

@@ -17,7 +17,7 @@ data:
     iopub-port: {{ .Values.local_daemon.network.jupyter.iopub_port1 }}
     iosub-port: {{ .Values.local_daemon.network.jupyter.iopub_port2 }}
     ack-port: {{ .Values.local_daemon.network.jupyter.ack_port }}
-    hdfs-namenode-endpoint: {{ .Values.hdfs.namenode_endpoint }}
+    remote-storage-endpoint: {{ .Values.remote_storage.hostname }}
     debug: {{ .Values.common.debug }}
     direct: false
     num-replicas: 3
@@ -28,7 +28,6 @@ data:
     ipython-config-path: {{ .Values.common.ipython_config_path }}
     smr-port: {{ .Values.smr.port }}
     kube-namespace: {{ .Values.namespace }}
-    max-actual-gpu-per-node: {{ .Values.gateway.scheduler.max_actual_gpu_per_node }}
     starting-resource-port: {{ .Values.local_daemon.network.jupyter.starting_resource_port }}
     num-resource-ports: {{ mul (div .Values.gateway.scheduler.max_actual_gpu_per_node .Values.gateway.scheduler.gpu_allocation_granularity) 2 }}
     use-stateful-set: {{ .Values.common.use_stateful_set }}
@@ -43,11 +42,17 @@ data:
     scaling-interval: {{ .Values.gateway.scheduler.scaling_interval }}
     scaling-limit: {{ .Values.gateway.scheduler.scaling_limit }}
     scaling-in-limit: {{ .Values.gateway.scheduler.scaling_in_limit }}
-    scaling-out-enabled: {{ .Values.gateway.scheduler.scaling_out_enabled }}
+    predictive_autoscaling: {{ .Values.gateway.scheduler.predictive_autoscaling }}
     scaling-buffer-size: {{ .Values.gateway.scheduler.scaling_buffer_size }}
-    min-kubernetes-nodes: {{ .Values.gateway.scheduler.min_kubernetes_nodes }}
+    min_cluster_nodes: {{ .Values.gateway.scheduler.min_kubernetes_nodes }}
+    max_cluster_nodes: {{ .Values.gateway.scheduler.max_kubernetes_nodes }}
     gpus-per-host: {{ .Values.gateway.scheduler.max_actual_gpu_per_node}}
     deployment_mode: "kubernetes"
     local_mode: {{ .Values.common.local_mode }}
     execution-time-sampling-window: 10
     migration-time-sampling-window: 10
+    prometheus_interval: {{ .Values.prometheus.prometheus_interval }}
+    prometheus_port: {{ .Values.prometheus.prometheus_port }}
+    num_resend_attempts: {{ .Values.common.num_resend_attempts }}
+    acks_enabled: {{ .Values.common.message_acknowledgements_enabled }}
+    simulate_checkpointing_latency: {{ .Values.common.simulate_checkpointing_latency }}

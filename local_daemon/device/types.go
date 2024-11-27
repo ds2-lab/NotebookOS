@@ -2,7 +2,7 @@ package device
 
 import (
 	"errors"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"

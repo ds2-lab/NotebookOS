@@ -1,0 +1,112 @@
+- name: Check if protoc is already installed
+  shell: ". {{ profile_file }} && protoc --version"
+  register: protoc_installed
+  ignore_errors: true
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_remote_tmp: "{{ tmp_dir }}"
+
+- name: Display Protoc version that is already installed
+  debug:
+    msg: "Protoc version: {{ protoc_installed.stdout }}"
+  when: protoc_installed.rc == 0
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_remote_tmp: "{{ tmp_dir }}"
+
+- name: Create the target directory if it doesn't exist
+  file:
+    path: "{{ protoc_install_parent_dir }}"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: '0755'
+  when: protoc_installed.rc != 0
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_remote_tmp: "{{ tmp_dir }}"
+
+- name: Download Protoc release if not already installed
+  get_url:
+    url: "{{ protoc_release_url }}"
+    dest: "{{ tmp_dir }}/protoc-{{ protoc_version }}-linux-x86_64.zip"
+  when: protoc_installed.rc != 0
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_remote_tmp: "{{ tmp_dir }}"
+
+- name: Update package index while installing protoc
+  apt:
+    update_cache: yes
+  when: ansible_distribution == 'Ubuntu' and protoc_installed.rc != 0
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_remote_tmp: "{{ tmp_dir }}"
+  become: true
+
+- name: Install required packages (Amazon Linux)
+  yum:
+    name: ['unzip']
+    state: present
+  when: ansible_distribution == 'Amazon' and protoc_installed.rc != 0
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_remote_tmp: "{{ tmp_dir }}"
+  become: true
+
+- name: Install required packages (Ubuntu)
+  apt:
+    name: ['unzip']
+    state: present
+  when: ansible_distribution == 'Ubuntu' and protoc_installed.rc != 0
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_remote_tmp: "{{ tmp_dir }}"
+  become: true
+
+- name: Unzip Protoc release into the local directory
+  unarchive:
+    src: "{{ tmp_dir }}/protoc-{{ protoc_version }}-linux-x86_64.zip"
+    dest: "{{ protoc_install_parent_dir }}"
+    remote_src: yes
+  when: protoc_installed.rc != 0
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_remote_tmp: "{{ tmp_dir }}"
+
+- name: Ensure the local bin directory is in the PATH
+  lineinfile:
+    path: "{{ profile_file }}"
+    regexp: '^export PATH=.*{{ protoc_install_parent_dir }}/bin'
+    line: 'export PATH="$PATH:{{ protoc_install_parent_dir }}/bin"'
+    state: present
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_remote_tmp: "{{ tmp_dir }}"
+
+- name: Verify Protoc installation
+  shell: ". {{ profile_file }} && protoc --version"
+  register: protoc_version_output
+  when: protoc_installed.rc != 0
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_remote_tmp: "{{ tmp_dir }}"
+
+- name: Display Protoc version installed
+  debug:
+    msg: "Protoc version: {{ protoc_version_output.stdout }}"
+  when: protoc_installed.rc != 0
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  vars:
+    ansible_remote_tmp: "{{ tmp_dir }}"

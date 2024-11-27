@@ -1,8 +1,10 @@
 syntax = "proto3";
 
-option go_package = "github.com/zhangjyr/distributed-notebook/common/proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/scusemua/distributed-notebook/common/proto";
 option java_multiple_files = true;
-option java_package = "com.github.zhangjyr.distributed-notebook.common.proto";
+option java_package = "com.github.scusemua.distributed-notebook.common.proto";
 option java_outer_classname = "GatewayProto";
 
 package gateway;
@@ -33,6 +35,9 @@ service ClusterGateway {
 
   // Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
   rpc Notify(Notification) returns (Void) {}
+
+  // PingGateway is a no-op for testing connectivity.
+  rpc PingGateway(Void) returns (Void) {}
 }
 
 // gRPC service provided by the Cluster Gateway and "used" by the Dashboard
@@ -41,15 +46,18 @@ service DistributedCluster {
   // Used for debugging/testing. Causes a Panic.
   rpc InducePanic(Void) returns (Void) {}
 
+  // ClusterAge returns the age of the DistributedCluster as a UnixMilliseconds timestamp.
+  rpc ClusterAge(Void) returns (ClusterAgeResponse) {}
+
   // Used to test notifications.
   rpc SpoofNotifications(Void) returns (Void) {}
 
   // Used to test connectivity.
-  rpc Ping(Void) returns (Pong) {} 
+  rpc Ping(Void) returns (Pong) {}
 
   // Used to test connectivity with kernels.
   rpc PingKernel(PingInstruction) returns (Pong) {}
-  
+
   // Return a list of all of the current kernel IDs.
   rpc ListKernels(Void) returns (ListKernelsResponse) {}
 
@@ -78,6 +86,92 @@ service DistributedCluster {
   // established and to obtain any important configuration information, such as the deployment mode (i.e., Docker or
   // Kubernetes), from the Cluster Gateway.
   rpc RegisterDashboard(Void) returns (DashboardRegistrationResponse) {}
+
+  // GetVirtualDockerNodes returns a (pointer to a) GetVirtualDockerNodesResponse struct describing the virtual,
+  // simulated nodes currently provisioned within the cluster.
+  //
+  // When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+  // Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+  //
+  // In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+  // we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+  //
+  // If the Cluster is not running in Docker mode, then this will return an error.
+  rpc GetVirtualDockerNodes(Void) returns (GetVirtualDockerNodesResponse) {}
+
+  // GetDockerSwarmNodes returns a (pointer to a) GetDockerSwarmNodesResponse struct describing the Docker Swarm
+  // nodes that exist within the Docker Swarm cluster.
+  //
+  // When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+  // Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+  //
+  // In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+  // we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+  //
+  // If the Cluster is not running in Docker mode, then this will return an error.
+  rpc GetDockerSwarmNodes(Void) returns (GetDockerSwarmNodesResponse) {}
+
+  // GetNumNodes returns the number of nodes in the cluster.
+  rpc GetNumNodes(Void) returns (NumNodesResponse) {}
+
+  // SetNumClusterNodes is used to scale the number of nodes in the cluster to a specifically value.
+  // This function accepts a SetNumClusterNodesRequest struct, which encodes the target number of nodes.
+  rpc SetNumClusterNodes(SetNumClusterNodesRequest) returns (SetNumClusterNodesResponse) {}
+
+  // AddClusterNodes provisions a parameterized number of additional nodes within the cluster.
+  // This function accepts a AddClusterNodesRequest struct, which encodes the number of nodes to add.
+  rpc AddClusterNodes(AddClusterNodesRequest) returns (AddClusterNodesResponse) {}
+
+  // RemoveClusterNodes removes the specified nodes from the Docker cluster.
+  // This function accepts a RemoveSpecificClusterNodesRequest struct, which encodes the IDs of the nodes to remove.
+  rpc RemoveSpecificClusterNodes(RemoveSpecificClusterNodesRequest) returns (RemoveSpecificClusterNodesResponse) {}
+
+  // RemoveClusterNodes removes the specified number of existing nodes from the Docker cluster.
+  // This function accepts a RemoveClusterNodesRequest struct, which encodes the number of nodes to remove.
+  rpc RemoveClusterNodes(RemoveClusterNodesRequest) returns (RemoveClusterNodesResponse) {}
+
+  // ModifyClusterNodes enables the modification of one or more nodes within the cluster.
+  // Modifications include altering the number of GPUs available on the nodes.
+  rpc ModifyClusterNodes(ModifyClusterNodesRequest) returns (ModifyClusterNodesResponse) {}
+
+  // GetLocalDaemonNodeIDs returns a string slice containing the host IDs of each local daemon.
+  rpc GetLocalDaemonNodeIDs(Void) returns (GetLocalDaemonNodeIDsResponse) {}
+
+  // QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
+  // and what the status of that message is (i.e., sent, response received, etc.)
+  rpc QueryMessage(QueryMessageRequest) returns (QueryMessageResponse) {}
+
+  // ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+  // This is mostly used for testing/debugging the reconnection process.
+  rpc ForceLocalDaemonToReconnect(ForceLocalDaemonToReconnectRequest) returns (Void) {}
+}
+
+// ForceLocalDaemonToReconnectRequest is sent as an argument for the ForceLocalDaemonToReconnect RPC.
+message ForceLocalDaemonToReconnectRequest {
+  // LocalDaemonId is the node ID of the local daemon that should be instructed to reconnect to the Cluster Gateway.
+  string localDaemonId = 1;
+  // If true, then wait until after returning from the ReconnectToGateway gRPC call to initiate the reconnection
+  // procedure (which necessarily terminates the existing connection).
+  bool delay = 2;
+}
+
+// QueryMessageRequest is passed to the MessageExists gRPC function.
+//
+// It encapsulates a request concerning the existence/status of a particular ZMQ message.
+message QueryMessageRequest {
+  // The Jupyter message ID.
+  string messageId = 1;
+  // The Jupyter message type.
+  string messageType = 2;
+  // The target kernel.
+  string kernelId = 3;
+}
+
+// QueryMessageResponse is returned by the gRPC function.
+//
+// It encodes the existence/status of the specified or requested ZMQ message.
+message QueryMessageResponse {
+  repeated RequestTrace requestTraces = 1;
 }
 
 // gRPC service provided by the Dashboard and "used" by the Cluster Gateway
@@ -86,11 +180,25 @@ service ClusterDashboard {
   rpc SendNotification(Notification) returns (Void) {} // Report to the Dashboard that an error occurred.
 }
 
+// ClusterAgeResponse is returned by the ClusterAge gRPC function.
+// It encodes the age of the Cluster as a UnixMilliseconds timestamp.
+message ClusterAgeResponse {
+  // Age is the age of the Cluster in the form of a UnixMilliseconds timestamp.
+  int64 age = 1;
+}
+
+// GetLocalDaemonNodeIDsResponse is returned by the GetLocalDaemonNodeIDs gRPC function.
+// GetLocalDaemonNodeIDsResponse encapsulates a string slice containing the host IDs of each local daemon.
+message GetLocalDaemonNodeIDsResponse {
+  // HostIds is a string slice containing the host IDs of each local daemon.
+  repeated string hostIds = 1;
+}
+
 // DashboardRegistrationResponse encapsulates any important configuration information that is desired by the
 // backend server of the Cluster Dashboard.
 message DashboardRegistrationResponse {
   // DeploymentMode indicates whether the Cluster is running in Kubernetes mode or Docker mode.
-  // Valid options include "local", "docker", and "kubernetes".
+  // Valid options include "local", "docker-compose", "docker-swarm", and "kubernetes".
   string DeploymentMode = 1;
   // SchedulingMode indicates the scheduling policy that the Cluster Gateway has been configured to use.
   string SchedulingPolicy = 2;
@@ -98,10 +206,242 @@ message DashboardRegistrationResponse {
   int32 NumReplicas = 3;
 }
 
+// RemoveSpecificClusterNodesRequest is passed as an argument to the RemoveSpecificClusterNodes gRPC function.
+// RemoveSpecificClusterNodesRequest encodes the IDs of the nodes to remove from the cluster.
+message RemoveSpecificClusterNodesRequest {
+  // RequestId is the unique request ID of the RemoveSpecificClusterNodesRequest.
+  string requestId = 1;
+  // NodeIDs are the IDs of the nodes to be removed.
+  repeated string nodeIDs = 2;
+}
+
+// RemoveSpecificClusterNodesResponse is returned by the RemoveSpecificClusterNodes gRPC function.
+message RemoveSpecificClusterNodesResponse {
+  // RequestId is the unique request ID of the RemoveSpecificClusterNodesRequest.
+  string requestId = 1;
+  // OldNumNodes is the number of nodes that were in the cluster prior to the 'decrease' operation.
+  int32 oldNumNodes = 2;
+  // NumNodesRemoved is the the number of nodes that were removed from the cluster.
+  int32 numNodesRemoved = 3;
+  // NewNumNodes is the number of nodes that are in the cluster after to the 'decrease' operation.
+  int32 newNumNodes = 4;
+  // NodesRemoved contains the IDs of the nodes that were removed from the cluster.
+  repeated string nodesRemoved = 5;
+}
+
+// RemoveClusterNodesRequest is passed as an argument to the RemoveClusterNodes gRPC function.
+// RemoveClusterNodesRequest encodes the number of nodes to remove from the cluster.
+message RemoveClusterNodesRequest {
+  // RequestId is the unique request ID of the RemoveClusterNodesRequest.
+  string requestId = 1;
+  // numNodesToRemove is the the number of nodes that should be removed from the cluster.
+  int32 numNodesToRemove = 2;
+}
+
+// RemoveClusterNodesResponse is returned by the RemoveClusterNodes gRPC function.
+// It encodes information about the number of nodes in the cluster before and after the 'decrease' operation.
+message RemoveClusterNodesResponse {
+  // RequestId is the unique request ID that was included in the associated RemoveClusterNodesRequest.
+  string requestId = 1;
+  // OldNumNodes is the number of nodes that were in the cluster prior to the 'decrease' operation.
+  int32 oldNumNodes = 2;
+  // NumNodesRemoved is the the number of nodes that were removed from the cluster.
+  int32 numNodesRemoved = 3;
+  // NewNumNodes is the number of nodes that are in the cluster after to the 'decrease' operation.
+  int32 newNumNodes = 4;
+}
+
+// AddClusterNodesRequest structs are passed as arguments to the AddClusterNodes gRPC function.
+// An AddClusterNodesRequest struct encodes the number of nodes to be created as well as any necessary
+// configuration that will be used to create/provision the new nodes.
+message AddClusterNodesRequest {
+  // RequestId is a unique identifier for this particular AddClusterNodes operation.
+  string requestId = 1;
+  // NumNodes specifies the number of virtual nodes to add to the cluster.
+  int32 numNodes = 2;
+}
+
+// AddClusterNodesResponse structs are returned by the AddClusterNodes gRPC function.
+// AddClusterNodesResponse structs describe whether the 'add node(s)' operation was successful.
+message AddClusterNodesResponse {
+  // RequestId is the unique identifier that was included in the corresponding AddVirtualDockerNodesRequest struct.
+  string requestId = 1;
+  // NumNodesCreated describes the number of virtual nodes that were successfully added to the cluster.
+  int32 numNodesCreated = 2;
+  // NumNodesRequested encodes the number of virtual node that were originally requested to be provisioned.
+  int32 numNodesRequested = 3;
+  // PrevNumNodes is how many nodes there were prior to adding new nodes.
+  int32 prevNumNodes = 4;
+}
+
+// ModifyClusterNodesRequest structs are passed as arguments to the ModifyClusterNodes gRPC function.
+// An ModifyClusterNodesRequest struct encodes the properties to be modified for each of the target nodes.
+message ModifyClusterNodesRequest {
+  string requestId = 1;
+  int32 targetNumNodes = 2;
+}
+
+// ModifyClusterNodesResponse structs are returned by the ModifyClusterNodes gRPC function.
+// ModifyClusterNodesResponse structs describe whether the 'modify/update node(s)' operation was successful.
+message ModifyClusterNodesResponse {
+  string requestId = 1;
+}
+
+// SetNumClusterNodesRequest is passed as an argument to the SetNumClusterNodes gRPC function.
+// SetNumClusterNodesRequest encodes the target number of nodes.
+message SetNumClusterNodesRequest {
+  string requestId = 1;
+  // TargetNumNodes is the target number of nodes to scale to. 
+  int32 targetNumNodes = 2;
+}
+
+// SetNumClusterNodesResponse is returned by the SetNumClusterNodes gRPC function.
+// It encodes information about the number of nodes in the cluster before and after the 'set' operation.
+message SetNumClusterNodesResponse {
+  string requestId = 1;
+  // OldNumNodes is the number of nodes that were in the cluster prior to the 'set' operation.
+  int32 oldNumNodes = 2;
+  // NewNumNodes is the number of nodes that are in the cluster after to the 'set' operation.
+  int32 newNumNodes = 3;
+}
+
+// GetVirtualDockerNodesResponse is returned by the GetVirtualDockerNodes gRPC function.
+// A GetVirtualDockerNodesResponse struct describes all of the virtual nodes within the cluster.
+message GetVirtualDockerNodesResponse {
+  // Nodes is a slice of VirtualDockerNode structs, where each VirtualDockerNode
+  // describes one of the virtual nodes within the cluster.
+  repeated VirtualDockerNode nodes = 1;
+}
+
+// RemoteStorageDefinition defines a simulated remote storage to use for checkpointing by the kernel replicas.
+message RemoteStorageDefinition {
+  string name = 1;
+  int64 downloadRate = 2;
+  int64 uploadRate = 3;
+  float downloadRateVariancePercentage = 4;
+  float uploadRateVariancePercentage = 5;
+  float readFailureChancePercentage = 6;
+  float writeFailureChancePercentage = 7;
+}
+
+// VirtualDockerNode represents/describes a "virtual" node within the Docker Swarm cluster.
+// Docker Swarm clusters have a concept of nodes -- they can span multiple machines or VMs.
+// Each Docker Swarm node hosts containers. Virtual nodes correspond to Local Daemons.
+// Each Local Daemon manages its own virtual node. If there are multiple local daemon containers
+// running on a single Docker Swarm node, then each local daemon manages its own virtual node, so
+// there will be multiple virtual nodes on the single Docker Swarm mode.
+message VirtualDockerNode {
+  // NodeId is the unique identifier of the node.
+  string nodeId = 1;
+  // Containers is a slice of DockerContainer structs representing the containers running on this VirtualDockerNode.
+  repeated DockerContainer containers = 2;
+  // SpecCpu is the total number of CPUs on the VirtualDockerNode.
+  // This quantity is not impacted by active allocations.
+  float specCpu = 3;
+  // SpecMemory is the total amount of RAM on the VirtualDockerNode in megabytes (MB).
+  // This quantity is not impacted by active allocations.
+  float specMemory = 4;
+  // SpecGpu is the total number of vGPUs on the VirtualDockerNode.
+  // This quantity is not impacted by active allocations.
+  float specGpu = 5;
+  // SpecVRAM is the amount of VRAM (in GB) available on the VirtualDockerNode.
+  // This quantity is not impacted by active allocations.
+  float specVRAM = 6;
+  // AllocatedCpu is the number of vCPUs that is actively/currently allocated on the VirtualDockerNode.
+  float allocatedCpu = 7;
+  // AllocatedMemory is the amount of memory (in megabytes) that is currently allocated on the VirtualDockerNode.
+  float allocatedMemory = 8;
+  // AllocatedGpu is the number of vGPUs that is actively/currently allocated on the VirtualDockerNode.
+  float allocatedGpu = 9;
+  // AllocatedGpu is the amount of VRAM that is actively/currently allocated on the VirtualDockerNode.
+  float allocatedVRAM = 10;
+  // PendingCpu is the number of vCPUs that is subscribed (but not committed) on the VirtualDockerNode.
+  float pendingCpu = 11;
+  // PendingMemory is the amount of memory (in megabytes) that is subscribed (but not committed) on the VirtualDockerNode.
+  float pendingMemory = 12;
+  // PendingGpus is the number of vGPUs that is subscribed (but not committed) on the VirtualDockerNode.
+  float pendingGpu = 13;
+  // PendingVRAM is the amount of VRAM (in GB) that is subscribed (but not committed) on the VirtualDockerNode.
+  float pendingVRAM = 14;
+  // NodeName is the name of the node.
+  string nodeName = 15;
+  // Address is the IP address of the node.
+  string address = 16;
+  // CreatedAt is the time that the node was created.
+  google.protobuf.Timestamp createdAt = 17;
+  // Enabled indicates whether the Host is enabled or disabled.
+  bool enabled = 18;
+}
+
+// DockerContainer describes a Docker container.
+message DockerContainer {
+  string containerName = 1;
+  // ContainerStatus describes the [lifecycle state or status] of the Docker container.
+  //
+  // [lifecycle state or status]: https://docs.docker.com/reference/cli/docker/container/ls/#status
+  string containerStatus = 2;
+  string containerAge = 3;
+  string containerIp = 4;
+  bool  valid = 5;
+}
+
+// GetDockerSwarmNodesResponse is returned by the GetDockerSwarmNodes gRPC function.
+// A GetDockerSwarmNodesResponse struct describes all of the "actual" nodes within the Docker Swarm cluster.
+message GetDockerSwarmNodesResponse {
+  // Nodes is a slice of DockerSwarmNode structs, where each DockerSwarmNode
+  // describes one of the "actual" nodes within the Docker Swarm cluster.
+  repeated DockerSwarmNode nodes = 1;
+}
+
+// DockerSwarmNode represents/describes an "actual" node within the Docker Swarm cluster.
+message DockerSwarmNode {
+  string nodeId = 1;
+  repeated string containers = 2;
+}
+
 message Pong {
   string id = 1;
   bool success = 2;
   string msg = 3; // For adding extra details if the ping fails.
+  repeated RequestTrace requestTraces = 4;
+}
+
+// Individual Trace that is encapsulated within a larger RequestTrace.
+message Trace {
+  string id = 1;
+  string name = 2;
+  int64 startTimeUnixMilliseconds = 3;
+  int64 endTimeUnixMilliseconds = 4;
+  google.protobuf.Timestamp startTimestamp = 5;
+  google.protobuf.Timestamp endTimestamp = 6;
+  int64 durationMicroseconds = 7;
+}
+
+message RequestTraceUpdated {
+  string messageId = 1;
+  string messageType = 2;
+  string kernelId = 3;
+  int32 replicaId = 4;
+  string requestTraceUuid = 5;
+  repeated Trace traces = 6;
+}
+
+message RequestTrace {
+  string messageId = 1;
+  string messageType = 2;
+  string kernelId = 3;
+  int32 replicaId = 4;
+  int64 requestReceivedByGateway = 5;
+  int64 requestSentByGateway = 6;
+  int64 requestReceivedByLocalDaemon = 7;
+  int64 requestSentByLocalDaemon = 8;
+  int64 requestReceivedByKernelReplica = 9;
+  int64 replySentByKernelReplica = 10;
+  int64 replyReceivedByLocalDaemon = 11;
+  int64 replySentByLocalDaemon = 12;
+  int64 replyReceivedByGateway = 13;
+  int64 replySentByGateway = 14;
+  string requestTraceUuid = 15;
 }
 
 message PingInstruction {
@@ -110,10 +450,11 @@ message PingInstruction {
 }
 
 message Notification {
-  string title = 1;
-  string message = 2;
-  int32 notificationType = 3;
-  bool panicked = 4;
+  string id = 1;
+  string title = 2;
+  string message = 3;
+  int32 notificationType = 4;
+  bool panicked = 5;
 }
 
 // Used to register the ResourceSpec to be used by a particular kernel.
@@ -125,12 +466,12 @@ message ResourceSpecRegistration {
 
 // Mapping from Kubernetes node name to the actual GPU info for that node.
 message ClusterActualGpuInfo {
-  map<string,GpuInfo> gpuInfo = 1;
+  map<string, GpuInfo> gpuInfo = 1;
 }
 
 // Mapping from Kubernetes node name to the virtual GPU info for that node.
 message ClusterVirtualGpuInfo {
-  map<string,VirtualGpuInfo> gpuInfo = 1;
+  map<string, VirtualGpuInfo> gpuInfo = 1;
 }
 
 message JupyterKernelReplica {
@@ -166,14 +507,37 @@ message HostSpec {
 message HostId {
   string id = 1;
   string nodeName = 2; // The name of the Kubernetes node that the Host is running on.
+  bool existing = 3; // Indicates whether the node is starting for the first time or not.
 }
 
-// The juypter gateway service for host local kernels.
+// KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+//
+// Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+// If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+// gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+// be submitted to the Cluster Dashboard.
+service KernelErrorReporter {
+  // Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
+  rpc Notify(KernelNotification) returns (Void) {}
+}
+
+// KernelNotification is very similar to Notification, but it also includes fields to specify the replica ID and
+// kernel ID of the kernel sending the notification.
+message KernelNotification {
+  string title = 1;
+  string message = 2;
+  int32 notificationType = 3;
+  string kernelId = 4;
+  int32 replicaId = 5;
+}
+
+// The Jupyter gateway service for host local kernels.
 service LocalGateway {
-  // SetID sets the local gatway id and return old id for failure tolerance.
+  // SetID sets the local gateway id and return old id for failure tolerance.
+  // This also instructs the Local Daemon associated with the LocalGateway to create a PrometheusManager and begin serving metrics.
   rpc SetID(HostId) returns (HostId) {}
 
-  // StartKernel a kernel or kernel replica.
+  // StartKernel starts a kernel or kernel replica.
   rpc StartKernel(KernelSpec) returns (KernelConnectionInfo) {}
 
   // StartKernelReplica starts a kernel replica on the local host.
@@ -205,73 +569,139 @@ service LocalGateway {
   rpc UpdateReplicaAddr(ReplicaInfoWithAddr) returns (Void) {}
 
   // Used to instruct a specific kernel replica to prepare to be migrated to a new node.
-  // This involves writing the contents of the etcd-raft data directory to HDFS so that
-  // it can be read back from HDFS by the new replica.
+  // This involves writing the contents of the etcd-raft data directory to remote storage so that
+  // it can be read back from make build-linux-amd64 by the new replica.
   rpc PrepareToMigrate(ReplicaInfo) returns (PrepareToMigrateResponse) {}
 
+  // ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of
+  // the current resource quantities on the node.
+  rpc ResourcesSnapshot(Void) returns (NodeResourcesSnapshotWithContainers) {}
+
   // Return the current GPU resource metrics on the node.
+  // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
   rpc GetActualGpuInfo(Void) returns (GpuInfo) {}
 
   // Return the current vGPU (or "deflated GPU") resource metrics on the node.
+  // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
   rpc GetVirtualGpuInfo(Void) returns (VirtualGpuInfo) {}
 
-  // Set the maximum number of vGPU resources availabe on the node.
+  // Set the maximum number of vGPU resources available on the node.
+  // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
   rpc SetTotalVirtualGPUs(SetVirtualGPUsRequest) returns (VirtualGpuInfo) {}
 
-  // Return the current vGPU allocations on this node. 
+  // Return the current vGPU allocations on this node.
+  // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
   rpc GetVirtualGpuAllocations(Void) returns (VirtualGpuAllocations) {}
 
   // Ensure that the next 'execute_request' for the specified kernel fails.
   // This is to be used exclusively for testing/debugging purposes.
-  rpc YieldNextExecution(KernelId) returns (Void) {} 
+  rpc YieldNextExecution(KernelId) returns (Void) {}
+
+  // ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
+  //
+  // The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
+  // to avoid causing the ReconnectToGateway to encounter an error.
+  rpc ReconnectToGateway(ReconnectToGatewayRequest) returns (Void) {}
 }
 
-// message GetKubernetesNodesResponse {
-//   repeated KubernetesNode nodes = 1;
-// }
+// ReconnectToGatewayRequest is sent as an argument to the ReconnectToGateway gRPC call.
+message ReconnectToGatewayRequest {
+  // If true, then wait until after returning from the ReconnectToGateway gRPC call to initiate the reconnection
+  // procedure (which necessarily terminates the existing connection).
+  bool delay = 1;
+}
 
-// message KubernetesNode {
-//   string nodeId = 1;
-//   repeated string pods = 2;
-//   float allocatableCPU = 3;
-//   float allocatableMemory = 4;
-//   float allocatableGPUs = 5;
-//   float allocatableVGPUs = 6;
-//   float allocatedCPU = 7;
-//   float allocatedMemory = 8;
-//   float allocatedGPUs = 9;
-//   float allocatedVGPUs = 10;
-// }
+// NodeResourcesSnapshotWithContainers encapsulates a NodeResourcesSnapshot struct as well as information about the
+// Containers that are actively scheduled/running on the Host.
+message NodeResourcesSnapshotWithContainers {
+    // Id is a unique identifier for the NodeResourcesSnapshotWithContainers struct/message.
+    string id = 1;
+    // ResourceSnapshot is the NodeResourcesSnapshot.
+    NodeResourcesSnapshot resourceSnapshot = 2;
+    // Containers encodes the containers that are presently scheduled on the Host.
+    repeated ReplicaInfo containers = 3;
+}
 
+// NodeResourcesSnapshot encodes a snapshot of the current resource quantities on a particular node.
+message NodeResourcesSnapshot {
+  // SnapshotId uniquely identifies the NodeResourcesSnapshot and defines a total order amongst all NodeResourcesSnapshot
+  // structs originating from the same node. Each newly-created NodeResourcesSnapshot is assigned an ID from a
+  // monotonically-increasing counter by the ResourceManager.
+  int32 snapshotId = 1;
+  // NodeId is the ID of the node from which the snapshot originates.
+  string nodeId = 2;
+  // ManagerId is the unique ID of the ResourceManager struct from which the NodeResourcesSnapshot was constructed.
+  string managerId = 3;
+  // Timestamp is the time at which the NodeResourcesSnapshot was taken/created.
+  google.protobuf.Timestamp timestamp = 4;
+  ResourcesSnapshot idleResources = 5;
+  ResourcesSnapshot pendingResources = 6;
+  ResourcesSnapshot committedResources = 7;
+  ResourcesSnapshot specResources = 8;
+}
+
+// ResourcesSnapshot encodes resource quantities for a particular "status" of resource (ie., idle,
+// pending, committed, or spec).
+message ResourcesSnapshot {
+  // ResourceStatus indicates whether this snapshot encodes idle, pending, committed, or spec resources.
+  string resourceStatus = 1;
+  // Millicpus is CPU in 1/1000th of CPU core.
+  int32 millicpus = 2;
+  // MemoryMB is the amount of memory in MB.
+  float memoryMb = 3;
+  // Gpus is the number of GPUs.
+  int32 gpus = 4;
+  // VramGb is the amount of VRAM in GB.
+  float vramGb = 5;
+  // SnapshotId uniquely identifies the NodeResourcesSnapshot in which this ResourcesSnapshot will be contained.
+  // The SnapshotId defines a total order amongst all NodeResourcesSnapshot structs originating from the same node.
+  // Each newly-created NodeResourcesSnapshot is assigned an ID from a monotonically-increasing counter by the
+  // ResourceManager running on the associated node.
+  int32 snapshotId = 6;
+}
+
+// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 message VirtualGpuAllocations {
-  map<string,VirtualGpuAllocation> allocations = 1;
+  map<string, VirtualGpuAllocation> allocations = 1;
 }
 
+// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 message VirtualGpuAllocation {
   repeated string deviceIDs = 1;
 }
 
+// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 message SetVirtualGPUsRequest {
   int32 value = 1;
   string kubernetesNodeName = 2;
 }
 
-// Encapsulates the current vGPU (or "deflated GPU") resource usage on a paritcular node. 
+// NumNodesResponse is returned by the GetNumNodes gRPC function.
+message NumNodesResponse {
+  // NumNodes returns the number of nodes in the Cluster.
+  int32 numNodes = 1;
+  // NodeType is the type of node, as there can be either Kubernetes nodes or Docker nodes.
+  string nodeType = 2;
+}
+
+// Encapsulates the current vGPU (or "deflated GPU") resource usage on a particular node.
+// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 message VirtualGpuInfo {
   int32 totalVirtualGPUs = 1;
   int32 allocatedVirtualGPUs = 2;
   int32 freeVirtualGPUs = 3;
 }
 
-// Encapsulates the current GPU resource usage on a paritcular node. 
+// Encapsulates the current GPU resource usage on a particular node.
+// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 message GpuInfo {
-  int32 specGPUs= 1; // The total number of GPUs c onfigured/present on this node.
-  int32 idleGPUs= 2; // The number of GPUs that are uncommitted and therefore available on this node. This quantity is equal to specGPUs - committedGPUs.
-  int32 committedGPUs= 3; // The number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
-  int32 pendingGPUs= 4; // The sum of the outstanding GPUs of all replicas scheduled onto this node. Pending GPUs are not allocated or committed to a particular replica yet. The time at which resources are actually committed to a replica depends upon the policy being used. In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
-  int32 numPendingAllocations= 5; // Number of individual allocations consisting of GPUs that have NOT been fully committed to a kernel.
-  int32 numAllocations= 6; // Number of individual allocations such that the GPUs have been committed to a container. 
-  string gpuSchedulerID = 7; // Unique ID of the gpu scheduler (which is a component of a local daemon) that is reporting these metrics. 
+  int32 specGPUs = 1; // The total number of GPUs configured/present on this node.
+  int32 idleGPUs = 2; // The number of GPUs that are uncommitted and therefore available on this node. This quantity is equal to specGPUs - committedGPUs.
+  int32 committedGPUs = 3; // The number of GPUs that are actively committed and allocated to replicas that are scheduled onto this node.
+  int32 pendingGPUs = 4; // The sum of the outstanding GPUs of all replicas scheduled onto this node. Pending GPUs are not allocated or committed to a particular replica yet. The time at which resources are actually committed to a replica depends upon the policy being used. In some cases, they're committed immediately. In other cases, they're committed only when the replica is actively training.
+  int32 numPendingAllocations = 5; // Number of individual allocations consisting of GPUs that have NOT been fully committed to a kernel.
+  int32 numAllocations = 6; // Number of individual allocations such that the GPUs have been committed to a container.
+  string gpuSchedulerID = 7; // Unique ID of the gpu scheduler (which is a component of a local daemon) that is reporting these metrics.
   string localDaemonID = 8; // Unique ID of the associated local daemon.
 }
 
@@ -284,12 +714,14 @@ message KernelReplicaSpec {
   bool join = 5;
   optional string persistentId = 6;
   int32 dockerModeKernelDebugPort = 7;
+  string workloadId = 8;
 }
 
 message ResourceSpec {
-  int32 cpu = 1;  // In 1/100 core.
-  int32 memory = 2; // In MB.
+  int32 cpu = 1;  // In 1/1000 core.
+  float memory = 2; // In MB.
   int32 gpu = 3; // Number of GPUs.
+  float vram = 4; // Amount of VRAM in GB.
 }
 
 // The kernel id.
@@ -299,7 +731,7 @@ message KernelId {
   optional string persistentId = 3;
 }
 
-// The paramters for migration
+// The parameters for migration
 message ReplicaInfo {
   string kernelId = 1;
   int32 replicaId = 2;
@@ -346,24 +778,25 @@ message KernelSpec {
   string id = 1;  // The kernel id.
   string session = 2; // The id of session associated with the kernel manager.
   repeated string argv = 3; // Command line arguments to be passed to the kernel Python process upon starting it.
-	string signatureScheme = 4; // The signature scheme to use.
+  string signatureScheme = 4; // The signature scheme to use.
   string key = 5; // The key to use for signing messages.
   ResourceSpec resourceSpec = 6; // Resource requirements of the kernel.
+  string workloadId = 7;
 }
 
 // The connection info for a kernel.
 message KernelConnectionInfo {
-	string ip = 1; // The IP address of the kernel.
+  string ip = 1; // The IP address of the kernel.
   string transport = 2; // The transport protocol to use.
   int32 controlPort = 3; // The port for control messages.
-	int32 shellPort = 4; // The port for shell messages.
-	int32 stdinPort = 5; // The port for stdin messages.
-	int32 hbPort = 6; // The port for heartbeat messages.
-	int32 iopubPort = 7; // The port for iopub messages (for the pub socket).
-	int32 iosubPort = 8; // The port for iopub messages (for the sub socket).
+  int32 shellPort = 4; // The port for shell messages.
+  int32 stdinPort = 5; // The port for stdin messages.
+  int32 hbPort = 6; // The port for heartbeat messages.
+  int32 iopubPort = 7; // The port for iopub messages (for the pub socket).
+  int32 iosubPort = 8; // The port for iopub messages (for the sub socket).
   int32 ackPort = 9;
-	string signatureScheme = 10; // The signature scheme to use.
-	string key = 11;  // The key to use for signing messages.
+  string signatureScheme = 10; // The signature scheme to use.
+  string key = 11;  // The key to use for signing messages.
 }
 
 // Used as an argument to the Cluster Gateway's NotifyKernelRegistered RPC.
@@ -374,21 +807,23 @@ message KernelRegistrationNotification {
   string hostId = 4; // The ID of the LocalDaemonClient associated with this Host. It's basically the ID of the LocalDaemon.
   int32 replicaId = 5; // The SMR replica ID.
   string kernelIp = 6; // The hostname of the kernel itself (not its LocalDaemon).
-  string podName = 7; // The name of the Pod hosting the kernel container.
+  string podOrContainerName = 7; // The name of the Pod hosting the kernel container.
   string nodeName = 8; // Name of the node that the Pod is running on.
   ResourceSpec resourceSpec = 9; // ResourceSpec of the kernel.
   int32 cpu = 10;  // In 1/100 core.
   int32 memory = 11; // In MB.
   int32 gpu = 12; // Number of GPUs.
+  string dockerContainerId=13; // Docker ID of the container. Only populated in Docker mode.
+  string notificationId = 14;
 }
 
 // Returned by the Cluster Gateway for the NotifyKernelRegistered RPC.
 message KernelRegistrationNotificationResponse {
   int32 id = 1;
-  map<int32,string> replicas = 2;
+  map<int32, string> replicas = 2;
   int32 smrPort = 3;
   ResourceSpec resourceSpec = 4;
-  bool shouldReadDataFromHdfs = 5;
+  bool shouldReadDataFromRemoteStorage = 5;
   optional string persistentId = 6;
   // optional string dataDirectory = 6;
   // int32 dockerKernelDebugPort = 7;

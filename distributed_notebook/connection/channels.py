@@ -24,7 +24,7 @@ class ZMQChannelsWebsocketConnectionV2(ZMQChannelsWebsocketConnection):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        self.special_message_handlers: Dict[str, Callable[[Dict[str, Any], str]]] = {
+        self.special_message_handlers: Dict[str, Callable[[Dict[str, Any], str], None]] = {
             DummyMessage: self.__handle_dummy_message
         }
 
@@ -45,11 +45,8 @@ class ZMQChannelsWebsocketConnectionV2(ZMQChannelsWebsocketConnection):
             self._on_zmq_reply(stream, msg)
     
     def handle_incoming_message(self, incoming_msg: str) -> None:
-        """Handle an incoming message."""
-        self.log.debug(f"Handling incoming message: {incoming_msg}")
-        # super().handle_incoming_message(incoming_msg)
-        
         """Handle incoming messages from Websocket to ZMQ Sockets."""
+        self.log.debug(f"Handling incoming message: {incoming_msg}")
         ws_msg:str = incoming_msg
         if not self.channels:
             # already closed, ignore the message
@@ -78,6 +75,7 @@ class ZMQChannelsWebsocketConnectionV2(ZMQChannelsWebsocketConnection):
         
         ignore_msg: bool = False
         am = self.multi_kernel_manager.allowed_message_types
+
         # if am:
         msg["header"] = self.get_part("header", msg["header"], msg_list)
         assert msg["header"] is not None
@@ -87,10 +85,13 @@ class ZMQChannelsWebsocketConnectionV2(ZMQChannelsWebsocketConnection):
             self.log.warning(f'Received message of type "{msg_type}", which is not allowed. Ignoring.')
             ignore_msg = True
         elif msg_type in self.special_message_types:
+            self.log.debug(f"Received message of special type \"{msg_type}\": {msg}")
             handler: Optional[Callable] = self.special_message_handlers.get(msg_type, None)
             
             if handler:
                 handler(msg, channel)
+            else:
+                self.log.error(f"Received message of special type \"{msg_type}\"; however, we have no handler for this message...")
             
             ignore_msg = True
         
@@ -117,11 +118,15 @@ class ZMQChannelsWebsocketConnectionV2(ZMQChannelsWebsocketConnection):
         else: 
             self.log.debug(f"Handling outgoing {stream} message: {outgoing_msg}")
             
-        super().handle_outgoing_message(stream, outgoing_msg) # type: ignore
+        try:
+            super().handle_outgoing_message(stream, outgoing_msg) # type: ignore
+        except Exception as ex:
+            self.log.error(f"Exception encountered while handling outgoing message {outgoing_msg}: {ex}")
+            raise ex # Re-raise the exception.
 
     @property
     def write_message(self):
-        """Alias to the websocket handler's write_message method."""
+        """Alias to the websocket handlers' write_message method."""
         # return self.websocket_handler.write_message
         return self.__write_message_internal
 

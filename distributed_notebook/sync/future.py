@@ -4,6 +4,8 @@ import logging
 from typing import Any 
 
 from .errors import FromGoError
+from ..logging import ColoredLogFormatter
+
 
 class Future:
     def __init__(self, loop=None, name:str = ""):
@@ -12,6 +14,10 @@ class Future:
         self.future: asyncio.Future[Any] = loop.create_future()
         self.name:str = name 
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + f"[{self.name}]")
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(ColoredLogFormatter())
+        self.logger.addHandler(ch)
     
     async def resolve(self, value, goerr):
         err = FromGoError(goerr)

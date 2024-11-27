@@ -1,0 +1,21 @@
+---
+
+# This playbook is used to create the Docker Swarm cluster.
+
+- name: Update the Docker configuration on each node in (or that will be in) the Docker Swarm cluster
+  hosts: docker_swarm
+  roles:
+    - configure-docker-daemon
+  tags:
+    - docker
+    - swarm
+    - configure_docker
+
+- name: Restart the Docker daemon by restarting the Docker service on each node in (or that will be in) the Docker Swarm cluster
+  hosts: docker_swarm
+  roles:
+    - restart-docker-service
+  tags:
+    - docker
+    - swarm
+    - configure_docker

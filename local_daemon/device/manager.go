@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/elliotchance/orderedmap/v2"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
 	"k8s.io/klog/v2"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
 )
@@ -57,7 +57,7 @@ func NewResourceManager(resource string, numVirtualGPUs int) ResourceManager {
 	return m
 }
 
-// Returns (nil, ErrDeviceNotFound) if the specified device cannot be found.
+// GetDevice returns (nil, ErrDeviceNotFound) if the specified device cannot be found.
 func (m *resourceManagerImpl) GetDevice(id string) (*Device, error) {
 	device := m.devices.GetByID(id)
 
@@ -68,7 +68,7 @@ func (m *resourceManagerImpl) GetDevice(id string) (*Device, error) {
 	return nil, ErrDeviceNotFound
 }
 
-// Allocate a specific Device identified by the device's ID.
+// AllocateSpecificDevice allocate a specific Device identified by the device's ID.
 //
 // Returns ErrDeviceNotFound if the specified device cannot be found.
 // Return ErrDeviceAlreadyAllocated if the specified device is already marked as allocated.
@@ -108,7 +108,7 @@ func (m *resourceManagerImpl) __allocateSpecificDeviceUnsafe(id string) error {
 	return err
 }
 
-// Modify the total number of resources that are available.
+// SetTotalNumDevices modify the total number of resources that are available.
 // This will return an error if this value is less than the number of allocated devices.
 func (m *resourceManagerImpl) SetTotalNumDevices(value int32) error {
 	m.Lock()
@@ -203,7 +203,7 @@ func (m *resourceManagerImpl) __unsafeIncreaseTotalNumDevices(value int32) error
 	return nil
 }
 
-// Allocate n devices. The allocation is performed all at once.
+// AllocateDevices allocate n devices. The allocation is performed all at once.
 //
 // If there is an insufficient number of devices available to fulfill the entire request, then no devices are allocated and an ErrInsufficientResourcesAvailable error is returned.
 // If the allocation is performed successfully, then a slice containing the IDs of the allocated devices is returned along with a slice of DeviceSpecs (one for each allocated device) and a nil error.
@@ -232,11 +232,11 @@ func (m *resourceManagerImpl) AllocateDevices(n int) ([]string, []*pluginapi.Dev
 	for _, deviceID := range allocatedDeviceIDs {
 		err := m.__allocateSpecificDeviceUnsafe(deviceID)
 		if err != nil {
-			errorMessage := fmt.Sprintf("Failed to allocate device %s: %v", deviceID, err)
-			m.log.Error(errorMessage)
-			klog.Errorf(errorMessage)
+			errorMessage := fmt.Errorf("failed to allocate device %s: %w", deviceID, err)
+			m.log.Error(errorMessage.Error())
+			klog.Errorf(errorMessage.Error())
 
-			return nil, nil, fmt.Errorf(errorMessage)
+			return nil, nil, errorMessage
 		}
 
 		deviceSpecs = append(deviceSpecs, &pluginapi.DeviceSpec{
@@ -250,8 +250,8 @@ func (m *resourceManagerImpl) AllocateDevices(n int) ([]string, []*pluginapi.Dev
 	return allocatedDeviceIDs, deviceSpecs, nil
 }
 
-// Returns ErrDeviceNotFound if the specified device cannot be found.
-// Return ErrDeviceAlreadyAllocated if the specified device is already marked as free.
+// FreeDevice returns ErrDeviceNotFound if the specified device cannot be found.
+// FreeDevice returns ErrDeviceAlreadyAllocated if the specified device is already marked as free.
 // Otherwise, return nil.
 func (m *resourceManagerImpl) FreeDevice(id string) error {
 	m.Lock()
@@ -276,7 +276,7 @@ func (m *resourceManagerImpl) FreeDevice(id string) error {
 	return err
 }
 
-// Return the total number of devices.
+// NumDevices return the total number of devices.
 func (m *resourceManagerImpl) NumDevices() int {
 	m.Lock()
 	defer m.Unlock()

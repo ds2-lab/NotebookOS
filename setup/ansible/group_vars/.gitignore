@@ -1,0 +1,8 @@
+vms.yml
+all.yml
+all.yaml
+vms.yaml
+ansible_vars.yaml
+ansible_vars.yml
+all_aws_ec2.yml
+all_chameleon.yml

@@ -1,1 +1,2 @@
 from .kernel import DistributedKernel
+from .execution_yield_error import ExecutionYieldError

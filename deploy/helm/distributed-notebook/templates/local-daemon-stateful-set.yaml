@@ -164,7 +164,7 @@ spec:
             value: /data
           - name: KERNEL_IMAGE
             value: {{ .Values.notebook_server.image }}:{{ .Values.notebook_server.image_tag }}
-          - name: KERNEL_TEMP_BASE
+          - name: KERNEL_TEMP_BASE_IN_CONTAINER
             value: /data
           - name: SHARED_CONFIG_DIR
             value: "{{ .Values.common.config_file_dir }}"

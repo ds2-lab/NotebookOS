@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"log"
 	"net"
 	"os"
@@ -14,10 +14,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
-	"github.com/zhangjyr/distributed-notebook/common/utils"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/utils"
 )
 
 const (
@@ -42,6 +42,9 @@ type LocalInvoker struct {
 	status        jupyter.KernelStatus
 	statusChanged StatucChangedHandler
 
+	created   bool
+	createdAt time.Time
+
 	log logger.Logger
 }
 
@@ -62,20 +65,20 @@ func (ivk *LocalInvoker) InvokeWithContext(ctx context.Context, spec *proto.Kern
 		ivk.statusChanged = ivk.defaultStatusChangedHandler
 	}
 
-	log.Printf("[LocalInvoker] Invoking with context now.\n")
+	ivk.log.Debug("[LocalInvoker] Invoking with context now.")
 
 	// Looking for available port
 	connectionInfo, err := ivk.prepareConnectionFile(spec.Kernel)
 	if err != nil {
-		log.Printf("Error while preparing connection file: %v.\n", err)
+		ivk.log.Debug("Error while preparing connection file: %v.", err)
 		return nil, ivk.reportLaunchError(err)
 	}
 
 	// Write connection file and replace placeholders within in command line
 	path, err := ivk.writeConnectionFile("", spec.Kernel.Id, connectionInfo)
 	if err != nil {
-		log.Printf("Error while writing connection file: %v.\n", err)
-		log.Printf("Connection info: %v\n", connectionInfo)
+		ivk.log.Debug("Error while writing connection file: %v.", err)
+		ivk.log.Debug("Connection info: %v", connectionInfo)
 		return nil, ivk.reportLaunchError(err)
 	}
 	for i, arg := range spec.Kernel.Argv {
@@ -83,7 +86,7 @@ func (ivk *LocalInvoker) InvokeWithContext(ctx context.Context, spec *proto.Kern
 	}
 
 	// Start kernel process
-	log.Printf("Launching kernel \"%s\"\n", strings.Join(spec.Kernel.Argv, " "))
+	ivk.log.Debug("Launching kernel \"%s\"", strings.Join(spec.Kernel.Argv, " "))
 	if err := ivk.launchKernel(ctx, spec.Kernel.Id, spec.Kernel.Argv); err != nil {
 		return nil, ivk.reportLaunchError(err)
 	}
@@ -105,7 +108,7 @@ func (ivk *LocalInvoker) Shutdown() error {
 		return jupyter.ErrKernelNotLaunched
 	}
 
-	log.Printf("Signaling  kernel %s...\n", ivk.spec.Kernel.Id)
+	ivk.log.Debug("Signaling  kernel %s...", ivk.spec.Kernel.Id)
 	return ivk.cmd.Process.Signal(syscall.SIGINT)
 }
 
@@ -114,8 +117,13 @@ func (ivk *LocalInvoker) Close() error {
 		return jupyter.ErrKernelNotLaunched
 	}
 
-	log.Printf("Killing  kernel %s...\n", ivk.spec.Kernel.Id)
-	ivk.cmd.Process.Kill()
+	ivk.log.Debug("Killing  kernel %s...", ivk.spec.Kernel.Id)
+	err := ivk.cmd.Process.Kill()
+	if err != nil {
+		ivk.log.Error("Error while attempting to kill process: %v", err)
+		return err
+	}
+
 	return nil
 }
 
@@ -125,7 +133,7 @@ func (ivk *LocalInvoker) Wait() (jupyter.KernelStatus, error) {
 	}
 
 	<-ivk.closed
-	ivk.closedAt = time.Time{} // Update closedAt to extend expriation time
+	ivk.closedAt = time.Time{} // Update closedAt to extend expiration time
 	return ivk.Status()
 }
 
@@ -137,7 +145,7 @@ func (ivk *LocalInvoker) OnStatusChanged(handler StatucChangedHandler) {
 	ivk.statusChanged = handler
 }
 
-func (ivk *LocalInvoker) GetReplicaAddress(spec *proto.KernelSpec, replicaId int32) string {
+func (ivk *LocalInvoker) GetReplicaAddress(_ *proto.KernelSpec, _ int32) string {
 	ivk.initSMRPort()
 	return fmt.Sprintf("127.0.0.1:%d", ivk.SMRPort)
 }
@@ -170,6 +178,7 @@ func (ivk *LocalInvoker) prepareConnectionFile(spec *proto.KernelSpec) (*jupyter
 		if err != nil {
 			return nil, err
 		}
+		// Can we just call this directly? Or do we not actually want to close it...?
 		defer conn.Close()
 		socks[i] = conn
 	}
@@ -185,19 +194,35 @@ func (ivk *LocalInvoker) prepareConnectionFile(spec *proto.KernelSpec) (*jupyter
 func (ivk *LocalInvoker) writeConnectionFile(dir string, name string, info *jupyter.ConnectionInfo) (string, error) {
 	jsonContent, err := json.Marshal(info)
 	if err != nil {
+		ivk.log.Error("Failed to marshal connection info because: %v", err)
 		return "", err
 	}
+
+	targetDirForLogging := dir
+	if targetDirForLogging == "" {
+		targetDirForLogging = os.TempDir()
+	}
+
+	ivk.log.Debug("Creating temporary file \"%s\" in directory \"%s\" to contain kernel connection info",
+		fmt.Sprintf(ConnectionFileFormat, name), targetDirForLogging)
+
 	f, err := os.CreateTemp(dir, fmt.Sprintf(ConnectionFileFormat, name))
 	if err != nil {
+		ivk.log.Error("CreateTemp(\"%s\", \"%s\") failed because: %v", targetDirForLogging, fmt.Sprintf(ConnectionFileFormat, name), err)
 		return "", err
 	}
 
-	log.Printf("Created connection file \"%s\"\n", f.Name())
-	log.Printf("Writing the following contents to connection file \"%s\": \"%v\"\n", f.Name(), string(jsonContent))
-	f.Write(jsonContent)
+	ivk.log.Debug("Created connection file \"%s\" in directory \"%s\"", f.Name(), targetDirForLogging)
+	ivk.log.Debug("Writing the following contents to connection file \"%s\": \"%v\"", f.Name(), string(jsonContent))
+	_, err = f.Write(jsonContent)
+	if err != nil {
+		ivk.log.Error("Failed to write JSON-encoded connection info to file \"%s\" because: %v", f.Name(), err)
+		return "", err
+	}
+
 	defer f.Close()
 
-	log.Printf("Changing permissions of connection file \"%s\" now\n", f.Name())
+	ivk.log.Debug("Changing permissions of connection file \"%s\" now", f.Name())
 	if err := os.Chmod(f.Name(), 0777); err != nil {
 		log.Fatal(err)
 	}
@@ -208,18 +233,34 @@ func (ivk *LocalInvoker) writeConnectionFile(dir string, name string, info *jupy
 func (ivk *LocalInvoker) writeConfigFile(dir string, name string, info *jupyter.ConfigFile) (string, error) {
 	jsonContent, err := json.Marshal(info)
 	if err != nil {
+		ivk.log.Error("Failed to marshal config file struct because: %v", err)
 		return "", err
 	}
+
+	targetDirForLogging := dir
+	if targetDirForLogging == "" {
+		targetDirForLogging = os.TempDir()
+	}
+
+	ivk.log.Debug("Creating temporary file \"%s\" in directory \"%s\" to contain kernel config info",
+		fmt.Sprintf(ConnectionFileFormat, name), targetDirForLogging)
+
 	f, err := os.CreateTemp(dir, fmt.Sprintf(ConfigFileFormat, name))
 	if err != nil {
+		ivk.log.Error("CreateTemp(\"%s\", \"%s\") failed because: %v", targetDirForLogging, fmt.Sprintf(ConnectionFileFormat, name), err)
 		return "", err
 	}
-	log.Printf("Created config file \"%s\"\n", f.Name())
-	log.Printf("Writing the following contents to config file \"%s\": \"%v\"\n", f.Name(), string(jsonContent))
-	f.Write(jsonContent)
+	ivk.log.Debug("Created config file \"%s\"", f.Name())
+	ivk.log.Debug("Writing the following contents to config file \"%s\": \"%v\"", f.Name(), string(jsonContent))
+	_, err = f.Write(jsonContent)
+	if err != nil {
+		ivk.log.Error("Failed to write JSON-encoded config info to file \"%s\" because: %v", f.Name(), err)
+		return "", err
+	}
+
 	defer f.Close()
 
-	log.Printf("Changing permissions of config file \"%s\" now\n", f.Name())
+	ivk.log.Debug("Changing permissions of config file \"%s\" now", f.Name())
 	if err := os.Chmod(f.Name(), 0777); err != nil {
 		log.Fatal(err)
 	}
@@ -228,7 +269,7 @@ func (ivk *LocalInvoker) writeConfigFile(dir string, name string, info *jupyter.
 }
 
 func (ivk *LocalInvoker) launchKernel(ctx context.Context, id string, argv []string) error {
-	log.Printf("Starting kernel %s...\n", id)
+	ivk.log.Debug("Starting kernel %s...", id)
 	ivk.cmd = exec.CommandContext(ctx, argv[0], argv[1:]...)
 	ivk.cmd.Stdout = os.Stdout
 	ivk.cmd.Stderr = os.Stderr
@@ -239,7 +280,7 @@ func (ivk *LocalInvoker) launchKernel(ctx context.Context, id string, argv []str
 
 	go func() {
 		if err := ivk.cmd.Wait(); err != nil {
-			log.Printf("Kernel %s exited with error: %v\n", id, err)
+			ivk.log.Debug("Kernel %s exited with error: %v\n", id, err)
 		}
 		ivk.closedAt = time.Now()
 		close(ivk.closed)
@@ -247,6 +288,9 @@ func (ivk *LocalInvoker) launchKernel(ctx context.Context, id string, argv []str
 		// Status will not change anymore, reset the handler.
 		ivk.statusChanged = ivk.defaultStatusChangedHandler
 	}()
+
+	ivk.created = true
+	ivk.createdAt = time.Now()
 
 	return nil
 }
@@ -268,4 +312,27 @@ func (ivk *LocalInvoker) setStatus(status jupyter.KernelStatus) {
 	if old != ivk.status {
 		ivk.statusChanged(old, ivk.status)
 	}
+}
+
+// KernelCreatedAt returns the time at which the LocalInvoker created the kernel.
+func (ivk *LocalInvoker) KernelCreatedAt() (time.Time, bool) {
+	if !ivk.created {
+		return time.Time{}, false
+	}
+
+	return ivk.createdAt, true
+}
+
+// KernelCreated returns a bool indicating whether kernel the container has been created.
+func (ivk *LocalInvoker) KernelCreated() bool {
+	return ivk.created
+}
+
+// TimeSinceKernelCreated returns the amount of time that has elapsed since the LocalInvoker created the kernel.
+func (ivk *LocalInvoker) TimeSinceKernelCreated() (time.Duration, bool) {
+	if !ivk.created {
+		return time.Duration(-1), false
+	}
+
+	return time.Since(ivk.createdAt), true
 }

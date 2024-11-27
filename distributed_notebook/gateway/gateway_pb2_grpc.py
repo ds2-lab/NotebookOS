@@ -5,10 +5,8 @@ import warnings
 
 from . import gateway_pb2 as gateway__pb2
 
-GRPC_GENERATED_VERSION = '1.65.1'
+GRPC_GENERATED_VERSION = '1.66.1'
 GRPC_VERSION = grpc.__version__
-EXPECTED_ERROR_RELEASE = '1.66.0'
-SCHEDULED_RELEASE_DATE = 'August 6, 2024'
 _version_not_supported = False
 
 try:
@@ -18,15 +16,12 @@ except ImportError:
     _version_not_supported = True
 
 if _version_not_supported:
-    warnings.warn(
+    raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
         + f' but the generated code in gateway_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
-        + f' This warning will become an error in {EXPECTED_ERROR_RELEASE},'
-        + f' scheduled for release on {SCHEDULED_RELEASE_DATE}.',
-        RuntimeWarning
     )
 
 
@@ -74,6 +69,11 @@ class ClusterGatewayStub(object):
         self.Notify = channel.unary_unary(
                 '/gateway.ClusterGateway/Notify',
                 request_serializer=gateway__pb2.Notification.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                _registered_method=True)
+        self.PingGateway = channel.unary_unary(
+                '/gateway.ClusterGateway/PingGateway',
+                request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 _registered_method=True)
 
@@ -135,6 +135,13 @@ class ClusterGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def PingGateway(self, request, context):
+        """PingGateway is a no-op for testing connectivity.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_ClusterGatewayServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -171,6 +178,11 @@ def add_ClusterGatewayServicer_to_server(servicer, server):
             'Notify': grpc.unary_unary_rpc_method_handler(
                     servicer.Notify,
                     request_deserializer=gateway__pb2.Notification.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'PingGateway': grpc.unary_unary_rpc_method_handler(
+                    servicer.PingGateway,
+                    request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
     }
@@ -375,6 +387,33 @@ class ClusterGateway(object):
             metadata,
             _registered_method=True)
 
+    @staticmethod
+    def PingGateway(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.ClusterGateway/PingGateway',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
 
 class DistributedClusterStub(object):
     """gRPC service provided by the Cluster Gateway and "used" by the Dashboard
@@ -391,6 +430,11 @@ class DistributedClusterStub(object):
                 '/gateway.DistributedCluster/InducePanic',
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
+                _registered_method=True)
+        self.ClusterAge = channel.unary_unary(
+                '/gateway.DistributedCluster/ClusterAge',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.ClusterAgeResponse.FromString,
                 _registered_method=True)
         self.SpoofNotifications = channel.unary_unary(
                 '/gateway.DistributedCluster/SpoofNotifications',
@@ -442,6 +486,61 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.DashboardRegistrationResponse.FromString,
                 _registered_method=True)
+        self.GetVirtualDockerNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/GetVirtualDockerNodes',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.GetVirtualDockerNodesResponse.FromString,
+                _registered_method=True)
+        self.GetDockerSwarmNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/GetDockerSwarmNodes',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.GetDockerSwarmNodesResponse.FromString,
+                _registered_method=True)
+        self.GetNumNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/GetNumNodes',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.NumNodesResponse.FromString,
+                _registered_method=True)
+        self.SetNumClusterNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/SetNumClusterNodes',
+                request_serializer=gateway__pb2.SetNumClusterNodesRequest.SerializeToString,
+                response_deserializer=gateway__pb2.SetNumClusterNodesResponse.FromString,
+                _registered_method=True)
+        self.AddClusterNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/AddClusterNodes',
+                request_serializer=gateway__pb2.AddClusterNodesRequest.SerializeToString,
+                response_deserializer=gateway__pb2.AddClusterNodesResponse.FromString,
+                _registered_method=True)
+        self.RemoveSpecificClusterNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/RemoveSpecificClusterNodes',
+                request_serializer=gateway__pb2.RemoveSpecificClusterNodesRequest.SerializeToString,
+                response_deserializer=gateway__pb2.RemoveSpecificClusterNodesResponse.FromString,
+                _registered_method=True)
+        self.RemoveClusterNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/RemoveClusterNodes',
+                request_serializer=gateway__pb2.RemoveClusterNodesRequest.SerializeToString,
+                response_deserializer=gateway__pb2.RemoveClusterNodesResponse.FromString,
+                _registered_method=True)
+        self.ModifyClusterNodes = channel.unary_unary(
+                '/gateway.DistributedCluster/ModifyClusterNodes',
+                request_serializer=gateway__pb2.ModifyClusterNodesRequest.SerializeToString,
+                response_deserializer=gateway__pb2.ModifyClusterNodesResponse.FromString,
+                _registered_method=True)
+        self.GetLocalDaemonNodeIDs = channel.unary_unary(
+                '/gateway.DistributedCluster/GetLocalDaemonNodeIDs',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.GetLocalDaemonNodeIDsResponse.FromString,
+                _registered_method=True)
+        self.QueryMessage = channel.unary_unary(
+                '/gateway.DistributedCluster/QueryMessage',
+                request_serializer=gateway__pb2.QueryMessageRequest.SerializeToString,
+                response_deserializer=gateway__pb2.QueryMessageResponse.FromString,
+                _registered_method=True)
+        self.ForceLocalDaemonToReconnect = channel.unary_unary(
+                '/gateway.DistributedCluster/ForceLocalDaemonToReconnect',
+                request_serializer=gateway__pb2.ForceLocalDaemonToReconnectRequest.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                _registered_method=True)
 
 
 class DistributedClusterServicer(object):
@@ -451,6 +550,13 @@ class DistributedClusterServicer(object):
 
     def InducePanic(self, request, context):
         """Used for debugging/testing. Causes a Panic.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ClusterAge(self, request, context):
+        """ClusterAge returns the age of the DistributedCluster as a UnixMilliseconds timestamp.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -534,6 +640,108 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetVirtualDockerNodes(self, request, context):
+        """GetVirtualDockerNodes returns a (pointer to a) GetVirtualDockerNodesResponse struct describing the virtual,
+        simulated nodes currently provisioned within the cluster.
+
+        When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+        Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+
+        In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+        we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+
+        If the Cluster is not running in Docker mode, then this will return an error.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetDockerSwarmNodes(self, request, context):
+        """GetDockerSwarmNodes returns a (pointer to a) GetDockerSwarmNodesResponse struct describing the Docker Swarm
+        nodes that exist within the Docker Swarm cluster.
+
+        When deployed in Docker Swarm mode, our cluster has both "actual" nodes, which correspond to the nodes that
+        Docker Swarm knows about, and virtual nodes that correspond to each local daemon container.
+
+        In a "real" deployment, there would be one local daemon per Docker Swarm node. But for development and debugging,
+        we may provision many local daemons per Docker Swarm node, where each local daemon manages its own virtual node.
+
+        If the Cluster is not running in Docker mode, then this will return an error.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetNumNodes(self, request, context):
+        """GetNumNodes returns the number of nodes in the cluster.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SetNumClusterNodes(self, request, context):
+        """SetNumClusterNodes is used to scale the number of nodes in the cluster to a specifically value.
+        This function accepts a SetNumClusterNodesRequest struct, which encodes the target number of nodes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AddClusterNodes(self, request, context):
+        """AddClusterNodes provisions a parameterized number of additional nodes within the cluster.
+        This function accepts a AddClusterNodesRequest struct, which encodes the number of nodes to add.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RemoveSpecificClusterNodes(self, request, context):
+        """RemoveClusterNodes removes the specified nodes from the Docker cluster.
+        This function accepts a RemoveSpecificClusterNodesRequest struct, which encodes the IDs of the nodes to remove.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RemoveClusterNodes(self, request, context):
+        """RemoveClusterNodes removes the specified number of existing nodes from the Docker cluster.
+        This function accepts a RemoveClusterNodesRequest struct, which encodes the number of nodes to remove.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ModifyClusterNodes(self, request, context):
+        """ModifyClusterNodes enables the modification of one or more nodes within the cluster.
+        Modifications include altering the number of GPUs available on the nodes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetLocalDaemonNodeIDs(self, request, context):
+        """GetLocalDaemonNodeIDs returns a string slice containing the host IDs of each local daemon.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def QueryMessage(self, request, context):
+        """QueryMessage is used to query whether a given ZMQ message has been seen by any of the Cluster components
+        and what the status of that message is (i.e., sent, response received, etc.)
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ForceLocalDaemonToReconnect(self, request, context):
+        """ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
+        This is mostly used for testing/debugging the reconnection process.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DistributedClusterServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -541,6 +749,11 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.InducePanic,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'ClusterAge': grpc.unary_unary_rpc_method_handler(
+                    servicer.ClusterAge,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.ClusterAgeResponse.SerializeToString,
             ),
             'SpoofNotifications': grpc.unary_unary_rpc_method_handler(
                     servicer.SpoofNotifications,
@@ -592,6 +805,61 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.DashboardRegistrationResponse.SerializeToString,
             ),
+            'GetVirtualDockerNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetVirtualDockerNodes,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.GetVirtualDockerNodesResponse.SerializeToString,
+            ),
+            'GetDockerSwarmNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetDockerSwarmNodes,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.GetDockerSwarmNodesResponse.SerializeToString,
+            ),
+            'GetNumNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetNumNodes,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.NumNodesResponse.SerializeToString,
+            ),
+            'SetNumClusterNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.SetNumClusterNodes,
+                    request_deserializer=gateway__pb2.SetNumClusterNodesRequest.FromString,
+                    response_serializer=gateway__pb2.SetNumClusterNodesResponse.SerializeToString,
+            ),
+            'AddClusterNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.AddClusterNodes,
+                    request_deserializer=gateway__pb2.AddClusterNodesRequest.FromString,
+                    response_serializer=gateway__pb2.AddClusterNodesResponse.SerializeToString,
+            ),
+            'RemoveSpecificClusterNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.RemoveSpecificClusterNodes,
+                    request_deserializer=gateway__pb2.RemoveSpecificClusterNodesRequest.FromString,
+                    response_serializer=gateway__pb2.RemoveSpecificClusterNodesResponse.SerializeToString,
+            ),
+            'RemoveClusterNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.RemoveClusterNodes,
+                    request_deserializer=gateway__pb2.RemoveClusterNodesRequest.FromString,
+                    response_serializer=gateway__pb2.RemoveClusterNodesResponse.SerializeToString,
+            ),
+            'ModifyClusterNodes': grpc.unary_unary_rpc_method_handler(
+                    servicer.ModifyClusterNodes,
+                    request_deserializer=gateway__pb2.ModifyClusterNodesRequest.FromString,
+                    response_serializer=gateway__pb2.ModifyClusterNodesResponse.SerializeToString,
+            ),
+            'GetLocalDaemonNodeIDs': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetLocalDaemonNodeIDs,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.GetLocalDaemonNodeIDsResponse.SerializeToString,
+            ),
+            'QueryMessage': grpc.unary_unary_rpc_method_handler(
+                    servicer.QueryMessage,
+                    request_deserializer=gateway__pb2.QueryMessageRequest.FromString,
+                    response_serializer=gateway__pb2.QueryMessageResponse.SerializeToString,
+            ),
+            'ForceLocalDaemonToReconnect': grpc.unary_unary_rpc_method_handler(
+                    servicer.ForceLocalDaemonToReconnect,
+                    request_deserializer=gateway__pb2.ForceLocalDaemonToReconnectRequest.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'gateway.DistributedCluster', rpc_method_handlers)
@@ -622,6 +890,33 @@ class DistributedCluster(object):
             '/gateway.DistributedCluster/InducePanic',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ClusterAge(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/ClusterAge',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.ClusterAgeResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -902,6 +1197,303 @@ class DistributedCluster(object):
             metadata,
             _registered_method=True)
 
+    @staticmethod
+    def GetVirtualDockerNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetVirtualDockerNodes',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.GetVirtualDockerNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetDockerSwarmNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetDockerSwarmNodes',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.GetDockerSwarmNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetNumNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetNumNodes',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.NumNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SetNumClusterNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/SetNumClusterNodes',
+            gateway__pb2.SetNumClusterNodesRequest.SerializeToString,
+            gateway__pb2.SetNumClusterNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AddClusterNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/AddClusterNodes',
+            gateway__pb2.AddClusterNodesRequest.SerializeToString,
+            gateway__pb2.AddClusterNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RemoveSpecificClusterNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/RemoveSpecificClusterNodes',
+            gateway__pb2.RemoveSpecificClusterNodesRequest.SerializeToString,
+            gateway__pb2.RemoveSpecificClusterNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RemoveClusterNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/RemoveClusterNodes',
+            gateway__pb2.RemoveClusterNodesRequest.SerializeToString,
+            gateway__pb2.RemoveClusterNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ModifyClusterNodes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/ModifyClusterNodes',
+            gateway__pb2.ModifyClusterNodesRequest.SerializeToString,
+            gateway__pb2.ModifyClusterNodesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetLocalDaemonNodeIDs(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/GetLocalDaemonNodeIDs',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.GetLocalDaemonNodeIDsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def QueryMessage(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/QueryMessage',
+            gateway__pb2.QueryMessageRequest.SerializeToString,
+            gateway__pb2.QueryMessageResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ForceLocalDaemonToReconnect(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/ForceLocalDaemonToReconnect',
+            gateway__pb2.ForceLocalDaemonToReconnectRequest.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
 
 class ClusterDashboardStub(object):
     """gRPC service provided by the Dashboard and "used" by the Cluster Gateway
@@ -981,8 +1573,99 @@ class ClusterDashboard(object):
             _registered_method=True)
 
 
+class KernelErrorReporterStub(object):
+    """KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+
+    Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+    If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+    gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+    be submitted to the Cluster Dashboard.
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.Notify = channel.unary_unary(
+                '/gateway.KernelErrorReporter/Notify',
+                request_serializer=gateway__pb2.KernelNotification.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                _registered_method=True)
+
+
+class KernelErrorReporterServicer(object):
+    """KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+
+    Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+    If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+    gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+    be submitted to the Cluster Dashboard.
+    """
+
+    def Notify(self, request, context):
+        """Report that an error occurred within one of the local daemons (or possibly a jupyter kernel).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_KernelErrorReporterServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'Notify': grpc.unary_unary_rpc_method_handler(
+                    servicer.Notify,
+                    request_deserializer=gateway__pb2.KernelNotification.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'gateway.KernelErrorReporter', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('gateway.KernelErrorReporter', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class KernelErrorReporter(object):
+    """KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
+
+    Kernel replicas running on the same node as the Local Daemon will connect to the KernelErrorReporter service.
+    If an error occurs within the kernel, then the kernel can report it to the Local Daemon using the KernelErrorReporter
+    gRPC service. The Local Daemon can, in turn, report the error to the Cluster Gateway, so that a notification can
+    be submitted to the Cluster Dashboard.
+    """
+
+    @staticmethod
+    def Notify(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.KernelErrorReporter/Notify',
+            gateway__pb2.KernelNotification.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+
 class LocalGatewayStub(object):
-    """The juypter gateway service for host local kernels.
+    """The Jupyter gateway service for host local kernels.
     """
 
     def __init__(self, channel):
@@ -1051,6 +1734,11 @@ class LocalGatewayStub(object):
                 request_serializer=gateway__pb2.ReplicaInfo.SerializeToString,
                 response_deserializer=gateway__pb2.PrepareToMigrateResponse.FromString,
                 _registered_method=True)
+        self.ResourcesSnapshot = channel.unary_unary(
+                '/gateway.LocalGateway/ResourcesSnapshot',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.NodeResourcesSnapshotWithContainers.FromString,
+                _registered_method=True)
         self.GetActualGpuInfo = channel.unary_unary(
                 '/gateway.LocalGateway/GetActualGpuInfo',
                 request_serializer=gateway__pb2.Void.SerializeToString,
@@ -1076,21 +1764,27 @@ class LocalGatewayStub(object):
                 request_serializer=gateway__pb2.KernelId.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 _registered_method=True)
+        self.ReconnectToGateway = channel.unary_unary(
+                '/gateway.LocalGateway/ReconnectToGateway',
+                request_serializer=gateway__pb2.ReconnectToGatewayRequest.SerializeToString,
+                response_deserializer=gateway__pb2.Void.FromString,
+                _registered_method=True)
 
 
 class LocalGatewayServicer(object):
-    """The juypter gateway service for host local kernels.
+    """The Jupyter gateway service for host local kernels.
     """
 
     def SetID(self, request, context):
-        """SetID sets the local gatway id and return old id for failure tolerance.
+        """SetID sets the local gateway id and return old id for failure tolerance.
+        This also instructs the Local Daemon associated with the LocalGateway to create a PrometheusManager and begin serving metrics.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def StartKernel(self, request, context):
-        """StartKernel a kernel or kernel replica.
+        """StartKernel starts a kernel or kernel replica.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1162,8 +1856,16 @@ class LocalGatewayServicer(object):
 
     def PrepareToMigrate(self, request, context):
         """Used to instruct a specific kernel replica to prepare to be migrated to a new node.
-        This involves writing the contents of the etcd-raft data directory to HDFS so that
-        it can be read back from HDFS by the new replica.
+        This involves writing the contents of the etcd-raft data directory to remote storage so that
+        it can be read back from make build-linux-amd64 by the new replica.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ResourcesSnapshot(self, request, context):
+        """ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of
+        the current resource quantities on the node.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1171,6 +1873,7 @@ class LocalGatewayServicer(object):
 
     def GetActualGpuInfo(self, request, context):
         """Return the current GPU resource metrics on the node.
+        @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1178,20 +1881,23 @@ class LocalGatewayServicer(object):
 
     def GetVirtualGpuInfo(self, request, context):
         """Return the current vGPU (or "deflated GPU") resource metrics on the node.
+        @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def SetTotalVirtualGPUs(self, request, context):
-        """Set the maximum number of vGPU resources availabe on the node.
+        """Set the maximum number of vGPU resources available on the node.
+        @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
     def GetVirtualGpuAllocations(self, request, context):
-        """Return the current vGPU allocations on this node. 
+        """Return the current vGPU allocations on this node.
+        @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1200,6 +1906,16 @@ class LocalGatewayServicer(object):
     def YieldNextExecution(self, request, context):
         """Ensure that the next 'execute_request' for the specified kernel fails.
         This is to be used exclusively for testing/debugging purposes.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReconnectToGateway(self, request, context):
+        """ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
+
+        The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
+        to avoid causing the ReconnectToGateway to encounter an error.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -1268,6 +1984,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.ReplicaInfo.FromString,
                     response_serializer=gateway__pb2.PrepareToMigrateResponse.SerializeToString,
             ),
+            'ResourcesSnapshot': grpc.unary_unary_rpc_method_handler(
+                    servicer.ResourcesSnapshot,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.NodeResourcesSnapshotWithContainers.SerializeToString,
+            ),
             'GetActualGpuInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.GetActualGpuInfo,
                     request_deserializer=gateway__pb2.Void.FromString,
@@ -1293,6 +2014,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
                     request_deserializer=gateway__pb2.KernelId.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
             ),
+            'ReconnectToGateway': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReconnectToGateway,
+                    request_deserializer=gateway__pb2.ReconnectToGatewayRequest.FromString,
+                    response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'gateway.LocalGateway', rpc_method_handlers)
@@ -1302,7 +2028,7 @@ def add_LocalGatewayServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class LocalGateway(object):
-    """The juypter gateway service for host local kernels.
+    """The Jupyter gateway service for host local kernels.
     """
 
     @staticmethod
@@ -1630,6 +2356,33 @@ class LocalGateway(object):
             _registered_method=True)
 
     @staticmethod
+    def ResourcesSnapshot(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.LocalGateway/ResourcesSnapshot',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.NodeResourcesSnapshotWithContainers.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def GetActualGpuInfo(request,
             target,
             options=(),
@@ -1753,6 +2506,33 @@ class LocalGateway(object):
             target,
             '/gateway.LocalGateway/YieldNextExecution',
             gateway__pb2.KernelId.SerializeToString,
+            gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReconnectToGateway(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.LocalGateway/ReconnectToGateway',
+            gateway__pb2.ReconnectToGatewayRequest.SerializeToString,
             gateway__pb2.Void.FromString,
             options,
             channel_credentials,

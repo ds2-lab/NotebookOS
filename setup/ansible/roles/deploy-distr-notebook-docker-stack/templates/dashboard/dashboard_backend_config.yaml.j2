@@ -1,0 +1,37 @@
+in-cluster: false
+spoof-nodes: false
+spoof-kernels: false
+spoof-specs: false
+workload-presets-file: "{{ dashboard_backend_config_directory }}/workload-presets-file.yaml"
+workload-templates-file: "{{ dashboard_backend_config_directory }}/workload-templates-file.yaml"
+gateway-address: "gateway:{{ gateway_dashboard_grpc_port }}"
+server-port: {{ dashboard_backend_server_port }}
+cluster-dashboard-handler-port: {{ dashboard_backend_grpc_port }}
+websocket-proxy-port: {{ dashboard_backend_websocket_proxy_port }}
+admin_username: '{{ dashboard_admin_username }}'
+admin_password: '{{ dashboard_admin_password }}'
+base-url: "/notebook-dashboard"
+
+# The address of the Jupyter Server.
+frontend-jupyter-server-address: {{ hostvars['swarm-leader'].ansible_host }}/jupyter
+
+# The address of the Jupyter Server to use internally.
+internal-jupyter-server-address: jupyter:8888
+
+# The base path that the Jupyter Server is listening on.
+jupyter-server-base-path: /jupyter
+
+# Defined separately from the base-url.
+prometheus-endpoint: "/metrics"
+
+# Used by the WebSocket connection upgrader.
+# Specifying a negative port will indicate to the server than the expected
+# origin should not contain a port.
+expected-origin-port: -1
+expected_websocket_origins: "http://{{ hostvars['swarm-leader'].ansible_host }}"
+
+# How long JWT tokens are valid
+token_valid_duration_sec: {{ dashboard_token_valid_duration_sec }}
+
+# How long users have to refresh their tokens
+token_refresh_interval_sec: {{ dashboard_token_refresh_interval_sec }}

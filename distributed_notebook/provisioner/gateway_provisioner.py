@@ -1,33 +1,36 @@
 import pprint
 import signal
-
-from lib2to3.pgen2.token import OP
-from jupyter_client.provisioning.provisioner_base import KernelProvisionerBase
-from jupyter_client.connect import KernelConnectionInfo
-
 from typing import Any, Dict, List, Optional, Union
 
+import grpc
+from grpc import aio
+from grpc.aio import AioRpcError
+from jupyter_client.connect import KernelConnectionInfo
+from jupyter_client.provisioning.provisioner_base import KernelProvisionerBase
 from traitlets.config import Unicode
 
-import grpc
+from .kernel_creation_error import KernelCreationError
 from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import LocalGatewayStub
+
 
 class GatewayProvisioner(KernelProvisionerBase):
     # The properties read from the config of the kernel spec: "metadata.kernel_provisioner.config"
     gateway: Union[str, Unicode] = Unicode(None, allow_none=True)
 
+    num_kernels_creating: int = 1
+
     # Local properties
-    gatewayChannel = None
+    gatewayChannel: aio.Channel = None
     gatewayStub: LocalGatewayStub
     launched = False
     autoclose = True
 
     # Our version of kernel_id
     _kernel_id: Union[str, Unicode] = Unicode(None, allow_none=True)
-    
-    # Allow up to 5 minutes for the kernel to shutdown gracefully, as it may be offloading lots of data before exiting.
-    _kernel_shutdown_wait_time: float = 300.0 
+
+    # Allow up to 5 minutes for the kernel to shut down gracefully, as it may be offloading lots of data before exiting.
+    _kernel_shutdown_wait_time: float = 300.0
 
     @property
     def has_process(self) -> bool:
@@ -50,7 +53,7 @@ class GatewayProvisioner(KernelProvisionerBase):
                 kernelId = gateway_pb2.KernelId(id=self._kernel_id)
                 self.log.info(
                     f"Checking status of kernel {self._kernel_id} ({kernelId})")
-                status = self._get_stub().GetKernelStatus(kernelId)
+                status = await self._get_stub().GetKernelStatus(kernelId)
 
                 if status.status < 0:
                     return None
@@ -76,7 +79,7 @@ class GatewayProvisioner(KernelProvisionerBase):
         try:
             if self.launched:
                 kernelId = gateway_pb2.KernelId(id=self._kernel_id)
-                status = self._get_stub().WaitKernel(kernelId)
+                status = await self._get_stub().WaitKernel(kernelId)
 
                 self.launched = False
                 self.log.info(f"Stopped kernel {self._kernel_id}")
@@ -99,12 +102,15 @@ class GatewayProvisioner(KernelProvisionerBase):
             await self.poll()
             return
         elif signum == signal.SIGKILL:
-            self.log.warn("Received SIGKILL. Unaliving now.")
+            self.log.warn("Received SIGKILL. Un-aliving the kernel now.")
             return await self.kill()
-        elif signum == signal.SIGTERM or signum == signal.SIGINT:
+        elif signum == signal.SIGTERM:
             # Shutdown requested, delay and wait for restart flag.
-            self.log.warn("Received SIGTERM/SIGINT. Shutdown requested.")
+            self.log.warn("Received SIGINT. Kernel shutdown requested.")
             return
+        elif signum == signal.SIGINT:
+            self.log.warn("Received SIGINT. Kernel interruption requested.")
+            return await super().send_signal(signum)
         else:
             self.log.warn("Received signal number %d." % signum)
             return await super().send_signal(signum)
@@ -123,7 +129,7 @@ class GatewayProvisioner(KernelProvisionerBase):
                     f"Killing kernel {self._kernel_id}, will restart: {restart} ...")
                 kernelId = gateway_pb2.KernelId(
                     id=self._kernel_id, restart=restart)
-                self._get_stub().KillKernel(kernelId)
+                await self._get_stub().KillKernel(kernelId)
                 self.launched = False
                 self.log.info(f"Killed kernel {self._kernel_id}")
             else:
@@ -147,7 +153,7 @@ class GatewayProvisioner(KernelProvisionerBase):
                     f"Stopping kernel {self._kernel_id}, will restart: {restart} ...")
                 kernelId = gateway_pb2.KernelId(
                     id=self._kernel_id, restart=restart)
-                self._get_stub().StopKernel(kernelId)
+                await self._get_stub().StopKernel(kernelId)
             else:
                 self.log.debug(f"Cannot terminate kernel {self._kernel_id} as it has not yet been launched.")
         except grpc.RpcError as e:
@@ -160,16 +166,24 @@ class GatewayProvisioner(KernelProvisionerBase):
         This method is called from `KernelManager.launch_kernel()` during the
         kernel manager's start kernel sequence.
         """
-        assert self.parent != None
-        self.log.info("launch_kernel[self.parent.session.session: %s]" % str(self.parent.session.session))
-        
+        assert self.parent is not None
+        self.num_kernels_creating += 1
+        self.log.info("launch_kernel[self.parent.session.session: %s, num_kernels_creating: %d]" % (
+            str(self.parent.session.session), self.num_kernels_creating))
+
         if "resource_spec" in kwargs:
-            resource_spec:dict[str,int] = kwargs["resource_spec"]
+            resource_spec: dict[str, float | int] = kwargs["resource_spec"]
             self.log.debug("Received resource spec for kernel %s: %s" % (self.kernel_id, str(kwargs["resource_spec"])))
         else:
-            resource_spec:dict[str,int] = {"cpu": 0, "gpu": 0, "memory": 0}
+            resource_spec: dict[str, float | int] = {"cpu": 0, "gpu": 0, "memory": 0}
             self.log.error("Did not receive a resource spec for kernel %s." % self.kernel_id)
-        
+
+        spec = gateway_pb2.ResourceSpec(
+            cpu=resource_spec.get("cpu", 0),
+            gpu=resource_spec.get("gpu", 0),
+            memory=resource_spec.get("memory", 0)
+        )
+
         try:
             spec = gateway_pb2.KernelSpec(
                 id=self._kernel_id,
@@ -177,8 +191,12 @@ class GatewayProvisioner(KernelProvisionerBase):
                 argv=cmd,
                 signatureScheme=self.parent.session.signature_scheme,
                 key=self.parent.session.key,
-                resourceSpec=resource_spec)
-            connectionInfo = self._get_stub().StartKernel(spec)
+                resourceSpec=spec,
+                workloadId = kwargs.get("workload_id", ""))
+
+            self.log.debug(f"Launching kernel {self.kernel_id} with spec: {str(spec)}")
+
+            connectionInfo = await self._get_stub().StartKernel(spec)
             self.launched = True
 
             self.log.info(
@@ -205,10 +223,46 @@ class GatewayProvisioner(KernelProvisionerBase):
             if type(conn_info["key"]) is str:
                 conn_info["key"] = conn_info["key"].encode()
 
+            self.num_kernels_creating -= 1
             return conn_info
+        except AioRpcError as e:
+            grpc_status_code: grpc.StatusCode = e.code()
+            debug_error_str: str = e.debug_error_string()
+            details: Optional[str] = e.details()
+
+            self.log.error(f"Failed to launch kernel '{self._kernel_id}'")
+            self.log.error(f"gRPC Error Code: {grpc_status_code}")
+            self.log.error(f"Debug String from Server: {debug_error_str}")
+
+            if details is not None:
+                self.log.error(f"Error details: {details}")
+
+            await self._try_close()
+            self.num_kernels_creating -= 1
+
+            # raise RuntimeError(f"gRPC Error {error_code}: {debug_error_str}")
+            raise KernelCreationError(
+                f"failed to create kernel {self._kernel_id}",
+                grpc_status_code=grpc_status_code,
+                grpc_debug_error_str=debug_error_str,
+                grpc_details=details
+            )
         except grpc.RpcError as e:
-            self._try_close()
-            raise RuntimeError(f"Failed to launch kernel: {e}")
+            self.log.error(f"Failed to launch kernel \"{self._kernel_id}\" because of grpc.RpcError: {e}")
+
+            await self._try_close()
+            self.num_kernels_creating -= 1
+
+            # Re-raise the exception, but wrap it in a runtime error this time.
+            raise RuntimeError(str(e))
+        except Exception as e:
+            self.log.error(f"Failed to launch kernel \"{self._kernel_id}\" due to "
+                           f"exception of type {type(e).__name__}: {e}")
+
+            await self._try_close()
+            self.num_kernels_creating -= 1
+
+            raise RuntimeError(f"Failed to launch kernel due to exception of type {type(e).__name__}: {e}")
 
     async def cleanup(self, restart: bool = False) -> None:
         """
@@ -259,9 +313,10 @@ class GatewayProvisioner(KernelProvisionerBase):
         :meth:`launch_kernel()`.
         """
         self._kernel_id = self.kernel_id
-        
-        self.log.debug("Pre-launching kernel. self.kernel_id=%s, self._kernel_id=%s" % (str(self.kernel_id), str(self._kernel_id)))
-        
+
+        self.log.debug(
+            "Pre-launching kernel. self.kernel_id=%s, self._kernel_id=%s" % (str(self.kernel_id), str(self._kernel_id)))
+
         if "resource_spec" in kwargs:
             self.log.debug("Received resource spec for kernel %s: %s" % (self.kernel_id, str(kwargs["resource_spec"])))
         else:
@@ -271,13 +326,13 @@ class GatewayProvisioner(KernelProvisionerBase):
         return await super().pre_launch(cmd=self.kernel_spec.argv, **kwargs)
 
     async def post_launch(self, **kwargs: Any) -> None:
-      """
-      Perform any steps following the kernel process launch.
-      This method is called from `KernelManager.post_start_kernel()` as part of its
-      start kernel sequence.
-      """
-      self.log.info(f"post_launch called for kernel {self.kernel_id}")
-      pass
+        """
+        Perform any steps following the kernel process launch.
+        This method is called from `KernelManager.post_start_kernel()` as part of its
+        start kernel sequence.
+        """
+        self.log.info(f"post_launch called for kernel {self.kernel_id}")
+        pass
 
     async def get_provisioner_info(self) -> Dict[str, Any]:
         """
@@ -313,23 +368,24 @@ class GatewayProvisioner(KernelProvisionerBase):
 
         The recommended value will typically be what is configured in the kernel manager.
         """
-        if recommended == None or recommended < self._kernel_shutdown_wait_time:
+        if recommended is None or recommended < self._kernel_shutdown_wait_time:
             recommended = self._kernel_shutdown_wait_time
-            
+
             self.log.debug(f"{type(self).__name__} shutdown wait time adjusted to {recommended} seconds.")
-            
+
         return recommended
 
     def _get_stub(self) -> LocalGatewayStub:
-        if self.gatewayChannel == None:
+        if self.gatewayChannel is None:
             self.log.debug(
                 "Creating GatewayChannel now. Gateway: \"%s\"" % self.gateway)
-            self.gatewayChannel = grpc.insecure_channel(self.gateway)
+            self.gatewayChannel: aio.Channel = aio.insecure_channel(self.gateway)
             self.gatewayStub = LocalGatewayStub(self.gatewayChannel)
 
         return self.gatewayStub
 
-    def _try_close(self) -> None:
-        if self.autoclose and self.gatewayChannel != None:
-            self.gatewayChannel.close()
+    async def _try_close(self) -> None:
+        if self.autoclose and self.gatewayChannel is not None:
+            # asyncio.get_event_loop().run_until_complete(self.gatewayChannel.close())
+            await self.gatewayChannel.close()
             self.gatewayChannel = None

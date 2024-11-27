@@ -2,10 +2,10 @@ package invoker
 
 import (
 	"context"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"time"
 
-	jupyter "github.com/zhangjyr/distributed-notebook/common/jupyter/types"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 )
 
 type StatucChangedHandler func(old jupyter.KernelStatus, new jupyter.KernelStatus)
@@ -31,9 +31,18 @@ type KernelInvoker interface {
 	Expired(timeout time.Duration) bool
 
 	// OnStatusChanged registers a callback function to be called when the kernel status changes.
-	// The callback function is invocation sepcific and will be cleared after the kernel exits.
+	// The callback function is invocation specific and will be cleared after the kernel exits.
 	OnStatusChanged(StatucChangedHandler)
 
-	// GetReplicaAddress
+	// GetReplicaAddress returns the address of the replica.
 	GetReplicaAddress(spec *proto.KernelSpec, replicaId int32) string
+
+	// KernelCreatedAt returns the time at which the KernelInvoker created the kernel.
+	KernelCreatedAt() (time.Time, bool)
+
+	// KernelCreated returns a bool indicating whether kernel the container has been created.
+	KernelCreated() bool
+
+	// TimeSinceKernelCreated returns the amount of time that has elapsed since the KernelInvoker created the kernel.
+	TimeSinceKernelCreated() (time.Duration, bool)
 }

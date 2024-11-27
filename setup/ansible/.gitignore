@@ -1,0 +1,9 @@
+hdfs_ansible_vars.yml
+ansible_vars.yml
+ansible_vars.yaml
+inventory.ini
+inventory_file.ini
+artifacts
+env
+inventory_file_aws_ec2.ini
+inventory_file_chameleon.ini

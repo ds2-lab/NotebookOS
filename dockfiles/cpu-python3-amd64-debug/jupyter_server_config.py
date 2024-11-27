@@ -184,7 +184,7 @@ c.ServerApp.allow_origin = '*'
 # "
 #          Require authentication to access prometheus metrics.
 #  Default: True
-# c.ServerApp.authenticate_prometheus = True
+c.ServerApp.authenticate_prometheus = False
 
 # The authorizer class to use.
 #  Default: 'jupyter_server.auth.authorizer.AllowAllAuthorizer'
@@ -199,7 +199,7 @@ c.ServerApp.allow_origin = '*'
 #                         Leading and trailing slashes can be omitted,
 #                         and will automatically be added.
 #  Default: '/'
-# c.ServerApp.base_url = '/'
+#  c.ServerApp.base_url = '/'
 
 # Specify what command to use to invoke a web
 #                        browser when starting the server. If not specified, the
@@ -815,7 +815,7 @@ c.Session.debug = True
 # The digest scheme used to construct the message signatures.
 #          Must have the form 'hmac-HASH'.
 #  Default: 'hmac-sha256'
-# c.Session.signature_scheme = 'hmac-sha256'
+c.Session.signature_scheme = 'hmac-sha256'
 
 # The name of the unpacker for unserializing messages.
 #          Only used with custom functions for `packer`.

@@ -2,7 +2,20 @@
 
 # This is an installation script to prepare an Ubuntu virtual machine for development.
 
+# Git
+if ! command -v git version &> /dev/null; then
+    printf "\n[WARNING] git is not installed. Installing it now."
+
+    sudo apt-get --assume-yes install git
+
+    if ! command -v git version &> /dev/null; then
+        printf "\n[ERROR] Installation of git failed."
+        exit
+    fi
+fi
+
 ROOT_DIR=$(git rev-parse --show-toplevel)
+PYTHON_VERSION=3.12.6
 
 mkdir ~/go
 mkdir ~/go/pkg 
@@ -11,26 +24,31 @@ pushd ~/go/pkg
 
 if [ "$1" != "" ]; then
     GIT_TOKEN=$1
-    git clone https://Scusemua@$(GIT_TOKEN)github.com/zhangjyr/distributed-notebook
+    git clone https://Scusemua@$(GIT_TOKEN)github.com/scusemua/distributed-notebook
 else 
-    git clone https://Scusemua@github.com/zhangjyr/distributed-notebook
+    git clone https://Scusemua@github.com/scusemua/distributed-notebook
 fi 
 
-popd 
+popd
+
+# Ansible
+if ! command python3 --version &> /dev/null; then
+  sudo apt-get install ansible
+fi
 
 # Python 3
-if ! command python3.11 --version &> /dev/null; then 
+if ! command python3 --version &> /dev/null; then
     printf "\n[WARNING] Python3.11 is not installed. Installing it now...\n"
 
     sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
 
     cd /tmp/
-    wget https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
-    tar -xf Python-3.11.9.tgz
-    cd Python-3.11.9
-    mkdir debug 
-    cd debug 
-    ../configure --enable-optimizations --with-pydebug --enable-shared 
+    wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz
+    tar -xf Python-$PYTHON_VERSION.tgz
+    cd Python-$PYTHON_VERSION
+    mkdir debug
+    cd debug
+    ../configure --enable-optimizations --with-pydebug --enable-shared
     make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG" 
     sudo make altinstall
 
@@ -38,7 +56,7 @@ if ! command python3.11 --version &> /dev/null; then
         printf "\n[ERROR] Failed to install python3.11.\n"
         exit 
     else 
-        echo "Successfully installed python3.11"
+        echo "Successfully installed Python-$PYTHON_VERSION"
     fi 
 fi 
 
@@ -51,18 +69,6 @@ if ! command -v python3.11 -m pip &> /dev/null; then
 
     if ! command -v python3.11 -m pip &> /dev/null; then 
         printf "\n[ERROR] Installation of python3-pip failed."
-        exit 
-    fi
-fi
-
-# Git 
-if ! command -v git version &> /dev/null; then 
-    printf "\n[WARNING] git is not installed. Installing it now."
-
-    sudo apt-get --assume-yes install git
-
-    if ! command -v git version &> /dev/null; then 
-        printf "\n[ERROR] Installation of git failed."
         exit 
     fi
 fi
@@ -116,14 +122,14 @@ if ! command -v docker run hello-world &> /dev/null; then
         sudo groupadd docker
     fi 
 
-    echo Adding user $USER to 'docker' group.
-    sudo usermod -aG docker $USER
+    printf "Adding user %s to 'docker' group." "$USER"
+    sudo usermod -aG docker "$USER"
 
     if ! command -v docker run hello-world &> /dev/null; then 
-        printf "\n[ERROR] Failed to enable non-root user $USER to use Docker.\n"
+        printf "\n[ERROR] Failed to enable non-root user %s to use Docker.\n" "$USER"
         exit 
     else 
-        echo "Successfully enabled non-root user $USER to use Docker.\n"
+        printf "Successfully enabled non-root user %s to use Docker.\n" "$USER"
     fi 
 else 
     echo "Non-root user $USER can use Docker!"
@@ -181,6 +187,7 @@ then
     export PATH=$PATH:/usr/local/go/bin
 
     echo export PATH=$PATH:/usr/local/go/bin >> $HOME/.profile
+    echo export PATH=$PATH:/usr/local/go/bin >> $HOME/.bashrc
 
     echo "[DEBUG] Checking if Golang installed successfully..."
 
@@ -199,16 +206,16 @@ GOPATH_ENV=$(go env GOPATH)
 
 echo "\$GOPATH is set to \"$GOPATH_ENV\""
 
-if ! command cd $GOPATH_ENV/pkg &> /dev/null; then 
-    printf "\n[ERROR] Directory \"$GOPATH_ENV/pkg\" does not appear to exist...\n"
-    echo "[WARNING] Attempting to create GOPATH directory \"$GOPATH_ENV/pkg\" now."
-    if ! command mkdir -p $GOPATH_ENV/pkg &> /dev/null; then 
-        echo "[ERROR] Failed to create GOPATH directory \"$GOPATH_ENV/pkg\""
+if ! command cd "$GOPATH_ENV/pkg" &> /dev/null; then
+    printf "\n[ERROR] Directory '%s/pkg' does not appear to exist...\n" "$GOPATH_ENV"
+    printf "[WARNING] Attempting to create GOPATH directory '%s/pkg' now." "$GOPATH_ENV"
+    if ! command mkdir -p "$GOPATH_ENV/pkg" &> /dev/null; then
+        echo "[ERROR] Failed to create GOPATH directory '%s/pkg'" "$GOPATH_ENV"
         exit  
     fi 
 
-    if ! command cd $GOPATH_ENV/pkg &> /dev/null; then 
-        printf "\n[ERROR] Directory \"$GOPATH_ENV/pkg\" still does not appear to exist...\n"
+    if ! command cd "$GOPATH_ENV/pkg" &> /dev/null; then
+        printf "\n[ERROR] Directory '%s/pkg' still does not appear to exist...\n" "$GOPATH_ENV"
         exit 
     fi 
 fi 
@@ -221,7 +228,7 @@ go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 # Python Proto Bindings
-python3.11 -m pip install --user grpcio-tools
+python3.12 -m pip install --user grpcio-tools
 python3 -m pip install --user grpcio-tools
 
 pushd ~/go/pkg
@@ -235,7 +242,7 @@ if ! command stat gopy &> /dev/null; then
 fi 
 
 if ! command stat distributed-notebook &> /dev/null; then 
-    git clone https://github.com/zhangjyr/distributed-notebook.git
+    git clone https://github.com/scusemua/distributed-notebook.git
 fi 
 
 popd
@@ -278,7 +285,7 @@ popd
 # NOTE: you may have to execute these commands manually, one at a time, if this doesn't work... 
 ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/hadoop.key hadoop@localhost "wget https://dlcdn.apache.org/hadoop/common/hadoop-3.3.6/hadoop-3.3.6.tar.gz ; tar -xvzf hadoop-3.3.6.tar.gz ; mv hadoop-3.3.6 hadoop ; mkdir -p ~/hadoopdata/hdfs/{namenode,datanode}"
 
-pushd $ROOT_DIR/setup
+pushd "$ROOT_DIR/setup"
 
 # Set some environment variables in the hadoop user's .bashrc file as well as the hadoop-env.sh file (only the latter of which is more important/actually does something...)
 sudo bash -c 'cat hadoop-env >> /home/hadoop/.bashrc'
@@ -294,14 +301,14 @@ ssh -i ~/.ssh/hadoop.key hadoop@localhost 'env JAVA_HOME=/usr/lib/jvm/java-8-ope
 #################
 # scusemua/gopy #
 #################
-cd $GOPATH_ENV/pkg/gopy 
-python3.11 -m pip install pybindgen
+pushd "$GOPATH_ENV/pkg/gopy"
+python3.12 -m pip install pybindgen
 go install golang.org/x/tools/cmd/goimports@latest
-go install github.com/scusemua/gopy@v0.4.11.5
 make 
-docker build -t scusemua/gopy .
+docker build -t $DOCKERUSER/gopy .
+popd
 
-cd $GOPATH_ENV/pkg/distributed-notebook 
+pushd "$GOPATH_ENV/pkg/distributed-notebook"
 cd smr && make build-linux-amd64
 git checkout ben/feature/docker
 make build-smr-linux-amd64

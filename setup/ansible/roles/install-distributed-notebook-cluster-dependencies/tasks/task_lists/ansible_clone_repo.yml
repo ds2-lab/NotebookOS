@@ -1,0 +1,40 @@
+- name: Ensure git is installed before cloning the repo
+  apt:
+    name: git
+    state: present
+    update_cache: yes
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+  become: true
+
+- name: Create the target directory if it doesn't exist
+  file:
+    path: "{{ gopath }}/pkg"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    mode: '0755'
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+
+- name: Clone the GitHub repository
+  git:
+    repo: "{{ git_repo_url }}"
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}"
+    force: yes
+    update: yes
+    clone: true
+    version: "{{ gitbranch }}"
+  become: false
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"
+
+- name: Ensure correct ownership of the cloned repository
+  file:
+    path: "{{ gopath }}/pkg/{{ git_repo_name }}"
+    state: directory
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+    recurse: yes
+  environment:
+    LD_LIBRARY_PATH: "{{ python_build_dir }}/Python-{{ python_version }}:$LD_LIBRARY_PATH"

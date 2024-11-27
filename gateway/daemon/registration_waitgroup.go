@@ -1,0 +1,132 @@
+package daemon
+
+import (
+	"fmt"
+	"sync"
+)
+
+type registrationWaitGroups struct {
+	// Decremented each time a kernel registers.
+	registered    sync.WaitGroup
+	numRegistered int
+
+	// Decremented each time we've notified a kernel of its ID.
+	notified    sync.WaitGroup
+	numNotified int
+
+	// The SMR node replicas in order according to their registration IDs.
+	replicas map[int32]string
+
+	// Synchronizes access to the `replicas` slice.
+	replicasMutex sync.Mutex
+}
+
+// Create and return a pointer to a new registrationWaitGroups struct.
+//
+// Parameters:
+// - numReplicas (int): Value to be added to the "notified" and "registered" sync.WaitGroups of the registrationWaitGroups.
+func newRegistrationWaitGroups(numReplicas int) *registrationWaitGroups {
+	wg := &registrationWaitGroups{
+		replicas: make(map[int32]string),
+	}
+
+	wg.notified.Add(numReplicas)
+	wg.registered.Add(numReplicas)
+
+	return wg
+}
+
+func (wg *registrationWaitGroups) String() string {
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+	return fmt.Sprintf("RegistrationWaitGroups[NumRegistered=%d, NumNotified=%d]", wg.numRegistered, wg.numNotified)
+}
+
+// Notify calls `Done()` on the "notified" sync.WaitGroup.
+func (wg *registrationWaitGroups) Notify() {
+	wg.notified.Done()
+
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+	wg.numNotified += 1
+}
+
+// Register calls `Done()` on the "registered" sync.WaitGroup.
+func (wg *registrationWaitGroups) Register() {
+	wg.registered.Done()
+
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+
+	wg.numRegistered += 1
+}
+
+func (wg *registrationWaitGroups) SetReplica(idx int32, hostname string) {
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+
+	wg.replicas[idx] = hostname
+}
+
+func (wg *registrationWaitGroups) GetReplicas() map[int32]string {
+	return wg.replicas
+}
+
+func (wg *registrationWaitGroups) NumReplicas() int {
+	return len(wg.replicas)
+}
+
+// RemoveReplica returns true if the node with the given ID was actually removed.
+// If the node with the given ID was not present in the WaitGroup, then returns false.
+func (wg *registrationWaitGroups) RemoveReplica(nodeId int32) bool {
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+
+	if _, ok := wg.replicas[nodeId]; !ok {
+		return false
+	}
+
+	delete(wg.replicas, nodeId)
+
+	return true
+}
+
+func (wg *registrationWaitGroups) AddReplica(nodeId int32, hostname string) map[int32]string {
+	wg.replicasMutex.Lock()
+	defer wg.replicasMutex.Unlock()
+
+	if _, ok := wg.replicas[nodeId]; ok {
+		fmt.Printf("WARNING: Replacing replica %d (%s) with new replica %s.\n", nodeId, wg.replicas[nodeId], hostname)
+	}
+
+	wg.replicas[nodeId] = hostname
+
+	return wg.replicas
+}
+
+// GetNotified returns the "notified" sync.WaitGroup.
+func (wg *registrationWaitGroups) GetNotified() *sync.WaitGroup {
+	return &wg.notified
+}
+
+// GetRegistered returns the "registered" sync.WaitGroup.
+func (wg *registrationWaitGroups) GetRegistered() *sync.WaitGroup {
+	return &wg.registered
+}
+
+// WaitNotified calls `Wait()` on the "notified" sync.WaitGroup.
+func (wg *registrationWaitGroups) WaitNotified() {
+	wg.notified.Wait()
+}
+
+// WaitRegistered calls `Wait()` on the "registered" sync.WaitGroup.
+func (wg *registrationWaitGroups) WaitRegistered() {
+	wg.registered.Wait()
+}
+
+// Wait first calls `Wait()` on the "registered" sync.WaitGroup.
+// Then, Wait calls `Wait()` on the "notified" sync.WaitGroup.
+func (wg *registrationWaitGroups) Wait() {
+	wg.WaitRegistered()
+	wg.WaitNotified()
+}

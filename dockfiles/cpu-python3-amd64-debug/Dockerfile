@@ -1,19 +1,19 @@
-FROM scusemua/base-jupyter-image:latest 
+FROM scusemua/base-jupyter-image-python3.12.6:latest
 
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
     JUPYTER_ALLOW_INSECURE_WRITES=1 \
     GOTRACEBACK=CRASH  \
-    PYTHONFAULTHANDLER=1 
+    PYTHONFAULTHANDLER=1
 
 # Add files
-ADD common/gateway /distributed_notebook/common/gateway
 ADD common/proto /distributed_notebook/common/proto
 ADD distributed_notebook /distributed_notebook/distributed_notebook
 ADD README.md /distributed_notebook/README.md
 ADD MANIFEST.in /distributed_notebook/MANIFEST.in
 ADD setup.py /distributed_notebook/setup.py
 ADD install_kernel_debug.sh /distributed_notebook/install_kernel_debug.sh
+ADD install_kernel_debug_py3-12-6.sh /distributed_notebook/install_kernel_debug_py3-12-6.sh
 ADD Makefile /distributed_notebook/Makefile
 ADD dockfiles/cpu-python3-amd64-debug/sample_notebooks/ /home/jovyan/sample_notebooks/
 
@@ -24,12 +24,16 @@ RUN chown jovyan /home/jovyan/sample_notebooks/*
 
 # Install kernel
 RUN cd /distributed_notebook \
-    && /home/jovyan/Python-3.11.9/debug/python -m grpc_tools.protoc -Icommon/proto \
+    && /home/jovyan/Python-3.12.6/debug/python -m grpc_tools.protoc -Icommon/proto \
     --python_out=distributed_notebook/gateway \
     --grpc_python_out=distributed_notebook/gateway \
     common/proto/gateway.proto \
     && sed -Ei 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
-RUN cd /distributed_notebook && ./install_kernel_debug.sh
+
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install typing_extensions
+
+# RUN cd /distributed_notebook && ./install_kernel_debug.sh
+RUN cd /distributed_notebook && ./install_kernel_debug_py3-12-6.sh
 
 # Add .screenrc config file for screen.
 ADD dockfiles/cpu-python3-amd64-debug/.screenrc /home/jovyan/.screenrc 
@@ -64,11 +68,3 @@ EXPOSE 5678
 USER jovyan:users
 
 WORKDIR /home/jovyan/
-
-# ENTRYPOINT ["/usr/bin/env"]
-# CMD ["tini" "-g" "-vvv" "--" "start.sh"]
-
-# ENTRYPOINT ["tini", "-g", "-vvv", "--", "start.sh"]
-#CMD ["start-notebook.py"]
-
-# ENTRYPOINT ["/bin/bash", "/usr/local/bin/start-notebook.sh"]

@@ -1,4 +1,3 @@
-kernel-registry-port: 18074
 port: 18080
 provisioner-port: 18081
 distributed-cluster-service-port: 18077
@@ -10,7 +9,7 @@ stdin-port: 19003
 iopub-port: 19004
 iosub-port: 19005
 ack-port: 19006
-hdfs-namenode-endpoint: host.docker.internal:10000
+remote-storage-endpoint: host.docker.internal:10000
 debug: true
 direct: false
 num-replicas: 3
@@ -21,9 +20,8 @@ local-daemon-service-port: 18075
 ipython-config-path: /home/jovyan/.ipython/profile_default/ipython_config.json
 smr-port: 18079
 kube-namespace: default
-max-actual-gpu-per-node: 8
 starting-resource-port: 19007
-num-resource-ports: 16
+num-resource-ports: 256
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter
@@ -36,9 +34,10 @@ scaling-factor: 1.05
 scaling-interval: 30
 scaling-limit: 1.1
 scaling-in-limit: 2
-scaling-out-enabled: true
+predictive_autoscaling: true
 scaling-buffer-size: 3
-min-kubernetes-nodes: 4
+min_cluster_nodes: 4
+max_cluster_nodes: 32
 gpus-per-host: 8
 local_mode: false
 debug_mode: true

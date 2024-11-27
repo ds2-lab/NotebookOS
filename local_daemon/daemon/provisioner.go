@@ -3,13 +3,12 @@ package daemon
 import (
 	"context"
 	"errors"
-	"github.com/zhangjyr/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"net"
 
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/hashicorp/yamux"
-	"github.com/mason-leap-lab/go-utils/config"
-	"github.com/mason-leap-lab/go-utils/logger"
-	"github.com/zhangjyr/distributed-notebook/common/gateway"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -27,12 +26,12 @@ type Provisioner struct {
 	log   logger.Logger
 }
 
-func NewProvisioner(conn net.Conn) (*Provisioner, error) {
-	// Initialize yamux session for bi-directional gRPC calls
+func NewProvisioner(conn net.Conn) (*Provisioner, *grpc.ClientConn, error) {
+	// Initialize yamux session for bidirectional gRPC calls
 	// At host scheduler side, a connection replacement first made, then we wait for reverse connection by implementing net.Listener
 	srvSession, err := yamux.Server(conn, yamux.DefaultConfig())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	provisioner := &Provisioner{
@@ -42,11 +41,12 @@ func NewProvisioner(conn net.Conn) (*Provisioner, error) {
 	config.InitLogger(&provisioner.log, provisioner)
 
 	// Initialize the gRPC client
-	if err := provisioner.InitClient(srvSession); err != nil {
-		return nil, err
+	var grpcClientConn *grpc.ClientConn
+	if grpcClientConn, err = provisioner.InitClient(srvSession); err != nil {
+		return nil, nil, err
 	}
 
-	return provisioner, nil
+	return provisioner, grpcClientConn, nil
 }
 
 // Accept overrides the default Accept method and initializes the gRPC client
@@ -77,7 +77,7 @@ func (p *Provisioner) Ready() <-chan struct{} {
 }
 
 // InitClient initializes the gRPC client
-func (p *Provisioner) InitClient(session *yamux.Session) error {
+func (p *Provisioner) InitClient(session *yamux.Session) (*grpc.ClientConn, error) {
 	// Dial to create a gRPC connection with dummy dialer.
 	gConn, err := grpc.Dial(":0",
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -93,13 +93,13 @@ func (p *Provisioner) InitClient(session *yamux.Session) error {
 		}))
 	if err != nil {
 		p.log.Error("Failed to create a gRPC connection using dummy dialer: %v", err)
-		return err
+		return nil, err
 	}
 
 	p.log.Debug("Successfully created gRPC connection using dummy dialer. Target: %v", gConn.Target())
 
 	p.ClusterGatewayClient = proto.NewClusterGatewayClient(gConn)
-	return nil
+	return gConn, nil
 }
 
 // Validate validates the provisioner client.
@@ -108,6 +108,6 @@ func (p *Provisioner) Validate() error {
 		return ErrProvisionerNotInitialized
 	}
 	// Test the connection
-	_, err := p.ClusterGatewayClient.ID(context.Background(), gateway.VOID)
+	_, err := p.ClusterGatewayClient.ID(context.Background(), proto.VOID)
 	return err
 }
