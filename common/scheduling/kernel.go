@@ -100,6 +100,7 @@ type Kernel interface {
 	RemoveReplica(r KernelReplica, remover ReplicaRemover, noop bool) (Host, error)
 	GetReplicaByID(id int32) (KernelReplica, error)
 	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (Host, error)
+	RemoveAllReplicas(remover ReplicaRemover, noop bool) error
 	Validate() error
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
 	InitializeIOForwarder() (*messaging.Socket, error)

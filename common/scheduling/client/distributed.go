@@ -719,13 +719,30 @@ func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelRep
 	return replica, nil
 }
 
+// RemoveAllReplicas is used to remove all the replicas of the target DistributedKernelClient.
+func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRemover, noop bool) error {
+	removalErrors := make([]error, 0, len(c.replicas))
+	for _, replica := range c.replicas {
+		_, err := c.RemoveReplica(replica, remover, noop)
+		if err != nil {
+			c.log.Error("Failed to remove replica %d of kernel \"%s\": %v", replica.ReplicaID(), c.id, err)
+
+			removalErrors = append(removalErrors, err)
+		}
+
+		c.log.Debug("Successfully removed replica %d of kernel \"%s\".", replica.ReplicaID(), c.id)
+	}
+
+	if len(removalErrors) > 0 {
+		return errors.Join(removalErrors...)
+	}
+
+	return nil
+}
+
 // RemoveReplicaByID removes a kernel peer from the kernel by replica ID.
 func (c *DistributedKernelClient) RemoveReplicaByID(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	c.mu.RLock()
-	// var replica scheduling.KernelReplica
-	// if id <= int32(len(c.replicas)) {
-	// 	replica = c.replicas[id-1]
-	// }
 	replica, ok := c.replicas[id]
 	c.mu.RUnlock()
 

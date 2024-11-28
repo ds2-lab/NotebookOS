@@ -3415,7 +3415,37 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 	d.log.Debug(utils.DarkGreenStyle.Render("[gid=%d] Forwarding %v \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s via %s: %v"),
 		goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, msg)
 
-	return d.sendZmqMessage(msg, socket, from.ID())
+	sendError := d.sendZmqMessage(msg, socket, from.ID())
+
+	if d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
+		d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
+
+		kernel, loaded := d.kernels.Load(from.ID())
+		if !loaded {
+			d.log.Error("Could not find Distributed Kernel Client for kernel \"%s\"...", from.ID())
+
+		}
+
+		go func() {
+			_ = d.descheduleReplicas(kernel)
+		}()
+	}
+
+	return sendError
+}
+
+// descheduleReplicas is used to de-schedule the replicas of the given kernel without removing the kernel itself.
+func (d *ClusterGatewayImpl) descheduleReplicas(kernel scheduling.Kernel) error {
+	err := kernel.RemoveAllReplicas()
+	if err != nil {
+		d.log.Error("Failed to remove one or more replicas of kernel \"%s\": %v", kernel.ID(), err)
+
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Remove One or More Replicas of Kernel \"%s\"",
+			kernel.ID()), err.Error())
+		return err
+	}
+
+	return nil
 }
 
 func (d *ClusterGatewayImpl) errorf(err error) error {
