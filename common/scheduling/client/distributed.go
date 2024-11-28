@@ -1543,11 +1543,10 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 	// Record that the kernel has started training.
 	if err := kernelReplica.KernelStartedTraining(); err != nil {
 		c.log.Error("Failed to start training for kernel replica %s-%d: %v", c.id, kernelReplica.ReplicaID(), err)
-		panic(err)
+		return err
 	}
 
 	c.log.Debug("Session \"%s\" has successfully started training on replica %d.", c.id, kernelReplica.ReplicaID())
-
 	return nil
 }
 

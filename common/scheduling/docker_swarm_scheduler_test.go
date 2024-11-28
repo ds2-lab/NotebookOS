@@ -16,6 +16,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
@@ -164,12 +165,15 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			mockCtrl = gomock.NewController(GinkgoT())
 
 			opts.SchedulingPolicy = string(scheduling.Static) // Should already be set to static, but just to be sure.
+			schedulingPolicy, err := policy.GetSchedulingPolicy(&opts.SchedulerOptions)
+			Expect(err).To(BeNil())
+			Expect(schedulingPolicy).ToNot(BeNil())
 
-			clusterPlacer, err = placer.NewRandomPlacer(nil, 3, scheduling.Static)
+			clusterPlacer, err = placer.NewRandomPlacer(nil, 3, schedulingPolicy)
 			Expect(err).To(BeNil())
 			Expect(clusterPlacer).ToNot(BeNil())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil, nil, nil, &opts.ClusterDaemonOptions.SchedulerOptions)
+			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil, nil, nil, schedulingPolicy, &opts.ClusterDaemonOptions.SchedulerOptions)
 			Expect(dockerCluster).ToNot(BeNil())
 
 			genericScheduler := dockerCluster.Scheduler()
@@ -656,12 +660,15 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			mockCtrl = gomock.NewController(GinkgoT())
 
 			opts.SchedulingPolicy = string(scheduling.FcfsBatch)
+			schedulingPolicy, err := policy.GetSchedulingPolicy(&opts.SchedulerOptions)
+			Expect(err).To(BeNil())
+			Expect(schedulingPolicy).ToNot(BeNil())
 
-			clusterPlacer, err = placer.NewRandomPlacer(nil, 3, scheduling.FcfsBatch)
+			clusterPlacer, err = placer.NewRandomPlacer(nil, 3, policy.GetSchedulingPolicy(&opts.SchedulerOptions))
 			Expect(err).To(BeNil())
 			Expect(clusterPlacer).ToNot(BeNil())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil, nil, nil, &opts.ClusterDaemonOptions.SchedulerOptions)
+			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil, nil, nil, schedulingPolicy, &opts.ClusterDaemonOptions.SchedulerOptions)
 			Expect(dockerCluster).ToNot(BeNil())
 
 			genericScheduler := dockerCluster.Scheduler()

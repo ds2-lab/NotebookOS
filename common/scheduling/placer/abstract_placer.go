@@ -21,11 +21,11 @@ type AbstractPlacer struct {
 	log              logger.Logger
 	numReplicas      int
 	instance         internalPlacer
-	schedulingPolicy scheduling.PolicyKey
+	schedulingPolicy scheduling.Policy
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.
-func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.PolicyKey) *AbstractPlacer {
+func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.Policy) *AbstractPlacer {
 	placer := &AbstractPlacer{
 		metricsProvider:  metricsProvider,
 		numReplicas:      numReplicas,
@@ -38,9 +38,11 @@ func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas i
 // reservationShouldUsePendingResources returns true if resource reservations on candidate hosts should be made
 // using pending resources, and false if they should be made using committed resources.
 //
-// They are only made using committed resources when using FCFS batch scheduling.
+// Reservations should use pending resources if the resources are only bound when training starts.
+//
+// If resources are bound when the container is created, then pending resources should NOT be used.
 func (placer *AbstractPlacer) reservationShouldUsePendingResources() bool {
-	return placer.schedulingPolicy != scheduling.FcfsBatch
+	return placer.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart
 }
 
 // FindHosts returns a list of hosts that can satisfy the resourceSpec.

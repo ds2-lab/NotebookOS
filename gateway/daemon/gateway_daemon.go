@@ -545,7 +545,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
-	clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, numReplicas, clusterGateway.policyKey)
+	clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, numReplicas, schedulingPolicy)
 	if err != nil {
 		clusterGateway.log.Error("Failed to create Random Placer: %v", err)
 		panic(err)
