@@ -32,7 +32,7 @@ type ContainerStatistics interface {
 }
 type KernelContainer interface {
 	Address() string
-	ContainedStopped() error
+	ContainerStopped() error
 	ContainerID() string
 	ContainerState() ContainerState
 	ContainerStatistics() ContainerStatistics

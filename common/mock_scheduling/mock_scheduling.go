@@ -5690,9 +5690,9 @@ func (mr *MockKernelContainerMockRecorder) Address() *gomock.Call {
 }
 
 // ContainedStopped mocks base method.
-func (m *MockKernelContainer) ContainedStopped() error {
+func (m *MockKernelContainer) ContainerStopped() error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ContainedStopped")
+	ret := m.ctrl.Call(m, "ContainerStopped")
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -5700,7 +5700,7 @@ func (m *MockKernelContainer) ContainedStopped() error {
 // ContainedStopped indicates an expected call of ContainedStopped.
 func (mr *MockKernelContainerMockRecorder) ContainedStopped() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainedStopped", reflect.TypeOf((*MockKernelContainer)(nil).ContainedStopped))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerStopped", reflect.TypeOf((*MockKernelContainer)(nil).ContainerStopped))
 }
 
 // ContainerID mocks base method.

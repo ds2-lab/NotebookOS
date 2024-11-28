@@ -673,9 +673,15 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 		}
 	}
 
-	err = r.Container().ContainedStopped()
+	container := r.Container()
+	err = container.ContainerStopped()
 	if err != nil {
 		c.log.Error("Failed to cleanly stop scheduling.Container %s-%d because: %v", r.ID(), r.ReplicaID(), err)
+	}
+
+	if err = c.session.RemoveReplica(container); err != nil {
+		c.log.Warn("Failed to remove replica %d of kernel \"%s\" from associated UserSession: %v",
+			container.ReplicaId(), c.id, err)
 	}
 
 	// If the error is either a ErrNilHost error or an ErrInvalidStateTransition error, then we probably didn't try

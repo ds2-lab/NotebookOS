@@ -518,7 +518,7 @@ func (s *Session) SessionStopped() promise.Promise {
 	errs := make([]error, 0)
 	for i, container := range s.containers {
 		s.log.Debug("Stopping replica %d/%d of scheduling.Session.", i, len(s.containers))
-		if err := container.ContainedStopped(); err != nil {
+		if err := container.ContainerStopped(); err != nil {
 			s.log.Error("Failed to stop scheduling.Container %s (%d/%d) because: %v",
 				container.ContainerID(), i+1, len(s.containers), err)
 			errs = append(errs, err)

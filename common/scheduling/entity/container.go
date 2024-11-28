@@ -314,8 +314,8 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 	return nil
 }
 
-// ContainedStopped should be called when the Container is stopped, such as when its Session is stopped.
-func (c *Container) ContainedStopped() error {
+// ContainerStopped should be called when the Container is stopped, such as when its Session is stopped.
+func (c *Container) ContainerStopped() error {
 	//
 	// IMPORTANT
 	// If I change the order of anything here, then I will need to update DistributedKernelClient::RemoveReplica,
@@ -323,7 +323,7 @@ func (c *Container) ContainedStopped() error {
 	// Container::ContainerStopped returns either an ErrInvalidStateTransition error or an ErrNilHost error.
 	//
 	// (ErrInvalidStateTransition is returned by Container::transition in the event that an illegal transition
-	// is attempted, and ErrNilHost is returned directly by ContainedStopped if the Container's host field is nil.)
+	// is attempted, and ErrNilHost is returned directly by ContainerStopped if the Container's host field is nil.)
 	//
 
 	if err := c.transition(scheduling.ContainerStateStopped); err != nil {
