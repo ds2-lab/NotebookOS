@@ -61,3 +61,4 @@ remote-docker-event-aggregator-port: 5821
 initial-cluster-size: 4
 initial-connection-period: 60
 election_timeout_seconds: 3
+simulate_checkpointing_latency: true

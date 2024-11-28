@@ -256,7 +256,17 @@ class DistributedKernel(IPythonKernel):
         self.loaded_serialized_state: bool = False
 
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
-        self.remote_storages: Dict[str, SimulatedCheckpointer] = {}
+        self.remote_storages: Dict[str, SimulatedCheckpointer] = {
+            "DefaultRemoteStorage": SimulatedCheckpointer(
+                name = "AWS S3 (Default)",
+                download_rate = 200_000_000, # 200MB/sec
+                upload_rate = 1_000_000, # 1MB/sec
+                download_variance_percent = 0.05,
+                upload_variance_percent = 0.05,
+                read_failure_chance_percentage = 0.0,
+                write_failure_chance_percentage = 0.0
+            )
+        }
         self.resource_requests: list[Dict[str, Number | List[Number]]] = []
         self.current_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = None
 
