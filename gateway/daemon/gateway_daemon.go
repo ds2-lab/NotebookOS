@@ -3427,16 +3427,18 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 		}
 
 		go func() {
-			_ = d.descheduleReplicas(kernel)
+			_ = d.removeAllReplicasOfKernel(kernel)
 		}()
 	}
 
 	return sendError
 }
 
-// descheduleReplicas is used to de-schedule the replicas of the given kernel without removing the kernel itself.
-func (d *ClusterGatewayImpl) descheduleReplicas(kernel scheduling.Kernel) error {
-	err := kernel.RemoveAllReplicas()
+// removeAllReplicasOfKernel is used to de-schedule the replicas of the given kernel without removing the kernel itself.
+//
+// This does not remove the kernel itself.
+func (d *ClusterGatewayImpl) removeAllReplicasOfKernel(kernel scheduling.Kernel) error {
+	err := kernel.RemoveAllReplicas(d.cluster.Placer().Reclaim, false)
 	if err != nil {
 		d.log.Error("Failed to remove one or more replicas of kernel \"%s\": %v", kernel.ID(), err)
 

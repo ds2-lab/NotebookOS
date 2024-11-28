@@ -181,7 +181,8 @@ class GatewayProvisioner(KernelProvisionerBase):
         spec = gateway_pb2.ResourceSpec(
             cpu=resource_spec.get("cpu", 0),
             gpu=resource_spec.get("gpu", 0),
-            memory=resource_spec.get("memory", 0)
+            memory=resource_spec.get("memory", 0),
+            vram=resource_spec.get("vram", 0),
         )
 
         try:

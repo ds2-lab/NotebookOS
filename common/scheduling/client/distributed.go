@@ -721,6 +721,8 @@ func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelRep
 
 // RemoveAllReplicas is used to remove all the replicas of the target DistributedKernelClient.
 func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRemover, noop bool) error {
+	c.log.Debug("Removing all %d replica(s) of kernel \"%s\".", c.Size(), c.id)
+
 	removalErrors := make([]error, 0, len(c.replicas))
 	for _, replica := range c.replicas {
 		_, err := c.RemoveReplica(replica, remover, noop)
