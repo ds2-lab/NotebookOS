@@ -44,6 +44,10 @@ func (p *DynamicV3Policy) ContainerLifetime() scheduling.ContainerLifetime {
 	return scheduling.LongRunning
 }
 
+func (p *DynamicV3Policy) SmrEnabled() bool {
+	return true
+}
+
 //////////////////////////////////////////
 // ResourceScalingPolicy implementation //
 //////////////////////////////////////////

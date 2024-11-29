@@ -26,6 +26,10 @@ func (p *AutoScalingFcfsBatchSchedulingPolicy) ResourceScalingPolicy() schedulin
 	return p
 }
 
+func (p *AutoScalingFcfsBatchSchedulingPolicy) SmrEnabled() bool {
+	return false
+}
+
 //////////////////////////////////////////
 // ResourceScalingPolicy implementation //
 //////////////////////////////////////////

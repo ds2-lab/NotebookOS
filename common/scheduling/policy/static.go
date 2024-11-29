@@ -44,6 +44,10 @@ func (p *StaticPolicy) ContainerLifetime() scheduling.ContainerLifetime {
 	return scheduling.LongRunning
 }
 
+func (p *StaticPolicy) SmrEnabled() bool {
+	return true
+}
+
 //////////////////////////////////////////
 // ResourceScalingPolicy implementation //
 //////////////////////////////////////////

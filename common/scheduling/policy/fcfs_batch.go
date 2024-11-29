@@ -20,6 +20,10 @@ func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) *FcfsBatchS
 	}
 }
 
+func (p *FcfsBatchSchedulingPolicy) SmrEnabled() bool {
+	return false
+}
+
 func (p *FcfsBatchSchedulingPolicy) PolicyKey() scheduling.PolicyKey {
 	return scheduling.FcfsBatch
 }

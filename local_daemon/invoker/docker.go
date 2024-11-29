@@ -110,6 +110,7 @@ type DockerInvoker struct {
 	simulateWriteAfterExec               bool                             // Simulate network write after executing code?
 	simulateWriteAfterExecOnCriticalPath bool                             // Should the simulated network write after executing code be on the critical path?
 	workloadId                           string
+	smrEnabled                           bool
 
 	// IsInDockerSwarm indicates whether we're running within a Docker Swarm cluster.
 	// If IsInDockerSwarm is false, then we're just a regular docker compose application.
@@ -168,6 +169,8 @@ type DockerInvokerOptions struct {
 	// performing checkpointing after a migration (read) and after executing code (write).
 	SimulateCheckpointingLatency bool
 
+	SmrEnabled bool
+
 	WorkloadId string
 }
 
@@ -205,6 +208,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		simulateWriteAfterExec:               opts.SimulateWriteAfterExec,
 		simulateWriteAfterExecOnCriticalPath: opts.SimulateWriteAfterExecOnCriticalPath,
 		workloadId:                           opts.WorkloadId,
+		smrEnabled:                           opts.SmrEnabled,
 	}
 
 	// This is a DockerInvoker, so it's one of these two.
@@ -556,6 +560,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			SimulateCheckpointingLatency: ivk.simulateCheckpointingLatency,
 			ElectionTimeoutSeconds:       ivk.electionTimeoutSeconds,
 			WorkloadId:                   ivk.workloadId,
+			SmrEnabled:                   ivk.smrEnabled,
 		},
 	}
 	if spec.PersistentId != nil {

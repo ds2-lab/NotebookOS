@@ -40,6 +40,10 @@ func (p *DynamicV4Policy) ResourceBindingMode() scheduling.ResourceBindingMode {
 	return scheduling.BindResourcesAtTrainingStart
 }
 
+func (p *DynamicV4Policy) SmrEnabled() bool {
+	return true
+}
+
 func (p *DynamicV4Policy) ContainerLifetime() scheduling.ContainerLifetime {
 	return scheduling.LongRunning
 }

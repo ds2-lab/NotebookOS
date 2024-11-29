@@ -1037,6 +1037,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 			SimulateCheckpointingLatency:         d.SimulateCheckpointingLatency,
 			SimulateWriteAfterExec:               d.schedulingPolicy.PostExecutionStatePolicy().ShouldPerformWriteOperation(),
 			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
+			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1886,7 +1887,8 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			ElectionTimeoutSeconds:               d.electionTimeoutSeconds,
 			SimulateWriteAfterExec:               d.schedulingPolicy.PostExecutionStatePolicy().ShouldPerformWriteOperation(),
 			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
-			WorkloadId:                           "",
+			WorkloadId:                           in.WorkloadId,
+			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.

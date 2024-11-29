@@ -88,6 +88,10 @@ type Policy interface {
 
 	// ScalingConfiguration returns the ScalingConfiguration of the target AutoscalingPolicy.
 	ScalingConfiguration() *ScalingConfiguration
+
+	// SmrEnabled returns a flag indicating whether the kernel containers should participate in SMR.
+	// This is generally only enabled for the static and dynamic policies.
+	SmrEnabled() bool
 }
 
 // ResourceScalingPolicy defines the configuration of resource scaling (i.e., adding and/or removing Host instances ),

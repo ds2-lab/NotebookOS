@@ -156,29 +156,36 @@ class DistributedKernel(IPythonKernel):
         help="The type of remote storage we're using. Valid options, as of right now, are 'hdfs' and 'redis'.",
         default_value='hdfs').tag(config=True)
 
-    prometheus_port: Integer = Integer(8089, help = "Port of the Prometheus Server").tag(config=True)
+    prometheus_port: Integer = Integer(8089, help="Port of the Prometheus Server").tag(config=True)
 
-    spec_cpus: Float = Float(0, help = "Amount of vCPU used by the kernel").tag(config=True)
+    spec_cpus: Float = Float(0, help="Amount of vCPU used by the kernel").tag(config=True)
 
-    spec_gpus: Integer = Integer(0, help = "Number of GPUs used by the kernel").tag(config=True)
+    spec_gpus: Integer = Integer(0, help="Number of GPUs used by the kernel").tag(config=True)
 
-    spec_mem_mb: Float = Float(0, help = "Amount of memory in MB used by the kernel").tag(config=True)
+    spec_mem_mb: Float = Float(0, help="Amount of memory in MB used by the kernel").tag(config=True)
 
-    spec_vram_gb: Float = Float(0, help = "Amount of VRAM in GB used by the kernel").tag(config=True)
+    spec_vram_gb: Float = Float(0, help="Amount of VRAM in GB used by the kernel").tag(config=True)
 
-    simulate_checkpointing_latency: Bool = Bool(True, help = "Simulate network I/O").tag(config = True)
+    simulate_checkpointing_latency: Bool = Bool(True, help="Simulate network I/O").tag(config=True)
 
-    deployment_mode: Union[str, Unicode] = Unicode(default_value = 'docker-swarm', help = "The deployment mode of the cluster").tag(config = True)
+    deployment_mode: Union[str, Unicode] = Unicode(default_value='docker-swarm',
+                                                   help="The deployment mode of the cluster").tag(config=True)
 
-    workload_id: Union[str, Unicode] = Unicode(default_value = 'N/A', help = "The ID of the workload in which the kernel is execution.").tag(config = True)
+    workload_id: Union[str, Unicode] = Unicode(default_value='N/A',
+                                               help="The ID of the workload in which the kernel is execution.").tag(
+        config=True)
 
     election_timeout_seconds: Float = Float(10.0,
                                             help="""How long to wait to receive other proposals before making a decision 
-                                            (if we can, like if we have at least received one LEAD proposal). """).tag(config=True)
+                                            (if we can, like if we have at least received one LEAD proposal). """).tag(
+        config=True)
 
-    simulate_write_after_execute: Bool = Bool(True, help = "Simulate network write after executing code?").tag(config = True)
+    simulate_write_after_execute: Bool = Bool(True, help="Simulate network write after executing code?").tag(
+        config=True)
 
-    simulate_write_after_execute_on_critical_path: Bool = Bool(True, help = "Should the simulated network write after executing code be on the critical path?").tag(config = True)
+    simulate_write_after_execute_on_critical_path: Bool = Bool(True,
+                                                               help="Should the simulated network write after executing code be on the critical path?").tag(
+        config=True)
 
     pod_name: Union[str, Unicode] = Unicode(
         help="""Kubernetes name of the Pod encapsulating this distributed kernel replica""").tag(config=False)
@@ -192,6 +199,8 @@ class DistributedKernel(IPythonKernel):
     kernel_id: Union[str, Unicode] = Unicode(help="""The ID of the kernel.""").tag(config=False)
 
     debug_port: Integer = Integer(8464, help="""Port of debug HTTP server.""").tag(config=False)
+
+    smr_enabled: Bool = Bool(default_value=True).tag(config=True)
 
     implementation = 'Distributed Python 3'
     implementation_version = '0.2'
@@ -258,13 +267,13 @@ class DistributedKernel(IPythonKernel):
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
         self.remote_storages: Dict[str, SimulatedCheckpointer] = {
             "DefaultRemoteStorage": SimulatedCheckpointer(
-                name = "AWS S3 (Default)",
-                download_rate = 200_000_000, # 200MB/sec
-                upload_rate = 1_000_000, # 1MB/sec
-                download_variance_percent = 0.05,
-                upload_variance_percent = 0.05,
-                read_failure_chance_percentage = 0.0,
-                write_failure_chance_percentage = 0.0
+                name="AWS S3 (Default)",
+                download_rate=200_000_000,  # 200MB/sec
+                upload_rate=1_000_000,  # 1MB/sec
+                download_variance_percent=0.05,
+                upload_variance_percent=0.05,
+                read_failure_chance_percentage=0.0,
+                write_failure_chance_percentage=0.0
             )
         }
 
@@ -1251,7 +1260,7 @@ class DistributedKernel(IPythonKernel):
         return remote_storage_name
 
     def register_remote_storage_definition(self, remote_storage_definition: Dict[str, Any] | SimulatedCheckpointer) -> \
-    Optional[str]:
+            Optional[str]:
         """
         Convert the remote storage definition that was extracted from the metadata of an "execute_request" or
         "yield_request" message to a SimulatedCheckpointer object and store the new SimulatedCheckpointer object
@@ -1391,12 +1400,14 @@ class DistributedKernel(IPythonKernel):
         reply_content = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
 
-        # Schedule task to wait until this current election either fails (due to all replicas yielding)
-        # or until the leader finishes executing the user-submitted code.
-        current_election: Election = self.synchronizer.current_election
-        term_number: int = current_election.term_number
+        term_number: int = -1
+        if self.smr_enabled:
+            # Schedule task to wait until this current election either fails (due to all replicas yielding)
+            # or until the leader finishes executing the user-submitted code.
+            current_election: Election = self.synchronizer.current_election
 
-        metadata["election_metadata"] = current_election.get_election_metadata()
+            metadata["election_metadata"] = current_election.get_election_metadata()
+            term_number = current_election.term_number
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
@@ -1413,24 +1424,28 @@ class DistributedKernel(IPythonKernel):
 
         if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
             self._abort_queues()
-        task: asyncio.Task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(term_number))
 
-        # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
-        # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
-        self.background_tasks.add(task)
+        await_election_end_task: Optional[asyncio.Task] = None
+        if self.smr_enabled:
+            await_election_end_task = asyncio.create_task(
+                self.synchronizer.wait_for_election_to_end(term_number))
 
-        # To prevent keeping references to finished tasks forever, we make each task remove its own reference
-        # from the "background tasks" set after completion.
-        task.add_done_callback(self.background_tasks.discard)
+            # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
+            # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
+            self.background_tasks.add(await_election_end_task)
 
-        # Wait for the task to end. By not returning here, we ensure that we cannot process any additional
-        # "execute_request" messages until all replicas have finished.
+            # To prevent keeping references to finished tasks forever, we make each task remove its own reference
+            # from the "background tasks" set after completion.
+            await_election_end_task.add_done_callback(self.background_tasks.discard)
 
-        # TODO: Might there still be race conditions where one replica starts processing a future "execute_request"
-        #       message before the others, and possibly starts a new election and proposes something before the
-        #       others do?
-        self.log.debug(f"Waiting for election {term_number} "
-                       "to be totally finished before returning from execute_request function.")
+            # Wait for the task to end. By not returning here, we ensure that we cannot process any additional
+            # "execute_request" messages until all replicas have finished.
+
+            # TODO: Might there still be race conditions where one replica starts processing a future "execute_request"
+            #       message before the others, and possibly starts a new election and proposes something before the
+            #       others do?
+            self.log.debug(f"Waiting for election {term_number} "
+                           "to be totally finished before returning from execute_request function.")
 
         # If we're supposed to write-after-execute, but the write operation is not supposed to be on the critical path,
         # then we'll perform the write now, as we already sent the "execute_reply" back to the Local Daemon. That will
@@ -1438,8 +1453,9 @@ class DistributedKernel(IPythonKernel):
         # critical path. The write operation will still block future executions from running if they arrive during the
         # write operation, but that's correct.
         if remote_storage_name is not None and self.simulate_write_after_execute and not self.simulate_write_after_execute_on_critical_path:
-            self.log.debug(f"Performing post-execution simulated network write operation to '{remote_storage_name}' off of critical path.")
-            duration:float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
+            self.log.debug(
+                f"Performing post-execution simulated network write operation to '{remote_storage_name}' off of critical path.")
+            duration: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
 
             # TODO: What if we receive next message before this completes?
             if duration > 0:
@@ -1448,7 +1464,9 @@ class DistributedKernel(IPythonKernel):
                     workload_id=self.workload_id
                 ).observe(duration * 1e3)
 
-        await task
+        if self.smr_enabled:
+            assert await_election_end_task is not None
+            await await_election_end_task
 
         end_time: float = time.time()
         duration_ms: float = (end_time - start_time) * 1.0e3
@@ -1692,7 +1710,7 @@ class DistributedKernel(IPythonKernel):
         # "yield_request" message, then we'll include it in our response as well as in our response's metadata.
         request_metadata: dict[str, Any] = parent.get("metadata", {})
         if "yield-reason" in request_metadata:
-            yield_reason:str = request_metadata["yield-reason"]
+            yield_reason: str = request_metadata["yield-reason"]
             reply_content["yield-reason"] = yield_reason
             metadata["yield-reason"] = yield_reason
 
@@ -1801,25 +1819,27 @@ class DistributedKernel(IPythonKernel):
             term_number = self.synchronizer.execution_count + 1
             self.log.info(f"Calling synchronizer.ready({term_number}) now with LEAD proposal.")
 
-            # Pass 'True' for the 'lead' parameter to propose LEAD.
-            # Pass 'False' for the 'lead' parameter to propose YIELD.
-            #
-            # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
-            # Pass value > 0 to lead a specific execution.
-            # In either case, the execution will wait until states are synchronized.
-            # type: ignore
-            self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id, term_number,
-                                                                       True)
+            if self.smr_enabled:
+                # Pass 'True' for the 'lead' parameter to propose LEAD.
+                # Pass 'False' for the 'lead' parameter to propose YIELD.
+                #
+                # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
+                # Pass value > 0 to lead a specific execution.
+                # In either case, the execution will wait until states are synchronized.
+                # type: ignore
+                self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id,
+                                                                           term_number,
+                                                                           True)
 
-            self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
-                          f"shell.execution_count: {self.shell.execution_count}")
+                self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
+                              f"shell.execution_count: {self.shell.execution_count}")
 
-            if self.prometheus_enabled:
-                self.num_lead_proposals.inc()
+                if self.prometheus_enabled:
+                    self.num_lead_proposals.inc()
 
-            if self.shell.execution_count == 0:  # type: ignore
-                self.log.debug("I will NOT leading this execution.")
-                raise err_failed_to_lead_execution
+                if self.shell.execution_count == 0:  # type: ignore
+                    self.log.debug("I will NOT leading this execution.")
+                    raise err_failed_to_lead_execution
 
             self.log.debug(f"I WILL lead this execution ({self.shell.execution_count}).")
 
@@ -1855,29 +1875,31 @@ class DistributedKernel(IPythonKernel):
             else:
                 self.log.debug("Synchronizing now. Execution AST is NOT None.")
 
-            # Synchronize
-            coro = self.synchronizer.sync(self.execution_ast, self.source)
+            if self.smr_enabled:
+                # Synchronize
+                coro = self.synchronizer.sync(self.execution_ast, self.source)
 
-            self.execution_ast = None
-            self.source = None
+                self.execution_ast = None
+                self.source = None
 
-            try:
-                await coro
-            except Exception as ex:
-                self.log.error(f"Synchronization failed: {ex}")
-                self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-                    title="Synchronization Error",
-                    message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has experienced a synchronization error: {ex}.",
-                    notificationType=ErrorNotification,
-                    kernelId=self.kernel_id,
-                    replicaId=self.smr_node_id,
-                ))
+                try:
+                    await coro
+                except Exception as ex:
+                    self.log.error(f"Synchronization failed: {ex}")
+                    self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+                        title="Synchronization Error",
+                        message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has experienced a synchronization error: {ex}.",
+                        notificationType=ErrorNotification,
+                        kernelId=self.kernel_id,
+                        replicaId=self.smr_node_id,
+                    ))
 
-            assert self.execution_count is not None
-            self.log.info("Synchronized. End of sync execution: {}".format(term_number))
+                assert self.execution_count is not None
+                self.log.info("Synchronized. End of sync execution: {}".format(term_number))
 
             if remote_storage_name is not None and self.simulate_write_after_execute and self.simulate_write_after_execute_on_critical_path:
-                self.log.debug(f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path.")
+                self.log.debug(
+                    f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path.")
                 duration: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
 
                 if duration > 0:
@@ -1890,7 +1912,8 @@ class DistributedKernel(IPythonKernel):
                         session_id=self.kernel_id,
                         workload_id=self.workload_id).inc(duration * 1e3)
 
-            await self.schedule_notify_execution_complete(term_number)
+            if self.smr_enabled:
+                await self.schedule_notify_execution_complete(term_number)
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
 
@@ -1916,7 +1939,8 @@ class DistributedKernel(IPythonKernel):
 
         return reply_content
 
-    async def simulate_remote_checkpointing(self, remote_storage_name: Optional[str], io_type: Optional[str] = None)->float:
+    async def simulate_remote_checkpointing(self, remote_storage_name: Optional[str],
+                                            io_type: Optional[str] = None) -> float:
         """
         Simulate checkpointing using the current resource request and the specified remote storage name.
 

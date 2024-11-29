@@ -50,6 +50,10 @@ func (p *ReservationPolicy) ResourceScalingPolicy() scheduling.ResourceScalingPo
 	return p
 }
 
+func (p *ReservationPolicy) SmrEnabled() bool {
+	return false
+}
+
 ////////////////////////////////////////
 // ManualScalingPolicy implementation //
 ////////////////////////////////////////
