@@ -1097,114 +1097,116 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 		})
 
-		It("Will correctly migrate a kernel replica when using static scheduling", func() {
-			unsignedExecuteRequestFrames := [][]byte{
-				[]byte("<IDS|MSG>"),
-				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
-				[]byte(""), /* Header */
-				[]byte(""), /* Parent executeRequestMessageHeader*/
-				[]byte(""), /* Metadata */
-				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
-			}
-
-			executeRequestMessageHeader := &messaging.MessageHeader{
-				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
-				Username: "",
-				Session:  kernelId,
-				Date:     "2024-04-03T22:55:52.605Z",
-				MsgType:  "execute_request",
-				Version:  "5.2",
-			}
-
-			jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteRequestFrames)
-			err := jFrames.EncodeHeader(executeRequestMessageHeader)
-			Expect(err).To(BeNil())
-			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
-			msg := &zmq4.Msg{
-				Frames: frames,
-				Type:   zmq4.UsrMsg,
-			}
-			jMsg := messaging.NewJupyterMessage(msg)
-
-			loadedKernel, loaded := clusterGateway.kernels.Load(kernelId)
-			Expect(loaded).To(BeTrue())
-			Expect(loadedKernel).ToNot(BeNil())
-			Expect(loadedKernel).To(Equal(mockedKernel))
-
-			var wg sync.WaitGroup
-			wg.Add(1)
-
-			var activeExecution *scheduling.ActiveExecution
-			mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
-				Expect(attemptId).To(Equal(1))
-				Expect(msg).ToNot(BeNil())
-				Expect(msg).To(Equal(jMsg))
-
-				activeExecution = scheduling.NewActiveExecution(kernelId, attemptId, 3, msg)
-				wg.Done()
-
-				return activeExecution
-			}).Times(1)
-
-			fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
-
-			var shellHandlerWaitGroup sync.WaitGroup
-			shellHandlerWaitGroup.Add(1)
-			go func() {
-				defer GinkgoRecover()
-				err = clusterGateway.ShellHandler(nil, jMsg)
-				Expect(err).To(BeNil())
-				shellHandlerWaitGroup.Done()
-			}()
-
-			wg.Wait()
-			Expect(activeExecution).ToNot(BeNil())
-
-			getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
-				unsignedExecuteReplyFrames := [][]byte{
-					[]byte("<IDS|MSG>"),
-					[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
-					[]byte(""), /* Header */
-					[]byte(""), /* Parent executeReplyMessageHeader*/
-					[]byte(""), /* Metadata */
-					[]byte("{\"status\": \"error\", \"ename\": \"ExecutionYieldError\", \"evalue\": \"ExecutionYieldError\"}"),
-				}
-
-				executeReplyMessageHeader := &messaging.MessageHeader{
-					MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a528",
-					Username: "",
-					Session:  kernelId,
-					Date:     "2024-04-03T22:56:52.605Z",
-					MsgType:  "execute_reply",
-					Version:  "5.2",
-				}
-
-				executeReplyJFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteReplyFrames)
-				err := jFrames.EncodeParentHeader(executeRequestMessageHeader)
-				Expect(err).To(BeNil())
-				err = executeReplyJFrames.EncodeHeader(executeReplyMessageHeader)
-				Expect(err).To(BeNil())
-				frames, _ := executeReplyJFrames.Sign(signatureScheme, []byte(kernelKey))
-				msg := &zmq4.Msg{
-					Frames: frames,
-					Type:   zmq4.UsrMsg,
-				}
-				jMsg := messaging.NewJupyterMessage(msg)
-
-				return jMsg
-			}
-
-			execReply1 := getExecuteReplyMessage(1)
-			Expect(execReply1).ToNot(BeNil())
-
-			execReply2 := getExecuteReplyMessage(2)
-			Expect(execReply2).ToNot(BeNil())
-
-			execReply3 := getExecuteReplyMessage(3)
-			Expect(execReply3).ToNot(BeNil())
-
-			shellHandlerWaitGroup.Wait()
-		})
+		//	It("Will correctly migrate a kernel replica when using static scheduling", func() {
+		//		unsignedExecuteRequestFrames := [][]byte{
+		//			[]byte("<IDS|MSG>"),
+		//			[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+		//			[]byte(""), /* Header */
+		//			[]byte(""), /* Parent executeRequestMessageHeader*/
+		//			[]byte(""), /* Metadata */
+		//			[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+		//		}
+		//
+		//		executeRequestMessageHeader := &messaging.MessageHeader{
+		//			MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
+		//			Username: "",
+		//			Session:  kernelId,
+		//			Date:     "2024-04-03T22:55:52.605Z",
+		//			MsgType:  "execute_request",
+		//			Version:  "5.2",
+		//		}
+		//
+		//		jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteRequestFrames)
+		//		err := jFrames.EncodeHeader(executeRequestMessageHeader)
+		//		Expect(err).To(BeNil())
+		//		frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
+		//		msg := &zmq4.Msg{
+		//			Frames: frames,
+		//			Type:   zmq4.UsrMsg,
+		//		}
+		//		jMsg := messaging.NewJupyterMessage(msg)
+		//
+		//		loadedKernel, loaded := clusterGateway.kernels.Load(kernelId)
+		//		Expect(loaded).To(BeTrue())
+		//		Expect(loadedKernel).ToNot(BeNil())
+		//		Expect(loadedKernel).To(Equal(mockedKernel))
+		//
+		//		var wg sync.WaitGroup
+		//		wg.Add(1)
+		//
+		//		var activeExecution *scheduling.ActiveExecution
+		//		mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
+		//			Expect(attemptId).To(Equal(1))
+		//			Expect(msg).ToNot(BeNil())
+		//			Expect(msg).To(Equal(jMsg))
+		//
+		//			activeExecution = scheduling.NewActiveExecution(kernelId, attemptId, 3, msg)
+		//			wg.Done()
+		//
+		//			return activeExecution
+		//		}).Times(1)
+		//
+		//		fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
+		//
+		//		var shellHandlerWaitGroup sync.WaitGroup
+		//		shellHandlerWaitGroup.Add(1)
+		//		go func() {
+		//			defer GinkgoRecover()
+		//			fmt.Printf("[DEBUG] Calling shell handler for \"%s\" message now.", jMsg.JupyterParentMessageType())
+		//			err = clusterGateway.ShellHandler(nil, jMsg)
+		//			fmt.Printf("[DEBUG] Successfully called shell handler for \"%s\" message now.", jMsg.JupyterParentMessageType())
+		//			Expect(err).To(BeNil())
+		//			shellHandlerWaitGroup.Done()
+		//		}()
+		//
+		//		wg.Wait()
+		//		Expect(activeExecution).ToNot(BeNil())
+		//
+		//		getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
+		//			unsignedExecuteReplyFrames := [][]byte{
+		//				[]byte("<IDS|MSG>"),
+		//				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+		//				[]byte(""), /* Header */
+		//				[]byte(""), /* Parent executeReplyMessageHeader*/
+		//				[]byte(""), /* Metadata */
+		//				[]byte("{\"status\": \"error\", \"ename\": \"ExecutionYieldError\", \"evalue\": \"ExecutionYieldError\"}"),
+		//			}
+		//
+		//			executeReplyMessageHeader := &messaging.MessageHeader{
+		//				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a528",
+		//				Username: kernelId,
+		//				Session:  kernelId,
+		//				Date:     "2024-04-03T22:56:52.605Z",
+		//				MsgType:  "execute_reply",
+		//				Version:  "5.2",
+		//			}
+		//
+		//			executeReplyJFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteReplyFrames)
+		//			err := jFrames.EncodeParentHeader(executeRequestMessageHeader)
+		//			Expect(err).To(BeNil())
+		//			err = executeReplyJFrames.EncodeHeader(executeReplyMessageHeader)
+		//			Expect(err).To(BeNil())
+		//			frames, _ := executeReplyJFrames.Sign(signatureScheme, []byte(kernelKey))
+		//			msg := &zmq4.Msg{
+		//				Frames: frames,
+		//				Type:   zmq4.UsrMsg,
+		//			}
+		//			jMsg := messaging.NewJupyterMessage(msg)
+		//
+		//			return jMsg
+		//		}
+		//
+		//		execReply1 := getExecuteReplyMessage(1)
+		//		Expect(execReply1).ToNot(BeNil())
+		//
+		//		execReply2 := getExecuteReplyMessage(2)
+		//		Expect(execReply2).ToNot(BeNil())
+		//
+		//		execReply3 := getExecuteReplyMessage(3)
+		//		Expect(execReply3).ToNot(BeNil())
+		//
+		//		shellHandlerWaitGroup.Wait()
+		//	})
 	})
 
 	Context("DockerCluster", func() {

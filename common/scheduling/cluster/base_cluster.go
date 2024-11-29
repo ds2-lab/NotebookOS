@@ -746,19 +746,10 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	return promise.Resolved(result)
 }
 
-func (c *BaseCluster) isScalingEnabled() bool {
-	// If we're using FCFS Batch Scheduling, then we cannot scale in or out.
-	return c.scheduler.PolicyKey() != scheduling.FcfsBatch
-}
-
 // ScaleToSize scales the Cluster to the specified number of Host instances.
 //
 // If n <= NUM_REPLICAS, then ScaleToSize returns with an error.
 func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise {
-	if !c.isScalingEnabled() {
-		return promise.Resolved(nil, scheduling.ErrSchedulingProhibitedBySchedulingPolicy)
-	}
-
 	currentNumNodes := int32(c.Len())
 
 	// Are we trying to scale-down below the minimum cluster size? If so, return an error.
@@ -776,8 +767,16 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 
 	// Scale out (i.e., add hosts)?
 	if targetNumNodes > currentNumNodes {
+		if !c.scheduler.Policy().ResourceScalingPolicy().ManualScalingPolicy().ManualScalingOutEnabled() {
+			return promise.Resolved(nil, scheduling.ErrSchedulingProhibitedBySchedulingPolicy)
+		}
+
 		c.log.Debug("Requesting %d additional host(s) in order to scale-out to target size of %d.", targetNumNodes-currentNumNodes, targetNumNodes)
 		return c.RequestHosts(ctx, targetNumNodes-currentNumNodes)
+	}
+
+	if !c.scheduler.Policy().ResourceScalingPolicy().ManualScalingPolicy().ManualScalingInEnabled() {
+		return promise.Resolved(nil, scheduling.ErrSchedulingProhibitedBySchedulingPolicy)
 	}
 
 	// Scale in (i.e., remove hosts).

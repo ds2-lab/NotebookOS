@@ -121,8 +121,6 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 
 	if clusterScheduler.log.GetLevel() == logger.LOG_LEVEL_ALL {
 		clusterScheduler.log.Debug("Scheduling Configuration:")
-		clusterScheduler.log.Debug("GpusPerHost: %.2f",
-			clusterScheduler.schedulingPolicy.ScalingConfiguration().GpusPerHost)
 		clusterScheduler.log.Debug("GpusPerHost: %d",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().GpusPerHost)
 		clusterScheduler.log.Debug("ScalingFactor: %.2f",

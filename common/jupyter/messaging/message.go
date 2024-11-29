@@ -798,9 +798,18 @@ func (m *JupyterMessage) GetParentHeader() *MessageHeader {
 		return nil
 	}
 
+	if len(m.JupyterFrames.Frames[JupyterFrameParentHeader]) == 0 {
+		m.parentHeader = &parentHeader
+		m.parentHeaderDecoded = true
+
+		return m.parentHeader
+	}
+
 	if err := m.JupyterFrames.DecodeParentHeader(&parentHeader); err != nil {
-		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode parent header from frame \"%v\" because: %v\n"), string(m.JupyterFrames.Frames[JupyterFrameHeader]), err)
-		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Message frames (for which we failed to decode parent header): %s\n"), m.msg.String())
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode parent header from frame \"%v\" because: %v\n"),
+			string(m.JupyterFrames.Frames[JupyterFrameParentHeader]), err)
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Message frames (for which we failed to decode parent header): %s\n"),
+			m.msg.String())
 	}
 
 	m.parentHeader = &parentHeader

@@ -23,7 +23,7 @@ func (p *ReservationPolicy) PolicyKey() scheduling.PolicyKey {
 }
 
 func (p *ReservationPolicy) Name() string {
-	return "Reservation"
+	return "Reservation-Based"
 }
 
 func (p *ReservationPolicy) NumReplicas() int {

@@ -16,11 +16,11 @@ func GetSchedulingPolicy(opts *scheduling.SchedulerOptions) (scheduling.Policy, 
 		}
 	case string(scheduling.FcfsBatch):
 		{
-			return NewAutoScalingFcfsBatchSchedulingPolicy(opts), nil
+			return NewFcfsBatchSchedulingPolicy(opts), nil
 		}
 	case string(scheduling.AutoScalingFcfsBatch):
 		{
-			return NewFcfsBatchSchedulingPolicy(opts), nil
+			return NewAutoScalingFcfsBatchSchedulingPolicy(opts), nil
 		}
 	case string(scheduling.Static):
 		{

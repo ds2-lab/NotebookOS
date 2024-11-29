@@ -1586,7 +1586,18 @@ func (c *DistributedKernelClient) handleMsg(replica messaging.JupyterServerInfo,
 			}
 		case messaging.MessageTypeSMRLeadTask:
 			{
-				return c.handleSmrLeadTaskMessage(replica.(*KernelReplicaClient), msg)
+				err := c.handleSmrLeadTaskMessage(replica.(*KernelReplicaClient), msg)
+				if err != nil {
+					c.log.Error("Error while handling \"%s\" message from replica %d of kernel \"%s\": %v",
+						messaging.MessageTypeSMRLeadTask, replica.(*KernelReplicaClient).ReplicaID(), c.id, err)
+					return err
+				}
+
+				c.log.Debug("Forwarding \"%s\" message to Jupyter Client of kernel \"%s\"",
+					messaging.MessageTypeSMRLeadTask, c.id)
+
+				// Forward the "lead task" message to clients.
+				return c.server.Sockets.IO.Send(*msg.GetZmqMsg())
 			}
 		default:
 			{

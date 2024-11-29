@@ -235,7 +235,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		VRam:      decimal.NewFromFloat(vramGb),
 	}
 
-	log.Printf("Registering brand new DefaultSchedulingPolicy Daemon %s (ID=%s) with the following resource spec: %s.",
+	log.Printf("Registering brand new Local Daemon %s (ID=%s) with the following resource spec: %s.",
 		confirmedId.NodeName, confirmedId.Id, resourceSpec.String())
 
 	host := &Host{

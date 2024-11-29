@@ -1626,7 +1626,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 
 	// Map all the sessions (probably just one?) to the kernel client.
 	for _, sess := range kernel.Sessions() {
-		d.log.Debug("Storing kernel %v under session ID %s.", kernel, sess)
+		d.log.Debug("Storing kernel %v under session ID \"%s\".", kernel, sess)
 		d.kernels.Store(sess, kernel)
 	}
 

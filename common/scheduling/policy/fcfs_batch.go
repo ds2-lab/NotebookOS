@@ -1,6 +1,8 @@
 package policy
 
-import "github.com/scusemua/distributed-notebook/common/scheduling"
+import (
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+)
 
 // FcfsBatchSchedulingPolicy is a scheduling.Policy modeled after Slurm-like first-come, first-serve batch schedulers.
 // FcfsBatchSchedulingPolicy uses short-lived scheduling.KernelContainer instances that are created reactively each

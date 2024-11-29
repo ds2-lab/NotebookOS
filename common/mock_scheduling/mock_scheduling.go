@@ -640,8 +640,8 @@ func (m *MockScheduler) DeployKernelReplicas(ctx context.Context, kernelSpec *pr
 	return ret0
 }
 
-// DeployNewKernel indicates an expected call of DeployNewKernel.
-func (mr *MockSchedulerMockRecorder) DeployNewKernel(ctx, kernelSpec, blacklistedHosts any) *gomock.Call {
+// DeployKernelReplicas indicates an expected call of DeployKernelReplicas.
+func (mr *MockSchedulerMockRecorder) DeployKernelReplicas(ctx, kernelSpec, blacklistedHosts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployKernelReplicas", reflect.TypeOf((*MockScheduler)(nil).DeployKernelReplicas), ctx, kernelSpec, blacklistedHosts)
 }
@@ -4367,6 +4367,20 @@ func (mr *MockKernelMockRecorder) RegisterAckForRequest(req any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterAckForRequest", reflect.TypeOf((*MockKernel)(nil).RegisterAckForRequest), req)
 }
 
+// RemoveAllReplicas mocks base method.
+func (m *MockKernel) RemoveAllReplicas(remover scheduling.ReplicaRemover, noop bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveAllReplicas", remover, noop)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveAllReplicas indicates an expected call of RemoveAllReplicas.
+func (mr *MockKernelMockRecorder) RemoveAllReplicas(remover, noop any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveAllReplicas", reflect.TypeOf((*MockKernel)(nil).RemoveAllReplicas), remover, noop)
+}
+
 // RemoveReplica mocks base method.
 func (m *MockKernel) RemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	m.ctrl.T.Helper()
@@ -4409,6 +4423,20 @@ func (m *MockKernel) Replicas() []scheduling.KernelReplica {
 func (mr *MockKernelMockRecorder) Replicas() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Replicas", reflect.TypeOf((*MockKernel)(nil).Replicas))
+}
+
+// ReplicasAreScheduled mocks base method.
+func (m *MockKernel) ReplicasAreScheduled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplicasAreScheduled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ReplicasAreScheduled indicates an expected call of ReplicasAreScheduled.
+func (mr *MockKernelMockRecorder) ReplicasAreScheduled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplicasAreScheduled", reflect.TypeOf((*MockKernel)(nil).ReplicasAreScheduled))
 }
 
 // RequestWithHandler mocks base method.
@@ -4548,6 +4576,18 @@ func (mr *MockKernelMockRecorder) SetIOPubSocket(iopub any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIOPubSocket", reflect.TypeOf((*MockKernel)(nil).SetIOPubSocket), iopub)
 }
 
+// SetKernelKey mocks base method.
+func (m *MockKernel) SetKernelKey(arg0 string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetKernelKey", arg0)
+}
+
+// SetKernelKey indicates an expected call of SetKernelKey.
+func (mr *MockKernelMockRecorder) SetKernelKey(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetKernelKey", reflect.TypeOf((*MockKernel)(nil).SetKernelKey), arg0)
+}
+
 // SetSession mocks base method.
 func (m *MockKernel) SetSession(session scheduling.UserSession) {
 	m.ctrl.T.Helper()
@@ -4558,6 +4598,18 @@ func (m *MockKernel) SetSession(session scheduling.UserSession) {
 func (mr *MockKernelMockRecorder) SetSession(session any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSession", reflect.TypeOf((*MockKernel)(nil).SetSession), session)
+}
+
+// SetSignatureScheme mocks base method.
+func (m *MockKernel) SetSignatureScheme(arg0 string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetSignatureScheme", arg0)
+}
+
+// SetSignatureScheme indicates an expected call of SetSignatureScheme.
+func (mr *MockKernelMockRecorder) SetSignatureScheme(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSignatureScheme", reflect.TypeOf((*MockKernel)(nil).SetSignatureScheme), arg0)
 }
 
 // ShellListenPort mocks base method.
@@ -4656,6 +4708,20 @@ func (m *MockKernel) String() string {
 func (mr *MockKernelMockRecorder) String() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "String", reflect.TypeOf((*MockKernel)(nil).String))
+}
+
+// TemporaryKernelReplicaClient mocks base method.
+func (m *MockKernel) TemporaryKernelReplicaClient() scheduling.KernelReplicaInfo {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TemporaryKernelReplicaClient")
+	ret0, _ := ret[0].(scheduling.KernelReplicaInfo)
+	return ret0
+}
+
+// TemporaryKernelReplicaClient indicates an expected call of TemporaryKernelReplicaClient.
+func (mr *MockKernelMockRecorder) TemporaryKernelReplicaClient() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TemporaryKernelReplicaClient", reflect.TypeOf((*MockKernel)(nil).TemporaryKernelReplicaClient))
 }
 
 // UnbindSession mocks base method.
@@ -5689,20 +5755,6 @@ func (mr *MockKernelContainerMockRecorder) Address() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Address", reflect.TypeOf((*MockKernelContainer)(nil).Address))
 }
 
-// ContainedStopped mocks base method.
-func (m *MockKernelContainer) ContainerStopped() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ContainerStopped")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ContainedStopped indicates an expected call of ContainedStopped.
-func (mr *MockKernelContainerMockRecorder) ContainedStopped() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerStopped", reflect.TypeOf((*MockKernelContainer)(nil).ContainerStopped))
-}
-
 // ContainerID mocks base method.
 func (m *MockKernelContainer) ContainerID() string {
 	m.ctrl.T.Helper()
@@ -5743,6 +5795,20 @@ func (m *MockKernelContainer) ContainerStatistics() scheduling.ContainerStatisti
 func (mr *MockKernelContainerMockRecorder) ContainerStatistics() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerStatistics", reflect.TypeOf((*MockKernelContainer)(nil).ContainerStatistics))
+}
+
+// ContainerStopped mocks base method.
+func (m *MockKernelContainer) ContainerStopped() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ContainerStopped")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ContainerStopped indicates an expected call of ContainerStopped.
+func (mr *MockKernelContainerMockRecorder) ContainerStopped() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerStopped", reflect.TypeOf((*MockKernelContainer)(nil).ContainerStopped))
 }
 
 // ContainerStoppedTraining mocks base method.
