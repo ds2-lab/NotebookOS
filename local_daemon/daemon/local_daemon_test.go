@@ -2,10 +2,12 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/configuration"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	types2 "github.com/scusemua/distributed-notebook/common/types"
 
@@ -26,7 +28,7 @@ const (
 	signatureScheme string = "hmac-sha256"
 )
 
-var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
+var _ = Describe("Local Daemon Tests", func() {
 	var (
 		schedulerDaemon  *SchedulerDaemonImpl
 		vgpuPluginServer device.VirtualGpuPluginServer
@@ -46,6 +48,14 @@ var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 			MemoryMb:  decimal.NewFromFloat(8000),
 		})
 
+		schedulingPolicy, err := policy.GetSchedulingPolicy(&scheduling.SchedulerOptions{
+			CommonOptions: configuration.CommonOptions{
+				SchedulingPolicy: string(scheduling.Static),
+			},
+		})
+		Expect(err).To(BeNil())
+		Expect(schedulingPolicy).ToNot(BeNil())
+
 		schedulerDaemon = &SchedulerDaemonImpl{
 			transport:              "tcp",
 			kernels:                hashmap.NewCornelkMap[string, scheduling.KernelReplica](1000),
@@ -53,6 +63,7 @@ var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 			cleaned:                make(chan struct{}),
 			resourceManager:        resourceManager,
 			virtualGpuPluginServer: vgpuPluginServer,
+			schedulingPolicy:       schedulingPolicy,
 		}
 		config.InitLogger(&schedulerDaemon.log, schedulerDaemon)
 
