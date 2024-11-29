@@ -266,7 +266,7 @@ class DistributedKernel(IPythonKernel):
 
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
         self.remote_storages: Dict[str, SimulatedCheckpointer] = {
-            "DefaultRemoteStorage": SimulatedCheckpointer(
+            "AWS S3 (Default)": SimulatedCheckpointer(
                 name="AWS S3 (Default)",
                 download_rate=200_000_000,  # 200MB/sec
                 upload_rate=1_000_000,  # 1MB/sec
@@ -1149,7 +1149,7 @@ class DistributedKernel(IPythonKernel):
 
         duration: float = await self.simulate_remote_checkpointing(None, io_type="download")
 
-        if duration > 0:
+        if duration > 0 and self.prometheus_enabled:
             self.remote_storage_read_latency_milliseconds.labels(
                 session_id=self.kernel_id,
                 workload_id=self.workload_id).observe(duration * 1e3)
@@ -1458,7 +1458,7 @@ class DistributedKernel(IPythonKernel):
             duration: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
 
             # TODO: What if we receive next message before this completes?
-            if duration > 0:
+            if duration > 0 and self.prometheus_enabled:
                 self.remote_storage_write_latency_milliseconds.labels(
                     session_id=self.kernel_id,
                     workload_id=self.workload_id
@@ -1902,7 +1902,7 @@ class DistributedKernel(IPythonKernel):
                     f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path.")
                 duration: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
 
-                if duration > 0:
+                if duration > 0 and self.prometheus_enabled:
                     self.remote_storage_write_latency_milliseconds.labels(
                         session_id=self.kernel_id,
                         workload_id=self.workload_id
@@ -2493,7 +2493,7 @@ class DistributedKernel(IPythonKernel):
         Send an error report/message to our local daemon via our IOPub socket.
         """
         if self.kernel_notification_service_stub is None:
-            self.log.error(
+            self.log.warning(
                 f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup.")
             return
 
@@ -2687,8 +2687,7 @@ class DistributedKernel(IPythonKernel):
     def toggle_outstream(self, override=False, enable=True):
         # Is sys.stdout has attribute 'disable'?
         if not hasattr(sys.stdout, 'disable'):
-            self.log.warning(
-                "sys.stdout didn't initialized with kernel.OutStream.")
+            # self.log.warning("sys.stdout didn't initialized with kernel.OutStream.")
             return
 
         if override:

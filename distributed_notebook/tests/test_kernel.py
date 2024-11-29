@@ -97,18 +97,6 @@ DefaultResourceRequest: Dict[str, Any] = {
     "vram": 0.5,
 }
 
-DefaultRemoteStorageDefinitions: Dict[str, Any] = {
-    "AWS S3": {
-        "name": "AWS S3",
-        "download_rate": 250_000_000,
-        "upload_rate": 100_000_000,
-        "download_variance_percent": 0.05,
-        "upload_variance_percent": 0.05,
-        "read_failure_chance_percentage": 0.0,
-        "write_failure_chance_percentage": 0.0
-    },
-}
-
 async def create_kernel(
         remote_storage_hostname: str = "127.0.0.1:10000",
         kernel_id: str = DefaultKernelId,
@@ -124,23 +112,19 @@ async def create_kernel(
         init_persistent_store: bool = True,
         call_start: bool = True,
         local_tcp_server_port: int = -1,
-        checkpointing_enabled: bool = False,
+        simulate_checkpointing_latency: bool = False,
         persistent_id: Optional[str] = None,
         resource_request: Optional[Dict[str, Any]] = None,
         remote_storage_definitions: Optional[Dict[str, Any]] = None,
         **kwargs
 ) -> DistributedKernel:
     global DefaultResourceRequest
-    global DefaultRemoteStorageDefinitions
 
     if smr_nodes is None:
         smr_nodes = []
 
     if resource_request is None:
         resource_request = DefaultResourceRequest
-
-    if remote_storage_definitions is None:
-        remote_storage_definitions = DefaultRemoteStorageDefinitions
 
     keyword_args = {
         "remote_storage_hostname": remote_storage_hostname,
@@ -156,7 +140,7 @@ async def create_kernel(
         "storage_base": storage_base,
         "local_tcp_server_port": local_tcp_server_port,
         "persistent_id": persistent_id,
-        "checkpointing_enabled": checkpointing_enabled,
+        "simulate_checkpointing_latency": simulate_checkpointing_latency,
     }
 
     keyword_args.update(kwargs)
@@ -2512,9 +2496,9 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
     global CommittedValues
 
     if os.environ.get("SIMULATE_CHECKPOINTING_LATENCY"):
-        assert kernel.checkpointing_enabled
+        assert kernel.simulate_checkpointing_latency
     else:
-        assert not kernel.checkpointing_enabled
+        assert not kernel.simulate_checkpointing_latency
 
     unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
     loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
@@ -2625,9 +2609,9 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         assert new_kernel is not None
 
         if os.environ.get("SIMULATE_CHECKPOINTING_LATENCY"):
-            assert new_kernel.checkpointing_enabled
+            assert new_kernel.simulate_checkpointing_latency
         else:
-            assert not new_kernel.checkpointing_enabled
+            assert not new_kernel.simulate_checkpointing_latency
 
         # with mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "create_log_node", mock_create_log_node):
         # init_persistent_store_task: asyncio.Task[str] = asyncio.create_task(kernel.init_persistent_store_with_persistent_id(FakePersistentStorePath), name = "Initialize Persistent Store")
@@ -2705,6 +2689,7 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         assert len(new_kernel.resource_requests) > 0
 
         assert new_kernel.remote_storages is not None
+        print("new_kernel.remote_storages:", new_kernel.remote_storages)
         assert len(new_kernel.remote_storages) == 1
 
         catchup_awaitable: asyncio.Future[SynchronizedValue] = catchup_future
@@ -2750,7 +2735,7 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
         assert remote_storage is not None
 
         if os.environ.get("SIMULATE_CHECKPOINTING_LATENCY"):
-            assert new_kernel.checkpointing_enabled
+            assert new_kernel.simulate_checkpointing_latency
             assert remote_storage.total_num_read_ops == 1
             assert remote_storage.total_num_write_ops == 0
 
@@ -2763,7 +2748,7 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
             # Should be about 4.
             # assert 4 <= remote_storage.write_latencies[0] <= 5
         else:
-            assert not new_kernel.checkpointing_enabled
+            assert not new_kernel.simulate_checkpointing_latency
 
 @mock.patch.object(distributed_notebook.sync.synchronizer.Synchronizer, "sync", mocked_sync)
 @pytest.mark.asyncio
