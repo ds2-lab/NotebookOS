@@ -267,8 +267,14 @@ class DistributedKernel(IPythonKernel):
                 write_failure_chance_percentage = 0.0
             )
         }
-        self.resource_requests: list[Dict[str, Number | List[Number]]] = []
-        self.current_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = None
+
+        self.current_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = {
+            "cpus": self.spec_cpus,
+            "gpus": self.spec_gpus,
+            "memory_mb": self.spec_mem_mb,
+            "vram": self.spec_vram_gb
+        }
+        self.resource_requests: list[Dict[str, Number | List[Number]]] = [self.current_resource_request]
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
