@@ -3715,3 +3715,7 @@ func (d *ClusterGatewayImpl) RemoveClusterNodes(ctx context.Context, in *proto.R
 func (d *ClusterGatewayImpl) ModifyClusterNodes(_ context.Context, _ *proto.ModifyClusterNodesRequest) (*proto.ModifyClusterNodesResponse, error) {
 	return nil, ErrNotImplemented
 }
+
+func (d *ClusterGatewayImpl) GetSerializedClusterStatistics() (*proto.ClusterStatisticsResponse, error) {
+	return nil, nil
+}

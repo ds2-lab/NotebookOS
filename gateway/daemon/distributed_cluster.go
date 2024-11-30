@@ -291,3 +291,8 @@ func (dc *DistributedCluster) QueryMessage(ctx context.Context, in *proto.QueryM
 func (dc *DistributedCluster) ForceLocalDaemonToReconnect(ctx context.Context, in *proto.ForceLocalDaemonToReconnectRequest) (*proto.Void, error) {
 	return dc.gatewayDaemon.ForceLocalDaemonToReconnect(ctx, in)
 }
+
+// ClusterStatistics is used to request a serialized ClusterStatistics struct.
+func (dc *DistributedCluster) ClusterStatistics(_ context.Context, _ *proto.Void) (*proto.ClusterStatisticsResponse, error) {
+	return dc.gatewayDaemon.GetSerializedClusterStatistics()
+}

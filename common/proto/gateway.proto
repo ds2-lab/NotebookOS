@@ -144,6 +144,15 @@ service DistributedCluster {
   // ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
   // This is mostly used for testing/debugging the reconnection process.
   rpc ForceLocalDaemonToReconnect(ForceLocalDaemonToReconnectRequest) returns (Void) {}
+
+  // ClusterStatistics is used to request a serialized ClusterStatistics struct.
+  rpc ClusterStatistics(Void) returns (ClusterStatisticsResponse) {}
+}
+
+// ClusterStatisticsResponse encapsulates a serialized ClusterStatistics struct.
+message ClusterStatisticsResponse {
+  string requestId = 1;
+  bytes serializedClusterStatistics = 2;
 }
 
 // ForceLocalDaemonToReconnectRequest is sent as an argument for the ForceLocalDaemonToReconnect RPC.
