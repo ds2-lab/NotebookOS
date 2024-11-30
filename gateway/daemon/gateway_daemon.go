@@ -3387,13 +3387,12 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 		msg.RequestTrace.ReplicaId = from.ReplicaID()
 	}
 
-	if typ == messaging.ShellMessage {
-		if msg.JupyterMessageType() == messaging.ShellExecuteReply {
-			err := d.processExecutionReply(from.ID(), msg)
-			if err != nil {
-				go d.notifyDashboardOfError("Error While Processing \"execute_reply\" Message", err.Error())
-				panic(err)
-			}
+	isShellExecuteReply := typ == messaging.ShellMessage && msg.JupyterMessageType() == messaging.ShellExecuteReply
+	if isShellExecuteReply {
+		err := d.processExecutionReply(from.ID(), msg)
+		if err != nil {
+			go d.notifyDashboardOfError("Error While Processing \"execute_reply\" Message", err.Error())
+			panic(err)
 		}
 	}
 
@@ -3417,7 +3416,10 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 
 	sendError := d.sendZmqMessage(msg, socket, from.ID())
 
-	if d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
+	// If we just processed an "execute_reply" (without error, or else we would've returned earlier), and the
+	// scheduling policy indicates that the kernel container(s) should be stopped after processing a training
+	// event, then let's stop the kernel container(s).
+	if isShellExecuteReply && d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
 		d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
 
 		kernel, loaded := d.kernels.Load(from.ID())

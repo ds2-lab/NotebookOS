@@ -213,6 +213,14 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	return client
 }
 
+func (c *KernelReplicaClient) Host() scheduling.Host {
+	if c.container == nil {
+		return nil
+	}
+
+	return c.container.Host()
+}
+
 func (c *KernelReplicaClient) Container() scheduling.KernelContainer {
 	return c.container
 }
@@ -358,7 +366,7 @@ func (c *KernelReplicaClient) KernelStartedTraining() error {
 			"Will discard future \"execute_reply\" message if we do end up receiving it...", c.replicaId, c.id, c.trainingStartedAt)
 
 		// We already locked the kernel above, so we can call the unsafe method directly here.
-		err := c.unsafeKernelStoppedTraining()
+		err := c.unsafeKernelStoppedTraining("Need to start next training event, so current training event must be stopped first.")
 		if err != nil {
 			c.log.Error("Couldn't cleanly stop training for replica %d of kernel %s: %v", c.replicaId, c.id, err)
 			return err
@@ -468,7 +476,7 @@ func (c *KernelReplicaClient) ReceivedExecuteReply(msg *messaging.JupyterMessage
 // KernelReplicaClient struct.
 //
 // If the kernel is already not training, then this method just returns immediately (without an error).
-func (c *KernelReplicaClient) unsafeKernelStoppedTraining() error {
+func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 	c.trainingFinishedMu.Lock()
 	if !c.isTraining {
 		c.log.Warn("Cannot stop training; already not training.")
@@ -486,7 +494,7 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining() error {
 	// If the Container is actively-training, then we need to call SessionStoppedTraining
 	// before removing it so that the resources are all returned appropriately.
 	if container := c.Container(); container != nil {
-		p := container.Session().SessionStoppedTraining()
+		p := container.Session().SessionStoppedTraining(reason)
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v",
 				c.ID(), c.ReplicaID(), err)
@@ -494,18 +502,18 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining() error {
 		}
 	}
 
-	c.log.Debug(utils.LightPurpleStyle.Render("Replica %d of kernel \"%s\" has STOPPED training after %v."),
-		c.replicaId, c.id, time.Since(c.trainingStartedAt))
+	c.log.Debug(utils.LightPurpleStyle.Render("Replica %d of kernel \"%s\" has STOPPED training after %v. Reason: %s"),
+		c.replicaId, c.id, time.Since(c.trainingStartedAt), reason)
 
 	return nil
 }
 
 // KernelStoppedTraining should be called when the kernel associated with this client stops actively training.
-func (c *KernelReplicaClient) KernelStoppedTraining() error {
+func (c *KernelReplicaClient) KernelStoppedTraining(reason string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.unsafeKernelStoppedTraining()
+	return c.unsafeKernelStoppedTraining(reason)
 }
 
 // TrainingStartedAt returns the time at which the kernel associated with this client began actively training.
@@ -1095,17 +1103,46 @@ func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, 
 
 // Close closes the zmq sockets.
 func (c *KernelReplicaClient) Close() error {
-	c.BaseServer.Close()
+	err := c.BaseServer.Close()
+	if err != nil {
+		c.log.Warn("Error while closing server of replica %d of kernel %s: %v",
+			c.replicaId, c.id, err)
+	}
+
 	for _, socket := range c.client.Sockets.All {
-		if socket != nil {
-			_ = socket.Close()
+		if socket == nil {
+			continue
+		}
+
+		socketCloseErr := socket.Close()
+		if socketCloseErr != nil {
+			c.log.Warn("Error while closing %s socket of replica %d of kernel %s: %v",
+				socket.Type.String(), c.replicaId, c.id, err)
+
+			if err != nil {
+				err = errors.Join(err, socketCloseErr)
+			} else {
+				err = socketCloseErr
+			}
 		}
 	}
 	if c.iopub != nil {
-		_ = c.iopub.Close()
+		ioPubCloseError := c.iopub.Close()
+		if ioPubCloseError != nil {
+			c.log.Warn("Error while closing %s socket of replica %d of kernel %s: %v",
+				c.iopub.Type.String(), c.replicaId, c.id, err)
+
+			if err != nil {
+				err = errors.Join(err, ioPubCloseError)
+			} else {
+				err = ioPubCloseError
+			}
+		}
+
 		c.iopub = nil
 	}
-	return nil
+
+	return err
 }
 
 // GetHost returns the Host on which the replica is hosted.

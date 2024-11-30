@@ -330,7 +330,7 @@ func (c *DistributedKernelClient) ExecutionComplete(msg *messaging.JupyterMessag
 		return false, err
 	}
 
-	err = c.activeExecution.GetActiveReplica().KernelStoppedTraining()
+	err = c.activeExecution.GetActiveReplica().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.")
 	if len(c.activeExecutionQueue) > 0 {
 		c.activeExecution = c.activeExecutionQueue.Dequeue()
 		c.log.Debug("Popped next ActiveExecution off of queue and assigned it as current ActiveExecution: %v",
@@ -650,23 +650,28 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 
 // RemoveReplica removes a kernel peer from the kernel.
 func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.log.Debug("Removing replica %d from kernel \"%s\"", r.ReplicaID(), c.id)
+
+	if c.replicas[r.ReplicaID()] != r {
+		// This is bad and should never happen.
+		c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
+		return nil, scheduling.ErrReplicaNotFound
+	}
+
+	delete(c.replicas, r.ReplicaID())
+
 	host, err := c.stopReplicaLocked(r, remover, noop)
 	if err != nil {
 		return host, err
 	}
 
-	c.mu.Lock()
-	defer r.Close()
-	defer c.mu.Unlock()
-
-	if c.replicas[r.ReplicaID()] != r {
-		// This is bad and should never happen.
-		c.log.Error("Replica stored under ID key %d has ID %d.", r.ReplicaID(), c.replicas[r.ReplicaID()].ID())
-		return host, scheduling.ErrReplicaNotFound
-	}
-
 	if r.IsTraining() {
-		err := r.KernelStoppedTraining()
+		reason := fmt.Sprintf("Replica %d of kernel \"%s\" is being removed. Need to stop training before removal.",
+			r.ReplicaID(), r.ID())
+		err := r.KernelStoppedTraining(reason)
 		if err != nil {
 			c.log.Error("Error whilst stopping training on replica %d (during removal process): %v",
 				r.ReplicaID(), err)
@@ -684,6 +689,8 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 			container.ReplicaId(), c.id, err)
 	}
 
+	r.Container().SetHost(nil) // Set the Host to nil...
+
 	// If the error is either a ErrNilHost error or an ErrInvalidStateTransition error, then we probably didn't try
 	// to call Host::ContainerRemoved, as the ContainerStopped method would have returned before that point.
 	//
@@ -699,9 +706,12 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 		}
 	}
 
-	delete(c.replicas, r.ReplicaID())
+	err = r.Close()
+	if err != nil {
+		c.log.Error("Failed to cleanly close replica %d of kernel \"%s\": %v",
+			r.ReplicaID(), c.id, err)
+	}
 
-	r.Container().SetHost(nil) // Set the Host to nil...
 	return host, err
 }
 

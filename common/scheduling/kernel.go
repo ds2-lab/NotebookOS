@@ -141,6 +141,7 @@ type KernelReplica interface {
 	Server
 
 	Container() KernelContainer
+	Host() Host
 	SetContainer(container KernelContainer)
 	IsTraining() bool
 	WaitForTrainingToStop()
@@ -151,7 +152,7 @@ type KernelReplica interface {
 	NumPendingExecuteRequests() int
 	SentExecuteRequest(msg *messaging.JupyterMessage)
 	ReceivedExecuteReply(msg *messaging.JupyterMessage)
-	KernelStoppedTraining() error
+	KernelStoppedTraining(reason string) error
 	TrainingStartedAt() time.Time
 	WorkloadId() string
 	SetWorkloadId(workloadId string)

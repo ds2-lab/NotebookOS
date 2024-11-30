@@ -356,6 +356,9 @@ func (s *BaseScheduler) RemoveHost(hostId string) error {
 
 // RemoveReplicaFromHost removes the specified replica from its Host.
 func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelReplica) error {
+	s.log.Debug("Removing replica %d of kernel \"%s\" from its host: %v",
+		kernelReplica.ReplicaID(), kernelReplica.ID(), kernelReplica.Host())
+
 	return s.instance.RemoveReplicaFromHost(kernelReplica)
 }
 
@@ -547,6 +550,9 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 		s.log.Error("MigrateContainer received nil KernelReplica")
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, ErrNilKernelReplica
 	}
+
+	s.log.Debug("Migrating replica %d of kernel %s. Target host ID: %s.",
+		kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId)
 
 	kernelContainer := kernelReplica.Container()
 	if kernelContainer == nil {

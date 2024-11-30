@@ -386,19 +386,19 @@ func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) p
 // This should be called by the Kernel's KernelStoppedTraining method.
 //
 // Note: this method is thread-safe.
-func (s *Session) SessionStoppedTraining() promise.Promise {
+func (s *Session) SessionStoppedTraining(reason string) promise.Promise {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.unsafeTrainingStopped()
+	return s.unsafeTrainingStopped(reason)
 }
 
 // UnsafeTrainingStopped performs the work of SessionStoppedTraining. It is to be called by SessionStoppedTraining, and sometimes
 // SessionStopped, after the Session's mutex has already been acquired.
 //
 // Note: this method is NOT thread-safe.
-func (s *Session) unsafeTrainingStopped() promise.Promise {
-	s.log.Debug("Training stopping. Current state: %s.", s.sessionState.String())
+func (s *Session) unsafeTrainingStopped(reason string) promise.Promise {
+	s.log.Debug("Training stopping. Current state: %s. Reason: %s.", s.sessionState.String(), reason)
 
 	if err := s.transition(scheduling.SessionStateIdle); err != nil {
 		s.log.Warn("Failed to stop training because: %v", err)
@@ -502,7 +502,7 @@ func (s *Session) SessionStopped() promise.Promise {
 
 	if s.IsTraining() {
 		s.log.Debug("Currently training. Stopping training before stopping scheduling.Session.")
-		p := s.unsafeTrainingStopped() // Call UnsafeTrainingStopped directly, as we already have the mutex.
+		p := s.unsafeTrainingStopped("Session is stopping.") // Call UnsafeTrainingStopped directly, as we already have the mutex.
 		if err := p.Error(); err != nil {
 			return promise.Resolved(nil, err)
 		}

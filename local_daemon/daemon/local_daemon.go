@@ -2563,7 +2563,7 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *messaging.JupyterMessage,
 	}
 
 	if shouldCallTrainingStopped {
-		_ = kernelClient.KernelStoppedTraining()
+		_ = kernelClient.KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.")
 		d.prometheusManager.TrainingTimeGaugeVec.
 			With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
 			Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())

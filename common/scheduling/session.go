@@ -69,7 +69,7 @@ type UserSession interface {
 	StartedAt() time.Time
 	Duration() time.Duration
 	SessionStartedTraining(container KernelContainer) promise.Promise
-	SessionStoppedTraining() promise.Promise
+	SessionStoppedTraining(reason string) promise.Promise
 	GetReplicaContainer(replicaId int32) (KernelContainer, bool)
 }
 
