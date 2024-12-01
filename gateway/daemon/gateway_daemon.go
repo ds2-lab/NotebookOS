@@ -604,6 +604,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	}
 
 	clusterGateway.ClusterStatistics.CumulativeNumHostsProvisioned = clusterGateway.initialClusterSize
+	clusterGateway.gatherClusterStatistics()
 
 	return clusterGateway
 }
