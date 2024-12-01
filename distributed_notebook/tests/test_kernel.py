@@ -126,6 +126,10 @@ async def create_kernel(
     if resource_request is None:
         resource_request = DefaultResourceRequest
 
+    if os.environ.get("SIMULATE_CHECKPOINTING_LATENCY", "") != "":
+        print("Setting `simulate_checkpointing_latency` to True for unit tests")
+        simulate_checkpointing_latency = True
+
     keyword_args = {
         "remote_storage_hostname": remote_storage_hostname,
         "kernel_id": kernel_id,
@@ -2743,7 +2747,8 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
             assert len(remote_storage.write_latencies) == 0
 
             # Should be about 2.
-            assert 1.5e3 <= remote_storage.read_latencies[0] <= 2.5e3
+            # The max it should be about 2.631sec based on variance % and average rate.
+            assert 1.5e3 <= remote_storage.read_latencies[0] <= 2.75e3
 
             # Should be about 4.
             # assert 4 <= remote_storage.write_latencies[0] <= 5

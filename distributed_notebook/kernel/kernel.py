@@ -2512,7 +2512,7 @@ class DistributedKernel(IPythonKernel):
             raise ValueError(f"Invalid notification type specified: \"%d\"", notification_type)
 
         if self.kernel_notification_service_stub is None:
-            self.log.error(
+            self.log.warning(
                 f"Cannot send '{notification_type}' notification '{notification_title}' as our gRPC connection was never setup.")
             return
 

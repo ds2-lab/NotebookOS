@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "Running unit tests with SIMULATE_CHECKPOINTING_LATENCY equal to 'true'"
-SIMULATE_CHECKPOINTING_LATENCY=true pytest --log-cli-level=DEBUG
+SIMULATE_CHECKPOINTING_LATENCY=true pytest --log-cli-level=DEBUG -x
 
 sleep 2
 
@@ -12,7 +12,7 @@ exit_code=$?
 # So, we'll only try running the next batch of unit tests if the return code was 0.
 if [ $exit_code -eq 0 ]; then
   echo "Running unit tests with SIMULATE_CHECKPOINTING_LATENCY unset"
-  pytest --log-cli-level=DEBUG
+  pytest --log-cli-level=DEBUG -x
 else
   echo "Some unit tests did not pass."
 fi

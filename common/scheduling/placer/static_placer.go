@@ -4,7 +4,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
-	"sync"
 )
 
 // StaticPlacer is a placer that implements the Static Scheduling algorithm.
@@ -12,8 +11,6 @@ type StaticPlacer struct {
 	*AbstractPlacer
 
 	index *index.StaticClusterIndex
-
-	mu sync.Mutex
 }
 
 // NewStaticPlacer creates a new StaticPlacer.
