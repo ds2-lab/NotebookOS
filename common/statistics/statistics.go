@@ -94,5 +94,16 @@ type ClusterStatistics struct {
 	// The amount of time that Sessions have spent training throughout the entire simulation. This does NOT include replaying events.
 	CumulativeSessionTrainingTime float64 `csv:"CumulativeSessionTrainingTimeSec" json:"CumulativeSessionTrainingTimeSec"`
 	// The aggregate lifetime of all sessions created during the simulation (before being suspended).
-	AggregateSessionLifetime float64 `csv:"AggregateSessionLifetimeSec" json:"AggregateSessionLifetimeSec"`
+	AggregateSessionLifetimeSec  float64   `csv:"AggregateSessionLifetimeSec" json:"AggregateSessionLifetimeSec"`
+	AggregateSessionLifetimesSec []float64 `csv:"-" json:"AggregateSessionLifetimesSec"`
+	// Delay between when client submits "execute_request" and when kernel begins executing.
+	JupyterTrainingStartLatencyMillis   float64   `json:"jupyter_training_start_latency_millis" csv:"jupyter_training_start_latency_millis"`
+	JupyterTrainingStartLatenciesMillis []float64 `json:"jupyter_training_start_latencies_millis" csv:"-"`
+}
+
+func NewClusterStatistics() *ClusterStatistics {
+	return &ClusterStatistics{
+		JupyterTrainingStartLatenciesMillis: make([]float64, 0),
+		AggregateSessionLifetimesSec:        make([]float64, 0),
+	}
 }

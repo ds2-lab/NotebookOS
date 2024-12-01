@@ -72,8 +72,8 @@ type DistributedClientProvider interface {
 	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
 		connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
 		debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
-		executionLatencyCallback scheduling.ExecutionLatencyCallback,
-		messagingMetricsProvider metrics.MessagingMetricsProvider, updater scheduling.StatisticsUpdaterProvider) scheduling.Kernel
+		executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider,
+		updater scheduling.StatisticsUpdaterProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel
 }
 
 // TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
@@ -138,6 +138,8 @@ type DistributedKernelClient struct {
 	// so that a relevant Prometheus metric can be updated.
 	executionLatencyCallback scheduling.ExecutionLatencyCallback
 
+	notificationCallback scheduling.NotificationCallback
+
 	// messagingMetricsProvider is an interface that enables the recording of metrics observed by the DistributedKernelClient.
 	messagingMetricsProvider metrics.MessagingMetricsProvider
 
@@ -165,7 +167,7 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int,
 	persistentId string, debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
 	executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider,
-	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider) scheduling.Kernel {
+	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 	kernel := &DistributedKernelClient{
 		id:                       spec.Id,
@@ -186,6 +188,7 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
 		status:                                jupyter.KernelStatusInitializing,
+		notificationCallback:                  notificationCallback,
 		spec:                                  spec,
 		replicas:                              make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.KernelReplica, numReplicas),
 		targetNumReplicas:                     int32(numReplicas),
@@ -1527,13 +1530,26 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 	c.log.Debug("Received \"%s\" message from %v: %s", messaging.MessageTypeSMRLeadTask, kernelReplica.String(), msg.String())
 
 	if c.activeExecution == nil {
-		log.Fatalf("Kernel %s has started training; however, its active execution is nil...", c.id)
+		errorMessage := fmt.Sprintf("Kernel %s has started training; however, its active execution is nil...", c.id)
+		c.log.Error(errorMessage, c.id)
+
+		if c.notificationCallback != nil {
+			go c.notificationCallback("Kernel's 'ActiveExecution' is Nil", errorMessage, messaging.ErrorNotification)
+		}
+
+		return fmt.Errorf("active execution for kernel \"%s\" is nil at training start", c.id)
 	}
 
 	// Decode the jupyter.MessageSMRLeadTask message.
 	var leadMessage messaging.MessageSMRLeadTask
 	if err := msg.JupyterFrames.DecodeContent(&leadMessage); err != nil {
-		log.Fatalf(utils.RedStyle.Render("Failed to decode content of SMR Lead ZMQ message: %v\n"), err)
+		c.log.Error(utils.RedStyle.Render("Failed to decode content of SMR Lead ZMQ message: %v\n"), err)
+
+		if c.notificationCallback != nil {
+			go c.notificationCallback("Failed to Decode \"smr_lead_task\" Message", err.Error(), messaging.ErrorNotification)
+		}
+
+		return err
 	}
 
 	// The time at which the kernel replica began executing the code.
@@ -1552,7 +1568,15 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 		// See if we can retrieve the ActiveExecution associated with the "smr_lead_task" message.
 		associatedActiveExecution, loaded := c.activeExecutionsByExecuteRequestMsgId.Load(executeRequestMsgId)
 		if !loaded {
-			log.Fatalf(utils.RedStyle.Render("[ERROR] Cannot find active execution with \"execute_request\" message ID of \"%s\" associated with kernel \"%s\"...\n"),
+			errorMessage := fmt.Sprintf("Cannot find active execution with \"execute_request\" message ID of \"%s\" associated with kernel \"%s\"...\n",
+				executeRequestMsgId, c.id)
+			c.log.Error(utils.RedStyle.Render(errorMessage))
+
+			if c.notificationCallback != nil {
+				go c.notificationCallback("Cannot Find Active Execution", errorMessage, messaging.ErrorNotification)
+			}
+
+			return fmt.Errorf("could not find active execution with jupyter request ID of \"%s\" associated with kernel \"%s\"",
 				executeRequestMsgId, c.id)
 		} else {
 			c.log.Warn("Received \"smr_lead_task\" notification for non-current ActiveExecution.")
@@ -1589,6 +1613,11 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 	// Record that the kernel has started training.
 	if err := kernelReplica.KernelStartedTraining(); err != nil {
 		c.log.Error("Failed to start training for kernel replica %s-%d: %v", c.id, kernelReplica.ReplicaID(), err)
+
+		if c.notificationCallback != nil {
+			go c.notificationCallback(fmt.Sprintf("Failed to Start Training for Kernel \"%s\"", c.id), err.Error(), messaging.ErrorNotification)
+		}
+
 		return err
 	}
 

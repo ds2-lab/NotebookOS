@@ -358,7 +358,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		initialConnectionPeriod:        time.Second * time.Duration(clusterDaemonOptions.InitialClusterConnectionPeriodSec),
 		prometheusInterval:             time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
 		gatewayPrometheusManager:       nil,
-		ClusterStatistics:              &statistics.ClusterStatistics{},
+		ClusterStatistics:              statistics.NewClusterStatistics(),
 	}
 
 	for _, configFunc := range configs {
@@ -1523,7 +1523,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 	// Initialize kernel with new context.
 	kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
 		d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.DebugMode, d.executionFailed,
-		d.executionLatencyCallback, d.gatewayPrometheusManager, d.updateClusterStatistics)
+		d.executionLatencyCallback, d.gatewayPrometheusManager, d.updateClusterStatistics, d.notifyDashboard)
 
 	d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 	_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
@@ -2490,7 +2490,9 @@ func (d *ClusterGatewayImpl) StopKernel(_ context.Context, in *proto.KernelId) (
 
 	if session != nil {
 		d.clusterStatisticsMutex.Lock()
-		d.ClusterStatistics.AggregateSessionLifetime += time.Since(session.StartedAt()).Seconds()
+		lifetimeSeconds := time.Since(session.StartedAt()).Seconds()
+		d.ClusterStatistics.AggregateSessionLifetimeSec += lifetimeSeconds
+		d.ClusterStatistics.AggregateSessionLifetimesSec = append(d.ClusterStatistics.AggregateSessionLifetimesSec, lifetimeSeconds)
 		d.clusterStatisticsMutex.Unlock()
 	}
 
@@ -3145,12 +3147,23 @@ func (d *ClusterGatewayImpl) ClusterAge(_ context.Context, _ *proto.Void) (*prot
 }
 
 func (d *ClusterGatewayImpl) executionLatencyCallback(latency time.Duration, workloadId string, kernelId string) {
-	d.gatewayPrometheusManager.JupyterTrainingStartLatency.
-		With(prometheus.Labels{
-			"workload_id": workloadId,
-			"kernel_id":   kernelId,
-		}).
-		Observe(float64(latency.Milliseconds()))
+	milliseconds := float64(latency.Milliseconds())
+
+	if d.gatewayPrometheusManager != nil {
+		d.gatewayPrometheusManager.JupyterTrainingStartLatency.
+			With(prometheus.Labels{
+				"workload_id": workloadId,
+				"kernel_id":   kernelId,
+			}).
+			Observe(milliseconds)
+	}
+
+	d.clusterStatisticsMutex.Lock()
+	defer d.clusterStatisticsMutex.Unlock()
+
+	d.ClusterStatistics.JupyterTrainingStartLatencyMillis += milliseconds
+	d.ClusterStatistics.JupyterTrainingStartLatenciesMillis = append(
+		d.ClusterStatistics.JupyterTrainingStartLatenciesMillis, milliseconds)
 }
 
 func (d *ClusterGatewayImpl) StdinHandler(_ router.Info, msg *messaging.JupyterMessage) error {
@@ -3802,7 +3815,7 @@ func (d *ClusterGatewayImpl) ClearClusterStatistics() (*proto.ClusterStatisticsR
 		return nil, err
 	}
 
-	d.ClusterStatistics = &statistics.ClusterStatistics{}
+	d.ClusterStatistics = statistics.NewClusterStatistics()
 
 	// Basically initialize the statistics with some values, but in a separate goroutine.
 	go d.gatherClusterStatistics()

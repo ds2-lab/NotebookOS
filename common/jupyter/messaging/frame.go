@@ -42,6 +42,10 @@ type JupyterFrame []byte
 
 // GetFrameName returns the string name of a Jupyter frame given the index.
 func GetFrameName(frameIndex int) string {
+	if frameIndex < 0 {
+		return "Ident"
+	}
+
 	switch frameIndex {
 	case JupyterFrameStart:
 		return "Start"
@@ -233,7 +237,7 @@ func (frames *JupyterFrames) StringFormatted() string {
 
 	s := "[\n"
 	for i, frame := range frames.Frames {
-		s += "\t" + GetFrameName(i) + ":\"" + string(frame) + "\""
+		s += "\t" + GetFrameName(i-frames.Offset) + ":\"" + string(frame) + "\""
 
 		if i+1 < frames.Len() {
 			s += ",\n"

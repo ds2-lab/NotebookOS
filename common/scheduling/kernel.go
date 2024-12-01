@@ -59,6 +59,8 @@ type ExecutionLatencyCallback func(latency time.Duration, workloadId string, ker
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
 type ExecutionFailedCallback func(c Kernel) error
 
+type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
+
 type Kernel interface {
 	types.Contextable
 	SessionManager
