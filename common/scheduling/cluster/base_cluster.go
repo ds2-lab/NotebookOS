@@ -398,7 +398,7 @@ func (c *BaseCluster) BusyGPUs() float64 {
 
 // DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
 func (c *BaseCluster) DemandGPUs() float64 {
-	c.sessionsMutex.Lock()
+	c.sessionsMutex.RLock()
 	defer c.sessionsMutex.RUnlock()
 
 	demandGPUs := 0.0
