@@ -146,7 +146,17 @@ service DistributedCluster {
   rpc ForceLocalDaemonToReconnect(ForceLocalDaemonToReconnectRequest) returns (Void) {}
 
   // ClusterStatistics is used to request a serialized ClusterStatistics struct.
-  rpc ClusterStatistics(Void) returns (ClusterStatisticsResponse) {}
+  rpc ClusterStatistics(ClusterStatisticsRequest) returns (ClusterStatisticsResponse) {}
+
+  // ClearClusterStatistics clears the current ClusterStatistics struct.
+  //
+  // ClearClusterStatistics returns the serialized ClusterStatistics struct before it was cleared.
+  rpc ClearClusterStatistics(Void) returns (ClusterStatisticsResponse) {}
+}
+
+message ClusterStatisticsRequest {
+  string requestId = 1;
+  bool updateFirst = 2;
 }
 
 // ClusterStatisticsResponse encapsulates a serialized ClusterStatistics struct.

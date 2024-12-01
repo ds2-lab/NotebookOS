@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +16,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/shopspring/decimal"
 	"log"
 	"math/rand"
@@ -208,6 +211,11 @@ type ClusterGatewayImpl struct {
 	closed  int32
 	cleaned chan struct{}
 
+	// ClusterStatistics encapsulates a number of statistics/metrics.
+	ClusterStatistics        *statistics.ClusterStatistics
+	clusterStatisticsMutex   sync.Mutex
+	lastFullStatisticsUpdate time.Time
+
 	// failureHandler is the ClusterGatewayImpl's FailureHandler (i.e., recovery callback for panics).
 	// The primary purpose is simply to send a notification to the dashboard that a panic occurred before exiting.
 	// This makes error detection easier (i.e., it's immediately obvious when the system breaks as we're notified
@@ -350,6 +358,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		initialConnectionPeriod:        time.Second * time.Duration(clusterDaemonOptions.InitialClusterConnectionPeriodSec),
 		prometheusInterval:             time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
 		gatewayPrometheusManager:       nil,
+		ClusterStatistics:              &statistics.ClusterStatistics{},
 	}
 
 	for _, configFunc := range configs {
@@ -561,6 +570,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		WithKernelProvider(clusterGateway).
 		WithClusterMetricsProvider(clusterGateway.gatewayPrometheusManager).
 		WithNotificationBroker(clusterGateway).
+		WithStatisticsUpdateProvider(clusterGateway.updateClusterStatistics).
 		WithOptions(&clusterSchedulerOptions).
 		BuildCluster()
 	if err != nil {
@@ -592,6 +602,8 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			"Disabling 'initial connection period' feature.", clusterGateway.initialClusterSize)
 		clusterGateway.inInitialConnectionPeriod.Store(false) // It defaults to false, so this is unnecessary.
 	}
+
+	clusterGateway.ClusterStatistics.CumulativeNumHostsProvisioned = clusterGateway.initialClusterSize
 
 	return clusterGateway
 }
@@ -1510,7 +1522,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 	// Initialize kernel with new context.
 	kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
 		d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.DebugMode, d.executionFailed,
-		d.executionLatencyCallback, d.gatewayPrometheusManager)
+		d.executionLatencyCallback, d.gatewayPrometheusManager, d.updateClusterStatistics)
 
 	d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 	_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
@@ -1801,8 +1813,13 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 	go d.notifyDashboard("Kernel Started", fmt.Sprintf("Kernel %s has started running. Launch took approximately %v from when the Cluster Gateway began processing the 'create kernel' request.",
 		kernelId, time.Since(startTime)), messaging.SuccessNotification)
 
+	numActiveKernels := d.numActiveKernels.Add(1)
+
+	d.clusterStatisticsMutex.Lock()
+	d.ClusterStatistics.NumIdleSessions += 1
+	d.clusterStatisticsMutex.Unlock()
+
 	if d.gatewayPrometheusManager != nil {
-		numActiveKernels := d.numActiveKernels.Add(1)
 		d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
 			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
 			Set(float64(numActiveKernels))
@@ -1871,7 +1888,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		d.id, d.numResendAttempts, -1, -1, in.PodOrContainerName, in.NodeName,
 		nil, nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
 		host, metrics.ClusterGateway, true, true, d.DebugMode, d.gatewayPrometheusManager,
-		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics)
 
 	err := replica.Validate()
 	if err != nil {
@@ -2106,7 +2123,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		d.numResendAttempts, -1, -1, kernelPodOrContainerName, nodeName, nil,
 		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
 		true, true, d.DebugMode, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
-		d.kernelRequestResubmissionFailedAfterReconnection)
+		d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics)
 
 	session, ok := d.cluster.GetSession(kernelId)
 	if !ok {
@@ -2448,12 +2465,35 @@ func (d *ClusterGatewayImpl) StopKernel(_ context.Context, in *proto.KernelId) (
 	d.log.Debug("StopKernel RPC called for kernel %s.", in.Id)
 
 	ret, err := d.stopKernelImpl(in)
+	if err != nil {
+		if _, ok := status.FromError(err); !ok {
+			err = status.Error(codes.Internal, err.Error())
+		}
 
-	if _, ok := status.FromError(err); !ok {
-		err = status.Error(codes.Internal, err.Error())
+		return ret, err
 	}
 
-	return ret, err
+	numActiveKernels := d.numActiveKernels.Add(-1)
+
+	session := d.cluster.RemoveSession(in.Id)
+
+	d.clusterStatisticsMutex.Lock()
+	d.ClusterStatistics.NumStoppedSessions += 1
+	d.clusterStatisticsMutex.Unlock()
+
+	if d.gatewayPrometheusManager != nil {
+		d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
+			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
+			Set(float64(numActiveKernels))
+	}
+
+	if session != nil {
+		d.clusterStatisticsMutex.Lock()
+		d.ClusterStatistics.AggregateSessionLifetime += time.Since(session.StartedAt()).Seconds()
+		d.clusterStatisticsMutex.Unlock()
+	}
+
+	return ret, nil
 }
 
 // WaitKernel waits for a kernel to exit.
@@ -2987,7 +3027,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 	return nil
 }
 
-// processExecutionReply handles the scheduling and resource allocation/de-allocation logic required when a
+// processExecuteReply handles the scheduling and resource allocation/de-allocation logic required when a
 // kernel finishes executing user-submitted code.
 //
 // TODO: Will there be race conditions here if we've sent multiple "execute_request" messages to the kernel?
@@ -2995,7 +3035,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 // TODO: If so, how can we handle these out-of-order requests? We can associate trainings with Jupyter message IDs so that, if we get a >>
 // TODO: >> training stopped notification, then it needs to match up with the current training, maybe in a queue structure, so that out-of-order >>
 // TODO: >> messages can be handled properly.
-func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *messaging.JupyterMessage) error {
+func (d *ClusterGatewayImpl) processExecuteReply(kernelId string, msg *messaging.JupyterMessage) error {
 	d.log.Debug("Received \"execute_reply\" with JupyterID=\"%s\" from kernel %s.", kernelId, msg.JupyterMessageId())
 
 	// If this message is actually from a failed attempt to handle all replicas proposing 'yield', then we just
@@ -3060,6 +3100,11 @@ func (d *ClusterGatewayImpl) processExecutionReply(kernelId string, msg *messagi
 	if _, err := kernel.ExecutionComplete(msg); err != nil {
 		return err
 	}
+
+	d.clusterStatisticsMutex.Lock()
+	d.ClusterStatistics.CompletedTrainings += 1
+	d.ClusterStatistics.NumIdleSessions += 1
+	d.clusterStatisticsMutex.Unlock()
 
 	return nil
 }
@@ -3389,7 +3434,7 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 
 	isShellExecuteReply := typ == messaging.ShellMessage && msg.JupyterMessageType() == messaging.ShellExecuteReply
 	if isShellExecuteReply {
-		err := d.processExecutionReply(from.ID(), msg)
+		err := d.processExecuteReply(from.ID(), msg)
 		if err != nil {
 			go d.notifyDashboardOfError("Error While Processing \"execute_reply\" Message", err.Error())
 			panic(err)
@@ -3716,6 +3761,193 @@ func (d *ClusterGatewayImpl) ModifyClusterNodes(_ context.Context, _ *proto.Modi
 	return nil, ErrNotImplemented
 }
 
-func (d *ClusterGatewayImpl) GetSerializedClusterStatistics() (*proto.ClusterStatisticsResponse, error) {
-	return nil, nil
+// GetSerializedClusterStatistics serializes and returns the current ClusterStatistics field of the ClusterGatewayImpl.
+func (d *ClusterGatewayImpl) GetSerializedClusterStatistics(req *proto.ClusterStatisticsRequest) (*proto.ClusterStatisticsResponse, error) {
+	var requestId string
+	if req != nil {
+		requestId = req.RequestId
+
+		if req.UpdateFirst {
+			d.gatherClusterStatistics()
+		}
+	}
+
+	buffer := bytes.Buffer{}
+	encoder := gob.NewEncoder(&buffer)
+
+	err := encoder.Encode(&d.ClusterStatistics)
+	if err != nil {
+		d.log.Error("Failed to encode ClusterStatistics: %v", err)
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+
+	resp := &proto.ClusterStatisticsResponse{
+		RequestId:                   requestId, // match ID in response to ID in request
+		SerializedClusterStatistics: buffer.Bytes(),
+	}
+
+	return resp, nil
+}
+
+// ClearClusterStatistics resets the ClusterStatistics field.
+//
+// ClearClusterStatistics returns the value of the ClusterStatistics field before it was cleared.
+//
+// If there's an error returning the ClusterStatistics field, then an error will be returned instead.
+// The ClusterStatistics field will NOT be cleared in this case.
+func (d *ClusterGatewayImpl) ClearClusterStatistics() (*proto.ClusterStatisticsResponse, error) {
+	resp, err := d.GetSerializedClusterStatistics(&proto.ClusterStatisticsRequest{UpdateFirst: true, RequestId: uuid.NewString()})
+	if err != nil {
+		return nil, err
+	}
+
+	d.ClusterStatistics = &statistics.ClusterStatistics{}
+
+	// Basically initialize the statistics with some values, but in a separate goroutine.
+	go d.gatherClusterStatistics()
+
+	return resp, nil
+}
+
+// updateClusterStatistics is passed to Distributed Kernel Clients so that they may atomically update statistics.
+func (d *ClusterGatewayImpl) updateClusterStatistics(updaterFunc scheduling.StatisticsUpdater) {
+	d.clusterStatisticsMutex.Lock()
+	defer d.clusterStatisticsMutex.Unlock()
+
+	updaterFunc(d.ClusterStatistics)
+}
+
+// gatherClusterStatistics updates all the values in the ClusterStatistics field.
+//
+// gatherClusterStatistics is thread-safe.
+func (d *ClusterGatewayImpl) gatherClusterStatistics() {
+	d.clusterStatisticsMutex.Lock()
+	defer d.clusterStatisticsMutex.Unlock()
+
+	now := time.Now()
+	var lastTime time.Time // Last update time
+
+	if d.lastFullStatisticsUpdate.IsZero() {
+		lastTime = now // We're doing the first update
+	} else {
+		lastTime = d.lastFullStatisticsUpdate
+	}
+
+	d.log.Debug("Updating ClusterStatistics now.")
+
+	var idleCpu, idleMem, idleGpu, idleVram float64
+	var pendingCpu, pendingMem, pendingGpu, pendingVram float64
+	var committedCpu, committedMem, committedGpu, committedVram float64
+	var specCpu, specMem, specGpu, specVram float64
+
+	//var cpuUtil, gpuUtil, memUtil, vramUtil, demandGpus float64
+	var demandCpus, demandMem, demandGpus, demandVram float64
+
+	var numNonEmptyHosts, numEmptyHosts int
+
+	// The aggregate, cumulative lifetime of the hosts that are currently running.
+	var aggregateHostLifetimeOfRunningHosts float64
+
+	d.cluster.RangeOverHosts(func(_ string, host scheduling.Host) bool {
+		idleCpu += host.IdleCPUs()
+		idleMem += host.IdleMemoryMb()
+		idleGpu += host.IdleGPUs()
+		idleVram += host.IdleVRAM()
+
+		pendingCpu += host.PendingCPUs()
+		pendingMem += host.PendingMemoryMb()
+		pendingGpu += host.PendingGPUs()
+		pendingVram += host.PendingVRAM()
+
+		committedCpu += host.CommittedCPUs()
+		committedMem += host.CommittedMemoryMb()
+		committedGpu += host.CommittedGPUs()
+		committedVram += host.CommittedVRAM()
+
+		specCpu += host.ResourceSpec().CPU()
+		specMem += host.ResourceSpec().MemoryMB()
+		specGpu += host.ResourceSpec().GPU()
+		specVram += host.ResourceSpec().VRAM()
+
+		if host.NumContainers() == 0 {
+			numEmptyHosts += 1
+		} else {
+			numNonEmptyHosts += 1
+		}
+
+		aggregateHostLifetimeOfRunningHosts += time.Since(host.GetCreatedAt()).Seconds()
+
+		return true
+	})
+
+	activeTime := time.Since(lastTime) * time.Duration(numNonEmptyHosts)
+	idleTime := time.Since(lastTime) * time.Duration(numEmptyHosts)
+
+	d.ClusterStatistics.CumulativeHostActiveTime += activeTime.Seconds()
+	d.ClusterStatistics.CumulativeHostIdleTime += idleTime.Seconds()
+	d.ClusterStatistics.AggregateHostLifetimeOfRunningHosts = aggregateHostLifetimeOfRunningHosts
+	d.ClusterStatistics.AggregateHostLifetime += time.Since(lastTime).Seconds() * float64(d.cluster.Len())
+
+	d.cluster.RangeOverSessions(func(key string, value scheduling.UserSession) bool {
+		demandCpus += value.ResourceSpec().CPU()
+		demandMem += value.ResourceSpec().MemoryMB()
+		demandGpus += value.ResourceSpec().GPU()
+		demandVram += value.ResourceSpec().VRAM()
+
+		return true
+	})
+
+	d.ClusterStatistics.DemandGPUs = demandCpus
+	d.ClusterStatistics.DemandMemMb = demandMem
+	d.ClusterStatistics.DemandGPUs = demandGpus
+	d.ClusterStatistics.DemandVRAMGb = demandVram
+
+	///////////
+	// Hosts //
+	///////////
+
+	d.ClusterStatistics.Hosts = d.cluster.Len()
+	d.ClusterStatistics.NumDisabledHosts = d.cluster.NumDisabledHosts()
+	d.ClusterStatistics.NumEmptyHosts = numEmptyHosts
+
+	///////////////
+	// Resources //
+	///////////////
+
+	d.ClusterStatistics.IdleCPUs = idleCpu
+	d.ClusterStatistics.IdleMemory = idleMem
+	d.ClusterStatistics.IdleGPUs = idleGpu
+	d.ClusterStatistics.IdleVRAM = idleVram
+
+	d.ClusterStatistics.PendingCPUs = pendingCpu
+	d.ClusterStatistics.PendingMemory = pendingMem
+	d.ClusterStatistics.PendingGPUs = pendingGpu
+	d.ClusterStatistics.PendingVRAM = pendingVram
+
+	d.ClusterStatistics.CommittedCPUs = committedCpu
+	d.ClusterStatistics.CommittedMemory = committedMem
+	d.ClusterStatistics.CommittedGPUs = committedGpu
+	d.ClusterStatistics.CommittedVRAM = committedVram
+
+	d.ClusterStatistics.SpecCPUs = specCpu
+	d.ClusterStatistics.SpecMemory = specMem
+	d.ClusterStatistics.SpecGPUs = specGpu
+	d.ClusterStatistics.SpecVRAM = specVram
+
+	/////////////////////////////////
+	// Static & Dynamic Scheduling //
+	/////////////////////////////////
+	d.ClusterStatistics.SubscriptionRatio = d.cluster.Scheduler().SubscriptionRatio()
+
+	////////////////////////
+	// Dynamic Scheduling //
+	////////////////////////
+
+	//////////////
+	// Sessions //
+	//////////////
+	d.ClusterStatistics.NumNonTerminatedSessions = int(d.numActiveKernels.Load())
+	d.ClusterStatistics.NumRunningSessions = d.cluster.Sessions().Len()
+
+	d.lastFullStatisticsUpdate = time.Now()
 }

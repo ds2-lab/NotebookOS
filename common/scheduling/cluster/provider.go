@@ -33,16 +33,17 @@ func (t Type) String() string {
 //
 // Provider validates that all required arguments are non-nil before creating the scheduling.Cluster.
 type Provider struct {
-	ClusterType            Type                         // Required.
-	HostSpec               types.Spec                   // Required.
-	Placer                 scheduling.Placer            // Required.
-	HostMapper             scheduler.HostMapper         // Required.
-	KernelProvider         scheduler.KernelProvider     // Required.
-	ClusterMetricsProvider scheduling.MetricsProvider   // Optional.
-	NotificationBroker     scheduler.NotificationBroker // Optional.
-	Options                *scheduling.SchedulerOptions // Required.
-	SchedulingPolicy       scheduling.Policy            // Optional, will be extracted from Options if not specified.
-	KubeClient             scheduling.KubeClient        // Required for Kubernetes clusters. Ignored for others.
+	ClusterType               Type                                 // Required.
+	HostSpec                  types.Spec                           // Required.
+	Placer                    scheduling.Placer                    // Required.
+	HostMapper                scheduler.HostMapper                 // Required.
+	KernelProvider            scheduler.KernelProvider             // Required.
+	ClusterMetricsProvider    scheduling.MetricsProvider           // Optional.
+	NotificationBroker        scheduler.NotificationBroker         // Optional.
+	Options                   *scheduling.SchedulerOptions         // Required.
+	SchedulingPolicy          scheduling.Policy                    // Optional, will be extracted from Options if not specified.
+	KubeClient                scheduling.KubeClient                // Required for Kubernetes clusters. Ignored for others.
+	StatisticsUpdaterProvider scheduling.StatisticsUpdaterProvider // Optional.
 
 	log logger.Logger
 }
@@ -94,6 +95,11 @@ func (b *Provider) WithClusterMetricsProvider(mp scheduling.MetricsProvider) *Pr
 
 func (b *Provider) WithNotificationBroker(nb scheduler.NotificationBroker) *Provider {
 	b.NotificationBroker = nb
+	return b
+}
+
+func (b *Provider) WithStatisticsUpdateProvider(sup scheduling.StatisticsUpdaterProvider) *Provider {
+	b.StatisticsUpdaterProvider = sup
 	return b
 }
 
@@ -168,19 +174,19 @@ func (b *Provider) BuildCluster() (scheduling.Cluster, error) {
 		{
 			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
 			return NewDockerSwarmCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.SchedulingPolicy, b.Options), nil
+				b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
 		}
 	case DockerCompose:
 		{
 			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
 			return NewDockerComposeCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.SchedulingPolicy, b.Options), nil
+				b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
 		}
 	case Kubernetes:
 		{
 			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
 			return NewKubernetesCluster(b.KubeClient, b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.SchedulingPolicy, b.Options), nil
+				b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
 		}
 	default:
 		b.log.Error("Unknown/unsupported cluster type: %v", b.ClusterType.String())

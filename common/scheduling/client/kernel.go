@@ -8,6 +8,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
 	"sync"
@@ -89,6 +90,7 @@ type KernelReplicaClient struct {
 	workloadId                       string                                             // workloadId is the ID of the workload associated with this kernel, if this kernel was created within a workload. This is populated after extracting the ID from the metadata frame of a Jupyter message.
 	workloadIdSet                    bool                                               // workloadIdSet is a flag indicating whether workloadId has been assigned a "meaningful" value or not.
 	trainingStartedAt                time.Time                                          // trainingStartedAt is the time at which the kernel associated with this client began actively training.
+	idleStartedAt                    time.Time                                          // idleStartedAt is the time at which the kernel last began idling
 	lastTrainingTimePrometheusUpdate time.Time                                          // lastTrainingTimePrometheusUpdate records the current time as the last instant in which we published an updated training time metric to Prometheus. We use this to determine how much more to increment the training time Prometheus metric when we stop training, since any additional training time since the last scheduled publish won't be pushed to Prometheus automatically by the publisher-goroutine.
 	isTraining                       bool                                               // isTraining indicates whether the kernel replica associated with this client is actively training.
 	pendingExecuteRequestIds         hashmap.HashMap[string, *messaging.JupyterMessage] // pendingExecuteRequestIds is a map from Jupyter message ID to the message, containing execute requests sent to this kernel (whose replies have not yet been received).
@@ -120,6 +122,11 @@ type KernelReplicaClient struct {
 	// prometheusManager is an interface that enables the recording of metrics observed by the KernelReplicaClient.
 	messagingMetricsProvider metrics.MessagingMetricsProvider
 
+	// Used to update the fields of the Cluster Gateway's GatewayStatistics struct atomically.
+	// The Cluster Gateway locks modifications to the GatewayStatistics struct before calling whatever function
+	// we pass to the statisticsUpdaterProvider.
+	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider
+
 	log logger.Logger
 	mu  sync.Mutex
 }
@@ -134,7 +141,8 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, messageAcknowledgementsEnabled bool,
 	persistentId string, hostId string, host scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
 	debugMode bool, messagingMetricsProvider metrics.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
-	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback) *KernelReplicaClient {
+	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback,
+	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider) *KernelReplicaClient {
 
 	// Validate that the `spec` argument is non-nil.
 	if spec == nil {
@@ -167,6 +175,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		pendingExecuteRequestIds:             hashmap.NewCornelkMap[string, *messaging.JupyterMessage](64),
 		isGatewayClient:                      isGatewayClient,
 		connectionRevalidationFailedCallback: connRevalFailedCallback,
+		statisticsUpdaterProvider:            statisticsUpdaterProvider,
 		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
 		client: server.New(ctx, info, nodeType, func(s *server.AbstractServer) {
 			var remoteComponentName string
@@ -390,6 +399,13 @@ func (c *KernelReplicaClient) KernelStartedTraining() error {
 
 	c.log.Debug(utils.PurpleStyle.Render("Replica %d of kernel \"%s\" has STARTED training."), c.replicaId, c.id)
 
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
+			statistics.NumTrainingSessions += 1
+			statistics.CumulativeSessionIdleTime += time.Since(c.idleStartedAt).Seconds()
+		})
+	}
+
 	return nil
 }
 
@@ -485,6 +501,7 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 	}
 
 	c.isTraining = false
+	c.idleStartedAt = time.Now()
 	// Notify everybody that the kernel has finished training.
 	c.trainingFinishedCond.Broadcast()
 	c.trainingFinishedMu.Unlock()
@@ -504,6 +521,13 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 
 	c.log.Debug(utils.LightPurpleStyle.Render("Replica %d of kernel \"%s\" has STOPPED training after %v. Reason: %s"),
 		c.replicaId, c.id, time.Since(c.trainingStartedAt), reason)
+
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
+			statistics.NumTrainingSessions -= 1
+			statistics.CumulativeSessionTrainingTime += time.Since(c.trainingStartedAt).Seconds()
+		})
+	}
 
 	return nil
 }

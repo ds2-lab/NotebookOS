@@ -1394,3 +1394,8 @@ func (h *Host) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
 	h.RecomputeSubscribedRatio()
 	return err
 }
+
+// GetCreatedAt returns the time at which the Host was created.
+func (h *Host) GetCreatedAt() time.Time {
+	return h.CreatedAt
+}

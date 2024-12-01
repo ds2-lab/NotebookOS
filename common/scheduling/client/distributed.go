@@ -8,6 +8,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
@@ -71,7 +72,8 @@ type DistributedClientProvider interface {
 	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
 		connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
 		debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
-		executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider) scheduling.Kernel
+		executionLatencyCallback scheduling.ExecutionLatencyCallback,
+		messagingMetricsProvider metrics.MessagingMetricsProvider, updater scheduling.StatisticsUpdaterProvider) scheduling.Kernel
 }
 
 // TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
@@ -95,6 +97,8 @@ type DistributedKernelClient struct {
 	status         jupyter.KernelStatus
 	busyStatus     *AggregateKernelStatus
 	lastBStatusMsg *messaging.JupyterMessage
+
+	statistics *statistics.ClusterStatistics
 
 	temporaryKernelReplicaClient *TemporaryKernelReplicaClient
 
@@ -145,6 +149,11 @@ type DistributedKernelClient struct {
 	mu      sync.RWMutex
 	closing int32
 	cleaned chan struct{}
+
+	// Used to update the fields of the Cluster Gateway's GatewayStatistics struct atomically.
+	// The Cluster Gateway locks modifications to the GatewayStatistics struct before calling whatever function
+	// we pass to the statisticsUpdaterProvider.
+	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider
 }
 
 // DistributedKernelClientProvider enables the creation of DistributedKernelClient structs.
@@ -152,10 +161,11 @@ type DistributedKernelClientProvider struct{}
 
 // NewDistributedKernelClient creates a new DistributedKernelClient struct and returns
 // a pointer to it in the form of an AbstractDistributedKernelClient interface.
-func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
-	connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
-	debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-	messagingMetricsProvider metrics.MessagingMetricsProvider) scheduling.Kernel {
+func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
+	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int,
+	persistentId string, debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
+	executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider,
+	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider) scheduling.Kernel {
 
 	kernel := &DistributedKernelClient{
 		id:                       spec.Id,
@@ -188,6 +198,7 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 		activeExecutionQueue:                  make(CodeExecutionQueue, 0, 16),
 		executionLatencyCallback:              executionLatencyCallback,
 		nextNodeId:                            int32(numReplicas + 1),
+		statisticsUpdaterProvider:             statisticsUpdaterProvider,
 	}
 	kernel.BaseServer = kernel.server.Server()
 	kernel.SessionManager = NewSessionManager(spec.Session)

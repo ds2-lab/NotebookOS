@@ -38,11 +38,12 @@ func (c *KubernetesCluster) Scheduler() scheduling.Scheduler {
 // NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
 // This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
-func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper,
-	kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
-	notificationBroker scheduler.NotificationBroker, schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) *KubernetesCluster {
+func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec, placer scheduling.Placer,
+	hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
+	notificationBroker scheduler.NotificationBroker, schedulingPolicy scheduling.Policy,
+	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider, opts *scheduling.SchedulerOptions) *KubernetesCluster {
 
-	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "KubernetesCluster")
+	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "KubernetesCluster", statisticsUpdaterProvider)
 	kubernetesCluster := &KubernetesCluster{
 		BaseCluster: baseCluster,
 	}

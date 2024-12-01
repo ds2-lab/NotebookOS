@@ -23,11 +23,12 @@ type DockerSwarmCluster struct {
 //
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally by the
 // DockerSwarmCluster for scheduling decisions.
-func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
-	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker,
-	schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) *DockerSwarmCluster {
+func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper,
+	kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
+	notificationBroker scheduler.NotificationBroker, schedulingPolicy scheduling.Policy,
+	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider, opts *scheduling.SchedulerOptions) *DockerSwarmCluster {
 
-	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerSwarmCluster")
+	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerSwarmCluster", statisticsUpdaterProvider)
 
 	dockerCluster := &DockerSwarmCluster{
 		BaseCluster: baseCluster,

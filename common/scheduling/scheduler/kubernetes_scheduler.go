@@ -29,9 +29,9 @@ type KubernetesScheduler struct {
 	kubeClient scheduling.KubeClient // Kubernetes client.
 }
 
-func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, kernelProvider KernelProvider, hostSpec types.Spec,
-	kubeClient scheduling.KubeClient, notificationBroker NotificationBroker, schedulingPolicy scheduling.Policy,
-	opts *scheduling.SchedulerOptions) (*KubernetesScheduler, error) {
+func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
+	kernelProvider KernelProvider, hostSpec types.Spec, kubeClient scheduling.KubeClient, notificationBroker NotificationBroker,
+	schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) (*KubernetesScheduler, error) {
 
 	baseScheduler := newBaseSchedulerBuilder().
 		WithCluster(cluster).

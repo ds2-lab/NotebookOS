@@ -114,6 +114,7 @@ type Host interface {
 	IsContainedWithinIndex() bool
 	SetContainedWithinIndex(bool)
 	GetLastRemoteSync() time.Time
+	GetCreatedAt() time.Time // GetCreatedAt returns the time at which the Host was created.
 }
 
 type HostStatistics interface {

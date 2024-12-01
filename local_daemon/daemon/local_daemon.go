@@ -1045,9 +1045,9 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the internalCluster Gateway.
 		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id,
 			d.numResendAttempts, listenPorts[0], listenPorts[1], registrationPayload.PodOrContainerName, registrationPayload.NodeName,
-			d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "",
-			d.id, nil, metrics.LocalDaemon, false, false, d.DebugMode,
-			d.prometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+			d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "", d.id, nil,
+			metrics.LocalDaemon, false, false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
+			d.kernelRequestResubmissionFailedAfterReconnection, nil)
 
 		kernelConnectionInfo, err = d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
 		if err != nil {
@@ -1952,7 +1952,8 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, d.numResendAttempts,
 		listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
 		d.MessageAcknowledgementsEnabled, "", d.id, nil, metrics.LocalDaemon, false,
-		false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection)
+		false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
+		d.kernelRequestResubmissionFailedAfterReconnection, nil)
 
 	d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v",
 		in.ReplicaId, kernel.ID(), listenPorts)

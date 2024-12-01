@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
@@ -28,9 +29,12 @@ type BaseCluster struct {
 
 	// hosts is a map from host ID to *entity.Host containing all the Host instances provisioned within the Cluster.
 	hosts hashmap.HashMap[string, scheduling.Host]
+	// hostMutex controls external access to the internal Host mapping.
+	hostMutex sync.RWMutex
 
 	// sessions is a map of Sessions.
-	sessions hashmap.HashMap[string, scheduling.UserSession]
+	sessions      hashmap.HashMap[string, scheduling.UserSession]
+	sessionsMutex sync.RWMutex
 
 	// indexes is a map from index key to IndexProvider containing all the indexes in the Cluster.
 	indexes hashmap.BaseHashMap[string, scheduling.IndexProvider]
@@ -73,33 +77,37 @@ type BaseCluster struct {
 	// scalingOpMutex is also used as the sync.Locker for the scaleOperationCond.
 	scalingOpMutex sync.Mutex
 
-	// hostMutex controls external access to the internal Host mapping.
-	hostMutex sync.RWMutex
-
 	// validateCapacityInterval is how frequently the Cluster should validate its capacity,
 	// scaling-in or scaling-out depending on the current load and whatnot.
 	validateCapacityInterval time.Duration
+
+	// statisticsUpdaterProvider is used to update metrics/statistics.
+	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider
 
 	opts *scheduling.SchedulerOptions
 }
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
 // This function is for package-internal or file-internal use only.
-func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer, clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string) *BaseCluster {
+func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
+	clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string,
+	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider) *BaseCluster {
+
 	cluster := &BaseCluster{
-		opts:                     opts,
-		gpusPerHost:              opts.GetGpusPerHost(),
-		metricsProvider:          clusterMetricsProvider,
-		hosts:                    hashmap.NewConcurrentMap[scheduling.Host](256),
-		sessions:                 hashmap.NewCornelkMap[string, scheduling.UserSession](128),
-		indexes:                  hashmap.NewSyncMap[string, scheduling.IndexProvider](),
-		validateCapacityInterval: time.Second * time.Duration(opts.GetScalingInterval()),
-		DisabledHosts:            hashmap.NewConcurrentMap[scheduling.Host](256),
-		placer:                   placer,
-		numFailedScaleInOps:      0,
-		numFailedScaleOutOps:     0,
-		numSuccessfulScaleInOps:  0,
-		numSuccessfulScaleOutOps: 0,
+		opts:                      opts,
+		gpusPerHost:               opts.GetGpusPerHost(),
+		metricsProvider:           clusterMetricsProvider,
+		hosts:                     hashmap.NewConcurrentMap[scheduling.Host](256),
+		sessions:                  hashmap.NewCornelkMap[string, scheduling.UserSession](128),
+		indexes:                   hashmap.NewSyncMap[string, scheduling.IndexProvider](),
+		validateCapacityInterval:  time.Second * time.Duration(opts.GetScalingInterval()),
+		DisabledHosts:             hashmap.NewConcurrentMap[scheduling.Host](256),
+		statisticsUpdaterProvider: statisticsUpdaterProvider,
+		placer:                    placer,
+		numFailedScaleInOps:       0,
+		numFailedScaleOutOps:      0,
+		numSuccessfulScaleInOps:   0,
+		numSuccessfulScaleOutOps:  0,
 	}
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
 
@@ -200,7 +208,19 @@ func (c *BaseCluster) GetSession(sessionID string) (scheduling.UserSession, bool
 
 // AddSession adds a Session to the Cluster.
 func (c *BaseCluster) AddSession(sessionId string, session scheduling.UserSession) {
+	c.sessionsMutex.Lock()
+	defer c.sessionsMutex.Unlock()
+
 	c.sessions.Store(sessionId, session)
+}
+
+// RemoveSession removes and returns a UserSession.
+func (c *BaseCluster) RemoveSession(sessionId string) scheduling.UserSession {
+	c.sessionsMutex.Lock()
+	defer c.sessionsMutex.Unlock()
+
+	session, _ := c.sessions.LoadAndDelete(sessionId)
+	return session
 }
 
 // Sessions returns a mapping from session ID to Session.
@@ -364,6 +384,9 @@ func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
 
 // BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
 func (c *BaseCluster) BusyGPUs() float64 {
+	c.hostMutex.RLock()
+	defer c.hostMutex.RUnlock()
+
 	busyGPUs := 0.0
 	c.hosts.Range(func(_ string, host scheduling.Host) (contd bool) {
 		busyGPUs += host.CommittedGPUs()
@@ -375,6 +398,9 @@ func (c *BaseCluster) BusyGPUs() float64 {
 
 // DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
 func (c *BaseCluster) DemandGPUs() float64 {
+	c.sessionsMutex.Lock()
+	defer c.sessionsMutex.RUnlock()
+
 	demandGPUs := 0.0
 	c.sessions.Range(func(_ string, session scheduling.UserSession) (contd bool) {
 		if session.IsIdle() || session.IsTraining() {
@@ -394,10 +420,19 @@ func (c *BaseCluster) NumReplicas() int {
 }
 
 // RangeOverHosts executes the provided function on each Host in the Cluster.
-//
-// Importantly, this function does NOT lock the hostsMutex.
 func (c *BaseCluster) RangeOverHosts(f func(key string, value scheduling.Host) bool) {
+	c.hostMutex.RLock()
+	defer c.hostMutex.RUnlock()
+
 	c.hosts.Range(f)
+}
+
+// RangeOverSessions executes the provided function on each UserSession in the Cluster.
+func (c *BaseCluster) RangeOverSessions(f func(key string, value scheduling.UserSession) bool) {
+	c.sessionsMutex.RLock()
+	defer c.sessionsMutex.RUnlock()
+
+	c.sessions.Range(f)
 }
 
 // RangeOverDisabledHosts executes the provided function on each disabled Host in the Cluster.
@@ -630,6 +665,16 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	c.log.Debug("Scale-out from %d nodes to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+	}
+
+	numProvisioned := c.Len() - int(scaleOp.InitialScale)
+	if numProvisioned > 0 && c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
+			statistics.CumulativeNumHostsProvisioned += numProvisioned
+
+			duration, _ := scaleOp.GetDuration()
+			statistics.CumulativeTimeProvisioningHosts += duration.Seconds()
+		})
 	}
 
 	return promise.Resolved(result)
