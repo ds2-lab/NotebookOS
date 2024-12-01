@@ -82,6 +82,7 @@ func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts i
 			With(prometheus.Labels{"successful": successLabel}).Observe(float64(latency.Microseconds()))
 	}
 
+	placer.instance.UpdateIndexMultiple(hosts)
 	return hosts
 }
 
@@ -111,7 +112,7 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *prot
 		}
 	}
 
-	// The Host could not satisfy the resourceSpec, so return nil.
+	placer.instance.UpdateIndex(host)
 	return host
 }
 
@@ -146,6 +147,7 @@ func (placer *AbstractPlacer) Place(host scheduling.Host, in *proto.KernelReplic
 		return nil, scheduling.ErrNilConnectionInfo
 	}
 
+	placer.instance.UpdateIndex(host)
 	return connInfo, err
 }
 

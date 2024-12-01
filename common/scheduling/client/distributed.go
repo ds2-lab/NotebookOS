@@ -1647,7 +1647,16 @@ func (c *DistributedKernelClient) handleMsg(replica messaging.JupyterServerInfo,
 					messaging.MessageTypeSMRLeadTask, c.id)
 
 				// Forward the "lead task" message to clients.
-				return c.server.Sockets.IO.Send(*msg.GetZmqMsg())
+				err = c.server.Sockets.IO.Send(*msg.GetZmqMsg())
+				if err != nil {
+					c.log.Error("Failed to forward \"%s\" message to Jupyter Client of kernel \"%s\": %v",
+						messaging.MessageTypeSMRLeadTask, c.id, err)
+					return err
+				}
+
+				c.log.Debug("Forwarded \"%s\" message to Jupyter Client of kernel \"%s\"",
+					messaging.MessageTypeSMRLeadTask, c.id)
+				return nil
 			}
 		default:
 			{

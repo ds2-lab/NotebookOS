@@ -1,6 +1,9 @@
 package policy
 
-import "github.com/scusemua/distributed-notebook/common/scheduling"
+import (
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+)
 
 // AutoScalingFcfsBatchSchedulingPolicy is an extension of FcfsBatchSchedulingPolicy scheduling.Policy.
 // Like FcfsBatchSchedulingPolicy, AutoScalingFcfsBatchSchedulingPolicy is modeled after Slurm-like first-come,
@@ -18,6 +21,11 @@ func NewAutoScalingFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) 
 	return &AutoScalingFcfsBatchSchedulingPolicy{
 		FcfsBatchSchedulingPolicy: NewFcfsBatchSchedulingPolicy(opts),
 	}
+}
+
+// GetNewPlacer returns a concrete Placer implementation based on the Policy.
+func (p *AutoScalingFcfsBatchSchedulingPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
+	return placer.NewRandomPlacer(metricsProvider, p.NumReplicas(), p)
 }
 
 func (p *AutoScalingFcfsBatchSchedulingPolicy) ResourceScalingPolicy() scheduling.ResourceScalingPolicy {

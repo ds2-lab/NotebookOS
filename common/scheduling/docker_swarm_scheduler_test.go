@@ -170,17 +170,22 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(3))
 			Expect(schedulingPolicy.Name()).To(Equal("Static Scheduling"))
 
-			clusterPlacer, err = placer.NewRandomPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
+			// clusterPlacer, err = placer.NewRandomPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
+			clusterPlacer, err = schedulingPolicy.GetNewPlacer(nil)
 			Expect(err).To(BeNil())
 			Expect(clusterPlacer).ToNot(BeNil())
+			_, ok := clusterPlacer.(*placer.StaticPlacer)
+			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil, nil, nil, schedulingPolicy, &opts.ClusterDaemonOptions.SchedulerOptions)
+			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil,
+				nil, nil, schedulingPolicy, func(f scheduling.StatisticsUpdater) {},
+				&opts.ClusterDaemonOptions.SchedulerOptions)
+
 			Expect(dockerCluster).ToNot(BeNil())
 
 			genericScheduler := dockerCluster.Scheduler()
 			Expect(genericScheduler).ToNot(BeNil())
 
-			var ok bool
 			dockerScheduler, ok = genericScheduler.(*scheduler.DockerScheduler)
 			Expect(ok).To(BeTrue())
 			Expect(dockerScheduler).ToNot(BeNil())
@@ -668,17 +673,22 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(schedulingPolicy.Name()).To(Equal("Reservation-Based"))
 			Expect(schedulingPolicy.ResourceBindingMode()).To(Equal(scheduling.BindResourcesWhenContainerScheduled))
 
-			clusterPlacer, err = placer.NewRandomPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
+			//clusterPlacer, err = placer.NewRandomPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
+			clusterPlacer, err = schedulingPolicy.GetNewPlacer(nil)
 			Expect(err).To(BeNil())
 			Expect(clusterPlacer).ToNot(BeNil())
+			_, ok := clusterPlacer.(*placer.RandomPlacer)
+			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil, nil, nil, schedulingPolicy, &opts.ClusterDaemonOptions.SchedulerOptions)
+			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil,
+				nil, nil, schedulingPolicy, func(f scheduling.StatisticsUpdater) {},
+				&opts.ClusterDaemonOptions.SchedulerOptions)
+
 			Expect(dockerCluster).ToNot(BeNil())
 
 			genericScheduler := dockerCluster.Scheduler()
 			Expect(genericScheduler).ToNot(BeNil())
 
-			var ok bool
 			dockerScheduler, ok = genericScheduler.(*scheduler.DockerScheduler)
 			Expect(ok).To(BeTrue())
 			Expect(dockerScheduler).ToNot(BeNil())
@@ -1019,17 +1029,22 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(schedulingPolicy.Name()).To(Equal("First-Come, First-Serve Batch Scheduling"))
 			Expect(schedulingPolicy.ResourceBindingMode()).To(Equal(scheduling.BindResourcesAtTrainingStart))
 
-			clusterPlacer, err = placer.NewRandomPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
+			//clusterPlacer, err = placer.NewRandomPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
+			clusterPlacer, err = schedulingPolicy.GetNewPlacer(nil)
 			Expect(err).To(BeNil())
 			Expect(clusterPlacer).ToNot(BeNil())
+			_, ok := clusterPlacer.(*placer.RandomPlacer)
+			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil, nil, nil, schedulingPolicy, &opts.ClusterDaemonOptions.SchedulerOptions)
+			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil,
+				nil, nil, schedulingPolicy, func(f scheduling.StatisticsUpdater) {},
+				&opts.ClusterDaemonOptions.SchedulerOptions)
+
 			Expect(dockerCluster).ToNot(BeNil())
 
 			genericScheduler := dockerCluster.Scheduler()
 			Expect(genericScheduler).ToNot(BeNil())
 
-			var ok bool
 			dockerScheduler, ok = genericScheduler.(*scheduler.DockerScheduler)
 			Expect(ok).To(BeTrue())
 			Expect(dockerScheduler).ToNot(BeNil())

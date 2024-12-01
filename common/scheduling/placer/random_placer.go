@@ -25,6 +25,14 @@ func NewRandomPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int
 	return randomPlacer, nil
 }
 
+func (placer *RandomPlacer) UpdateIndex(host scheduling.Host) {
+	placer.index.Update(host)
+}
+
+func (placer *RandomPlacer) UpdateIndexMultiple(hosts []scheduling.Host) {
+	placer.index.UpdateMultiple(hosts)
+}
+
 // GetIndex returns the ClusterIndex of the specific Placer implementation.
 func (placer *RandomPlacer) GetIndex() scheduling.ClusterIndex {
 	return placer.index

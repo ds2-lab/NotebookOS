@@ -1,15 +1,13 @@
 package index
 
 import (
-	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"log"
-	"math/rand"
-	"sync"
-	"sync/atomic"
-	"time"
-
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"log"
+	"slices"
+	"sync"
+	"time"
 )
 
 const (
@@ -20,29 +18,33 @@ const (
 // StaticClusterIndex is a simple Cluster that seeks hosts randomly.
 // StaticClusterIndex uses CategoryClusterIndex and all hosts are qualified.
 type StaticClusterIndex struct {
-	// The permutation of the hosts. Collection of indices that gets shuffled. We use these to index the hosts field.
-	perm        []int
-	freeStart   int32             // The first freed index.
-	seekStart   int32             // The start index of the seek.
-	numShuffles atomic.Int32      // The number of times the index has been shuffled to a new random permutation.
-	hosts       []scheduling.Host // The Host instances contained within the StaticClusterIndex.
-	len         int32
-	mu          sync.Mutex
-	log         logger.Logger
+	hosts     []scheduling.Host // The Host instances in the index.
+	length    int               // The number of Host instances in the index.
+	freeStart int32             // The first freed index.
+	seekStart int32             // The index at which we begin searching for a Host. For this index, its reset after every seek.
+
+	mu  sync.Mutex
+	log logger.Logger
 }
 
-func NewStaticClusterIndex(size int) *StaticClusterIndex {
+func NewStaticClusterIndex() *StaticClusterIndex {
 	index := &StaticClusterIndex{
-		hosts: make([]scheduling.Host, 0, size),
+		hosts:     make([]scheduling.Host, 0),
+		length:    0,
+		freeStart: 0,
 	}
-	index.numShuffles.Store(0)
 
 	config.InitLogger(&index.log, index)
 
 	return index
 }
 
-func (index *StaticClusterIndex) Category() (string, interface{}) {
+// // // // // // // // // // // // // //
+// ClusterIndexProvider implementation //
+// // // // // // // // // // // // // //
+
+// Category returns the category of the index and the expected value.
+func (index *StaticClusterIndex) Category() (category string, expected interface{}) {
 	return scheduling.CategoryClusterIndex, expectedStaticIndex
 }
 
@@ -50,29 +52,23 @@ func (index *StaticClusterIndex) GetMetadataKey() scheduling.HostMetaKey {
 	return HostMetaStaticIndex
 }
 
-func (index *StaticClusterIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
+// IsQualified returns the actual value according to the index category and whether the host is qualified.
+// An index provider must be able to track indexed hosts and indicate disqualification.
+func (index *StaticClusterIndex) IsQualified(host scheduling.Host) (actual interface{}, qualified scheduling.IndexQualification) {
 	// Since all hosts are qualified, we check if the host is in the index only.
-	val := host.GetMeta(HostMetaStaticIndex)
-	if val == nil {
-		return expectedStaticIndex, scheduling.IndexNewQualified
-	}
-
-	if _, ok := val.(int32); ok {
+	if _, ok := host.GetMeta(HostMetaStaticIndex).(int32); ok {
 		return expectedStaticIndex, scheduling.IndexQualified
 	} else {
 		return expectedStaticIndex, scheduling.IndexNewQualified
 	}
 }
 
-// NumReshuffles returns the number of times that this index has reshuffled its internal permutation.
-func (index *StaticClusterIndex) NumReshuffles() int32 {
-	return index.numShuffles.Load()
-}
-
+// Len returns the number of hosts in the index.
 func (index *StaticClusterIndex) Len() int {
-	return int(index.len)
+	return index.length
 }
 
+// Add adds a host to the index.
 func (index *StaticClusterIndex) Add(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
@@ -91,14 +87,34 @@ func (index *StaticClusterIndex) Add(host scheduling.Host) {
 		i = index.freeStart // old len(index.hosts) or current len(index.hosts) - 1
 		index.freeStart += 1
 	}
+
 	host.SetMeta(HostMetaStaticIndex, i)
-	host.SetContainedWithinIndex(true)
-	index.log.Debug("Added Host %s to StaticClusterIndex at position %d.", host.GetID(), i)
-	index.len += 1
+	index.length += 1
+	index.sortIndex()
 }
 
-func (index *StaticClusterIndex) Update(host scheduling.Host) {
-	// No-op.
+// sortIndex sorts the Host instances in the index by their number of idle GPUs.
+// Host instances with more idle GPUs available appear first in the index.
+func (index *StaticClusterIndex) sortIndex() {
+	slices.SortFunc(index.hosts, func(a, b scheduling.Host) int {
+		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
+		// with the Hosts with the most idle GPUs appearing first.
+		if a.IdleGPUs() > b.IdleGPUs() {
+			return -1
+		} else if a.IdleGPUs() < b.IdleGPUs() {
+			return 1
+		} else {
+			return 0
+		}
+	})
+}
+
+func (index *StaticClusterIndex) Update(_ scheduling.Host) {
+	index.sortIndex()
+}
+
+func (index *StaticClusterIndex) UpdateMultiple(_ []scheduling.Host) {
+	index.sortIndex()
 }
 
 func (index *StaticClusterIndex) Remove(host scheduling.Host) {
@@ -141,7 +157,6 @@ func (index *StaticClusterIndex) Remove(host scheduling.Host) {
 	}
 
 	index.hosts[i] = nil
-	index.len -= 1
 	host.SetMeta(HostMetaStaticIndex, nil)
 	host.SetContainedWithinIndex(false)
 
@@ -150,12 +165,22 @@ func (index *StaticClusterIndex) Remove(host scheduling.Host) {
 		index.freeStart = i
 	}
 
-	// Compact the index.
-	if len(index.hosts)-int(index.len) >= randomIndexGCThreshold {
-		index.compactLocked(index.freeStart)
-	}
+	index.compactLocked(index.freeStart)
 }
 
+// compact compacts the index by calling compactLocked.
+//
+// This will acquire the index's lock before calling compactLocked.
+func (index *StaticClusterIndex) compact(from int32) {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+
+	index.compactLocked(from)
+}
+
+// compactLocked compacts the index.
+//
+// Important: this function is expected to be called with the index's lock.
 func (index *StaticClusterIndex) compactLocked(from int32) {
 	frontier := int(from)
 	for i := frontier + 1; i < len(index.hosts); i++ {
@@ -169,34 +194,14 @@ func (index *StaticClusterIndex) compactLocked(from int32) {
 	index.hosts = index.hosts[:frontier]
 }
 
-func (index *StaticClusterIndex) GetMetrics(_ scheduling.Host) []float64 {
+// GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.
+func (index *StaticClusterIndex) GetMetrics(scheduling.Host) (metrics []float64) {
 	return nil
 }
 
-// reshuffle shuffles the Host permutation of the target StaticClusterIndex.
-func (index *StaticClusterIndex) reshuffle() {
-	index.perm = rand.Perm(len(index.hosts))
-	index.seekStart = 0
-	index.numShuffles.Add(1)
-}
-
-// reshuffleIfNecessary will reshuffle the permutation of Host instances of the target StaticClusterIndex
-// if the StaticClusterIndex is in a state in which a reshuffle is required.
-func (index *StaticClusterIndex) reshuffleIfNecessary() {
-	if index.reshuffleRequired() {
-		index.reshuffle()
-	}
-}
-
-// reshuffleRequired returns true if the StaticClusterIndex should reshuffle its permutation of Host instances.
-func (index *StaticClusterIndex) reshuffleRequired() bool {
-	return index.seekStart == 0 || index.seekStart >= int32(len(index.perm))
-}
-
 // getBlacklist converts the list of interface{} to a list of []int32 containing
-// the indices of blacklisted Host instances within a StaticClusterIndex.
+// the indices of blacklisted Host instances within a RandomClusterIndex.
 func (index *StaticClusterIndex) getBlacklist(blacklist []interface{}) []int32 {
-
 	__blacklist := make([]int32, 0)
 	for i, meta := range blacklist {
 		if meta == nil {
@@ -210,33 +215,60 @@ func (index *StaticClusterIndex) getBlacklist(blacklist []interface{}) []int32 {
 	return __blacklist
 }
 
-// unsafeSeek does the actual work of the Seek method.
-// unsafeSeek does not acquire the mutex. It should be called from a function that has already acquired the mutex.
-func (index *StaticClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics ...[]float64) (scheduling.Host, interface{}) {
-	if index.len == 0 {
+// // // // // // // // // // // // // //
+// ClusterIndexQuerier implementation  //
+// // // // // // // // // // // // // //
+
+// Seek returns the host specified by the metrics.
+func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret scheduling.Host, pos interface{}) {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+
+	// Always search from the beginning for the static index.
+	index.seekStart = 0
+
+	if index.length == 0 {
 		return nil, nil
+	}
+
+	// Convert the blacklist into a slice of a concrete type; in this case, []int32.
+	__blacklist := make([]int32, 0)
+	for i, meta := range blacklist {
+		if meta == nil {
+			index.log.Error("Blacklist contains nil entry at index %d.", i)
+			continue
+		}
+
+		__blacklist = append(__blacklist, meta.(int32))
+	}
+
+	index.mu.Lock()
+	defer index.mu.Unlock()
+
+	return index.seekInternal(blacklist, metrics...)
+}
+
+// seekInternal does the actual work of the Seek method.
+// seekInternal does not acquire the mutex. It should be called from a function that has already acquired the mutex.
+func (index *StaticClusterIndex) seekInternal(blacklistArg []interface{}, _ ...[]float64) (scheduling.Host, int32) {
+	if len(index.hosts) == 0 {
+		return nil, 0
 	}
 
 	// Convert the blacklistArg parameter into a slice of a concrete type; in this case, []int32.
 	blacklist := index.getBlacklist(blacklistArg)
-	hostsSeen := 0
 	var host scheduling.Host
 
 	// Keep iterating as long as:
 	// (a) we have not found a Host, and
 	// (b) we've not yet looked at every slot in the index and found that it is blacklisted.
 	index.log.Debug("Searching for host. Len of blacklist: %d. Number of hosts in index: %d.", len(blacklist), index.Len())
-	for host == nil && hostsSeen < index.Len() {
-		// Generate a new permutation if seekStart is invalid.
-		index.reshuffleIfNecessary()
-
-		host = index.hosts[index.perm[index.seekStart]]
+	for i := index.seekStart; i < int32(len(index.hosts)) && host == nil; i++ {
+		host = index.hosts[index.seekStart]
 		index.seekStart++
 		if host != nil {
-			hostsSeen += 1
-
 			// If the given host is blacklisted, then look for a different host.
-			if isHostBlacklisted(host, blacklist) {
+			if slices.Contains(blacklist, host.GetMeta(HostMetaStaticIndex).(int32)) {
 				// Set to nil so that we have to continue searching.
 				host = nil
 			}
@@ -250,28 +282,7 @@ func (index *StaticClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics 
 	return host, index.seekStart
 }
 
-func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret scheduling.Host, pos interface{}) {
-	index.mu.Lock()
-	defer index.mu.Unlock()
-
-	return index.unsafeSeek(blacklist, metrics...)
-}
-
-// SeekFrom seeks from the given position. Pass nil as pos to reset the seek.
-func (index *StaticClusterIndex) SeekFrom(pos interface{}, metrics ...[]float64) (ret scheduling.Host, newPos interface{}) {
-	if start, ok := pos.(int32); ok {
-		index.seekStart = start
-	} else {
-		index.seekStart = 0
-	}
-	return index.Seek(make([]interface{}, 0), metrics...)
-}
-
-// SeekMultipleFrom seeks n Host instances from a random permutation of the index.
-// Pass nil as pos to reset the seek.
-//
-// This entire method is thread-safe. The index is locked until this method returns.
-func (index *StaticClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+func (index *StaticClusterIndex) SeekMultipleFrom(_ interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -282,46 +293,14 @@ func (index *StaticClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 		nextPos       interface{}
 	)
 
-	initialNumShuffles := index.numShuffles.Load()
-
-	// Even if we don't reset the permutation immediately, we want to loop until the number of shuffles is 2
-	// greater than its current value.
-	//
-	// If we do reset the permutation immediately (by either passing 0 for pos or passing nil for pos, which
-	// explicitly sets seekStart to 0), then we will immediately generate a new permutation upon calling Seek,
-	// so numShuffles will already be equal to initialNumShuffles + 1. We iterate over the entire permutation,
-	// then shuffle again, at which point numShuffles will equal initialNumShuffles + 2, and we'll have looked
-	// at every possible candidateHost, so we should give up.
-	//
-	// If we specify some other starting index to begin our search from, then we will initially search until the
-	// end of the current permutation, at which point we'll reshuffle. We want to search through again, in case
-	// there were some hosts we didn't examine during our first partial pass (partial because we didn't start at
-	// the beginning of the permutation).
-	loopUntilNumShuffles := initialNumShuffles + 2
-
-	// We use a map in case we generate a new permutation and begin examining hosts that we've already seen before.
 	hostsMap := make(map[string]scheduling.Host)
 	hosts := make([]scheduling.Host, 0, n)
 
-	// Pick up from a particular position in the index.
-	if start, ok := pos.(int32); ok {
-		index.seekStart = start
-	} else {
-		// Reset the index. This will prompt Seek to generate a new random permutation.
-		index.seekStart = 0
-	}
+	// Always search from the beginning for the static index.
+	index.seekStart = 0
 
-	// If the number of shuffles becomes equal to initialNumShuffles+2, then we've iterated through the entire
-	// permutation of hosts at least once, and we need to give up.
-	//
-	// This is because the first call to unsafeSeek will cause a new permutation to be generated, as we've reset
-	// index.seekStart to 0. So, that will increment numShuffles by 1. Then, we'll iterate through that entire
-	// permutation (if necessary) until we've found the n requested hosts. If we fail to find n hosts by that
-	// point, then we'll reshuffle again, at which point we'll know we have looked at all possible hosts.
-	//
-	// (SeekMultipleFrom locks the index entirely such that no Hosts can be added or removed concurrently.)
-	for len(hostsMap) < n && index.numShuffles.Load() < loopUntilNumShuffles {
-		candidateHost, nextPos = index.unsafeSeek(blacklist, metrics...)
+	for len(hostsMap) < n {
+		candidateHost, nextPos = index.seekInternal(blacklist, metrics...)
 
 		if candidateHost == nil {
 			index.log.Warn("Index returned nil host.")
@@ -345,6 +324,10 @@ func (index *StaticClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 			}
 		} else {
 			index.log.Warn("Found duplicate: host %s (ID=%s) (we must've generated a new permutation)", candidateHost.GetNodeName(), candidateHost.GetID())
+		}
+
+		if nextPos == 0 {
+			break
 		}
 	}
 

@@ -66,6 +66,9 @@ type Policy interface {
 	// for the lifetime of the associated UserSession.
 	ResourceBindingMode() ResourceBindingMode
 
+	// GetNewPlacer returns a concrete Placer implementation based on the Policy.
+	GetNewPlacer(metricsProvider MetricsProvider) (Placer, error)
+
 	// ContainerLifetime returns the ContainerLifetime of KernelContainer instances created under the target Policy.
 	ContainerLifetime() ContainerLifetime
 

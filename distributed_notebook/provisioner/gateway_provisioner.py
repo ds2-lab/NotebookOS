@@ -51,8 +51,8 @@ class GatewayProvisioner(KernelProvisionerBase):
         try:
             if self.launched:
                 kernelId = gateway_pb2.KernelId(id=self._kernel_id)
-                self.log.info(
-                    f"Checking status of kernel {self._kernel_id} ({kernelId})")
+                # self.log.debug(
+                #     f"Checking status of kernel {self._kernel_id} ({kernelId})")
                 status = await self._get_stub().GetKernelStatus(kernelId)
 
                 if status.status < 0:

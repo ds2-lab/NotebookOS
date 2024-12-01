@@ -12,7 +12,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
-	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
@@ -465,8 +464,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		panic(policyError)
 	}
 
-	numReplicas := schedulingPolicy.NumReplicas()
-
 	// Note: we don't construct the scheduling.Cluster struct within the switch statement below.
 	// We construct the scheduling.Cluster struct immediately following the switch statement.
 	var (
@@ -554,7 +551,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
-	clusterPlacer, err = placer.NewRandomPlacer(clusterGateway.gatewayPrometheusManager, numReplicas, schedulingPolicy)
+	clusterPlacer, err = schedulingPolicy.GetNewPlacer(clusterGateway.gatewayPrometheusManager)
 	if err != nil {
 		clusterGateway.log.Error("Failed to create Random Placer: %v", err)
 		panic(err)

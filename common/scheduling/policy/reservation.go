@@ -1,6 +1,9 @@
 package policy
 
-import "github.com/scusemua/distributed-notebook/common/scheduling"
+import (
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+)
 
 // ReservationPolicy represents a very simple reservation-based scheduling policy that uses long-running
 // scheduling.KernelContainer instances.
@@ -52,6 +55,11 @@ func (p *ReservationPolicy) ResourceScalingPolicy() scheduling.ResourceScalingPo
 
 func (p *ReservationPolicy) SmrEnabled() bool {
 	return false
+}
+
+// GetNewPlacer returns a concrete Placer implementation based on the Policy.
+func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
+	return placer.NewRandomPlacer(metricsProvider, p.NumReplicas(), p)
 }
 
 ////////////////////////////////////////

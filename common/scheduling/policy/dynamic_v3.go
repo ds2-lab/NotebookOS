@@ -1,6 +1,9 @@
 package policy
 
-import "github.com/scusemua/distributed-notebook/common/scheduling"
+import (
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+)
 
 type DynamicV3Policy struct {
 	scalingConfiguration *scheduling.ScalingConfiguration
@@ -46,6 +49,11 @@ func (p *DynamicV3Policy) ContainerLifetime() scheduling.ContainerLifetime {
 
 func (p *DynamicV3Policy) SmrEnabled() bool {
 	return true
+}
+
+// GetNewPlacer returns a concrete Placer implementation based on the Policy.
+func (p *DynamicV3Policy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
+	return placer.NewStaticPlacer(metricsProvider, p.NumReplicas(), p)
 }
 
 //////////////////////////////////////////
