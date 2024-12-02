@@ -71,6 +71,20 @@ type ClusterStatistics struct {
 	// NumTimesDownloadedDependencies is the total number of times that a kernel uploaded the model and training data.
 	NumTimesUploadModelAndTrainingDataMicroseconds int64 `json:"num_times_upload_model_and_training_data_microseconds" csv:"num_times_upload_model_and_training_data_microseconds"`
 
+	// CumulativeTimeCopyDataHostToDeviceMicroseconds is the cumulative, aggregate time spent copying data from main
+	// memory (i.e., host memory) to the GPU (i.e., device memory) by all kernels.
+	CumulativeTimeCopyDataHostToDeviceMicroseconds int64 `json:"cumulative_time_copy_data_host_to_device_microseconds" csv:"cumulative_time_copy_data_host_to_device_microseconds"`
+	// NumTimesCopyDataHostToDeviceMicroseconds is the total number of times that a kernel copied data from main
+	// memory (i.e., host memory) to the GPU (i.e., device memory).
+	NumTimesCopyDataHostToDeviceMicroseconds int64 `json:"num_times_copy_data_host_to_device_microseconds" csv:"num_times_copy_data_host_to_device_microseconds"`
+
+	// CumulativeTimeCopyDataHostToDeviceMicroseconds is the cumulative, aggregate time spent copying data from the GPU
+	// (i.e., device memory) to main memory (i.e., host memory).
+	CumulativeTimeCopyDataDeviceToHostMicroseconds int64 `json:"cumulative_time_copy_data_device_to_host_microseconds" csv:"cumulative_time_copy_data_device_to_host_microseconds"`
+	// NumTimesCopyDataHostToDeviceMicroseconds is the total number of times that a kernel copied data from the GPU
+	// (i.e., device memory) to main memory (i.e., device memory).
+	NumTimesCopyDataDeviceToHostMicroseconds int64 `json:"num_times_copy_data_device_to_host_microseconds" csv:"num_times_copy_data_device_to_host_microseconds"`
+
 	// CumulativeExecutionTimeMicroseconds is the cumulative, aggregate time spent executing user code, excluding any
 	// related overheads, by all kernels.
 	CumulativeExecutionTimeMicroseconds int64 `json:"cumulative_execution_time_microseconds" csv:"cumulative_execution_time_microseconds"`

@@ -3476,6 +3476,16 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 		d.ClusterStatistics.NumTimesUploadModelAndTrainingDataMicroseconds += 1
 	}
 
+	if trace.CopyFromCpuToGpuMicroseconds > 0 {
+		d.ClusterStatistics.CumulativeTimeCopyDataHostToDeviceMicroseconds += trace.CopyFromCpuToGpuMicroseconds
+		d.ClusterStatistics.NumTimesCopyDataHostToDeviceMicroseconds += 1
+	}
+
+	if trace.CopyFromGpuToCpuMicroseconds > 0 {
+		d.ClusterStatistics.CumulativeTimeCopyDataDeviceToHostMicroseconds += trace.CopyFromGpuToCpuMicroseconds
+		d.ClusterStatistics.NumTimesCopyDataDeviceToHostMicroseconds += 1
+	}
+
 	d.ClusterStatistics.CumulativeExecutionTimeMicroseconds += trace.ExecutionTimeMicroseconds
 }
 

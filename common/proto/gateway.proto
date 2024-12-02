@@ -481,6 +481,12 @@ message RequestTrace {
   // ReplayTimeMicroseconds is the amount of time spent replaying previous cells, excluding any other overheads,
   // if applicable. The units are microseconds.
   int64 replayTimeMicroseconds = 21;
+  // CopyFromCpuToGpuMicroseconds is the amount of time, in microseconds, that was spent copying data from the CPU
+  // to the GPU by the kernel before executing the user-submitted code.
+  int64 copyFromCpuToGpuMicroseconds = 22;
+  // CopyFromCpuToGpuMicroseconds is the amount of time, in microseconds, that was spent copying data from the GPU
+  // to the CPU by the kernel after executing the user-submitted code.
+  int64 copyFromGpuToCpuMicroseconds = 23;
 }
 
 message PingInstruction {

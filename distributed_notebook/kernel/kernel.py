@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import numpy as np
 import signal
 import socket
 import sys
@@ -63,7 +64,6 @@ def sigterm_handler(sig, frame):
     sys.stdout.flush()
     sys.exit(0)
 
-
 ErrorNotification: int = 0
 WarningNotification: int = 1
 InfoNotification: int = 2
@@ -77,6 +77,21 @@ DeploymentMode_Kubernetes: str = "KUBERNETES"
 DeploymentMode_DockerSwarm: str = "DOCKER-SWARM"
 DeploymentMode_DockerCompose: str = "DOCKER-COMPOSE"
 DeploymentMode_Local: str = "LOCAL"
+
+# The average time to initialize CUDA on an AWS P3 instance (with a V100 GPU), based on our empirical benchmark.
+AverageCudaInitTimeSec: float = 0.17389775
+# Standard deviation of CUDA runtime initialization latency on an AWS P3 instance, based on our empirical benchmark.
+StandardDeviationCudaInitTimeSec: float = 0.00057978810784631
+
+# Bandwidth (in GB/s) of transferring data from host memory to device (GPU) memory for a V100 GPU (AWS P3 instance).
+# This is calculated from our own empirical benchmark.
+V100_AvgBandwidth_GbSec_HostToDevice: float = 11.106566666667
+V100_StdDevBandwidth_GbSec_HostToDevice: float = 0.0039555867664186
+
+# Bandwidth (in GB/s) of transferring data from device (GPU) memory to host memory for a V100 GPU (AWS P3 instance).
+# This is calculated from our own empirical benchmark.
+V100_AvgBandwidth_GbSec_DeviceToHost: float = 12.484746666667
+V100_StdDevBandwidth_GbSec_DeviceToHost: float = 0.018405739270544
 
 SMR_LEAD_TASK: str = "smr_lead_task"
 
@@ -114,6 +129,33 @@ def gen_error_response(err):
             'traceback': [],
             }
 
+class ExecutionStats(object):
+    """
+    Encapsulates some metrics related to code execution and whatnot.
+    """
+    def __init__(
+            self,
+            request_id: str = "",
+            cuda_init_microseconds: int = 0,
+            download_runtime_dependencies_microseconds: int = 0,
+            download_model_and_training_data_microseconds: int = 0,
+            upload_model_and_training_data_microseconds: int = 0,
+            execution_time_microseconds: int = 0,
+            leader_election_microseconds: int = 0,
+            copy_data_from_cpu_to_gpu_microseconds: int = 0,
+            copy_data_from_gpu_to_cpu_microseconds: int = 0,
+            won_election: bool = False, # always true for non-static/non-dynamic scheduling policies
+    ):
+        self.request_id:str = request_id
+        self.cuda_init_microseconds: int = cuda_init_microseconds
+        self.download_runtime_dependencies_microseconds: int = download_runtime_dependencies_microseconds
+        self.download_model_and_training_data_microseconds: int = download_model_and_training_data_microseconds
+        self.upload_model_and_training_data_microseconds: int = upload_model_and_training_data_microseconds
+        self.execution_time_microseconds: int = execution_time_microseconds
+        self.leader_election_microseconds: int = leader_election_microseconds
+        self.copy_data_from_cpu_to_gpu_microseconds: int = copy_data_from_cpu_to_gpu_microseconds
+        self.copy_data_from_gpu_to_cpu_microseconds: int = copy_data_from_gpu_to_cpu_microseconds
+        self.won_election: bool = won_election
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
@@ -262,6 +304,8 @@ class DistributedKernel(IPythonKernel):
         self.message_acknowledgements_enabled: bool = True  # default to True
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
+        self.cuda_initialized: bool = False
+        self.data_on_gpu: bool = False
 
         # This is set to True in self.loaded_serialized_state_callback, which is called by the RaftLog after it
         # loads its serialized state from intermediate storage.
@@ -1153,15 +1197,15 @@ class DistributedKernel(IPythonKernel):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        duration: float = await self.simulate_remote_checkpointing(None, io_type="download")
+        duration_sec: float = await self.simulate_remote_checkpointing(None, io_type="download")
 
-        if duration > 0 and self.prometheus_enabled:
+        if duration_sec > 0 and self.prometheus_enabled:
             self.remote_storage_read_latency_milliseconds.labels(
                 session_id=self.kernel_id,
-                workload_id=self.workload_id).observe(duration * 1e3)
+                workload_id=self.workload_id).observe(duration_sec * 1e3)
             self.delay_milliseconds.labels(
                 session_id=self.kernel_id,
-                workload_id=self.workload_id).inc(duration * 1e3)
+                workload_id=self.workload_id).inc(duration_sec * 1e3)
 
         # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be
         # started before we attempt to catch-up. The catch-up process involves appending a new value and waiting until
@@ -1760,6 +1804,46 @@ class DistributedKernel(IPythonKernel):
                        "to be totally finished before returning from yield_request function.")
         await self.synchronizer.wait_for_election_to_end(term_number)
 
+    def copy_data_from_gpu_to_cpu(self, size_gb: float = 0):
+        if size_gb == 0:
+            return
+
+        if size_gb < 0:
+            self.log.error(f"Cannot copy data of negative size from GPU to CPU: {size_gb} GB")
+            return
+
+        bandwidth_gb_sec: float = float(np.random.normal(V100_AvgBandwidth_GbSec_DeviceToHost, V100_StdDevBandwidth_GbSec_DeviceToHost, 1)[0])
+        self.log.debug(f"Copying {size_gb} GB of data from the GPU to main memory with bandwidth of {bandwidth_gb_sec} GB/s.")
+
+        latency_sec: float = size_gb / bandwidth_gb_sec
+        time.sleep(latency_sec)
+
+        self.data_on_gpu = False
+
+    def copy_data_from_cpu_to_gpu(self, size_gb: float = 0):
+        if size_gb == 0:
+            return
+
+        if size_gb < 0:
+            self.log.error(f"Cannot copy data of negative size from CPU to GPU: {size_gb} GB")
+            return
+
+        bandwidth_gb_sec: float = float(np.random.normal(V100_AvgBandwidth_GbSec_HostToDevice, V100_StdDevBandwidth_GbSec_HostToDevice, 1)[0])
+        self.log.debug(f"Copying {size_gb} GB of data from main memory to the GPU with bandwidth of {bandwidth_gb_sec} GB/s.")
+
+        latency_sec: float = size_gb / bandwidth_gb_sec
+        time.sleep(latency_sec)
+
+        self.data_on_gpu = True
+
+    def initialize_cuda_runtime(self):
+        self.log.debug("Initializing CUDA runtime.")
+
+        cuda_init_latency_sec = float(np.random.normal(AverageCudaInitTimeSec, StandardDeviationCudaInitTimeSec, 1)[0])
+        time.sleep(cuda_init_latency_sec)
+
+        self.cuda_initialized = True
+
     async def do_execute(
             self,
             code: str,
@@ -1794,6 +1878,8 @@ class DistributedKernel(IPythonKernel):
             dict: A dict containing the fields described in the "Execution results" Jupyter documentation available here:
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
+        execution_stats: ExecutionStats = ExecutionStats(self.next_execute_request_msg_id)
+
         if len(code) > 0:
             self.log.info("DistributedKernel is preparing to execute some code: %s\n\n", code)
         else:
@@ -1826,6 +1912,7 @@ class DistributedKernel(IPythonKernel):
             self.log.info(f"Calling synchronizer.ready({term_number}) now with LEAD proposal.")
 
             if self.smr_enabled:
+                election_start: float = time.time()
                 # Pass 'True' for the 'lead' parameter to propose LEAD.
                 # Pass 'False' for the 'lead' parameter to propose YIELD.
                 #
@@ -1836,6 +1923,7 @@ class DistributedKernel(IPythonKernel):
                 self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id,
                                                                            term_number,
                                                                            True)
+                execution_stats.leader_election_microseconds = int((time.time() - election_start) * 1.0e6)
 
                 self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
                               f"shell.execution_count: {self.shell.execution_count}")
@@ -1848,6 +1936,23 @@ class DistributedKernel(IPythonKernel):
                     raise err_failed_to_lead_execution
 
             self.log.debug(f"I WILL lead this execution ({self.shell.execution_count}).")
+            execution_stats.won_election = True
+
+            # We have this here because we don't want to bother initializing CUDA if we lose the election.
+            if not self.cuda_initialized:
+                init_cuda_start: float = time.time()
+                self.initialize_cuda_runtime()
+                init_cuda_ms: float = (time.time() - init_cuda_start) * 1.0e3
+                self.log.debug(f"Initialized CUDA runtime in {init_cuda_ms} ms.")
+                execution_stats.cuda_init_microseconds = init_cuda_ms * 1.0e3 # it's already in milliseconds
+
+            vram_size_gb = self.current_resource_request.get('vram', 0)
+            if not self.data_on_gpu:
+                copy_data_to_gpu_start: float = time.time()
+                self.copy_data_from_cpu_to_gpu(size_gb = vram_size_gb)
+                copy_data_to_gpu_ms: float = (time.time() - copy_data_to_gpu_start) * 1.0e3
+                self.log.debug(f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms.")
+                execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3 # it's already in milliseconds
 
             # Notify the client that we will lead the execution.
             # TODO: Eventually, we could pass "gpu" as True or False depending on whether we really
@@ -1863,6 +1968,7 @@ class DistributedKernel(IPythonKernel):
 
             self.log.debug("Executing the following code now: %s" % code)
 
+            exec_code_start: float = time.time()
             # Execute code
             reply_routing = super().do_execute(
                 code, silent, store_history=store_history,
@@ -1870,8 +1976,11 @@ class DistributedKernel(IPythonKernel):
 
             # Wait for the settlement of variables.
             reply_content = await reply_routing
+            exec_code_duration_sec: float = (time.time() - exec_code_start)
+            execution_stats.execution_time_microseconds = exec_code_duration_sec * 1.0e6
 
-            self.log.info("Returning the following message for do_execute: \"%s\"" % str(reply_content))
+            self.log.info(f"Finished executing user-submitted code in {exec_code_duration_sec} seconds. "
+                          f"Returning the following content: {reply_content}")
 
             # Disable stdout and stderr forwarding.
             self.toggle_outstream(override=True, enable=False)
@@ -1903,20 +2012,29 @@ class DistributedKernel(IPythonKernel):
                 assert self.execution_count is not None
                 self.log.info("Synchronized. End of sync execution: {}".format(term_number))
 
+            if self.data_on_gpu:
+                copy_data_to_cpu_start: float = time.time()
+                self.copy_data_from_gpu_to_cpu(size_gb = vram_size_gb)
+                copy_data_to_cpu_ms: float = (time.time() - copy_data_to_cpu_start) * 1.0e3
+                self.log.debug(f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms.")
+                execution_stats.copy_data_from_gpu_to_cpu_microseconds = copy_data_to_cpu_ms * 1.0e3 # it's already in milliseconds
+
             if remote_storage_name is not None and self.simulate_write_after_execute and self.simulate_write_after_execute_on_critical_path:
                 self.log.debug(
                     f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path.")
-                duration: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
+                duration_sec: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
 
-                if duration > 0 and self.prometheus_enabled:
+                if duration_sec > 0 and self.prometheus_enabled:
                     self.remote_storage_write_latency_milliseconds.labels(
                         session_id=self.kernel_id,
                         workload_id=self.workload_id
-                    ).observe(duration * 1e3)
+                    ).observe(duration_sec * 1e3)
 
                     self.delay_milliseconds.labels(
                         session_id=self.kernel_id,
-                        workload_id=self.workload_id).inc(duration * 1e3)
+                        workload_id=self.workload_id).inc(duration_sec * 1e3)
+
+                execution_stats.upload_runtime_dependencies_microseconds = duration_sec * 1.0e6
 
             if self.smr_enabled:
                 await self.schedule_notify_execution_complete(term_number)
@@ -2712,3 +2830,4 @@ class DistributedKernel(IPythonKernel):
                 self.log.debug("stdout and stderr DISABLED.")
             else:
                 self.log.debug("stdout and stderr ENABLED.")
+
