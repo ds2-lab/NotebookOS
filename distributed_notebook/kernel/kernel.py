@@ -7,7 +7,7 @@ import json
 import logging
 import math
 import os
-import numpy as np
+import random
 import signal
 import socket
 import sys
@@ -24,6 +24,7 @@ from typing import Union, Optional, Dict, Any
 
 import debugpy
 import grpc
+import numpy as np
 import zmq
 from ipykernel import jsonutil
 from ipykernel.ipkernel import IPythonKernel
@@ -63,6 +64,7 @@ def sigterm_handler(sig, frame):
     sys.stderr.flush()
     sys.stdout.flush()
     sys.exit(0)
+
 
 ErrorNotification: int = 0
 WarningNotification: int = 1
@@ -129,13 +131,14 @@ def gen_error_response(err):
             'traceback': [],
             }
 
+
 class ExecutionStats(object):
     """
     Encapsulates some metrics related to code execution and whatnot.
     """
+
     def __init__(
             self,
-            request_id: str = "",
             cuda_init_microseconds: int = 0,
             download_runtime_dependencies_microseconds: int = 0,
             download_model_and_training_data_microseconds: int = 0,
@@ -144,18 +147,18 @@ class ExecutionStats(object):
             leader_election_microseconds: int = 0,
             copy_data_from_cpu_to_gpu_microseconds: int = 0,
             copy_data_from_gpu_to_cpu_microseconds: int = 0,
-            won_election: bool = False, # always true for non-static/non-dynamic scheduling policies
+            won_election: bool = False,  # always true for non-static/non-dynamic scheduling policies
     ):
-        self.request_id:str = request_id
-        self.cuda_init_microseconds: int = cuda_init_microseconds # done
+        self.cuda_init_microseconds: int = cuda_init_microseconds  # done
         self.download_runtime_dependencies_microseconds: int = download_runtime_dependencies_microseconds
         self.download_model_and_training_data_microseconds: int = download_model_and_training_data_microseconds
-        self.upload_model_and_training_data_microseconds: int = upload_model_and_training_data_microseconds # done
-        self.execution_time_microseconds: int = execution_time_microseconds # done
-        self.leader_election_microseconds: int = leader_election_microseconds # done
-        self.copy_data_from_cpu_to_gpu_microseconds: int = copy_data_from_cpu_to_gpu_microseconds # done
-        self.copy_data_from_gpu_to_cpu_microseconds: int = copy_data_from_gpu_to_cpu_microseconds # done
+        self.upload_model_and_training_data_microseconds: int = upload_model_and_training_data_microseconds  # done
+        self.execution_time_microseconds: int = execution_time_microseconds  # done
+        self.leader_election_microseconds: int = leader_election_microseconds  # done
+        self.copy_data_from_cpu_to_gpu_microseconds: int = copy_data_from_cpu_to_gpu_microseconds  # done
+        self.copy_data_from_gpu_to_cpu_microseconds: int = copy_data_from_gpu_to_cpu_microseconds  # done
         self.won_election: bool = won_election
+
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
@@ -304,9 +307,23 @@ class DistributedKernel(IPythonKernel):
         self.message_acknowledgements_enabled: bool = True  # default to True
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
-        self.cuda_initialized: bool = False
-        self.data_on_gpu: bool = False
+
+        ########################
+        # Execution/Data State #
+        ########################
         self.current_execution_stats: Optional[ExecutionStats] = None
+
+        # Indicates if the CUDA runtime initialized.
+        self.cuda_initialized: bool = False
+
+        # Indicates of the data is already on the GPU.
+        self.data_on_gpu: bool = False
+
+        # Indicates if the runtime dependencies (e.g., PyTorch/TensorFlow, etc.) are already downloaded.
+        self.runtime_dependencies_downloaded: bool = False
+
+        # Indicates if the (latest) model parameters and training data are downloaded.
+        self.model_and_training_data_downloaded: bool = False
 
         # This is set to True in self.loaded_serialized_state_callback, which is called by the RaftLog after it
         # loads its serialized state from intermediate storage.
@@ -1198,7 +1215,7 @@ class DistributedKernel(IPythonKernel):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        duration_sec: float = await self.simulate_remote_checkpointing(None, io_type="download")
+        duration_sec: float = await self.download_model_and_training_data()
 
         if duration_sec > 0 and self.prometheus_enabled:
             self.remote_storage_read_latency_milliseconds.labels(
@@ -1207,6 +1224,9 @@ class DistributedKernel(IPythonKernel):
             self.delay_milliseconds.labels(
                 session_id=self.kernel_id,
                 workload_id=self.workload_id).inc(duration_sec * 1e3)
+
+            if self.current_execution_stats is not None:
+                self.current_execution_stats.download_model_and_training_data_microseconds = duration_sec * 1.0e6
 
         # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be
         # started before we attempt to catch-up. The catch-up process involves appending a new value and waiting until
@@ -1372,6 +1392,9 @@ class DistributedKernel(IPythonKernel):
         """Override for receiving specific instructions about which replica should execute some code."""
         start_time: float = time.time()
 
+        # Reset the current ExecutionStats object.
+        self.current_execution_stats = ExecutionStats()
+
         parent_header: dict[str, Any] = extract_header(parent)
 
         self.log.debug(
@@ -1463,7 +1486,7 @@ class DistributedKernel(IPythonKernel):
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
             parent,
             -1,
-            execution_stats = self.current_execution_stats
+            execution_stats=self.current_execution_stats
         )
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
@@ -1809,45 +1832,135 @@ class DistributedKernel(IPythonKernel):
                        "to be totally finished before returning from yield_request function.")
         await self.synchronizer.wait_for_election_to_end(term_number)
 
-    def copy_data_from_gpu_to_cpu(self, size_gb: float = 0):
+    def copy_data_from_gpu_to_cpu(self, size_gb: float = 0, force: bool = False) -> None:
         if size_gb == 0:
+            return
+
+        # If the data is already on the CPU, then just return (unless force is True).
+        if not self.data_on_gpu and not force:
             return
 
         if size_gb < 0:
             self.log.error(f"Cannot copy data of negative size from GPU to CPU: {size_gb} GB")
             return
 
-        bandwidth_gb_sec: float = float(np.random.normal(V100_AvgBandwidth_GbSec_DeviceToHost, V100_StdDevBandwidth_GbSec_DeviceToHost, 1)[0])
-        self.log.debug(f"Copying {size_gb} GB of data from the GPU to main memory with bandwidth of {bandwidth_gb_sec} GB/s.")
+        bandwidth_gb_sec: float = float(
+            np.random.normal(V100_AvgBandwidth_GbSec_DeviceToHost, V100_StdDevBandwidth_GbSec_DeviceToHost, 1)[0])
+        self.log.debug(
+            f"Copying {size_gb} GB of data from the GPU to main memory with bandwidth of {bandwidth_gb_sec} GB/s.")
 
         latency_sec: float = size_gb / bandwidth_gb_sec
         time.sleep(latency_sec)
 
         self.data_on_gpu = False
 
-    def copy_data_from_cpu_to_gpu(self, size_gb: float = 0):
+    def copy_data_from_cpu_to_gpu(self, size_gb: float = 0, force: bool = False) -> None:
         if size_gb == 0:
+            return
+
+        # If the data is already on the GPU, then just return (unless force is True).
+        if self.data_on_gpu and not force:
             return
 
         if size_gb < 0:
             self.log.error(f"Cannot copy data of negative size from CPU to GPU: {size_gb} GB")
             return
 
-        bandwidth_gb_sec: float = float(np.random.normal(V100_AvgBandwidth_GbSec_HostToDevice, V100_StdDevBandwidth_GbSec_HostToDevice, 1)[0])
-        self.log.debug(f"Copying {size_gb} GB of data from main memory to the GPU with bandwidth of {bandwidth_gb_sec} GB/s.")
+        bandwidth_gb_sec: float = float(
+            np.random.normal(V100_AvgBandwidth_GbSec_HostToDevice, V100_StdDevBandwidth_GbSec_HostToDevice, 1)[0])
+        self.log.debug(
+            f"Copying {size_gb} GB of data from main memory to the GPU with bandwidth of {bandwidth_gb_sec} GB/s.")
 
         latency_sec: float = size_gb / bandwidth_gb_sec
         time.sleep(latency_sec)
 
         self.data_on_gpu = True
 
-    def initialize_cuda_runtime(self):
+    def initialize_cuda_runtime(self, force: bool = False) -> None:
+        # If the CUDA runtime is already initialized, then just return (unless force is True).
+        if self.cuda_initialized and not force:
+            return
+
         self.log.debug("Initializing CUDA runtime.")
 
         cuda_init_latency_sec = float(np.random.normal(AverageCudaInitTimeSec, StandardDeviationCudaInitTimeSec, 1)[0])
         time.sleep(cuda_init_latency_sec)
 
         self.cuda_initialized = True
+
+    async def download_model_and_training_data(self, force: bool = False)->float:
+        # If the model and training data are already downloaded, then just return (unless force is True).
+        if self.model_and_training_data_downloaded and not force:
+            return 0
+
+        self.log.debug("Downloading model and training data.")
+        return await self.simulate_remote_checkpointing(None, io_type="download")
+
+    def download_runtime_dependencies(
+            self,
+            n: int = 5,
+            avg_latency: float = 5.0,
+            std_dev_latency: float = 1.0,
+            force: bool = False,
+    ) -> None:
+        """
+        Simulate the downloading of runtime dependencies.
+
+        :param n: the number of dependencies we'll pretend to download. this does not impact latency.
+        :param avg_latency: the average time spent downloading + installing runtime dependencies (in seconds).
+        :param std_dev_latency: standard deviation of time to download + install runtime dependencies (in seconds).
+        :param force: if True, then simulate the download even if runtime_dependencies_downloaded is set to True.
+        """
+        # If the runtime dependencies are already downloaded & installed, then just return (unless force is True).
+        if self.runtime_dependencies_downloaded and not force:
+            return
+
+        self.log.debug("Downloading runtime dependencies (e.g., PyTorch, TensorFlow, etc.).")
+
+        # We're just going to randomly select ~5 dependencies to pretend to download.
+        dependencies = ["TensorFlow", "PyTorch", "scikit-learn", "XGBoost", "LightGBM", "Hugging Face Transformers",
+                        "NumPy", "SciPy", "Pandas", "Matplotlib", "Seaborn", "Plotly", "TensorBoard", "Dask", "Ray",
+                        "Horovod", "OpenCV", "Pillow (PIL)", "NLTK/SpaCy", "Fastai"]
+        dependencies_subset = random.sample(dependencies, n)
+
+        latency: float = float(np.random.normal(avg_latency, std_dev_latency)[0])
+        latency_frac: float = latency / n
+
+        for dependency in dependencies_subset:
+            self.log.debug(f"Download dependency: '{dependency}'")
+            time.sleep(latency_frac)
+
+        self.runtime_dependencies_downloaded = True
+
+    def perform_initializations(self, vram_size_gb: float = 0):
+        """
+        Perform any necessary initialization steps, [possibly but not necessarily] including:
+        - Initialize the CUDA runtime
+        - Download (and install) any runtime dependencies, such as PyTorch or TensorFlow
+        - Download the latest model parameters + training data
+        - Copy the model + training data from host memory to device memory
+        """
+        # We have this here because we don't want to bother initializing CUDA if we lose the election.
+        if not self.runtime_dependencies_downloaded:
+            download_runtime_deps_start: float = time.time()
+            self.download_runtime_dependencies()
+            download_runtime_deps_ms: float = (time.time() - download_runtime_deps_start) * 1.0e3
+            self.log.debug(f"Downloaded & installed runtime dependencies in {init_cuda_ms} ms.")
+            self.current_execution_stats.download_runtime_dependencies_microseconds = download_runtime_deps_ms * 1.0e3  # it's already in milliseconds
+
+        if not self.cuda_initialized:
+            init_cuda_start: float = time.time()
+            self.initialize_cuda_runtime()
+            init_cuda_ms: float = (time.time() - init_cuda_start) * 1.0e3
+            self.log.debug(f"Initialized CUDA runtime in {init_cuda_ms} ms.")
+            self.current_execution_stats.cuda_init_microseconds = init_cuda_ms * 1.0e3  # it's already in milliseconds
+
+        if not self.data_on_gpu:
+            copy_data_to_gpu_start: float = time.time()
+            self.copy_data_from_cpu_to_gpu(size_gb=vram_size_gb)
+            copy_data_to_gpu_ms: float = (time.time() - copy_data_to_gpu_start) * 1.0e3
+            self.log.debug(f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms.")
+            self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3  # it's already in milliseconds
 
     async def do_execute(
             self,
@@ -1883,8 +1996,6 @@ class DistributedKernel(IPythonKernel):
             dict: A dict containing the fields described in the "Execution results" Jupyter documentation available here:
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
-        self.current_execution_stats = ExecutionStats(self.next_execute_request_msg_id)
-
         if len(code) > 0:
             self.log.info("DistributedKernel is preparing to execute some code: %s\n\n", code)
         else:
@@ -1943,21 +2054,8 @@ class DistributedKernel(IPythonKernel):
             self.log.debug(f"I WILL lead this execution ({self.shell.execution_count}).")
             self.current_execution_stats.won_election = True
 
-            # We have this here because we don't want to bother initializing CUDA if we lose the election.
-            if not self.cuda_initialized:
-                init_cuda_start: float = time.time()
-                self.initialize_cuda_runtime()
-                init_cuda_ms: float = (time.time() - init_cuda_start) * 1.0e3
-                self.log.debug(f"Initialized CUDA runtime in {init_cuda_ms} ms.")
-                self.current_execution_stats.cuda_init_microseconds = init_cuda_ms * 1.0e3 # it's already in milliseconds
-
             vram_size_gb = self.current_resource_request.get('vram', 0)
-            if not self.data_on_gpu:
-                copy_data_to_gpu_start: float = time.time()
-                self.copy_data_from_cpu_to_gpu(size_gb = vram_size_gb)
-                copy_data_to_gpu_ms: float = (time.time() - copy_data_to_gpu_start) * 1.0e3
-                self.log.debug(f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms.")
-                self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3 # it's already in milliseconds
+            self.perform_initializations(vram_size_gb=vram_size_gb)
 
             # Notify the client that we will lead the execution.
             # TODO: Eventually, we could pass "gpu" as True or False depending on whether we really
@@ -2019,10 +2117,11 @@ class DistributedKernel(IPythonKernel):
 
             if self.data_on_gpu:
                 copy_data_to_cpu_start: float = time.time()
-                self.copy_data_from_gpu_to_cpu(size_gb = vram_size_gb)
+                self.copy_data_from_gpu_to_cpu(size_gb=vram_size_gb)
                 copy_data_to_cpu_ms: float = (time.time() - copy_data_to_cpu_start) * 1.0e3
-                self.log.debug(f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms.")
-                self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = copy_data_to_cpu_ms * 1.0e3 # it's already in milliseconds
+                self.log.debug(
+                    f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms.")
+                self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = copy_data_to_cpu_ms * 1.0e3  # it's already in milliseconds
 
             if remote_storage_name is not None and self.simulate_write_after_execute and self.simulate_write_after_execute_on_critical_path:
                 self.log.debug(
@@ -2068,8 +2167,11 @@ class DistributedKernel(IPythonKernel):
 
         return reply_content
 
-    async def simulate_remote_checkpointing(self, remote_storage_name: Optional[str],
-                                            io_type: Optional[str] = None) -> float:
+    async def simulate_remote_checkpointing(
+            self,
+            remote_storage_name: Optional[str],
+            io_type: Optional[str] = None
+    ) -> float:
         """
         Simulate checkpointing using the current resource request and the specified remote storage name.
 
@@ -2229,7 +2331,7 @@ class DistributedKernel(IPythonKernel):
         else:
             self.log.info("Not stopping/removing node from etcd/raft cluster.")
 
-        # Disabling debug mode here, as there is apparently a bug/issue when we're shutting down where we 
+        # Disabling debug mode here, as there is apparently a bug/issue when we're shutting down where we
         # call self.kernel.loop.call_later, but we're presumably running in the control thread's IO loop,
         # so this isn't safe...?
         # TODO: Look into this.
@@ -2331,7 +2433,7 @@ class DistributedKernel(IPythonKernel):
                 f"Failed to Close RemoteStorage Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}",
                 error_message=str(e))
 
-            # We don't return an error here, though. 
+            # We don't return an error here, though.
 
         return {'status': 'ok', "id": self.smr_node_id,
                 "kernel_id": self.kernel_id}, True  # "data_directory": waldir_path,
@@ -2510,9 +2612,12 @@ class DistributedKernel(IPythonKernel):
             # If the execution_stats parameter is non-null, then embed the included statistics/metrics.
             if execution_stats is not None:
                 request_trace["cudaInitMicroseconds"] = execution_stats.cuda_init_microseconds
-                request_trace["downloadDependencyMicroseconds"] = execution_stats.download_runtime_dependencies_microseconds
-                request_trace["downloadModelAndTrainingDataMicroseconds"] = execution_stats.download_model_and_training_data_microseconds
-                request_trace["uploadModelAndTrainingDataMicroseconds"] = execution_stats.upload_model_and_training_data_microseconds
+                request_trace[
+                    "downloadDependencyMicroseconds"] = execution_stats.download_runtime_dependencies_microseconds
+                request_trace[
+                    "downloadModelAndTrainingDataMicroseconds"] = execution_stats.download_model_and_training_data_microseconds
+                request_trace[
+                    "uploadModelAndTrainingDataMicroseconds"] = execution_stats.upload_model_and_training_data_microseconds
                 request_trace["executionTimeMicroseconds"] = execution_stats.execution_time_microseconds
                 request_trace["replayTimeMicroseconds"] = execution_stats.leader_election_microseconds
                 request_trace["copyFromCpuToGpuMicroseconds"] = execution_stats.copy_data_from_cpu_to_gpu_microseconds
@@ -2573,8 +2678,8 @@ class DistributedKernel(IPythonKernel):
     async def do_update_replica(self, replicaId, addr) -> tuple:
         """
         Update a replica to have a new address
-        
-        We also reset certain SMR-related state for this replica, as it will have restarted. 
+
+        We also reset certain SMR-related state for this replica, as it will have restarted.
         For example, its attempt number(s) for the current term will be starting over.
         """
         if not await self.check_persistent_store():
@@ -2758,7 +2863,7 @@ class DistributedKernel(IPythonKernel):
 
             self.report_error(error_title="Failed to Create RaftLog", error_message=str(ex))
 
-            # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting. 
+            # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting.
             await asyncio.sleep(10)
 
             # Terminate.
@@ -2853,4 +2958,3 @@ class DistributedKernel(IPythonKernel):
                 self.log.debug("stdout and stderr DISABLED.")
             else:
                 self.log.debug("stdout and stderr ENABLED.")
-
