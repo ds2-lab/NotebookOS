@@ -999,7 +999,7 @@ func (s *AbstractServer) sendRequestWithRetries(request messaging.Request, socke
 	if s.shouldAddRequestTrace(request.Payload(), socket) {
 		// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 		//	socket.Type.String(), request.JupyterMessageType())
-		_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), socket, time.Now(), s.Log)
+		_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), time.Now(), s.Log, false)
 		if err != nil {
 			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
 			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
@@ -1223,7 +1223,7 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 					// We only want to add traces to Shell, Control, and a subset of IOPub messages.
 					// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 					//	socket.Type.String(), jMsg.JupyterMessageType())
-					_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, socket, receivedAt, s.Log)
+					_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, receivedAt, s.Log, true)
 					if err != nil {
 						s.Log.Error("Failed to add RequestTrace to JupyterMessage: %v.", err)
 						panic(err)

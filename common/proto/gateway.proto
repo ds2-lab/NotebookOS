@@ -190,7 +190,7 @@ message QueryMessageRequest {
 //
 // It encodes the existence/status of the specified or requested ZMQ message.
 message QueryMessageResponse {
-  repeated RequestTrace requestTraces = 1;
+  repeated RequestTraceUpdated requestTraces = 1;
 }
 
 // gRPC service provided by the Dashboard and "used" by the Cluster Gateway
@@ -422,15 +422,15 @@ message Pong {
   string id = 1;
   bool success = 2;
   string msg = 3; // For adding extra details if the ping fails.
-  repeated RequestTrace requestTraces = 4;
+  repeated RequestTraceUpdated requestTraces = 4;
 }
 
 // Individual Trace that is encapsulated within a larger RequestTrace.
 message Trace {
   string id = 1;
   string name = 2;
-  int64 startTimeUnixMilliseconds = 3;
-  int64 endTimeUnixMilliseconds = 4;
+  int64 startTimeUnixMicro = 3;
+  int64 endTimeUnixMicro = 4;
   google.protobuf.Timestamp startTimestamp = 5;
   google.protobuf.Timestamp endTimestamp = 6;
   int64 durationMicroseconds = 7;
@@ -443,6 +443,7 @@ message RequestTraceUpdated {
   int32 replicaId = 4;
   string requestTraceUuid = 5;
   repeated Trace traces = 6;
+  google.protobuf.Timestamp creationTimestamp = 7;
 }
 
 message RequestTrace {
@@ -466,6 +467,7 @@ message RequestTrace {
 message PingInstruction {
   string kernelId = 1; // The kernel to target 
   string socketType = 2; // The type of socket to use to issue the "ping" ("control" or "shell")
+  google.protobuf.Timestamp createdAtTimestamp = 3;
 }
 
 message Notification {

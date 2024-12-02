@@ -17,6 +17,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/shopspring/decimal"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
 	"math/rand"
 	"net"
@@ -686,17 +687,23 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	frames := messaging.NewJupyterFramesWithHeaderAndSpecificMessageId(msgId, messageType, kernel.Sessions()[0])
 
 	// If DebugMode is enabled, then add a buffers frame with a RequestTrace.
-	var requestTrace *proto.RequestTrace
+	var requestTrace *proto.RequestTraceUpdated
 	if d.DebugMode {
 		frames.Frames = append(frames.Frames, make([]byte, 0))
 
-		requestTrace = proto.NewRequestTrace()
+		requestTrace = proto.NewRequestTrace(msgId, messageType, kernelId)
 
-		// Then we'll populate the sort of metadata fields of the RequestTrace.
-		requestTrace.MessageId = msgId
-		requestTrace.MessageType = messageType
-		requestTrace.KernelId = kernelId
-		requestTrace.RequestReceivedByGateway = receivedAt.UnixMilli()
+		startTimeUnixMilliseconds := in.CreatedAtTimestamp.AsTime().UnixMicro()
+		endTimeUnixMilliseconds := receivedAt.UnixMicro()
+		requestTrace.Traces = append(requestTrace.Traces, &proto.Trace{
+			Id:                   uuid.NewString(),
+			Name:                 "dashboard_to_gateway",
+			StartTimeUnixMicro:   startTimeUnixMilliseconds,
+			EndTimeUnixMicro:     endTimeUnixMilliseconds,
+			StartTimestamp:       in.CreatedAtTimestamp,
+			EndTimestamp:         timestamppb.New(time.UnixMicro(receivedAt.UnixMicro())),
+			DurationMicroseconds: endTimeUnixMilliseconds - startTimeUnixMilliseconds,
+		})
 
 		// Create the wrapper/frame itself.
 		wrapper := &proto.JupyterRequestTraceFrame{RequestTrace: requestTrace}
@@ -771,7 +778,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 		}
 	}
 
-	requestTraces := make([]*proto.RequestTrace, 0, d.NumReplicas())
+	requestTraces := make([]*proto.RequestTraceUpdated, 0, d.NumReplicas())
 
 	for numRepliesReceived.Load() < int32(d.NumReplicas()) {
 		select {
@@ -798,7 +805,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 			}
 		case v := <-respChan:
 			{
-				requestTrace, ok := v.(*proto.RequestTrace)
+				requestTrace, ok := v.(*proto.RequestTraceUpdated)
 				if ok {
 					requestTraces = append(requestTraces, requestTrace)
 				}
@@ -808,9 +815,21 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 
 	// Include the "ReplySentByGateway" entry, since we're returning the response via gRPC,
 	// and thus it won't be added automatically by the ZMQ-forwarder server.
-	replySentByGateway := time.Now().UnixMilli()
-	for _, requestTrace := range requestTraces {
-		requestTrace.ReplySentByGateway = replySentByGateway
+	replySentByGateway := time.Now()
+	for _, reqTrace := range requestTraces {
+		// traces := reqTrace.Traces
+		// lastTrace := traces[len(traces) - 1]
+
+		reqTrace.Traces = append(reqTrace.Traces, &proto.Trace{
+			Id:                   uuid.NewString(),
+			Name:                 "gateway_to_dashboard",
+			StartTimeUnixMicro:   replySentByGateway.UnixMicro(),
+			EndTimeUnixMicro:     -1,
+			StartTimestamp:       timestamppb.New(replySentByGateway),
+			EndTimestamp:         nil,
+			DurationMicroseconds: -1,
+		})
+		// requestTrace.ReplySentByGateway = replySentByGateway
 	}
 
 	d.log.Debug("Received all 3 %v 'ping_reply' responses from replicas of kernel %s for ping message \"%s\" in %v.",
@@ -2252,7 +2271,7 @@ func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMess
 		d.log.Debug("Received message query for all messages in log. Will be returning %d message(s).",
 			d.RequestLog.EntriesByJupyterMsgId.Len())
 
-		requestTraces := make([]*proto.RequestTrace, 0, d.RequestLog.EntriesByJupyterMsgId.Len())
+		requestTraces := make([]*proto.RequestTraceUpdated, 0, d.RequestLog.EntriesByJupyterMsgId.Len())
 
 		d.RequestLog.Lock()
 		d.RequestLog.EntriesByJupyterMsgId.Range(func(msgId string, wrapper *metrics.RequestLogEntryWrapper) (contd bool) {
@@ -2310,7 +2329,7 @@ func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMess
 		wrapper.MessageType.String(), wrapper.JupyterMessageType, wrapper.JupyterMessageId, wrapper.KernelId)
 
 	// Build the response.
-	requestTraces := make([]*proto.RequestTrace, 0, wrapper.EntriesByNodeId.Len())
+	requestTraces := make([]*proto.RequestTraceUpdated, 0, wrapper.EntriesByNodeId.Len())
 	wrapper.EntriesByNodeId.Range(func(i int32, entry *metrics.RequestLogEntry) (contd bool) {
 		requestTraces = append(requestTraces, entry.RequestTrace)
 		return true
@@ -3453,7 +3472,7 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 	}
 
 	if d.DebugMode {
-		requestTrace, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(msg, socket, time.Now(), d.log)
+		requestTrace, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(msg, time.Now(), d.log, false)
 		if err != nil {
 			d.log.Debug("Failed to update RequestTrace in %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"): %v",
 				typ, msg.JupyterMessageType(), msg.DestinationId, msg.JupyterMessageId(), err)

@@ -491,7 +491,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			//}
 
 			// We'll just call this multiple times.
-			requestTraceHelper := func(trace *proto.RequestTrace) {
+			requestTraceHelper := func(trace *proto.RequestTraceUpdated) {
 				Expect(trace.MessageId).To(Equal("c7074e5b-b90f-44f8-af5d-63201ec3a527"))
 				Expect(trace.MessageType).To(Equal(messaging.ShellExecuteRequest))
 				Expect(trace.KernelId).To(Equal(kernelId))
@@ -506,7 +506,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestReceivedByGateway := int64(257894000000)
 			requestReceivedByGatewayTs := time.UnixMilli(requestReceivedByGateway) // 2009-11-10 23:00:00 +0000 UTC
-			requestTrace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestReceivedByGatewayTs, abstractServer.Log)
+			requestTrace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, requestReceivedByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeTrue())
 			Expect(err).To(BeNil())
@@ -537,7 +537,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestSentByGateway := requestReceivedByGateway + 1000
 			requestSentByGatewayTs := time.UnixMilli(requestSentByGateway)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestSentByGatewayTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, requestSentByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -560,7 +560,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestReceivedByLocalDaemon := requestSentByGateway + 1000
 			requestReceivedByLocalDaemonTs := time.UnixMilli(requestReceivedByLocalDaemon)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestReceivedByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, requestReceivedByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -583,7 +583,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestSentByLocalDaemon := requestSentByGateway + 1000
 			requestSentByLocalDaemonTs := time.UnixMilli(requestSentByLocalDaemon)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestSentByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, requestSentByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -606,7 +606,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestReceivedByKernelReplica := requestSentByGateway + 1000
 			requestReceivedByKernelReplicaTs := time.UnixMilli(requestReceivedByKernelReplica)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestReceivedByKernelReplicaTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, requestReceivedByKernelReplicaTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -629,7 +629,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replySentByKernelReplica := requestSentByGateway + 1000
 			replySentByKernelReplicaTs := time.UnixMilli(replySentByKernelReplica)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, replySentByKernelReplicaTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, replySentByKernelReplicaTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -652,7 +652,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replyReceivedByLocalDaemon := requestSentByGateway + 1000
 			replyReceivedByLocalDaemonTs := time.UnixMilli(replyReceivedByLocalDaemon)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, replyReceivedByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, replyReceivedByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -675,7 +675,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replySentByLocalDaemon := requestSentByGateway + 1000
 			replySentByLocalDaemonTs := time.UnixMilli(replySentByLocalDaemon)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, replySentByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, replySentByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -698,7 +698,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replyReceivedByGateway := requestSentByGateway + 1000
 			replyReceivedByGatewayTs := time.UnixMilli(replyReceivedByGateway)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, replyReceivedByGatewayTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, replyReceivedByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -721,7 +721,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replySentByGateway := requestSentByGateway + 1000
 			replySentByGatewayTs := time.UnixMilli(replySentByGateway)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, replySentByGatewayTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, replySentByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())

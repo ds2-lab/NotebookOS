@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
 	"runtime/debug"
 	"strings"
@@ -239,7 +241,7 @@ func extractDestFrame(frames [][]byte) (destID string, reqID string, jOffset int
 
 // CopyRequestTraceFromBuffersToMetadata will attempt to extract a proto.RequestTrace from the (first) buffers frame
 // of the given JupyterMessage. If successful, then CopyRequestTraceFromBuffersToMetadata will next attempt to
-// add the proto.RequestTrace to the metadata frame of the JupyterMessage.
+// add the proto.RequestTraceUpdated to the metadata frame of the JupyterMessage.
 //
 // Returns true on success. Returns false on failure.
 func CopyRequestTraceFromBuffersToMetadata(msg *JupyterMessage, signatureScheme string, key string, logger logger.Logger) bool {
@@ -298,11 +300,11 @@ func CopyRequestTraceFromBuffersToMetadata(msg *JupyterMessage, signatureScheme 
 	return true
 }
 
-// extractRequestTraceFromJupyterMessage will attempt to extract and return a *proto.RequestTrace from the (first)
+// extractRequestTraceFromJupyterMessage will attempt to extract and return a *proto.RequestTraceUpdated from the (first)
 // buffers frame of the given JupyterMessage.
 //
 // It is the caller's responsibility to ensure that the given JupyterMessage has a buffers frame.
-func extractRequestTraceFromJupyterMessage(msg *JupyterMessage, logger logger.Logger) (*proto.JupyterRequestTraceFrame, *proto.RequestTrace, error) {
+func extractRequestTraceFromJupyterMessage(msg *JupyterMessage, logger logger.Logger) (*proto.JupyterRequestTraceFrame, *proto.RequestTraceUpdated, error) {
 	var wrapper *proto.JupyterRequestTraceFrame
 	err := json.Unmarshal(msg.JupyterFrames.Frames[msg.JupyterFrames.Offset+JupyterFrameRequestTrace], &wrapper)
 	if err != nil {
@@ -336,10 +338,10 @@ func extractRequestTraceFromJupyterMessage(msg *JupyterMessage, logger logger.Lo
 //
 // If there is an error decoding or encoding the metadata frame of the jupyter.JupyterMessage, then an error is
 // returned, and the boolean returned along with the error is always false.
-func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket, timestamp time.Time, logger logger.Logger) (*proto.RequestTrace, bool, error) {
+func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, timestamp time.Time, logger logger.Logger, isOnReceive bool) (*proto.RequestTraceUpdated, bool, error) {
 	var (
 		wrapper      *proto.JupyterRequestTraceFrame
-		requestTrace *proto.RequestTrace
+		requestTrace *proto.RequestTraceUpdated
 		added        bool
 		err          error
 	)
@@ -359,13 +361,13 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket
 
 		// The metadata did not already contain a RequestTrace.
 		// Let's first create one.
-		requestTrace = proto.NewRequestTrace()
+		requestTrace = proto.NewRequestTrace(msg.JupyterSession(), msg.JupyterMessageType(), msg.JupyterMessageId())
 		added = true
 
 		// Then we'll populate the sort of metadata fields of the RequestTrace.
-		requestTrace.MessageId = msg.JupyterMessageId()
-		requestTrace.MessageType = msg.JupyterMessageType()
-		requestTrace.KernelId = msg.JupyterSession()
+		//requestTrace.MessageId = msg.JupyterMessageId()
+		//requestTrace.MessageType = msg.JupyterMessageType()
+		//requestTrace.KernelId = msg.JupyterSession()
 
 		// Create the wrapper/frame itself.
 		wrapper = &proto.JupyterRequestTraceFrame{RequestTrace: requestTrace}
@@ -385,7 +387,28 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket
 	}
 
 	// Update the appropriate timestamp field of the RequestTrace.
-	requestTrace.PopulateNextField(timestamp.UnixMilli(), logger)
+	// requestTrace.PopulateNextField(timestamp.UnixMilli(), logger)
+	lastTrace := requestTrace.Traces[len(requestTrace.Traces)-1]
+	lastTrace.EndTimestamp = timestamppb.New(timestamp)
+	lastTrace.EndTimeUnixMicro = timestamp.UnixMicro()
+	lastTrace.DurationMicroseconds = lastTrace.EndTimeUnixMicro - lastTrace.StartTimeUnixMicro
+
+	var traceName string
+	if isOnReceive {
+		traceName = "Sender --> [Me]"
+	} else {
+		traceName = "[Me] --> Recipient"
+	}
+
+	requestTrace.Traces = append(requestTrace.Traces, &proto.Trace{
+		Id:                   uuid.NewString(),
+		Name:                 traceName,
+		StartTimeUnixMicro:   timestamp.UnixMicro(),
+		EndTimeUnixMicro:     -1,
+		StartTimestamp:       timestamppb.New(timestamp),
+		EndTimestamp:         nil,
+		DurationMicroseconds: -1,
+	})
 
 	// logger.Debug("New/updated RequestTrace: %s.", requestTrace.String())
 
@@ -517,7 +540,7 @@ type JupyterMessage struct {
 	RequestId     string
 	DestinationId string
 
-	RequestTrace *proto.RequestTrace
+	RequestTrace *proto.RequestTraceUpdated
 
 	header       *MessageHeader
 	parentHeader *MessageHeader
@@ -594,7 +617,7 @@ func (m *JupyterMessage) Clone() *JupyterMessage {
 		clonedParentHeader = m.parentHeader.Clone()
 	}
 
-	var clonedRequestTrace *proto.RequestTrace
+	var clonedRequestTrace *proto.RequestTraceUpdated
 	if m.RequestTrace != nil {
 		clonedRequestTrace = m.RequestTrace.Clone()
 	}

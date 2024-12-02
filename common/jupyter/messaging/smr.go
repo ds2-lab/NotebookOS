@@ -53,7 +53,7 @@ type MessageSMRLeadTask struct {
 	// UnixMilliseconds is the Unix epoch time in milliseconds at which the "smr_lead_task" notification
 	// message was created (and thus approximates when it was sent and when the kernel began executing
 	// the user's code).
-	UnixMilliseconds int64 `json:"unix_milliseconds"`
+	UnixMilliseconds int64 `json:"msg_created_at_unix_milliseconds"`
 
 	// ExecuteRequestMsgId is the Jupyter msg_id (from the header) of the "execute_request"
 	// message that was used to submit the code execution request.
