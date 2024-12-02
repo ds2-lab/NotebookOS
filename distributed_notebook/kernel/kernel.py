@@ -147,14 +147,14 @@ class ExecutionStats(object):
             won_election: bool = False, # always true for non-static/non-dynamic scheduling policies
     ):
         self.request_id:str = request_id
-        self.cuda_init_microseconds: int = cuda_init_microseconds
+        self.cuda_init_microseconds: int = cuda_init_microseconds # done
         self.download_runtime_dependencies_microseconds: int = download_runtime_dependencies_microseconds
         self.download_model_and_training_data_microseconds: int = download_model_and_training_data_microseconds
-        self.upload_model_and_training_data_microseconds: int = upload_model_and_training_data_microseconds
-        self.execution_time_microseconds: int = execution_time_microseconds
-        self.leader_election_microseconds: int = leader_election_microseconds
-        self.copy_data_from_cpu_to_gpu_microseconds: int = copy_data_from_cpu_to_gpu_microseconds
-        self.copy_data_from_gpu_to_cpu_microseconds: int = copy_data_from_gpu_to_cpu_microseconds
+        self.upload_model_and_training_data_microseconds: int = upload_model_and_training_data_microseconds # done
+        self.execution_time_microseconds: int = execution_time_microseconds # done
+        self.leader_election_microseconds: int = leader_election_microseconds # done
+        self.copy_data_from_cpu_to_gpu_microseconds: int = copy_data_from_cpu_to_gpu_microseconds # done
+        self.copy_data_from_gpu_to_cpu_microseconds: int = copy_data_from_gpu_to_cpu_microseconds # done
         self.won_election: bool = won_election
 
 class DistributedKernel(IPythonKernel):
@@ -306,6 +306,7 @@ class DistributedKernel(IPythonKernel):
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.cuda_initialized: bool = False
         self.data_on_gpu: bool = False
+        self.current_execution_stats: Optional[ExecutionStats] = None
 
         # This is set to True in self.loaded_serialized_state_callback, which is called by the RaftLog after it
         # loads its serialized state from intermediate storage.
@@ -1459,7 +1460,11 @@ class DistributedKernel(IPythonKernel):
             metadata["election_metadata"] = current_election.get_election_metadata()
             term_number = current_election.term_number
 
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent,
+            -1,
+            execution_stats = self.current_execution_stats
+        )
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "execute_reply",
@@ -1878,7 +1883,7 @@ class DistributedKernel(IPythonKernel):
             dict: A dict containing the fields described in the "Execution results" Jupyter documentation available here:
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
-        execution_stats: ExecutionStats = ExecutionStats(self.next_execute_request_msg_id)
+        self.current_execution_stats = ExecutionStats(self.next_execute_request_msg_id)
 
         if len(code) > 0:
             self.log.info("DistributedKernel is preparing to execute some code: %s\n\n", code)
@@ -1923,7 +1928,7 @@ class DistributedKernel(IPythonKernel):
                 self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id,
                                                                            term_number,
                                                                            True)
-                execution_stats.leader_election_microseconds = int((time.time() - election_start) * 1.0e6)
+                self.current_execution_stats.leader_election_microseconds = int((time.time() - election_start) * 1.0e6)
 
                 self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
                               f"shell.execution_count: {self.shell.execution_count}")
@@ -1936,7 +1941,7 @@ class DistributedKernel(IPythonKernel):
                     raise err_failed_to_lead_execution
 
             self.log.debug(f"I WILL lead this execution ({self.shell.execution_count}).")
-            execution_stats.won_election = True
+            self.current_execution_stats.won_election = True
 
             # We have this here because we don't want to bother initializing CUDA if we lose the election.
             if not self.cuda_initialized:
@@ -1944,7 +1949,7 @@ class DistributedKernel(IPythonKernel):
                 self.initialize_cuda_runtime()
                 init_cuda_ms: float = (time.time() - init_cuda_start) * 1.0e3
                 self.log.debug(f"Initialized CUDA runtime in {init_cuda_ms} ms.")
-                execution_stats.cuda_init_microseconds = init_cuda_ms * 1.0e3 # it's already in milliseconds
+                self.current_execution_stats.cuda_init_microseconds = init_cuda_ms * 1.0e3 # it's already in milliseconds
 
             vram_size_gb = self.current_resource_request.get('vram', 0)
             if not self.data_on_gpu:
@@ -1952,7 +1957,7 @@ class DistributedKernel(IPythonKernel):
                 self.copy_data_from_cpu_to_gpu(size_gb = vram_size_gb)
                 copy_data_to_gpu_ms: float = (time.time() - copy_data_to_gpu_start) * 1.0e3
                 self.log.debug(f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms.")
-                execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3 # it's already in milliseconds
+                self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3 # it's already in milliseconds
 
             # Notify the client that we will lead the execution.
             # TODO: Eventually, we could pass "gpu" as True or False depending on whether we really
@@ -1977,7 +1982,7 @@ class DistributedKernel(IPythonKernel):
             # Wait for the settlement of variables.
             reply_content = await reply_routing
             exec_code_duration_sec: float = (time.time() - exec_code_start)
-            execution_stats.execution_time_microseconds = exec_code_duration_sec * 1.0e6
+            self.current_execution_stats.execution_time_microseconds = exec_code_duration_sec * 1.0e6
 
             self.log.info(f"Finished executing user-submitted code in {exec_code_duration_sec} seconds. "
                           f"Returning the following content: {reply_content}")
@@ -2017,7 +2022,7 @@ class DistributedKernel(IPythonKernel):
                 self.copy_data_from_gpu_to_cpu(size_gb = vram_size_gb)
                 copy_data_to_cpu_ms: float = (time.time() - copy_data_to_cpu_start) * 1.0e3
                 self.log.debug(f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms.")
-                execution_stats.copy_data_from_gpu_to_cpu_microseconds = copy_data_to_cpu_ms * 1.0e3 # it's already in milliseconds
+                self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = copy_data_to_cpu_ms * 1.0e3 # it's already in milliseconds
 
             if remote_storage_name is not None and self.simulate_write_after_execute and self.simulate_write_after_execute_on_critical_path:
                 self.log.debug(
@@ -2034,7 +2039,7 @@ class DistributedKernel(IPythonKernel):
                         session_id=self.kernel_id,
                         workload_id=self.workload_id).inc(duration_sec * 1e3)
 
-                execution_stats.upload_runtime_dependencies_microseconds = duration_sec * 1.0e6
+                self.current_execution_stats.upload_runtime_dependencies_microseconds = duration_sec * 1.0e6
 
             if self.smr_enabled:
                 await self.schedule_notify_execution_complete(term_number)
@@ -2445,7 +2450,12 @@ class DistributedKernel(IPythonKernel):
                            f"message \"{msg_id}\" (type={type(first_buffers_frame).__name__}): {first_buffers_frame}")
             return {}
 
-    def extract_and_process_request_trace(self, msg: dict[str, Any], received_at: float) -> Optional[list[bytes]]:
+    def extract_and_process_request_trace(
+            self,
+            msg: dict[str, Any],
+            received_at: float,
+            execution_stats: Optional[ExecutionStats] = None
+    ) -> Optional[list[bytes]]:
         """
         Attempt to extract the RequestTrace dictionary from the (first) buffers frame of the request.
 
@@ -2455,6 +2465,8 @@ class DistributedKernel(IPythonKernel):
         can be directly passed to the Session class' send method.
 
         received_at should be unix milliseconds.
+
+        execution_stats should only be passed when calling extract_and_process_request_trace from execute_request.
 
         Returns:
             If the extraction of the request trace was successful, then this returns the message's buffers
@@ -2494,6 +2506,17 @@ class DistributedKernel(IPythonKernel):
                 request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
 
             request_trace["replicaId"] = self.smr_node_id
+
+            # If the execution_stats parameter is non-null, then embed the included statistics/metrics.
+            if execution_stats is not None:
+                request_trace["cudaInitMicroseconds"] = execution_stats.cuda_init_microseconds
+                request_trace["downloadDependencyMicroseconds"] = execution_stats.download_runtime_dependencies_microseconds
+                request_trace["downloadModelAndTrainingDataMicroseconds"] = execution_stats.download_model_and_training_data_microseconds
+                request_trace["uploadModelAndTrainingDataMicroseconds"] = execution_stats.upload_model_and_training_data_microseconds
+                request_trace["executionTimeMicroseconds"] = execution_stats.execution_time_microseconds
+                request_trace["replayTimeMicroseconds"] = execution_stats.leader_election_microseconds
+                request_trace["copyFromCpuToGpuMicroseconds"] = execution_stats.copy_data_from_cpu_to_gpu_microseconds
+                request_trace["copyFromGpuToCpuMicroseconds"] = execution_stats.copy_data_from_gpu_to_cpu_microseconds
 
             buffers[0] = json.dumps(request_trace_frame).encode('utf-8')
             # self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")
