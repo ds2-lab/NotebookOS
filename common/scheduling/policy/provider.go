@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 )
 
@@ -12,28 +13,55 @@ func GetSchedulingPolicy(opts *scheduling.SchedulerOptions) (scheduling.Policy, 
 	switch opts.SchedulingPolicy {
 	case string(scheduling.Reservation):
 		{
-			return NewReservationPolicy(opts), nil
+			return NewReservationPolicy(opts)
 		}
 	case string(scheduling.FcfsBatch):
 		{
-			return NewFcfsBatchSchedulingPolicy(opts), nil
+			return NewFcfsBatchSchedulingPolicy(opts)
 		}
 	case string(scheduling.AutoScalingFcfsBatch):
 		{
-			return NewAutoScalingFcfsBatchSchedulingPolicy(opts), nil
+			return NewAutoScalingFcfsBatchSchedulingPolicy(opts)
 		}
 	case string(scheduling.Static):
 		{
-			return NewStaticPolicy(opts), nil
+			return NewStaticPolicy(opts)
 		}
 	case string(scheduling.DynamicV3):
 		{
-			return NewDynamicV3Policy(opts), nil
+			return NewDynamicV3Policy(opts)
 		}
 	case string(scheduling.DynamicV4):
 		{
-			return NewDynamicV4Policy(opts), nil
+			return NewDynamicV4Policy(opts)
 		}
 	}
-	return nil, scheduling.ErrInvalidSchedulingPolicy
+	return nil, fmt.Errorf("%w: \"%s\"", scheduling.ErrInvalidSchedulingPolicy, opts.SchedulingPolicy)
+}
+
+// getIdleSessionReclamationPolicy returns the configured scheduling.IdleSessionReclamationPolicy, based on the
+// associated parameter in the specified scheduling.SchedulerOptions struct.
+//
+// This is just used internally by the "constructors" of the various policy structs.
+func getIdleSessionReclamationPolicy(opts *scheduling.SchedulerOptions) (scheduling.IdleSessionReclamationPolicy, error) {
+	switch opts.IdleSessionReclamationPolicy {
+	case string(scheduling.NoIdleSessionReclamation):
+		{
+			return &noIdleSessionReclamationPolicy{opts: opts}, nil
+		}
+	case string(scheduling.GoogleColabIdleSessionReclamationPolicy):
+		{
+			return &googleColabReclamationPolicy{opts: opts}, nil
+		}
+	case string(scheduling.AdobeSenseiIdleSessionReclamationPolicy):
+		{
+			return &adobeSenseiReclamationPolicy{opts: opts}, nil
+		}
+	case string(scheduling.CustomIdleSessionReclamationPolicy):
+		{
+			return newCustomColabReclamationPolicy(opts)
+		}
+	}
+
+	return nil, fmt.Errorf("%w: \"%s\"", scheduling.ErrInvalidSchedulingPolicy, opts.IdleSessionReclamationPolicy)
 }

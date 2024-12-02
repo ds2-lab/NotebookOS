@@ -14,13 +14,20 @@ import (
 // Because KernelContainer instances are short-lived, FcfsBatchSchedulingPolicy effectively uses dynamic resource
 // management.
 type FcfsBatchSchedulingPolicy struct {
-	scalingConfiguration *scheduling.ScalingConfiguration
+	*baseSchedulingPolicy
 }
 
-func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) *FcfsBatchSchedulingPolicy {
-	return &FcfsBatchSchedulingPolicy{
-		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatchSchedulingPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts)
+	if err != nil {
+		return nil, err
 	}
+
+	policy := &FcfsBatchSchedulingPolicy{
+		baseSchedulingPolicy: basePolicy,
+	}
+
+	return policy, nil
 }
 
 func (p *FcfsBatchSchedulingPolicy) SmrEnabled() bool {

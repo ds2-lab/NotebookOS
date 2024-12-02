@@ -6,13 +6,20 @@ import (
 )
 
 type StaticPolicy struct {
-	scalingConfiguration *scheduling.ScalingConfiguration
+	*baseSchedulingPolicy
 }
 
-func NewStaticPolicy(opts *scheduling.SchedulerOptions) *StaticPolicy {
-	return &StaticPolicy{
-		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+func NewStaticPolicy(opts *scheduling.SchedulerOptions) (*StaticPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts)
+	if err != nil {
+		return nil, err
 	}
+
+	policy := &StaticPolicy{
+		baseSchedulingPolicy: basePolicy,
+	}
+
+	return policy, nil
 }
 
 func (p *StaticPolicy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {

@@ -12,13 +12,20 @@ import (
 // Under ReservationPolicy, resources are bound to scheduling.KernelContainer instances for the duration of the
 // lifetime of the associated scheduling.UserSession.
 type ReservationPolicy struct {
-	scalingConfiguration *scheduling.ScalingConfiguration
+	*baseSchedulingPolicy
 }
 
-func NewReservationPolicy(opts *scheduling.SchedulerOptions) *ReservationPolicy {
-	return &ReservationPolicy{
-		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts)
+	if err != nil {
+		return nil, err
 	}
+
+	policy := &ReservationPolicy{
+		baseSchedulingPolicy: basePolicy,
+	}
+
+	return policy, nil
 }
 
 func (p *ReservationPolicy) PolicyKey() scheduling.PolicyKey {

@@ -325,7 +325,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	}
 
 	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, daemon.MessageAcknowledgementsEnabled,
-		fmt.Sprintf("LocalDaemon_%s", nodeName), true, metrics.LocalDaemon, daemon.DebugMode)
+		fmt.Sprintf("LocalDaemon_%s", nodeName), true, metrics.LocalDaemon, daemon.DebugMode, nil)
 
 	if daemon.numResendAttempts <= 0 {
 		daemon.log.Error("Invalid number of message resend attempts specified: %d. Defaulting to %d.",

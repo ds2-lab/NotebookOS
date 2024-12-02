@@ -17,10 +17,17 @@ type AutoScalingFcfsBatchSchedulingPolicy struct {
 	*FcfsBatchSchedulingPolicy
 }
 
-func NewAutoScalingFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) *AutoScalingFcfsBatchSchedulingPolicy {
-	return &AutoScalingFcfsBatchSchedulingPolicy{
-		FcfsBatchSchedulingPolicy: NewFcfsBatchSchedulingPolicy(opts),
+func NewAutoScalingFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*AutoScalingFcfsBatchSchedulingPolicy, error) {
+	basePolicy, err := NewFcfsBatchSchedulingPolicy(opts)
+	if err != nil {
+		return nil, err
 	}
+
+	policy := &AutoScalingFcfsBatchSchedulingPolicy{
+		FcfsBatchSchedulingPolicy: basePolicy,
+	}
+
+	return policy, nil
 }
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.

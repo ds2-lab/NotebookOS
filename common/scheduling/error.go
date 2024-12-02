@@ -23,4 +23,5 @@ var (
 	ErrExecutionFailedAllYielded              = errors.New("an execution failed; all replicas proposed 'YIELD'")
 	ErrSchedulingProhibitedBySchedulingPolicy = status.Error(codes.FailedPrecondition, "scaling is not supported under the configured scheduling policy")
 	ErrInvalidSchedulingPolicy                = errors.New("unknown, unspecified, or invalid scheduling policy")
+	ErrInvalidIdleSessionReclamationPolicy    = errors.New("unknown, unspecified, or invalid idle session reclamation policy")
 )

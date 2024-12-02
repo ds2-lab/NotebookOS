@@ -11,6 +11,11 @@ const (
 	AutoScalingFcfsBatch    PolicyKey = "auto-scaling-fcfs-batch"
 	Reservation             PolicyKey = "reservation"
 
+	NoIdleSessionReclamation                IdleSessionReclamationPolicyKey = "none"
+	GoogleColabIdleSessionReclamationPolicy IdleSessionReclamationPolicyKey = "google-colab"
+	AdobeSenseiIdleSessionReclamationPolicy IdleSessionReclamationPolicyKey = "adobe-sensei"
+	CustomIdleSessionReclamationPolicy      IdleSessionReclamationPolicyKey = "custom"
+
 	// BindResourcesAtTrainingStart indicates that resources are to be committed when training begins and
 	// uncommitted when training ends.
 	BindResourcesAtTrainingStart ResourceBindingMode = "BindResourcesAtTrainingStart"
@@ -30,6 +35,17 @@ const (
 // PolicyKey indicates the scheduling policy/methodology/algorithm that the internalCluster Gateway is configured to use.
 type PolicyKey string
 
+func (k PolicyKey) String() string {
+	return string(k)
+}
+
+// IdleSessionReclamationPolicyKey indicates the IdleSessionReclamationPolicy that should be used.
+type IdleSessionReclamationPolicyKey string
+
+func (k IdleSessionReclamationPolicyKey) String() string {
+	return string(k)
+}
+
 // ResourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly
 // when they are uncommitted from containers as well.
 //
@@ -38,9 +54,17 @@ type PolicyKey string
 // lifetime of the associated UserSession.
 type ResourceBindingMode string
 
+func (rbm ResourceBindingMode) String() string {
+	return string(rbm)
+}
+
 // ContainerLifetime defines how long containers of a kernel live. Options include for the duration of a single
 // training event or long-running.
 type ContainerLifetime string
+
+func (cl ContainerLifetime) String() string {
+	return string(cl)
+}
 
 // Policy defines a high-level scheduling policy.
 //
@@ -95,6 +119,23 @@ type Policy interface {
 	// SmrEnabled returns a flag indicating whether the kernel containers should participate in SMR.
 	// This is generally only enabled for the static and dynamic policies.
 	SmrEnabled() bool
+
+	// IdleSessionReclamationPolicy returns the IdleSessionReclamationPolicy of the target Policy.
+	IdleSessionReclamationPolicy() IdleSessionReclamationPolicy
+}
+
+// IdleSessionReclamationPolicy defines how the scheduling policy handles idle sessions.
+type IdleSessionReclamationPolicy interface {
+	// IdleSessionReclamationEnabled returns a flag indicating whether the reclamation of idle sessions is enabled.
+	IdleSessionReclamationEnabled() bool
+
+	// ReclaimedSessionsMustReplayAllCells returns a flag indicating whether reclaimed sessions that receive a new
+	// "execute_request" message must replay all previous cells before handling the new execution request.
+	ReclaimedSessionsMustReplayAllCells() bool
+
+	// IdleSessionReclamationInterval returns a time.Duration encoding the amount of time that a session must remain
+	// idle before it is eligible for idle reclamation.
+	IdleSessionReclamationInterval() time.Duration
 }
 
 // ResourceScalingPolicy defines the configuration of resource scaling (i.e., adding and/or removing Host instances ),

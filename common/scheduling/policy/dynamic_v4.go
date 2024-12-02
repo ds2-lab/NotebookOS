@@ -6,13 +6,20 @@ import (
 )
 
 type DynamicV4Policy struct {
-	scalingConfiguration *scheduling.ScalingConfiguration
+	*baseSchedulingPolicy
 }
 
-func NewDynamicV4Policy(opts *scheduling.SchedulerOptions) *DynamicV4Policy {
-	return &DynamicV4Policy{
-		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+func NewDynamicV4Policy(opts *scheduling.SchedulerOptions) (*DynamicV4Policy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts)
+	if err != nil {
+		return nil, err
 	}
+
+	policy := &DynamicV4Policy{
+		baseSchedulingPolicy: basePolicy,
+	}
+
+	return policy, nil
 }
 
 func (p *DynamicV4Policy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
