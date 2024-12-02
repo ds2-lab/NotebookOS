@@ -77,7 +77,7 @@ func (l *RequestLog) unsafeLen() int {
 }
 
 // AddEntry adds a RequestLogEntry to the RequestLog for the specified JupyterMessage.
-func (l *RequestLog) AddEntry(msg *messaging.JupyterMessage, messageType messaging.MessageType, trace *proto.RequestTraceUpdated) error {
+func (l *RequestLog) AddEntry(msg *messaging.JupyterMessage, messageType messaging.MessageType, trace *proto.RequestTrace) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -134,11 +134,11 @@ type RequestLogEntry struct {
 	MessageType        messaging.MessageType
 	KernelId           string
 
-	RequestTrace *proto.RequestTraceUpdated
+	RequestTrace *proto.RequestTrace
 }
 
 // NewRequestLogEntry creates a new RequestLogEntry struct and returns a pointer to it.
-func NewRequestLogEntry(msg *messaging.JupyterMessage, messageType messaging.MessageType, trace *proto.RequestTraceUpdated) *RequestLogEntry {
+func NewRequestLogEntry(msg *messaging.JupyterMessage, messageType messaging.MessageType, trace *proto.RequestTrace) *RequestLogEntry {
 	return &RequestLogEntry{
 		RequestId:          msg.RequestId,
 		JupyterMessageId:   msg.JupyterMessageId(),

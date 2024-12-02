@@ -58,4 +58,8 @@ type KernelContainer interface {
 	String() string
 	ToDockerContainer() *proto.DockerContainer
 	TrainingStartedInContainer() error
+
+	// NumTrainingEventsProcessed returns the number of training events processed by this particular Container.
+	// This is NOT (necessarily) equal to the total number of training events processed by the UserSession.
+	NumTrainingEventsProcessed() int
 }

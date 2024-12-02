@@ -491,7 +491,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			//}
 
 			// We'll just call this multiple times.
-			requestTraceHelper := func(trace *proto.RequestTraceUpdated) {
+			requestTraceHelper := func(trace *proto.RequestTrace) {
 				Expect(trace.MessageId).To(Equal("c7074e5b-b90f-44f8-af5d-63201ec3a527"))
 				Expect(trace.MessageType).To(Equal(messaging.ShellExecuteRequest))
 				Expect(trace.KernelId).To(Equal(kernelId))

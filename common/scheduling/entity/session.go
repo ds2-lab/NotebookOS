@@ -43,15 +43,17 @@ type sessionStateTransition struct {
 type Session struct {
 	instance *Session
 
-	ctx               context.Context                      // The Session's context.
-	id                string                               // Session/kernel ID.
-	sessionState      scheduling.SessionState              // The current state of the Session.
-	trainingStart     time.Time                            // Time at which the current training began.
-	migrationStart    time.Time                            // Time at which the migration began.
-	containers        map[int32]scheduling.KernelContainer // The kernel replicas belonging to this Session.
-	trainingContainer scheduling.KernelContainer           // The Container that is actively training.
-	resourceSpec      types.CloneableSpec                  // The (current) resource requirements of the Session.
-	stateTransitions  []*sessionStateTransition            // History of state transitions performed by the Session.
+	ctx                    context.Context                      // The Session's context.
+	id                     string                               // Session/kernel ID.
+	sessionState           scheduling.SessionState              // The current state of the Session.
+	trainingStart          time.Time                            // Time at which the current training began.
+	idleStartTime          time.Time                            // idleStartTime is the time at which the Distributed Kernel Client last began idling.
+	migrationStart         time.Time                            // Time at which the migration began.
+	containers             map[int32]scheduling.KernelContainer // The kernel replicas belonging to this Session.
+	trainingContainer      scheduling.KernelContainer           // The Container that is actively training.
+	resourceSpec           types.CloneableSpec                  // The (current) resource requirements of the Session.
+	stateTransitions       []*sessionStateTransition            // History of state transitions performed by the Session.
+	cumulativeTrainingTime time.Duration                        // cumulativeTrainingTime is the sum of time that this Session has spent training, excluding any associated overheads.
 
 	////////////////////////
 	// Session Statistics //
@@ -60,12 +62,13 @@ type Session struct {
 	kernelSpec                     *proto.KernelSpec           // The kernel resourceSpec of the associated kernel.
 	resourceUtilization            scheduling.Utilization      // Current/latest resource usage statistics.
 	startedAt                      time.Time                   // Time at which the session began running.
-	trainingTime                   scheduling.SessionStatistic // Moving average of training times.
+	trainingTimeWithOverheads      scheduling.SessionStatistic // Moving average of training times.
 	migrationTime                  scheduling.SessionStatistic // Moving average of migration times.
 	interactivePriority            float64                     // Interactivity Priority
 	interactivePriorityExplanation string                      // Explanation of current Interactivity Priority value.
 	preemptionPriority             cache.InlineCache           // Preemption Priority
 	preemptionPriorityExplanation  string                      // Explanation of current  Preemption Priority value.
+	numTrainingEventsProcessed     int                         // numTrainingEventsProcessed is the number of training events processed by this Session.
 
 	interactivePriorityHistory *ValueHistory[float64]
 	preemptionPriorityHistory  *ValueHistory[float64]
@@ -138,7 +141,7 @@ func (b *SessionBuilder) Build() *Session {
 		log:                        config.GetLogger(fmt.Sprintf("Session %s ", b.id)),
 		sessionState:               scheduling.SessionStateInit,
 		startedAt:                  time.Now(),
-		trainingTime:               NewMovingStatistic(b.trainingTimeSampleWindowSize),
+		trainingTimeWithOverheads:  NewMovingStatistic(b.trainingTimeSampleWindowSize),
 		migrationTime:              NewMovingStatistic(b.migrationTimeSampleWindowSize),
 		stateTransitions:           make([]*sessionStateTransition, 0),
 		interactivePriorityHistory: NewValueHistory[float64]("Interactive Priority", "float64"),
@@ -146,6 +149,8 @@ func (b *SessionBuilder) Build() *Session {
 		trainingTimeHistory:        NewValueHistory[time.Duration]("Training Time", "time.Duration"),
 		migrationTimeHistory:       NewValueHistory[time.Duration]("Migration Time", "time.Duration"),
 		containers:                 make(map[int32]scheduling.KernelContainer),
+		numTrainingEventsProcessed: 0,
+		idleStartTime:              time.Now(),
 	}
 
 	initialInteractivePriority := session.updateInteractivePriority("session started")
@@ -158,6 +163,11 @@ func (b *SessionBuilder) Build() *Session {
 	return session
 }
 
+// CumulativeTrainingTime returns the sum of time that this Session has spent training, excluding any associated overheads.
+func (s *Session) CumulativeTrainingTime() time.Duration {
+	return s.cumulativeTrainingTime
+}
+
 // Lock locks the Session.
 func (s *Session) Lock() {
 	s.mu.Lock()
@@ -166,6 +176,11 @@ func (s *Session) Lock() {
 // Unlock unlocks the Session.
 func (s *Session) Unlock() {
 	s.mu.Unlock()
+}
+
+// NumTrainingEventsProcessed returns the number of training events processed by this Session.
+func (s *Session) NumTrainingEventsProcessed() int {
+	return s.numTrainingEventsProcessed
 }
 
 // AddReplica adds a given Container to the Session's slice of Containers.
@@ -417,13 +432,25 @@ func (s *Session) unsafeTrainingStopped(reason string) promise.Promise {
 
 	trainingDuration := time.Since(s.trainingStart)
 	s.trainingTimeHistory.AddValue(trainingDuration)
-	s.trainingTime.Add(float64(trainingDuration) / float64(time.Second))
+	s.trainingTimeWithOverheads.Add(float64(trainingDuration) / float64(time.Second))
+	s.idleStartTime = time.Now()
+	s.numTrainingEventsProcessed += 1
 
 	latestInteractivePriority := s.updateInteractivePriority("training stopped")
 	s.interactivePriorityHistory.AddValue(latestInteractivePriority)
 
 	s.log.Debug("%s has stopped training on Host %s.", s.trainingContainer.String(), s.trainingContainer.Host().GetID())
 	return promise.Resolved(s.instance)
+}
+
+// IdleTime returns the time that the Session has been idle (i.e., not training), as well as a flag indicating
+// whether the Session is currently idle.
+func (s *Session) IdleTime() (time.Duration, bool) {
+	if s.IsIdle() {
+		return time.Since(s.idleStartTime), true
+	}
+
+	return time.Duration(-1), false
 }
 
 // MigrationStarted should be called when one of the replicas of the Session begins the
@@ -603,7 +630,7 @@ func (s *Session) Explain(key scheduling.ExplainerEntry) string {
 }
 
 func (s *Session) TrainingTime() scheduling.SessionStatistic {
-	return s.trainingTime
+	return s.trainingTimeWithOverheads
 }
 
 func (s *Session) MigrationTime() float64 {

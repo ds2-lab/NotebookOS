@@ -17,15 +17,16 @@ type Container struct {
 
 	log logger.Logger
 
-	session           scheduling.UserSession    // The Session associated with the Container.
-	replicaId         int32                     // The SMR node ID of the kernel replica running within the Container.
-	host              scheduling.Host           // The Host on which the Container is currently scheduled.
-	id                string                    // The kernel ID of the Container.
-	containerState    scheduling.ContainerState // The current state of the Container.
-	executions        atomic.Int32              // The number of training events processed by the Container.
-	trainingStartedAt time.Time                 // The time at which the Container started training.
-	startedAt         time.Time                 // The time at which the Container was created.
-	addr              string                    // The address of the Container.
+	session                    scheduling.UserSession    // The Session associated with the Container.
+	replicaId                  int32                     // The SMR node ID of the kernel replica running within the Container.
+	host                       scheduling.Host           // The Host on which the Container is currently scheduled.
+	id                         string                    // The kernel ID of the Container.
+	containerState             scheduling.ContainerState // The current state of the Container.
+	executions                 atomic.Int32              // The number of training events processed by the Container.
+	trainingStartedAt          time.Time                 // The time at which the Container started training.
+	startedAt                  time.Time                 // The time at which the Container was created.
+	addr                       string                    // The address of the Container.
+	numTrainingEventsProcessed int                       // numTrainingEventsProcessed is the number of training events processed by this Container.
 
 	spec     *types.DecimalSpec
 	lastSpec *types.DecimalSpec
@@ -300,6 +301,8 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 	c.log.Debug("Committed CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 		c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs(), c.host.Stats().CommittedVRAM())
 
+	c.numTrainingEventsProcessed += 1
+
 	err := c.host.ContainerStoppedTraining(c)
 	if err != nil {
 		return err
@@ -345,4 +348,10 @@ func (c *Container) ContainerStopped() error {
 	c.log.Debug("scheduling.Container for replica %d of kernel %s has stopped.", c.replicaId, c.id)
 
 	return nil
+}
+
+// NumTrainingEventsProcessed returns the number of training events processed by this particular Container.
+// This is NOT (necessarily) equal to the total number of training events processed by the UserSession.
+func (c *Container) NumTrainingEventsProcessed() int {
+	return c.numTrainingEventsProcessed
 }

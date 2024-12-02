@@ -82,7 +82,7 @@ type BaseCluster struct {
 	validateCapacityInterval time.Duration
 
 	// statisticsUpdaterProvider is used to update metrics/statistics.
-	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))
 
 	opts *scheduling.SchedulerOptions
 }
@@ -91,7 +91,7 @@ type BaseCluster struct {
 // This function is for package-internal or file-internal use only.
 func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 	clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string,
-	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider) *BaseCluster {
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))) *BaseCluster {
 
 	cluster := &BaseCluster{
 		opts:                      opts,

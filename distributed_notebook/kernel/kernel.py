@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import faulthandler
 import inspect
 import json
@@ -167,6 +166,9 @@ class DistributedKernel(IPythonKernel):
 
     spec_vram_gb: Float = Float(0, help="Amount of VRAM in GB used by the kernel").tag(config=True)
 
+    gpu_memory_bandwidth_bytes_sec: Float = Float(900_000_000_000, help="Memory bandwidth of the GPU in bytes/sec").tag(
+        config=True)
+
     simulate_checkpointing_latency: Bool = Bool(True, help="Simulate network I/O").tag(config=True)
 
     deployment_mode: Union[str, Unicode] = Unicode(default_value='docker-swarm',
@@ -293,6 +295,9 @@ class DistributedKernel(IPythonKernel):
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
+
+        self.log.debug(f"Initial resource request: {self.current_resource_request}")
+        self.log.debug(f"GPU memory bandwidth: {self.gpu_memory_bandwidth_bytes_sec / 1.0e9} bytes/sec")
 
         if "local_tcp_server_port" in kwargs:
             self.log.warning(f"Overriding default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
@@ -2342,74 +2347,38 @@ class DistributedKernel(IPythonKernel):
         msg_header: dict[str, Any] = msg.get('header', {})
         msg_type: str = msg_header.get('msg_type', "N/A")
         msg_id: str = msg_header.get('msg_id', "N/A")
-        self.log.debug(f"Extracting buffers from \"{msg_type}\" message \"{msg_id}\" with {len(msg)} frames now...")
+        # self.log.debug(f"Extracting buffers from \"{msg_type}\" message \"{msg_id}\" with {len(msg)} frames now...")
 
         if "buffers" in msg:
-            self.log.debug(f"Found buffers frame in \"{msg_type}\" message \"{msg_id}\": {msg['buffers']}")
+            # self.log.debug(f"Found buffers frame in \"{msg_type}\" message \"{msg_id}\".")
             buffers = msg["buffers"]
         else:
-            frame_names: str = ", ".join(list(msg.keys()))
-            self.log.warning(f"No buffers frame found in \"{msg_type}\" message \"{msg_id}\". "
-                             f"Message only has the following frames: {frame_names}")
+            # frame_names: str = ", ".join(list(msg.keys()))
+            # self.log.warning(f"No buffers frame found in \"{msg_type}\" message \"{msg_id}\". "
+            #                  f"Message only has the following frames: {frame_names}")
             buffers = []
 
         request_trace_frame: dict[str, Any] = self.decode_request_trace_from_buffers(buffers, msg_id=msg_id,
                                                                                      msg_type=msg_type)
         if isinstance(request_trace_frame, dict) and "request_trace" in request_trace_frame:
             request_trace: dict[str, Any] = request_trace_frame["request_trace"]
-            request_traces: list[Any] = request_trace["traces"]
 
-            if len(request_traces) > 0:
-                lastTrace = request_traces[-1]
-                lastTrace["endTimeUnixMicro"] = int(received_at * 1e6)
-                lastTrace["endTimestamp"] = datetime.datetime.fromtimestamp(received_at).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-                lastTrace["durationMicroseconds"] = int(received_at * 1e6) - lastTrace["startTimeUnixMicro"]
-
-                trace = {
-                    "id": str(uuid.uuid4()),
-                    "name": "Kernel Processing Request",
-                    "startTimeUnixMicro": int(received_at * 1e6),
-                    "endTimeUnixMicro": -1,
-                    "startTimestamp": datetime.datetime.fromtimestamp(received_at).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                    "endTimestamp": "",
-                    "durationMicroseconds": -1,
-                }
+            if received_at > 0:
+                received_at = int(math.floor(received_at))
+                # self.log.debug(f"Updating \"requestReceivedByKernelReplica\" field in RequestTrace found in "
+                #                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value {received_at} now.")
+                request_trace["requestReceivedByKernelReplica"] = received_at
             else:
-                now = time.time()
-
-                lastTrace = request_traces[-1]
-                lastTrace["endTimeUnixMicro"] = int(now * 1e6)
-                lastTrace["endTimestamp"] = datetime.datetime.fromtimestamp(now).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-                lastTrace["durationMicroseconds"] = int(now * 1e6) - lastTrace["startTimeUnixMicro"]
-
-                trace = {
-                    "id": str(uuid.uuid4()),
-                    "name": "[Kernel] --> Recipient",
-                    "startTimeUnixMicro": int(now * 1e6),
-                    "endTimeUnixMicro": -1,
-                    "startTimestamp": datetime.datetime.fromtimestamp(now).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-                    "endTimestamp": "",
-                    "durationMicroseconds": -1,
-                }
-
-            request_traces.append(trace)
-
-            # if received_at > 0:
-            #     received_at = int(math.floor(received_at))
-            #     # self.log.debug(f"Updating \"requestReceivedByKernelReplica\" field in RequestTrace found in "
-            #     #                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value {received_at} now.")
-            #     request_trace["requestReceivedByKernelReplica"] = received_at
-            # else:
-            #     reply_sent_by_kernel_replica: int = int(math.floor((time.time() * 1.0e3)))
+                reply_sent_by_kernel_replica: int = int(math.floor((time.time() * 1.0e3)))
                 # self.log.debug(f"Updating \"replySentByKernelReplica\" field in RequestTrace found in "
                 #                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value "
                 #                f"{reply_sent_by_kernel_replica} now.")
-            #     request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
+                request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
 
             request_trace["replicaId"] = self.smr_node_id
 
             buffers[0] = json.dumps(request_trace_frame).encode('utf-8')
-            self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")
+            # self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")
             msg["buffers"] = buffers
             return buffers
         # else:

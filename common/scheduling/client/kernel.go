@@ -125,7 +125,7 @@ type KernelReplicaClient struct {
 	// Used to update the fields of the Cluster Gateway's GatewayStatistics struct atomically.
 	// The Cluster Gateway locks modifications to the GatewayStatistics struct before calling whatever function
 	// we pass to the statisticsUpdaterProvider.
-	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))
 
 	log logger.Logger
 	mu  sync.Mutex
@@ -142,7 +142,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	persistentId string, hostId string, host scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
 	debugMode bool, messagingMetricsProvider metrics.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback,
-	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider) *KernelReplicaClient {
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))) *KernelReplicaClient {
 
 	// Validate that the `spec` argument is non-nil.
 	if spec == nil {

@@ -190,7 +190,7 @@ message QueryMessageRequest {
 //
 // It encodes the existence/status of the specified or requested ZMQ message.
 message QueryMessageResponse {
-  repeated RequestTraceUpdated requestTraces = 1;
+  repeated RequestTrace requestTraces = 1;
 }
 
 // gRPC service provided by the Dashboard and "used" by the Cluster Gateway
@@ -422,7 +422,7 @@ message Pong {
   string id = 1;
   bool success = 2;
   string msg = 3; // For adding extra details if the ping fails.
-  repeated RequestTraceUpdated requestTraces = 4;
+  repeated RequestTrace requestTraces = 4;
 }
 
 // Individual Trace that is encapsulated within a larger RequestTrace.
@@ -462,6 +462,25 @@ message RequestTrace {
   int64 replyReceivedByGateway = 13;
   int64 replySentByGateway = 14;
   string requestTraceUuid = 15;
+
+  // CudaInitMicroseconds is the amount of time spent initializing the CUDA runtime, if applicable.
+  // The units are microseconds.
+  int64 cudaInitMicroseconds = 16;
+  // DownloadDependencyMicroseconds is the amount of time spent downloading library dependencies, if applicable.
+  // The units are microseconds.
+  int64 downloadDependencyMicroseconds = 17;
+  // DownloadModelAndTrainingDataMicroseconds is the amount of time spent downloading the model and training data,
+  // if applicable. The units are microseconds.
+  int64 downloadModelAndTrainingDataMicroseconds = 18;
+  // UploadModelAndTrainingDataMicroseconds is the amount of time spent uploading the model and training data,
+  // if applicable. The units are microseconds.
+  int64 uploadModelAndTrainingDataMicroseconds = 19;
+  // ExecutionTimeMicroseconds is the amount of time spent executing user-submitted code, excluding any other
+  // overheads, if applicable. The units are microseconds.
+  int64 executionTimeMicroseconds = 20;
+  // ReplayTimeMicroseconds is the amount of time spent replaying previous cells, excluding any other overheads,
+  // if applicable. The units are microseconds.
+  int64 replayTimeMicroseconds = 21;
 }
 
 message PingInstruction {

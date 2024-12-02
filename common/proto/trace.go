@@ -19,7 +19,7 @@ const (
 // JupyterRequestTraceFrame is a wrapper around a *RequestTrace that allows us to deserialize the
 // associated frame of a messaging.JupyterMessage when it contains a serialized/JSON-encoded *RequestTrace.
 type JupyterRequestTraceFrame struct {
-	RequestTrace *RequestTraceUpdated `json:"request_trace" mapstructure:"request_trace"`
+	RequestTrace *RequestTrace `json:"request_trace" mapstructure:"request_trace"`
 }
 
 func (f *JupyterRequestTraceFrame) String() string {
@@ -34,8 +34,8 @@ func (f *JupyterRequestTraceFrame) String() string {
 // NewRequestTrace creates a new RequestTrace and returns a pointer to it.
 //
 // The RequestTrace struct has all of its timing fields initialized to -1.
-func NewRequestTrace(kernelId string, messageType string, messageId string) *RequestTraceUpdated {
-	return &RequestTraceUpdated{
+func NewRequestTrace(kernelId string, messageType string, messageId string) *RequestTrace {
+	return &RequestTrace{
 		ReplicaId:        -1,
 		KernelId:         kernelId,
 		MessageType:      messageType,

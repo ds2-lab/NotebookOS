@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"io"
 	"log"
 	"math"
@@ -80,6 +82,9 @@ type AbstractServer struct {
 	//
 	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
 	MessageAcknowledgementsEnabled bool
+
+	// StatisticsUpdaterProvider is used by the AbstractServer instance(s) running within the Cluster Gateway.
+	StatisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))
 
 	// MessageQueueCapacity is the amount that the message queue (which is a chan) is buffered
 	//MessageQueueCapacity int
@@ -983,6 +988,28 @@ func (s *AbstractServer) shouldAddRequestTrace(msg *messaging.JupyterMessage, so
 	return false
 }
 
+func (s *AbstractServer) tryUpdateClusterStatisticsFromRequestTrace(trace *proto.RequestTrace) {
+	if s.StatisticsUpdaterProvider == nil {
+		return
+	}
+
+	gatewayRequestProcessTime := trace.RequestSentByGateway - trace.RequestReceivedByGateway
+	localDaemonRequestProcessTime := trace.RequestSentByLocalDaemon - trace.RequestReceivedByLocalDaemon
+	kernelProcessingTime := trace.ReplySentByKernelReplica - trace.RequestReceivedByKernelReplica
+
+	gatewayResponseProcessTime := trace.ReplySentByGateway - trace.ReplyReceivedByGateway
+	localDaemonResponseProcessTime := trace.ReplySentByLocalDaemon - trace.ReplyReceivedByLocalDaemon
+
+	s.StatisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
+		statistics.CumulativeRequestProcessingTimeClusterGateway += gatewayRequestProcessTime
+		statistics.CumulativeRequestProcessingTimeLocalDaemon += localDaemonRequestProcessTime
+		statistics.CumulativeRequestProcessingTimeKernel += kernelProcessingTime
+		
+		statistics.CumulativeResponseProcessingTimeClusterGateway += gatewayResponseProcessTime
+		statistics.CumulativeResponseProcessingTimeLocalDaemon += localDaemonResponseProcessTime
+	})
+}
+
 // sendRequestWithRetries encapsulates the logic of sending the given messaging.Request using the given messaging.Socket
 // in a reliable way; that is, sendRequestWithRetries will resubmit the given messaging.Request if an ACK is not received
 // within the messaging.Request's configured timeout window, up to the messaging.Request's configured maximum number of attempts.
@@ -999,11 +1026,15 @@ func (s *AbstractServer) sendRequestWithRetries(request messaging.Request, socke
 	if s.shouldAddRequestTrace(request.Payload(), socket) {
 		// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 		//	socket.Type.String(), request.JupyterMessageType())
-		_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), time.Now(), s.Log, false)
+		trace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), time.Now(), s.Log)
 		if err != nil {
 			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
 			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
 			panic(err)
+		}
+
+		if added {
+			s.tryUpdateClusterStatisticsFromRequestTrace(trace)
 		}
 	}
 
@@ -1223,12 +1254,19 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 					// We only want to add traces to Shell, Control, and a subset of IOPub messages.
 					// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 					//	socket.Type.String(), jMsg.JupyterMessageType())
-					_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, receivedAt, s.Log, true)
+					_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, receivedAt, s.Log)
 					if err != nil {
 						s.Log.Error("Failed to add RequestTrace to JupyterMessage: %v.", err)
 						panic(err)
 					}
 				}
+			}
+
+			if s.StatisticsUpdaterProvider != nil {
+				s.StatisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
+					// We know we're in the Gateway if the StatisticsUpdaterProvider
+					statistics.NumJupyterMessagesReceivedByClusterGateway += 1
+				})
 			}
 		} else {
 			msg = err

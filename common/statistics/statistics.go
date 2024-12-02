@@ -24,6 +24,66 @@ type ClusterStatistics struct {
 	CumulativeTimeProvisioningHosts float64 `csv:"CumulativeTimeProvisioningHostsSec" json:"CumulativeTimeProvisioningHostsSec"`
 
 	///////////////
+	// Messaging //
+	///////////////
+
+	NumJupyterMessagesReceivedByClusterGateway int64 `json:"num_jupyter_messages_received_by_cluster_gateway" csv:"num_jupyter_messages_received_by_cluster_gateway"`
+	NumJupyterRepliesSentByClusterGateway      int64 `json:"num_jupyter_replies_sent_by_cluster_gateway" csv:"num_jupyter_replies_sent_by_cluster_gateway"`
+
+	// CumulativeRequestProcessingTimeClusterGateway is calculated using the RequestTrace proto message.
+	CumulativeRequestProcessingTimeClusterGateway int64 `json:"cumulative_request_processing_time_cluster_gateway" csv:"cumulative_request_processing_time_cluster_gateway"`
+	// CumulativeRequestProcessingTimeLocalDaemon is calculated using the RequestTrace proto message.
+	CumulativeRequestProcessingTimeLocalDaemon int64 `json:"cumulative_request_processing_time_local_daemon" csv:"cumulative_request_processing_time_local_daemon"`
+
+	// CumulativeRequestProcessingTimeKernel is calculated using the RequestTrace proto message.
+	CumulativeRequestProcessingTimeKernel int64
+
+	// CumulativeRequestProcessingTimeClusterGateway is calculated using the RequestTrace proto message.
+	CumulativeResponseProcessingTimeClusterGateway int64 `json:"cumulative_response_processing_time_cluster_gateway" csv:"cumulative_response_processing_time_cluster_gateway"`
+	// CumulativeRequestProcessingTimeLocalDaemon is calculated using the RequestTrace proto message.
+	CumulativeResponseProcessingTimeLocalDaemon int64 `json:"cumulative_response_processing_time_local_daemon" csv:"cumulative_response_processing_time_local_daemon"`
+	// CumulativeRequestProcessingTimeKernel is calculated using the RequestTrace proto message.
+
+	////////////////////////////////////////
+	// Execution/Kernel-Related Overheads //
+	////////////////////////////////////////
+
+	// CumulativeCudaInitMicroseconds is the cumulative, aggregate time spent initializing CUDA runtimes by all kernels.
+	CumulativeCudaInitMicroseconds int64 `json:"cumulative_cuda_init_microseconds" csv:"cumulative_cuda_init_microseconds"`
+	// NumCudaRuntimesInitialized is the number of times a CUDA runtime was initialized.
+	NumCudaRuntimesInitialized int64 `json:"num_cuda_runtimes_initialized" csv:"num_cuda_runtimes_initialized"`
+
+	// CumulativeTimeDownloadingDependenciesMicroseconds is the cumulative, aggregate time spent downloading
+	// runtime/library/module dependencies by all kernels.
+	CumulativeTimeDownloadingDependenciesMicroseconds int64 `json:"cumulative_time_downloading_dependencies_microseconds" csv:"cumulative_time_downloading_dependencies_microseconds"`
+	// NumTimesDownloadedDependencies is the total number of times that a kernel downloaded dependencies.
+	NumTimesDownloadedDependencies int64 `json:"num_times_downloaded_dependencies" csv:"num_times_downloaded_dependencies"`
+
+	// CumulativeTimeDownloadingDependenciesMicroseconds is the cumulative, aggregate time spent downloading the model
+	// and training data by all kernels.
+	CumulativeTimeDownloadModelAndTrainingDataMicroseconds int64 `json:"cumulative_time_download_model_and_training_data_microseconds" csv:"cumulative_time_download_model_and_training_data_microseconds"`
+	// NumTimesDownloadedDependencies is the total number of times that a kernel downloaded the model and training data.
+	NumTimesDownloadModelAndTrainingDataMicroseconds int64 `json:"num_times_download_model_and_training_data_microseconds" csv:"num_times_download_model_and_training_data_microseconds"`
+
+	// CumulativeTimeDownloadingDependenciesMicroseconds is the cumulative, aggregate time spent uploading the model
+	// and training data by all kernels.
+	CumulativeTimeUploadModelAndTrainingDataMicroseconds int64 `json:"cumulative_time_upload_model_and_training_data_microseconds" csv:"cumulative_time_upload_model_and_training_data_microseconds"`
+	// NumTimesDownloadedDependencies is the total number of times that a kernel uploaded the model and training data.
+	NumTimesUploadModelAndTrainingDataMicroseconds int64 `json:"num_times_upload_model_and_training_data_microseconds" csv:"num_times_upload_model_and_training_data_microseconds"`
+
+	// CumulativeExecutionTimeMicroseconds is the cumulative, aggregate time spent executing user code, excluding any
+	// related overheads, by all kernels.
+	CumulativeExecutionTimeMicroseconds int64 `json:"cumulative_execution_time_microseconds" csv:"cumulative_execution_time_microseconds"`
+
+	// CumulativeReplayTimeMicroseconds is the cumulative, aggregate time spent replaying cells, excluding any
+	// related overheads, by all kernels.
+	CumulativeReplayTimeMicroseconds int64 `json:"cumulative_replay_time_microseconds" csv:"cumulative_replay_time_microseconds"`
+	// TotalNumReplays is the total number of times that one or more cells had to be replayed by a kernel.
+	TotalNumReplays int64 `json:"total_num_replays" csv:"total_num_replays"`
+	// TotalNumCellsReplayed is the total number of cells that were replayed by all kernels.
+	TotalNumCellsReplayed int64 `json:"total_num_cells_replayed" csv:"total_num_cells_replayed"`
+
+	///////////////
 	// Resources //
 	///////////////
 

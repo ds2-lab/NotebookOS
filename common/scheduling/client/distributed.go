@@ -73,7 +73,7 @@ type DistributedClientProvider interface {
 		connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
 		debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
 		executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider,
-		updater scheduling.StatisticsUpdaterProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel
+		updater func(func(statistics *statistics.ClusterStatistics)), notificationCallback scheduling.NotificationCallback) scheduling.Kernel
 }
 
 // TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
@@ -155,7 +155,7 @@ type DistributedKernelClient struct {
 	// Used to update the fields of the Cluster Gateway's GatewayStatistics struct atomically.
 	// The Cluster Gateway locks modifications to the GatewayStatistics struct before calling whatever function
 	// we pass to the statisticsUpdaterProvider.
-	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))
 }
 
 // DistributedKernelClientProvider enables the creation of DistributedKernelClient structs.
@@ -167,7 +167,7 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int,
 	persistentId string, debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
 	executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider,
-	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)), notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 	kernel := &DistributedKernelClient{
 		id:                       spec.Id,

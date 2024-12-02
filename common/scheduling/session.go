@@ -71,6 +71,16 @@ type UserSession interface {
 	SessionStartedTraining(container KernelContainer) promise.Promise
 	SessionStoppedTraining(reason string) promise.Promise
 	GetReplicaContainer(replicaId int32) (KernelContainer, bool)
+
+	// IdleTime returns the time that the Session has been idle (i.e., not training), as well as a flag indicating
+	// whether the Session is currently idle.
+	IdleTime() (time.Duration, bool)
+
+	// CumulativeTrainingTime returns the sum of time that this Session has spent training, excluding any associated overheads.
+	CumulativeTrainingTime() time.Duration
+
+	// NumTrainingEventsProcessed returns the number of training events processed by this Session.
+	NumTrainingEventsProcessed() int
 }
 
 // SessionStatistics is an interface that maintains/reports/provides access to the various statistical quantities

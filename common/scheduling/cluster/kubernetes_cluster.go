@@ -41,7 +41,7 @@ func (c *KubernetesCluster) Scheduler() scheduling.Scheduler {
 func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec, placer scheduling.Placer,
 	hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
 	notificationBroker scheduler.NotificationBroker, schedulingPolicy scheduling.Policy,
-	statisticsUpdaterProvider scheduling.StatisticsUpdaterProvider, opts *scheduling.SchedulerOptions) *KubernetesCluster {
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)), opts *scheduling.SchedulerOptions) *KubernetesCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "KubernetesCluster", statisticsUpdaterProvider)
 	kubernetesCluster := &KubernetesCluster{
