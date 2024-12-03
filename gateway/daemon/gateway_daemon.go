@@ -102,12 +102,20 @@ type GatewayDaemonConfig func(ClusterGateway)
 // visually of the panic in the cluster dashboard).
 type FailureHandler func(c scheduling.Kernel) error
 
+type DistributedClientProvider interface {
+	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
+		connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
+		debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
+		executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider,
+		updater func(func(statistics *statistics.ClusterStatistics)), notificationCallback scheduling.NotificationCallback) scheduling.Kernel
+}
+
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
 // This interface exists so that we can spoof it during unit tests.
 type ClusterGateway interface {
 	proto.ClusterGatewayServer
 
-	SetDistributedClientProvider(provider client.DistributedClientProvider)
+	SetDistributedClientProvider(provider DistributedClientProvider)
 
 	SetClusterOptions(*scheduling.SchedulerOptions)
 
@@ -188,7 +196,7 @@ type ClusterGatewayImpl struct {
 	connectionOptions *jupyter.ConnectionInfo
 	ClusterOptions    *scheduling.SchedulerOptions
 
-	DistributedClientProvider client.DistributedClientProvider
+	DistributedClientProvider DistributedClientProvider
 
 	// cluster provisioning related members
 	listener net.Listener
@@ -606,7 +614,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	return clusterGateway
 }
 
-func (d *ClusterGatewayImpl) SetDistributedClientProvider(provider client.DistributedClientProvider) {
+func (d *ClusterGatewayImpl) SetDistributedClientProvider(provider DistributedClientProvider) {
 	d.DistributedClientProvider = provider
 }
 

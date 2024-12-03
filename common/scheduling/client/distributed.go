@@ -68,14 +68,6 @@ func (r *ReplicaKernelInfo) String() string {
 	return r.replica.String()
 }
 
-type DistributedClientProvider interface {
-	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
-		connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
-		debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
-		executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider,
-		updater func(func(statistics *statistics.ClusterStatistics)), notificationCallback scheduling.NotificationCallback) scheduling.Kernel
-}
-
 // TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
 // of a given kernel is/are not scheduled, and that kernel receives a message.
 type TemporaryKernelReplicaClient struct {
