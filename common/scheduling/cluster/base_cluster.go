@@ -14,7 +14,6 @@ import (
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -656,6 +655,26 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 		return promise.Resolved(nil, err)
 	}
 
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleOutStarted,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Metadata: map[string]interface{}{
+					"initial_scale": currentNumNodes,
+					"target_scale":  targetNumNodes,
+					"operation_id":  scaleOp.OperationId,
+				},
+			})
+
+			stats.NumActiveScaleOutEvents += 1
+		})
+	}
+
 	c.log.Debug("Beginning scale-out from %d nodes to %d nodes.", scaleOp.InitialScale, scaleOp.TargetScale)
 
 	// Start the operation.
@@ -666,7 +685,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 
 		// Unregister the failed scale-out operation.
 		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+			c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 		}
 
 		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
@@ -674,16 +693,55 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 
 	c.log.Debug("Scale-out from %d nodes to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
 
 	numProvisioned := c.Len() - int(scaleOp.InitialScale)
 	if numProvisioned > 0 && c.statisticsUpdaterProvider != nil {
 		c.statisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
-			statistics.CumulativeNumHostsProvisioned += numProvisioned
+
+		})
+	}
+
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			var operationStatus string
+			if numProvisioned > 0 {
+				stats.NumSuccessfulScaleOutEvents += 1
+				stats.CumulativeNumHostsProvisioned += numProvisioned
+
+				if int32(c.Len()) == targetNumNodes {
+					operationStatus = "complete_success"
+				} else {
+					operationStatus = "partial_success"
+				}
+			} else {
+				stats.NumFailedScaleOutEvents += 1
+				operationStatus = "total_failure"
+			}
 
 			duration, _ := scaleOp.GetDuration()
-			statistics.CumulativeTimeProvisioningHosts += duration.Seconds()
+			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleOutEnded,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Duration:            duration,
+				DurationMillis:      duration.Milliseconds(),
+				Metadata: map[string]interface{}{
+					"initial_scale":   currentNumNodes,
+					"target_scale":    targetNumNodes,
+					"resulting_scale": c.Len(),
+					"operationStatus": operationStatus,
+					"operation_id":    scaleOp.OperationId,
+				},
+			})
+
+			stats.NumActiveScaleOutEvents -= 1
 		})
 	}
 
@@ -721,6 +779,27 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
 	}
 
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			stats.NumActiveScaleInEvents += 1
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleInStarted,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Metadata: map[string]interface{}{
+					"initial_scale": currentNumNodes,
+					"target_scale":  targetNumNodes,
+					"operation_id":  scaleOp.OperationId,
+					"target_nodes":  ids,
+				},
+			})
+		})
+	}
+
 	// Start the operation.
 	result, err := scaleOp.Start(ctx)
 	if err != nil {
@@ -729,7 +808,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 
 		// Unregister the failed scale-in operation.
 		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+			c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 		}
 
 		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
@@ -737,8 +816,52 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 
 	c.log.Debug("Scale-in from %d nodes down to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
+
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			numReleased := currentNumNodes - int32(c.Len())
+			var operationStatus string
+			if numReleased > 0 {
+				stats.NumSuccessfulScaleInEvents += 1
+				stats.CumulativeNumHostsProvisioned += int(numReleased)
+
+				if int32(c.Len()) == targetNumNodes {
+					operationStatus = "complete_success"
+				} else {
+					operationStatus = "partial_success"
+				}
+			} else {
+				stats.NumFailedScaleInEvents += 1
+				operationStatus = "total_failure"
+			}
+
+			duration, _ := scaleOp.GetDuration()
+			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleInEnded,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Duration:            duration,
+				DurationMillis:      duration.Milliseconds(),
+				Metadata: map[string]interface{}{
+					"initial_scale":   currentNumNodes,
+					"target_scale":    targetNumNodes,
+					"resulting_scale": c.Len(),
+					"operationStatus": operationStatus,
+					"operation_id":    scaleOp.OperationId,
+				},
+			})
+
+			stats.NumActiveScaleInEvents -= 1
+		})
+	}
+
 	return promise.Resolved(result)
 }
 
@@ -779,6 +902,26 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
 	}
 
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			stats.NumActiveScaleInEvents += 1
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleInStarted,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Metadata: map[string]interface{}{
+					"initial_scale": currentNumNodes,
+					"target_scale":  targetNumNodes,
+					"operation_id":  scaleOp.OperationId,
+				},
+			})
+		})
+	}
+
 	// Start the operation.
 	result, err := scaleOp.Start(ctx)
 	if err != nil {
@@ -787,7 +930,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 
 		// Unregister the failed scale-in operation.
 		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+			c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 		}
 
 		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
@@ -795,7 +938,50 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 
 	c.log.Debug("Scale-in from %d nodes to %d nodes has succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+	}
+
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			numReleased := currentNumNodes - int32(c.Len())
+			var operationStatus string
+			if numReleased > 0 {
+				stats.NumSuccessfulScaleInEvents += 1
+				stats.CumulativeNumHostsProvisioned += int(numReleased)
+
+				if int32(c.Len()) == targetNumNodes {
+					operationStatus = "complete_success"
+				} else {
+					operationStatus = "partial_success"
+				}
+			} else {
+				stats.NumFailedScaleInEvents += 1
+				operationStatus = "total_failure"
+			}
+
+			duration, _ := scaleOp.GetDuration()
+			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleInEnded,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Duration:            duration,
+				DurationMillis:      duration.Milliseconds(),
+				Metadata: map[string]interface{}{
+					"initial_scale":   currentNumNodes,
+					"target_scale":    targetNumNodes,
+					"resulting_scale": c.Len(),
+					"operationStatus": operationStatus,
+					"operation_id":    scaleOp.OperationId,
+				},
+			})
+
+			stats.NumActiveScaleInEvents -= 1
+		})
 	}
 
 	return promise.Resolved(result)

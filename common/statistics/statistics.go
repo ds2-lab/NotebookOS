@@ -11,6 +11,10 @@ const (
 	KernelTrainingStarted   ClusterEventName = "kernel_training_started"
 	KernelTrainingEnded     ClusterEventName = "kernel_training_ended"
 	KernelStopped           ClusterEventName = "kernel_stopped"
+	ScaleOutStarted         ClusterEventName = "scale_out_started"
+	ScaleOutEnded           ClusterEventName = "scale_out_ended"
+	ScaleInStarted          ClusterEventName = "scale_in_started"
+	ScaleInEnded            ClusterEventName = "scale_in_ended"
 )
 
 type ClusterEventName string
@@ -63,10 +67,20 @@ type ClusterStatistics struct {
 	// The aggregate, cumulative lifetime of the hosts that are currently running.
 	AggregateHostLifetimeOfRunningHosts float64 `csv:"AggregateHostLifetimeOfRunningHostsSec" json:"AggregateHostLifetimeOfRunningHostsSec"`
 
-	// The total (cumulative) number of hosts provisioned during the simulation run.
+	// The total (cumulative) number of hosts provisioned during.
 	CumulativeNumHostsProvisioned int `csv:"CumulativeNumHostsProvisioned" json:"CumulativeNumHostsProvisioned"`
+	// The total (cumulative) number of hosts released during.
+	CumulativeNumHostsReleased int `json:"cumulative_num_hosts_released" csv:"cumulative_num_hosts_released"`
 	// The total amount of time spent provisioning hosts.
 	CumulativeTimeProvisioningHosts float64 `csv:"CumulativeTimeProvisioningHostsSec" json:"CumulativeTimeProvisioningHostsSec"`
+
+	NumActiveScaleOutEvents     int `json:"num_active_scale_out_events" csv:"num_active_scale_out_events"`
+	NumSuccessfulScaleOutEvents int `json:"num_successful_scale_out_events" csv:"num_successful_scale_out_events"`
+	NumFailedScaleOutEvents     int `json:"num_failed_scale_out_events" csv:"num_failed_scale_out_events"`
+
+	NumActiveScaleInEvents     int `json:"num_active_scale_in_events" csv:"num_active_scale_in_events"`
+	NumSuccessfulScaleInEvents int `json:"num_successful_scale_in_events" csv:"num_successful_scale_in_events"`
+	NumFailedScaleInEvents     int `json:"num_failed_scale_in_events" csv:"num_failed_scale_in_events"`
 
 	///////////////
 	// Messaging //
