@@ -918,7 +918,7 @@ func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize L
 	return nil
 }
 
-// Register a Kernel that has started running on the same node as we are.
+// Register a Kernel that has started running on the same node that we are running on.
 // This method must be thread-safe.
 func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelRegistrationClient *KernelRegistrationClient) {
 	registeredAt := time.Now()
@@ -999,21 +999,6 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 
 	d.log.Debug("Kernel replica spec: %v", kernelReplicaSpec)
 
-	listenPorts, err := d.availablePorts.RequestPorts()
-	if err != nil {
-		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            "Unable to Assign \"Listen\" Ports for New Kernel",
-			Message:          fmt.Sprintf("Unable to assign \"listen\" ports for new replica %d of kernel %s because: %s.", registrationPayload.ReplicaId, registrationPayload.Kernel.Id, err.Error()),
-			NotificationType: 0,
-			Panicked:         true,
-		})
-		panic(err)
-	}
-
-	d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v",
-		registrationPayload.ReplicaId, registrationPayload.Kernel.Id, listenPorts)
-
 	// If we're running in Kubernetes mode, then we need to create a new kernel client here (as well as a new DockerInvoker).
 	// If we're running in Docker mode, then we'll already have created the kernel client for this kernel.
 	// We create the kernel client in Docker mode when we launch the kernel (using a DockerInvoker).
@@ -1024,6 +1009,21 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		kernelConnectionInfo        *proto.KernelConnectionInfo
 	)
 	if d.deploymentMode == types.KubernetesMode {
+		listenPorts, err := d.availablePorts.RequestPorts()
+		if err != nil {
+			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+				Id:               uuid.NewString(),
+				Title:            "Unable to Assign \"Listen\" Ports for New Kernel",
+				Message:          fmt.Sprintf("Unable to assign \"listen\" ports for new replica %d of kernel %s because: %s.", registrationPayload.ReplicaId, registrationPayload.Kernel.Id, err.Error()),
+				NotificationType: 0,
+				Panicked:         true,
+			})
+			panic(err)
+		}
+
+		d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v",
+			registrationPayload.ReplicaId, registrationPayload.Kernel.Id, listenPorts)
+
 		invokerOpts := &invoker.DockerInvokerOptions{
 			RemoteStorageEndpoint:                d.remoteStorageEndpoint,
 			RemoteStorage:                        d.remoteStorage,
@@ -1854,21 +1854,21 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	}
 
 	// We always create a pending resource allocation (i.e., for any scheduling policy).
-	allocationError := d.resourceManager.KernelReplicaScheduled(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
-	if allocationError != nil {
+	resourceError := d.resourceManager.KernelReplicaScheduled(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec)
+	if resourceError != nil {
 		d.log.Error("Failed to allocate %d pending GPUs for new replica %d of kernel %s because: %v",
-			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, allocationError)
-		return nil, status.Error(codes.Internal, allocationError.Error())
+			in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
+		return nil, status.Error(codes.Internal, resourceError.Error())
 	}
 
 	// If we're performing FCFS batch scheduling, then we commit resources right away.
 	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-		allocationError = d.resourceManager.CommitResources(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec, false)
+		resourceError = d.resourceManager.CommitResources(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec, false)
 
-		if allocationError != nil {
+		if resourceError != nil {
 			d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
-				in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, allocationError)
-			return nil, status.Error(codes.Internal, allocationError.Error())
+				in.Kernel.ResourceSpec.Gpu, in.ReplicaId, in.Kernel.Id, resourceError)
+			return nil, status.Error(codes.Internal, resourceError.Error())
 		}
 	}
 
@@ -1928,25 +1928,51 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 		return nil, errorMessage
 	}
 
-	connInfo, allocationError := kernelInvoker.InvokeWithContext(ctx, in)
-	if allocationError != nil {
+	connInfo, resourceError := kernelInvoker.InvokeWithContext(ctx, in)
+	if resourceError != nil {
 		go d.notifyClusterGatewayOfError(context.TODO(), &proto.Notification{
 			Id:               uuid.NewString(),
 			Title:            fmt.Sprintf("Failed to Create Container for Kernel %s-%d", in.Kernel.Id, in.ReplicaId),
-			Message:          allocationError.Error(),
+			Message:          resourceError.Error(),
 			NotificationType: 0,
 			Panicked:         false,
 		})
-		return nil, status.Errorf(codes.Internal, allocationError.Error())
+		return nil, status.Errorf(codes.Internal, resourceError.Error())
 	}
 
 	// Initialize kernel client with new context.
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, kernelInvoker)
 
-	listenPorts, allocationError := d.availablePorts.RequestPorts()
-	if allocationError != nil {
-		d.log.Error("Failed to request listen ports for new kernel %s because: %v", in.ID(), allocationError)
-		return nil, allocationError
+	// Request some ports.
+	listenPorts, portAllocationError := d.availablePorts.RequestPorts()
+	if portAllocationError != nil {
+		d.log.Error("Failed to request listen ports for new kernel %s because: %v", in.ID(), portAllocationError)
+		return nil, portAllocationError
+	}
+
+	// Check that all the ports that we were given are safe...
+	portsAlreadyInUse := make([]int, 0)
+	for _, port := range listenPorts {
+		if !d.availablePorts.TestPort(port) {
+			d.log.Error("Port %d was actually unavailable upon testing...", port)
+			portsAlreadyInUse = append(portsAlreadyInUse, port)
+		}
+	}
+
+	// If all the ports that we were given are OK to use, then let's just break out of the loop.
+	if len(portsAlreadyInUse) > 0 {
+		errorMessage := fmt.Errorf("%d/%d port(s) allocated for kernel \"%s\" were already in-use",
+			len(portsAlreadyInUse), len(listenPorts), kernelId)
+		d.log.Error(errorMessage.Error())
+		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
+			Title:            "Returned 'ListenPorts' Were Already In-Use",
+			Message:          errorMessage.Error(),
+			NotificationType: int32(messaging.ErrorNotification),
+			Panicked:         false,
+		})
+
+		return nil, errorMessage
 	}
 
 	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, d.numResendAttempts,
@@ -1961,10 +1987,10 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
 
-	info, allocationError := d.initializeKernelClient(in.Kernel.Id, connInfo, kernel)
-	if allocationError != nil {
+	info, resourceError := d.initializeKernelClient(in.Kernel.Id, connInfo, kernel)
+	if resourceError != nil {
 		d.log.Error("Failed to initialize replica %d of kernel %s.", in.ReplicaId, in.Kernel.Id)
-		return nil, allocationError
+		return nil, resourceError
 	}
 
 	// Buffered so we don't get stuck sending a "stop" notification to a goroutine that is processed an "execute_request" message.

@@ -1747,6 +1747,17 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	d.log.Info("ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v.",
 		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in)
 
+	d.clusterStatisticsMutex.Lock()
+	now := time.Now()
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		Name:                statistics.KernelCreationStarted,
+		KernelId:            in.Id,
+		ReplicaId:           -1,
+		Timestamp:           now,
+		TimestampUnixMillis: now.UnixMilli(),
+	})
+	d.clusterStatisticsMutex.Unlock()
+
 	var (
 		kernel scheduling.Kernel
 		ok     bool
@@ -1844,6 +1855,15 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 
 	d.clusterStatisticsMutex.Lock()
 	d.ClusterStatistics.NumIdleSessions += 1
+
+	now := time.Now()
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		Name:                statistics.KernelCreationComplete,
+		KernelId:            kernelId,
+		ReplicaId:           -1,
+		Timestamp:           now,
+		TimestampUnixMillis: now.UnixMilli(),
+	})
 	d.clusterStatisticsMutex.Unlock()
 
 	if d.gatewayPrometheusManager != nil {
@@ -2073,6 +2093,17 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	d.log.Info("Node Name: %v", nodeName)
 	d.log.Info("Notification ID: %v", in.NotificationId)
 
+	d.clusterStatisticsMutex.Lock()
+	now := time.Now()
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		Name:                statistics.KernelReplicaRegistered,
+		KernelId:            kernelId,
+		ReplicaId:           -1,
+		Timestamp:           now,
+		TimestampUnixMillis: now.UnixMilli(),
+	})
+	d.clusterStatisticsMutex.Unlock()
+
 	d.Lock()
 
 	_, loaded := d.kernelRegisteredNotifications.LoadOrStore(in.NotificationId, in)
@@ -2084,7 +2115,10 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {
-		panic(fmt.Sprintf("Expected to find existing kernel with ID %s", kernelId))
+		d.log.Error("Could not find kernel with ID \"%s\"; however, just received 'kernel registered' notification for that kernel...", kernelId)
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find Kernel \"%s\" Despite Receiving 'Kernel Registered' Notification for that Kernel", kernelId), "See notification title.")
+
+		return nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, kernelId)
 	}
 
 	kernelSpec, loaded := d.kernelSpecs.Load(kernelId)
@@ -2400,6 +2434,38 @@ func (d *ClusterGatewayImpl) KillKernel(_ context.Context, in *proto.KernelId) (
 		err = status.Error(codes.Internal, err.Error())
 	}
 
+	if err == nil {
+		numActiveKernels := d.numActiveKernels.Add(-1)
+
+		session := d.cluster.RemoveSession(in.Id)
+
+		d.clusterStatisticsMutex.Lock()
+		d.ClusterStatistics.NumStoppedSessions += 1
+
+		if session != nil {
+			lifetimeSeconds := time.Since(session.StartedAt()).Seconds()
+			d.ClusterStatistics.AggregateSessionLifetimeSec += lifetimeSeconds
+			d.ClusterStatistics.AggregateSessionLifetimesSec = append(d.ClusterStatistics.AggregateSessionLifetimesSec, lifetimeSeconds)
+		}
+
+		now := time.Now()
+		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+			Name:                statistics.KernelStopped,
+			KernelId:            in.Id,
+			ReplicaId:           -1,
+			Timestamp:           now,
+			TimestampUnixMillis: now.UnixMilli(),
+		})
+
+		d.clusterStatisticsMutex.Unlock()
+
+		if d.gatewayPrometheusManager != nil {
+			d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
+				With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
+				Set(float64(numActiveKernels))
+		}
+	}
+
 	return ret, err
 }
 
@@ -2506,20 +2572,28 @@ func (d *ClusterGatewayImpl) StopKernel(_ context.Context, in *proto.KernelId) (
 
 	d.clusterStatisticsMutex.Lock()
 	d.ClusterStatistics.NumStoppedSessions += 1
+
+	if session != nil {
+		lifetimeSeconds := time.Since(session.StartedAt()).Seconds()
+		d.ClusterStatistics.AggregateSessionLifetimeSec += lifetimeSeconds
+		d.ClusterStatistics.AggregateSessionLifetimesSec = append(d.ClusterStatistics.AggregateSessionLifetimesSec, lifetimeSeconds)
+	}
+
+	now := time.Now()
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		Name:                statistics.KernelStopped,
+		KernelId:            in.Id,
+		ReplicaId:           -1,
+		Timestamp:           now,
+		TimestampUnixMillis: now.UnixMilli(),
+	})
+
 	d.clusterStatisticsMutex.Unlock()
 
 	if d.gatewayPrometheusManager != nil {
 		d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
 			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
 			Set(float64(numActiveKernels))
-	}
-
-	if session != nil {
-		d.clusterStatisticsMutex.Lock()
-		lifetimeSeconds := time.Since(session.StartedAt()).Seconds()
-		d.ClusterStatistics.AggregateSessionLifetimeSec += lifetimeSeconds
-		d.ClusterStatistics.AggregateSessionLifetimesSec = append(d.ClusterStatistics.AggregateSessionLifetimesSec, lifetimeSeconds)
-		d.clusterStatisticsMutex.Unlock()
 	}
 
 	return ret, nil
@@ -2674,6 +2748,17 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 	replicaInfo := in.TargetReplica
 	targetNodeId := in.GetTargetNodeId()
 
+	d.clusterStatisticsMutex.Lock()
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		Name:                statistics.KernelMigrationStarted,
+		KernelId:            replicaInfo.KernelId,
+		ReplicaId:           replicaInfo.ReplicaId,
+		Timestamp:           startTime,
+		TimestampUnixMillis: startTime.UnixMilli(),
+		Metadata:            map[string]interface{}{"target_node_id": targetNodeId},
+	})
+	d.clusterStatisticsMutex.Unlock()
+
 	kernel, loaded := d.kernels.Load(replicaInfo.KernelId)
 	if !loaded {
 		d.log.Error("Could not find target of migration, kernel \"%s\"", replicaInfo.KernelId)
@@ -2702,6 +2787,23 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 		if d.gatewayPrometheusManager != nil {
 			d.gatewayPrometheusManager.NumFailedMigrations.Inc()
 		}
+
+		d.clusterStatisticsMutex.Lock()
+
+		d.ClusterStatistics.NumFailedMigrations += 1
+
+		now := time.Now()
+		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+			Name:                statistics.KernelMigrationComplete,
+			KernelId:            replicaInfo.KernelId,
+			ReplicaId:           replicaInfo.ReplicaId,
+			Timestamp:           now,
+			TimestampUnixMillis: now.UnixMilli(),
+			Duration:            duration,
+			DurationMillis:      duration.Milliseconds(),
+			Metadata:            map[string]interface{}{"target_node_id": targetNodeId, "succeeded": "true"},
+		})
+		d.clusterStatisticsMutex.Unlock()
 	} else {
 		d.log.Debug("Migration operation of replica %d of kernel %s to target node %s completed successfully after %v.",
 			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration)
@@ -2709,6 +2811,23 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 		if d.gatewayPrometheusManager != nil {
 			d.gatewayPrometheusManager.NumSuccessfulMigrations.Inc()
 		}
+
+		d.clusterStatisticsMutex.Lock()
+
+		d.ClusterStatistics.NumSuccessfulMigrations += 1
+
+		now := time.Now()
+		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+			Name:                statistics.KernelMigrationComplete,
+			KernelId:            replicaInfo.KernelId,
+			ReplicaId:           replicaInfo.ReplicaId,
+			Timestamp:           now,
+			TimestampUnixMillis: now.UnixMilli(),
+			Duration:            duration,
+			DurationMillis:      duration.Milliseconds(),
+			Metadata:            map[string]interface{}{"target_node_id": targetNodeId, "succeeded": "false"},
+		})
+		d.clusterStatisticsMutex.Unlock()
 	}
 
 	if d.gatewayPrometheusManager != nil {

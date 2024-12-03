@@ -6,6 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"sync"
+	"syscall"
 )
 
 // AvailablePorts is a thread-safe data structure that keeps track of a set of ports to be used by ZMQ sockets for listening.
@@ -100,6 +101,31 @@ func (p *AvailablePorts) NumPortsAllocated() int {
 // AllocationSize returns the allocation size.
 func (p *AvailablePorts) AllocationSize() int {
 	return p.allocationSize
+}
+
+func (p *AvailablePorts) TestPort(port int) bool {
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
+	if err != nil {
+		fmt.Println("Error creating socket:", err)
+		return false
+	}
+	defer syscall.Close(fd)
+
+	// Enable SO_REUSEPORT
+	if err := syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1); err != nil {
+		fmt.Println("Error setting SO_REUSEADDR:", err)
+		return false
+	}
+
+	// Bind to the port
+	sockAddr := &syscall.SockaddrInet4{Port: port}
+	if err := syscall.Bind(fd, sockAddr); err != nil {
+		// Port is not available
+		return false
+	}
+
+	// Port is available
+	return true
 }
 
 // RequestPorts requests `allocationSize` ports from the AvailablePorts data structure.

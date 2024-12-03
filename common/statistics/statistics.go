@@ -1,5 +1,48 @@
 package statistics
 
+import "time"
+
+const (
+	KernelReplicaRegistered ClusterEventName = "kernel_replica_registered"
+	KernelCreationStarted   ClusterEventName = "kernel_creation_started"
+	KernelCreationComplete  ClusterEventName = "kernel_creation_complete"
+	KernelMigrationStarted  ClusterEventName = "kernel_migration_started"
+	KernelMigrationComplete ClusterEventName = "kernel_migration_complete"
+	KernelTrainingStarted   ClusterEventName = "kernel_training_started"
+	KernelTrainingEnded     ClusterEventName = "kernel_training_ended"
+	KernelStopped           ClusterEventName = "kernel_stopped"
+)
+
+type ClusterEventName string
+
+func (n ClusterEventName) String() string {
+	return string(n)
+}
+
+type ClusterEvent struct {
+	Name                ClusterEventName       `json:"name" csv:"name"`
+	KernelId            string                 `json:"kernel_id" csv:"kernel_id"`
+	ReplicaId           int32                  `json:"replica_id" csv:"replica_id"`
+	Timestamp           time.Time              `json:"timestamp" csv:"timestamp"`
+	Duration            time.Duration          `json:"duration" csv:"duration"`
+	DurationMillis      int64                  `json:"duration_millis" csv:"duration_millis"`
+	TimestampUnixMillis int64                  `json:"timestamp_unix_millis" csv:"timestamp_unix_millis"`
+	Metadata            map[string]interface{} `json:"metadata" csv:"-"`
+}
+
+/*
+	d.clusterStatisticsMutex.Lock()
+	now := time.Now()
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		Name:                statistics.KernelCreationStarted,
+		KernelId:            in.Id,
+		ReplicaId:           -1,
+		Timestamp:           now,
+		TimestampUnixMillis: now.UnixMilli(),
+	})
+	d.clusterStatisticsMutex.Unlock()
+*/
+
 type ClusterStatistics struct {
 	///////////
 	// Hosts //
@@ -8,6 +51,8 @@ type ClusterStatistics struct {
 	Hosts            int `json:"hosts" csv:"hosts"`
 	NumDisabledHosts int `json:"num_disabled_hosts" csv:"num_disabled_hosts"`
 	NumEmptyHosts    int `csv:"NumEmptyHosts" json:"NumEmptyHosts"` // The number of Hosts with 0 sessions/containers scheduled on them.
+
+	ClusterEvents []*ClusterEvent `json:"cluster_events" csv:"-"`
 
 	// The amount of time hosts have spent not idling throughout the entire simulation
 	CumulativeHostActiveTime float64 `csv:"CumulativeHostActiveTimeSec" json:"CumulativeHostActiveTimeSec"`
@@ -175,6 +220,9 @@ type ClusterStatistics struct {
 	// Does not include evicted, init, or stopped sessions.
 	NumRunningSessions int `csv:"NumRunningSessions" json:"NumRunningSessions"`
 
+	NumSuccessfulMigrations int `json:"num_successful_migrations" csv:"num_successful_migrations"`
+	NumFailedMigrations     int `json:"num_failed_migrations" csv:"num_failed_migrations"`
+
 	// The amount of time that Sessions have spent idling throughout the entire simulation.
 	CumulativeSessionIdleTime float64 `csv:"CumulativeSessionIdleTimeSec" json:"CumulativeSessionIdleTimeSec"`
 	// The amount of time that Sessions have spent training throughout the entire simulation. This does NOT include replaying events.
@@ -191,5 +239,6 @@ func NewClusterStatistics() *ClusterStatistics {
 	return &ClusterStatistics{
 		JupyterTrainingStartLatenciesMillis: make([]float64, 0),
 		AggregateSessionLifetimesSec:        make([]float64, 0),
+		ClusterEvents:                       make([]*ClusterEvent, 0),
 	}
 }

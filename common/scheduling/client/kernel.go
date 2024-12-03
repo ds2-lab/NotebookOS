@@ -400,9 +400,21 @@ func (c *KernelReplicaClient) KernelStartedTraining() error {
 	c.log.Debug(utils.PurpleStyle.Render("Replica %d of kernel \"%s\" has STARTED training."), c.replicaId, c.id)
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
-			statistics.NumTrainingSessions += 1
-			statistics.CumulativeSessionIdleTime += time.Since(c.idleStartedAt).Seconds()
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			stats.NumTrainingSessions += 1
+			stats.CumulativeSessionIdleTime += time.Since(c.idleStartedAt).Seconds()
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.KernelTrainingStarted,
+				KernelId:            c.id,
+				ReplicaId:           c.replicaId,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Metadata: map[string]interface{}{
+					"resource_request": container.ResourceSpec(),
+				},
+			})
 		})
 	}
 
@@ -510,7 +522,8 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 	//
 	// If the Container is actively-training, then we need to call SessionStoppedTraining
 	// before removing it so that the resources are all returned appropriately.
-	if container := c.Container(); container != nil {
+	container := c.Container()
+	if container != nil {
 		p := container.Session().SessionStoppedTraining(reason)
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v",
@@ -523,9 +536,28 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 		c.replicaId, c.id, time.Since(c.trainingStartedAt), reason)
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
-			statistics.NumTrainingSessions -= 1
-			statistics.CumulativeSessionTrainingTime += time.Since(c.trainingStartedAt).Seconds()
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			stats.NumTrainingSessions -= 1
+			stats.CumulativeSessionTrainingTime += time.Since(c.trainingStartedAt).Seconds()
+
+			var metadata map[string]interface{}
+			if container != nil {
+				metadata = map[string]interface{}{
+					"resource_request": container.ResourceSpec(),
+				}
+			}
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.KernelTrainingEnded,
+				KernelId:            c.id,
+				ReplicaId:           c.replicaId,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Duration:            time.Since(c.trainingStartedAt),
+				DurationMillis:      time.Since(c.trainingStartedAt).Milliseconds(),
+				Metadata:            metadata,
+			})
 		})
 	}
 
