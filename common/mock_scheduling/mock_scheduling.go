@@ -1441,6 +1441,30 @@ func (mr *MockPlacerMockRecorder) Reclaim(host, sess, noop any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reclaim", reflect.TypeOf((*MockPlacer)(nil).Reclaim), host, sess, noop)
 }
 
+// UpdateIndex mocks base method.
+func (m *MockPlacer) UpdateIndex(host scheduling.Host) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "UpdateIndex", host)
+}
+
+// UpdateIndex indicates an expected call of UpdateIndex.
+func (mr *MockPlacerMockRecorder) UpdateIndex(host any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateIndex", reflect.TypeOf((*MockPlacer)(nil).UpdateIndex), host)
+}
+
+// UpdateIndexMultiple mocks base method.
+func (m *MockPlacer) UpdateIndexMultiple(hosts []scheduling.Host) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "UpdateIndexMultiple", hosts)
+}
+
+// UpdateIndexMultiple indicates an expected call of UpdateIndexMultiple.
+func (mr *MockPlacerMockRecorder) UpdateIndexMultiple(hosts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateIndexMultiple", reflect.TypeOf((*MockPlacer)(nil).UpdateIndexMultiple), hosts)
+}
+
 // MockHost is a mock of Host interface.
 type MockHost struct {
 	ctrl     *gomock.Controller
@@ -3244,6 +3268,18 @@ func (mr *MockClusterIndexMockRecorder) Update(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Update", reflect.TypeOf((*MockClusterIndex)(nil).Update), arg0)
 }
 
+// UpdateMultiple mocks base method.
+func (m *MockClusterIndex) UpdateMultiple(arg0 []scheduling.Host) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "UpdateMultiple", arg0)
+}
+
+// UpdateMultiple indicates an expected call of UpdateMultiple.
+func (mr *MockClusterIndexMockRecorder) UpdateMultiple(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMultiple", reflect.TypeOf((*MockClusterIndex)(nil).UpdateMultiple), arg0)
+}
+
 // MockKubeClient is a mock of KubeClient interface.
 type MockKubeClient struct {
 	ctrl     *gomock.Controller
@@ -3433,6 +3469,20 @@ func (mr *MockUserSessionMockRecorder) Context() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Context", reflect.TypeOf((*MockUserSession)(nil).Context))
 }
 
+// CumulativeTrainingTime mocks base method.
+func (m *MockUserSession) CumulativeTrainingTime() time.Duration {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CumulativeTrainingTime")
+	ret0, _ := ret[0].(time.Duration)
+	return ret0
+}
+
+// CumulativeTrainingTime indicates an expected call of CumulativeTrainingTime.
+func (mr *MockUserSessionMockRecorder) CumulativeTrainingTime() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CumulativeTrainingTime", reflect.TypeOf((*MockUserSession)(nil).CumulativeTrainingTime))
+}
+
 // Duration mocks base method.
 func (m *MockUserSession) Duration() time.Duration {
 	m.ctrl.T.Helper()
@@ -3502,6 +3552,21 @@ func (m *MockUserSession) ID() string {
 func (mr *MockUserSessionMockRecorder) ID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ID", reflect.TypeOf((*MockUserSession)(nil).ID))
+}
+
+// IdleTime mocks base method.
+func (m *MockUserSession) IdleTime() (time.Duration, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IdleTime")
+	ret0, _ := ret[0].(time.Duration)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// IdleTime indicates an expected call of IdleTime.
+func (mr *MockUserSessionMockRecorder) IdleTime() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IdleTime", reflect.TypeOf((*MockUserSession)(nil).IdleTime))
 }
 
 // InteractivePriority mocks base method.
@@ -3640,6 +3705,20 @@ func (m *MockUserSession) MigrationTime() float64 {
 func (mr *MockUserSessionMockRecorder) MigrationTime() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MigrationTime", reflect.TypeOf((*MockUserSession)(nil).MigrationTime))
+}
+
+// NumTrainingEventsProcessed mocks base method.
+func (m *MockUserSession) NumTrainingEventsProcessed() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumTrainingEventsProcessed")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumTrainingEventsProcessed indicates an expected call of NumTrainingEventsProcessed.
+func (mr *MockUserSessionMockRecorder) NumTrainingEventsProcessed() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumTrainingEventsProcessed", reflect.TypeOf((*MockUserSession)(nil).NumTrainingEventsProcessed))
 }
 
 // PreemptionPriority mocks base method.
@@ -5997,6 +6076,20 @@ func (mr *MockKernelContainerMockRecorder) KernelID() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelID", reflect.TypeOf((*MockKernelContainer)(nil).KernelID))
 }
 
+// NumTrainingEventsProcessed mocks base method.
+func (m *MockKernelContainer) NumTrainingEventsProcessed() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumTrainingEventsProcessed")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumTrainingEventsProcessed indicates an expected call of NumTrainingEventsProcessed.
+func (mr *MockKernelContainerMockRecorder) NumTrainingEventsProcessed() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumTrainingEventsProcessed", reflect.TypeOf((*MockKernelContainer)(nil).NumTrainingEventsProcessed))
+}
+
 // PreemptionPriority mocks base method.
 func (m *MockKernelContainer) PreemptionPriority() float64 {
 	m.ctrl.T.Helper()
@@ -6198,6 +6291,20 @@ func (m *MockPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (s
 func (mr *MockPolicyMockRecorder) GetNewPlacer(metricsProvider any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNewPlacer", reflect.TypeOf((*MockPolicy)(nil).GetNewPlacer), metricsProvider)
+}
+
+// IdleSessionReclamationPolicy mocks base method.
+func (m *MockPolicy) IdleSessionReclamationPolicy() scheduling.IdleSessionReclamationPolicy {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IdleSessionReclamationPolicy")
+	ret0, _ := ret[0].(scheduling.IdleSessionReclamationPolicy)
+	return ret0
+}
+
+// IdleSessionReclamationPolicy indicates an expected call of IdleSessionReclamationPolicy.
+func (mr *MockPolicyMockRecorder) IdleSessionReclamationPolicy() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IdleSessionReclamationPolicy", reflect.TypeOf((*MockPolicy)(nil).IdleSessionReclamationPolicy))
 }
 
 // Name mocks base method.
