@@ -39,7 +39,7 @@ from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
 from ..logging import ColoredLogFormatter
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
-from ..sync.election import Election
+from ..sync.election import Election, ElectionTimestamps
 from ..sync.errors import DiscardMessageError
 from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer, get_estimated_io_time_seconds, \
     format_size
@@ -139,24 +139,30 @@ class ExecutionStats(object):
 
     def __init__(
             self,
-            cuda_init_microseconds: int = 0,
-            download_runtime_dependencies_microseconds: int = 0,
-            download_model_and_training_data_microseconds: int = 0,
-            upload_model_and_training_data_microseconds: int = 0,
-            execution_time_microseconds: int = 0,
-            leader_election_microseconds: int = 0,
-            copy_data_from_cpu_to_gpu_microseconds: int = 0,
-            copy_data_from_gpu_to_cpu_microseconds: int = 0,
+            cuda_init_microseconds: float = 0,
+            download_runtime_dependencies_microseconds: float = 0,
+            download_model_and_training_data_microseconds: float = 0,
+            upload_model_and_training_data_microseconds: float = 0,
+            execution_time_microseconds: float = 0,
+            leader_election_microseconds: float = 0,
+            copy_data_from_cpu_to_gpu_microseconds: float = 0,
+            copy_data_from_gpu_to_cpu_microseconds: float = 0,
+            replay_time_microseconds: float = 0,
+            execution_start_unix_millis: float = 0,
+            execution_end_unix_millis: float = 0,
             won_election: bool = False,  # always true for non-static/non-dynamic scheduling policies
     ):
-        self.cuda_init_microseconds: int = cuda_init_microseconds  # done
-        self.download_runtime_dependencies_microseconds: int = download_runtime_dependencies_microseconds
-        self.download_model_and_training_data_microseconds: int = download_model_and_training_data_microseconds
-        self.upload_model_and_training_data_microseconds: int = upload_model_and_training_data_microseconds  # done
-        self.execution_time_microseconds: int = execution_time_microseconds  # done
-        self.leader_election_microseconds: int = leader_election_microseconds  # done
-        self.copy_data_from_cpu_to_gpu_microseconds: int = copy_data_from_cpu_to_gpu_microseconds  # done
-        self.copy_data_from_gpu_to_cpu_microseconds: int = copy_data_from_gpu_to_cpu_microseconds  # done
+        self.cuda_init_microseconds: float = cuda_init_microseconds
+        self.download_runtime_dependencies_microseconds: float = download_runtime_dependencies_microseconds
+        self.download_model_and_training_data_microseconds: float = download_model_and_training_data_microseconds
+        self.upload_model_and_training_data_microseconds: float = upload_model_and_training_data_microseconds
+        self.execution_start_unix_millis: float = execution_start_unix_millis
+        self.execution_end_unix_millis: float = execution_end_unix_millis
+        self.execution_time_microseconds: float = execution_time_microseconds
+        self.replay_time_microseconds: float = replay_time_microseconds
+        self.leader_election_microseconds: float = leader_election_microseconds
+        self.copy_data_from_cpu_to_gpu_microseconds: float = copy_data_from_cpu_to_gpu_microseconds
+        self.copy_data_from_gpu_to_cpu_microseconds: float = copy_data_from_gpu_to_cpu_microseconds
         self.won_election: bool = won_election
 
 
@@ -1844,8 +1850,8 @@ class DistributedKernel(IPythonKernel):
             self.log.error(f"Cannot copy data of negative size from GPU to CPU: {size_gb} GB")
             return
 
-        bandwidth_gb_sec: float = float(
-            np.random.normal(V100_AvgBandwidth_GbSec_DeviceToHost, V100_StdDevBandwidth_GbSec_DeviceToHost, 1)[0])
+        bandwidth_gb_sec: float = np.random.normal(V100_AvgBandwidth_GbSec_DeviceToHost,
+                                                   V100_StdDevBandwidth_GbSec_DeviceToHost)
         self.log.debug(
             f"Copying {size_gb} GB of data from the GPU to main memory with bandwidth of {bandwidth_gb_sec} GB/s.")
 
@@ -1866,8 +1872,8 @@ class DistributedKernel(IPythonKernel):
             self.log.error(f"Cannot copy data of negative size from CPU to GPU: {size_gb} GB")
             return
 
-        bandwidth_gb_sec: float = float(
-            np.random.normal(V100_AvgBandwidth_GbSec_HostToDevice, V100_StdDevBandwidth_GbSec_HostToDevice, 1)[0])
+        bandwidth_gb_sec: float = np.random.normal(V100_AvgBandwidth_GbSec_HostToDevice,
+                                                   V100_StdDevBandwidth_GbSec_HostToDevice)
         self.log.debug(
             f"Copying {size_gb} GB of data from main memory to the GPU with bandwidth of {bandwidth_gb_sec} GB/s.")
 
@@ -1883,12 +1889,12 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Initializing CUDA runtime.")
 
-        cuda_init_latency_sec = float(np.random.normal(AverageCudaInitTimeSec, StandardDeviationCudaInitTimeSec, 1)[0])
+        cuda_init_latency_sec = np.random.normal(AverageCudaInitTimeSec, StandardDeviationCudaInitTimeSec)
         time.sleep(cuda_init_latency_sec)
 
         self.cuda_initialized = True
 
-    async def download_model_and_training_data(self, force: bool = False)->float:
+    async def download_model_and_training_data(self, force: bool = False) -> float:
         # If the model and training data are already downloaded, then just return (unless force is True).
         if self.model_and_training_data_downloaded and not force:
             return 0
@@ -1923,7 +1929,7 @@ class DistributedKernel(IPythonKernel):
                         "Horovod", "OpenCV", "Pillow (PIL)", "NLTK/SpaCy", "Fastai"]
         dependencies_subset = random.sample(dependencies, n)
 
-        latency: float = float(np.random.normal(avg_latency, std_dev_latency)[0])
+        latency: float = np.random.normal(avg_latency, std_dev_latency)
         latency_frac: float = latency / n
 
         for dependency in dependencies_subset:
@@ -1941,12 +1947,12 @@ class DistributedKernel(IPythonKernel):
         - Copy the model + training data from host memory to device memory
         """
         # We have this here because we don't want to bother initializing CUDA if we lose the election.
-        if not self.runtime_dependencies_downloaded:
-            download_runtime_deps_start: float = time.time()
-            self.download_runtime_dependencies()
-            download_runtime_deps_ms: float = (time.time() - download_runtime_deps_start) * 1.0e3
-            self.log.debug(f"Downloaded & installed runtime dependencies in {init_cuda_ms} ms.")
-            self.current_execution_stats.download_runtime_dependencies_microseconds = download_runtime_deps_ms * 1.0e3  # it's already in milliseconds
+        # if not self.runtime_dependencies_downloaded:
+        #     download_runtime_deps_start: float = time.time()
+        #     self.download_runtime_dependencies()
+        #     download_runtime_deps_ms: float = (time.time() - download_runtime_deps_start) * 1.0e3
+        #     self.log.debug(f"Downloaded & installed runtime dependencies in {download_runtime_deps_ms} ms.")
+        #     self.current_execution_stats.download_runtime_dependencies_microseconds = download_runtime_deps_ms * 1.0e3  # it's already in milliseconds
 
         if not self.cuda_initialized:
             init_cuda_start: float = time.time()
@@ -2071,7 +2077,7 @@ class DistributedKernel(IPythonKernel):
 
             self.log.debug("Executing the following code now: %s" % code)
 
-            exec_code_start: float = time.time()
+            self.current_execution_stats.execution_start_unix_millis = time.time() * 1.0e3
             # Execute code
             reply_routing = super().do_execute(
                 code, silent, store_history=store_history,
@@ -2079,10 +2085,11 @@ class DistributedKernel(IPythonKernel):
 
             # Wait for the settlement of variables.
             reply_content = await reply_routing
-            exec_code_duration_sec: float = (time.time() - exec_code_start)
-            self.current_execution_stats.execution_time_microseconds = exec_code_duration_sec * 1.0e6
+            self.current_execution_stats.execution_end_unix_millis = time.time() * 1.0e3
+            exec_duration_millis: float = self.current_execution_stats.execution_end_unix_millis - self.current_execution_stats.execution_start_unix_millis
+            self.current_execution_stats.execution_time_microseconds = exec_duration_millis * 1.0e3
 
-            self.log.info(f"Finished executing user-submitted code in {exec_code_duration_sec} seconds. "
+            self.log.info(f"Finished executing user-submitted code in {exec_duration_millis} ms. "
                           f"Returning the following content: {reply_content}")
 
             # Disable stdout and stderr forwarding.
@@ -2611,7 +2618,7 @@ class DistributedKernel(IPythonKernel):
 
             # If the execution_stats parameter is non-null, then embed the included statistics/metrics.
             if execution_stats is not None:
-                request_trace["cudaInitMicroseconds"] = execution_stats.cuda_init_microseconds
+                request_trace["cudaInitMicroseconds"] = int(execution_stats.cuda_init_microseconds)
                 request_trace[
                     "downloadDependencyMicroseconds"] = execution_stats.download_runtime_dependencies_microseconds
                 request_trace[
@@ -2619,9 +2626,38 @@ class DistributedKernel(IPythonKernel):
                 request_trace[
                     "uploadModelAndTrainingDataMicroseconds"] = execution_stats.upload_model_and_training_data_microseconds
                 request_trace["executionTimeMicroseconds"] = execution_stats.execution_time_microseconds
-                request_trace["replayTimeMicroseconds"] = execution_stats.leader_election_microseconds
+                request_trace["executionStartUnixMillis"] = execution_stats.execution_start_unix_millis
+                request_trace["executionEndUnixMillis"] = execution_stats.execution_end_unix_millis
+                request_trace["replayTimeMicroseconds"] = execution_stats.replay_time_microseconds
+                request_trace["replayTimeMicroseconds"] = execution_stats.replay_time_microseconds
                 request_trace["copyFromCpuToGpuMicroseconds"] = execution_stats.copy_data_from_cpu_to_gpu_microseconds
                 request_trace["copyFromGpuToCpuMicroseconds"] = execution_stats.copy_data_from_gpu_to_cpu_microseconds
+                request_trace["leaderElectionTimeMicroseconds"] = execution_stats.leader_election_microseconds
+
+                # We only want to embed election statistics if this request trace is being embedded in an
+                # "execute_request" or "yield_request" message (i.e., a code submission).
+                if msg_type == "execute_request" or msg_type == "yield_request":
+                    current_election: Election = self.synchronizer.current_election
+
+                    # It shouldn't be None, but let's double-check, just to be safe.
+                    if current_election is not None:
+                        # 'current_election_timestamps' is a property. Need to capture its value and use that in a separate
+                        # if-statement to ensure that it is a valid, non-null reference.
+                        current_election_timestamps: Optional[
+                            ElectionTimestamps] = current_election.current_election_timestamps
+                        if current_election_timestamps is not None:
+                            request_trace["electionCreationTime"] = current_election_timestamps.creation_time
+                            request_trace[
+                                "electionProposalPhaseStartTime"] = current_election_timestamps.proposal_phase_start_time
+                            request_trace[
+                                "electionExecutionPhaseStartTime"] = current_election_timestamps.execution_phase_start_time
+                            request_trace["electionEndTime"] = current_election_timestamps.end_time
+                        else:
+                            self.log.warning(
+                                f"Current Election's timestamp data is None while embedding request trace in '{msg_type}' request '{msg_id}'")
+                    else:
+                        self.log.warning(
+                            f"Current Election is None while embedding request trace in '{msg_type}' request '{msg_id}'")
 
             buffers[0] = json.dumps(request_trace_frame).encode('utf-8')
             # self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")

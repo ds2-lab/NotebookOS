@@ -3449,12 +3449,12 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 	defer d.clusterStatisticsMutex.Unlock()
 
 	if trace.CudaInitMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeCudaInitMicroseconds += trace.CudaInitMicroseconds
+		d.ClusterStatistics.CumulativeCudaInitMicroseconds += float64(trace.CudaInitMicroseconds)
 		d.ClusterStatistics.NumCudaRuntimesInitialized += 1
 	}
 
 	if trace.ReplayTimeMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeReplayTimeMicroseconds += trace.ReplayTimeMicroseconds
+		d.ClusterStatistics.CumulativeReplayTimeMicroseconds += float64(trace.ReplayTimeMicroseconds)
 		d.ClusterStatistics.TotalNumReplays += 1
 
 		session, loaded := d.cluster.GetSession(trace.KernelId)
@@ -3467,26 +3467,30 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 	}
 
 	if trace.DownloadDependencyMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeTimeDownloadingDependenciesMicroseconds += trace.DownloadDependencyMicroseconds
+		d.ClusterStatistics.CumulativeTimeDownloadingDependenciesMicroseconds += float64(trace.DownloadDependencyMicroseconds)
 		d.ClusterStatistics.NumTimesDownloadedDependencies += 1
 	}
 
 	if trace.UploadModelAndTrainingDataMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeTimeUploadModelAndTrainingDataMicroseconds += trace.UploadModelAndTrainingDataMicroseconds
+		d.ClusterStatistics.CumulativeTimeUploadModelAndTrainingDataMicroseconds += float64(trace.UploadModelAndTrainingDataMicroseconds)
 		d.ClusterStatistics.NumTimesUploadModelAndTrainingDataMicroseconds += 1
 	}
 
 	if trace.CopyFromCpuToGpuMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeTimeCopyDataHostToDeviceMicroseconds += trace.CopyFromCpuToGpuMicroseconds
+		d.ClusterStatistics.CumulativeTimeCopyDataHostToDeviceMicroseconds += float64(trace.CopyFromCpuToGpuMicroseconds)
 		d.ClusterStatistics.NumTimesCopyDataHostToDeviceMicroseconds += 1
 	}
 
 	if trace.CopyFromGpuToCpuMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeTimeCopyDataDeviceToHostMicroseconds += trace.CopyFromGpuToCpuMicroseconds
+		d.ClusterStatistics.CumulativeTimeCopyDataDeviceToHostMicroseconds += float64(trace.CopyFromGpuToCpuMicroseconds)
 		d.ClusterStatistics.NumTimesCopyDataDeviceToHostMicroseconds += 1
 	}
 
-	d.ClusterStatistics.CumulativeExecutionTimeMicroseconds += trace.ExecutionTimeMicroseconds
+	if trace.LeaderElectionTimeMicroseconds > 0 {
+		d.ClusterStatistics.CumulativeLeaderElectionTimeMicroseconds += float64(trace.LeaderElectionTimeMicroseconds)
+	}
+
+	d.ClusterStatistics.CumulativeExecutionTimeMicroseconds += float64(trace.ExecutionTimeMicroseconds)
 }
 
 // kernelResponseForwarder is used as the response handler for a variety of requests/forwarded messages.

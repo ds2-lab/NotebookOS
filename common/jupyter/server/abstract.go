@@ -1004,7 +1004,7 @@ func (s *AbstractServer) tryUpdateClusterStatisticsFromRequestTrace(trace *proto
 		statistics.CumulativeRequestProcessingTimeClusterGateway += gatewayRequestProcessTime
 		statistics.CumulativeRequestProcessingTimeLocalDaemon += localDaemonRequestProcessTime
 		statistics.CumulativeRequestProcessingTimeKernel += kernelProcessingTime
-		
+
 		statistics.CumulativeResponseProcessingTimeClusterGateway += gatewayResponseProcessTime
 		statistics.CumulativeResponseProcessingTimeLocalDaemon += localDaemonResponseProcessTime
 	})
@@ -1252,7 +1252,7 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 
 				if s.DebugMode {
 					// We only want to add traces to Shell, Control, and a subset of IOPub messages.
-					// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
+					//s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 					//	socket.Type.String(), jMsg.JupyterMessageType())
 					_, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, receivedAt, s.Log)
 					if err != nil {

@@ -36,21 +36,21 @@ func (f *JupyterRequestTraceFrame) String() string {
 // The RequestTrace struct has all of its timing fields initialized to -1.
 func NewRequestTrace(kernelId string, messageType string, messageId string) *RequestTrace {
 	return &RequestTrace{
-		ReplicaId:        -1,
-		KernelId:         kernelId,
-		MessageType:      messageType,
-		MessageId:        messageId,
-		RequestTraceUuid: uuid.NewString(),
-		//RequestReceivedByGateway:       DefaultTraceTimingValue,
-		//RequestSentByGateway:           DefaultTraceTimingValue,
-		//RequestReceivedByLocalDaemon:   DefaultTraceTimingValue,
-		//RequestSentByLocalDaemon:       DefaultTraceTimingValue,
-		//RequestReceivedByKernelReplica: DefaultTraceTimingValue,
-		//ReplySentByKernelReplica:       DefaultTraceTimingValue,
-		//ReplySentByGateway:             DefaultTraceTimingValue,
-		//ReplyReceivedByGateway:         DefaultTraceTimingValue,
-		//ReplySentByLocalDaemon:         DefaultTraceTimingValue,
-		//ReplyReceivedByLocalDaemon:     DefaultTraceTimingValue,
+		ReplicaId:                      -1,
+		KernelId:                       kernelId,
+		MessageType:                    messageType,
+		MessageId:                      messageId,
+		RequestTraceUuid:               uuid.NewString(),
+		RequestReceivedByGateway:       DefaultTraceTimingValue,
+		RequestSentByGateway:           DefaultTraceTimingValue,
+		RequestReceivedByLocalDaemon:   DefaultTraceTimingValue,
+		RequestSentByLocalDaemon:       DefaultTraceTimingValue,
+		RequestReceivedByKernelReplica: DefaultTraceTimingValue,
+		ReplySentByKernelReplica:       DefaultTraceTimingValue,
+		ReplySentByGateway:             DefaultTraceTimingValue,
+		ReplyReceivedByGateway:         DefaultTraceTimingValue,
+		ReplySentByLocalDaemon:         DefaultTraceTimingValue,
+		ReplyReceivedByLocalDaemon:     DefaultTraceTimingValue,
 	}
 }
 

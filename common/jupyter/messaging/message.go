@@ -344,6 +344,8 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, timestamp time
 		err          error
 	)
 
+	//logger.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.", msg.JupyterMessageType())
+
 	// Check if the message has enough frames to have a RequestTrace in it (i.e., if there are buffers frames or not).
 	// If not, then we'll assume that the message does not have a buffers frame/RequestTrace (as there aren't enough
 	// frames for that to be the case), and we'll add additional frames and then add a new RequestTrace to the new

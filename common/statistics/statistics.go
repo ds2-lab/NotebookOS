@@ -49,49 +49,52 @@ type ClusterStatistics struct {
 	////////////////////////////////////////
 
 	// CumulativeCudaInitMicroseconds is the cumulative, aggregate time spent initializing CUDA runtimes by all kernels.
-	CumulativeCudaInitMicroseconds int64 `json:"cumulative_cuda_init_microseconds" csv:"cumulative_cuda_init_microseconds"`
+	CumulativeCudaInitMicroseconds float64 `json:"cumulative_cuda_init_microseconds" csv:"cumulative_cuda_init_microseconds"`
 	// NumCudaRuntimesInitialized is the number of times a CUDA runtime was initialized.
-	NumCudaRuntimesInitialized int64 `json:"num_cuda_runtimes_initialized" csv:"num_cuda_runtimes_initialized"`
+	NumCudaRuntimesInitialized float64 `json:"num_cuda_runtimes_initialized" csv:"num_cuda_runtimes_initialized"`
 
 	// CumulativeTimeDownloadingDependenciesMicroseconds is the cumulative, aggregate time spent downloading
 	// runtime/library/module dependencies by all kernels.
-	CumulativeTimeDownloadingDependenciesMicroseconds int64 `json:"cumulative_time_downloading_dependencies_microseconds" csv:"cumulative_time_downloading_dependencies_microseconds"`
+	CumulativeTimeDownloadingDependenciesMicroseconds float64 `json:"cumulative_time_downloading_dependencies_microseconds" csv:"cumulative_time_downloading_dependencies_microseconds"`
 	// NumTimesDownloadedDependencies is the total number of times that a kernel downloaded dependencies.
-	NumTimesDownloadedDependencies int64 `json:"num_times_downloaded_dependencies" csv:"num_times_downloaded_dependencies"`
+	NumTimesDownloadedDependencies float64 `json:"num_times_downloaded_dependencies" csv:"num_times_downloaded_dependencies"`
 
 	// CumulativeTimeDownloadingDependenciesMicroseconds is the cumulative, aggregate time spent downloading the model
 	// and training data by all kernels.
-	CumulativeTimeDownloadModelAndTrainingDataMicroseconds int64 `json:"cumulative_time_download_model_and_training_data_microseconds" csv:"cumulative_time_download_model_and_training_data_microseconds"`
+	CumulativeTimeDownloadModelAndTrainingDataMicroseconds float64 `json:"cumulative_time_download_model_and_training_data_microseconds" csv:"cumulative_time_download_model_and_training_data_microseconds"`
 	// NumTimesDownloadedDependencies is the total number of times that a kernel downloaded the model and training data.
-	NumTimesDownloadModelAndTrainingDataMicroseconds int64 `json:"num_times_download_model_and_training_data_microseconds" csv:"num_times_download_model_and_training_data_microseconds"`
+	NumTimesDownloadModelAndTrainingDataMicroseconds float64 `json:"num_times_download_model_and_training_data_microseconds" csv:"num_times_download_model_and_training_data_microseconds"`
 
 	// CumulativeTimeDownloadingDependenciesMicroseconds is the cumulative, aggregate time spent uploading the model
 	// and training data by all kernels.
-	CumulativeTimeUploadModelAndTrainingDataMicroseconds int64 `json:"cumulative_time_upload_model_and_training_data_microseconds" csv:"cumulative_time_upload_model_and_training_data_microseconds"`
+	CumulativeTimeUploadModelAndTrainingDataMicroseconds float64 `json:"cumulative_time_upload_model_and_training_data_microseconds" csv:"cumulative_time_upload_model_and_training_data_microseconds"`
 	// NumTimesDownloadedDependencies is the total number of times that a kernel uploaded the model and training data.
-	NumTimesUploadModelAndTrainingDataMicroseconds int64 `json:"num_times_upload_model_and_training_data_microseconds" csv:"num_times_upload_model_and_training_data_microseconds"`
+	NumTimesUploadModelAndTrainingDataMicroseconds float64 `json:"num_times_upload_model_and_training_data_microseconds" csv:"num_times_upload_model_and_training_data_microseconds"`
 
 	// CumulativeTimeCopyDataHostToDeviceMicroseconds is the cumulative, aggregate time spent copying data from main
 	// memory (i.e., host memory) to the GPU (i.e., device memory) by all kernels.
-	CumulativeTimeCopyDataHostToDeviceMicroseconds int64 `json:"cumulative_time_copy_data_host_to_device_microseconds" csv:"cumulative_time_copy_data_host_to_device_microseconds"`
+	CumulativeTimeCopyDataHostToDeviceMicroseconds float64 `json:"cumulative_time_copy_data_host_to_device_microseconds" csv:"cumulative_time_copy_data_host_to_device_microseconds"`
 	// NumTimesCopyDataHostToDeviceMicroseconds is the total number of times that a kernel copied data from main
 	// memory (i.e., host memory) to the GPU (i.e., device memory).
-	NumTimesCopyDataHostToDeviceMicroseconds int64 `json:"num_times_copy_data_host_to_device_microseconds" csv:"num_times_copy_data_host_to_device_microseconds"`
+	NumTimesCopyDataHostToDeviceMicroseconds float64 `json:"num_times_copy_data_host_to_device_microseconds" csv:"num_times_copy_data_host_to_device_microseconds"`
 
 	// CumulativeTimeCopyDataHostToDeviceMicroseconds is the cumulative, aggregate time spent copying data from the GPU
 	// (i.e., device memory) to main memory (i.e., host memory).
-	CumulativeTimeCopyDataDeviceToHostMicroseconds int64 `json:"cumulative_time_copy_data_device_to_host_microseconds" csv:"cumulative_time_copy_data_device_to_host_microseconds"`
+	CumulativeTimeCopyDataDeviceToHostMicroseconds float64 `json:"cumulative_time_copy_data_device_to_host_microseconds" csv:"cumulative_time_copy_data_device_to_host_microseconds"`
 	// NumTimesCopyDataHostToDeviceMicroseconds is the total number of times that a kernel copied data from the GPU
 	// (i.e., device memory) to main memory (i.e., device memory).
-	NumTimesCopyDataDeviceToHostMicroseconds int64 `json:"num_times_copy_data_device_to_host_microseconds" csv:"num_times_copy_data_device_to_host_microseconds"`
+	NumTimesCopyDataDeviceToHostMicroseconds float64 `json:"num_times_copy_data_device_to_host_microseconds" csv:"num_times_copy_data_device_to_host_microseconds"`
 
 	// CumulativeExecutionTimeMicroseconds is the cumulative, aggregate time spent executing user code, excluding any
 	// related overheads, by all kernels.
-	CumulativeExecutionTimeMicroseconds int64 `json:"cumulative_execution_time_microseconds" csv:"cumulative_execution_time_microseconds"`
+	CumulativeExecutionTimeMicroseconds float64 `json:"cumulative_execution_time_microseconds" csv:"cumulative_execution_time_microseconds"`
+
+	// CumulativeLeaderElectionTimeMicroseconds is the cumulative, aggregate time spent handling leader elections.
+	CumulativeLeaderElectionTimeMicroseconds float64 `json:"cumulative_leader_election_time_microseconds" csv:"cumulative_leader_election_time_microseconds"`
 
 	// CumulativeReplayTimeMicroseconds is the cumulative, aggregate time spent replaying cells, excluding any
 	// related overheads, by all kernels.
-	CumulativeReplayTimeMicroseconds int64 `json:"cumulative_replay_time_microseconds" csv:"cumulative_replay_time_microseconds"`
+	CumulativeReplayTimeMicroseconds float64 `json:"cumulative_replay_time_microseconds" csv:"cumulative_replay_time_microseconds"`
 	// TotalNumReplays is the total number of times that one or more cells had to be replayed by a kernel.
 	TotalNumReplays int64 `json:"total_num_replays" csv:"total_num_replays"`
 	// TotalNumCellsReplayed is the total number of cells that were replayed by all kernels.
