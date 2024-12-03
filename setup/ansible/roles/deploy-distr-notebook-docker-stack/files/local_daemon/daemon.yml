@@ -59,3 +59,5 @@ mean_scale_out_per_host_sec: 15
 std_dev_scale_out_per_host_sec: 2
 mean_scale_in_per_host_sec: 10
 std_dev_scale_in_per_host_sec: 1
+starting_resource_port: 16007
+num_resource_ports: 4096
