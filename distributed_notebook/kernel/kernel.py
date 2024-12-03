@@ -2620,19 +2620,19 @@ class DistributedKernel(IPythonKernel):
             if execution_stats is not None:
                 request_trace["cudaInitMicroseconds"] = int(execution_stats.cuda_init_microseconds)
                 request_trace[
-                    "downloadDependencyMicroseconds"] = execution_stats.download_runtime_dependencies_microseconds
+                    "downloadDependencyMicroseconds"] = int(execution_stats.download_runtime_dependencies_microseconds)
                 request_trace[
-                    "downloadModelAndTrainingDataMicroseconds"] = execution_stats.download_model_and_training_data_microseconds
+                    "downloadModelAndTrainingDataMicroseconds"] = int(execution_stats.download_model_and_training_data_microseconds)
                 request_trace[
-                    "uploadModelAndTrainingDataMicroseconds"] = execution_stats.upload_model_and_training_data_microseconds
-                request_trace["executionTimeMicroseconds"] = execution_stats.execution_time_microseconds
-                request_trace["executionStartUnixMillis"] = execution_stats.execution_start_unix_millis
-                request_trace["executionEndUnixMillis"] = execution_stats.execution_end_unix_millis
-                request_trace["replayTimeMicroseconds"] = execution_stats.replay_time_microseconds
-                request_trace["replayTimeMicroseconds"] = execution_stats.replay_time_microseconds
-                request_trace["copyFromCpuToGpuMicroseconds"] = execution_stats.copy_data_from_cpu_to_gpu_microseconds
-                request_trace["copyFromGpuToCpuMicroseconds"] = execution_stats.copy_data_from_gpu_to_cpu_microseconds
-                request_trace["leaderElectionTimeMicroseconds"] = execution_stats.leader_election_microseconds
+                    "uploadModelAndTrainingDataMicroseconds"] = int(execution_stats.upload_model_and_training_data_microseconds)
+                request_trace["executionTimeMicroseconds"] = int(execution_stats.execution_time_microseconds)
+                request_trace["executionStartUnixMillis"] = int(execution_stats.execution_start_unix_millis)
+                request_trace["executionEndUnixMillis"] = int(execution_stats.execution_end_unix_millis)
+                request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
+                request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
+                request_trace["copyFromCpuToGpuMicroseconds"] = int(execution_stats.copy_data_from_cpu_to_gpu_microseconds)
+                request_trace["copyFromGpuToCpuMicroseconds"] = int(execution_stats.copy_data_from_gpu_to_cpu_microseconds)
+                request_trace["leaderElectionTimeMicroseconds"] = int(execution_stats.leader_election_microseconds)
 
                 # We only want to embed election statistics if this request trace is being embedded in an
                 # "execute_request" or "yield_request" message (i.e., a code submission).
@@ -2646,18 +2646,20 @@ class DistributedKernel(IPythonKernel):
                         current_election_timestamps: Optional[
                             ElectionTimestamps] = current_election.current_election_timestamps
                         if current_election_timestamps is not None:
-                            request_trace["electionCreationTime"] = current_election_timestamps.creation_time
+                            request_trace["electionCreationTime"] = int(current_election_timestamps.creation_time)
                             request_trace[
-                                "electionProposalPhaseStartTime"] = current_election_timestamps.proposal_phase_start_time
+                                "electionProposalPhaseStartTime"] = int(current_election_timestamps.proposal_phase_start_time)
                             request_trace[
-                                "electionExecutionPhaseStartTime"] = current_election_timestamps.execution_phase_start_time
-                            request_trace["electionEndTime"] = current_election_timestamps.end_time
+                                "electionExecutionPhaseStartTime"] = int(current_election_timestamps.execution_phase_start_time)
+                            request_trace["electionEndTime"] = int(current_election_timestamps.end_time)
                         else:
                             self.log.warning(
                                 f"Current Election's timestamp data is None while embedding request trace in '{msg_type}' request '{msg_id}'")
                     else:
                         self.log.warning(
                             f"Current Election is None while embedding request trace in '{msg_type}' request '{msg_id}'")
+
+                self.log.debug(f"Embedding the following RequestTrace in response to '{msg_type}' message:\n{json.dumps(request_trace, indent = 2)}")
 
             buffers[0] = json.dumps(request_trace_frame).encode('utf-8')
             # self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")

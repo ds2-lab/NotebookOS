@@ -465,42 +465,42 @@ message RequestTrace {
 
   // CudaInitMicroseconds is the amount of time spent initializing the CUDA runtime, if applicable.
   // The units are microseconds.
-  float cudaInitMicroseconds = 16;
+  int64 cudaInitMicroseconds = 16;
   // DownloadDependencyMicroseconds is the amount of time spent downloading library dependencies, if applicable.
   // The units are microseconds.
-  float downloadDependencyMicroseconds = 17;
+  int64 downloadDependencyMicroseconds = 17;
   // DownloadModelAndTrainingDataMicroseconds is the amount of time spent downloading the model and training data,
   // if applicable. The units are microseconds.
-  float downloadModelAndTrainingDataMicroseconds = 18;
+  int64 downloadModelAndTrainingDataMicroseconds = 18;
   // UploadModelAndTrainingDataMicroseconds is the amount of time spent uploading the model and training data,
   // if applicable. The units are microseconds.
-  float uploadModelAndTrainingDataMicroseconds = 19;
+  int64 uploadModelAndTrainingDataMicroseconds = 19;
   // ExecutionTimeMicroseconds is the amount of time spent executing user-submitted code, excluding any other
   // overheads, if applicable. The units are microseconds.
-  float executionTimeMicroseconds = 20;
-  float executionStartUnixMillis = 21;
-  float executionEndUnixMillis = 22;
+  int64 executionTimeMicroseconds = 20;
+  int64 executionStartUnixMillis = 21;
+  int64 executionEndUnixMillis = 22;
   // ReplayTimeMicroseconds is the amount of time spent replaying previous cells, excluding any other overheads,
   // if applicable. The units are microseconds.
-  float replayTimeMicroseconds = 23;
+  int64 replayTimeMicroseconds = 23;
   // CopyFromCpuToGpuMicroseconds is the amount of time, in microseconds, that was spent copying data from the CPU
   // to the GPU by the kernel before executing the user-submitted code.
-  float copyFromCpuToGpuMicroseconds = 24;
+  int64 copyFromCpuToGpuMicroseconds = 24;
   // CopyFromCpuToGpuMicroseconds is the amount of time, in microseconds, that was spent copying data from the GPU
   // to the CPU by the kernel after executing the user-submitted code.
-  float copyFromGpuToCpuMicroseconds = 25;
+  int64 copyFromGpuToCpuMicroseconds = 25;
   // LeaderElectionTimeMicroseconds is the amount of time, in microseconds, that the kernel spent handling the
   // leader election prior to executing the user-submitted code, if applicable.
-  float leaderElectionTimeMicroseconds = 26;
+  int64 leaderElectionTimeMicroseconds = 26;
   // ElectionCreationTime is the time at which the kernel created its Election object, if applicable.
-  float electionCreationTime = 27;
+  int64 electionCreationTime = 27;
   // ElectionProposalPhaseStartTime is the time at which the kernel started its Election, if applicable.
-  float electionProposalPhaseStartTime = 28;
+  int64 electionProposalPhaseStartTime = 28;
   // ElectionExecutionPhaseStartTime is when the leader was selected.
-  float electionExecutionPhaseStartTime = 29;
+  int64 electionExecutionPhaseStartTime = 29;
   // ElectionEndTime is when the execution fully completed and/or the follower was notified by the leader that it
   // finished executing.
-  float electionEndTime = 30;
+  int64 electionEndTime = 30;
 }
 
 message PingInstruction {
