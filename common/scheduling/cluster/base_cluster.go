@@ -84,6 +84,12 @@ type BaseCluster struct {
 	// statisticsUpdaterProvider is used to update metrics/statistics.
 	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))
 
+	MeanScaleOutPerHost   time.Duration
+	StdDevScaleOutPerHost time.Duration
+
+	MeanScaleInPerHost   time.Duration
+	StdDevScaleInPerHost time.Duration
+
 	opts *scheduling.SchedulerOptions
 }
 
@@ -108,6 +114,10 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		numFailedScaleOutOps:      0,
 		numSuccessfulScaleInOps:   0,
 		numSuccessfulScaleOutOps:  0,
+		MeanScaleOutPerHost:       time.Second * time.Duration(opts.MeanScaleOutPerHostSec),
+		StdDevScaleOutPerHost:     time.Second * time.Duration(opts.StdDevScaleOutPerHostSec),
+		MeanScaleInPerHost:        time.Second * time.Duration(opts.MeanScaleInPerHostSec),
+		StdDevScaleInPerHost:      time.Second * time.Duration(opts.StdDevScaleInPerHostSec),
 	}
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
 

@@ -8,7 +8,9 @@ import (
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
+	"math/rand"
 	"strings"
+	"time"
 )
 
 // DockerSwarmCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
@@ -159,6 +161,11 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 
 				c.log.Debug("Using disabled host %s in scale-out operation.", hostId)
 
+				scaleOutDurationSec := (rand.NormFloat64() * c.StdDevScaleOutPerHost.Seconds()) + c.MeanScaleOutPerHost.Seconds()
+				scaleOutDuration := time.Duration(scaleOutDurationSec) * time.Second
+				c.log.Debug("Simulating scale-out with duration %v", scaleOutDuration)
+				time.Sleep(scaleOutDuration)
+
 				// This will add the host back to the Cluster.
 				err = c.NewHostAddedOrConnected(host)
 				if err != nil {
@@ -234,6 +241,11 @@ func (c *DockerSwarmCluster) unsafeGetTargetedScaleInCommand(targetScale int32, 
 				disabledHosts = append(disabledHosts, id)
 			}
 		}
+
+		scaleInDurationSec := (rand.NormFloat64() * c.StdDevScaleInPerHost.Seconds()) + c.MeanScaleInPerHost.Seconds()
+		scaleInDuration := time.Duration(scaleInDurationSec) * time.Second
+		c.log.Debug("Simulating scale-out with duration %v", scaleInDuration)
+		time.Sleep(scaleInDuration)
 
 		// If we failed to disable one or more hosts, then we'll abort the entire operation.
 		if len(errs) > 0 {

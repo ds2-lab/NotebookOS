@@ -9,8 +9,10 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
+	"math/rand"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // DockerComposeCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
@@ -171,6 +173,11 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 
 				c.log.Debug("Using disabled host %s in scale-out operation.", hostId)
 
+				scaleOutDurationSec := (rand.NormFloat64() * c.StdDevScaleOutPerHost.Seconds()) + c.MeanScaleOutPerHost.Seconds()
+				scaleOutDuration := time.Duration(scaleOutDurationSec) * time.Second
+				c.log.Debug("Simulating scale-out with duration %v", scaleOutDuration)
+				time.Sleep(scaleOutDuration)
+
 				// This will add the host back to the Cluster.
 				err = c.NewHostAddedOrConnected(host)
 				if err != nil {
@@ -251,6 +258,11 @@ func (c *DockerComposeCluster) unsafeGetTargetedScaleInCommand(targetScale int32
 				disabledHosts = append(disabledHosts, id)
 			}
 		}
+
+		scaleInDurationSec := (rand.NormFloat64() * c.StdDevScaleInPerHost.Seconds()) + c.MeanScaleInPerHost.Seconds()
+		scaleInDuration := time.Duration(scaleInDurationSec) * time.Second
+		c.log.Debug("Simulating scale-out with duration %v", scaleInDuration)
+		time.Sleep(scaleInDuration)
 
 		// If we failed to disable one or more hosts, then we'll abort the entire operation.
 		if len(errs) > 0 {

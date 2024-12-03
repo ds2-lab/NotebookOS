@@ -37,6 +37,10 @@ type SchedulerOptions struct {
 	ExecutionTimeSamplingWindow         int64   `name:"execution-time-sampling-window"    json:"execution-time-sampling-window"   yaml:"execution-time-sampling-window"                        description:"Window size for moving average of training time. Specify a negative value to compute the average as the average of ALL execution times."`
 	MigrationTimeSamplingWindow         int64   `name:"migration-time-sampling-window"    json:"migration-time-sampling-window"   yaml:"migration-time-sampling-window"                        description:"Window size for moving average of migration time. Specify a negative value to compute the average as the average of ALL migration times."`
 	SchedulerHttpPort                   int     `name:"scheduler-http-port"               json:"scheduler-http-port"              yaml:"scheduler-http-port"                        description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
+	MeanScaleOutPerHostSec              int     `name:"mean_scale_out_per_host_sec" json:"mean_scale_out_per_host_sec" yaml:"mean_scale_out_per_host_sec"`
+	StdDevScaleOutPerHostSec            int     `name:"std_dev_scale_out_per_host_sec" json:"std_dev_scale_out_per_host_sec" yaml:"std_dev_scale_out_per_host_sec"`
+	MeanScaleInPerHostSec               int     `name:"mean_scale_in_per_host_sec" json:"mean_scale_in_per_host_sec" yaml:"mean_scale_in_per_host_sec"`
+	StdDevScaleInPerHostSec             int     `name:"std_dev_scale_in_per_host_sec" json:"std_dev_scale_in_per_host_sec" yaml:"std_dev_scale_in_per_host_sec"`
 	// NumReplicas                   int     `name:"num-replicas"                      json:"num-replicas"                     yaml:"num-replicas"                        description:"Number of kernel replicas."`
 }
 
