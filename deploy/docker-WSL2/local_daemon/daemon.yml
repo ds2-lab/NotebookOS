@@ -31,6 +31,7 @@ device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter
 notebook-image-tag: latest
 scheduler-http-port: 8078
+idle-session-reclamation-policy: none
 scheduling-policy: static
 # scheduling-policy: fcfs-batch
 subscribed-ratio-update-interval: 1

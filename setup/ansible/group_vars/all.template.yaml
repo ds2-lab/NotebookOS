@@ -10,6 +10,7 @@ distributed_notebook_kernel_docker_image_name: scusemua/jupyter-debug
 distributed_notebook_kernel_docker_image_tag: latest
 distributed_notebook_num_replicas: 3
 distributed_notebook_scheduling_policy: static
+distributed_notebook_idle_session_reclamation_policy: none
 distributed_notebook_predictive_autoscaling_enabled: true
 distributed_notebook_debug_mode: true
 distributed_notebook_debug_port: 9996

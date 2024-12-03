@@ -10,6 +10,10 @@ import (
 // If it is unclear which scheduling.Policy should be returned, then a scheduling.ErrInvalidSchedulingPolicy will be
 // returned.
 func GetSchedulingPolicy(opts *scheduling.SchedulerOptions) (scheduling.Policy, error) {
+	if opts.SchedulingPolicy == "" {
+		return nil, fmt.Errorf("%w: unspecified (you did not specify one)", scheduling.ErrInvalidSchedulingPolicy)
+	}
+
 	switch opts.SchedulingPolicy {
 	case string(scheduling.Reservation):
 		{
@@ -44,6 +48,10 @@ func GetSchedulingPolicy(opts *scheduling.SchedulerOptions) (scheduling.Policy, 
 //
 // This is just used internally by the "constructors" of the various policy structs.
 func getIdleSessionReclamationPolicy(opts *scheduling.SchedulerOptions) (scheduling.IdleSessionReclamationPolicy, error) {
+	if opts.IdleSessionReclamationPolicy == "" {
+		return nil, fmt.Errorf("%w: unspecified (you did not specify one)", scheduling.ErrInvalidIdleSessionReclamationPolicy)
+	}
+
 	switch opts.IdleSessionReclamationPolicy {
 	case string(scheduling.NoIdleSessionReclamation):
 		{
@@ -63,5 +71,5 @@ func getIdleSessionReclamationPolicy(opts *scheduling.SchedulerOptions) (schedul
 		}
 	}
 
-	return nil, fmt.Errorf("%w: \"%s\"", scheduling.ErrInvalidSchedulingPolicy, opts.IdleSessionReclamationPolicy)
+	return nil, fmt.Errorf("%w: \"%s\"", scheduling.ErrInvalidIdleSessionReclamationPolicy, opts.IdleSessionReclamationPolicy)
 }

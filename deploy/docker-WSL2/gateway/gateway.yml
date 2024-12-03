@@ -32,6 +32,7 @@ use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter
 notebook-image-tag: latest
+idle-session-reclamation-policy: none
 scheduling-policy: static
 # scheduling-policy: fcfs-batch
 # subscribed-ratio-update-interval: 1
