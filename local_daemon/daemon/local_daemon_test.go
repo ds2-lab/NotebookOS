@@ -50,7 +50,8 @@ var _ = Describe("Local Daemon Tests", func() {
 
 		schedulingPolicy, err := policy.GetSchedulingPolicy(&scheduling.SchedulerOptions{
 			CommonOptions: configuration.CommonOptions{
-				SchedulingPolicy: string(scheduling.Static),
+				SchedulingPolicy:             string(scheduling.Static),
+				IdleSessionReclamationPolicy: string(scheduling.NoIdleSessionReclamation),
 			},
 		})
 		Expect(err).To(BeNil())
