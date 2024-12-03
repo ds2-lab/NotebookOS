@@ -91,6 +91,7 @@ var (
 			"num_resend_attempts": 1,
 			"acks_enabled": false,
 			"scheduling-policy": "static",
+			"idle-session-reclamation-policy": "none",
 			"remote-storage-endpoint": "host.docker.internal:10000",
 			"smr-port": 8080,
 			"debug_mode": true,
