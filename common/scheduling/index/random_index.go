@@ -163,11 +163,12 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 }
 
 func (index *RandomClusterIndex) compactLocked(from int32) {
-	frontier := int(from)
-	for i := frontier + 1; i < len(index.hosts); i++ {
+	frontier := from
+	for i := frontier + 1; i < int32(len(index.hosts)); i++ {
 		if index.hosts[i] != nil {
 			index.hosts[frontier], index.hosts[i] = index.hosts[i], nil
 			index.hosts[frontier].SetMeta(HostMetaRandomIndex, frontier)
+			index.hosts[frontier].SetContainedWithinIndex(true)
 			frontier += 1
 		}
 	}

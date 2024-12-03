@@ -89,6 +89,7 @@ func (index *StaticClusterIndex) Add(host scheduling.Host) {
 	}
 
 	host.SetMeta(HostMetaStaticIndex, i)
+	host.SetContainedWithinIndex(true)
 	index.length += 1
 	index.sortIndex()
 }
@@ -107,6 +108,15 @@ func (index *StaticClusterIndex) sortIndex() {
 			return 0
 		}
 	})
+
+	// Need to update the meta fields of all the hosts now.
+	var idx int32 = 0
+	for _, host := range index.hosts {
+		host.SetMeta(HostMetaStaticIndex, idx)
+		host.SetContainedWithinIndex(true)
+
+		idx += 1
+	}
 }
 
 func (index *StaticClusterIndex) Update(_ scheduling.Host) {
@@ -186,7 +196,8 @@ func (index *StaticClusterIndex) compactLocked(from int32) {
 	for i := frontier + 1; i < len(index.hosts); i++ {
 		if index.hosts[i] != nil {
 			index.hosts[frontier], index.hosts[i] = index.hosts[i], nil
-			index.hosts[frontier].SetMeta(HostMetaStaticIndex, frontier)
+			index.hosts[frontier].SetMeta(HostMetaStaticIndex, int32(frontier))
+			index.hosts[frontier].SetContainedWithinIndex(true)
 			frontier += 1
 		}
 	}
@@ -304,7 +315,7 @@ func (index *StaticClusterIndex) SeekMultipleFrom(_ interface{}, n int, criteria
 
 		if candidateHost == nil {
 			index.log.Warn("Index returned nil host.")
-			return hosts, nextPos
+			break
 		}
 
 		// In case we reshuffled, make sure we haven't already received this host.
