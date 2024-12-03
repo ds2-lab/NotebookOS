@@ -19,6 +19,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
@@ -178,7 +179,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil,
-				nil, nil, schedulingPolicy, func(f scheduling.StatisticsUpdater) {},
+				nil, nil, schedulingPolicy, func(f func(stats *statistics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
 			Expect(dockerCluster).ToNot(BeNil())
@@ -681,7 +682,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil,
-				nil, nil, schedulingPolicy, func(f scheduling.StatisticsUpdater) {},
+				nil, nil, schedulingPolicy, func(f func(stats *statistics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
 			Expect(dockerCluster).ToNot(BeNil())
@@ -1037,7 +1038,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil,
-				nil, nil, schedulingPolicy, func(f scheduling.StatisticsUpdater) {},
+				nil, nil, schedulingPolicy, func(f func(stats *statistics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
 			Expect(dockerCluster).ToNot(BeNil())
