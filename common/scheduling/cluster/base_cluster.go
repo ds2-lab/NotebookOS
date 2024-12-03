@@ -825,7 +825,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 			var operationStatus string
 			if numReleased > 0 {
 				stats.NumSuccessfulScaleInEvents += 1
-				stats.CumulativeNumHostsProvisioned += int(numReleased)
+				stats.CumulativeNumHostsReleased += int(numReleased)
 
 				if int32(c.Len()) == targetNumNodes {
 					operationStatus = "complete_success"
@@ -947,7 +947,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 			var operationStatus string
 			if numReleased > 0 {
 				stats.NumSuccessfulScaleInEvents += 1
-				stats.CumulativeNumHostsProvisioned += int(numReleased)
+				stats.CumulativeNumHostsReleased += int(numReleased)
 
 				if int32(c.Len()) == targetNumNodes {
 					operationStatus = "complete_success"
