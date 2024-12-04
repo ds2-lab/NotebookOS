@@ -2409,7 +2409,10 @@ class DistributedKernel(IPythonKernel):
 
             write_duration_ms: float = (time.time() - write_start) * 1.0e3
             if self.prometheus_enabled:
-                self.remote_storage_write_latency_milliseconds.observe(write_duration_ms)
+                self.remote_storage_write_latency_milliseconds.labels(
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id
+                ).observe(write_duration_ms)
             self.log.info(
                 "Wrote etcd-Raft data directory to RemoteStorage. Path: \"%s\"" % waldir_path)
         except Exception as e:
