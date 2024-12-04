@@ -628,6 +628,9 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 		return err
 	}
 
+	m.log.Debug("Successfully adjusting pending resource request for replica %d of kernel \"%s\" from %v to %v.",
+		replicaId, kernelId, originalAllocatedResources.String(), decimalSpec.String())
+
 	return nil
 }
 
@@ -705,27 +708,24 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 		return err
 	}
 
+	m.log.Debug("Committing resources. Current idle: %v. Current pending: %v. Current committed: %v. Resources to be committed: %v.",
+		m.resourcesWrapper.idleResources.String(), m.resourcesWrapper.pendingResources.String(), m.resourcesWrapper.committedResources.String(), requestedResources.String())
+
 	// If we've gotten this far, then we have enough HostResources available to commit the requested HostResources
 	// to the specified kernel replica. So, let's do that now. First, we'll decrement the idle HostResources.
 	if err := m.resourcesWrapper.idleResources.Subtract(requestedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
+		return err
 	}
 
 	// Next, we'll decrement the pending HostResources. We decrement because the HostResources are no longer "pending".
 	// Instead, they are actively bound/committed to the kernel replica.
 	if err := m.resourcesWrapper.pendingResources.Subtract(requestedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
+		return err
 	}
 
 	// Next, we'll increment the committed HostResources.
 	if err := m.resourcesWrapper.committedResources.Add(requestedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
+		return err
 	}
 
 	// Finally, we'll update the Allocation struct associated with this request.
@@ -746,6 +746,8 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 
 	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isReservation=%v): %v",
 		replicaId, kernelId, isReservation, requestedResources.String())
+	m.log.Debug("Updated idle: %v. Updated pending: %v. Updated committed: %v.",
+		m.resourcesWrapper.idleResources.String(), m.resourcesWrapper.pendingResources.String(), m.resourcesWrapper.committedResources.String())
 
 	// Update Prometheus metrics.
 	// m.resourceMetricsCallback(m.Manager)
@@ -1073,9 +1075,15 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 }
 
 func (m *AllocationManager) unsafeUnsubscribePendingResources(allocatedResources *types.DecimalSpec, key string) error {
+	m.log.Debug("Deallocating pending resources. Current pending resources: %v. Resources to be deallocated: %v",
+		m.resourcesWrapper.pendingResources.String(), allocatedResources.String())
+
 	if err := m.resourcesWrapper.pendingResources.Subtract(allocatedResources); err != nil {
 		return err
 	}
+
+	m.log.Debug("Deallocated pending resources. Updated pending resources: %v",
+		m.resourcesWrapper.pendingResources.String())
 
 	m.numPendingAllocations.Decr()
 
@@ -1101,6 +1109,9 @@ func (m *AllocationManager) unsafeAllocatePendingResources(decimalSpec *types.De
 		return err
 	}
 
+	m.log.Debug("Allocating pending resources. Current pending resources: %v. Resources to be allocated: %v.",
+		m.resourcesWrapper.pendingResources.String(), decimalSpec.String())
+
 	// If we've gotten this far, then we have enough HostResources available to subscribe the requested HostResources
 	// to the specified kernel replica. So, let's do that now.
 	if err := m.resourcesWrapper.pendingResources.Add(decimalSpec); err != nil {
@@ -1108,6 +1119,9 @@ func (m *AllocationManager) unsafeAllocatePendingResources(decimalSpec *types.De
 		// as we passed all the validation checks up above.
 		return err
 	}
+
+	m.log.Debug("Allocated pending resources. New pending resources: %v.",
+		m.resourcesWrapper.pendingResources.String())
 
 	// Store the allocation in the mapping.
 	m.allocationKernelReplicaMap.Store(key, allocation)
@@ -1164,6 +1178,9 @@ func (m *AllocationManager) unsafeReleaseCommittedResources(allocation *Allocati
 		allocatedResources = allocation.ToDecimalSpec()
 	}
 
+	m.log.Debug("Releasing committed resources. Current idle: %v. Current pending: %v. Current committed: %v. Resources to be allocated: %v.",
+		m.resourcesWrapper.idleResources.String(), m.resourcesWrapper.pendingResources.String(), m.resourcesWrapper.committedResources.String(), allocatedResources.String())
+
 	// If we've gotten this far, then we have enough HostResources available to commit the requested HostResources
 	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle HostResources.
 	if err := m.resourcesWrapper.idleResources.Add(allocatedResources); err != nil {
@@ -1185,4 +1202,7 @@ func (m *AllocationManager) unsafeReleaseCommittedResources(allocation *Allocati
 		// as we passed all the validation checks up above.
 		panic(err)
 	}
+
+	m.log.Debug("Released committed resources. Updated idle: %v. Updated pending: %v. Updated committed: %v.",
+		m.resourcesWrapper.idleResources.String(), m.resourcesWrapper.pendingResources.String(), m.resourcesWrapper.committedResources.String())
 }

@@ -2558,7 +2558,7 @@ func (d *SchedulerDaemonImpl) updateKernelResourceSpec(kernel scheduling.KernelR
 		return fmt.Errorf("%w: %s", client.ErrInvalidResourceSpec, newSpec.String())
 	}
 
-	d.log.Debug("Attempting to pending resource allocation for kernel %s to %s.", kernel.ID(), newSpec.String())
+	d.log.Debug("Attempting to update pending resource allocation for kernel %s to %s.", kernel.ID(), newSpec.String())
 	err := d.resourceManager.AdjustPendingResources(kernel.ReplicaID(), kernel.ID(), newSpec)
 	if err != nil {
 		d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
