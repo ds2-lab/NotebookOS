@@ -104,10 +104,10 @@ type FailureHandler func(c scheduling.Kernel) error
 
 type DistributedClientProvider interface {
 	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
-		connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
-		debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
-		executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider,
-		updater func(func(statistics *statistics.ClusterStatistics)), notificationCallback scheduling.NotificationCallback) scheduling.Kernel
+		connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
+		executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
+		messagingMetricsProvider metrics.MessagingMetricsProvider, updater func(func(statistics *statistics.ClusterStatistics)),
+		notificationCallback scheduling.NotificationCallback) scheduling.Kernel
 }
 
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
@@ -247,7 +247,7 @@ type ClusterGatewayImpl struct {
 	// We configure a pool of available ports through Kubernetes.
 	// This is the pool of ports. We use these ports to create ZMQ sockets for kernels.
 	// If a kernel stops, then its ports are returned to the pool for future reuse.
-	availablePorts *utils.AvailablePorts
+	//availablePorts *utils.AvailablePorts
 
 	// The IOPub socket that all Jupyter clients subscribe to.
 	// io pub *messaging.Socket
@@ -348,7 +348,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		transport:                      "tcp",
 		ip:                             opts.IP,
 		DebugMode:                      clusterDaemonOptions.CommonOptions.DebugMode,
-		availablePorts:                 utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
 		kernels:                        hashmap.NewCornelkMap[string, scheduling.Kernel](128),
 		kernelIdToKernel:               hashmap.NewCornelkMap[string, scheduling.Kernel](128),
 		kernelSpecs:                    hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
@@ -366,6 +365,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		prometheusInterval:             time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
 		gatewayPrometheusManager:       nil,
 		ClusterStatistics:              statistics.NewClusterStatistics(),
+		//availablePorts:                 utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
 	}
 
 	for _, configFunc := range configs {
@@ -1538,21 +1538,13 @@ func (d *ClusterGatewayImpl) KubernetesMode() bool {
 // startNewKernel is called by StartKernel when creating a brand-new kernel, rather than restarting an existing kernel.
 func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Kernel, error) {
 	d.log.Debug("Did not find existing DistributedKernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
-
-	listenPorts, err := d.availablePorts.RequestPorts()
-	if err != nil {
-		panic(err)
-	}
-
-	d.log.Debug("Allocating the following \"listen\" ports to kernel %s: %v", in.Id, listenPorts)
-
 	// Initialize kernel with new context.
 	kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
-		d.connectionOptions, listenPorts[0], listenPorts[1], uuid.NewString(), d.DebugMode, d.executionFailed,
+		d.connectionOptions, uuid.NewString(), d.DebugMode, d.executionFailed,
 		d.executionLatencyCallback, d.gatewayPrometheusManager, d.updateClusterStatistics, d.notifyDashboard)
 
 	d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
-	_, err = kernel.InitializeShellForwarder(d.kernelShellHandler)
+	_, err := kernel.InitializeShellForwarder(d.kernelShellHandler)
 	if err != nil {
 		if closeErr := kernel.Close(); closeErr != nil {
 			d.log.Error("Error while closing kernel %s: %v.", kernel.ID(), closeErr)
@@ -1612,13 +1604,6 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		d.kernels.Delete(in.Id)
 		d.kernelSpecs.Delete(in.Id)
 		d.waitGroups.Delete(in.Id)
-
-		listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
-		returnPortsErr := d.availablePorts.ReturnPorts(listenPorts)
-		if returnPortsErr != nil {
-			d.log.Warn("Failed to return listen ports %d and %d after failing to launch new kernel \"%s\" because: %v",
-				kernel.ShellListenPort(), kernel.IOPubListenPort(), in.Id, err)
-		}
 
 		closeKernelError := kernel.Close()
 		if closeKernelError != nil {
@@ -1932,7 +1917,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
 		jupyter.ConnectionInfoFromKernelConnectionInfo(in.ConnectionInfo),
-		d.id, d.numResendAttempts, -1, -1, in.PodOrContainerName, in.NodeName,
+		d.id, d.numResendAttempts, in.PodOrContainerName, in.NodeName,
 		nil, nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
 		host, metrics.ClusterGateway, true, true, d.DebugMode, d.gatewayPrometheusManager,
 		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics)
@@ -2181,7 +2166,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
 		jupyter.ConnectionInfoFromKernelConnectionInfo(connectionInfo), d.id,
-		d.numResendAttempts, -1, -1, kernelPodOrContainerName, nodeName, nil,
+		d.numResendAttempts, kernelPodOrContainerName, nodeName, nil,
 		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
 		true, true, d.DebugMode, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
 		d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics)
@@ -2510,12 +2495,6 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 		} else {
 			d.kernels.Delete(kernel.ID())
 			d.kernelIdToKernel.Delete(kernel.ID())
-
-			// Return the ports allocated to the kernel.
-			listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
-			if err := d.availablePorts.ReturnPorts(listenPorts); err != nil {
-				d.log.Error("Error returning ports %v: %v", listenPorts, err)
-			}
 
 			d.log.Debug("Cleaned kernel %s after kernel stopped.", kernel.ID())
 		}

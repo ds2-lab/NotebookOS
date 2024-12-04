@@ -199,8 +199,6 @@ type SchedulerDaemonImpl struct {
 	// numResendAttempts is the number of times to try resending a message before giving up.
 	numResendAttempts int
 
-	availablePorts *utils.AvailablePorts
-
 	// Manages resource allocations on behalf of the DefaultSchedulingPolicy Daemon.
 	resourceManager *resource.AllocationManager
 
@@ -282,7 +280,6 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		kernels:                            hashmap.NewCornelkMap[string, scheduling.KernelReplica](128),
 		kernelClientCreationChannels:       hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](128),
 		kernelDebugPorts:                   hashmap.NewCornelkMap[string, int](256),
-		availablePorts:                     utils.NewAvailablePorts(connectionOptions.StartingResourcePort, connectionOptions.NumResourcePorts, 2),
 		closed:                             make(chan struct{}),
 		cleaned:                            make(chan struct{}),
 		kernelRegistryPort:                 kernelRegistryPort,
@@ -1009,21 +1006,6 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		kernelConnectionInfo        *proto.KernelConnectionInfo
 	)
 	if d.deploymentMode == types.KubernetesMode {
-		listenPorts, err := d.availablePorts.RequestPorts()
-		if err != nil {
-			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-				Id:               uuid.NewString(),
-				Title:            "Unable to Assign \"Listen\" Ports for New Kernel",
-				Message:          fmt.Sprintf("Unable to assign \"listen\" ports for new replica %d of kernel %s because: %s.", registrationPayload.ReplicaId, registrationPayload.Kernel.Id, err.Error()),
-				NotificationType: 0,
-				Panicked:         true,
-			})
-			panic(err)
-		}
-
-		d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v",
-			registrationPayload.ReplicaId, registrationPayload.Kernel.Id, listenPorts)
-
 		invokerOpts := &invoker.DockerInvokerOptions{
 			RemoteStorageEndpoint:                d.remoteStorageEndpoint,
 			RemoteStorage:                        d.remoteStorage,
@@ -1044,7 +1026,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
 		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the internalCluster Gateway.
 		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id,
-			d.numResendAttempts, listenPorts[0], listenPorts[1], registrationPayload.PodOrContainerName, registrationPayload.NodeName,
+			d.numResendAttempts, registrationPayload.PodOrContainerName, registrationPayload.NodeName,
 			d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "", d.id, nil,
 			metrics.LocalDaemon, false, false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
 			d.kernelRequestResubmissionFailedAfterReconnection, nil)
@@ -1943,46 +1925,11 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	// Initialize kernel client with new context.
 	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, kernelInvoker)
 
-	// Request some ports.
-	listenPorts, portAllocationError := d.availablePorts.RequestPorts()
-	if portAllocationError != nil {
-		d.log.Error("Failed to request listen ports for new kernel %s because: %v", in.ID(), portAllocationError)
-		return nil, portAllocationError
-	}
-
-	// Check that all the ports that we were given are safe...
-	portsAlreadyInUse := make([]int, 0)
-	for _, port := range listenPorts {
-		if !d.availablePorts.TestPort(port) {
-			d.log.Error("Port %d was actually unavailable upon testing...", port)
-			portsAlreadyInUse = append(portsAlreadyInUse, port)
-		}
-	}
-
-	// If all the ports that we were given are OK to use, then let's just break out of the loop.
-	if len(portsAlreadyInUse) > 0 {
-		errorMessage := fmt.Errorf("%d/%d port(s) allocated for kernel \"%s\" were already in-use",
-			len(portsAlreadyInUse), len(listenPorts), kernelId)
-		d.log.Error(errorMessage.Error())
-		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-			Id:               uuid.NewString(),
-			Title:            "Returned 'ListenPorts' Were Already In-Use",
-			Message:          errorMessage.Error(),
-			NotificationType: int32(messaging.ErrorNotification),
-			Panicked:         false,
-		})
-
-		return nil, errorMessage
-	}
-
 	kernel := client.NewKernelReplicaClient(kernelCtx, in, connInfo, d.id, d.numResendAttempts,
-		listenPorts[0], listenPorts[1], types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
+		types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
 		d.MessageAcknowledgementsEnabled, "", d.id, nil, metrics.LocalDaemon, false,
 		false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
 		d.kernelRequestResubmissionFailedAfterReconnection, nil)
-
-	d.log.Debug("Allocating the following \"listen\" ports to replica %d of kernel %s: %v",
-		in.ReplicaId, kernel.ID(), listenPorts)
 
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)
@@ -2070,12 +2017,6 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId
 
 	// Remove the kernel from our hash map.
 	d.kernels.Delete(in.Id)
-
-	listenPorts := []int{kernel.ShellListenPort(), kernel.IOPubListenPort()}
-	err = d.availablePorts.ReturnPorts(listenPorts)
-	if err != nil {
-		return nil, d.errorf(err)
-	}
 
 	d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
 

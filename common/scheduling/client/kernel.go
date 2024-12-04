@@ -79,8 +79,6 @@ type KernelReplicaClient struct {
 	shell                            *messaging.Socket                                  // Listener.
 	iopub                            *messaging.Socket                                  // Listener.
 	numResendAttempts                int                                                // Number of times to try resending a message before giving up.
-	shellListenPort                  int                                                // Port that the KernelReplicaClient::shell socket listens on.
-	iopubListenPort                  int                                                // Port that the KernelReplicaClient::iopub socket listens on.
 	PodOrContainerName               string                                             // Name of the Pod or Container housing the associated distributed kernel replica container.
 	nodeName                         string                                             // Name of the node that the Pod or Container is running on.
 	ready                            bool                                               // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the DefaultSchedulingPolicy Daemon.
@@ -137,10 +135,10 @@ type KernelReplicaClient struct {
 // If the proto.KernelReplicaSpec argument is nil, or the proto.KernelSpec field of the proto.KernelReplicaSpec
 // argument is nil, then NewKernelReplicaClient will panic.
 func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, info *jupyter.ConnectionInfo, componentId string,
-	numResendAttempts int, shellListenPort int, iopubListenPort int, podOrContainerName string, nodeName string,
-	smrNodeReadyCallback SMRNodeReadyNotificationCallback, smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, messageAcknowledgementsEnabled bool,
-	persistentId string, hostId string, host scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool,
-	debugMode bool, messagingMetricsProvider metrics.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
+	numResendAttempts int, podOrContainerName string, nodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback,
+	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, messageAcknowledgementsEnabled bool, persistentId string, hostId string,
+	host scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool, debugMode bool,
+	messagingMetricsProvider metrics.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback,
 	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))) *KernelReplicaClient {
 
@@ -161,9 +159,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		persistentId:                         persistentId,
 		replicaId:                            spec.ReplicaId,
 		spec:                                 spec.Kernel,
-		shellListenPort:                      shellListenPort,
 		messagingMetricsProvider:             messagingMetricsProvider,
-		iopubListenPort:                      iopubListenPort,
 		PodOrContainerName:                   podOrContainerName,
 		nodeName:                             nodeName,
 		smrNodeReadyCallback:                 smrNodeReadyCallback,
@@ -745,11 +741,11 @@ func (c *KernelReplicaClient) NodeName() string {
 }
 
 func (c *KernelReplicaClient) ShellListenPort() int {
-	return c.shellListenPort
+	return c.client.GetSocketPort(messaging.ShellMessage)
 }
 
 func (c *KernelReplicaClient) IOPubListenPort() int {
-	return c.iopubListenPort
+	return c.client.GetSocketPort(messaging.IOMessage)
 }
 
 // YieldNextExecutionRequest takes note that we should yield the next execution request.
@@ -982,7 +978,7 @@ func (c *KernelReplicaClient) Validate() error {
 func (c *KernelReplicaClient) InitializeShellForwarder(handler scheduling.KernelMessageHandler) (*messaging.Socket, error) {
 	c.log.Debug("Initializing shell forwarder for kernel client.")
 
-	shell := messaging.NewSocket(zmq4.NewRouter(c.client.Ctx), c.shellListenPort, messaging.ShellMessage, fmt.Sprintf("K-Router-ShellForwrder[%s]", c.id))
+	shell := messaging.NewSocket(zmq4.NewRouter(c.client.Ctx), 0, messaging.ShellMessage, fmt.Sprintf("K-Router-ShellForwrder[%s]", c.id))
 	if err := c.client.Listen(shell); err != nil {
 		return nil, err
 	}
@@ -1007,7 +1003,7 @@ func (c *KernelReplicaClient) InitializeShellForwarder(handler scheduling.Kernel
 // InitializeIOForwarder initializes the IOPub serving.
 // Returns Pub socket, Sub socket, error.
 func (c *KernelReplicaClient) InitializeIOForwarder() (*messaging.Socket, error) {
-	iopub := messaging.NewSocket(zmq4.NewPub(c.client.Ctx), c.iopubListenPort /* c.client.Meta.IOSubPort */, messaging.IOMessage, fmt.Sprintf("K-Pub-IOForwrder[%s]", c.id))
+	iopub := messaging.NewSocket(zmq4.NewPub(c.client.Ctx), 0, messaging.IOMessage, fmt.Sprintf("K-Pub-IOForwrder[%s]", c.id))
 
 	c.log.Debug("Created ZeroMQ PUB socket with port %d.", iopub.Port)
 

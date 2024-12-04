@@ -160,10 +160,10 @@ func (p *MockedDistributedKernelClientProvider) RegisterMockedDistributedKernel(
 }
 
 func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
-	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int,
-	persistentId string, debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
-	executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider,
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)), notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
+	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
+	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
+	messagingMetricsProvider metrics.MessagingMetricsProvider, statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
+	notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 	if kernel, ok := p.expectedKernels[spec.Id]; ok {
 		return kernel

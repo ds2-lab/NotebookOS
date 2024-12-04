@@ -98,9 +98,7 @@ type DistributedKernelClient struct {
 	replicas          map[int32]scheduling.KernelReplica
 	targetNumReplicas int32
 
-	persistentId    string
-	shellListenPort int // Port that the KernelReplicaClient::shell socket listens on.
-	iopubListenPort int // Port that the KernelReplicaClient::iopub socket listens on.
+	persistentId string
 
 	numActiveAddOperations int // Number of active migrations of the associated kernel's replicas.
 
@@ -156,10 +154,10 @@ type DistributedKernelClientProvider struct{}
 // NewDistributedKernelClient creates a new DistributedKernelClient struct and returns
 // a pointer to it in the form of an AbstractDistributedKernelClient interface.
 func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
-	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int,
-	persistentId string, debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback,
-	executionLatencyCallback scheduling.ExecutionLatencyCallback, messagingMetricsProvider metrics.MessagingMetricsProvider,
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)), notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
+	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
+	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
+	messagingMetricsProvider metrics.MessagingMetricsProvider, statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
+	notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 	kernel := &DistributedKernelClient{
 		id:                       spec.Id,
@@ -167,10 +165,10 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 		debugMode:                debugMode,
 		messagingMetricsProvider: messagingMetricsProvider,
 		server: server.New(ctx, &jupyter.ConnectionInfo{Transport: "tcp", SignatureScheme: connectionInfo.SignatureScheme, Key: connectionInfo.Key}, metrics.ClusterGateway, func(s *server.AbstractServer) {
-			s.Sockets.Shell = messaging.NewSocket(zmq4.NewRouter(s.Ctx), shellListenPort, messaging.ShellMessage, fmt.Sprintf("DK-Router-Shell[%s]", spec.Id))
-			s.Sockets.IO = messaging.NewSocket(zmq4.NewPub(s.Ctx), iopubListenPort, messaging.IOMessage, fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)) // connectionInfo.IOSubPort}
+			s.Sockets.Shell = messaging.NewSocket(zmq4.NewRouter(s.Ctx), 0, messaging.ShellMessage, fmt.Sprintf("DK-Router-Shell[%s]", spec.Id))
+			s.Sockets.IO = messaging.NewSocket(zmq4.NewPub(s.Ctx), 0, messaging.IOMessage, fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)) // connectionInfo.IOSubPort}
 			s.PrependId = true
-			/* The DistributedKernelClient lives on the Gateway. The Shell forwarder only receives messages from the frontend, which should not be ACK'd. */
+			/* The DistributedKernelClient lives on the Gateway. The Shell forwarder only receives messages from the frontend, which should not be acknowledged. */
 			s.ShouldAckMessages = false
 			s.ReconnectOnAckFailure = false
 			s.ComponentId = hostId
@@ -185,8 +183,6 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 		replicas:                              make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.KernelReplica, numReplicas),
 		targetNumReplicas:                     int32(numReplicas),
 		cleaned:                               make(chan struct{}),
-		shellListenPort:                       shellListenPort,
-		iopubListenPort:                       iopubListenPort,
 		activeExecutionsByExecuteRequestMsgId: hashmap.NewCornelkMap[string, *scheduling.ActiveExecution](32),
 		numActiveAddOperations:                0,
 		executionFailedCallback:               executionFailedCallback,
@@ -256,11 +252,11 @@ func (c *DistributedKernelClient) GetContainers() []scheduling.KernelContainer {
 }
 
 func (c *DistributedKernelClient) ShellListenPort() int {
-	return c.shellListenPort
+	return c.server.GetSocketPort(messaging.ShellMessage)
 }
 
 func (c *DistributedKernelClient) IOPubListenPort() int {
-	return c.iopubListenPort
+	return c.server.GetSocketPort(messaging.IOMessage)
 }
 
 func (c *DistributedKernelClient) ActiveExecution() *scheduling.ActiveExecution {
@@ -1207,7 +1203,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// It would be bad if the replicas concurrently modified the same jupyter message, so we clone it and send
 	// each replica its own unique copy.
 	jupyterMessages := make([]*messaging.JupyterMessage, 0, len(c.replicas))
-	for _, _ = range replicas {
+	for range replicas {
 		var jupyterMessage *messaging.JupyterMessage
 		if c.debugMode {
 			// I believe we clone the message so we can embed our own independent data in the metadata/buffers frames,
@@ -1442,7 +1438,10 @@ func (c *DistributedKernelClient) closeLocked() error {
 		return nil
 	}
 
-	c.BaseServer.Close()
+	err := c.BaseServer.Close()
+	if err != nil {
+		c.log.Warn("Error while closing BaseServer for kernel \"%s\": %v", c.id, err)
+	}
 
 	c.clearReplicasLocked()
 	for _, socket := range c.server.Sockets.All {
@@ -1728,7 +1727,7 @@ func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *Ke
 	c.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for %s ActiveExecution associated with \"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
 		replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, associatedActiveExecution.NumRolesReceived(), associatedActiveExecution.GetNumReplicas(), replica.ID())
 
-	// If we have a non-nil error and it isn't just that all the replicas proposed YIELD, then return it directly.
+	// If we have a non-nil error, and it isn't just that all the replicas proposed YIELD, then return it directly.
 	if err != nil && !errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
 		c.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for %s ActiveExecution associated with \"execute_request\" \"%s\": %v",
 			replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, err)
