@@ -3596,6 +3596,26 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 		d.ClusterStatistics.CumulativeLeaderElectionTimeMicroseconds += float64(trace.LeaderElectionTimeMicroseconds)
 	}
 
+	if trace.RequestReceivedByKernelReplica > 0 && trace.ElectionCreationTime > 0 {
+		preprocessDuration := trace.ElectionCreationTime - trace.RequestReceivedByKernelReplica
+		d.ClusterStatistics.CumulativeKernelCreateElectionMillis += float64(preprocessDuration)
+	}
+
+	if trace.ElectionCreationTime > 0 && trace.ElectionProposalPhaseStartTime > 0 {
+		electionCreationDuration := trace.ElectionProposalPhaseStartTime - trace.ElectionCreationTime
+		d.ClusterStatistics.CumulativeKernelCreateElectionMillis += float64(electionCreationDuration)
+	}
+
+	if trace.ElectionProposalPhaseStartTime > 0 && trace.ElectionExecutionPhaseStartTime > 0 {
+		proposalVotePhaseDuration := trace.ElectionExecutionPhaseStartTime - trace.ElectionProposalPhaseStartTime
+		d.ClusterStatistics.CumulativeKernelProposalVotePhaseMillis += float64(proposalVotePhaseDuration)
+	}
+
+	if trace.ReplySentByKernelReplica > 0 && trace.ExecutionEndUnixMillis > 0 {
+		postprocessDuration := trace.ReplySentByKernelReplica - trace.ExecutionEndUnixMillis
+		d.ClusterStatistics.CumulativeKernelPostprocessMillis += float64(postprocessDuration)
+	}
+
 	d.ClusterStatistics.CumulativeExecutionTimeMicroseconds += float64(trace.ExecutionTimeMicroseconds)
 }
 
@@ -4003,6 +4023,7 @@ func (d *ClusterGatewayImpl) ClearClusterStatistics() (*proto.ClusterStatisticsR
 		return nil, err
 	}
 
+	d.lastFullStatisticsUpdate = time.Time{}
 	d.ClusterStatistics = statistics.NewClusterStatistics()
 
 	// Basically initialize the statistics with some values, but in a separate goroutine.

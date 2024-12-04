@@ -1026,14 +1026,16 @@ func (s *AbstractServer) sendRequestWithRetries(request messaging.Request, socke
 	if s.shouldAddRequestTrace(request.Payload(), socket) {
 		// s.Log.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.",
 		//	socket.Type.String(), request.JupyterMessageType())
-		trace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), time.Now(), s.Log)
+		trace, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(request.Payload(), time.Now(), s.Log)
 		if err != nil {
 			s.Log.Error("Failed to add or update RequestTrace to Jupyter message: %v", err)
 			s.Log.Error("The serving is using the following connection info: %v", s.Meta)
 			panic(err)
 		}
 
-		if added {
+		// If the trace is non-nil and there's a value populated for the last entry of the trace, then we can
+		// extract the data from the trace.
+		if trace != nil && trace.RequestSentByGateway != proto.DefaultTraceTimingValue {
 			s.tryUpdateClusterStatisticsFromRequestTrace(trace)
 		}
 	}

@@ -408,7 +408,7 @@ func (c *KernelReplicaClient) KernelStartedTraining() error {
 				Timestamp:           now,
 				TimestampUnixMillis: now.UnixMilli(),
 				Metadata: map[string]interface{}{
-					"resource_request": container.ResourceSpec(),
+					"resource_request": container.ResourceSpec().ToMap(),
 				},
 			})
 		})
@@ -539,7 +539,7 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 			var metadata map[string]interface{}
 			if container != nil {
 				metadata = map[string]interface{}{
-					"resource_request": container.ResourceSpec(),
+					"resource_request": container.ResourceSpec().ToMap(),
 				}
 			}
 
