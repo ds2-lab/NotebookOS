@@ -463,6 +463,11 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.Spec) error {
 
 	oldSpec := c.spec.DecimalSpecFromKernelSpec()
 
+	if oldSpec.Equals(newSpec) {
+		c.log.Debug("Old spec and new spec of kernel \"%s\" are equal. Nothing to update.", c.id)
+		return nil
+	}
+
 	updateSpecErrors := make([]error, 0)
 	for _, kernelReplica := range c.replicas {
 		err := kernelReplica.UpdateResourceSpec(newSpec, oldSpec)

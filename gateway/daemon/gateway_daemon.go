@@ -2765,12 +2765,19 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 
 	duration := time.Since(startTime)
 	if err != nil || reason != nil {
+		targetNodeIdForLogging := "unspecified"
+		if resp != nil && resp.NewNodeId != "" {
+			targetNodeIdForLogging = resp.NewNodeId
+		} else if targetNodeId != "" {
+			targetNodeIdForLogging = targetNodeId
+		}
+
 		if reason != nil { // simply couldn't migrate the container, presumably due to insufficient resources available
 			d.log.Warn("Migration operation of replica %d of kernel %s to target node %s failed after %v because: %s",
-				replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration, reason.Error())
+				replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeIdForLogging, duration, reason.Error())
 		} else { // actual error
 			d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed after %v because: %s",
-				replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration, err)
+				replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeIdForLogging, duration, err)
 		}
 
 		if d.gatewayPrometheusManager != nil {
@@ -2790,7 +2797,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 			TimestampUnixMillis: now.UnixMilli(),
 			Duration:            duration,
 			DurationMillis:      duration.Milliseconds(),
-			Metadata:            map[string]interface{}{"target_node_id": targetNodeId, "succeeded": "true"},
+			Metadata:            map[string]interface{}{"target_node_id": targetNodeIdForLogging, "succeeded": "true"},
 		})
 		d.clusterStatisticsMutex.Unlock()
 

@@ -825,6 +825,9 @@ message PrepareToMigrateResponse {
 message MigrateKernelResponse {
   int32 id = 1;
   string hostname = 2;
+  string newNodeId = 3;
+  string newNodeName = 4;
+  bool success = 5;
 }
 
 // Similar to ReplicaInfo, but instead of a persistentId field, this has a hostname field.

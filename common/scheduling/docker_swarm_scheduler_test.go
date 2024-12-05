@@ -723,9 +723,12 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				container3.EXPECT().Host().AnyTimes().Return(host3)
 				kernelReplica3.EXPECT().Host().AnyTimes().Return(host3)
 
-				//resp, err := dockerScheduler.MigrateKernelReplica(kernelReplica1, "", true)
-				//Expect(err).To(BeNil())
-				//Expect(resp).ToNot(BeNil())
+				hostMapper.EXPECT().GetHostsOfKernel(kernelId).Times(1).Return([]scheduling.Host{host1, host2, host3})
+
+				resp, reason, err := dockerScheduler.MigrateKernelReplica(kernelReplica1, "", true)
+				Expect(err).To(BeNil())
+				Expect(reason).To(BeNil())
+				Expect(resp).ToNot(BeNil())
 			})
 		})
 

@@ -133,16 +133,16 @@ type Host interface {
 	PendingResources() *types.DecimalSpec
 	CommittedResources() *types.DecimalSpec
 	ScaleInPriority() float64
-	AddToPendingResources(spec *types.DecimalSpec) error
-	AddToIdleResources(spec *types.DecimalSpec) error
-	AddToCommittedResources(spec *types.DecimalSpec) error
-	SubtractFromPendingResources(spec *types.DecimalSpec) error
-	SubtractFromIdleResources(spec *types.DecimalSpec) error
-	SubtractFromCommittedResources(spec *types.DecimalSpec) error
 	IsContainedWithinIndex() bool
 	SetContainedWithinIndex(bool)
 	GetLastRemoteSync() time.Time
 	GetCreatedAt() time.Time // GetCreatedAt returns the time at which the Host was created.
+	AddToPendingResources(spec *types.DecimalSpec) error
+	//SubtractFromPendingResources(spec *types.DecimalSpec) error
+	//SubtractFromIdleResources(spec *types.DecimalSpec) error
+	//SubtractFromCommittedResources(spec *types.DecimalSpec) error
+	//AddToIdleResources(spec *types.DecimalSpec) error
+	//AddToCommittedResources(spec *types.DecimalSpec) error
 }
 
 type HostStatistics interface {

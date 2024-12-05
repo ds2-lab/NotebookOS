@@ -85,6 +85,42 @@ func unsafeApplyResourceSnapshotToHost(h *Host, snapshot types.HostResourceSnaps
 	return nil
 }
 
+type allocationRecord struct {
+	Index     int
+	OpIndex   int32
+	Status    resource.Status
+	ReplicaId int32
+	KernelId  string
+	Before    types.Spec
+	Quantity  types.Spec
+	After     types.Spec
+	Timestamp time.Time
+}
+
+func (a *allocationRecord) String() string {
+	return fmt.Sprintf("%d\t%d\t%s\tallocation\t%d\t%s\t%s\t%s\t%s\t%v", a.Index, a.OpIndex, a.Status.String(), a.ReplicaId, a.KernelId, a.Before.String(), a.Quantity.String(), a.After.String(), a.Timestamp)
+}
+
+type deallocationRecord struct {
+	Index     int
+	OpIndex   int32
+	Status    resource.Status
+	ReplicaId int32
+	KernelId  string
+	Before    types.Spec
+	Quantity  types.Spec
+	After     types.Spec
+	Timestamp time.Time
+}
+
+type allocationDeallocationRecord interface {
+	String() string
+}
+
+func (d *deallocationRecord) String() string {
+	return fmt.Sprintf("%d\t%d\t%s\tallocation\t%d\t%s\t%s\t%s\t%s\t%v", d.Index, d.OpIndex, d.Status.String(), d.ReplicaId, d.KernelId, d.Before.String(), d.Quantity.String(), d.After.String(), d.Timestamp)
+}
+
 type Host struct {
 	proto.LocalGatewayClient
 
@@ -117,6 +153,9 @@ type Host struct {
 	ProperlyInitialized            bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
 	numReplicasPerKernel           int                                                 // The number of replicas per kernel.
 	resourceBindingMode            scheduling.ResourceBindingMode                      // resourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly when they are uncommitted from containers as well.
+
+	allocationIndex               atomic.Int32
+	allocationDeallocationRecords []allocationDeallocationRecord
 
 	// lastSnapshot is the last HostResourceSnapshot to have been applied successfully to this Host.
 	lastSnapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
@@ -239,27 +278,28 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		confirmedId.NodeName, confirmedId.Id, resourceSpec.String())
 
 	host := &Host{
-		LocalGatewayClient:   localGatewayClient,
-		latestGpuInfo:        gpuInfoResp,
-		ID:                   id,
-		NodeName:             confirmedId.NodeName,
-		Addr:                 addr,
-		resourceSpec:         resourceSpec,
-		numReplicasPerKernel: numReplicasPerKernel,
-		metricsProvider:      metricsProvider,
-		log:                  config.GetLogger(fmt.Sprintf("Host %s ", id)),
-		containers:           hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
-		reservations:         hashmap.NewCornelkMap[string, *Reservation](5),
-		trainingContainers:   make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
-		penalties:            make([]cachedPenalty, int(resourceSpec.GPU())),
-		seenSessions:         make([]string, int(resourceSpec.GPU())),
-		meta:                 hashmap.NewCornelkMap[string, interface{}](64),
-		errorCallback:        errorCallback,
-		enabled:              true,
-		resourceBindingMode:  resourceBindingMode,
-		CreatedAt:            time.Now(),
-		SubscriptionQuerier:  querier,
-		ProperlyInitialized:  true,
+		LocalGatewayClient:            localGatewayClient,
+		latestGpuInfo:                 gpuInfoResp,
+		ID:                            id,
+		NodeName:                      confirmedId.NodeName,
+		Addr:                          addr,
+		resourceSpec:                  resourceSpec,
+		numReplicasPerKernel:          numReplicasPerKernel,
+		metricsProvider:               metricsProvider,
+		log:                           config.GetLogger(fmt.Sprintf("Host %s ", id)),
+		containers:                    hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
+		reservations:                  hashmap.NewCornelkMap[string, *Reservation](5),
+		trainingContainers:            make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
+		penalties:                     make([]cachedPenalty, int(resourceSpec.GPU())),
+		seenSessions:                  make([]string, int(resourceSpec.GPU())),
+		meta:                          hashmap.NewCornelkMap[string, interface{}](64),
+		errorCallback:                 errorCallback,
+		enabled:                       true,
+		resourceBindingMode:           resourceBindingMode,
+		CreatedAt:                     time.Now(),
+		SubscriptionQuerier:           querier,
+		ProperlyInitialized:           true,
+		allocationDeallocationRecords: make([]allocationDeallocationRecord, 0),
 	}
 
 	host.resourceManager = resource.NewManager(resourceSpec)
@@ -1060,18 +1100,76 @@ func (h *Host) uncommitResources(spec *types.DecimalSpec) error {
 // unsafeUncommitResources releases the specified resources and returns nil on success.
 // unsafeUncommitResources is not thread safe and should only be called with the schedulingMutex already held.
 func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec) error {
-	var err error
-	if err = h.resourceManager.CommittedResources().Subtract(spec); err != nil {
+	//var err error
+
+	if err := h.resourceManager.CommittedResources().Subtract(spec); err != nil {
 		return err
 	}
-	if err = h.resourceManager.PendingResources().Add(spec); err != nil {
+
+	if err := h.resourceManager.PendingResources().Add(spec); err != nil {
 		return err
 	}
-	if err = h.resourceManager.IdleResources().Add(spec); err != nil {
+
+	if err := h.resourceManager.IdleResources().Add(spec); err != nil {
 		return err
 	}
 
 	return nil
+
+	//opIndex := h.allocationIndex.Add(1)
+	//
+	//deallocationRec := &deallocationRecord{
+	//	Index:     len(h.allocationDeallocationRecords),
+	//	OpIndex:   opIndex,
+	//	Status:    resource.CommittedResources,
+	//	ReplicaId: 0,
+	//	KernelId:  "",
+	//	Before:    h.resourceManager.CommittedResources().ToDecimalSpec(),
+	//	Quantity:  spec,
+	//	After:     nil,
+	//	Timestamp: time.Now(),
+	//}
+	//if err = h.resourceManager.CommittedResources().Subtract(spec); err != nil {
+	//	return err
+	//}
+	//deallocationRec.After = h.resourceManager.CommittedResources().ToDecimalSpec()
+	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, deallocationRec)
+	//
+	//allocationRec := &allocationRecord{
+	//	Index:     len(h.allocationDeallocationRecords),
+	//	OpIndex:   opIndex,
+	//	Status:    resource.PendingResources,
+	//	ReplicaId: 0,
+	//	KernelId:  "",
+	//	Before:    h.resourceManager.PendingResources().ToDecimalSpec(),
+	//	Quantity:  spec,
+	//	After:     nil,
+	//	Timestamp: time.Now(),
+	//}
+	//if err = h.resourceManager.PendingResources().Add(spec); err != nil {
+	//	return err
+	//}
+	//allocationRec.After = h.resourceManager.PendingResources().ToDecimalSpec()
+	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, allocationRec)
+	//
+	//allocationRec = &allocationRecord{
+	//	Index:     len(h.allocationDeallocationRecords),
+	//	OpIndex:   opIndex,
+	//	Status:    resource.IdleResources,
+	//	ReplicaId: 0,
+	//	KernelId:  "",
+	//	Before:    h.resourceManager.IdleResources().ToDecimalSpec(),
+	//	Quantity:  spec,
+	//	After:     nil,
+	//	Timestamp: time.Now(),
+	//}
+	//if err = h.resourceManager.IdleResources().Add(spec); err != nil {
+	//	return err
+	//}
+	//allocationRec.After = h.resourceManager.IdleResources().ToDecimalSpec()
+	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, allocationRec)
+
+	//return nil
 }
 
 // commitResources commits the specified resources and returns nil on success.
@@ -1086,18 +1184,74 @@ func (h *Host) commitResources(spec *types.DecimalSpec) error {
 // unsafeCommitResources commits the specified resources and returns nil on success.
 // unsafeCommitResources is not thread safe and should only be called with the schedulingMutex already held.
 func (h *Host) unsafeCommitResources(spec *types.DecimalSpec) error {
-	var err error
-	if err = h.resourceManager.CommittedResources().Add(spec); err != nil {
+	if err := h.resourceManager.CommittedResources().Add(spec); err != nil {
 		return err
 	}
-	if err = h.resourceManager.PendingResources().Subtract(spec); err != nil {
+
+	if err := h.resourceManager.PendingResources().Subtract(spec); err != nil {
 		return err
 	}
-	if err = h.resourceManager.IdleResources().Subtract(spec); err != nil {
+
+	if err := h.resourceManager.IdleResources().Subtract(spec); err != nil {
 		return err
 	}
 
 	return nil
+
+	//opIndex := h.allocationIndex.Add(1)
+	//
+	//allocationRec := &allocationRecord{
+	//	Index:     len(h.allocationDeallocationRecords),
+	//	OpIndex:   opIndex,
+	//	Status:    resource.CommittedResources,
+	//	ReplicaId: 0,
+	//	KernelId:  "",
+	//	Before:    h.resourceManager.CommittedResources().ToDecimalSpec(),
+	//	Quantity:  spec,
+	//	After:     nil,
+	//	Timestamp: time.Now(),
+	//}
+	//if err = h.resourceManager.CommittedResources().Add(spec); err != nil {
+	//	return err
+	//}
+	//allocationRec.After = h.resourceManager.CommittedResources().ToDecimalSpec()
+	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, allocationRec)
+
+	//deallocationRec := &deallocationRecord{
+	//	Index:     len(h.allocationDeallocationRecords),
+	//	OpIndex:   opIndex,
+	//	Status:    resource.PendingResources,
+	//	ReplicaId: 0,
+	//	KernelId:  "",
+	//	Before:    h.resourceManager.PendingResources().ToDecimalSpec(),
+	//	Quantity:  spec,
+	//	After:     nil,
+	//	Timestamp: time.Now(),
+	//}
+	//if err = h.resourceManager.PendingResources().Subtract(spec); err != nil {
+	//	return err
+	//}
+	//deallocationRec.After = h.resourceManager.PendingResources().ToDecimalSpec()
+	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, deallocationRec)
+
+	//deallocationRec = &deallocationRecord{
+	//	Index:     len(h.allocationDeallocationRecords),
+	//	OpIndex:   opIndex,
+	//	Status:    resource.IdleResources,
+	//	ReplicaId: 0,
+	//	KernelId:  "",
+	//	Before:    h.resourceManager.IdleResources().ToDecimalSpec(),
+	//	Quantity:  spec,
+	//	After:     nil,
+	//	Timestamp: time.Now(),
+	//}
+	//if err = h.resourceManager.IdleResources().Subtract(spec); err != nil {
+	//	return err
+	//}
+	//deallocationRec.After = h.resourceManager.IdleResources().ToDecimalSpec()
+	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, deallocationRec)
+
+	//return nil
 }
 
 // ContainerRemoved is to be called when a Container is stopped and removed from the Host.
@@ -1482,40 +1636,57 @@ func (h *Host) ScaleInPriority() float64 {
 }
 
 func (h *Host) AddToPendingResources(spec *types.DecimalSpec) error {
+	//opIndex := h.allocationIndex.Add(1)
+	//allocationRec := &allocationRecord{
+	//	Index:     len(h.allocationDeallocationRecords),
+	//	OpIndex:   opIndex,
+	//	Status:    resource.PendingResources,
+	//	ReplicaId: 0,
+	//	KernelId:  "",
+	//	Before:    h.resourceManager.PendingResources().ToDecimalSpec(),
+	//	Quantity:  spec,
+	//	After:     nil,
+	//	Timestamp: time.Now(),
+	//}
+
 	err := h.resourceManager.PendingResources().Add(spec)
+
+	//allocationRec.After = h.resourceManager.PendingResources().ToDecimalSpec()
+	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, allocationRec)
+
 	h.RecomputeSubscribedRatio()
 	return err
 }
 
-func (h *Host) AddToIdleResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.IdleResources().Add(spec)
-	h.RecomputeSubscribedRatio()
-	return err
-}
+//func (h *Host) AddToIdleResources(spec *types.DecimalSpec) error {
+//	err := h.resourceManager.IdleResources().Add(spec)
+//	h.RecomputeSubscribedRatio()
+//	return err
+//}
+//
+//func (h *Host) AddToCommittedResources(spec *types.DecimalSpec) error {
+//	err := h.resourceManager.CommittedResources().Add(spec)
+//	h.RecomputeSubscribedRatio()
+//	return err
+//}
 
-func (h *Host) AddToCommittedResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.CommittedResources().Add(spec)
-	h.RecomputeSubscribedRatio()
-	return err
-}
-
-func (h *Host) SubtractFromPendingResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.PendingResources().Subtract(spec)
-	h.RecomputeSubscribedRatio()
-	return err
-}
-
-func (h *Host) SubtractFromIdleResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.IdleResources().Subtract(spec)
-	h.RecomputeSubscribedRatio()
-	return err
-}
-
-func (h *Host) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.CommittedResources().Subtract(spec)
-	h.RecomputeSubscribedRatio()
-	return err
-}
+//func (h *Host) SubtractFromPendingResources(spec *types.DecimalSpec) error {
+//	err := h.resourceManager.PendingResources().Subtract(spec)
+//	h.RecomputeSubscribedRatio()
+//	return err
+//}
+//
+//func (h *Host) SubtractFromIdleResources(spec *types.DecimalSpec) error {
+//	err := h.resourceManager.IdleResources().Subtract(spec)
+//	h.RecomputeSubscribedRatio()
+//	return err
+//}
+//
+//func (h *Host) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
+//	err := h.resourceManager.CommittedResources().Subtract(spec)
+//	h.RecomputeSubscribedRatio()
+//	return err
+//}
 
 // GetCreatedAt returns the time at which the Host was created.
 func (h *Host) GetCreatedAt() time.Time {
