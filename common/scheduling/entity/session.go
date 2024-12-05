@@ -264,8 +264,13 @@ func (s *Session) ResourceSpec() types.CloneableSpec {
 	return s.resourceSpec
 }
 
-func (s *Session) UpdateResourceSpec(spec types.CloneableSpec) {
-	s.resourceSpec = spec
+func (s *Session) UpdateResourceSpec(newSpec types.CloneableSpec) {
+	s.resourceSpec = newSpec
+
+	s.kernelSpec.ResourceSpec.Gpu = int32(newSpec.GPU())
+	s.kernelSpec.ResourceSpec.Cpu = int32(newSpec.CPU())
+	s.kernelSpec.ResourceSpec.Vram = float32(newSpec.VRAM())
+	s.kernelSpec.ResourceSpec.Memory = float32(newSpec.MemoryMB())
 }
 
 func (s *Session) ID() string {

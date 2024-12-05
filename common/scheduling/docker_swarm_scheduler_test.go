@@ -16,6 +16,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/mock_scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
@@ -147,8 +148,12 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 		dockerScheduler *scheduler.DockerScheduler
 		dockerCluster   scheduling.Cluster
 		clusterPlacer   scheduling.Placer
-		hostMapper      scheduler.HostMapper
-		opts            *domain.ClusterGatewayOptions
+		// hostMapper      scheduler.HostMapper
+		opts *domain.ClusterGatewayOptions
+
+		kernelProvider *mock_scheduler.MockKernelProvider
+		hostMapper     *mock_scheduler.MockHostMapper
+		// notificationBroker *mock_scheduler.MockNotificationBroker
 	)
 
 	config.LogLevel = logger.LOG_LEVEL_ALL
@@ -166,6 +171,10 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 		BeforeEach(func() {
 			mockCtrl = gomock.NewController(GinkgoT())
 
+			kernelProvider = mock_scheduler.NewMockKernelProvider(mockCtrl)
+			hostMapper = mock_scheduler.NewMockHostMapper(mockCtrl)
+			// notificationBroker = mock_scheduler.NewMockNotificationBroker(mockCtrl)
+
 			opts.SchedulingPolicy = string(scheduling.Static) // Should already be set to static, but just to be sure.
 			schedulingPolicy, err := policy.GetSchedulingPolicy(&opts.SchedulerOptions)
 			Expect(err).To(BeNil())
@@ -180,7 +189,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			_, ok := clusterPlacer.(*placer.StaticPlacer)
 			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil,
+			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
 				nil, nil, schedulingPolicy, func(f func(stats *statistics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
@@ -193,7 +202,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(ok).To(BeTrue())
 			Expect(dockerScheduler).ToNot(BeNil())
 
-			hostMapper = &dockerSchedulerTestHostMapper{}
+			// hostMapper = &dockerSchedulerTestHostMapper{}
 		})
 
 		AfterEach(func() {
@@ -727,6 +736,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 		BeforeEach(func() {
 			mockCtrl = gomock.NewController(GinkgoT())
 
+			kernelProvider = mock_scheduler.NewMockKernelProvider(mockCtrl)
+			hostMapper = mock_scheduler.NewMockHostMapper(mockCtrl)
+
 			opts.SchedulingPolicy = string(scheduling.Reservation)
 			schedulingPolicy, err := policy.GetSchedulingPolicy(&opts.SchedulerOptions)
 			Expect(err).To(BeNil())
@@ -742,7 +754,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			_, ok := clusterPlacer.(*placer.RandomPlacer)
 			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil,
+			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
 				nil, nil, schedulingPolicy, func(f func(stats *statistics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
@@ -754,8 +766,6 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			dockerScheduler, ok = genericScheduler.(*scheduler.DockerScheduler)
 			Expect(ok).To(BeTrue())
 			Expect(dockerScheduler).ToNot(BeNil())
-
-			hostMapper = &dockerSchedulerTestHostMapper{}
 		})
 
 		Context("Will handle basic scheduling operations correctly", func() {
@@ -1083,6 +1093,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 		BeforeEach(func() {
 			mockCtrl = gomock.NewController(GinkgoT())
 
+			kernelProvider = mock_scheduler.NewMockKernelProvider(mockCtrl)
+			hostMapper = mock_scheduler.NewMockHostMapper(mockCtrl)
+
 			opts.SchedulingPolicy = string(scheduling.FcfsBatch)
 			schedulingPolicy, err := policy.GetSchedulingPolicy(&opts.SchedulerOptions)
 			Expect(err).To(BeNil())
@@ -1098,7 +1111,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			_, ok := clusterPlacer.(*placer.RandomPlacer)
 			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, nil,
+			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
 				nil, nil, schedulingPolicy, func(f func(stats *statistics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
@@ -1110,8 +1123,6 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			dockerScheduler, ok = genericScheduler.(*scheduler.DockerScheduler)
 			Expect(ok).To(BeTrue())
 			Expect(dockerScheduler).ToNot(BeNil())
-
-			hostMapper = &dockerSchedulerTestHostMapper{}
 		})
 
 		Context("Will handle basic scheduling operations correctly", func() {

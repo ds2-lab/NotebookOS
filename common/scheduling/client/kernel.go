@@ -297,28 +297,28 @@ func (c *KernelReplicaClient) UpdateResourceSpec(spec types.Spec) error {
 // On success, nil is returned.
 //
 // Note: this method is thread safe. Do not call this method if the lock for the kernel is already held.
-func (c *KernelReplicaClient) unsafeUpdateResourceSpec(spec types.Spec) error {
-	if spec.GPU() < 0 || spec.CPU() < 0 || spec.VRAM() < 0 || spec.MemoryMB() < 0 {
-		return fmt.Errorf("%w: %s", ErrInvalidResourceSpec, spec.String())
+func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec) error {
+	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
+		return fmt.Errorf("%w: %s", ErrInvalidResourceSpec, newSpec.String())
 	}
 
 	oldSpec := c.spec.DecimalSpecFromKernelSpec()
 
-	c.spec.ResourceSpec.Gpu = int32(spec.GPU())
-	c.spec.ResourceSpec.Cpu = int32(spec.CPU())
-	c.spec.ResourceSpec.Vram = float32(spec.VRAM())
-	c.spec.ResourceSpec.Memory = float32(spec.MemoryMB())
+	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
+	c.spec.ResourceSpec.Cpu = int32(newSpec.CPU())
+	c.spec.ResourceSpec.Vram = float32(newSpec.VRAM())
+	c.spec.ResourceSpec.Memory = float32(newSpec.MemoryMB())
 
 	if c.Container() == nil {
 		return nil
 	}
 
 	container := c.Container()
-	specAsDecimalSpec := types.ToDecimalSpec(spec)
+	specAsDecimalSpec := types.ToDecimalSpec(newSpec)
 
 	container.UpdateResourceSpec(specAsDecimalSpec)
 	container.Session().UpdateResourceSpec(specAsDecimalSpec)
-	return container.Host().KernelAdjustedItsResourceRequest(spec, oldSpec, container)
+	return container.Host().KernelAdjustedItsResourceRequest(newSpec, oldSpec, container)
 }
 
 // WaitForPendingExecuteRequests blocks until all outstanding/pending "execute_request" messages sent to the kernel

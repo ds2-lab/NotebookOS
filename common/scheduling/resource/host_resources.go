@@ -436,6 +436,14 @@ func (res *HostResources) VRAMAsDecimal() decimal.Decimal {
 	return res.vramGB.Copy()
 }
 
+// SetVRAM sets the amount of VRAM to a copy of the specified decimal.Decimal value.
+func (res *HostResources) SetVRAM(vramGB decimal.Decimal) {
+	res.Lock()
+	defer res.Unlock()
+
+	res.vramGB = vramGB
+}
+
 func (res *HostResources) GPUs() float64 {
 	res.Lock()
 	defer res.Unlock()

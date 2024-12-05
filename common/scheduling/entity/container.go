@@ -28,8 +28,8 @@ type Container struct {
 	addr                       string                    // The address of the Container.
 	numTrainingEventsProcessed int                       // numTrainingEventsProcessed is the number of training events processed by this Container.
 
-	spec     *types.DecimalSpec
-	lastSpec *types.DecimalSpec
+	spec *types.DecimalSpec
+	// lastSpec *types.DecimalSpec
 
 	interactivePriorityBase        float64
 	interactivePriority            cache.InlineCache
@@ -244,17 +244,6 @@ func (c *Container) ScaleOutPriority() float64 {
 
 // TrainingStartedInContainer should be called when the Container begins training.
 func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
-	// c.lastSpec = c.spec
-
-	//if snapshot != nil {
-	//	err := ApplyResourceSnapshotToHost(c.host, snapshot)
-	//	if err != nil {
-	//		c.log.Warn("Failed to apply Resource Snapshot: %v", err)
-	//	}
-	//} else {
-	//	log.Fatalf("Container %s did not receive Resource Snapshot on TrainingStartedInContainer...", c.id)
-	//}
-
 	err := c.host.ContainerStartedTraining(c)
 	if err != nil {
 		return err
@@ -274,6 +263,9 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 		c.log.Error("Failed to transition to state %v because: %v", scheduling.ContainerStateTraining, err)
 		return err
 	}
+
+	c.log.Debug("Container for replica %d of kernel \"%s\" has successfully started training. ResourceSpec: %v.",
+		c.replicaId, c.id, c.spec.String())
 
 	return nil
 }

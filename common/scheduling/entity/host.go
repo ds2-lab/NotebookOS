@@ -943,8 +943,59 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 	// If the resource binding mode is instead BindResourcesWhenContainerScheduled, then we do not
 	// uncommit the resources until the container is actually evicted.
 	if h.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
-		return h.unsafeUncommitResources(container.ResourceSpec())
+		err := h.unsafeUncommitResources(container.ResourceSpec())
+		if err == nil {
+			return nil
+		}
+
+		h.log.Error("Failed to deallocate resources from previously-training replica %d of kernel %s: %v",
+			container.ReplicaId(), container.KernelID(), err)
+
+		return h.unsafeHandleResourceError()
 	}
+
+	return nil
+}
+
+func (h *Host) unsafeHandleResourceError() error {
+	h.log.Warn("Recomputing all resource quantities on host %s", h.ID)
+
+	// Recompute allocated resources.
+	idle := h.resourceSpec.CloneDecimalSpec()
+	pending := types.NewDecimalSpec(0, 0, 0, 0)
+	committed := types.NewDecimalSpec(0, 0, 0, 0)
+
+	h.containers.Range(func(containerId string, container scheduling.KernelContainer) bool {
+		containerSpec := types.ToDecimalSpec(container.ResourceSpec())
+
+		if container.IsTraining() {
+			committed = types.ToDecimalSpec(committed.Add(containerSpec))
+			idle = idle.Subtract(containerSpec)
+		} else {
+			pending = types.ToDecimalSpec(pending.Add(containerSpec))
+		}
+
+		return true
+	})
+
+	h.resourceManager.PendingResources().SetMillicpus(pending.Millicpus)
+	h.resourceManager.PendingResources().SetMemoryMB(pending.MemoryMb)
+	h.resourceManager.PendingResources().SetGpus(pending.GPUs)
+	h.resourceManager.PendingResources().SetVRAM(pending.VRam)
+
+	h.resourceManager.CommittedResources().SetMillicpus(committed.Millicpus)
+	h.resourceManager.CommittedResources().SetMemoryMB(committed.MemoryMb)
+	h.resourceManager.CommittedResources().SetGpus(committed.GPUs)
+	h.resourceManager.CommittedResources().SetVRAM(committed.VRam)
+
+	h.resourceManager.IdleResources().SetMillicpus(idle.Millicpus)
+	h.resourceManager.IdleResources().SetMemoryMB(idle.MemoryMb)
+	h.resourceManager.IdleResources().SetGpus(idle.GPUs)
+	h.resourceManager.IdleResources().SetVRAM(idle.VRam)
+
+	h.log.Debug("Recomputed idle resources: %v", h.IdleResources().String())
+	h.log.Debug("Recomputed pending resources: %v", h.PendingResources().String())
+	h.log.Debug("Recomputed committed resources: %v", h.CommittedResources().String())
 
 	return nil
 }
@@ -968,6 +1019,9 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	// committed to the container, and so we don't have to do anything else and can just return nil,
 	// as we do below.
 	if h.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+		h.log.Debug("Committing resources %v to container for replica %d of kernel \"%s\" so it can train.",
+			container.ResourceSpec().String(), container.ReplicaId(), container.KernelID())
+
 		return h.unsafeCommitResources(container.ResourceSpec())
 	}
 
