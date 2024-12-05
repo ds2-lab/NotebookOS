@@ -47,8 +47,6 @@ type UserSession interface {
 	ID() string
 	Context() context.Context
 	SetContext(ctx context.Context)
-	ResourceUtilization() Utilization
-	SetResourceUtilization(util Utilization)
 	KernelSpec() *proto.KernelSpec
 	String() string
 	SetExpectingTraining() promise.Promise

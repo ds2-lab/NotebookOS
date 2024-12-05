@@ -282,11 +282,11 @@ func (c *KernelReplicaClient) WaitForTrainingToStop() {
 //
 // Note for internal usage: this method is thread safe. Do not call this method if the lock for the kernel
 // is already held. If the lock is already held, then call the unsafeUpdateResourceSpec method instead.
-func (c *KernelReplicaClient) UpdateResourceSpec(spec types.Spec) error {
+func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.unsafeUpdateResourceSpec(spec)
+	return c.unsafeUpdateResourceSpec(newSpec, oldSpec)
 }
 
 // UpdateResourceSpec updates the resource spec of the target KernelReplicaClient to the resource
@@ -297,12 +297,13 @@ func (c *KernelReplicaClient) UpdateResourceSpec(spec types.Spec) error {
 // On success, nil is returned.
 //
 // Note: this method is thread safe. Do not call this method if the lock for the kernel is already held.
-func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec) error {
+func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec) error {
 	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
 		return fmt.Errorf("%w: %s", ErrInvalidResourceSpec, newSpec.String())
 	}
 
-	oldSpec := c.spec.DecimalSpecFromKernelSpec()
+	c.log.Debug("Updating ResourceSpec of replica %d of kernel %s now. Changing from %s to %s.",
+		c.replicaId, c.id, c.spec.ResourceSpec.String(), newSpec.String())
 
 	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
 	c.spec.ResourceSpec.Cpu = int32(newSpec.CPU())

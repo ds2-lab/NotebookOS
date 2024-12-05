@@ -136,7 +136,7 @@ func (c *Container) Host() scheduling.Host {
 
 func (c *Container) getInteractivePriority() float64 {
 	c.interactivePriority.Validator(time.Now())
-	required := float64(c.session.ResourceUtilization().GetNumGpus())
+	required := float64(c.session.ResourceSpec().GPU())
 	idleGPUs := c.host.Stats().IdleGPUs()
 	extras := 0.0
 	extraExplain := "0.0"
@@ -250,9 +250,9 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 	}
 
 	c.trainingStartedAt = time.Now()
-	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().GetNumGpus()))
-	c.spec.UpdateSpecCPUs(c.Session().ResourceUtilization().GetCpuUtilization())
-	c.spec.UpdateSpecMemoryMB(c.Session().ResourceUtilization().GetMemoryUsageMb())
+	//c.spec.UpdateSpecGPUs(c.Session().ResourceSpec().GPU())
+	//c.spec.UpdateSpecCPUs(c.Session().ResourceSpec().CPU())
+	//c.spec.UpdateSpecMemoryMB(c.Session().ResourceSpec().MemoryMB())
 
 	// Processing a new training event.
 	c.executions.Add(1)
@@ -265,7 +265,7 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 	}
 
 	c.log.Debug("Container for replica %d of kernel \"%s\" has successfully started training. ResourceSpec: %v.",
-		c.replicaId, c.id, c.spec.String())
+		c.replicaId, c.id, c.ResourceSpec().String())
 
 	return nil
 }

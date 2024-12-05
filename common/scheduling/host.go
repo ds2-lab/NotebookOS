@@ -89,7 +89,7 @@ type Host interface {
 
 	// KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 	// Host is updated or changed. This ensures that the Host's resource counts are up to date.
-	KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec *types.DecimalSpec, container KernelContainer) error
+	KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer) error
 	Restore(restoreFrom Host, callback ErrorCallback) error
 	Enabled() bool
 	Enable(includeInScheduling bool) error

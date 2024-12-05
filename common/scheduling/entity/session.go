@@ -60,7 +60,6 @@ type Session struct {
 	////////////////////////
 
 	kernelSpec                     *proto.KernelSpec           // The kernel resourceSpec of the associated kernel.
-	resourceUtilization            scheduling.Utilization      // Current/latest resource usage statistics.
 	startedAt                      time.Time                   // Time at which the session began running.
 	trainingTimeWithOverheads      scheduling.SessionStatistic // Moving average of training times.
 	migrationTime                  scheduling.SessionStatistic // Moving average of migration times.
@@ -84,7 +83,6 @@ type SessionBuilder struct {
 	ctx                           context.Context
 	id                            string
 	kernelSpec                    *proto.KernelSpec
-	resourceUtilization           scheduling.Utilization
 	trainingTimeSampleWindowSize  int64
 	migrationTimeSampleWindowSize int64
 }
@@ -124,20 +122,14 @@ func (b *SessionBuilder) WithKernelSpec(kernelSpec *proto.KernelSpec) *SessionBu
 	return b
 }
 
-// WithResourceUtilization sets the resource utilization for the user session
-func (b *SessionBuilder) WithResourceUtilization(resourceUtilization scheduling.Utilization) *SessionBuilder {
-	b.resourceUtilization = resourceUtilization
-	return b
-}
-
 // Build constructs a Session with the specified options
 func (b *SessionBuilder) Build() *Session {
 	session := &Session{
-		ctx:                        b.ctx,
-		id:                         b.id,
-		kernelSpec:                 b.kernelSpec,
-		resourceSpec:               b.kernelSpec.DecimalSpecFromKernelSpec(),
-		resourceUtilization:        b.resourceUtilization,
+		ctx:          b.ctx,
+		id:           b.id,
+		kernelSpec:   b.kernelSpec,
+		resourceSpec: b.kernelSpec.DecimalSpecFromKernelSpec(),
+
 		log:                        config.GetLogger(fmt.Sprintf("Session %s ", b.id)),
 		sessionState:               scheduling.SessionStateInit,
 		startedAt:                  time.Now(),
@@ -300,21 +292,6 @@ func (s *Session) SetContext(ctx context.Context) {
 	defer s.mu.Unlock()
 
 	s.ctx = ctx
-}
-
-// ResourceUtilization returns the current ResourceUtilization of the Session.
-func (s *Session) ResourceUtilization() scheduling.Utilization {
-	return s.resourceUtilization
-}
-
-// SetResourceUtilization sets the value of the Session's resourceUtilization field to the given value.
-//
-// Note: this method is thread-safe.
-func (s *Session) SetResourceUtilization(util scheduling.Utilization) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.resourceUtilization = util
 }
 
 func (s *Session) KernelSpec() *proto.KernelSpec {
@@ -659,8 +636,8 @@ func (s *Session) updateInteractivePriority(reason string) float64 {
 		s.interactivePriority = 100000 // obsoleted: float64(s.meta.GPU.GPUs) * s.MigrationTime()
 		s.interactivePriorityExplanation = "initialization(no training history)"
 	} else {
-		s.interactivePriority = float64(s.resourceUtilization.GetNumGpus()) * math.Pow(s.MigrationTime(), 2.0) / s.TrainingTime().Avg()
-		s.interactivePriorityExplanation = fmt.Sprintf("update after %s(%d * %.2f^2 / %.2f)", reason, s.resourceUtilization.GetNumGpus(), s.MigrationTime(), s.TrainingTime().Avg())
+		s.interactivePriority = s.resourceSpec.GPU() * math.Pow(s.MigrationTime(), 2.0) / s.TrainingTime().Avg()
+		s.interactivePriorityExplanation = fmt.Sprintf("update after %s(%.0f * %.2f^2 / %.2f)", reason, s.resourceSpec.GPU(), s.MigrationTime(), s.TrainingTime().Avg())
 	}
 
 	return s.interactivePriority
@@ -683,7 +660,7 @@ func (s *Session) calculatePreemptionPriority() (preemptionPriority float64) {
 	} else {
 		s.preemptionPriorityExplanation = "is training"
 
-		preemptionPriority = float64(s.resourceUtilization.GetNumGpus()) * s.MigrationTime()
+		preemptionPriority = s.resourceSpec.GPU() * s.MigrationTime()
 	}
 
 	s.preemptionPriorityHistory.AddValue(preemptionPriority)

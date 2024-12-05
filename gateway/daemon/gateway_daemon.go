@@ -14,7 +14,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/shopspring/decimal"
@@ -1565,15 +1564,10 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 	}
 
 	// Create a new Session for scheduling purposes.
-	resourceUtil := resource.NewEmptyUtilization().
-		WithCpuUtilization(in.ResourceSpec.CPU()).
-		WithMemoryUsageMb(in.ResourceSpec.MemoryMB()).
-		WithNGpuUtilizationValues(in.ResourceSpec.Gpu, 0)
 	session := entity.NewSessionBuilder().
 		WithContext(context.Background()).
 		WithID(kernel.ID()).
 		WithKernelSpec(in).
-		WithResourceUtilization(resourceUtil).
 		WithTrainingTimeSampleWindowSize(d.ClusterOptions.ExecutionTimeSamplingWindow).
 		WithMigrationTimeSampleWindowSize(d.ClusterOptions.MigrationTimeSamplingWindow).
 		Build()

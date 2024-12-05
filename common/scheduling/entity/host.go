@@ -1179,7 +1179,7 @@ func (h *Host) Penalty(gpus float64) (float64, scheduling.PreemptionInfo, error)
 }
 
 func (h *Host) getSIP(sess scheduling.UserSession) float64 {
-	numGPUs := float64(sess.ResourceUtilization().GetNumGpus())
+	numGPUs := sess.ResourceSpec().GPU()
 
 	penalty, _, err := h.Penalty(numGPUs)
 	if err != nil {
@@ -1195,7 +1195,7 @@ func (h *Host) getSIP(sess scheduling.UserSession) float64 {
 
 // KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 // Host is updated or changed. This ensures that the Host's resource counts are up to date.
-func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec *types.DecimalSpec, container scheduling.KernelContainer) error {
+func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
@@ -1209,10 +1209,13 @@ func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec 
 		return scheduling.ErrDynamicResourceAdjustmentProhibited
 	}
 
+	h.log.Debug("Updating resource info because replica %d of kernel %s updated its resource spec. Current pending: %v",
+		container.ReplicaId(), container.KernelID(), h.resourceManager.PendingResources().String())
+
 	oldSubscribedRatio := h.subscribedRatio
 
 	// Deallocate the previously-reserved resources.
-	err := h.resourceManager.PendingResources().Subtract(oldSpec)
+	err := h.resourceManager.PendingResources().Subtract(types.ToDecimalSpec(oldSpec))
 	if err != nil {
 		h.log.Error("Cannot deallocate pending resources for replica %d of kernel %s during ResourceSpec adjustment: %v.",
 			container.ReplicaId(), container.KernelID(), err)
@@ -1231,8 +1234,8 @@ func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec 
 	}
 
 	h.RecomputeSubscribedRatio()
-	h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
-		container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
+	h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s. New pending: %s.",
+		container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3), h.resourceManager.PendingResources().String())
 	h.reservations.Store(container.KernelID(), NewReservation(h.ID, container.KernelID(), time.Now(), true, updatedSpecAsDecimalSpec))
 
 	return nil

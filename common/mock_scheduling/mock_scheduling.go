@@ -2292,7 +2292,7 @@ func (mr *MockHostMockRecorder) IsProperlyInitialized() *gomock.Call {
 }
 
 // KernelAdjustedItsResourceRequest mocks base method.
-func (m *MockHost) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec *types.DecimalSpec, container scheduling.KernelContainer) error {
+func (m *MockHost) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "KernelAdjustedItsResourceRequest", updatedSpec, oldSpec, container)
 	ret0, _ := ret[0].(error)
@@ -3791,20 +3791,6 @@ func (mr *MockUserSessionMockRecorder) ResourceSpec() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceSpec", reflect.TypeOf((*MockUserSession)(nil).ResourceSpec))
 }
 
-// ResourceUtilization mocks base method.
-func (m *MockUserSession) ResourceUtilization() scheduling.Utilization {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ResourceUtilization")
-	ret0, _ := ret[0].(scheduling.Utilization)
-	return ret0
-}
-
-// ResourceUtilization indicates an expected call of ResourceUtilization.
-func (mr *MockUserSessionMockRecorder) ResourceUtilization() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResourceUtilization", reflect.TypeOf((*MockUserSession)(nil).ResourceUtilization))
-}
-
 // SessionStarted mocks base method.
 func (m *MockUserSession) SessionStarted() promise.Promise {
 	m.ctrl.T.Helper()
@@ -3899,18 +3885,6 @@ func (m *MockUserSession) SetExpectingTraining() promise.Promise {
 func (mr *MockUserSessionMockRecorder) SetExpectingTraining() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetExpectingTraining", reflect.TypeOf((*MockUserSession)(nil).SetExpectingTraining))
-}
-
-// SetResourceUtilization mocks base method.
-func (m *MockUserSession) SetResourceUtilization(util scheduling.Utilization) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetResourceUtilization", util)
-}
-
-// SetResourceUtilization indicates an expected call of SetResourceUtilization.
-func (mr *MockUserSessionMockRecorder) SetResourceUtilization(util any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetResourceUtilization", reflect.TypeOf((*MockUserSession)(nil).SetResourceUtilization), util)
 }
 
 // StartedAt mocks base method.
@@ -5767,17 +5741,17 @@ func (mr *MockKernelReplicaMockRecorder) UnbindSession(sess any) *gomock.Call {
 }
 
 // UpdateResourceSpec mocks base method.
-func (m *MockKernelReplica) UpdateResourceSpec(arg0 types.Spec) error {
+func (m *MockKernelReplica) UpdateResourceSpec(newSpec, oldSpec types.Spec) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateResourceSpec", arg0)
+	ret := m.ctrl.Call(m, "UpdateResourceSpec", newSpec, oldSpec)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateResourceSpec indicates an expected call of UpdateResourceSpec.
-func (mr *MockKernelReplicaMockRecorder) UpdateResourceSpec(arg0 any) *gomock.Call {
+func (mr *MockKernelReplicaMockRecorder) UpdateResourceSpec(newSpec, oldSpec any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateResourceSpec", reflect.TypeOf((*MockKernelReplica)(nil).UpdateResourceSpec), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateResourceSpec", reflect.TypeOf((*MockKernelReplica)(nil).UpdateResourceSpec), newSpec, oldSpec)
 }
 
 // Validate mocks base method.

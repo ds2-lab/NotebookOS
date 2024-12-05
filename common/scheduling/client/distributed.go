@@ -454,22 +454,29 @@ func (c *DistributedKernelClient) ResourceSpec() *types.DecimalSpec {
 // of each KernelReplica, and the KernelContainer of each KernelReplica.
 //
 // It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/KernelReplica.
-func (c *DistributedKernelClient) UpdateResourceSpec(spec types.Spec) error {
+func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.Spec) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	c.log.Debug("Updating ResourceSpec of kernel \"%s\" from %v to %v.",
-		c.id, c.spec.ResourceSpec.String(), spec.String())
+		c.id, c.spec.ResourceSpec.String(), newSpec.String())
+
+	oldSpec := c.spec.DecimalSpecFromKernelSpec()
 
 	updateSpecErrors := make([]error, 0)
 	for _, kernelReplica := range c.replicas {
-		err := kernelReplica.UpdateResourceSpec(spec)
+		err := kernelReplica.UpdateResourceSpec(newSpec, oldSpec)
 		if err != nil {
 			c.log.Warn("Failed to update ResourceSpec of replica %d of kernel \"%s\" because: %v",
 				kernelReplica.ReplicaID(), c.ID(), err)
 			updateSpecErrors = append(updateSpecErrors, err)
 		}
 	}
+
+	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
+	c.spec.ResourceSpec.Cpu = int32(newSpec.CPU())
+	c.spec.ResourceSpec.Vram = float32(newSpec.VRAM())
+	c.spec.ResourceSpec.Memory = float32(newSpec.MemoryMB())
 
 	if len(updateSpecErrors) > 0 {
 		return errors.Join(updateSpecErrors...)
