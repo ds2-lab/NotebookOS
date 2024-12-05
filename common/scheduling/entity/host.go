@@ -33,6 +33,7 @@ var (
 	ErrNodeNameUnspecified              = errors.New("no kubernetes node name returned for LocalDaemonClient")
 	ErrReservationNotFound              = errors.New("no resource reservation found for the specified kernel")
 	ErrHostAlreadyIncludedForScheduling = errors.New("the specified host is already being included for consideration in scheduling operations")
+	ErrResourcesAlreadyCommitted        = errors.New("we have already committed resources to a replica of the specified kernel on the target host")
 )
 
 // ResourceSpec defines the HostResources available on a particular Host.
@@ -85,77 +86,39 @@ func unsafeApplyResourceSnapshotToHost(h *Host, snapshot types.HostResourceSnaps
 	return nil
 }
 
-type allocationRecord struct {
-	Index     int
-	OpIndex   int32
-	Status    resource.Status
-	ReplicaId int32
-	KernelId  string
-	Before    types.Spec
-	Quantity  types.Spec
-	After     types.Spec
-	Timestamp time.Time
-}
-
-func (a *allocationRecord) String() string {
-	return fmt.Sprintf("%d\t%d\t%s\tallocation\t%d\t%s\t%s\t%s\t%s\t%v", a.Index, a.OpIndex, a.Status.String(), a.ReplicaId, a.KernelId, a.Before.String(), a.Quantity.String(), a.After.String(), a.Timestamp)
-}
-
-type deallocationRecord struct {
-	Index     int
-	OpIndex   int32
-	Status    resource.Status
-	ReplicaId int32
-	KernelId  string
-	Before    types.Spec
-	Quantity  types.Spec
-	After     types.Spec
-	Timestamp time.Time
-}
-
-type allocationDeallocationRecord interface {
-	String() string
-}
-
-func (d *deallocationRecord) String() string {
-	return fmt.Sprintf("%d\t%d\t%s\tallocation\t%d\t%s\t%s\t%s\t%s\t%v", d.Index, d.OpIndex, d.Status.String(), d.ReplicaId, d.KernelId, d.Before.String(), d.Quantity.String(), d.After.String(), d.Timestamp)
-}
-
 type Host struct {
 	proto.LocalGatewayClient
 
 	log logger.Logger
 
-	latestGpuInfo                  *proto.GpuInfo                                      // latestGpuInfo is the latest GPU info of this host scheduler.
-	syncMutex                      sync.Mutex                                          // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
-	schedulingMutex                sync.Mutex                                          // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
-	meta                           hashmap.HashMap[string, interface{}]                // meta is a map of metadata.
-	conn                           *grpc.ClientConn                                    // conn is the gRPC connection to the Host.
-	Addr                           string                                              // Addr is the Host's address.
-	NodeName                       string                                              // NodeName is the Host's name (for printing/logging).
-	metricsProvider                scheduling.MetricsProvider                          // Provides access to metrics relevant to the Host.
-	ID                             string                                              // ID is the unique ID of this host.
-	containers                     hashmap.HashMap[string, scheduling.KernelContainer] // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
-	reservations                   hashmap.HashMap[string, *Reservation]               // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
-	trainingContainers             []scheduling.KernelContainer                        // trainingContainers are the actively-training kernel replicas.
-	seenSessions                   []string                                            // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec                   *types.DecimalSpec                                  // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
-	lastReschedule                 types.StatFloat64                                   // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	errorCallback                  scheduling.ErrorCallback                            // errorCallback is a function to be called if a Host appears to be dead.
-	pendingContainers              types.StatInt32                                     // pendingContainers is the number of Containers that are scheduled on the host.
-	enabled                        bool                                                // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
-	excludedFromScheduling         bool                                                // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
-	isBeingConsideredForScheduling atomic.Int32                                        // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
-	CreatedAt                      time.Time                                           // CreatedAt is the time at which the Host was created.
-	resourceManager                *resource.Manager                                   // resourcesWrapper wraps all the Host's HostResources.
-	LastRemoteSync                 time.Time                                           // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
-	isContainedWithinIndex         bool                                                // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
-	ProperlyInitialized            bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
-	numReplicasPerKernel           int                                                 // The number of replicas per kernel.
-	resourceBindingMode            scheduling.ResourceBindingMode                      // resourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly when they are uncommitted from containers as well.
-
-	allocationIndex               atomic.Int32
-	allocationDeallocationRecords []allocationDeallocationRecord
+	latestGpuInfo                    *proto.GpuInfo                                      // latestGpuInfo is the latest GPU info of this host scheduler.
+	syncMutex                        sync.Mutex                                          // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
+	schedulingMutex                  sync.Mutex                                          // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
+	meta                             hashmap.HashMap[string, interface{}]                // meta is a map of metadata.
+	conn                             *grpc.ClientConn                                    // conn is the gRPC connection to the Host.
+	Addr                             string                                              // Addr is the Host's address.
+	NodeName                         string                                              // NodeName is the Host's name (for printing/logging).
+	metricsProvider                  scheduling.MetricsProvider                          // Provides access to metrics relevant to the Host.
+	ID                               string                                              // ID is the unique ID of this host.
+	containers                       hashmap.HashMap[string, scheduling.KernelContainer] // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
+	reservations                     hashmap.HashMap[string, *Reservation]               // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
+	trainingContainers               []scheduling.KernelContainer                        // trainingContainers are the actively-training kernel replicas.
+	seenSessions                     []string                                            // seenSessions are the sessions that have been scheduled onto this host at least once.
+	resourceSpec                     *types.DecimalSpec                                  // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
+	lastReschedule                   types.StatFloat64                                   // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	errorCallback                    scheduling.ErrorCallback                            // errorCallback is a function to be called if a Host appears to be dead.
+	pendingContainers                types.StatInt32                                     // pendingContainers is the number of Containers that are scheduled on the host.
+	enabled                          bool                                                // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
+	excludedFromScheduling           bool                                                // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
+	isBeingConsideredForScheduling   atomic.Int32                                        // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
+	CreatedAt                        time.Time                                           // CreatedAt is the time at which the Host was created.
+	resourceManager                  *resource.Manager                                   // resourcesWrapper wraps all the Host's HostResources.
+	LastRemoteSync                   time.Time                                           // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
+	isContainedWithinIndex           bool                                                // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
+	ProperlyInitialized              bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
+	numReplicasPerKernel             int                                                 // The number of replicas per kernel.
+	resourceBindingMode              scheduling.ResourceBindingMode                      // resourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly when they are uncommitted from containers as well.
+	containersWithCommittedResources map[string]scheduling.KernelContainer               // Map from Kernel ID to scheduling.KernelContainer of Containers who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID).
 
 	// lastSnapshot is the last HostResourceSnapshot to have been applied successfully to this Host.
 	lastSnapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
@@ -278,28 +241,28 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		confirmedId.NodeName, confirmedId.Id, resourceSpec.String())
 
 	host := &Host{
-		LocalGatewayClient:            localGatewayClient,
-		latestGpuInfo:                 gpuInfoResp,
-		ID:                            id,
-		NodeName:                      confirmedId.NodeName,
-		Addr:                          addr,
-		resourceSpec:                  resourceSpec,
-		numReplicasPerKernel:          numReplicasPerKernel,
-		metricsProvider:               metricsProvider,
-		log:                           config.GetLogger(fmt.Sprintf("Host %s ", id)),
-		containers:                    hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
-		reservations:                  hashmap.NewCornelkMap[string, *Reservation](5),
-		trainingContainers:            make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
-		penalties:                     make([]cachedPenalty, int(resourceSpec.GPU())),
-		seenSessions:                  make([]string, int(resourceSpec.GPU())),
-		meta:                          hashmap.NewCornelkMap[string, interface{}](64),
-		errorCallback:                 errorCallback,
-		enabled:                       true,
-		resourceBindingMode:           resourceBindingMode,
-		CreatedAt:                     time.Now(),
-		SubscriptionQuerier:           querier,
-		ProperlyInitialized:           true,
-		allocationDeallocationRecords: make([]allocationDeallocationRecord, 0),
+		LocalGatewayClient:               localGatewayClient,
+		latestGpuInfo:                    gpuInfoResp,
+		ID:                               id,
+		NodeName:                         confirmedId.NodeName,
+		Addr:                             addr,
+		resourceSpec:                     resourceSpec,
+		numReplicasPerKernel:             numReplicasPerKernel,
+		metricsProvider:                  metricsProvider,
+		log:                              config.GetLogger(fmt.Sprintf("Host %s ", id)),
+		containers:                       hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
+		reservations:                     hashmap.NewCornelkMap[string, *Reservation](5),
+		trainingContainers:               make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
+		penalties:                        make([]cachedPenalty, int(resourceSpec.GPU())),
+		seenSessions:                     make([]string, int(resourceSpec.GPU())),
+		meta:                             hashmap.NewCornelkMap[string, interface{}](64),
+		errorCallback:                    errorCallback,
+		enabled:                          true,
+		resourceBindingMode:              resourceBindingMode,
+		CreatedAt:                        time.Now(),
+		SubscriptionQuerier:              querier,
+		containersWithCommittedResources: make(map[string]scheduling.KernelContainer),
+		ProperlyInitialized:              true,
 	}
 
 	host.resourceManager = resource.NewManager(resourceSpec)
@@ -734,7 +697,7 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 	h.isBeingConsideredForScheduling.Add(-1)
 
 	if !reservation.CreatedUsingPendingResources {
-		err := h.unsafeUncommitResources(spec.DecimalSpecFromKernelSpec())
+		err := h.unsafeUncommitResources(spec.DecimalSpecFromKernelSpec(), spec.Id)
 		if err != nil {
 			h.log.Error("Failed to release committed resource reservation for a replica of kernel %s: %v.",
 				spec.Id, err)
@@ -812,7 +775,7 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 
 	if !usePendingResources {
 		h.log.Debug("Attempting reservation upgrade for new replica of kernel %s: pending --> committed (%s)", spec.Id, resourceSpec.String())
-		err := h.unsafeCommitResources(resourceSpec)
+		err := h.unsafeCommitResources(resourceSpec, spec.Id)
 		if err != nil {
 			h.log.Debug("Failed to upgrade pending resource reservation to committed for new replica of kernel %s because: %v",
 				spec.Id, err)
@@ -966,7 +929,7 @@ func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelConta
 		h.log.Debug("Releasing committed resources from container for replica %d of kernel %s during eviction process: %s",
 			container.ReplicaId(), container.KernelID(), container.ResourceSpec().String())
 
-		err := h.unsafeUncommitResources(container.ResourceSpec())
+		err := h.unsafeUncommitResources(container.ResourceSpec(), container.KernelID())
 		if err != nil {
 			h.log.Error("Failed to release committed resources %s from container for replica %d of kernel %s during eviction process: %v",
 				container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), err)
@@ -1003,7 +966,7 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 	// If the resource binding mode is instead BindResourcesWhenContainerScheduled, then we do not
 	// uncommit the resources until the container is actually evicted.
 	if h.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
-		err := h.unsafeUncommitResources(container.ResourceSpec())
+		err := h.unsafeUncommitResources(container.ResourceSpec(), container.KernelID())
 		if err == nil {
 			return nil
 		}
@@ -1079,29 +1042,25 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	// committed to the container, and so we don't have to do anything else and can just return nil,
 	// as we do below.
 	if h.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+		if _, loaded := h.containersWithCommittedResources[container.KernelID()]; loaded {
+			h.log.Debug("Resources are already committed to replica %d of kernel \"%s\" upon training start. Must have been migrated recently.",
+				container.ReplicaId(), container.KernelID())
+
+			return nil
+		}
+
 		h.log.Debug("Committing resources %v to container for replica %d of kernel \"%s\" so it can train.",
 			container.ResourceSpec().String(), container.ReplicaId(), container.KernelID())
 
-		return h.unsafeCommitResources(container.ResourceSpec())
+		return h.unsafeCommitResources(container.ResourceSpec(), container.KernelID())
 	}
 
 	return nil
 }
 
-// uncommitResources releases the specified resources and returns nil on success.
-// uncommitResources is thread safe.
-func (h *Host) uncommitResources(spec *types.DecimalSpec) error {
-	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Unlock()
-
-	return h.unsafeUncommitResources(spec)
-}
-
 // unsafeUncommitResources releases the specified resources and returns nil on success.
 // unsafeUncommitResources is not thread safe and should only be called with the schedulingMutex already held.
-func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec) error {
-	//var err error
-
+func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string) error {
 	if err := h.resourceManager.CommittedResources().Subtract(spec); err != nil {
 		return err
 	}
@@ -1114,76 +1073,20 @@ func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec) error {
 		return err
 	}
 
+	delete(h.containersWithCommittedResources, kernelId)
+
 	return nil
-
-	//opIndex := h.allocationIndex.Add(1)
-	//
-	//deallocationRec := &deallocationRecord{
-	//	Index:     len(h.allocationDeallocationRecords),
-	//	OpIndex:   opIndex,
-	//	Status:    resource.CommittedResources,
-	//	ReplicaId: 0,
-	//	KernelId:  "",
-	//	Before:    h.resourceManager.CommittedResources().ToDecimalSpec(),
-	//	Quantity:  spec,
-	//	After:     nil,
-	//	Timestamp: time.Now(),
-	//}
-	//if err = h.resourceManager.CommittedResources().Subtract(spec); err != nil {
-	//	return err
-	//}
-	//deallocationRec.After = h.resourceManager.CommittedResources().ToDecimalSpec()
-	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, deallocationRec)
-	//
-	//allocationRec := &allocationRecord{
-	//	Index:     len(h.allocationDeallocationRecords),
-	//	OpIndex:   opIndex,
-	//	Status:    resource.PendingResources,
-	//	ReplicaId: 0,
-	//	KernelId:  "",
-	//	Before:    h.resourceManager.PendingResources().ToDecimalSpec(),
-	//	Quantity:  spec,
-	//	After:     nil,
-	//	Timestamp: time.Now(),
-	//}
-	//if err = h.resourceManager.PendingResources().Add(spec); err != nil {
-	//	return err
-	//}
-	//allocationRec.After = h.resourceManager.PendingResources().ToDecimalSpec()
-	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, allocationRec)
-	//
-	//allocationRec = &allocationRecord{
-	//	Index:     len(h.allocationDeallocationRecords),
-	//	OpIndex:   opIndex,
-	//	Status:    resource.IdleResources,
-	//	ReplicaId: 0,
-	//	KernelId:  "",
-	//	Before:    h.resourceManager.IdleResources().ToDecimalSpec(),
-	//	Quantity:  spec,
-	//	After:     nil,
-	//	Timestamp: time.Now(),
-	//}
-	//if err = h.resourceManager.IdleResources().Add(spec); err != nil {
-	//	return err
-	//}
-	//allocationRec.After = h.resourceManager.IdleResources().ToDecimalSpec()
-	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, allocationRec)
-
-	//return nil
-}
-
-// commitResources commits the specified resources and returns nil on success.
-// commitResources is thread safe.
-func (h *Host) commitResources(spec *types.DecimalSpec) error {
-	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Unlock()
-
-	return h.unsafeCommitResources(spec)
 }
 
 // unsafeCommitResources commits the specified resources and returns nil on success.
 // unsafeCommitResources is not thread safe and should only be called with the schedulingMutex already held.
-func (h *Host) unsafeCommitResources(spec *types.DecimalSpec) error {
+func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string) error {
+	if container, loaded := h.containersWithCommittedResources[kernelId]; loaded {
+		h.log.Error("Attempting to commit resources %v to replica of kernel %s, but we've already committed resources to replica %d of kernel %s.",
+			spec.String(), kernelId, container.ReplicaId(), kernelId)
+		return fmt.Errorf("%w (replica %d of kernel \"%s\")", ErrResourcesAlreadyCommitted, container.ReplicaId(), kernelId)
+	}
+
 	if err := h.resourceManager.CommittedResources().Add(spec); err != nil {
 		return err
 	}
@@ -1197,61 +1100,6 @@ func (h *Host) unsafeCommitResources(spec *types.DecimalSpec) error {
 	}
 
 	return nil
-
-	//opIndex := h.allocationIndex.Add(1)
-	//
-	//allocationRec := &allocationRecord{
-	//	Index:     len(h.allocationDeallocationRecords),
-	//	OpIndex:   opIndex,
-	//	Status:    resource.CommittedResources,
-	//	ReplicaId: 0,
-	//	KernelId:  "",
-	//	Before:    h.resourceManager.CommittedResources().ToDecimalSpec(),
-	//	Quantity:  spec,
-	//	After:     nil,
-	//	Timestamp: time.Now(),
-	//}
-	//if err = h.resourceManager.CommittedResources().Add(spec); err != nil {
-	//	return err
-	//}
-	//allocationRec.After = h.resourceManager.CommittedResources().ToDecimalSpec()
-	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, allocationRec)
-
-	//deallocationRec := &deallocationRecord{
-	//	Index:     len(h.allocationDeallocationRecords),
-	//	OpIndex:   opIndex,
-	//	Status:    resource.PendingResources,
-	//	ReplicaId: 0,
-	//	KernelId:  "",
-	//	Before:    h.resourceManager.PendingResources().ToDecimalSpec(),
-	//	Quantity:  spec,
-	//	After:     nil,
-	//	Timestamp: time.Now(),
-	//}
-	//if err = h.resourceManager.PendingResources().Subtract(spec); err != nil {
-	//	return err
-	//}
-	//deallocationRec.After = h.resourceManager.PendingResources().ToDecimalSpec()
-	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, deallocationRec)
-
-	//deallocationRec = &deallocationRecord{
-	//	Index:     len(h.allocationDeallocationRecords),
-	//	OpIndex:   opIndex,
-	//	Status:    resource.IdleResources,
-	//	ReplicaId: 0,
-	//	KernelId:  "",
-	//	Before:    h.resourceManager.IdleResources().ToDecimalSpec(),
-	//	Quantity:  spec,
-	//	After:     nil,
-	//	Timestamp: time.Now(),
-	//}
-	//if err = h.resourceManager.IdleResources().Subtract(spec); err != nil {
-	//	return err
-	//}
-	//deallocationRec.After = h.resourceManager.IdleResources().ToDecimalSpec()
-	//h.allocationDeallocationRecords = append(h.allocationDeallocationRecords, deallocationRec)
-
-	//return nil
 }
 
 // ContainerRemoved is to be called when a Container is stopped and removed from the Host.
