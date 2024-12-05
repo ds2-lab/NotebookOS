@@ -214,6 +214,7 @@ services:
       - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini
       - grafana_data:/var/lib/grafana
+    user: "472:472"
     deploy:
       restart_policy:
         condition: on-failure

@@ -1139,6 +1139,48 @@ func (h *Host) getSIP(sess scheduling.UserSession) float64 {
 	return rb - penalty
 }
 
+// KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
+// Host is updated or changed. This ensures that the Host's resource counts are up to date.
+func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec *types.DecimalSpec, container scheduling.KernelContainer) error {
+	// Sanity check.
+	if _, loaded := h.containers.Load(container.ContainerID()); !loaded {
+		return fmt.Errorf("the specified KernelContainer is not running on the target Host")
+	}
+
+	// Ensure that we're even allowed to do this (based on the scheduling policy).
+	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
+		return scheduling.ErrDynamicResourceAdjustmentProhibited
+	}
+
+	oldSubscribedRatio := h.subscribedRatio
+
+	// Deallocate the previously-reserved resources.
+	err := h.resourceManager.PendingResources().Subtract(oldSpec)
+	if err != nil {
+		h.log.Error("Cannot deallocate pending resources for replica %d of kernel %s during ResourceSpec adjustment: %v.",
+			container.ReplicaId(), container.KernelID(), err)
+
+		return err
+	}
+
+	// Allocate the updated resource request.
+	updatedSpecAsDecimalSpec := types.ToDecimalSpec(updatedSpec)
+	err = h.resourceManager.PendingResources().Add(updatedSpecAsDecimalSpec)
+	if err != nil {
+		h.log.Error("Cannot deallocate pending resources for replica %d of kernel %s during ResourceSpec adjustment: %v.",
+			container.ReplicaId(), container.KernelID(), err)
+
+		return err
+	}
+
+	h.RecomputeSubscribedRatio()
+	h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
+		container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
+	h.reservations.Store(container.KernelID(), NewReservation(h.ID, container.KernelID(), time.Now(), true, updatedSpecAsDecimalSpec))
+
+	return nil
+}
+
 func (h *Host) getRB(sessRB float64, required float64) float64 {
 	//idleGPUs := h.idleGPUs.Load()
 	idleGPUs := h.resourceManager.IdleResources().GPUs()

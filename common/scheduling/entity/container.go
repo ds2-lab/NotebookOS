@@ -228,9 +228,13 @@ func (c *Container) ResourceSpec() *types.DecimalSpec {
 	return c.spec
 }
 
+func (c *Container) UpdateResourceSpec(spec *types.DecimalSpec) {
+	c.spec = spec
+}
+
 // ScaleOutPriority returns the host's "scheduling-out priority", or SOP, which is defined as the time of the
 // last rescheduling operation plus the frequency of training tasks multiplied by the interactive priority of the
-// potential training task plus the sum of the preemption priorities of the preemptible tasks.
+// potential training task plus the sum of the preemption priorities of the pre-emptible tasks.
 //
 // SOP(h) = Last Rescheduling Clock + Freq(h) * IP(h) + SUM PP(h').
 // To schedule out a potential task, we need to weight benefits of migration(IP) and penalty of preempting running task(s) if stay(PP).

@@ -1009,7 +1009,7 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 	// Scale out (i.e., add hosts)?
 	if targetNumNodes > currentNumNodes {
 		if !c.scheduler.Policy().ResourceScalingPolicy().ManualScalingPolicy().ManualScalingOutEnabled() {
-			return promise.Resolved(nil, scheduling.ErrSchedulingProhibitedBySchedulingPolicy)
+			return promise.Resolved(nil, scheduling.ErrScalingProhibitedBySchedulingPolicy)
 		}
 
 		c.log.Debug("Requesting %d additional host(s) in order to scale-out to target size of %d.", targetNumNodes-currentNumNodes, targetNumNodes)
@@ -1017,7 +1017,7 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 	}
 
 	if !c.scheduler.Policy().ResourceScalingPolicy().ManualScalingPolicy().ManualScalingInEnabled() {
-		return promise.Resolved(nil, scheduling.ErrSchedulingProhibitedBySchedulingPolicy)
+		return promise.Resolved(nil, scheduling.ErrScalingProhibitedBySchedulingPolicy)
 	}
 
 	// Scale in (i.e., remove hosts).

@@ -371,7 +371,7 @@ func (s *BaseScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelRep
 // - kernelId (string): The ID of the kernel to which we're adding a new replica.
 // - opts (AddReplicaWaitOptions): Specifies whether we'll wait for registration and/or SMR-joining.
 // - dataDirectory (string): Path to etcd-raft data directory in RemoteStorage.
-func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts scheduling.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host) (*scheduling.AddReplicaOperation, error) {
+func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, targetHost scheduling.Host, opts scheduling.AddReplicaWaitOptions, dataDirectory string, blacklistedHosts []scheduling.Host, forTraining bool) (*scheduling.AddReplicaOperation, error) {
 	var kernelId = in.KernelId
 	var persistentId = in.PersistentId
 
@@ -419,7 +419,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, opts scheduling.AddRep
 	// we cannot assume that we've not yet received the registration notification from the kernel, so all of
 	// our state needs to be set up BEFORE that call occurs.
 	///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	err := s.cluster.Scheduler().ScheduleKernelReplica(newReplicaSpec, nil, blacklistedHosts)
+	err := s.cluster.Scheduler().ScheduleKernelReplica(newReplicaSpec, targetHost, blacklistedHosts, forTraining)
 	if err != nil {
 		return addReplicaOp, err
 	}
@@ -544,8 +544,7 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 }
 
 // MigrateKernelReplica tries to migrate the given Kernel to another Host.
-// Flag indicates whether we're allowed to create a new host for the container (if necessary).
-func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, canCreateNewHost bool) (*proto.MigrateKernelResponse, error) {
+func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (*proto.MigrateKernelResponse, error) {
 	if kernelReplica == nil {
 		s.log.Error("MigrateContainer received nil KernelReplica")
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, ErrNilKernelReplica
@@ -590,7 +589,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 		//
 		// Likewise, if the host does not have enough resources to serve the kernel replica,
 		// then it is not viable.
-		if err := s.isHostViableForMigration(targetHost, kernelReplica); err != nil {
+		if err := s.isHostViableForMigration(targetHost, kernelReplica, forTraining); err != nil {
 			return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
 		}
 	}
@@ -617,7 +616,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 
 	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
 	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
-	addReplicaOp, err := s.addReplica(replicaSpec, opts, dataDirectory, []scheduling.Host{originalHost})
+	addReplicaOp, err := s.addReplica(replicaSpec, targetHost, opts, dataDirectory, []scheduling.Host{originalHost}, forTraining)
 	if err != nil {
 		s.log.Error("Failed to add new replica %d to kernel %s: %v", kernelReplica.ReplicaID(), kernelReplica.ID(), err)
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
@@ -644,7 +643,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 // Likewise, this also checks that the specified Host has enough resourecs to serve the specified KernelReplica.
 //
 // If the Host is not viable, then an ErrHostNotViable error is returned.
-func (s *BaseScheduler) isHostViableForMigration(targetHost scheduling.Host, kernelReplica scheduling.KernelReplica) error {
+func (s *BaseScheduler) isHostViableForMigration(targetHost scheduling.Host, kernelReplica scheduling.KernelReplica, forTraining bool) error {
 	if targetHost == nil {
 		return scheduling.ErrNilHost
 	}
@@ -653,7 +652,7 @@ func (s *BaseScheduler) isHostViableForMigration(targetHost scheduling.Host, ker
 	// another replica of the same kernel (or the replica we're migrating). If so, then the host is not viable.
 	existingReplica := targetHost.GetAnyReplicaOfKernel(kernelReplica.ID())
 	if existingReplica != nil {
-		s.log.Error("Cannot migrate replica %d of kernel %s to host %s. "+
+		s.log.Warn("Cannot migrate replica %d of kernel %s to host %s. "+
 			"Host %s is already hosting replica %d of kernel %s.", kernelReplica.ReplicaID(), kernelReplica.ID(),
 			targetHost.GetID(), targetHost.GetID(), existingReplica.ReplicaId(), kernelReplica.ID())
 
@@ -664,9 +663,17 @@ func (s *BaseScheduler) isHostViableForMigration(targetHost scheduling.Host, ker
 	// Check that there are enough resources available.
 	kernelResourceSpec := kernelReplica.ResourceSpec()
 	if !targetHost.ResourceSpec().Validate(kernelResourceSpec) {
-		s.log.Error("Cannot migrate replica %d of kernel %s to host %s, as host does not have sufficiently-many allocatable resources to accommodate the replica.",
+		s.log.Warn("Cannot migrate replica %d of kernel %s to host %s, as host does not have sufficiently-many allocatable resources to accommodate the replica.",
 			kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.GetID())
 		return fmt.Errorf("%w: host lacks sufficiently-many allocatable resourecs", scheduling.ErrHostNotViable)
+	}
+
+	// If we're migrating a kernel explicitly to begin training, then we need to see if the target host has sufficient
+	// idle resources available.
+	if forTraining && !targetHost.CanCommitResources(kernelResourceSpec) {
+		s.log.Warn("Cannot migrate replica %d of kernel %s to host %s, as kernel needs to start training, and host lacks sufficient idle resources for this (current idle resources: %v).",
+			kernelReplica.ReplicaID(), kernelReplica.ID(), targetHost.GetID(), targetHost.IdleResources().String())
+		return fmt.Errorf("%w: insufficient idle resources available for training", scheduling.ErrHostNotViable)
 	}
 
 	return nil
@@ -749,8 +756,8 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 	}
 
 	dataDirectory := resp.DataDir
-	s.log.Debug("Successfully issued 'prepare-to-migrate' request to replica %d of kernel %s. Data directory: \"%s\"",
-		originalHost.GetID(), kernelReplica.ID(), dataDirectory)
+	s.log.Debug("Successfully issued 'prepare-to-migrate' request to replica %d of kernel %s on host %s. Data directory: \"%s\"",
+		kernelReplica.ReplicaID(), kernelReplica.ID(), originalHost.GetID(), dataDirectory)
 
 	return dataDirectory, nil
 }
@@ -928,9 +935,9 @@ func (h *idleSortedHost) SetIdx(idx int) {
 }
 
 // migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
-func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host) (err error) {
+func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTraining bool) (err error) {
 	host.Containers().Range(func(containerId string, c scheduling.KernelContainer) (contd bool) {
-		_, err = s.MigrateKernelReplica(c.GetClient(), "", true) // Pass true for `noNewHost`, as we don't want to create a new host for this.
+		_, err = s.MigrateKernelReplica(c.GetClient(), "", forTraining) // Pass true for `noNewHost`, as we don't want to create a new host for this.
 		if err != nil {
 			// We cannot migrate the Container.
 			s.log.Warn("Abandoning the release of idle host %s (ID=%s) because: %v", host.GetNodeName(), host.GetID(), err)
@@ -990,7 +997,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		// If the host has no containers running on it at all, then we can simply release the host.
 		if host.NumContainers() > 0 {
-			err := s.migrateContainersFromHost(host)
+			err := s.migrateContainersFromHost(host, false) // Host is completely idle, so no training.
 			if err != nil {
 				s.log.Warn("Failed to migrate all kernels from host %s (ID=%s) because: %v",
 					host.GetNodeName(), host.GetID(), err)

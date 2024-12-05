@@ -140,7 +140,7 @@ func (a *Allocation) String() string {
 // of the String() methods of types.Spec implementations.
 func (a *Allocation) ToSpecString() string {
 	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s]",
-		a.Millicpus.StringFixed(0), a.MemoryMB.StringFixed(4), a.GPUs.StringFixed(0))
+		a.Millicpus.StringFixed(6), a.MemoryMB.StringFixed(6), a.GPUs.StringFixed(1))
 }
 
 // ToSpec converts the Allocation to a types.Spec instance with the same resource values as the

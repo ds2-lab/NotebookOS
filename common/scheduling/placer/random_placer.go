@@ -45,8 +45,18 @@ func (placer *RandomPlacer) NumHostsInIndex() int {
 
 // tryReserveResourcesOnHost attempts to reserve resources for a future replica of the specified kernel
 // on the specified host, returning true if the reservation was created successfully.
-func (placer *RandomPlacer) tryReserveResourcesOnHost(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec) bool {
-	reserved, err := candidateHost.ReserveResources(kernelSpec, placer.reservationShouldUsePendingResources())
+func (placer *RandomPlacer) tryReserveResourcesOnHost(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) bool {
+	var usePendingReservation bool
+
+	if forTraining {
+		// If we are migrating a replica that needs to begin training right away, then we should not use a pending reservation.
+		// The container will need resources committed to it immediately.
+		usePendingReservation = false
+	} else {
+		usePendingReservation = placer.reservationShouldUsePendingResources()
+	}
+
+	reserved, err := candidateHost.ReserveResources(kernelSpec, usePendingReservation)
 
 	if err != nil {
 		placer.log.Error("Error while attempting to reserve resources for replica of kernel %s on host %s (ID=%s): %v",
@@ -72,7 +82,7 @@ func (placer *RandomPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int
 
 	// Seek `numHosts` Hosts from the Placer's index.
 	hosts, _ = placer.index.SeekMultipleFrom(pos, numHosts, func(candidateHost scheduling.Host) bool {
-		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec)
+		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec, false)
 	}, make([]interface{}, 0))
 	placer.mu.Unlock()
 
@@ -85,9 +95,9 @@ func (placer *RandomPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *RandomPlacer) findHost(blacklist []interface{}, kernelSpec *proto.KernelSpec) scheduling.Host {
+func (placer *RandomPlacer) findHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
 	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost scheduling.Host) bool {
-		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec)
+		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec, forTraining)
 	}, blacklist)
 
 	if len(hosts) > 0 {

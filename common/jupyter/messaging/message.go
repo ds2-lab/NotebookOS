@@ -688,6 +688,7 @@ func (m *JupyterMessage) EncodeMetadata(metadata map[string]interface{}) (err er
 	err = m.JupyterFrames.EncodeMetadata(metadata)
 	if err == nil {
 		m.metadata = metadata
+		m.metadataDecoded = true
 		return nil
 	}
 

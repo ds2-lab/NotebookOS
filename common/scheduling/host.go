@@ -58,11 +58,38 @@ type Host interface {
 	PlacedGPUs() decimal.Decimal
 	PlacedCPUs() decimal.Decimal
 	WillBecomeTooOversubscribed(resourceRequest types.Spec) bool
+
+	// CanServeContainerWithError returns nil if the target Host can serve the resource request.
+	//
+	// This method only checks against the Host's "spec" (i.e., the total HostResources available on the Host,
+	// not taking into account current resource allocations).
 	CanServeContainerWithError(resourceRequest types.Spec) (bool, error)
+
+	// CanServeContainer returns a boolean indicating whether this Host could serve a kernel replica with the given
+	// resource requirements / resource request. This method only checks against the Host's "spec" (i.e., the total
+	// HostResources available on the Host, not taking into account current resource allocations).
+	//
+	// CanServeContainer returns true when the Host could serve the hypothetical kernel and false when the Host could not.
 	CanServeContainer(resourceRequest types.Spec) bool
+
+	// CanCommitResources returns a boolean indicating whether this Host could commit the specified resource request
+	// to a kernel scheduled onto the Host right now. Commiting resource requires having sufficiently many idle HostResources
+	// available.
+	//
+	// CanCommitResources returns true if the Host could commit/reserve the given HostResources right now.
+	// Otherwise, CanCommitResources returns false.
 	CanCommitResources(resourceRequest types.Spec) bool
 	ReleaseReservation(spec *proto.KernelSpec) error
+
+	// ReserveResources attempts to reserve the resources required by the specified kernel, returning
+	// a boolean flag indicating whether the resource reservation was completed successfully.
+	//
+	// If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
 	ReserveResources(spec *proto.KernelSpec, usePendingResources bool) (bool, error)
+
+	// KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
+	// Host is updated or changed. This ensures that the Host's resource counts are up to date.
+	KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec *types.DecimalSpec, container KernelContainer) error
 	Restore(restoreFrom Host, callback ErrorCallback) error
 	Enabled() bool
 	Enable(includeInScheduling bool) error
@@ -87,6 +114,7 @@ type Host interface {
 	GetReservation(kernelId string) (ResourceReservation, bool) // GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
 	GetMeta(key HostMetaKey) interface{}
 	Priority(session UserSession) float64
+
 	IdleGPUs() float64
 	PendingGPUs() float64
 	CommittedGPUs() float64

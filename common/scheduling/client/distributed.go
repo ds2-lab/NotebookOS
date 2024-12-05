@@ -450,6 +450,31 @@ func (c *DistributedKernelClient) ResourceSpec() *types.DecimalSpec {
 	return c.spec.DecimalSpecFromKernelSpec()
 }
 
+// UpdateResourceSpec updates the ResourceSpec of the Kernel, all of its KernelReplica instances, the UserSession
+// of each KernelReplica, and the KernelContainer of each KernelReplica.
+//
+// It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/KernelReplica.
+func (c *DistributedKernelClient) UpdateResourceSpec(spec types.Spec) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	updateSpecErrors := make([]error, 0)
+	for _, kernelReplica := range c.replicas {
+		err := kernelReplica.UpdateResourceSpec(spec)
+		if err != nil {
+			c.log.Warn("Failed to update ResourceSpec of replica %d of kernel \"%s\" because: %v",
+				kernelReplica.ReplicaID(), c.ID(), err)
+			updateSpecErrors = append(updateSpecErrors, err)
+		}
+	}
+
+	if len(updateSpecErrors) > 0 {
+		return errors.Join(updateSpecErrors...)
+	}
+
+	return nil
+}
+
 func (c *DistributedKernelClient) KernelSpec() *proto.KernelSpec {
 	return c.spec
 }

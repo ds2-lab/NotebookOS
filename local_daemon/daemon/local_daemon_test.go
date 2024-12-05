@@ -262,9 +262,9 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(err).To(BeNil())
 
 			GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
-			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(0))
-			GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(0))
-			GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(0))
+			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(1))
+			GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(1))
+			GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(1))
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
 			Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
@@ -298,7 +298,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
 			Expect(err).To(BeNil())
-			Expect(len(metadata)).To(Equal(6))
+			Expect(len(metadata)).To(Equal(8))
 
 			var header messaging.MessageHeader
 			err = processedMessage.JupyterFrames.DecodeHeader(&header)
@@ -311,9 +311,9 @@ var _ = Describe("Local Daemon Tests", func() {
 			By("Creating a pending allocation for the associated kernel")
 
 			GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
-			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(0))
-			GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(0))
-			GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(0))
+			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(1))
+			GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(1))
+			GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(1))
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
 			Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))

@@ -1262,7 +1262,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 
 	d.log.Debug("Resource spec for kernel %s: %v", kernel.ID(), response.ResourceSpec)
 
-	kernel.SetResourceSpec(response.ResourceSpec)
+	kernel.InitializeResourceSpec(response.ResourceSpec)
 	kernel.SetReplicaID(response.Id)
 
 	var kernelDebugPort = -1
@@ -2558,7 +2558,8 @@ func (d *SchedulerDaemonImpl) updateKernelResourceSpec(kernel scheduling.KernelR
 		return fmt.Errorf("%w: %s", client.ErrInvalidResourceSpec, newSpec.String())
 	}
 
-	d.log.Debug("Attempting to update pending resource allocation for kernel %s to %s.", kernel.ID(), newSpec.String())
+	d.log.Debug("Attempting to update pending resource allocation for kernel %s from %s to %s.",
+		kernel.ID(), kernel.ResourceSpec().String(), newSpec.String())
 	err := d.resourceManager.AdjustPendingResources(kernel.ReplicaID(), kernel.ID(), newSpec)
 	if err != nil {
 		d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
@@ -2576,7 +2577,6 @@ func (d *SchedulerDaemonImpl) updateKernelResourceSpec(kernel scheduling.KernelR
 // resourceRequestAdjustmentEnabled returns true if dynamically adjusting resource requests is enabled
 // based on the configured scheduling policy used by the cluster.
 func (d *SchedulerDaemonImpl) resourceRequestAdjustmentEnabled() bool {
-	// return d.policyKey == scheduling.Static || d.policyKey == scheduling.DynamicV3 || d.policyKey == scheduling.DynamicV4
 	return d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart
 }
 
@@ -2681,6 +2681,7 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *messaging.JupyterMessag
 		d.log.Debug("[gid=%d] Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
 			gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
 		resourceAllocationError := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
+
 		if resourceAllocationError != nil {
 			d.log.Warn("[gid=%d] Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",
 				gid, kernel.ReplicaID(), kernel.ID(), resourceAllocationError.Error())
@@ -2694,9 +2695,6 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *messaging.JupyterMessag
 			// in fact an "insufficient resources" type of error.
 			if errors.As(resourceAllocationError, &resource.InsufficientResourcesError{}) {
 				allocationFailedDueToInsufficientResources = true
-			} else {
-				// Technically there may also be insufficient resources, but that wasn't why the allocation failed.
-				allocationFailedDueToInsufficientResources = false
 			}
 
 			shouldYield = true
@@ -2711,12 +2709,15 @@ func (d *SchedulerDaemonImpl) processExecuteRequest(msg *messaging.JupyterMessag
 	metadataDict["idle-gpus"] = idleResourcesBeforeReservation.GPU()
 	metadataDict["idle-millicpus"] = idleResourcesBeforeReservation.CPU()
 	metadataDict["idle-memory-mb"] = idleResourcesBeforeReservation.MemoryMB()
+	metadataDict["idle-vram-gb"] = idleResourcesBeforeReservation.VRAM()
 	metadataDict["required-gpus"] = kernel.ResourceSpec().GPU()
 	metadataDict["required-millicpus"] = kernel.ResourceSpec().CPU()
 	metadataDict["required-memory-mb"] = kernel.ResourceSpec().MemoryMB()
+	metadataDict["required-vram-gb"] = kernel.ResourceSpec().VRAM()
 
-	d.log.Debug("[gid=%d] Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %s.",
-		gid, idleResourcesBeforeReservation.Millicpus.StringFixed(0), idleResourcesBeforeReservation.MemoryMb.StringFixed(4), idleResourcesBeforeReservation.GPUs.StringFixed(0))
+	d.log.Debug("[gid=%d] Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %s, idle VRAM: %s.",
+		gid, idleResourcesBeforeReservation.Millicpus.StringFixed(6), idleResourcesBeforeReservation.MemoryMb.StringFixed(6),
+		idleResourcesBeforeReservation.GPUs.StringFixed(1), idleResourcesBeforeReservation.VRam.StringFixed(6))
 
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
 	// - If there are insufficient GPUs on this node, then our replica will need to yield.

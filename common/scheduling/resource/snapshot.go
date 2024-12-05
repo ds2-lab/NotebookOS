@@ -187,8 +187,8 @@ func (s *ComputeResourceSnapshot) GetVramGb() float32 {
 // String returns a string representation of the target ComputeResourceSnapshot struct that is suitable for logging.
 func (s *ComputeResourceSnapshot) String() string {
 	return fmt.Sprintf("ComputeResourceSnapshot[Status=%s,Millicpus=%s,MemoryMB=%s,GPUs=%s,VRAM=%s",
-		s.ResourceStatus.String(), s.Millicpus.StringFixed(0), s.MemoryMB.StringFixed(4),
-		s.Gpus.StringFixed(0), s.VRamGB.StringFixed(4))
+		s.ResourceStatus.String(), s.Millicpus.StringFixed(6), s.MemoryMB.StringFixed(6),
+		s.Gpus.StringFixed(1), s.VRamGB.StringFixed(6))
 }
 
 func (s *ComputeResourceSnapshot) ToProtoResourcesSnapshot() *proto.ResourcesSnapshot {

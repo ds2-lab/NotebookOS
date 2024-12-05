@@ -264,6 +264,10 @@ func (s *Session) ResourceSpec() types.CloneableSpec {
 	return s.resourceSpec
 }
 
+func (s *Session) UpdateResourceSpec(spec types.CloneableSpec) {
+	s.resourceSpec = spec
+}
+
 func (s *Session) ID() string {
 	return s.id
 }

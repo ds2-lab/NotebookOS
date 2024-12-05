@@ -87,13 +87,13 @@ func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts i
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec) scheduling.Host {
+func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 
 	st := time.Now()
 	// Invoke internalPlacer's implementation of the findHost method for the core logic of FindHost.
-	host := placer.instance.findHost(blacklist, kernelSpec)
+	host := placer.instance.findHost(blacklist, kernelSpec, forTraining)
 	latency := time.Since(st)
 
 	if host == nil {

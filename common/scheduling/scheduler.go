@@ -44,7 +44,7 @@ func (e *ErrorDuringScheduling) String() string {
 type KernelScheduler interface {
 	// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
 	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
-	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) (*proto.MigrateKernelResponse, error)
+	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, forTraining bool) (*proto.MigrateKernelResponse, error)
 
 	// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
 	DeployKernelReplicas(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []Host) error
@@ -52,7 +52,7 @@ type KernelScheduler interface {
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//
 	// If targetHost is nil, then a candidate host is identified automatically by the Scheduler.
-	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host) error
+	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host, forTraining bool) error
 
 	// RemoveReplicaFromHost removes the specified replica from its Host.
 	RemoveReplicaFromHost(kernelReplica KernelReplica) error

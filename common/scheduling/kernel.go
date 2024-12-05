@@ -83,6 +83,12 @@ type Kernel interface {
 	ID() string
 	SourceKernelID() string
 	ResourceSpec() *types.DecimalSpec
+
+	// UpdateResourceSpec updates the ResourceSpec of the Kernel, all of its KernelReplica instances, the UserSession
+	// of each KernelReplica, and the KernelContainer of each KernelReplica.
+	//
+	// It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/KernelReplica.
+	UpdateResourceSpec(spec types.Spec) error
 	KernelSpec() *proto.KernelSpec
 	ConnectionInfo() *jupyter.ConnectionInfo
 	Status() jupyter.KernelStatus
@@ -177,11 +183,28 @@ type KernelReplica interface {
 	SetPersistentID(persistentId string)
 	PersistentID() string
 	ResourceSpec() *types.DecimalSpec
-	SetResourceSpec(spec *proto.ResourceSpec)
+
+	// InitializeResourceSpec sets the ResourceSpec of the KernelReplica.
+	//
+	// This does NOT propagate the updated spec to any UserSession or KernelContainer or Host.
+	// As such, SetReplicaSpec should only be called when instantiating/initializing a new KernelReplica.
+	//
+	// If you wish to update the ResourceSpec of an existing KernelReplica, then you should use the
+	// UpdateResourceSpec method.
+	InitializeResourceSpec(spec *proto.ResourceSpec)
+
+	// UpdateResourceSpec updates the ResourceSpec of the KernelReplica, the UserSession of the KernelReplica, and the
+	// KernelContainer of the KernelReplica.
+	//
+	// It also ensures that the updated ResourceSpec is propagated to the Host of the KernelContainer / KernelReplica.
+	//
+	// UpdateResourceSpec should only be used to update the ResourceSpec of an existing KernelReplica. When
+	// instantiating/initializing (the ResourceSpec of) a new KernelReplica, you should use the InitializeResourceSpec
+	// method instead of UpdateResourceSpec.
+	UpdateResourceSpec(types.Spec) error
 	KernelSpec() *proto.KernelSpec
 	Address() string
 	String() string
-	UpdateResourceSpec(types.Spec) error
 	IsReady() bool
 	HostId() string
 	SetReady()

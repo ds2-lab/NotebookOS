@@ -1,0 +1,16 @@
+- name: Remove any remaining kernel replica Docker containers
+  hosts: docker_swarm
+  roles:
+    - remove-kernel-replica-containers
+  tags:
+    - docker
+    - swarm
+    - kernel_replica
+
+- name: Prune any stopped Docker containers within the Docker Swarm cluster
+  hosts: docker_swarm
+  roles:
+    - prune-docker-containers
+  tags:
+    - docker
+    - swarm

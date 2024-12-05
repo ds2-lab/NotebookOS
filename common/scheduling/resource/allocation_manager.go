@@ -393,14 +393,16 @@ func (m *AllocationManager) AdjustSpecGPUs(numGpus float64) error {
 
 	numGpusDecimal := decimal.NewFromFloat(numGpus)
 	if numGpusDecimal.LessThan(m.resourcesWrapper.committedResources.gpus) {
-		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s", ErrIllegalGpuAdjustment, m.CommittedGPUs().StringFixed(0), numGpusDecimal.StringFixed(0))
+		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s",
+			ErrIllegalGpuAdjustment, m.CommittedGPUs().StringFixed(1), numGpusDecimal.StringFixed(1))
 	}
 
 	difference := m.SpecGPUs().Sub(numGpusDecimal)
 
 	oldSpecGPUs := m.SpecGPUs()
 	m.resourcesWrapper.specResources.SetGpus(numGpusDecimal)
-	m.log.Debug("Adjusted Spec GPUs from %s to %s.", oldSpecGPUs.StringFixed(0), numGpusDecimal.StringFixed(0))
+	m.log.Debug("Adjusted Spec GPUs from %s to %s.",
+		oldSpecGPUs.StringFixed(1), numGpusDecimal.StringFixed(1))
 
 	// If ORIGINAL - NEW > 0, then we're decreasing the total number of GPUs available.
 	// So, we'll need to decrement the idle GPUs value.
@@ -695,7 +697,7 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 
 	// First, validate against this scheduling.Host's spec.
 	if err := m.resourcesWrapper.specResources.ValidateWithError(requestedResources); err != nil {
-		m.log.Error("Could not commit the following HostResources to replica %d of kernel %s due "+
+		m.log.Warn("Could not commit the following HostResources to replica %d of kernel %s due "+
 			"to insufficient host spec: %s. Specific reason for commitment failure: %v.",
 			replicaId, kernelId, requestedResources.String(), err)
 		return err
@@ -703,13 +705,14 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 
 	// Next, validate against our actual idle resource capacity.
 	if err := m.resourcesWrapper.idleResources.ValidateWithError(requestedResources); err != nil {
-		m.log.Error("Could not commit HostResources to replica %d of kernel %s: %s. "+
+		m.log.Warn("Could not commit HostResources to replica %d of kernel %s: %s. "+
 			"Reason for commitment failure: %v.", replicaId, kernelId, requestedResources.String(), err)
 		return err
 	}
 
 	m.log.Debug("Committing resources. Current idle: %v. Current pending: %v. Current committed: %v. Resources to be committed: %v.",
-		m.resourcesWrapper.idleResources.String(), m.resourcesWrapper.pendingResources.String(), m.resourcesWrapper.committedResources.String(), requestedResources.String())
+		m.resourcesWrapper.idleResources.String(), m.resourcesWrapper.pendingResources.String(),
+		m.resourcesWrapper.committedResources.String(), requestedResources.String())
 
 	// If we've gotten this far, then we have enough HostResources available to commit the requested HostResources
 	// to the specified kernel replica. So, let's do that now. First, we'll decrement the idle HostResources.

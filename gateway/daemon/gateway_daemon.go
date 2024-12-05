@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
@@ -1405,6 +1406,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 			ReplicaId:    int32(targetReplica),
 			PersistentId: kernel.PersistentID(),
 		},
+		ForTraining:  true,
 		TargetNodeId: nil,
 	}
 
@@ -2756,7 +2758,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 		return nil, err
 	}
 
-	resp, err := d.cluster.Scheduler().MigrateKernelReplica(kernelReplica, targetNodeId, true)
+	resp, err := d.cluster.Scheduler().MigrateKernelReplica(kernelReplica, targetNodeId, in.ForTraining)
 
 	duration := time.Since(startTime)
 	if err != nil {
@@ -3263,7 +3265,70 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		return err
 	}
 
+	// The return value will be nil if nothing bad happened in call to processExecuteRequestMetadata.
+	return d.processExecuteRequestMetadata(msg, kernel)
+}
+
+// processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.
+// The main thing we do here is possibly update the resource request of the associated kernel.
+func (d *ClusterGatewayImpl) processExecuteRequestMetadata(msg *messaging.JupyterMessage, kernel scheduling.Kernel) error {
+	// If there is nothing in the message's metadata frame, then we just return immediately.
+	if len(*msg.JupyterFrames.MetadataFrame()) == 0 {
+		return nil
+	}
+
+	metadataDict, err := msg.DecodeMetadata()
+	if err != nil {
+		d.log.Error("Failed to decode metadata frame of \"execute_request\" message \"%s\" with JSON: %v",
+			msg.JupyterMessageId(), err)
+		return err
+	}
+
+	var requestMetadata *messaging.ExecuteRequestMetadata
+	if err := mapstructure.Decode(metadataDict, &requestMetadata); err != nil {
+		d.log.Error("Failed to parse decoded metadata frame of \"execute_request\" message \"%s\" with mapstructure: %v",
+			msg.JupyterMessageId(), err)
+		return err
+	}
+
+	d.log.Debug("Decoded metadata of \"execute_request\" message \"%s\": %s", msg.JupyterMessageId(), requestMetadata.String())
+
+	// If there is no resource request embedded in the request metadata, then we can just return at this point.
+	if requestMetadata.ResourceRequest == nil {
+		return nil
+	}
+
+	// Are we permitted to dynamically change the resource request(s) of kernels? If not, then we'll just return.
+	if d.Scheduler().Policy().ResourceBindingMode() != scheduling.BindResourcesAtTrainingStart {
+		return nil
+	}
+
+	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
+		kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
+
+	if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
+		d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
+		return err
+	}
+
 	return nil
+}
+
+// updateKernelResourceSpec attempts to update the resource spec of the specified kernel.
+//
+// updateKernelResourceSpec will return nil on success. updateKernelResourceSpec will return an error if the kernel
+// presently has resources committed to it, and the adjustment cannot occur due to resource contention.
+func (d *ClusterGatewayImpl) updateKernelResourceSpec(kernel scheduling.Kernel, newSpec types.Spec) error {
+	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
+		d.log.Error("Requested updated resource spec for kernel %s is invalid, as one or more quantities are negative: %s",
+			kernel.ID(), newSpec.String())
+		return fmt.Errorf("%w: %s", client.ErrInvalidResourceSpec, newSpec.String())
+	}
+
+	d.log.Debug("Attempting to update resource request for kernel %s from %s to %s.",
+		kernel.ID(), kernel.ResourceSpec().String(), newSpec.String())
+
+	return kernel.UpdateResourceSpec(newSpec)
 }
 
 func (d *ClusterGatewayImpl) ClusterAge(_ context.Context, _ *proto.Void) (*proto.ClusterAgeResponse, error) {

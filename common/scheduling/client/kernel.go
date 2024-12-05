@@ -267,8 +267,14 @@ func (c *KernelReplicaClient) WaitForTrainingToStop() {
 	}
 }
 
-// UpdateResourceSpec updates the resource spec of the target KernelReplicaClient to the resource
-// quantities of the specified types.Spec.
+// UpdateResourceSpec updates the ResourceSpec of the KernelReplica, the UserSession of the KernelReplica, and the
+// KernelContainer of the KernelReplica.
+//
+// It also ensures that the updated ResourceSpec is propagated to the Host of the KernelContainer / KernelReplica.
+//
+// UpdateResourceSpec should only be used to update the ResourceSpec of an existing KernelReplica. When
+// instantiating/initializing (the ResourceSpec of) a new KernelReplica, you should use the InitializeResourceSpec
+// method instead of UpdateResourceSpec.
 //
 // An error is returned if any of the resource quantities in the provided types.Spec are negative.
 //
@@ -296,12 +302,23 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(spec types.Spec) error {
 		return fmt.Errorf("%w: %s", ErrInvalidResourceSpec, spec.String())
 	}
 
+	oldSpec := c.spec.DecimalSpecFromKernelSpec()
+
 	c.spec.ResourceSpec.Gpu = int32(spec.GPU())
 	c.spec.ResourceSpec.Cpu = int32(spec.CPU())
 	c.spec.ResourceSpec.Vram = float32(spec.VRAM())
 	c.spec.ResourceSpec.Memory = float32(spec.MemoryMB())
 
-	return nil
+	if c.Container() == nil {
+		return nil
+	}
+
+	container := c.Container()
+	specAsDecimalSpec := types.ToDecimalSpec(spec)
+
+	container.UpdateResourceSpec(specAsDecimalSpec)
+	container.Session().UpdateResourceSpec(specAsDecimalSpec)
+	return container.Host().KernelAdjustedItsResourceRequest(spec, oldSpec, container)
 }
 
 // WaitForPendingExecuteRequests blocks until all outstanding/pending "execute_request" messages sent to the kernel
@@ -808,7 +825,14 @@ func (c *KernelReplicaClient) ResourceSpec() *types.DecimalSpec {
 	return c.spec.DecimalSpecFromKernelSpec()
 }
 
-func (c *KernelReplicaClient) SetResourceSpec(spec *proto.ResourceSpec) {
+// InitializeResourceSpec sets the ResourceSpec of the KernelReplica.
+//
+// This does NOT propagate the updated spec to any UserSession or KernelContainer or Host.
+// As such, SetReplicaSpec should only be called when instantiating/initializing a new KernelReplica.
+//
+// If you wish to update the ResourceSpec of an existing KernelReplica, then you should use the
+// UpdateResourceSpec method.
+func (c *KernelReplicaClient) InitializeResourceSpec(spec *proto.ResourceSpec) {
 	c.spec.ResourceSpec = spec
 }
 

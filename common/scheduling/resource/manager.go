@@ -98,8 +98,8 @@ type InsufficientResourcesError struct {
 }
 
 // NewInsufficientResourcesError constructs a new InsufficientResourcesError struct and returns a pointer to it.
-func NewInsufficientResourcesError(avail types.Spec, req types.Spec, kinds []Kind) *InsufficientResourcesError {
-	return &InsufficientResourcesError{
+func NewInsufficientResourcesError(avail types.Spec, req types.Spec, kinds []Kind) InsufficientResourcesError {
+	return InsufficientResourcesError{
 		AvailableResources:     avail,
 		RequestedResources:     req,
 		OffendingResourceKinds: kinds,

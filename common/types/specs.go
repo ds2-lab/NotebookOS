@@ -201,7 +201,7 @@ func (d *DecimalSpec) Validate(requirement Spec) bool {
 
 func (d *DecimalSpec) String() string {
 	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s, VRAM: %s GB]",
-		d.Millicpus.StringFixed(0), d.MemoryMb.StringFixed(4), d.GPUs.StringFixed(0), d.VRam.StringFixed(4))
+		d.Millicpus.StringFixed(6), d.MemoryMb.StringFixed(6), d.GPUs.StringFixed(1), d.VRam.StringFixed(6))
 }
 
 // CloneDecimalSpec returns a copy/clone of the target DecimalSpec as a *DecimalSpec.

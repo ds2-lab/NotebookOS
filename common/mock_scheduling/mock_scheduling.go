@@ -731,18 +731,18 @@ func (mr *MockSchedulerMockRecorder) GetOversubscriptionFactor(ratio any) *gomoc
 }
 
 // MigrateKernelReplica mocks base method.
-func (m *MockScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, canCreateNewHost bool) (*proto.MigrateKernelResponse, error) {
+func (m *MockScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (*proto.MigrateKernelResponse, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MigrateKernelReplica", kernelReplica, targetHostId, canCreateNewHost)
+	ret := m.ctrl.Call(m, "MigrateKernelReplica", kernelReplica, targetHostId, forTraining)
 	ret0, _ := ret[0].(*proto.MigrateKernelResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // MigrateKernelReplica indicates an expected call of MigrateKernelReplica.
-func (mr *MockSchedulerMockRecorder) MigrateKernelReplica(kernelReplica, targetHostId, canCreateNewHost any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) MigrateKernelReplica(kernelReplica, targetHostId, forTraining any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MigrateKernelReplica", reflect.TypeOf((*MockScheduler)(nil).MigrateKernelReplica), kernelReplica, targetHostId, canCreateNewHost)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MigrateKernelReplica", reflect.TypeOf((*MockScheduler)(nil).MigrateKernelReplica), kernelReplica, targetHostId, forTraining)
 }
 
 // MinimumCapacity mocks base method.
@@ -859,17 +859,17 @@ func (mr *MockSchedulerMockRecorder) RemoveReplicaFromHost(kernelReplica any) *g
 }
 
 // ScheduleKernelReplica mocks base method.
-func (m *MockScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host, blacklistedHosts []scheduling.Host) error {
+func (m *MockScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ScheduleKernelReplica", replicaSpec, targetHost, blacklistedHosts)
+	ret := m.ctrl.Call(m, "ScheduleKernelReplica", replicaSpec, targetHost, blacklistedHosts, forTraining)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ScheduleKernelReplica indicates an expected call of ScheduleKernelReplica.
-func (mr *MockSchedulerMockRecorder) ScheduleKernelReplica(replicaSpec, targetHost, blacklistedHosts any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) ScheduleKernelReplica(replicaSpec, targetHost, blacklistedHosts, forTraining any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScheduleKernelReplica", reflect.TypeOf((*MockScheduler)(nil).ScheduleKernelReplica), replicaSpec, targetHost, blacklistedHosts)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScheduleKernelReplica", reflect.TypeOf((*MockScheduler)(nil).ScheduleKernelReplica), replicaSpec, targetHost, blacklistedHosts, forTraining)
 }
 
 // SubscriptionRatio mocks base method.
@@ -1357,17 +1357,17 @@ func (m *MockPlacer) EXPECT() *MockPlacerMockRecorder {
 }
 
 // FindHost mocks base method.
-func (m *MockPlacer) FindHost(blacklist []any, kernelSpec *proto.KernelSpec) scheduling.Host {
+func (m *MockPlacer) FindHost(blacklist []any, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindHost", blacklist, kernelSpec)
+	ret := m.ctrl.Call(m, "FindHost", blacklist, kernelSpec, forTraining)
 	ret0, _ := ret[0].(scheduling.Host)
 	return ret0
 }
 
 // FindHost indicates an expected call of FindHost.
-func (mr *MockPlacerMockRecorder) FindHost(blacklist, kernelSpec any) *gomock.Call {
+func (mr *MockPlacerMockRecorder) FindHost(blacklist, kernelSpec, forTraining any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindHost", reflect.TypeOf((*MockPlacer)(nil).FindHost), blacklist, kernelSpec)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindHost", reflect.TypeOf((*MockPlacer)(nil).FindHost), blacklist, kernelSpec, forTraining)
 }
 
 // FindHosts mocks base method.
@@ -2289,6 +2289,20 @@ func (m *MockHost) IsProperlyInitialized() bool {
 func (mr *MockHostMockRecorder) IsProperlyInitialized() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsProperlyInitialized", reflect.TypeOf((*MockHost)(nil).IsProperlyInitialized))
+}
+
+// KernelAdjustedItsResourceRequest mocks base method.
+func (m *MockHost) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec *types.DecimalSpec, container scheduling.KernelContainer) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "KernelAdjustedItsResourceRequest", updatedSpec, oldSpec, container)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// KernelAdjustedItsResourceRequest indicates an expected call of KernelAdjustedItsResourceRequest.
+func (mr *MockHostMockRecorder) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec, container any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelAdjustedItsResourceRequest", reflect.TypeOf((*MockHost)(nil).KernelAdjustedItsResourceRequest), updatedSpec, oldSpec, container)
 }
 
 // KillKernel mocks base method.
@@ -3953,6 +3967,18 @@ func (mr *MockUserSessionMockRecorder) Unlock() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unlock", reflect.TypeOf((*MockUserSession)(nil).Unlock))
 }
 
+// UpdateResourceSpec mocks base method.
+func (m *MockUserSession) UpdateResourceSpec(spec types.CloneableSpec) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "UpdateResourceSpec", spec)
+}
+
+// UpdateResourceSpec indicates an expected call of UpdateResourceSpec.
+func (mr *MockUserSessionMockRecorder) UpdateResourceSpec(spec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateResourceSpec", reflect.TypeOf((*MockUserSession)(nil).UpdateResourceSpec), spec)
+}
+
 // MockKernel is a mock of Kernel interface.
 type MockKernel struct {
 	ctrl     *gomock.Controller
@@ -4835,6 +4861,20 @@ func (mr *MockKernelMockRecorder) UnbindSession(sess any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnbindSession", reflect.TypeOf((*MockKernel)(nil).UnbindSession), sess)
 }
 
+// UpdateResourceSpec mocks base method.
+func (m *MockKernel) UpdateResourceSpec(spec types.Spec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateResourceSpec", spec)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateResourceSpec indicates an expected call of UpdateResourceSpec.
+func (mr *MockKernelMockRecorder) UpdateResourceSpec(spec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateResourceSpec", reflect.TypeOf((*MockKernel)(nil).UpdateResourceSpec), spec)
+}
+
 // Validate mocks base method.
 func (m *MockKernel) Validate() error {
 	m.ctrl.T.Helper()
@@ -5148,6 +5188,18 @@ func (m *MockKernelReplica) InitializeIOSub(handler messaging.MessageHandler, su
 func (mr *MockKernelReplicaMockRecorder) InitializeIOSub(handler, subscriptionTopic any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitializeIOSub", reflect.TypeOf((*MockKernelReplica)(nil).InitializeIOSub), handler, subscriptionTopic)
+}
+
+// InitializeResourceSpec mocks base method.
+func (m *MockKernelReplica) InitializeResourceSpec(spec *proto.ResourceSpec) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "InitializeResourceSpec", spec)
+}
+
+// InitializeResourceSpec indicates an expected call of InitializeResourceSpec.
+func (mr *MockKernelReplicaMockRecorder) InitializeResourceSpec(spec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InitializeResourceSpec", reflect.TypeOf((*MockKernelReplica)(nil).InitializeResourceSpec), spec)
 }
 
 // InitializeShellForwarder mocks base method.
@@ -5576,18 +5628,6 @@ func (m *MockKernelReplica) SetReplicaID(replicaId int32) {
 func (mr *MockKernelReplicaMockRecorder) SetReplicaID(replicaId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetReplicaID", reflect.TypeOf((*MockKernelReplica)(nil).SetReplicaID), replicaId)
-}
-
-// SetResourceSpec mocks base method.
-func (m *MockKernelReplica) SetResourceSpec(spec *proto.ResourceSpec) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetResourceSpec", spec)
-}
-
-// SetResourceSpec indicates an expected call of SetResourceSpec.
-func (mr *MockKernelReplicaMockRecorder) SetResourceSpec(spec any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetResourceSpec", reflect.TypeOf((*MockKernelReplica)(nil).SetResourceSpec), spec)
 }
 
 // SetWorkloadId mocks base method.
@@ -6238,6 +6278,18 @@ func (m *MockKernelContainer) TrainingStartedInContainer() error {
 func (mr *MockKernelContainerMockRecorder) TrainingStartedInContainer() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrainingStartedInContainer", reflect.TypeOf((*MockKernelContainer)(nil).TrainingStartedInContainer))
+}
+
+// UpdateResourceSpec mocks base method.
+func (m *MockKernelContainer) UpdateResourceSpec(spec *types.DecimalSpec) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "UpdateResourceSpec", spec)
+}
+
+// UpdateResourceSpec indicates an expected call of UpdateResourceSpec.
+func (mr *MockKernelContainerMockRecorder) UpdateResourceSpec(spec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateResourceSpec", reflect.TypeOf((*MockKernelContainer)(nil).UpdateResourceSpec), spec)
 }
 
 // MockPolicy is a mock of Policy interface.

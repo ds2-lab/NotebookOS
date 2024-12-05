@@ -50,6 +50,7 @@ type KernelContainer interface {
 	PreemptionPriority() float64
 	ReplicaId() int32
 	ResourceSpec() *types.DecimalSpec
+	UpdateResourceSpec(spec *types.DecimalSpec)
 	ScaleOutPriority() float64
 	Session() UserSession
 	SetClient(client KernelReplica)

@@ -800,7 +800,8 @@ message ReplicaInfo {
 
 message MigrationRequest {
   ReplicaInfo targetReplica = 1;
-  optional string targetNodeId = 2;
+  bool forTraining = 2;
+  optional string targetNodeId = 3;
 }
 
 message SmrReadyNotification {

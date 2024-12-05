@@ -40,7 +40,7 @@ func (placer *StaticPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int
 
 	// Seek `numHosts` Hosts from the Placer's index.
 	hosts, _ = placer.index.SeekMultipleFrom(pos, numHosts, func(candidateHost scheduling.Host) bool {
-		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec)
+		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec, false)
 	}, make([]interface{}, 0))
 	placer.mu.Unlock()
 
@@ -61,9 +61,9 @@ func (placer *StaticPlacer) UpdateIndexMultiple(hosts []scheduling.Host) {
 }
 
 // FindHost returns a single host that can satisfy the resourceSpec.
-func (placer *StaticPlacer) findHost(blacklist []interface{}, kernelSpec *proto.KernelSpec) scheduling.Host {
+func (placer *StaticPlacer) findHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
 	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost scheduling.Host) bool {
-		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec)
+		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec, forTraining)
 	}, blacklist)
 
 	if len(hosts) > 0 {
@@ -81,8 +81,18 @@ func (placer *StaticPlacer) NumHostsInIndex() int {
 
 // tryReserveResourcesOnHost attempts to reserve resources for a future replica of the specified kernel
 // on the specified host, returning true if the reservation was created successfully.
-func (placer *StaticPlacer) tryReserveResourcesOnHost(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec) bool {
-	reserved, err := candidateHost.ReserveResources(kernelSpec, placer.reservationShouldUsePendingResources())
+func (placer *StaticPlacer) tryReserveResourcesOnHost(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) bool {
+	var usePendingReservation bool
+
+	if forTraining {
+		// If we are migrating a replica that needs to begin training right away, then we should not use a pending reservation.
+		// The container will need resources committed to it immediately.
+		usePendingReservation = false
+	} else {
+		usePendingReservation = placer.reservationShouldUsePendingResources()
+	}
+
+	reserved, err := candidateHost.ReserveResources(kernelSpec, usePendingReservation)
 
 	if err != nil {
 		placer.log.Error("Error while attempting to reserve resources for replica of kernel %s on host %s (ID=%s): %v",

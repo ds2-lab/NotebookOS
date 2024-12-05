@@ -43,6 +43,7 @@ type UserSession interface {
 	RemoveReplica(container KernelContainer) error
 	RemoveReplicaById(replicaId int32) error
 	ResourceSpec() types.CloneableSpec
+	UpdateResourceSpec(spec types.CloneableSpec)
 	ID() string
 	Context() context.Context
 	SetContext(ctx context.Context)
