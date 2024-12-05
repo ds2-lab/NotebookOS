@@ -43,8 +43,12 @@ func (e *ErrorDuringScheduling) String() string {
 
 type KernelScheduler interface {
 	// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
-	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
-	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, forTraining bool) (*proto.MigrateKernelResponse, error)
+	//
+	// The first error that is returned (i.e., 'reason') does not indicate that an actual error occurred.
+	// It simply provides an explanation for why the migration failed.
+	//
+	// The second error that is returned (i.e., 'err') indicates that an actual error occurs.
+	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error)
 
 	// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
 	DeployKernelReplicas(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []Host) error

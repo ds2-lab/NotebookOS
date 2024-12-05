@@ -169,6 +169,10 @@ func (s *KubernetesScheduler) HandleKubeSchedulerFilterRequest(ctx *gin.Context)
 	ctx.JSON(http.StatusOK, extenderFilterResult)
 }
 
+func (s *KubernetesScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+	panic("Not implemented")
+}
+
 // StartHttpKubernetesSchedulerService starts the HTTP service used to make scheduling decisions.
 // This method should be called from its own goroutine.
 func (s *KubernetesScheduler) StartHttpKubernetesSchedulerService() {

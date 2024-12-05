@@ -591,8 +591,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				kernelReplica.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
 				kernelReplica.EXPECT().Container().AnyTimes().Return(container)
 				kernelReplica.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
-
-				kernelProvider.EXPECT().GetKernel(kernelId).AnyTimes().Return(kernelReplica, true)
+				// kernelProvider.EXPECT().GetKernel(kernelId).AnyTimes().Return(kernelReplica, true)
 
 				//success, err := host.ReserveResources(kernelSpec, true)
 				//Expect(success).To(BeTrue())

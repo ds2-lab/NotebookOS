@@ -41,6 +41,8 @@
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
+  tags:
+    - grafana
 
 - name: Create the prometheus.yml configuration file using the associated template.
   template:
@@ -60,6 +62,7 @@
   tags:
     - workload_templates
     - templates
+    - dashboard
 
 - name: Check if 'dashboard_workload_templates.yaml.j2' exists locally
   local_action: "stat path={{ playbook_dir }}/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2"
@@ -68,6 +71,7 @@
   tags:
     - workload_templates
     - templates
+    - dashboard
 
 - name: Copy the 'dashboard_workload_templates.yaml.j2' file if it exists locally
   copy: "src='{{ playbook_dir }}/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2' dest='{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/templates/dashboard/dashboard_workload_templates.yaml.j2'"
@@ -75,6 +79,7 @@
   tags:
     - workload_templates
     - templates
+    - dashboard
 
 - name: Set the dashboard backend 'workloads template' template file to use
   set_fact:
@@ -84,6 +89,7 @@
   tags:
     - workload_templates
     - templates
+    - dashboard
 
 - name: Set the dashboard backend 'workloads template' template file to use
   delegate_to: localhost
@@ -94,6 +100,7 @@
   tags:
     - workload_templates
     - templates
+    - dashboard
 
 - name: Print the dashboard backend 'workloads template' template file that will be used
   debug:
@@ -101,6 +108,7 @@
   tags:
     - workload_templates
     - templates
+    - dashboard
 
 - name: Create the dashboard_workload_templates.yaml file for the Cluster Backend using the provided template.
   template:
@@ -112,6 +120,7 @@
   tags:
     - workload_templates
     - templates
+    - dashboard
 
 - name: "Recursively change ownership of the dashboard_backend files directory to {{ remote_username }}"
   ansible.builtin.file:
@@ -123,6 +132,7 @@
   tags:
     - workload_templates
     - templates
+    - dashboard
 
 - name: Synchronize the workload templates directory.
   synchronize:
@@ -134,6 +144,7 @@
   tags:
     - workload_templates
     - templates
+    - dashboard
 
 - name: Create the config-docker.yaml file for the Dashboard Backend component using the associated template.
   template:
@@ -142,6 +153,8 @@
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
+  tags:
+    - dashboard
 
 - name: Create the workload-presets-file.yaml file for the Dashboard Backend component using the associated template.
   template:
@@ -150,6 +163,8 @@
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
+  tags:
+    - dashboard
 
 - name: Create the .env file for the Dashboard Backend component using the associated template.
   template:
@@ -158,6 +173,8 @@
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
+  tags:
+    - dashboard
 
 - name: Create the redis.conf file for Redis using the associated template.
   template:
@@ -167,6 +184,8 @@
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
   become: true
+  tags:
+    - redis
 
 - name: Create the gateway.yml file for the Cluster Gateway component using the associated template.
   template:
@@ -175,6 +194,8 @@
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
+  tags:
+    - cluster_gateway
 
 - name: Print daemon.yml path
   debug:
@@ -187,6 +208,8 @@
     mode: 0777
     owner: "{{ remote_username }}"
     group: "{{ remote_username }}"
+  tags:
+    - local_daemon
 
 - name: Print the name of the Docker Swarm stack to be created
   debug:

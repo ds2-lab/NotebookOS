@@ -203,6 +203,7 @@ type KernelReplica interface {
 	// method instead of UpdateResourceSpec.
 	UpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec) error
 	KernelSpec() *proto.KernelSpec
+	KernelReplicaSpec() *proto.KernelReplicaSpec
 	Address() string
 	String() string
 	IsReady() bool

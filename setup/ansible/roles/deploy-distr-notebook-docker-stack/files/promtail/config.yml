@@ -15,17 +15,12 @@ scrape_configs:
         refresh_interval: 5s
         filters:
           - name: label
-            values: ["logging=promtail"]
+            values: [ "logging=promtail" ]
     relabel_configs:
-      - source_labels: ['__meta_docker_container_name']
+      - source_labels: [ '__meta_docker_container_name' ]
         regex: '/(.*)'
         target_label: 'container'
-      - source_labels: ['__meta_docker_container_log_stream']
+      - source_labels: [ '__meta_docker_container_log_stream' ]
         target_label: 'logstream'
-      - source_labels: ['__meta_docker_container_label_logging_jobname']
+      - source_labels: [ '__meta_docker_container_label_logging_jobname' ]
         target_label: 'job'
-    pipeline_stages:
-      - regex:
-        expression: '(?P<level>\[ERROR\]|\[DEBUG\]|\[INFO\]|\[WARNING\]|ERROR:|DEBUG:|INFO:|WARNING:|ERROR|DEBUG|INFO|WARNING)'
-      - labels:
-        level: level

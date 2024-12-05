@@ -1082,9 +1082,8 @@ func (c *DistributedKernelClient) getResponseForwarder(handler scheduling.Kernel
 			}
 
 			// If we get an error at this point, then we need this error to propagate back to the Jupyter client.
-			// TODO: Replace content of response with an error message.
 			if shellPreprocessingError != nil {
-				c.log.Error("Error while pre-processing shell response for Jupyter \"%s\" message \"%s\" (JupyterID=\"%s\") targeting kernel \"%s\": %v",
+				c.log.Warn("Error while pre-processing shell response for Jupyter \"%s\" message \"%s\" (JupyterID=\"%s\") targeting kernel \"%s\": %v",
 					response.JupyterMessageType(), response.RequestId, response.JupyterParentMessageId(), c.id, shellPreprocessingError)
 
 				replacementError := c.replaceMessageContentWithError(response, "Internal Processing Error", shellPreprocessingError.Error())

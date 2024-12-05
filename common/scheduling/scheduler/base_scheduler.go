@@ -543,10 +543,15 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 }
 
 // MigrateKernelReplica tries to migrate the given Kernel to another Host.
-func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (*proto.MigrateKernelResponse, error) {
+//
+// The first error that is returned (i.e., 'reason') does not indicate that an actual error occurred.
+// It simply provides an explanation for why the migration failed.
+//
+// The second error that is returned (i.e., 'err') indicates that an actual error occurs.
+func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error) {
 	if kernelReplica == nil {
 		s.log.Error("MigrateContainer received nil KernelReplica")
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, ErrNilKernelReplica
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, nil, ErrNilKernelReplica
 	}
 
 	s.log.Debug("Migrating replica %d of kernel %s. Target host ID: %s.",
@@ -556,13 +561,13 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 	if kernelContainer == nil {
 		s.log.Error("Cannot migrate replica %d of kernel %s; kernel's kernelContainer is nil",
 			kernelReplica.ReplicaID(), kernelReplica.ID())
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, ErrNilContainer
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, nil, ErrNilContainer
 	}
 
 	originalHost := kernelContainer.Host()
 	if originalHost == nil {
 		s.log.Error("Cannot migrate kernelContainer %s. Container's host is nil.", kernelContainer.ContainerID())
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, ErrNilOriginalHost
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, nil, ErrNilOriginalHost
 	}
 
 	var (
@@ -579,7 +584,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			s.log.Error("Host %s specified as migration target for replica %d of kernel %s; however, host %s does not exist.",
 				targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID(), targetHostId)
 			return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname},
-				fmt.Errorf("%w: cannot find specified target host %s for migration of replica %d of kernel %s",
+				nil, fmt.Errorf("%w: cannot find specified target host %s for migration of replica %d of kernel %s",
 					scheduling.ErrHostNotFound, targetHostId, kernelReplica.ReplicaID(), kernelReplica.ID())
 		}
 
@@ -588,23 +593,50 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 		//
 		// Likewise, if the host does not have enough resources to serve the kernel replica,
 		// then it is not viable.
-		if err := s.isHostViableForMigration(targetHost, kernelReplica, forTraining); err != nil {
-			return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+		if reason = s.isHostViableForMigration(targetHost, kernelReplica, forTraining); reason != nil {
+			return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, reason, nil
 		}
 	}
 
-	dataDirectory, err := s.issuePrepareToMigrateRequest(kernelReplica, originalHost)
+	// If we weren't already given a target host to migrate the kernel replica to, then let's try to find one now.
+	if targetHost == nil {
+		targetHost, reason = s.instance.selectViableHostForReplica(kernelReplica.KernelReplicaSpec(), []scheduling.Host{originalHost}, forTraining)
+		if reason != nil {
+			s.log.Warn("Failed to find a viable host for replica %d of kernel %s: %v",
+				kernelReplica.ReplicaID(), kernelReplica.ID(), reason)
+			return nil, reason, nil
+		}
+	}
+
+	var dataDirectory string
+	dataDirectory, err = s.issuePrepareToMigrateRequest(kernelReplica, originalHost)
 	if err != nil {
 		s.log.Error("Failed to issue 'prepare-to-migrate' request to replica %d of kernel %s: %v",
 			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+
+		releaseReservationError := targetHost.ReleaseReservation(kernelReplica.KernelSpec())
+		if releaseReservationError != nil {
+			s.log.Error("Failed to release reservation for replica %d of kernel %s after failing to issue 'prepare-to-migrate' request during migration: %v",
+				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+			err = errors.Join(err, releaseReservationError)
+		}
+
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, nil, err
 	}
 
 	err = s.RemoveReplicaFromHost(kernelReplica)
 	if err != nil {
 		s.log.Error("Failed to remove replica %d of kernel %s from its current host: %v",
 			kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+
+		releaseReservationError := targetHost.ReleaseReservation(kernelReplica.KernelSpec())
+		if releaseReservationError != nil {
+			s.log.Error("Failed to release reservation for replica %d of kernel %s after failing to remove replica from its current host during migration: %v",
+				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+			err = errors.Join(err, releaseReservationError)
+		}
+
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, nil, err
 	}
 
 	replicaSpec := &proto.ReplicaInfo{
@@ -615,16 +647,37 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 
 	// Add a new replica. We pass "true" for both options (registration and SMR-joining) so we wait for the replica to start fully.
 	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
-	addReplicaOp, err := s.addReplica(replicaSpec, targetHost, opts, dataDirectory, []scheduling.Host{originalHost}, forTraining)
+
+	var addReplicaOp *scheduling.AddReplicaOperation
+	addReplicaOp, err = s.addReplica(replicaSpec, targetHost, opts, dataDirectory, []scheduling.Host{originalHost}, forTraining)
+
+	// If there's an error here, it's presumably a "real" error, as we already picked out a viable host up above.
 	if err != nil {
-		s.log.Warn("Failed to add new replica %d to kernel %s: %v", kernelReplica.ReplicaID(), kernelReplica.ID(), err)
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+		s.log.Error("Failed to add new replica %d to kernel %s: %v", kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+
+		releaseReservationError := targetHost.ReleaseReservation(kernelReplica.KernelSpec())
+		if releaseReservationError != nil {
+			s.log.Error("Failed to release reservation for replica %d of kernel %s after failing to recreate replica during migration: %v",
+				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+			err = errors.Join(err, releaseReservationError)
+		}
+
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, nil, err
 	}
 
-	newlyAddedReplica, err := addReplicaOp.Kernel().GetReplicaByID(addReplicaOp.ReplicaId())
+	var newlyAddedReplica scheduling.KernelReplica
+	newlyAddedReplica, err = addReplicaOp.Kernel().GetReplicaByID(addReplicaOp.ReplicaId())
 	if err != nil {
 		s.log.Error("Could not find replica %d for kernel %s after migration is supposed to have completed: %v", addReplicaOp.ReplicaId(), kernelReplica.ID(), err)
-		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
+
+		releaseReservationError := targetHost.ReleaseReservation(kernelReplica.KernelSpec())
+		if releaseReservationError != nil {
+			s.log.Error("Failed to release reservation for replica %d of kernel %s after not being able to find the replica after supposedly successful migration: %v",
+				kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+			err = errors.Join(err, releaseReservationError)
+		}
+
+		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, nil, err
 	} else {
 		s.log.Debug("Successfully added new replica %d to kernel %s during migration operation.", addReplicaOp.ReplicaId(), kernelReplica.ID())
 	}
@@ -632,14 +685,14 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 	// The replica is fully operational at this point, so record that it is ready.
 	newlyAddedReplica.SetReady()
 
-	return &proto.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, err
+	return &proto.MigrateKernelResponse{Id: addReplicaOp.ReplicaId(), Hostname: addReplicaOp.ReplicaPodHostname()}, nil, err
 }
 
 // isHostViableForMigration returns nil if the specified Host is a viable migration target for the specified
 // KernelReplica -- that is, if the specified Host does not already serve another replica of the same kernel, or
 // the replica being migrated itself.
 //
-// Likewise, this also checks that the specified Host has enough resourecs to serve the specified KernelReplica.
+// Likewise, this also checks that the specified Host has enough resources to serve the specified KernelReplica.
 //
 // If the Host is not viable, then an ErrHostNotViable error is returned.
 func (s *BaseScheduler) isHostViableForMigration(targetHost scheduling.Host, kernelReplica scheduling.KernelReplica, forTraining bool) error {
@@ -937,9 +990,16 @@ func (h *idleSortedHost) SetIdx(idx int) {
 
 // migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
 func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTraining bool) (err error) {
+	var failedMigrationReason error
 	host.Containers().Range(func(containerId string, c scheduling.KernelContainer) (contd bool) {
-		_, err = s.MigrateKernelReplica(c.GetClient(), "", forTraining) // Pass true for `noNewHost`, as we don't want to create a new host for this.
+		_, failedMigrationReason, err = s.MigrateKernelReplica(c.GetClient(), "", forTraining) // Pass true for `noNewHost`, as we don't want to create a new host for this.
 		if err != nil {
+			// We cannot migrate the Container due to an actual error.
+			s.log.Error("Abandoning the release of idle host %s (ID=%s) because we encountered an error while migrating one of the containers: %v", host.GetNodeName(), host.GetID(), err)
+			return false
+		}
+
+		if failedMigrationReason != nil {
 			// We cannot migrate the Container.
 			s.log.Warn("Abandoning the release of idle host %s (ID=%s) because: %v", host.GetNodeName(), host.GetID(), err)
 			return false

@@ -1421,7 +1421,16 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 		if err != nil {
 			d.log.Warn(utils.OrangeStyle.Render("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s"),
 				targetReplica, kernel.ID(), err.Error())
-			errorChan <- err
+
+			var migrationError error
+
+			if errors.Is(err, scheduling.ErrInsufficientHostsAvailable) {
+				migrationError = errors.Join(scheduling.ErrMigrationFailed, err)
+			} else {
+				migrationError = err
+			}
+
+			errorChan <- migrationError
 		} else {
 			d.log.Debug(utils.GreenStyle.Render("Static Failure Handler: successfully migrated replica %d of kernel %s to host %s."),
 				targetReplica, kernel.ID(), resp.Hostname)
@@ -2752,12 +2761,17 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 		return nil, err
 	}
 
-	resp, err := d.cluster.Scheduler().MigrateKernelReplica(kernelReplica, targetNodeId, in.ForTraining)
+	resp, reason, err := d.cluster.Scheduler().MigrateKernelReplica(kernelReplica, targetNodeId, in.ForTraining)
 
 	duration := time.Since(startTime)
-	if err != nil {
-		d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed after %v because: %s",
-			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration, err.Error())
+	if err != nil || reason != nil {
+		if reason != nil { // simply couldn't migrate the container, presumably due to insufficient resources available
+			d.log.Warn("Migration operation of replica %d of kernel %s to target node %s failed after %v because: %s",
+				replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration, reason.Error())
+		} else { // actual error
+			d.log.Error("Migration operation of replica %d of kernel %s to target node %s failed after %v because: %s",
+				replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration, err)
+		}
 
 		if d.gatewayPrometheusManager != nil {
 			d.gatewayPrometheusManager.NumFailedMigrations.Inc()
@@ -3159,7 +3173,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 // TODO: >> training stopped notification, then it needs to match up with the current training, maybe in a queue structure, so that out-of-order >>
 // TODO: >> messages can be handled properly.
 func (d *ClusterGatewayImpl) processExecuteReply(kernelId string, msg *messaging.JupyterMessage) error {
-	d.log.Debug("Received \"execute_reply\" with JupyterID=\"%s\" from kernel %s.", kernelId, msg.JupyterMessageId())
+	d.log.Debug("Received \"execute_reply\" with JupyterID=\"%s\" from kernel %s.", msg.JupyterMessageId(), kernelId)
 
 	// If this message is actually from a failed attempt to handle all replicas proposing 'yield', then we just
 	// return immediately. The execution wasn't successful. We want this error to be sent back to the client.

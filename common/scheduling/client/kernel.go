@@ -72,6 +72,7 @@ type KernelReplicaClient struct {
 	replicaId                        int32
 	persistentId                     string
 	spec                             *proto.KernelSpec
+	replicaSpec                      *proto.KernelReplicaSpec
 	status                           jupyter.KernelStatus
 	busyStatus                       string
 	lastBStatusMsg                   *messaging.JupyterMessage
@@ -159,6 +160,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		persistentId:                         persistentId,
 		replicaId:                            spec.ReplicaId,
 		spec:                                 spec.Kernel,
+		replicaSpec:                          spec,
 		messagingMetricsProvider:             messagingMetricsProvider,
 		PodOrContainerName:                   podOrContainerName,
 		nodeName:                             nodeName,
@@ -309,6 +311,12 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, oldSp
 	c.spec.ResourceSpec.Cpu = int32(newSpec.CPU())
 	c.spec.ResourceSpec.Vram = float32(newSpec.VRAM())
 	c.spec.ResourceSpec.Memory = float32(newSpec.MemoryMB())
+
+	// This part should be redundant because Kernel is a pointer to c.spec, right?
+	c.replicaSpec.Kernel.ResourceSpec.Gpu = int32(newSpec.GPU())
+	c.replicaSpec.Kernel.ResourceSpec.Cpu = int32(newSpec.CPU())
+	c.replicaSpec.Kernel.ResourceSpec.Vram = float32(newSpec.VRAM())
+	c.replicaSpec.Kernel.ResourceSpec.Memory = float32(newSpec.MemoryMB())
 
 	if c.Container() == nil {
 		return nil
@@ -835,11 +843,16 @@ func (c *KernelReplicaClient) ResourceSpec() *types.DecimalSpec {
 // UpdateResourceSpec method.
 func (c *KernelReplicaClient) InitializeResourceSpec(spec *proto.ResourceSpec) {
 	c.spec.ResourceSpec = spec
+	c.replicaSpec.Kernel.ResourceSpec = spec // Might/should be redundant bc Kernel is a pointer to c.spec, right?
 }
 
 // KernelSpec returns the kernel spec.
 func (c *KernelReplicaClient) KernelSpec() *proto.KernelSpec {
 	return c.spec
+}
+
+func (c *KernelReplicaClient) KernelReplicaSpec() *proto.KernelReplicaSpec {
+	return c.replicaSpec
 }
 
 // Address returns the address of the kernel.
