@@ -1019,7 +1019,7 @@ func (d *ClusterGatewayImpl) registerNewHost(host scheduling.Host) error {
 			host.GetNodeName(), host.GetID())
 	}
 
-	d.log.Info("Incoming DefaultSchedulingPolicy Daemon %s (ID=%s) connected", host.GetNodeName(), host.GetID())
+	d.log.Info("Incoming Local Scheduler %s (ID=%s) connected", host.GetNodeName(), host.GetID())
 
 	if d.inInitialConnectionPeriod.Load() && d.cluster.Len() >= d.initialClusterSize {
 		d.numHostsDisabledDuringInitialConnectionPeriod += 1

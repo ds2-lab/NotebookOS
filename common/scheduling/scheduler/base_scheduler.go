@@ -716,11 +716,11 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 			err := fmt.Errorf("gRPC Client Connection with host %s (ID=%s) is nil",
 				originalHost.GetNodeName(), originalHost.GetID())
 			s.log.Error(utils.RedStyle.Render(err.Error()))
-			resultChan <- err
+			// resultChan <- err
+		} else {
+			s.log.Debug("State of gRPC ClientConn with host %s (ID=%s): %s (%v)", originalHost.GetNodeName(),
+				originalHost.GetID(), gRpcClientConnection.GetState().String(), gRpcClientConnection.GetState())
 		}
-
-		s.log.Debug("State of gRPC ClientConn with host %s (ID=%s): %s (%v)", originalHost.GetNodeName(),
-			originalHost.GetID(), gRpcClientConnection.GetState().String(), gRpcClientConnection.GetState())
 
 		// Issue the 'prepare-to-migrate' request. We panic if there was an error.
 		resp, err := originalHost.PrepareToMigrate(ctx, replicaInfo)

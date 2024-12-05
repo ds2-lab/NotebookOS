@@ -244,7 +244,7 @@ func (c *Container) ScaleOutPriority() float64 {
 
 // TrainingStartedInContainer should be called when the Container begins training.
 func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
-	c.lastSpec = c.spec
+	// c.lastSpec = c.spec
 
 	//if snapshot != nil {
 	//	err := ApplyResourceSnapshotToHost(c.host, snapshot)
@@ -287,7 +287,7 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 		return err
 	}
 
-	c.log.Debug("Training stopping after %v. Outputting Resources before training officially stops.", time.Since(c.trainingStartedAt))
+	c.log.Debug("Training stopping after %v. Outputting Resources before training officially stops. ResourceSpec of %s: %s", time.Since(c.trainingStartedAt), c.ContainerID(), c.spec.String())
 	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
 	c.log.Debug("Idle CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
@@ -295,7 +295,10 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 	c.log.Debug("Committed CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 		c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs(), c.host.Stats().CommittedVRAM())
 
-	c.spec = c.lastSpec
+	err := c.host.ContainerStoppedTraining(c)
+	if err != nil {
+		return err
+	}
 
 	c.log.Debug("Training stopped. Outputting Resources now that training has officially stopped.")
 	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
@@ -306,17 +309,6 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 		c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs(), c.host.Stats().CommittedVRAM())
 
 	c.numTrainingEventsProcessed += 1
-
-	err := c.host.ContainerStoppedTraining(c)
-	if err != nil {
-		return err
-	}
-
-	//if snapshot == nil {
-	//	c.log.Warn("Received nil ResourceSnapshot. This should only happen if we're about to be terminated.")
-	//} else {
-	//	// Just compare the snapshot against our local resources.
-	//}
 
 	return nil
 }

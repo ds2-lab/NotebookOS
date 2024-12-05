@@ -560,6 +560,15 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				host, loaded := hosts[0]
 				Expect(loaded).To(BeTrue())
 				Expect(host).ToNot(BeNil())
+				localGatewayClient, loaded := localGatewayClients[0]
+				Expect(loaded).To(BeTrue())
+				Expect(localGatewayClient).ToNot(BeNil())
+
+				localGatewayClient.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.PrepareToMigrateResponse{
+					KernelId: kernelId,
+					Id:       1,
+					DataDir:  uuid.NewString(),
+				}, nil)
 
 				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
 				container.EXPECT().ReplicaId().AnyTimes().Return(int32(1))
