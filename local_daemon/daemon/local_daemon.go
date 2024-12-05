@@ -2920,7 +2920,7 @@ func (d *SchedulerDaemonImpl) convertExecuteRequestToYieldExecute(msg *messaging
 	jMsg := messaging.NewJupyterMessage(&newMessage)
 
 	// Change the message header.
-	jMsg.SetMessageType(messaging.ShellYieldRequest)
+	_ = jMsg.SetMessageType(messaging.ShellYieldRequest, false)
 
 	// Create a JupyterFrames struct by wrapping with the message's frames.
 	if err = jMsg.Validate(); err != nil {

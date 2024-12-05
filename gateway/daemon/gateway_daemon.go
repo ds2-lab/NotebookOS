@@ -3155,7 +3155,8 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 	if msg.JupyterMessageType() == messaging.ShellExecuteRequest {
 		err := d.processExecuteRequest(msg, kernel)
 		if err != nil {
-			return err
+			// Send a response with the error as the content.
+			return d.sendShellErrorResponse(kernel, msg, err)
 		}
 	} else {
 		d.log.Debug("Forwarding shell message to kernel %s: %s", msg.DestinationId, msg.StringFormatted())
@@ -3168,6 +3169,66 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 	}
 
 	return nil
+}
+
+// sendShellErrorResponse is used to respond to a shell message immediately, before we've routed it to any local
+// schedulers or kernel replicas, because we encountered an unrecoverable error while (pre)processing the message.
+func (d *ClusterGatewayImpl) sendShellErrorResponse(kernel scheduling.Kernel, request *messaging.JupyterMessage, preprocessingError error) error {
+	// First, update the header to be a "_reply" message type.
+	header, err := request.GetHeader()
+	if err != nil {
+		d.log.Error("Failed to extract header from shell \"%s\" message \"%s\": %v",
+			request.JupyterMessageType(), request.JupyterMessageId(), err)
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Extract Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response", request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		return err
+	}
+
+	requestType := request.JupyterMessageType()
+	replyType := fmt.Sprintf("%s_reply", requestType[0:strings.Index(requestType, "_request")])
+	_ = request.SetMessageType(messaging.JupyterMessageType(replyType), false)
+	_ = request.SetMessageId(fmt.Sprintf("%s_1", request.JupyterMessageId()), false)
+	_ = request.SetDate(time.Now().Format(time.RFC3339Nano), false)
+
+	// Re-encode the header.
+	header, err = request.GetHeader()
+	if err != nil {
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Get Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response", request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		return err
+	}
+
+	err = request.EncodeMessageHeader(header)
+	if err != nil {
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Re-Encode Header of Shell \"%s\" Message \"%s\" While Sending Shell Error Response", request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		return err
+	}
+
+	// Second, embed the error in the response content.
+	errorContent := messaging.MessageError{
+		Status:   messaging.MessageStatusError,
+		ErrName:  fmt.Sprintf("Failed to Handle \"%s\" Message", requestType),
+		ErrValue: preprocessingError.Error(),
+	}
+	err = request.JupyterFrames.EncodeContent(&errorContent)
+	if err != nil {
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Encode Error Content of Shell \"%s\" Message \"%s\" While Sending Shell Error Response", request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		return err
+	}
+
+	// Regenerate the signature. Don't include the buffer frames as part of the signature.
+	if kernel.ConnectionInfo().SignatureScheme != "" && kernel.ConnectionInfo().Key != "" {
+		_, err = request.JupyterFrames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
+		if err != nil {
+			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Sign Response to Shell \"%s\" Message \"%s\" While Sending Shell Error Response", request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+			return err
+		}
+	}
+
+	if requestType == messaging.ShellExecuteRequest {
+		request.IsFailedExecuteRequest = true
+	}
+
+	// Finally, send the message back to the Jupyter client.
+	return d.forwardResponse(kernel, messaging.ShellMessage, request)
 }
 
 // processExecuteReply handles the scheduling and resource allocation/de-allocation logic required when a
@@ -3698,11 +3759,7 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 	d.ClusterStatistics.CumulativeExecutionTimeMicroseconds += float64(trace.ExecutionTimeMicroseconds)
 }
 
-// kernelResponseForwarder is used as the response handler for a variety of requests/forwarded messages.
-//
-// kernelResponseForwarder forwards the given messaging.JupyterMessage to the remote entity connected to the
-// socket of specified messaging.MessageType belonging to the specified scheduling.KernelReplicaInfo.
-func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+func (d *ClusterGatewayImpl) forwardResponse(from scheduling.KernelInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 	goroutineId := goid.Get()
 	socket := from.Socket(typ)
 	if socket == nil {
@@ -3711,16 +3768,6 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 	if socket == nil {
 		d.log.Warn("Unable to forward %v response: socket unavailable", typ)
 		return nil
-	}
-
-	if msg.RequestTrace != nil {
-		requestTrace := msg.RequestTrace
-		if requestTrace.ReplicaId != -1 && requestTrace.ReplicaId != from.ReplicaID() {
-			d.log.Warn("Overwriting existing replica ID of %d with %d in RequestTrace for %s \"%s\" message %s (JupyterID=\"%s\")",
-				requestTrace.ReplicaId, from.ReplicaID(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
-		}
-
-		msg.RequestTrace.ReplicaId = from.ReplicaID()
 	}
 
 	isShellExecuteReply := typ == messaging.ShellMessage && msg.JupyterMessageType() == messaging.ShellExecuteReply
@@ -3780,6 +3827,24 @@ func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelRepli
 	}
 
 	return sendError
+}
+
+// kernelResponseForwarder is used as the response handler for a variety of requests/forwarded messages.
+//
+// kernelResponseForwarder forwards the given messaging.JupyterMessage to the remote entity connected to the
+// socket of specified messaging.MessageType belonging to the specified scheduling.KernelReplicaInfo.
+func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+	if msg.RequestTrace != nil {
+		requestTrace := msg.RequestTrace
+		if requestTrace.ReplicaId != -1 && requestTrace.ReplicaId != from.ReplicaID() {
+			d.log.Warn("Overwriting existing replica ID of %d with %d in RequestTrace for %s \"%s\" message %s (JupyterID=\"%s\")",
+				requestTrace.ReplicaId, from.ReplicaID(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
+		}
+
+		msg.RequestTrace.ReplicaId = from.ReplicaID()
+	}
+
+	return d.forwardResponse(from, typ, msg)
 }
 
 // removeAllReplicasOfKernel is used to de-schedule the replicas of the given kernel without removing the kernel itself.

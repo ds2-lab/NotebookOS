@@ -864,7 +864,7 @@ func (m *JupyterMessage) Validate() error {
 	return nil
 }
 
-func (m *JupyterMessage) SetMessageType(typ JupyterMessageType) {
+func (m *JupyterMessage) SetMessageType(typ JupyterMessageType, reEncode bool) error {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
 		debug.PrintStack()
@@ -872,9 +872,15 @@ func (m *JupyterMessage) SetMessageType(typ JupyterMessageType) {
 	}
 	header.MsgType = typ
 	m.header = header
+
+	if reEncode {
+		return m.EncodeMessageHeader(m.header)
+	}
+
+	return nil
 }
 
-func (m *JupyterMessage) SetMessageId(msgId string) {
+func (m *JupyterMessage) SetMessageId(msgId string, reEncode bool) error {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
 		debug.PrintStack()
@@ -882,9 +888,15 @@ func (m *JupyterMessage) SetMessageId(msgId string) {
 	}
 	header.MsgID = msgId
 	m.header = header
+
+	if reEncode {
+		return m.EncodeMessageHeader(m.header)
+	}
+
+	return nil
 }
 
-func (m *JupyterMessage) SetDate(date string) {
+func (m *JupyterMessage) SetDate(date string, reEncode bool) error {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
 		debug.PrintStack()
@@ -892,6 +904,12 @@ func (m *JupyterMessage) SetDate(date string) {
 	}
 	header.Date = date
 	m.header = header
+
+	if reEncode {
+		return m.EncodeMessageHeader(m.header)
+	}
+
+	return nil
 }
 
 // JupyterMessageType is a convenience/utility method for retrieving the Jupyter message type from the Jupyter message header.
