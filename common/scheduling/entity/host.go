@@ -934,7 +934,7 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	if _, ok := h.containers.Load(container.KernelID()); !ok {
+	if _, ok := h.containers.Load(container.ContainerID()); !ok {
 		h.log.Error("Cannot find container for replica %d of kernel %s on host %s (ID=%s).",
 			container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
 		return ErrInvalidContainer
@@ -958,7 +958,7 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	if _, ok := h.containers.Load(container.KernelID()); !ok {
+	if _, ok := h.containers.Load(container.ContainerID()); !ok {
 		h.log.Error("Cannot find container for replica %d of kernel %s on host %s (ID=%s).",
 			container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
 		return ErrInvalidContainer
@@ -1031,12 +1031,12 @@ func (h *Host) ContainerRemoved(container scheduling.KernelContainer) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	if _, ok := h.containers.Load(container.KernelID()); !ok {
+	if _, ok := h.containers.Load(container.ContainerID()); !ok {
 		h.log.Error("Cannot remove specified Container from Host. Container is not on specified Host.")
 		return ErrInvalidContainer
 	}
 
-	h.containers.Delete(container.KernelID())
+	h.containers.Delete(container.ContainerID())
 
 	h.pendingContainers.Sub(1)
 
@@ -1056,7 +1056,7 @@ func (h *Host) ContainerScheduled(container scheduling.KernelContainer) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	h.containers.Store(container.KernelID(), container)
+	h.containers.Store(container.ContainerID(), container)
 	h.pendingContainers.Add(1)
 
 	// Delete the reservation. Log an error message if there is no reservation.
@@ -1070,7 +1070,7 @@ func (h *Host) ContainerScheduled(container scheduling.KernelContainer) error {
 	}
 
 	h.log.Debug("Container %s was officially started on onto Host %s %v after reservation was created.",
-		container.String(), h.ID, time.Since(reservation.CreationTimestamp))
+		container.ContainerID(), h.ID, time.Since(reservation.CreationTimestamp))
 
 	// Container was scheduled onto us, so we're no longer being considered for scheduling, as the scheduling
 	// operation concluded (and scheduled a replica onto us).
@@ -1142,6 +1142,9 @@ func (h *Host) getSIP(sess scheduling.UserSession) float64 {
 // KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 // Host is updated or changed. This ensures that the Host's resource counts are up to date.
 func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec *types.DecimalSpec, container scheduling.KernelContainer) error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
 	// Sanity check.
 	if _, loaded := h.containers.Load(container.ContainerID()); !loaded {
 		return fmt.Errorf("the specified KernelContainer is not running on the target Host")

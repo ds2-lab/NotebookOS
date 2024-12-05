@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/mock_proto"
+	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
@@ -540,53 +541,55 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				}
 			})
 
-			//It("Will select a host with available idle resources when doing so for a replica that is training", func() {
-			//	validateVariablesNonNil()
-			//
-			//	kernelId := uuid.NewString()
-			//	kernelKey := uuid.NewString()
-			//	resourceSpec := proto.NewResourceSpec(1250, 2000, 2, 4)
-			//
-			//	kernelSpec := &proto.KernelSpec{
-			//		Id:              kernelId,
-			//		Session:         kernelId,
-			//		Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-			//		SignatureScheme: jupyter.JupyterSignatureScheme,
-			//		Key:             kernelKey,
-			//		ResourceSpec:    resourceSpec,
-			//	}
-			//
-			//	host, loaded := hosts[0]
-			//	Expect(loaded).To(BeTrue())
-			//	Expect(host).ToNot(BeNil())
-			//
-			//	container := mock_scheduling.NewMockKernelContainer(mockCtrl)
-			//	container.EXPECT().ReplicaId().AnyTimes().Return(int32(1))
-			//	container.EXPECT().KernelID().AnyTimes().Return(kernelId)
-			//	container.EXPECT().ContainerID().AnyTimes().Return(fmt.Sprintf("%s-%d", kernelId, 1))
-			//	container.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
-			//
-			//	kernelReplica := mock_scheduling.NewMockKernelReplica(mockCtrl)
-			//	kernelReplica.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
-			//	kernelReplica.EXPECT().ReplicaID().AnyTimes().Return(int32(1))
-			//	kernelReplica.EXPECT().ID().AnyTimes().Return(kernelId)
-			//	kernelReplica.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
-			//	kernelReplica.EXPECT().Container().AnyTimes().Return(container)
-			//
-			//	success, err := host.ReserveResources(kernelSpec, true)
-			//	Expect(success).To(BeTrue())
-			//	Expect(err).To(BeNil())
-			//
-			//	err = host.ContainerScheduled(container)
-			//	Expect(err).To(BeNil())
-			//
-			//	container.EXPECT().Host().Times(1).Return(host)
-			//	kernelReplica.EXPECT().Host().Times(1).Return(host)
-			//
-			//	resp, err := dockerScheduler.MigrateKernelReplica(kernelReplica, "", true)
-			//	Expect(err).To(BeNil())
-			//	Expect(resp).ToNot(BeNil())
-			//})
+			It("Will select a host with available idle resources when doing so for a replica that is training", func() {
+				validateVariablesNonNil()
+
+				kernelId := uuid.NewString()
+				kernelKey := uuid.NewString()
+				resourceSpec := proto.NewResourceSpec(1250, 2000, 2, 4)
+
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+					SignatureScheme: jupyter.JupyterSignatureScheme,
+					Key:             kernelKey,
+					ResourceSpec:    resourceSpec,
+				}
+
+				host, loaded := hosts[0]
+				Expect(loaded).To(BeTrue())
+				Expect(host).ToNot(BeNil())
+
+				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				container.EXPECT().ReplicaId().AnyTimes().Return(int32(1))
+				container.EXPECT().KernelID().AnyTimes().Return(kernelId)
+				container.EXPECT().ContainerID().AnyTimes().Return(fmt.Sprintf("%s-%d", kernelId, 1))
+				container.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				container.EXPECT().String().AnyTimes().Return("MockedContainer")
+
+				kernelReplica := mock_scheduling.NewMockKernelReplica(mockCtrl)
+				kernelReplica.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
+				kernelReplica.EXPECT().ReplicaID().AnyTimes().Return(int32(1))
+				kernelReplica.EXPECT().ID().AnyTimes().Return(kernelId)
+				kernelReplica.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				kernelReplica.EXPECT().Container().AnyTimes().Return(container)
+				kernelReplica.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
+
+				success, err := host.ReserveResources(kernelSpec, true)
+				Expect(success).To(BeTrue())
+				Expect(err).To(BeNil())
+
+				err = host.ContainerScheduled(container)
+				Expect(err).To(BeNil())
+
+				container.EXPECT().Host().Times(1).Return(host)
+				kernelReplica.EXPECT().Host().Times(1).Return(host)
+
+				resp, err := dockerScheduler.MigrateKernelReplica(kernelReplica, "", true)
+				Expect(err).To(BeNil())
+				Expect(resp).ToNot(BeNil())
+			})
 		})
 
 		Context("Scaling Operations", func() {

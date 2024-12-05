@@ -458,6 +458,9 @@ func (c *DistributedKernelClient) UpdateResourceSpec(spec types.Spec) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	c.log.Debug("Updating ResourceSpec of kernel \"%s\" from %v to %v.",
+		c.id, c.spec.ResourceSpec.String(), spec.String())
+
 	updateSpecErrors := make([]error, 0)
 	for _, kernelReplica := range c.replicas {
 		err := kernelReplica.UpdateResourceSpec(spec)

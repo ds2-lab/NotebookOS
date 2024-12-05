@@ -13,7 +13,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
-	"log"
 	"math"
 	"sync"
 	"time"
@@ -714,8 +713,10 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 		gRpcClientConnection := originalHost.GetGrpcConnection()
 
 		if gRpcClientConnection == nil {
-			log.Fatalf(utils.RedStyle.Render("gRPC Client Connection with host %s (ID=%s) is nil."),
+			err := fmt.Errorf("gRPC Client Connection with host %s (ID=%s) is nil",
 				originalHost.GetNodeName(), originalHost.GetID())
+			s.log.Error(utils.RedStyle.Render(err.Error()))
+			resultChan <- err
 		}
 
 		s.log.Debug("State of gRPC ClientConn with host %s (ID=%s): %s (%v)", originalHost.GetNodeName(),
