@@ -2793,6 +2793,12 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 			Metadata:            map[string]interface{}{"target_node_id": targetNodeId, "succeeded": "true"},
 		})
 		d.clusterStatisticsMutex.Unlock()
+
+		if !errors.Is(reason, scheduling.ErrMigrationFailed) {
+			reason = errors.Join(scheduling.ErrMigrationFailed, reason)
+		}
+
+		return nil, reason
 	} else {
 		d.log.Debug("Migration operation of replica %d of kernel %s to target node %s completed successfully after %v.",
 			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration)

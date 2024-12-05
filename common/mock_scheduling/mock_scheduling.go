@@ -731,12 +731,13 @@ func (mr *MockSchedulerMockRecorder) GetOversubscriptionFactor(ratio any) *gomoc
 }
 
 // MigrateKernelReplica mocks base method.
-func (m *MockScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (*proto.MigrateKernelResponse, error) {
+func (m *MockScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (*proto.MigrateKernelResponse, error, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "MigrateKernelReplica", kernelReplica, targetHostId, forTraining)
 	ret0, _ := ret[0].(*proto.MigrateKernelResponse)
 	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // MigrateKernelReplica indicates an expected call of MigrateKernelReplica.
@@ -5217,6 +5218,20 @@ func (m *MockKernelReplica) IsTraining() bool {
 func (mr *MockKernelReplicaMockRecorder) IsTraining() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsTraining", reflect.TypeOf((*MockKernelReplica)(nil).IsTraining))
+}
+
+// KernelReplicaSpec mocks base method.
+func (m *MockKernelReplica) KernelReplicaSpec() *proto.KernelReplicaSpec {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "KernelReplicaSpec")
+	ret0, _ := ret[0].(*proto.KernelReplicaSpec)
+	return ret0
+}
+
+// KernelReplicaSpec indicates an expected call of KernelReplicaSpec.
+func (mr *MockKernelReplicaMockRecorder) KernelReplicaSpec() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelReplicaSpec", reflect.TypeOf((*MockKernelReplica)(nil).KernelReplicaSpec))
 }
 
 // KernelSpec mocks base method.

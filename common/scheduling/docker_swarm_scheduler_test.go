@@ -551,9 +551,25 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			It("Will select a host with available idle resources when doing so for a replica that is training", func() {
 				validateVariablesNonNil()
 
+				numAdditionalHosts := 3
+				for i := numHosts; i < numAdditionalHosts+numHosts; i++ {
+					fmt.Printf("Adding host #%d\n", i)
+					host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, false, dockerCluster, mockCtrl)
+					Expect(err).To(BeNil())
+					Expect(host).ToNot(BeNil())
+					Expect(localGatewayClient).ToNot(BeNil())
+					Expect(resourceSpoofer).ToNot(BeNil())
+
+					hosts[i] = host
+					localGatewayClients[i] = localGatewayClient
+					resourceSpoofers[i] = resourceSpoofer
+				}
+
 				kernelId := uuid.NewString()
 				kernelKey := uuid.NewString()
 				resourceSpec := proto.NewResourceSpec(1250, 2000, 2, 4)
+				dataDirectory := uuid.NewString()
+				workloadId := uuid.NewString()
 
 				kernelSpec := &proto.KernelSpec{
 					Id:              kernelId,
@@ -564,46 +580,150 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					ResourceSpec:    resourceSpec,
 				}
 
-				host, loaded := hosts[0]
-				Expect(loaded).To(BeTrue())
-				Expect(host).ToNot(BeNil())
-				localGatewayClient, loaded := localGatewayClients[0]
-				Expect(loaded).To(BeTrue())
-				Expect(localGatewayClient).ToNot(BeNil())
+				kernelReplicaSpec1 := &proto.KernelReplicaSpec{
+					Kernel:                    kernelSpec,
+					ReplicaId:                 1,
+					Join:                      true,
+					NumReplicas:               3,
+					DockerModeKernelDebugPort: -1,
+					PersistentId:              &dataDirectory,
+					WorkloadId:                workloadId,
+					Replicas:                  []string{"10.0.0.1:8000", "10.0.0.2:8000", "10.0.0.3:8000"},
+				}
 
-				localGatewayClient.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.PrepareToMigrateResponse{
+				kernelReplicaSpec2 := &proto.KernelReplicaSpec{
+					Kernel:                    kernelSpec,
+					ReplicaId:                 2,
+					Join:                      true,
+					NumReplicas:               3,
+					DockerModeKernelDebugPort: -1,
+					PersistentId:              &dataDirectory,
+					WorkloadId:                workloadId,
+					Replicas:                  []string{"10.0.0.1:8000", "10.0.0.2:8000", "10.0.0.3:8000"},
+				}
+
+				kernelReplicaSpec3 := &proto.KernelReplicaSpec{
+					Kernel:                    kernelSpec,
+					ReplicaId:                 3,
+					Join:                      true,
+					NumReplicas:               3,
+					DockerModeKernelDebugPort: -1,
+					PersistentId:              &dataDirectory,
+					WorkloadId:                workloadId,
+					Replicas:                  []string{"10.0.0.1:8000", "10.0.0.2:8000", "10.0.0.3:8000"},
+				}
+
+				host1, loaded := hosts[0]
+				Expect(loaded).To(BeTrue())
+				Expect(host1).ToNot(BeNil())
+
+				localGatewayClient1, loaded := localGatewayClients[0]
+				Expect(loaded).To(BeTrue())
+				Expect(localGatewayClient1).ToNot(BeNil())
+
+				host2, loaded := hosts[1]
+				Expect(loaded).To(BeTrue())
+				Expect(host2).ToNot(BeNil())
+
+				localGatewayClient2, loaded := localGatewayClients[1]
+				Expect(loaded).To(BeTrue())
+				Expect(localGatewayClient2).ToNot(BeNil())
+
+				host3, loaded := hosts[2]
+				Expect(loaded).To(BeTrue())
+				Expect(host3).ToNot(BeNil())
+
+				localGatewayClient3, loaded := localGatewayClients[2]
+				Expect(loaded).To(BeTrue())
+				Expect(localGatewayClient3).ToNot(BeNil())
+
+				localGatewayClient1.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().Return(&proto.PrepareToMigrateResponse{
 					KernelId: kernelId,
 					Id:       1,
-					DataDir:  uuid.NewString(),
+					DataDir:  dataDirectory,
 				}, nil)
 
-				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
-				container.EXPECT().ReplicaId().AnyTimes().Return(int32(1))
-				container.EXPECT().KernelID().AnyTimes().Return(kernelId)
-				container.EXPECT().ContainerID().AnyTimes().Return(fmt.Sprintf("%s-%d", kernelId, 1))
-				container.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
-				container.EXPECT().String().AnyTimes().Return("MockedContainer")
+				container1 := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				container1.EXPECT().ReplicaId().AnyTimes().Return(int32(1))
+				container1.EXPECT().KernelID().AnyTimes().Return(kernelId)
+				container1.EXPECT().ContainerID().AnyTimes().Return(fmt.Sprintf("%s-%d", kernelId, 1))
+				container1.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				container1.EXPECT().String().AnyTimes().Return("MockedContainer")
 
-				kernelReplica := mock_scheduling.NewMockKernelReplica(mockCtrl)
-				kernelReplica.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
-				kernelReplica.EXPECT().ReplicaID().AnyTimes().Return(int32(1))
-				kernelReplica.EXPECT().ID().AnyTimes().Return(kernelId)
-				kernelReplica.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
-				kernelReplica.EXPECT().Container().AnyTimes().Return(container)
-				kernelReplica.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
-				// kernelProvider.EXPECT().GetKernel(kernelId).AnyTimes().Return(kernelReplica, true)
+				container2 := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				container2.EXPECT().ReplicaId().AnyTimes().Return(int32(2))
+				container2.EXPECT().KernelID().AnyTimes().Return(kernelId)
+				container2.EXPECT().ContainerID().AnyTimes().Return(fmt.Sprintf("%s-%d", kernelId, 2))
+				container2.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				container2.EXPECT().String().AnyTimes().Return("MockedContainer")
 
-				//success, err := host.ReserveResources(kernelSpec, true)
-				//Expect(success).To(BeTrue())
-				//Expect(err).To(BeNil())
-				//
-				//err = host.ContainerScheduled(container)
-				//Expect(err).To(BeNil())
-				//
-				//container.EXPECT().Host().Times(1).Return(host)
-				//kernelReplica.EXPECT().Host().Times(1).Return(host)
-				//
-				//resp, err := dockerScheduler.MigrateKernelReplica(kernelReplica, "", true)
+				container3 := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				container3.EXPECT().ReplicaId().AnyTimes().Return(int32(3))
+				container3.EXPECT().KernelID().AnyTimes().Return(kernelId)
+				container3.EXPECT().ContainerID().AnyTimes().Return(fmt.Sprintf("%s-%d", kernelId, 3))
+				container3.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				container3.EXPECT().String().AnyTimes().Return("MockedContainer")
+
+				kernelReplica1 := mock_scheduling.NewMockKernelReplica(mockCtrl)
+				kernelReplica1.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
+				kernelReplica1.EXPECT().ReplicaID().AnyTimes().Return(int32(1))
+				kernelReplica1.EXPECT().ID().AnyTimes().Return(kernelId)
+				kernelReplica1.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				kernelReplica1.EXPECT().Container().AnyTimes().Return(container1)
+				kernelReplica1.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
+				kernelReplica1.EXPECT().KernelReplicaSpec().AnyTimes().Return(kernelReplicaSpec1)
+
+				kernelReplica2 := mock_scheduling.NewMockKernelReplica(mockCtrl)
+				kernelReplica2.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
+				kernelReplica2.EXPECT().ReplicaID().AnyTimes().Return(int32(2))
+				kernelReplica2.EXPECT().ID().AnyTimes().Return(kernelId)
+				kernelReplica2.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				kernelReplica2.EXPECT().Container().AnyTimes().Return(container2)
+				kernelReplica2.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
+				kernelReplica2.EXPECT().KernelReplicaSpec().AnyTimes().Return(kernelReplicaSpec2)
+
+				kernelReplica3 := mock_scheduling.NewMockKernelReplica(mockCtrl)
+				kernelReplica3.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
+				kernelReplica3.EXPECT().ReplicaID().AnyTimes().Return(int32(3))
+				kernelReplica3.EXPECT().ID().AnyTimes().Return(kernelId)
+				kernelReplica3.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				kernelReplica3.EXPECT().Container().AnyTimes().Return(container3)
+				kernelReplica3.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
+				kernelReplica3.EXPECT().KernelReplicaSpec().AnyTimes().Return(kernelReplicaSpec3)
+
+				kernel := mock_scheduling.NewMockKernel(mockCtrl)
+				kernel.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
+				kernel.EXPECT().ID().AnyTimes().Return(kernelId)
+				kernel.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+
+				success, err := host1.ReserveResources(kernelSpec, true)
+				Expect(success).To(BeTrue())
+				Expect(err).To(BeNil())
+
+				err = host1.ContainerScheduled(container1)
+				Expect(err).To(BeNil())
+				container1.EXPECT().Host().AnyTimes().Return(host1)
+				kernelReplica1.EXPECT().Host().AnyTimes().Return(host1)
+
+				success, err = host2.ReserveResources(kernelSpec, true)
+				Expect(success).To(BeTrue())
+				Expect(err).To(BeNil())
+
+				err = host2.ContainerScheduled(container2)
+				Expect(err).To(BeNil())
+				container2.EXPECT().Host().AnyTimes().Return(host2)
+				kernelReplica2.EXPECT().Host().AnyTimes().Return(host2)
+
+				success, err = host3.ReserveResources(kernelSpec, true)
+				Expect(success).To(BeTrue())
+				Expect(err).To(BeNil())
+
+				err = host3.ContainerScheduled(container3)
+				Expect(err).To(BeNil())
+				container3.EXPECT().Host().AnyTimes().Return(host3)
+				kernelReplica3.EXPECT().Host().AnyTimes().Return(host3)
+
+				//resp, err := dockerScheduler.MigrateKernelReplica(kernelReplica1, "", true)
 				//Expect(err).To(BeNil())
 				//Expect(resp).ToNot(BeNil())
 			})
