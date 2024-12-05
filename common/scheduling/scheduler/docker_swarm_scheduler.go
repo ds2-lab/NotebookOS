@@ -73,7 +73,9 @@ func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 // selectViableHostForReplica is called at scheduling-time (rather than before we get to the point of scheduling, such
 // as searching for viable hosts before trying to schedule the container).
 //
-// selectViableHostForReplica searches for a viable training host and, if one is found, then that host is returned.
+// selectViableHostForReplica is most often called for kernels that need to begin training immediately.
+//
+// selectViableHostForReplica searches for a viable host and, if one is found, then that host is returned.
 // Otherwise, an error is returned.
 func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
 	kernelId := replicaSpec.ID()

@@ -15,6 +15,9 @@ type clusterSchedulerInternal interface {
 	postScheduleKernelReplica(kernelId string, addReplicaOp *scheduling.AddReplicaOperation)
 
 	// selectViableHostForReplica identifies a viable scheduling.Host to serve the given scheduling.KernelContainer.
+	//
+	// selectViableHostForReplica is most often called for kernels that need to begin training immediately.
+	//
 	// Important: selectViableHostForReplica will reserve resources on the Host.
 	selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error)
 }

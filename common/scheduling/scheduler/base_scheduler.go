@@ -542,6 +542,46 @@ func (s *BaseScheduler) rebalance(newRatio float64) {
 	s.log.Debug("Pending subscription ratio: %.4f. Invalidated: %.4f", s.pendingSubscribedRatio, s.invalidated)
 }
 
+// findViableHostForReplica is called at scheduling-time (rather than before we get to the point of scheduling, such
+// as searching for viable hosts before trying to schedule the container).
+//
+// findViableHostForReplica searches for a viable training host and, if one is found, then that host is returned.
+// Otherwise, an error is returned.
+//
+// If we fail to find a host, then we'll try to scale-out (if we're allowed).
+func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool) (host scheduling.Host, failureReason error) {
+	numTries := 0
+
+	// We'll try a few times if we keep scaling-out successfully but somehow manage to fail again and again.
+	for numTries < 5 {
+		host, failureReason = s.instance.selectViableHostForReplica(replicaSpec.KernelReplicaSpec(), blacklistedHosts, forTraining)
+		if host != nil {
+			return host, nil
+		}
+
+		s.log.Warn("Failed to find viable host for replica %d of kernel %s (forTraining=%v): %v",
+			replicaSpec.ReplicaID(), replicaSpec.ID(), forTraining, failureReason)
+
+		if !s.isScalingEnabled() || !errors.Is(failureReason, scheduling.ErrInsufficientHostsAvailable) {
+			return nil, failureReason
+		}
+
+		s.log.Debug("Attempting to scale-out to provide host for replica %d of kernel %s (forTraining=%v).",
+			replicaSpec.ReplicaID(), replicaSpec.ID(), forTraining)
+		p := s.cluster.RequestHosts(context.Background(), 1)
+		if err := p.Error(); err != nil {
+			s.log.Error("Cluster failed to provision 1 additional host (for replica %d of kernel %s) because: %v",
+				replicaSpec.ReplicaID(), replicaSpec.ID(), err)
+
+			return nil, err
+		}
+
+		numTries += 1
+	}
+
+	return nil, failureReason
+}
+
 // MigrateKernelReplica tries to migrate the given Kernel to another Host.
 //
 // The first error that is returned (i.e., 'reason') does not indicate that an actual error occurred.
@@ -605,7 +645,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 
 	// If we weren't already given a target host to migrate the kernel replica to, then let's try to find one now.
 	if targetHost == nil {
-		targetHost, reason = s.instance.selectViableHostForReplica(kernelReplica.KernelReplicaSpec(), []scheduling.Host{originalHost}, forTraining)
+		targetHost, reason = s.findViableHostForReplica(kernelReplica, []scheduling.Host{originalHost}, forTraining)
 		if reason != nil || targetHost == nil {
 			s.log.Warn("Failed to find a viable host for replica %d of kernel %s: %v",
 				kernelReplica.ReplicaID(), kernelReplica.ID(), reason)
