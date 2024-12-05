@@ -400,7 +400,7 @@ class Election(object):
 
         # If the election has also finished the code-execution phase, then the voting phase is necessarily done,
         # so we also need to check on that.
-        return self._election_state == ElectionState.VOTE_COMPLETE or self.code_execution_completed_successfully
+        return self._election_state == ElectionState.VOTE_COMPLETE or self.code_execution_completed_successfully or self.was_skipped
 
     @property
     def code_execution_completed_successfully(self) -> bool:
@@ -408,7 +408,7 @@ class Election(object):
         Return a bool indicating whether the elected leader of this election has finished
         executing the user-submitted code.
         """
-        return self._election_state == ElectionState.EXECUTION_COMPLETE
+        return self._election_state == ElectionState.EXECUTION_COMPLETE or self._election_state == ElectionState.SKIPPED
 
     @property
     def has_been_started(self) -> bool:
@@ -921,6 +921,10 @@ class Election(object):
         Returns:
             (bool) True if this is the first vote proposal (of whatever attempt number the proposal has) that has been received during this election, otherwise False
         """
+        if vote.election_term != self.term_number:
+            self.logger.error(f"Attempting to add VOTE from term {vote.election_term} to election {self.term_number}: {vote}")
+            raise ValueError(f"vote proposal's term {vote.election_term} differs from target election with term {self.term_number}")
+
         proposer_id: int = vote.proposer_id
         current_attempt_number: int = vote.attempt_number
 

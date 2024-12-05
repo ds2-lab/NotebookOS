@@ -90,7 +90,24 @@ class Synchronizer:
         return self._ast.execution_count
 
     def fast_forward_execution_count(self):
+        prev_exec_count: int = self._ast.execution_count
         self._ast.fast_forward_executions()
+
+        self._log.debug(f"Fast-forwarded execution count by 1 (from {prev_exec_count} to {self._ast.execution_count}).")
+
+    def set_execution_count(self, execution_count):
+        """
+        Set the execution count of the Synchronizer to the given value.
+
+        The provided value must be greater than the current value, or the value will not be set.
+        """
+        prev_exec_count: int = self._ast.execution_count
+
+        if execution_count < prev_exec_count:
+            raise ValueError(f"cannot set execution count to a lower value (current: {execution_count}, specified: {prev_exec_count})")
+
+        self._ast.set_executions(execution_count)
+        self._log.debug(f"Fast-forwarded execution count by {execution_count - prev_exec_count} (from {prev_exec_count} to {self._ast.execution_count}).")
 
     def change_handler(self, val: SynchronizedValue, restoring: bool = False):
         """Change handler"""
@@ -132,7 +149,14 @@ class Synchronizer:
 
             if val.key == KEY_SYNC_AST:
                 assert isinstance(existed, SyncAST)
+                old_exec_count: int = -1
+                if self._ast is not None:
+                    old_exec_count = self._ast.execution_count
                 self._ast = existed
+
+                if self.execution_count != old_exec_count:
+                    self._log.debug(f"Execution count changed from {old_exec_count} to {self.execution_count} after synchronizing AST.")
+
                 # Redeclare modules, classes, and functions.
                 try:
                     compiled = compile(diff, "sync", "exec")
@@ -160,6 +184,11 @@ class Synchronizer:
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self._log.error(frame)
+
+        local_election: Election = self.current_election
+        if local_election is not None and local_election.term_number < self.execution_count:
+            self._log.warning(f"Current local election has term number {local_election.term_number}, "
+                              f"but we (now) have execution count of {self.execution_count}. We're out-of-sync...")
 
     async def propose_lead(self, jupyter_message_id: str, term_number: int) -> int:
         """Propose to lead the next execution.
@@ -210,7 +239,7 @@ class Synchronizer:
         return self._synclog.created_first_election
 
     @property
-    def current_election(self):
+    def current_election(self)->Election:
         """
         :return: the current election, if one exists.
         """
@@ -218,6 +247,12 @@ class Synchronizer:
             return None
 
         return self._synclog.current_election
+
+    def get_known_election_terms(self)->list[int]:
+        """
+        :return: a list of term numbers for which we have an associated Election object
+        """
+        return self._synclog.get_known_election_terms()
 
     def get_election(self, term_number:int):
         """
@@ -342,7 +377,7 @@ class Synchronizer:
             # execution_count updated.
             # self._referer.module_id = self._ast.execution_count # TODO: Verify this.
 
-            self._log.debug("Syncing execution, ast: {}...".format(sync_ast))
+            self._log.debug(f"Syncing execution (checkpointing={checkpointing}). AST: {sync_ast}. Current execution count: {self.execution_count}.")
             keys = self._ast.globals
             meta = SyncObjectMeta(
                 batch=(str(sync_ast.election_term) if not checkpointing else "{}c".format(sync_ast.election_term)))
@@ -360,10 +395,16 @@ class Synchronizer:
                 # set the end of _syncing before the final append call.
                 self._syncing = False
 
-            self._log.debug("Appending value \"%s\" now." % str(sync_ast))
-            sync_ast._proposer_id = self._node_id
+            sync_ast.set_proposer_id(self._node_id)
+
+            # current_election: Election = self._synclog.current_election
+            # if current_election is not None:
+            #     sync_ast.set_election_term(current_election.term_number)
+            #     sync_ast.set_attempt_number(current_election.current_attempt_number)
+
+            self._log.debug(f"Appending value: {sync_ast}. Checkpointing={checkpointing}.")
             await sync_log.append(sync_ast)
-            self._log.debug("Successfully appended value \"%s\"." % str(sync_ast))
+            self._log.debug(f"Successfully appended value: {sync_ast}. Checkpointing={checkpointing}.")
             for key in keys:
                 synced = synced + 1
                 self._log.debug("Syncing key \"%s\" now." % key)

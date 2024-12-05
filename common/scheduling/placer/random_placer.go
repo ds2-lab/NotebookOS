@@ -57,7 +57,6 @@ func (placer *RandomPlacer) tryReserveResourcesOnHost(candidateHost scheduling.H
 	}
 
 	reserved, err := candidateHost.ReserveResources(kernelSpec, usePendingReservation)
-
 	if err != nil {
 		placer.log.Error("Error while attempting to reserve resources for replica of kernel %s on host %s (ID=%s): %v",
 			kernelSpec.Id, candidateHost.GetNodeName(), candidateHost.GetID(), err)

@@ -351,7 +351,7 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 	}
 
 	if len(hosts) < n {
-		index.log.Error("Returning %d/%d candidateHost(s) from SeekMultipleFrom in %v.", len(hosts), n, time.Since(st))
+		index.log.Warn("Returning %d/%d candidateHost(s) from SeekMultipleFrom in %v.", len(hosts), n, time.Since(st))
 	} else {
 		index.log.Debug("Returning %d/%d candidateHost(s) from SeekMultipleFrom in %v.", len(hosts), n, time.Since(st))
 	}

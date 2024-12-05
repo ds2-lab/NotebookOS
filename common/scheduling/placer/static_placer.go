@@ -95,7 +95,7 @@ func (placer *StaticPlacer) tryReserveResourcesOnHost(candidateHost scheduling.H
 	reserved, err := candidateHost.ReserveResources(kernelSpec, usePendingReservation)
 
 	if err != nil {
-		placer.log.Error("Error while attempting to reserve resources for replica of kernel %s on host %s (ID=%s): %v",
+		placer.log.Debug("Failed to reserve resources for replica of kernel %s on host %s (ID=%s): %v",
 			kernelSpec.Id, candidateHost.GetNodeName(), candidateHost.GetID(), err)
 
 		// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.

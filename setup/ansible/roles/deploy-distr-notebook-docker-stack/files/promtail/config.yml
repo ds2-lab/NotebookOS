@@ -24,3 +24,8 @@ scrape_configs:
         target_label: 'logstream'
       - source_labels: ['__meta_docker_container_label_logging_jobname']
         target_label: 'job'
+    pipeline_stages:
+      - regex:
+        expression: '(?P<level>\[ERROR\]|\[DEBUG\]|\[INFO\]|\[WARNING\]|ERROR:|DEBUG:|INFO:|WARNING:|ERROR|DEBUG|INFO|WARNING)'
+      - labels:
+        level: level

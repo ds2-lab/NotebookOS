@@ -179,7 +179,7 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 
 		targetHost, err = s.selectViableHostForReplica(replicaSpec, blacklistedHosts, forTraining)
 		if err != nil {
-			s.log.Error("Could not find viable targetHost for replica %d of kernel %s: %v",
+			s.log.Warn("Could not find viable targetHost for replica %d of kernel %s: %v",
 				replicaSpec.ReplicaId, kernelId, err)
 			return err
 		}

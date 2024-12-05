@@ -741,38 +741,58 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 		return false, nil
 	}
 
+	resourceSpec := spec.ResourceSpec.ToDecimalSpec()
 	// Check if the Host could satisfy the resource request for the target kernel.
-	if !h.CanServeContainer(spec.ResourceSpec.ToDecimalSpec()) {
-		h.log.Debug("Cannot reserve resources for a replica of kernel %s. Kernel is requesting more resources than we have allocatable.", spec.Id)
+	if !h.CanServeContainer(resourceSpec) {
+		h.log.Debug("Cannot reserve resources for a replica of kernel %s. Kernel is requesting more resources than we have allocatable.",
+			spec.Id)
 		return false, nil
 	}
 
-	if h.WillBecomeTooOversubscribed(spec.ResourceSpec.ToDecimalSpec()) {
-		h.log.Debug("Cannot reserve resources for a replica of kernel %s; host would become too oversubscribed.", spec.Id)
+	if h.WillBecomeTooOversubscribed(resourceSpec) {
+		h.log.Debug("Cannot reserve resources for a replica of kernel %s; host would become too oversubscribed.",
+			spec.Id)
+		return false, nil
+	}
+
+	// If we're going to need to commit the resources, then we should check if the host can do that before
+	// bothering with the pending reservation (that we'll subsequently upgrade to a committed reservation).
+	if !usePendingResources && !h.CanCommitResources(resourceSpec) {
+		h.log.Debug("Cannot commit resources for a replica of kernel %s; insufficient idle resources available.",
+			spec.Id)
 		return false, nil
 	}
 
 	// Increment the pending resources on the host, which represents the reservation.
-	if err := h.resourceManager.PendingResources().Add(spec.DecimalSpecFromKernelSpec()); err != nil {
-		h.log.Error("Cannot reserve resources for a replica of kernel %s; error encountered while incrementing host's pending resources: %v.", spec.Id, err)
-		return false, err
+	if err := h.resourceManager.PendingResources().Add(resourceSpec); err != nil {
+		h.log.Debug("Could not reserve resources for a replica of kernel %s; failed to increment host's pending resources: %v.",
+			spec.Id, err)
+		return false, nil
+	}
+
+	if !usePendingResources {
+		h.log.Debug("Attempting reservation upgrade for new replica of kernel %s: pending --> committed (%s)", spec.Id, resourceSpec.String())
+		err := h.unsafeCommitResources(resourceSpec)
+		if err != nil {
+			h.log.Debug("Failed to upgrade pending resource reservation to committed for new replica of kernel %s because: %v",
+				spec.Id, err)
+
+			// Release the pending request before returning.
+			deallocateError := h.resourceManager.PendingResources().Subtract(resourceSpec)
+			if deallocateError != nil {
+				h.log.Error("Failed to release temporarily-allocated pending resources after failing to promote them to commited while reserving resources (%s) for new replica of kernel %s: %v",
+					resourceSpec.String(), spec.Id, deallocateError)
+				return false, err
+			}
+
+			return false, nil // Not an actual error, just didn't have enough resources available.
+		}
+
+		h.log.Debug("Successfully upgraded pending resource reservation to committed for new replica of kernel %s.",
+			spec.Id)
 	}
 
 	oldSubscribedRatio := h.subscribedRatio
-
-	if !usePendingResources {
-		h.log.Debug("Upgrading pending resource reservation to committed for new replica of kernel %s.", spec.Id)
-		err := h.unsafeCommitResources(spec.DecimalSpecFromKernelSpec())
-		if err != nil {
-			h.log.Error("Failed to upgrade pending resource reservation to committed for new replica of kernel %s because: %v",
-				spec.Id, err)
-
-			return false, err
-		}
-
-		h.log.Debug("Successfully upgraded pending resource reservation to committed for new replica of kernel %s.", spec.Id)
-	}
-
 	h.RecomputeSubscribedRatio()
 	h.log.Debug("Successfully reserved resources for new replica of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
 		spec.Id, oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))

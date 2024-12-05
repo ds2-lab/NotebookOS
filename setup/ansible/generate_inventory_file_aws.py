@@ -10,7 +10,8 @@ def get_jupyter_naas_public_ips(name_filter_value:str = ""):
     # Describe EC2 instances
     response = ec2.describe_instances(
         Filters=[
-            {'Name': 'tag:Name', 'Values': [name_filter_value]}  # Prefix-based search
+            {'Name': 'tag:Name', 'Values': [name_filter_value]},  # Prefix-based search
+            {'Name': 'instance-state-name', 'Values': ['running']}
         ]
     )
 

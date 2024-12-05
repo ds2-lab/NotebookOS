@@ -617,7 +617,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 	opts := scheduling.NewAddReplicaWaitOptions(true, true, true)
 	addReplicaOp, err := s.addReplica(replicaSpec, targetHost, opts, dataDirectory, []scheduling.Host{originalHost}, forTraining)
 	if err != nil {
-		s.log.Error("Failed to add new replica %d to kernel %s: %v", kernelReplica.ReplicaID(), kernelReplica.ID(), err)
+		s.log.Warn("Failed to add new replica %d to kernel %s: %v", kernelReplica.ReplicaID(), kernelReplica.ID(), err)
 		return &proto.MigrateKernelResponse{Id: -1, Hostname: ErrorHostname}, err
 	}
 

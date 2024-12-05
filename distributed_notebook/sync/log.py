@@ -106,6 +106,9 @@ class SynchronizedValue(object):
     def set_key(self, key: str) -> None:
         self._key = key
 
+    def set_proposer_id(self, id: int) -> None:
+        self._proposer_id = id
+
     @property
     def should_end_execution(self) -> bool:
         return self._should_end_execution
@@ -186,6 +189,9 @@ class SynchronizedValue(object):
 
     def set_election_term(self, term) -> None:
         self._election_term = term
+
+    def set_attempt_number(self, attempt_number)->None:
+        self._attempt_number = attempt_number
 
     @property
     def attempt_number(self) -> int:
@@ -416,6 +422,11 @@ class SyncLog(Protocol):
     def get_election(self, term_number: int):
         """
         :return: the current election with the specified term number, if one exists.
+        """
+
+    def get_known_election_terms(self)->list[int]:
+        """
+        :return: a list of term numbers for which we have an associated Election object
         """
 
     def start(self, handler):

@@ -1557,7 +1557,7 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica *Kernel
 
 	if c.activeExecution == nil {
 		errorMessage := fmt.Sprintf("Kernel %s has started training; however, its active execution is nil...", c.id)
-		c.log.Error(errorMessage, c.id)
+		c.log.Error(errorMessage)
 
 		if c.notificationCallback != nil {
 			go c.notificationCallback("Kernel's 'ActiveExecution' is Nil", errorMessage, messaging.ErrorNotification)

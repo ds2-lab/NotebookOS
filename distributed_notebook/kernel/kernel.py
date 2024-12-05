@@ -1211,6 +1211,7 @@ class DistributedKernel(IPythonKernel):
             sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO, node_id=self.smr_node_id)  # type: ignore
 
         sync_log.set_fast_forward_executions_handler(self.synchronizer.fast_forward_execution_count)
+        sync_log.set_set_execution_count_handler(self.synchronizer.set_execution_count)
 
         self.init_synchronizer_event.set()
 
@@ -1667,14 +1668,14 @@ class DistributedKernel(IPythonKernel):
         except ValueError as ex:
             self.log.warning(f"Encountered ValueError while checking status of previous election: {ex}")
             self.report_error(
-                error_title=f"ValueError While Checking Status of Election {term_number}",
-                error_message=str(ex)
+                error_title=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Encountered a ValueError While Checking Status of Election {term_number}",
+                error_message=f"Error: {ex}. Kernel knows only about the following election terms: {self.synchronizer.get_known_election_terms()}"
             )
         except Exception as ex:
             self.log.error(f"Error encountered while checking status of previous election: {ex}")
             self.report_error(
-                error_title=f"Unexpected {type(ex).__name__} While Checking Status of Election {term_number}",
-                error_message=str(ex)
+                error_title=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Encountered Unexpected {type(ex).__name__} While Checking Status of Election {term_number}",
+                error_message=f"Error: {ex}. Kernel knows only about the following election terms: {self.synchronizer.get_known_election_terms()}"
             )
 
     async def yield_request(self, stream, ident, parent):
@@ -2877,7 +2878,7 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Creating RaftLog now.")
         try:
-            self.synclog = RaftLog(self.smr_node_id,
+            self.synclog: RaftLog = RaftLog(self.smr_node_id,
                                    base_path=store,
                                    kernel_id=self.kernel_id,
                                    num_replicas=self.num_replicas,

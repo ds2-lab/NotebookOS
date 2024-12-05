@@ -1419,7 +1419,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 		resp, err := d.MigrateKernelReplica(context.TODO(), req)
 
 		if err != nil {
-			d.log.Error(utils.RedStyle.Render("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s"),
+			d.log.Warn(utils.OrangeStyle.Render("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s"),
 				targetReplica, kernel.ID(), err.Error())
 			errorChan <- err
 		} else {
