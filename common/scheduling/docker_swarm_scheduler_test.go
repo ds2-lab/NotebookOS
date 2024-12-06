@@ -26,6 +26,7 @@ import (
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/net/context"
+	"sync/atomic"
 	"time"
 )
 
@@ -938,6 +939,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				kernelReplica1.EXPECT().Container().AnyTimes().Return(container1)
 				kernelReplica1.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
 				kernelReplica1.EXPECT().KernelReplicaSpec().AnyTimes().Return(kernelReplicaSpec1)
+				kernelReplica1.EXPECT().PersistentID().AnyTimes().Return(dataDirectory)
 
 				kernelReplica2 := mock_scheduling.NewMockKernelReplica(mockCtrl)
 				kernelReplica2.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
@@ -947,6 +949,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				kernelReplica2.EXPECT().Container().AnyTimes().Return(container2)
 				kernelReplica2.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
 				kernelReplica2.EXPECT().KernelReplicaSpec().AnyTimes().Return(kernelReplicaSpec2)
+				kernelReplica2.EXPECT().PersistentID().AnyTimes().Return(dataDirectory)
 
 				kernelReplica3 := mock_scheduling.NewMockKernelReplica(mockCtrl)
 				kernelReplica3.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
@@ -956,6 +959,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				kernelReplica3.EXPECT().Container().AnyTimes().Return(container3)
 				kernelReplica3.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
 				kernelReplica3.EXPECT().KernelReplicaSpec().AnyTimes().Return(kernelReplicaSpec3)
+				kernelReplica3.EXPECT().PersistentID().AnyTimes().Return(dataDirectory)
 
 				kernel := mock_scheduling.NewMockKernel(mockCtrl)
 				kernel.EXPECT().KernelSpec().AnyTimes().Return(kernelSpec)
@@ -1015,6 +1019,47 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				container1.EXPECT().Session().AnyTimes().Return(session)
 
 				kernel.EXPECT().RemoveReplicaByID(int32(1), gomock.Any(), false).Times(1).Return(host1, nil)
+				session.EXPECT().RemoveReplicaById(int32(1)).Times(1).Return(nil)
+
+				var addOpActive atomic.Bool
+				addOpActive.Store(false)
+
+				kernel.EXPECT().AddOperationStarted().Times(1).Do(func() {
+					addOpActive.Store(true)
+				})
+				kernel.EXPECT().AddOperationCompleted().Times(1).Do(func() {
+					addOpActive.Store(false)
+				})
+				kernel.EXPECT().NumActiveMigrationOperations().AnyTimes().DoAndReturn(func() int {
+					if addOpActive.Load() {
+						return 1
+					}
+
+					return 0
+				})
+				returnedSpec := &proto.KernelReplicaSpec{
+					Kernel:       kernelSpec,
+					NumReplicas:  3,
+					Join:         true,
+					PersistentId: &dataDirectory,
+					ReplicaId:    int32(1),
+				}
+				kernel.EXPECT().PrepareNewReplica(dataDirectory, int32(1)).Times(1).Return(returnedSpec)
+
+				targetGatewayClient := localGatewayClients[5]
+				Expect(targetGatewayClient).ToNot(BeNil())
+				targetGatewayClient.EXPECT().StartKernelReplica(gomock.Any(), returnedSpec).Times(1).Return(&proto.KernelConnectionInfo{
+					Ip:              "10.0.0.1",
+					Transport:       "tcp",
+					ControlPort:     9000,
+					ShellPort:       9001,
+					StdinPort:       9002,
+					HbPort:          9003,
+					IopubPort:       9004,
+					IosubPort:       9005,
+					SignatureScheme: jupyter.JupyterSignatureScheme,
+					Key:             uuid.NewString(),
+				}, nil)
 
 				resp, reason, err := dockerScheduler.MigrateKernelReplica(kernelReplica1, "", true)
 				Expect(err).To(BeNil())
