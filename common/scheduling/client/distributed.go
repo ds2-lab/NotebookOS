@@ -712,7 +712,8 @@ func (c *DistributedKernelClient) AddReplica(r scheduling.KernelReplica, host sc
 	return nil
 }
 
-// RemoveReplica removes a kernel peer from the kernel.
+// RemoveReplica removes a kernel peer from the kernel. Returns the Host that the scheduling.KernelReplica was
+// running on.
 func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -822,7 +823,8 @@ func (c *DistributedKernelClient) RemoveAllReplicas(remover scheduling.ReplicaRe
 	return nil
 }
 
-// RemoveReplicaByID removes a kernel peer from the kernel by replica ID.
+// RemoveReplicaByID removes a kernel peer from the kernel by replica ID. Returns the Host that the
+// scheduling.KernelReplica was running on.
 func (c *DistributedKernelClient) RemoveReplicaByID(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
 	c.mu.RLock()
 	replica, ok := c.replicas[id]
