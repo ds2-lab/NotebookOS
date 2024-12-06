@@ -690,6 +690,38 @@ func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 	return h.resourceManager.IdleResources().Validate(types.ToDecimalSpec(resourceRequest))
 }
 
+func (h *Host) releaseCommittedReservation(spec *proto.KernelSpec, reservation *Reservation) error {
+	h.log.Debug("Releasing committed resources [%s] from reservation made for replica of kernel \"%s\". Current resources: %s.",
+		spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
+	err := h.unsafeUncommitResources(spec.DecimalSpecFromKernelSpec(), spec.Id, false)
+	if err != nil {
+		h.log.Error("Failed to release committed resource reservation for a replica of kernel %s: %v.",
+			spec.Id, err)
+		return err
+	}
+
+	h.log.Debug("Successfully released committed resources [%s] from reservation made for replica of kernel \"%s\". Updated resources: %s.",
+		spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
+
+	h.RecomputeSubscribedRatio()
+	return nil
+}
+
+func (h *Host) releasePendingReservation(spec *proto.KernelSpec) error {
+	err := h.subtractFromPendingResources(spec.DecimalSpecFromKernelSpec(), spec.Id, -1)
+	if err != nil {
+		h.log.Error("Failed to release reserved pending resources associated with replica of kernel \"%s\": %v",
+			spec.Id, err)
+		return err
+	}
+
+	h.log.Debug("Successfully released pending resources [%s] from reservation made for replica of kernel \"%s\". Updated resources: %s.",
+		spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
+
+	h.RecomputeSubscribedRatio()
+	return nil
+}
+
 // ReleaseReservation is to be called when a resource reservation should be released because the
 // scheduling of the associated replica of the associated kernel is being aborted.
 func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
@@ -706,31 +738,10 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 	h.isBeingConsideredForScheduling.Add(-1)
 
 	if !reservation.CreatedUsingPendingResources {
-		h.log.Debug("Releasing committed resources [%s] from reservation made for replica of kernel \"%s\". Current resources: %s.",
-			spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
-		err := h.unsafeUncommitResources(spec.DecimalSpecFromKernelSpec(), spec.Id, false)
-		if err != nil {
-			h.log.Error("Failed to release committed resource reservation for a replica of kernel %s: %v.",
-				spec.Id, err)
-			return err
-		} else {
-			h.log.Debug("Successfully released committed resources [%s] from reservation made for replica of kernel \"%s\". Updated resources: %s.",
-				spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
-		}
-
-		// Now we'll need to decrement the pending resources, as unsafeUncommitResources increments them.
+		return h.releaseCommittedReservation(spec, reservation)
 	}
 
-	err := h.subtractFromPendingResources(spec.DecimalSpecFromKernelSpec(), spec.Id, -1)
-	if err != nil {
-		h.log.Error("Failed to release reserved pending resources associated with replica of kernel \"%s\": %v",
-			spec.Id, err)
-		return err
-	}
-
-	h.RecomputeSubscribedRatio()
-
-	return nil
+	return h.releasePendingReservation(spec)
 }
 
 // ReserveResources attempts to reserve the resources required by the specified kernel, returning
@@ -783,20 +794,18 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 		return false, nil
 	}
 
+	var err error
 	if usePendingResources {
-		// Increment the pending resources on the host, which represents the reservation.
-		err := h.addPendingResources(resourceSpec, spec.Id, -1)
-		if err != nil {
-			return false, nil
-		}
+		err = h.addPendingResources(resourceSpec, spec.Id, -1)
 	} else {
-		err := h.unsafeCommitResources(resourceSpec, spec.Id, -1, false)
-		if err != nil {
-			h.log.Debug("Failed to create committed resource reservation to committed for new replica of kernel %s because: %v",
-				spec.Id, err)
+		err = h.unsafeCommitResources(resourceSpec, spec.Id, -1, false)
+	}
 
-			return false, nil // Not an actual error, just didn't have enough resources available.
-		}
+	if err != nil {
+		h.log.Debug("Failed to create resource reservation for new replica of kernel %s because: %v [usePendingResources=%v]",
+			spec.Id, err, usePendingResources)
+
+		return false, nil // Not an actual error, just didn't have enough resources available.
 	}
 
 	oldSubscribedRatio := h.subscribedRatio
@@ -1185,7 +1194,7 @@ func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, r
 	})
 
 	if err != nil {
-		h.log.Error("Failed to commit resources [%s] to replica %d of kernel %s: %v",
+		h.log.Warn("Failed to commit resources [%s] to replica %d of kernel %s: %v",
 			spec.String(), replicaId, kernelId, err)
 		return
 	}
