@@ -8,6 +8,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -917,9 +918,59 @@ func (c *DistributedKernelClient) IsReplicaReady(replicaId int32) (bool, error) 
 	return replica.IsReady(), nil
 }
 
+// AddDestFrameIfNecessary adds the destination frame to the specified Jupyter message if it isn't already present.
+func (c *DistributedKernelClient) AddDestFrameIfNecessary(jMsg *messaging.JupyterMessage) *messaging.JupyterMessage {
+	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
+	_, reqId, jOffset := jMsg.JupyterFrames.ExtractDestFrame(true)
+	if reqId == "" {
+		c.log.Debug("Adding destination '%s' to frames now. Old frames (%d): %v.",
+			c.id, jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.String())
+		jMsg.AddDestinationId(c.id)
+		c.log.Debug("Added destination '%s' to frames at offset %d. New frames (%d): %v.",
+			c.id, jOffset, jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.String())
+	}
+
+	return jMsg
+}
+
+func (c *DistributedKernelClient) DebugMode() bool {
+	return c.debugMode
+}
+
 // RequestWithHandler sends a request to all replicas and handles the response.
-func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
-	return c.RequestWithHandlerAndReplicas(ctx, typ, msg, handler, done)
+func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, jMsg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
+	// Broadcast to all replicas if no replicas are specified.
+	replicas := make([]scheduling.KernelReplica, c.Size())
+	for _, replica := range c.replicas {
+		replicas = append(replicas, replica)
+	}
+
+	jMsg = c.AddDestFrameIfNecessary(jMsg)
+
+	// We create a slice of JupyterMessages here, with length equal to the number of replicas that we have.
+	//
+	// In debug mode, we clone the message for each replica. We do this because we'll be adding request traces
+	// to the buffers of the message, and we want each replica to be able to add its own request trace.
+	//
+	// It would be bad if the replicas concurrently modified the same jupyter message, so we clone it and send
+	// each replica its own unique copy.
+	jupyterMessages := make([]*messaging.JupyterMessage, 0, len(c.replicas))
+	for range replicas {
+		var jupyterMessage *messaging.JupyterMessage
+		if c.debugMode {
+			// I believe we clone the message so we can embed our own independent data in the metadata/buffers frames,
+			// like the request trace for this specific replica. We don't want to be writing to the buffers frames of the
+			// same JupyterMessage as our peer replicas, so we clone it first.
+			jupyterMessage = jMsg.Clone()
+		} else {
+			// Non-debug mode, so we just include a pointer to the same jupyter message 3 times in the slice.
+			jupyterMessage = jMsg
+		}
+
+		jupyterMessages = append(jupyterMessages, jupyterMessage)
+	}
+
+	return c.RequestWithHandlerAndReplicas(ctx, typ, jupyterMessages, handler, done, replicas...)
 }
 
 // Process a response to a shell message. This is called before the handler that was passed when issuing the request.
@@ -1161,89 +1212,21 @@ func (c *DistributedKernelClient) getResponseForwarder(handler scheduling.Kernel
 // field. Importantly, it should assign a value to the received response from the kernel, not the jMsg parameter
 // (of the DistributedKernelClient::RequestWithHandlerAndReplicas method) that is being sent out.
 func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType,
-	jMsg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
-
-	// Broadcast to all replicas if no replicas are specified.
-	if len(replicas) == 0 {
-		for _, replica := range c.replicas {
-			replicas = append(replicas, replica)
-		}
-	}
+	jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
 
 	once := sync.Once{}
 	replicaCtx, cancel := c.getRequestContext(ctx, typ)
 	responseHandler := c.getResponseForwarder(handler, cancel, &once)
-
-	//forwarder := func(replica scheduling.KernelReplicaInfo, socketType messaging.MessageType, msg *messaging.JupyterMessage) (err error) {
-	//	c.log.Debug(utils.BlueStyle.Render("Received %s response from %v"), socketType.String(), replica)
-	//	msg.ReplicaId = replica.ReplicaID()
-	//
-	//	if socketType == messaging.ShellMessage {
-	//		// "Preprocess" the response, which involves checking if it is a YIELD notification,
-	//		// and handling a situation in which ALL replicas have proposed 'YIELD'.
-	//		shellPreprocessingError, yielded := c.preprocessShellResponse(replica.(*KernelReplicaClient), msg)
-	//
-	//		// If we yielded, then the expectation is that the shellPreprocessingError will be a
-	//		// messaging.ErrExecutionYielded. This is fine. But if the shellPreprocessingError is not a
-	//		// messaging.ErrExecutionYielded (and is instead some other error), then that's problematic.
-	//		//
-	//		// For example, maybe all the replicas yielded, and then the handler for that was called, but that
-	//		// handler encountered an error. In that case, we'll need to propagate the error back to the client.
-	//		// So, we can't return nil here (in that scenario).
-	//		if yielded && errors.Is(shellPreprocessingError, messaging.ErrExecutionYielded) {
-	//			return nil
-	//		}
-	//
-	//		if shellPreprocessingError != nil {
-	//			c.log.Error("Error while pre-processing shell response for Jupyter \"%s\" message \"%s\" (JupyterID=\"%s\") targeting kernel \"%s\": %v",
-	//				msg.JupyterMessageType(), msg.RequestId, msg.JupyterParentMessageId(), c.id, shellPreprocessingError)
-	//			return shellPreprocessingError
-	//		}
-	//	}
-	//
-	//	// TODO: Remove this eventually once all bugs are fixed.
-	//	if msg.JupyterMessageType() == "ping_reply" {
-	//		if handler == nil {
-	//			panic("Handler is nil")
-	//		}
-	//
-	//		return handler(&ReplicaKernelInfo{KernelInfo: c, replica: replica}, socketType, msg)
-	//	}
-	//
-	//	// Handler will only be called once.
-	//	forwarded := false
-	//	once.Do(func() {
-	//		cancel()
-	//		if handler != nil {
-	//			err = handler(&ReplicaKernelInfo{KernelInfo: c, replica: replica}, socketType, msg)
-	//		}
-	//		forwarded = true
-	//	})
-	//	if !forwarded {
-	//		c.log.Debug("Discard %v \"%s\" response from %v", socketType, msg.JupyterMessageType() /* header.MsgType */, replica)
-	//	}
-	//	return err
-	//}
 
 	// Send the request to all replicas.
 	statusCtx, statusCancel := context.WithTimeout(context.Background(), messaging.DefaultRequestTimeout)
 	defer statusCancel()
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), messaging.MessageKernelStatusBusy, c.pubIOMessage)
 
-	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
-	_, reqId, jOffset := jMsg.JupyterFrames.ExtractDestFrame(true)
-	if reqId == "" {
-		c.log.Debug("Adding destination '%s' to frames now. Old frames (%d): %v.",
-			c.id, jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.String())
-		jMsg.AddDestinationId(c.id)
-		c.log.Debug("Added destination '%s' to frames at offset %d. New frames (%d): %v.",
-			c.id, jOffset, jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.String())
-	}
-
 	// If there's just a single replica, then send the message to that one replica.
-	if len(replicas) == 1 {
-		return replicas[0].(*KernelReplicaClient).requestWithHandler(replicaCtx, typ, jMsg, responseHandler, c.getWaitResponseOption, done)
-	}
+	//if len(replicas) == 1 {
+	//	return replicas[0].(*KernelReplicaClient).requestWithHandler(replicaCtx, typ, jMsg, responseHandler, c.getWaitResponseOption, done)
+	//}
 
 	// Note: we do NOT need to create a barrier where the replicas all wait until they've each clone the
 	// message, as we don't use the original message (in the case that the replicas send cloned versions).
@@ -1252,29 +1235,6 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	var responseReceivedWg sync.WaitGroup
 	numResponsesExpected := 0
 	numResponsesSoFar := atomic.Int32{}
-
-	// We create a slice of JupyterMessages here, with length equal to the number of replicas that we have.
-	//
-	// In debug mode, we clone the message for each replica. We do this because we'll be adding request traces
-	// to the buffers of the message, and we want each replica to be able to add its own request trace.
-	//
-	// It would be bad if the replicas concurrently modified the same jupyter message, so we clone it and send
-	// each replica its own unique copy.
-	jupyterMessages := make([]*messaging.JupyterMessage, 0, len(c.replicas))
-	for range replicas {
-		var jupyterMessage *messaging.JupyterMessage
-		if c.debugMode {
-			// I believe we clone the message so we can embed our own independent data in the metadata/buffers frames,
-			// like the request trace for this specific replica. We don't want to be writing to the buffers frames of the
-			// same JupyterMessage as our peer replicas, so we clone it first.
-			jupyterMessage = jMsg.Clone()
-		} else {
-			// Non-debug mode, so we just include a pointer to the same jupyter message 3 times in the slice.
-			jupyterMessage = jMsg
-		}
-
-		jupyterMessages = append(jupyterMessages, jupyterMessage)
-	}
 
 	// Iterate over each replica and forward the request to that kernel replica's Local Daemon,
 	// which will then route the request to the kernel replica itself.
@@ -1286,12 +1246,12 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 		responseReceivedWg.Add(1)
 
 		numResponsesExpected += 1
-		go c.sendRequestToReplica(ctx, kernel, jupyterMessages[idx], typ, &responseReceivedWg, &numResponsesSoFar, responseHandler)
+		go c.sendRequestToReplica(replicaCtx, kernel, jupyterMessages[idx], typ, &responseReceivedWg, &numResponsesSoFar, responseHandler)
 	}
 
 	if done != nil {
 		// If a `done` callback function was given to us, then we'll create a goroutine to handle it.
-		go c.handleDoneCallbackForRequest(done, &responseReceivedWg, typ, jMsg, &numResponsesSoFar, numResponsesExpected)
+		go c.handleDoneCallbackForRequest(done, &responseReceivedWg, typ, jupyterMessages[0], &numResponsesSoFar, numResponsesExpected)
 	}
 
 	return nil
@@ -1734,26 +1694,32 @@ func (c *DistributedKernelClient) getActiveExecution(msgId string, replica *Kern
 	return associatedActiveExecution
 }
 
-func (c *DistributedKernelClient) releasePreCommitedResourcesFromReplica(replica *KernelReplicaClient, msg *messaging.JupyterMessage) {
+func (c *DistributedKernelClient) releasePreCommitedResourcesFromReplica(replica *KernelReplicaClient, msg *messaging.JupyterMessage) error {
 	container := replica.Container()
 	if container == nil {
 		c.log.Warn("Container for non-nil replica %d of kernel \"%s\" is nil while processing \"execute_reply\" \"%s\"...",
 			replica.ReplicaID(), c.id, msg.JupyterMessageId())
-		return
+		return nil
 	}
 
 	host := container.Host()
 	if host == nil {
 		c.log.Warn("Host of container for non-nil replica %d of kernel \"%s\" is nil while processing \"execute_reply\" \"%s\"...",
 			replica.ReplicaID(), c.id, msg.JupyterMessageId())
-		return
+		return nil
 	}
 
 	err := host.ReleasePreCommitedResources(container)
-	if err != nil {
+	if err != nil { // Not necessarily a bad thing.
 		c.log.Debug("Failed to release pre-committed resources from replica %d of kernel \"%s\" because: %s",
 			container.ReplicaId(), container.KernelID(), err.Error())
+
+		if errors.Is(err, entity.ErrInvalidContainer) { // Container just didn't have resources pre-allocated to it.
+			return nil
+		}
 	}
+
+	return nil
 }
 
 // handleExecutionYieldedNotification is called when we receive a 'YIELD' proposal from a replica of a kernel.
@@ -1761,7 +1727,8 @@ func (c *DistributedKernelClient) releasePreCommitedResourcesFromReplica(replica
 // struct. If we find that we've received all three proposals, and they were ALL 'yield', then we'll handle the situation
 // according to the scheduling policy that we've been configured to use.
 func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *KernelReplicaClient, msgErr *messaging.MessageErrorWithYieldReason, msg *messaging.JupyterMessage) error {
-	c.releasePreCommitedResourcesFromReplica(replica, msg)
+	// TODO: What to do if this returns an error?
+	_ = c.releasePreCommitedResourcesFromReplica(replica, msg)
 
 	replica.ReceivedExecuteReply(msg)
 
@@ -1817,7 +1784,7 @@ func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *Ke
 
 		// Call the handler. If it returns an error, then we'll join that error with the YIELD errors, and return
 		// them all together.
-		handlerError := c.handleFailedExecutionAllYielded()
+		handlerError := c.handleFailedExecutionAllYielded(msg)
 		if handlerError != nil {
 			allErrors := append([]error{handlerError}, yieldErrors...)
 			return errors.Join(allErrors...)
@@ -1830,9 +1797,9 @@ func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *Ke
 // Handle a failed execution in which all replicas proposed 'YIELD'.
 //
 // Note that 'final' means that it was the last replica whose message we received; all replicas proposed 'YIELD',however.
-func (c *DistributedKernelClient) handleFailedExecutionAllYielded() error {
+func (c *DistributedKernelClient) handleFailedExecutionAllYielded(msg *messaging.JupyterMessage) error {
 	c.log.Warn("Kernel %s failed to execute code; all replicas proposed 'YIELD'.", c.id)
-	return c.executionFailedCallback(c)
+	return c.executionFailedCallback(c, msg)
 }
 
 func (c *DistributedKernelClient) SendIOMessage(msg *messaging.JupyterMessage) error {

@@ -57,7 +57,7 @@ type SessionManager interface {
 type ExecutionLatencyCallback func(latency time.Duration, workloadId string, kernelId string)
 
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
-type ExecutionFailedCallback func(c Kernel) error
+type ExecutionFailedCallback func(c Kernel, msg *messaging.JupyterMessage) error
 
 type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
@@ -118,9 +118,13 @@ type Kernel interface {
 	GetSocketPort(typ messaging.MessageType) int
 	IsReplicaReady(replicaId int32) (bool, error)
 	RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
-	RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType, jMsg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func(), replicas ...KernelReplica) error
+	RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType, jupyterMessages []*messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func(), replicas ...KernelReplica) error
 	Shutdown(remover ReplicaRemover, restart bool) error
 	WaitClosed() jupyter.KernelStatus
+	DebugMode() bool
+
+	// AddDestFrameIfNecessary adds the destination frame to the specified Jupyter message if it isn't already present.
+	AddDestFrameIfNecessary(jMsg *messaging.JupyterMessage) *messaging.JupyterMessage
 
 	// SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the DistributedKernelClient.
 	SetKernelKey(string)

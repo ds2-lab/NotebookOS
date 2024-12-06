@@ -1524,20 +1524,6 @@ func (mr *MockHostMockRecorder) AddToCommittedResources(spec any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddToCommittedResources", reflect.TypeOf((*MockHost)(nil).AddToCommittedResources), spec)
 }
 
-// AddToIdleResources mocks base method.
-func (m *MockHost) AddToIdleResources(spec *types.DecimalSpec) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddToIdleResources", spec)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// AddToIdleResources indicates an expected call of AddToIdleResources.
-func (mr *MockHostMockRecorder) AddToIdleResources(spec any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddToIdleResources", reflect.TypeOf((*MockHost)(nil).AddToIdleResources), spec)
-}
-
 // AddToPendingResources mocks base method.
 func (m *MockHost) AddToPendingResources(spec *types.DecimalSpec) error {
 	m.ctrl.T.Helper()
@@ -2544,6 +2530,20 @@ func (mr *MockHostMockRecorder) PlacedMemoryMB() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlacedMemoryMB", reflect.TypeOf((*MockHost)(nil).PlacedMemoryMB))
 }
 
+// PreCommitResources mocks base method.
+func (m *MockHost) PreCommitResources(container scheduling.KernelContainer) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PreCommitResources", container)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PreCommitResources indicates an expected call of PreCommitResources.
+func (mr *MockHostMockRecorder) PreCommitResources(container any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockHost)(nil).PreCommitResources), container)
+}
+
 // PrepareToMigrate mocks base method.
 func (m *MockHost) PrepareToMigrate(ctx context.Context, in *proto.ReplicaInfo, opts ...grpc.CallOption) (*proto.PrepareToMigrateResponse, error) {
 	m.ctrl.T.Helper()
@@ -2610,6 +2610,20 @@ func (mr *MockHostMockRecorder) ReconnectToGateway(ctx, in any, opts ...any) *go
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, in}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconnectToGateway", reflect.TypeOf((*MockHost)(nil).ReconnectToGateway), varargs...)
+}
+
+// ReleasePreCommitedResources mocks base method.
+func (m *MockHost) ReleasePreCommitedResources(container scheduling.KernelContainer) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReleasePreCommitedResources", container)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReleasePreCommitedResources indicates an expected call of ReleasePreCommitedResources.
+func (mr *MockHostMockRecorder) ReleasePreCommitedResources(container any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleasePreCommitedResources", reflect.TypeOf((*MockHost)(nil).ReleasePreCommitedResources), container)
 }
 
 // ReleaseReservation mocks base method.
@@ -2951,48 +2965,6 @@ func (m *MockHost) SubscribedRatioAsDecimal() decimal.Decimal {
 func (mr *MockHostMockRecorder) SubscribedRatioAsDecimal() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribedRatioAsDecimal", reflect.TypeOf((*MockHost)(nil).SubscribedRatioAsDecimal))
-}
-
-// SubtractFromCommittedResources mocks base method.
-func (m *MockHost) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SubtractFromCommittedResources", spec)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SubtractFromCommittedResources indicates an expected call of SubtractFromCommittedResources.
-func (mr *MockHostMockRecorder) SubtractFromCommittedResources(spec any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubtractFromCommittedResources", reflect.TypeOf((*MockHost)(nil).SubtractFromCommittedResources), spec)
-}
-
-// SubtractFromIdleResources mocks base method.
-func (m *MockHost) SubtractFromIdleResources(spec *types.DecimalSpec) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SubtractFromIdleResources", spec)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SubtractFromIdleResources indicates an expected call of SubtractFromIdleResources.
-func (mr *MockHostMockRecorder) SubtractFromIdleResources(spec any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubtractFromIdleResources", reflect.TypeOf((*MockHost)(nil).SubtractFromIdleResources), spec)
-}
-
-// SubtractFromPendingResources mocks base method.
-func (m *MockHost) SubtractFromPendingResources(spec *types.DecimalSpec) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SubtractFromPendingResources", spec)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SubtractFromPendingResources indicates an expected call of SubtractFromPendingResources.
-func (mr *MockHostMockRecorder) SubtractFromPendingResources(spec any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubtractFromPendingResources", reflect.TypeOf((*MockHost)(nil).SubtractFromPendingResources), spec)
 }
 
 // SynchronizeResourceInformation mocks base method.
@@ -3992,6 +3964,20 @@ func (mr *MockKernelMockRecorder) ActiveExecution() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveExecution", reflect.TypeOf((*MockKernel)(nil).ActiveExecution))
 }
 
+// AddDestFrameIfNecessary mocks base method.
+func (m *MockKernel) AddDestFrameIfNecessary(jMsg *messaging.JupyterMessage) *messaging.JupyterMessage {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddDestFrameIfNecessary", jMsg)
+	ret0, _ := ret[0].(*messaging.JupyterMessage)
+	return ret0
+}
+
+// AddDestFrameIfNecessary indicates an expected call of AddDestFrameIfNecessary.
+func (mr *MockKernelMockRecorder) AddDestFrameIfNecessary(jMsg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddDestFrameIfNecessary", reflect.TypeOf((*MockKernel)(nil).AddDestFrameIfNecessary), jMsg)
+}
+
 // AddOperationCompleted mocks base method.
 func (m *MockKernel) AddOperationCompleted() {
 	m.ctrl.T.Helper()
@@ -4554,9 +4540,9 @@ func (mr *MockKernelMockRecorder) RequestWithHandler(ctx, arg1, typ, msg, handle
 }
 
 // RequestWithHandlerAndReplicas mocks base method.
-func (m *MockKernel) RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType, jMsg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
+func (m *MockKernel) RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType, jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, typ, jMsg, handler, done}
+	varargs := []any{ctx, typ, jupyterMessages, handler, done}
 	for _, a := range replicas {
 		varargs = append(varargs, a)
 	}
@@ -4566,9 +4552,9 @@ func (m *MockKernel) RequestWithHandlerAndReplicas(ctx context.Context, typ mess
 }
 
 // RequestWithHandlerAndReplicas indicates an expected call of RequestWithHandlerAndReplicas.
-func (mr *MockKernelMockRecorder) RequestWithHandlerAndReplicas(ctx, typ, jMsg, handler, done any, replicas ...any) *gomock.Call {
+func (mr *MockKernelMockRecorder) RequestWithHandlerAndReplicas(ctx, typ, jupyterMessages, handler, done any, replicas ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, typ, jMsg, handler, done}, replicas...)
+	varargs := append([]any{ctx, typ, jupyterMessages, handler, done}, replicas...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestWithHandlerAndReplicas", reflect.TypeOf((*MockKernel)(nil).RequestWithHandlerAndReplicas), varargs...)
 }
 
