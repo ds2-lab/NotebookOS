@@ -1224,9 +1224,9 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), messaging.MessageKernelStatusBusy, c.pubIOMessage)
 
 	// If there's just a single replica, then send the message to that one replica.
-	//if len(replicas) == 1 {
-	//	return replicas[0].(*KernelReplicaClient).requestWithHandler(replicaCtx, typ, jMsg, responseHandler, c.getWaitResponseOption, done)
-	//}
+	if len(replicas) == 1 {
+		return replicas[0].(*KernelReplicaClient).requestWithHandler(replicaCtx, typ, jupyterMessages[0], responseHandler, c.getWaitResponseOption, done)
+	}
 
 	// Note: we do NOT need to create a barrier where the replicas all wait until they've each clone the
 	// message, as we don't use the original message (in the case that the replicas send cloned versions).

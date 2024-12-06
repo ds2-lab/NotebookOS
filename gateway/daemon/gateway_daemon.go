@@ -3167,7 +3167,7 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 		return d.forwardRequest(kernel, messaging.ShellMessage, jMsg)
 	}
 
-	// Broadcast to all replicas if no replicas are specified.
+	// Broadcast to all replicas.
 	replicas := make([]scheduling.KernelReplica, kernel.Size())
 	for _, replica := range kernel.Replicas() {
 		replicas = append(replicas, replica)
@@ -3176,21 +3176,39 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 	jMsg = kernel.AddDestFrameIfNecessary(jMsg)
 
 	jupyterMessages := make([]*messaging.JupyterMessage, 0, kernel.Size())
-	for range replicas {
+	for _, replica := range replicas {
 		var jupyterMessage *messaging.JupyterMessage
-		if kernel.DebugMode() {
-			// I believe we clone the message so we can embed our own independent data in the metadata/buffers frames,
-			// like the request trace for this specific replica. We don't want to be writing to the buffers frames of the
-			// same JupyterMessage as our peer replicas, so we clone it first.
+
+		if _, loaded := ineligibleReplicas[replica.ReplicaID()]; loaded {
+			// Convert the "execute_request" message to a "yield_request" message.
+			// The returned message is initially created as a clone of the target message.
+			jupyterMessage, err = jMsg.CreateAndReturnYieldRequestMessage()
+			if err != nil {
+				d.log.Error("Failed to convert \"execute_request\" message \"%s\" to a \"yield_request\" message: %v",
+					jMsg.JupyterMessageId(), err)
+				d.log.Error("Original \"execute_request\" message that we failed to convert: %v", jMsg)
+				d.notifyDashboardOfError("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message", err.Error())
+				jMsg.IsFailedExecuteRequest = true
+				return err
+			}
+		} else if kernel.DebugMode() {
+			// Clone the message because each replica will be adding its own request trace.
 			jupyterMessage = jMsg.Clone()
 		} else {
-			// Non-debug mode, so we just include a pointer to the same jupyter message 3 times in the slice.
+			// Not in debug mode, so no request traces to worry about, and if any other replicas are ineligible,
+			// then they'll clone the message, so we can just reuse the original.
 			jupyterMessage = jMsg
 		}
 
 		jupyterMessages = append(jupyterMessages, jupyterMessage)
 	}
 
+	// We'll call RequestWithHandlerAndReplicas instead of RequestWithHandler.
+	//
+	// The difference is that RequestWithHandler basically does what we just did up above before calling
+	// RequestWithHandlerAndReplicas; however, RequestWithHandler assumes that all replicas are to receive an
+	// identical message. That's obviously not what we want to happen here, and so we manually created the different
+	// messages for the different replicas ourselves.
 	return kernel.RequestWithHandlerAndReplicas(context.Background(), messaging.ShellMessage, jupyterMessages, d.kernelResponseForwarder, func() {}, replicas...)
 }
 
@@ -3354,7 +3372,7 @@ func (d *ClusterGatewayImpl) processExecuteReply(kernelId string, msg *messaging
 // processExecuteRequest is an important step of the path of handling an "execute_request".
 //
 // processExecuteRequest handles pre-committing resources, migrating a replica if no replicas are viable, etc.
-func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.Kernel) (ineligibleReplicas []scheduling.KernelReplica, err error) {
+func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.Kernel) (ineligibleReplicas map[int32]scheduling.KernelReplica, err error) {
 	kernelId := kernel.ID()
 	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg.StringFormatted())
 
@@ -3390,7 +3408,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		return nil, err
 	}
 
-	ineligibleReplicas = make([]scheduling.KernelReplica, 0)
+	ineligibleReplicas = make(map[int32]scheduling.KernelReplica)
 
 	// Attempt to commit resources for each replica.
 	// If we can't, then we'll convert the request to a yield_request immediately.
@@ -3398,10 +3416,10 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	for idx, replica := range kernel.Replicas() {
 		if replica == nil {
 			err = fmt.Errorf("replica %d is nil while processing \"execute_request\" \"%s\" targeting kernel \"%s\"",
-				idx, msg.JupyterMessageId(), kernel.ID())
+				idx+1, msg.JupyterMessageId(), kernel.ID())
 			d.log.Error(err.Error())
 			go d.notifyDashboardOfError(fmt.Sprintf("Missing Replica (%d) of Kernel \"%s\"",
-				idx, kernel.ID()), err.Error())
+				idx+1, kernel.ID()), err.Error())
 			msg.IsFailedExecuteRequest = true
 			return nil, err
 		}
@@ -3409,10 +3427,10 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		container := replica.Container()
 		if container == nil {
 			err = fmt.Errorf("container for non-nil replica %d of kernel \"%s\" is nil while processing \"execute_request\" \"%s\"",
-				idx, kernel.ID(), msg.JupyterMessageId())
+				replica.ReplicaID(), kernel.ID(), msg.JupyterMessageId())
 			d.log.Error(err.Error())
 			go d.notifyDashboardOfError(fmt.Sprintf("Missing Container for Replica (%d) of Kernel \"%s\"",
-				idx, kernel.ID()), err.Error())
+				replica.ReplicaID(), kernel.ID()), err.Error())
 			msg.IsFailedExecuteRequest = true
 			return nil, err
 		}
@@ -3420,10 +3438,10 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		host := container.Host()
 		if host == nil {
 			err = fmt.Errorf("host of container for (non-nil) replica %d of kernel \"%s\" is nil while processing \"execute_request\" \"%s\"",
-				idx, kernel.ID(), msg.JupyterMessageId())
+				replica.ReplicaID(), kernel.ID(), msg.JupyterMessageId())
 			d.log.Error(err.Error())
 			go d.notifyDashboardOfError(fmt.Sprintf("Missing Host for Container of replica (%d) of Kernel \"%s\"",
-				idx, kernel.ID()), err.Error())
+				replica.ReplicaID(), kernel.ID()), err.Error())
 			msg.IsFailedExecuteRequest = true
 			return nil, err
 		}
@@ -3434,7 +3452,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 				container.ReplicaId(), container.KernelID(), container.ReplicaId())
 
 			// TODO: Need to send "yield_request" to this kernel replica.
-			ineligibleReplicas = append(ineligibleReplicas, replica)
+			ineligibleReplicas[replica.ReplicaID()] = replica
 		}
 	}
 
@@ -3468,13 +3486,13 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		// Recreate the ineligibleReplicas slice, populating it with just the replicas that weren't migrated.
 		// The migrated replica is the only eligible replica, and so it'll be targeted explicitly when we go to
 		// forward the "execute_request" after returning from processExecuteRequest.
-		ineligibleReplicas = make([]scheduling.KernelReplica, 0, 2)
-		for idx, replica := range kernel.Replicas() {
-			if idx == targetReplica {
+		ineligibleReplicas = make(map[int32]scheduling.KernelReplica, 2)
+		for _, replica := range kernel.Replicas() {
+			if replica.ReplicaID() == int32(targetReplica) {
 				continue
 			}
 
-			ineligibleReplicas = append(ineligibleReplicas, replica)
+			ineligibleReplicas[replica.ReplicaID()] = replica
 		}
 	}
 

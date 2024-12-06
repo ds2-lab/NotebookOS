@@ -1000,3 +1000,48 @@ func (m *JupyterMessage) String() string {
 func (m *JupyterMessage) StringFormatted() string {
 	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.StringFormatted())
 }
+
+// CreateAndReturnYieldRequestMessage creates a "yield_request" message from the target message.
+//
+// If the target message is not of type "execute_request", then an error is returned.
+//
+// This will return a COPY of the original message with the type field modified to contact "yield_request" instead of "execute_request".
+// On success, the returned error will be nil. If an error occurs, then the returned message will be nil, and the error will be non-nil.
+//
+// PRECONDITION: The given message must be an "execute_request" message.
+// This function will NOT check this. It should be checked before calling this function.
+func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, error) {
+	if m.JupyterMessageType() != ShellExecuteRequest {
+		return nil, fmt.Errorf("%w: message is of type \"%s\", not \"%s\"", ErrInvalidJupyterMessage, m.JupyterMessageType(), ShellExecuteRequest)
+	}
+
+	// Clone the original message.
+	var newMessage = m.GetZmqMsg().Clone()
+	jMsg := NewJupyterMessage(&newMessage)
+
+	// Change the message header.
+	_ = jMsg.SetMessageType(ShellYieldRequest, false)
+
+	// Create a JupyterFrames struct by wrapping with the message's frames.
+	if err := jMsg.Validate(); err != nil {
+		// m.notifyClusterGatewayAndPanic("Failed to Validate \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
+		return nil, err
+	}
+
+	// Replace the header with the new header (that has the 'yield_request' MsgType).
+	header, err := jMsg.GetHeader()
+	if err != nil {
+		return nil, err
+	}
+
+	if err = jMsg.JupyterFrames.EncodeHeader(&header); err != nil {
+		// m.notifyClusterGatewayAndPanic("Failed to Encode Header for \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
+		return nil, err
+	}
+
+	// Replace the frames of the cloned message. I don't think this is really necessary, as we do this automatically,
+	// but whatever.
+	newMessage.Frames = jMsg.JupyterFrames.Frames
+
+	return jMsg, nil
+}

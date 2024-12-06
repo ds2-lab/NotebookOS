@@ -131,7 +131,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				Type:   zmq4.UsrMsg,
 			}
 			jMsg := messaging.NewJupyterMessage(msg)
-			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel)
+			processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernel)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
@@ -168,7 +168,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			// Make it so that there are no idle GPUs available.
 			resourceManager.DebugSetIdleGPUs(0)
 
-			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
+			processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
@@ -203,7 +203,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			// Make it so that there are no idle GPUs available.
 			resourceManager.DebugSetIdleGPUs(0)
 
-			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
+			processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
@@ -289,7 +289,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				Type:   zmq4.UsrMsg,
 			}
 			jMsg := messaging.NewJupyterMessage(msg)
-			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
+			processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
