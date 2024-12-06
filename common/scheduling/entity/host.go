@@ -884,49 +884,6 @@ func (h *Host) Disable() error {
 // If there's an error while updating the local view of the resource counts of the Host, then we attempt to
 // synchronize with the remote Host and try again. If that fails, then we just return an error.
 func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelContainer) error {
-	// TODO: Check for deadlock.
-	//syncLocked := h.syncMutex.TryLock()
-	//
-	//// If we fail to sync-lock, then we're presumably in the process of synchronizing (or applying a new snapshot),
-	//// in which case we'll just skip updating our local view of the resources of the remote host, as that update is
-	//// already underway.
-	//var err error
-	//if syncLocked {
-	//	// If our last snapshot from the remote host was received after the container started, and that last snapshot
-	//	// does not show the container as being scheduled on the host, then we can skip updating the state locally,
-	//	// as we've already synchronized with the remote host post-removal.
-	//	if h.lastSnapshot != nil && h.lastSnapshot.GetGoTimestamp().After(container.StartedAt()) {
-	//		containers := h.lastSnapshot.GetContainers()
-	//		found := false
-	//
-	//		// Check the containers. If the container being removed is one of 'em, then we'll update the local view
-	//		// of the resources on the remote host. If the container is not one of 'em, then the host had already
-	//		// removed it when we last synchronized with the host, so we can skip the local resource count update
-	//		// (or else we'll be applying it twice).
-	//		for _, containerOnHost := range containers {
-	//			if containerOnHost.GetReplicaId() == container.ReplicaId() && containerOnHost.GetKernelId() == container.KernelID() {
-	//				// Found the host in the snapshot, so the removal of its resources hasn't already been applied.
-	//				err = h.resourceManager.PendingResources().Subtract(container.ResourceSpec())
-	//				found = true
-	//				break
-	//			}
-	//		}
-	//
-	//		if !found {
-	//			h.log.Debug("Did not find container for replica %d of kernel %s in last snapshot from host %s (ID=%s). Skipping local resource update.",
-	//				container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
-	//		}
-	//	} else {
-	//		// We either don't have a snapshot at all, or we don't have a recent-enough snapshot.
-	//		err = h.resourceManager.PendingResources().Subtract(container.ResourceSpec())
-	//	}
-	//
-	//	h.syncMutex.Unlock()
-	//} else {
-	//	h.log.Warn("Failed to sync-lock host %s (ID=%s) while removing container for replica %d of kernel %s. Skipping local resource update.",
-	//		h.NodeName, h.ID, container.ReplicaId(), container.KernelID())
-	//}
-
 	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
 		h.log.Debug("Releasing committed resources from container for replica %d of kernel %s during eviction process: %s",
 			container.ReplicaId(), container.KernelID(), container.ResourceSpec().String())
@@ -935,6 +892,12 @@ func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelConta
 		if err != nil {
 			h.log.Error("Failed to release committed resources %s from container for replica %d of kernel %s during eviction process: %v",
 				container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), err)
+
+			err2 := h.unsafeHandleResourceError()
+			if err2 != nil {
+				err = errors.Join(err, err2)
+			}
+
 			return err
 		}
 	}
@@ -945,6 +908,12 @@ func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelConta
 	if err != nil {
 		h.log.Error("Could not cleanly remove Container %s from Host %s due to resource-related issue (though the container WAS still removed): %v",
 			container.ContainerID(), h.ID, err)
+
+		err2 := h.unsafeHandleResourceError()
+		if err2 != nil {
+			err = errors.Join(err, err2)
+		}
+
 		return err
 	}
 
@@ -1216,6 +1185,7 @@ func (h *Host) ContainerRemoved(container scheduling.KernelContainer) error {
 	if err != nil {
 		h.log.Error("Error while updating resources of host while evicting container %s: %v",
 			container.ContainerID(), err)
+
 		return err
 	}
 
