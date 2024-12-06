@@ -29,6 +29,9 @@ type HostResources struct {
 	gpus           decimal.Decimal // gpus is the number of GPUs.
 	memoryMB       decimal.Decimal // memoryMB is the amount of memory in MB.
 	vramGB         decimal.Decimal // vram is the amount of GPU memory in GB.
+
+	// maximum provides a maximum of each Kind of resource so we can clamp from above as well.
+	maximum *types.DecimalSpec
 }
 
 func (res *HostResources) GetResourceCountsAsString() string {
@@ -110,8 +113,24 @@ func (res *HostResources) ProtoSnapshot(snapshotId int32) *proto.ResourcesSnapsh
 	return snapshot
 }
 
+func (res *HostResources) toTransactionResources(mutable bool) *transactionResources {
+	return &transactionResources{
+		isMutable: mutable,
+		initial:   res.ToDecimalSpec(),
+		working:   res.ToDecimalSpec(),
+	}
+}
+
+func (res *HostResources) ToTransactionResources(mutable bool) TransactionResources {
+	return &transactionResources{
+		isMutable: mutable,
+		initial:   res.ToDecimalSpec(),
+		working:   res.ToDecimalSpec(),
+	}
+}
+
 // ToDecimalSpec returns a pointer to a types.DecimalSpec struct that encapsulates a snapshot of
-// the current quantities of HostResources encoded/maintained by the target HostResources struct.
+// the working quantities of HostResources encoded/maintained by the target HostResources struct.
 //
 // This method is thread-safe to ensure that the quantity of each individual resource type cannot
 // be modified during the time that the new types.DecimalSpec struct is being constructed.
@@ -123,7 +142,7 @@ func (res *HostResources) ToDecimalSpec() *types.DecimalSpec {
 }
 
 // unsafeToDecimalSpec returns a pointer to a types.DecimalSpec struct that encapsulates a snapshot of
-// the current quantities of HostResources encoded/maintained by the target HostResources struct.
+// the working quantities of HostResources encoded/maintained by the target HostResources struct.
 //
 // This method is not thread-safe and should be called only by the ToDecimalSpec method, unless
 // the HostResources' lock is already held.
@@ -496,6 +515,22 @@ func (res *HostResources) SetMillicpus(millicpus decimal.Decimal) {
 	res.millicpus = millicpus
 }
 
+// SetTo assigns all the fields of the HostResources to the corresponding field in the given types.DecimalSpec.
+//
+// Important: SetTo does NOT perform any sort of checking of the parameter to ensure that the HostResources are
+// set to a valid state. As such, SetTo is dangerous and should be used with care.
+func (res *HostResources) SetTo(spec types.Spec) {
+	res.Lock()
+	defer res.Unlock()
+
+	decimalSpec := types.ToDecimalSpec(spec)
+
+	res.millicpus = decimalSpec.Millicpus
+	res.memoryMB = decimalSpec.MemoryMb
+	res.gpus = decimalSpec.GPUs
+	res.vramGB = decimalSpec.VRam
+}
+
 // Add adds the HostResources encapsulated in the given types.DecimalSpec to the HostResources' internal resource counts.
 //
 // If performing this operation were to result in any of the HostResources' internal counts becoming negative, then
@@ -509,32 +544,48 @@ func (res *HostResources) Add(spec *types.DecimalSpec) error {
 
 	updatedCPUs := res.millicpus.Add(spec.Millicpus)
 	updatedCPUs = TryRoundToZero(updatedCPUs)
+	if res.maximum != nil {
+		updatedCPUs = TryRoundToDecimal(updatedCPUs, res.maximum.Millicpus)
+	}
+
 	if updatedCPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s Millicpus would be set to %s millicpus after addition (current=%s,addend=%s)",
+		return fmt.Errorf("%w: %s Millicpus would be set to %s millicpus after addition (working=%s,addend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedCPUs.String(),
 			res.millicpus.StringFixed(6), spec.Millicpus.StringFixed(6))
 	}
 
 	updatedMemory := res.memoryMB.Add(spec.MemoryMb)
 	updatedMemory = TryRoundToZero(updatedMemory)
+	if res.maximum != nil {
+		updatedMemory = TryRoundToDecimal(updatedMemory, res.maximum.MemoryMb)
+	}
+
 	if updatedMemory.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after addition (current=%s,addend=%s)",
+		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after addition (working=%s,addend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedMemory.String(),
 			res.memoryMB.StringFixed(6), spec.MemoryMb.StringFixed(6))
 	}
 
 	updatedGPUs := res.gpus.Add(spec.GPUs)
 	updatedGPUs = TryRoundToZero(updatedGPUs)
+	if res.maximum != nil {
+		updatedGPUs = TryRoundToDecimal(updatedGPUs, res.maximum.GPUs)
+	}
+
 	if updatedGPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs after addition (current=%s,addend=%s)",
+		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs after addition (working=%s,addend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedGPUs.String(),
 			res.gpus.StringFixed(6), spec.GPUs.StringFixed(6))
 	}
 
 	updatedVRAM := res.vramGB.Add(spec.VRam)
 	updatedVRAM = TryRoundToZero(updatedVRAM)
+	if res.maximum != nil {
+		updatedVRAM = TryRoundToDecimal(updatedVRAM, res.maximum.VRam)
+	}
+
 	if updatedVRAM.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s VRAM would be set to %s GB after subtraction (current=%s,subtrahend=%s)",
+		return fmt.Errorf("%w: %s VRAM would be set to %s GB after subtraction (working=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedVRAM.String(),
 			res.vramGB.StringFixed(6), spec.VRam.StringFixed(6))
 	}
@@ -562,32 +613,48 @@ func (res *HostResources) Subtract(spec *types.DecimalSpec) error {
 
 	updatedCPUs := res.millicpus.Sub(spec.Millicpus)
 	updatedCPUs = TryRoundToZero(updatedCPUs)
+	if res.maximum != nil {
+		updatedCPUs = TryRoundToDecimal(updatedCPUs, res.maximum.Millicpus)
+	}
+
 	if updatedCPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s Millicpus would be set to %s millicpus after subtraction (current=%s,subtrahend=%s)",
+		return fmt.Errorf("%w: %s Millicpus would be set to %s millicpus after subtraction (working=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedCPUs.String(),
 			res.millicpus.StringFixed(6), spec.Millicpus.StringFixed(6))
 	}
 
 	updatedMemory := res.memoryMB.Sub(spec.MemoryMb)
 	updatedMemory = TryRoundToZero(updatedMemory)
+	if res.maximum != nil {
+		updatedMemory = TryRoundToDecimal(updatedMemory, res.maximum.MemoryMb)
+	}
+
 	if updatedMemory.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after subtraction (current=%s,subtrahend=%s)",
+		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after subtraction (working=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedMemory.String(),
 			res.memoryMB.StringFixed(6), spec.MemoryMb.StringFixed(6))
 	}
 
 	updatedGPUs := res.gpus.Sub(spec.GPUs)
 	updatedGPUs = TryRoundToZero(updatedGPUs)
+	if res.maximum != nil {
+		updatedGPUs = TryRoundToDecimal(updatedGPUs, res.maximum.GPUs)
+	}
+
 	if updatedGPUs.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs after subtraction (current=%s,subtrahend=%s)",
+		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs after subtraction (working=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedGPUs.String(),
 			res.gpus.StringFixed(1), spec.GPUs.StringFixed(1))
 	}
 
 	updatedVRAM := res.vramGB.Sub(spec.VRam)
 	updatedVRAM = TryRoundToZero(updatedVRAM)
+	if res.maximum != nil {
+		updatedVRAM = TryRoundToDecimal(updatedVRAM, res.maximum.VRam)
+	}
+
 	if updatedVRAM.LessThan(decimal.Zero) {
-		return fmt.Errorf("%w: %s VRAM would be set to %s GB after subtraction (current=%s,subtrahend=%s)",
+		return fmt.Errorf("%w: %s VRAM would be set to %s GB after subtraction (working=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedVRAM.String(),
 			res.vramGB.StringFixed(6), spec.VRam.StringFixed(6))
 	}

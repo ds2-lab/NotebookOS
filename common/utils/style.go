@@ -34,8 +34,7 @@ var (
 			Foreground(lipgloss.Color("#7400e0"))
 	GrayStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#adadad"))
-	IncrementPendingStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#34e1ed"))
+	IncrementPendingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#34e1ed"))
 	DecrementPendingStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#2dcca1"))
 

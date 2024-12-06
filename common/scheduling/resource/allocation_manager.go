@@ -90,7 +90,7 @@ func NewAllocationManager(resourceSpec types.Spec) *AllocationManager {
 	return manager
 }
 
-// ResourcesSnapshot returns a *ManagerSnapshot encoding the current resource quantities
+// ResourcesSnapshot returns a *ManagerSnapshot encoding the working resource quantities
 // tracked by the AllocationManager. The ManagerSnapshot struct is JSON-serializable.
 // This method is intended to be used when the data will be transferred via JSON/ZMQ.
 //
@@ -140,7 +140,7 @@ func (m *AllocationManager) ResourcesSnapshot() *ManagerSnapshot {
 	return snapshot
 }
 
-// ProtoResourcesSnapshot returns a *proto.NodeResourcesSnapshot encoding the current resource quantities
+// ProtoResourcesSnapshot returns a *proto.NodeResourcesSnapshot encoding the working resource quantities
 // tracked by the AllocationManager. This method is intended to be used when the data will be transferred via gRPC.
 //
 // Important note: the *ManagerSnapshot structs created by the AllocationManager's ArbitraryResourceSnapshot method and
@@ -260,7 +260,7 @@ func (m *AllocationManager) SpecVRAM() decimal.Decimal {
 	return m.resourcesWrapper.SpecResources().VRAMAsDecimal().Copy()
 }
 
-// SpecResources returns a snapshot of the current quantities of spec HostResources available
+// SpecResources returns a snapshot of the working quantities of spec HostResources available
 // on this node at the time at which the SpecResources method is called.
 func (m *AllocationManager) SpecResources() *types.DecimalSpec {
 	return m.resourcesWrapper.specResources.ToDecimalSpec()
@@ -294,7 +294,7 @@ func (m *AllocationManager) IdleVRamGB() decimal.Decimal {
 	return m.resourcesWrapper.IdleResources().VRAMAsDecimal().Copy()
 }
 
-// IdleResources returns a snapshot of the current quantities of idle HostResources available
+// IdleResources returns a snapshot of the working quantities of idle HostResources available
 // on this node at the time at which the IdleResources method is called.
 func (m *AllocationManager) IdleResources() *types.DecimalSpec {
 	return m.resourcesWrapper.idleResources.ToDecimalSpec()
@@ -328,7 +328,7 @@ func (m *AllocationManager) CommittedVRamGB() decimal.Decimal {
 	return m.resourcesWrapper.CommittedResources().VRAMAsDecimal().Copy()
 }
 
-// CommittedResources returns a snapshot of the current quantities of committed HostResources available
+// CommittedResources returns a snapshot of the working quantities of committed HostResources available
 // on this node at the time at which the CommittedResources method is called.
 func (m *AllocationManager) CommittedResources() *types.DecimalSpec {
 	return m.resourcesWrapper.committedResources.ToDecimalSpec()
@@ -375,7 +375,7 @@ func (m *AllocationManager) PendingVRAM() decimal.Decimal {
 	return m.resourcesWrapper.PendingResources().VRAMAsDecimal().Copy()
 }
 
-// PendingResources returns a snapshot of the current quantities of pending HostResources available
+// PendingResources returns a snapshot of the working quantities of pending HostResources available
 // on this node at the time at which the PendingResources method is called.
 func (m *AllocationManager) PendingResources() *types.DecimalSpec {
 	return m.resourcesWrapper.pendingResources.ToDecimalSpec()
@@ -710,9 +710,8 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 		return err
 	}
 
-	m.log.Debug("Committing resources. Current idle: %v. Current pending: %v. Current committed: %v. Resources to be committed: %v.",
-		m.resourcesWrapper.idleResources.String(), m.resourcesWrapper.pendingResources.String(),
-		m.resourcesWrapper.committedResources.String(), requestedResources.String())
+	m.log.Debug("Committing resources. Current resource counts: %s. Resources to be committed: %v.",
+		m.resourcesWrapper.GetResourceCountsAsString(), requestedResources.String())
 
 	// If we've gotten this far, then we have enough HostResources available to commit the requested HostResources
 	// to the specified kernel replica. So, let's do that now. First, we'll decrement the idle HostResources.
@@ -749,8 +748,7 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 
 	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isReservation=%v): %v",
 		replicaId, kernelId, isReservation, requestedResources.String())
-	m.log.Debug("Updated idle: %v. Updated pending: %v. Updated committed: %v.",
-		m.resourcesWrapper.idleResources.String(), m.resourcesWrapper.pendingResources.String(), m.resourcesWrapper.committedResources.String())
+	m.log.Debug("Updated resource counts: %s.", m.resourcesWrapper.GetResourceCountsAsString())
 
 	// Update Prometheus metrics.
 	// m.resourceMetricsCallback(m.Manager)
@@ -810,8 +808,8 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 	// the ReleaseCommittedResources method.
 	m.unsafeReleaseCommittedResources(allocation, nil)
 
-	m.log.Debug("Attempting to release the following committed HostResources from replica %d of kernel %s: %v. Current committed resource counts: %v.",
-		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.committedResources.String())
+	m.log.Debug("Attempting to release the following committed HostResources from replica %d of kernel %s: %v. Current resource counts: %v.",
+		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.GetResourceCountsAsString())
 
 	// Finally, we'll update the Allocation struct associated with this request.
 	// This involves updating its AllocationType field to be PendingAllocation.
@@ -820,8 +818,8 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 	// allocations.
 	m.unsafeDemoteCommittedAllocationToPendingAllocation(allocation)
 
-	m.log.Debug("Successfully released the following (previously) committed HostResources to replica %d of kernel %s: %v. Updated committed resource counts: %v.",
-		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.committedResources.String())
+	m.log.Debug("Successfully released the following (previously) committed HostResources to replica %d of kernel %s: %v. Updated resource counts: %v.",
+		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.GetResourceCountsAsString())
 
 	// Update Prometheus metrics.
 	// m.resourceMetricsCallback(m.Manager)
@@ -1078,8 +1076,8 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 }
 
 func (m *AllocationManager) unsafeUnsubscribePendingResources(allocatedResources *types.DecimalSpec, key string) error {
-	m.log.Debug("Deallocating pending resources. Current pending resources: %v. Resources to be deallocated: %v",
-		m.resourcesWrapper.pendingResources.String(), allocatedResources.String())
+	m.log.Debug("Deallocating pending resources. Current resources: %v. Resources to be deallocated: %v",
+		m.resourcesWrapper.GetResourceCountsAsString(), allocatedResources.String())
 
 	if err := m.resourcesWrapper.pendingResources.Subtract(allocatedResources); err != nil {
 		return err
@@ -1112,8 +1110,8 @@ func (m *AllocationManager) unsafeAllocatePendingResources(decimalSpec *types.De
 		return err
 	}
 
-	m.log.Debug("Allocating pending resources. Current pending resources: %v. Resources to be allocated: %v.",
-		m.resourcesWrapper.pendingResources.String(), decimalSpec.String())
+	m.log.Debug("Allocating pending resources. Current resources: %s. Resources to be allocated: %v.",
+		m.resourcesWrapper.GetResourceCountsAsString(), decimalSpec.String())
 
 	// If we've gotten this far, then we have enough HostResources available to subscribe the requested HostResources
 	// to the specified kernel replica. So, let's do that now.
@@ -1123,8 +1121,8 @@ func (m *AllocationManager) unsafeAllocatePendingResources(decimalSpec *types.De
 		return err
 	}
 
-	m.log.Debug("Allocated pending resources. New pending resources: %v.",
-		m.resourcesWrapper.pendingResources.String())
+	m.log.Debug("Allocated pending resources. New resource counts: %s.",
+		m.resourcesWrapper.GetResourceCountsAsString())
 
 	// Store the allocation in the mapping.
 	m.allocationKernelReplicaMap.Store(key, allocation)
@@ -1181,8 +1179,8 @@ func (m *AllocationManager) unsafeReleaseCommittedResources(allocation *Allocati
 		allocatedResources = allocation.ToDecimalSpec()
 	}
 
-	m.log.Debug("Releasing committed resources. Current idle: %v. Current pending: %v. Current committed: %v. Resources to be allocated: %v.",
-		m.resourcesWrapper.idleResources.String(), m.resourcesWrapper.pendingResources.String(), m.resourcesWrapper.committedResources.String(), allocatedResources.String())
+	m.log.Debug("Releasing committed resources. Current resource counts: %s. Resources to be allocated: %v.",
+		m.resourcesWrapper.GetResourceCountsAsString(), allocatedResources.String())
 
 	// If we've gotten this far, then we have enough HostResources available to commit the requested HostResources
 	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle HostResources.
@@ -1206,6 +1204,5 @@ func (m *AllocationManager) unsafeReleaseCommittedResources(allocation *Allocati
 		panic(err)
 	}
 
-	m.log.Debug("Released committed resources. Updated idle: %v. Updated pending: %v. Updated committed: %v.",
-		m.resourcesWrapper.idleResources.String(), m.resourcesWrapper.pendingResources.String(), m.resourcesWrapper.committedResources.String())
+	m.log.Debug("Released committed resources. Updated resource counts: %s.", m.resourcesWrapper.GetResourceCountsAsString())
 }

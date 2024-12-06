@@ -191,10 +191,64 @@ func NewManager(spec types.Spec) *Manager {
 	}
 }
 
+// unsafeGetTransactionState returns a *transactionState to use as input to a Transaction.
+//
+// unsafeGetTransactionState is NOT thread-safe and must be called while the Manager's mutex is already acquired.
+func (m *Manager) unsafeGetTransactionState() *transactionState {
+	return &transactionState{
+		idleResources:      m.idleResources.toTransactionResources(true),
+		pendingResources:   m.pendingResources.toTransactionResources(true),
+		committedResources: m.committedResources.toTransactionResources(true),
+		specResources:      m.specResources.toTransactionResources(false),
+	}
+}
+
+// unsafeCommitTransaction commits the final working resource counts from the Transaction
+// to the resource counts of the Manager.
+func (m *Manager) unsafeCommitTransaction(t TransactionState) {
+	m.idleResources.SetTo(t.IdleResources().Working())
+	m.pendingResources.SetTo(t.PendingResources().Working())
+	m.committedResources.SetTo(t.CommittedResources().Working())
+}
+
+// RunTransaction atomically executes the specified Transaction.
+//
+// If the Transaction completes without any errors, then the final working resource counts from the Transaction
+// will be applied to the resource counts of the Manager.
+//
+// If there are any errors, then the Transaction is discarded entirely.
+func (m *Manager) RunTransaction(transaction Transaction) error {
+	if transaction == nil {
+		return ErrNilTransaction
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	resultChan := make(chan interface{}, 1)
+	runner := &TransactionRunner{
+		transaction: transaction,
+		state:       m.unsafeGetTransactionState(),
+		resultChan:  resultChan,
+	}
+
+	runner.runTransaction()
+
+	result := <-resultChan
+
+	if err, ok := result.(error); ok {
+		return err
+	}
+
+	m.unsafeCommitTransaction(runner.State())
+
+	return nil
+}
+
 func (m *Manager) GetResourceCountsAsString() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// return fmt.Sprintf("CPUs (mCPUs): %s, %s, %s // Memory (MB): %s, %s, %s // GPUs: %s, %s, %s // VRAM (GB): %s, %s, %s",
 	return fmt.Sprintf("IDLE [%s], PENDING [%s], COMMITTED [%s]", m.idleResources.GetResourceCountsAsString(),
 		m.pendingResources.GetResourceCountsAsString(), m.committedResources.GetResourceCountsAsString())
@@ -246,7 +300,7 @@ func (m *Manager) String() string {
 		m.idleResources.String(), m.pendingResources.String(), m.committedResources.String(), m.specResources.String())
 }
 
-// IdleResources returns a ComputeResourceState that is responsible for encoding the current idle HostResources
+// IdleResources returns a ComputeResourceState that is responsible for encoding the working idle HostResources
 // of the target Manager.
 func (m *Manager) IdleResources() *HostResources {
 	m.mu.Lock()
@@ -255,7 +309,7 @@ func (m *Manager) IdleResources() *HostResources {
 	return m.idleResources
 }
 
-// PendingResources returns a ComputeResourceState that is responsible for encoding the current pending HostResources
+// PendingResources returns a ComputeResourceState that is responsible for encoding the working pending HostResources
 // of the target Manager.
 func (m *Manager) PendingResources() *HostResources {
 	m.mu.Lock()
@@ -264,7 +318,7 @@ func (m *Manager) PendingResources() *HostResources {
 	return m.pendingResources
 }
 
-// CommittedResources returns a ComputeResourceState that is responsible for encoding the current committed HostResources
+// CommittedResources returns a ComputeResourceState that is responsible for encoding the working committed HostResources
 // of the target Manager.
 func (m *Manager) CommittedResources() *HostResources {
 	m.mu.Lock()
@@ -273,7 +327,7 @@ func (m *Manager) CommittedResources() *HostResources {
 	return m.committedResources
 }
 
-// SpecResources returns a ComputeResourceState that is responsible for encoding the current spec HostResources
+// SpecResources returns a ComputeResourceState that is responsible for encoding the working spec HostResources
 // of the target Manager.
 func (m *Manager) SpecResources() *HostResources {
 	m.mu.Lock()
@@ -282,7 +336,7 @@ func (m *Manager) SpecResources() *HostResources {
 	return m.specResources
 }
 
-// idleResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current idle HostResources
+// idleResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the working idle HostResources
 // of the target Manager.
 func (m *Manager) idleResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
 	m.mu.Lock()
@@ -291,7 +345,7 @@ func (m *Manager) idleResourcesSnapshot(snapshotId int32) *ComputeResourceSnapsh
 	return m.idleResources.ResourceSnapshot(snapshotId)
 }
 
-// pendingResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current pending HostResources
+// pendingResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the working pending HostResources
 // of the target Manager.
 func (m *Manager) pendingResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
 	m.mu.Lock()
@@ -300,7 +354,7 @@ func (m *Manager) pendingResourcesSnapshot(snapshotId int32) *ComputeResourceSna
 	return m.pendingResources.ResourceSnapshot(snapshotId)
 }
 
-// committedResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current committed HostResources
+// committedResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the working committed HostResources
 // of the target Manager.
 func (m *Manager) committedResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
 	m.mu.Lock()
@@ -309,7 +363,7 @@ func (m *Manager) committedResourcesSnapshot(snapshotId int32) *ComputeResourceS
 	return m.committedResources.ResourceSnapshot(snapshotId)
 }
 
-// specResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current spec HostResources
+// specResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the working spec HostResources
 // of the target Manager.
 func (m *Manager) specResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
 	m.mu.Lock()
@@ -318,7 +372,7 @@ func (m *Manager) specResourcesSnapshot(snapshotId int32) *ComputeResourceSnapsh
 	return m.specResources.ResourceSnapshot(snapshotId)
 }
 
-// IdleProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current idle HostResources
+// IdleProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the working idle HostResources
 // of the target Manager.
 func (m *Manager) IdleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	m.mu.Lock()
@@ -327,7 +381,7 @@ func (m *Manager) IdleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesS
 	return m.idleResources.ProtoSnapshot(snapshotId)
 }
 
-// PendingProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current pending HostResources
+// PendingProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the working pending HostResources
 // of the target Manager.
 func (m *Manager) PendingProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	m.mu.Lock()
@@ -336,7 +390,7 @@ func (m *Manager) PendingProtoResourcesSnapshot(snapshotId int32) *proto.Resourc
 	return m.pendingResources.ProtoSnapshot(snapshotId)
 }
 
-// CommittedProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current committed HostResources
+// CommittedProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the working committed HostResources
 // of the target Manager.
 func (m *Manager) CommittedProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	m.mu.Lock()
@@ -345,7 +399,7 @@ func (m *Manager) CommittedProtoResourcesSnapshot(snapshotId int32) *proto.Resou
 	return m.committedResources.ProtoSnapshot(snapshotId)
 }
 
-// SpecProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current spec HostResources
+// SpecProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the working spec HostResources
 // of the target Manager.
 func (m *Manager) SpecProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
 	m.mu.Lock()

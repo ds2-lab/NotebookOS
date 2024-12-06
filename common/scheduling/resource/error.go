@@ -37,7 +37,7 @@ type InconsistentResourcesError struct {
 	// ResourceKind indicates which kind of resource is in an inconsistent or invalid state.
 	ResourceKind Kind
 
-	// ResourceStatus indicates which status of resource is in an inconsistent or invalid state.
+	// ResourceStatus indicates which status of resource (idle, pending, or committed) is in an inconsistent or invalid state.
 	ResourceStatus Status
 
 	// ResourceInconsistency defines the various ways in which HostResources can be in an inconsistent or illegal state.
@@ -65,8 +65,7 @@ type InconsistentResourcesError struct {
 // NewInconsistentResourcesError creates a new InconsistentResourcesError struct and returns a pointer to it.
 //
 // This function sets the ReferenceQuantityIsMeaningful field to false.
-func NewInconsistentResourcesError(kind Kind, inconsistency Inconsistency, status Status,
-	quantity decimal.Decimal) *InconsistentResourcesError {
+func NewInconsistentResourcesError(kind Kind, inconsistency Inconsistency, status Status, quantity decimal.Decimal) *InconsistentResourcesError {
 
 	return &InconsistentResourcesError{
 		ResourceKind:                  kind,
@@ -102,10 +101,10 @@ func (e *InconsistentResourcesError) AsError() error {
 
 func (e *InconsistentResourcesError) Error() string {
 	if e.ReferenceQuantityIsMeaningful {
-		return fmt.Sprintf("resource \"%s\" is an inconsistent or invalid state: \"%s\" (quantity=%s, referenceQuantity=%s)",
-			e.ResourceKind, e.ResourceInconsistency, e.Quantity, e.ReferenceQuantity)
+		return fmt.Sprintf("%s resource \"%s\" is an inconsistent or invalid state: \"%s\" (quantity=%s, referenceQuantity=%s)",
+			e.ResourceStatus, e.ResourceKind, e.ResourceInconsistency, e.Quantity, e.ReferenceQuantity)
 	} else {
-		return fmt.Sprintf("resource \"%s\" is an inconsistent or invalid state: \"%s\" (quantity=%s)",
-			e.ResourceKind, e.ResourceInconsistency, e.Quantity)
+		return fmt.Sprintf("%s resource \"%s\" is an inconsistent or invalid state: \"%s\" (quantity=%s)",
+			e.ResourceStatus, e.ResourceKind, e.ResourceInconsistency, e.Quantity)
 	}
 }

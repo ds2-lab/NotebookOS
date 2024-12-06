@@ -33,3 +33,11 @@ func TryRoundToZero(d decimal.Decimal) decimal.Decimal {
 
 	return d
 }
+
+func TryRoundToDecimal(d decimal.Decimal, roundTo decimal.Decimal) decimal.Decimal {
+	if EqualWithTolerance(d, roundTo) {
+		return roundTo
+	}
+
+	return d
+}

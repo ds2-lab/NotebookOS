@@ -144,6 +144,17 @@ func (d *DecimalSpec) Add(other Spec) Spec {
 	}
 }
 
+func (d *DecimalSpec) AddDecimal(other Spec) *DecimalSpec {
+	d2 := ToDecimalSpec(other)
+
+	return &DecimalSpec{
+		GPUs:      d.GPUs.Add(d2.GPUs),
+		VRam:      d.VRam.Add(d2.VRam),
+		MemoryMb:  d.MemoryMb.Add(d2.MemoryMb),
+		Millicpus: d.Millicpus.Add(d2.Millicpus),
+	}
+}
+
 func (d *DecimalSpec) Equals(other Spec) bool {
 	d2 := ToDecimalSpec(other)
 

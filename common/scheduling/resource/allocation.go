@@ -21,7 +21,7 @@ const (
 	CommittedAllocation AllocationType = "committed"
 
 	// ResourceSnapshotMetadataKey is used as a key for the metadata dictionary of Jupyter messages
-	// when including a snapshot of the AllocationManager's current resource quantities in the message.
+	// when including a snapshot of the AllocationManager's working resource quantities in the message.
 	ResourceSnapshotMetadataKey string = "resource_snapshot"
 )
 
