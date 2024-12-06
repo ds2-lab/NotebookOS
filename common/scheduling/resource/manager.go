@@ -166,6 +166,7 @@ func NewManager(spec types.Spec) *Manager {
 			memoryMB:       resourceSpec.MemoryMb.Copy(),
 			gpus:           resourceSpec.GPUs.Copy(),
 			vramGB:         resourceSpec.VRam.Copy(),
+			maximum:        types.ToDecimalSpec(spec),
 		},
 		pendingResources: &HostResources{
 			resourceStatus: PendingResources,
@@ -180,6 +181,7 @@ func NewManager(spec types.Spec) *Manager {
 			memoryMB:       decimal.Zero.Copy(),
 			gpus:           decimal.Zero.Copy(),
 			vramGB:         decimal.Zero.Copy(),
+			maximum:        types.ToDecimalSpec(spec),
 		},
 		specResources: &HostResources{
 			resourceStatus: SpecResources,
@@ -187,6 +189,7 @@ func NewManager(spec types.Spec) *Manager {
 			memoryMB:       resourceSpec.MemoryMb.Copy(),
 			gpus:           resourceSpec.GPUs.Copy(),
 			vramGB:         resourceSpec.VRam.Copy(),
+			maximum:        types.ToDecimalSpec(spec),
 		},
 	}
 }
