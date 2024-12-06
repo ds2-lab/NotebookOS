@@ -26,7 +26,7 @@ type PreemptionInfo interface {
 type Host interface {
 	proto.LocalGatewayClient
 
-	// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote DefaultSchedulingPolicy Daemon.
+	// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote Local Daemon.
 	GetGrpcConnection() *grpc.ClientConn
 	GetLocalGatewayClient() proto.LocalGatewayClient
 	GetNodeName() string

@@ -446,26 +446,26 @@ func (s *DockerScheduler) pollForResourceData() {
 				numConsecutiveFailures += 1
 				numConsecutiveFailuresPerHost[hostId] = numConsecutiveFailures
 
-				s.log.Error("Failed to refresh resource usage information from DefaultSchedulingPolicy Daemon %s on Node %s (consecutive: %d): %v",
+				s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s (consecutive: %d): %v",
 					hostId, host.GetNodeName(), numConsecutiveFailures, err)
 
 				// If we've failed 3 or more consecutive times, then we may just assume that the scheduler is dead.
 				if numConsecutiveFailures >= ConsecutiveFailuresWarning {
 					// If the gRPC connection to the scheduler is in the transient failure or shutdown state, then we'll just assume it is dead.
 					if host.GetConnectionState() == connectivity.TransientFailure || host.GetConnectionState() == connectivity.Shutdown {
-						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from DefaultSchedulingPolicy Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.",
+						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.",
 							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String(), host.GetID())
 						s.log.Error(errorMessage)
-						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "DefaultSchedulingPolicy Daemon Connectivity Error", errorMessage)
+						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "Local Daemon Connectivity Error", errorMessage)
 					} else if numConsecutiveFailures >= ConsecutiveFailuresBad {
 						// If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
-						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from DefaultSchedulingPolicy Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.",
+						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.",
 							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String(), host.GetID())
 						s.log.Error(errorMessage)
-						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "DefaultSchedulingPolicy Daemon Connectivity Error", errorMessage)
+						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "Local Daemon Connectivity Error", errorMessage)
 					} else {
 						// Otherwise, we won't assume it is dead yet...
-						s.log.Warn("Failed %d consecutive times to retrieve GPU info from DefaultSchedulingPolicy Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...",
+						s.log.Warn("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...",
 							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String())
 					}
 				}
@@ -497,7 +497,7 @@ func (s *DockerScheduler) refreshClusterNodes() error {
 		hostId := host.GetID()
 		err := host.SynchronizeResourceInformation()
 		if err != nil {
-			s.log.Error("Failed to refresh resource usage information from DefaultSchedulingPolicy Daemon %s on Node %s: %v",
+			s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s: %v",
 				hostId, host.GetNodeName(), err)
 			errs = append(errs, err)
 		}

@@ -551,6 +551,12 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			It("Will select a host with available idle resources when doing so for a replica that is training", func() {
 				validateVariablesNonNil()
 
+				for i := 0; i < numHosts; i++ {
+					host := hosts[i]
+					err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+					Expect(err).To(BeNil())
+				}
+
 				numAdditionalHosts := 3
 				for i := numHosts; i < numAdditionalHosts+numHosts; i++ {
 					fmt.Printf("Adding host #%d\n", i)
@@ -737,6 +743,23 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				})
 
 				hostMapper.EXPECT().GetHostsOfKernel(kernelId).AnyTimes().Return([]scheduling.Host{host1, host2, host3}, nil)
+
+				nextKernelId := uuid.NewString()
+				nextKernelKey := uuid.NewString()
+				nextResourceSpec := proto.NewResourceSpec(1250, 2000, 4, 4)
+
+				nextKernelSpec := &proto.KernelSpec{
+					Id:              nextKernelId,
+					Session:         nextKernelId,
+					Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+					SignatureScheme: jupyter.JupyterSignatureScheme,
+					Key:             nextKernelKey,
+					ResourceSpec:    nextResourceSpec,
+				}
+
+				candidates, err := dockerScheduler.GetCandidateHosts(context.Background(), nextKernelSpec)
+				Expect(err).ToNot(BeNil())
+				Expect(candidates).ToNot(BeNil())
 
 				//kernel.EXPECT().RemoveReplicaByID(1, gomock.Any(), false).Times(1).Return(host1, nil)
 

@@ -142,7 +142,7 @@ type Host struct {
 // newHostForRestoration creates and returns a new Host to be used only for restoring an existing Host.
 // That is, newHostForRestoration should never be used to create a *Host struct for non-restorative purposes.
 //
-// Restoration occurs when a DefaultSchedulingPolicy Daemon that was already connected to the Cluster Gateway reconnects, such as
+// Restoration occurs when a Local Daemon that was already connected to the Cluster Gateway reconnects, such as
 // after suffering from a network partition/lost connection.
 //
 // newHostForRestoration always returns a non-nil error. It either returns an error returned by the network
@@ -152,7 +152,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 	gpuInfoResp, gpuFetchError := localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
 	if gpuFetchError != nil {
 		log.Printf(utils.RedStyle.Render("[ERROR] Failed to fetch latest GPU information from "+
-			"existing+reconnecting DefaultSchedulingPolicy Daemon %s (ID=%s)\n"), confirmedId.NodeName, confirmedId.Id)
+			"existing+reconnecting Local Daemon %s (ID=%s)\n"), confirmedId.NodeName, confirmedId.Id)
 		return nil, gpuFetchError
 	}
 
@@ -170,7 +170,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 	// with the values of this new Host struct.
 	//
 	// The most important is probably the LocalGatewayClient, as that ensures that the
-	// existing Host struct has a new, valid connection to the remote DefaultSchedulingPolicy Daemon.
+	// existing Host struct has a new, valid connection to the remote Local Daemon.
 	host := &Host{
 		ID:                   confirmedId.Id,
 		resourceSpec:         resourceSpec,
@@ -219,7 +219,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 
 	// If the node already exists, then we need to restore it, rather than create an entirely new node.
 	if confirmedId.Existing {
-		log.Printf("[INFO] New DefaultSchedulingPolicy Daemon connection is actually from an existing DefaultSchedulingPolicy Daemon "+
+		log.Printf("[INFO] New Local Daemon connection is actually from an existing Local Daemon "+
 			"(%s, ID=%s) that is reconnecting.\n", confirmedId.NodeName, confirmedId.Id)
 		return newHostForRestoration(localGatewayClient, confirmedId, millicpus, memMb, vramGb, numReplicasPerKernel)
 	}
@@ -299,7 +299,7 @@ func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramG
 	return host, nil
 }
 
-// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote DefaultSchedulingPolicy Daemon.
+// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote Local Daemon.
 func (h *Host) GetGrpcConnection() *grpc.ClientConn {
 	return h.conn
 }

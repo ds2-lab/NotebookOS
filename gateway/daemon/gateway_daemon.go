@@ -139,7 +139,7 @@ type ClusterGateway interface {
 	// GetId returns the ID of the ClusterGateway.
 	GetId() string
 
-	// GetLocalDaemonNodeIDs returns the IDs of the active DefaultSchedulingPolicy Daemon nodes.
+	// GetLocalDaemonNodeIDs returns the IDs of the active Local Daemon nodes.
 	GetLocalDaemonNodeIDs(_ context.Context, _ *proto.Void) (*proto.GetLocalDaemonNodeIDsResponse, error)
 }
 
@@ -229,7 +229,7 @@ type ClusterGatewayImpl struct {
 	addReplicaMutex sync.Mutex
 
 	// dockerNodeMutex is used to synchronize the operations involved with getting or modifying the
-	// number of DefaultSchedulingPolicy Daemon Docker nodes/containers.
+	// number of Local Daemon Docker nodes/containers.
 	dockerNodeMutex sync.Mutex
 
 	// waitGroups hashmap.HashMap[string, *sync.WaitGroup]
@@ -289,7 +289,7 @@ type ClusterGatewayImpl struct {
 	dockerNetworkName string
 
 	// MessageAcknowledgementsEnabled indicates whether we send/expect to receive message acknowledgements
-	// for the ZMQ messages that we're forwarding back and forth between the Jupyter Server and the DefaultSchedulingPolicy Daemons.
+	// for the ZMQ messages that we're forwarding back and forth between the Jupyter Server and the Local Daemons.
 	//
 	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
 	MessageAcknowledgementsEnabled bool
@@ -311,19 +311,19 @@ type ClusterGatewayImpl struct {
 	RequestLog *metrics.RequestLog
 
 	// The initial size of the cluster.
-	// If more than this many DefaultSchedulingPolicy Daemons connect during the 'initial connection period',
+	// If more than this many Local Daemons connect during the 'initial connection period',
 	// then the extra nodes will be disabled until a scale-out event occurs.
 	//
 	// Specifying this as a negative number will disable this feature (so any number of hosts can connect).
 	//
-	// TODO: If a DefaultSchedulingPolicy Daemon connects "unexpectedly", then perhaps it should be disabled by default?
+	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
 	initialClusterSize int
 
 	// The initial connection period is the time immediately after the Cluster Gateway begins running during
-	// which it expects all DefaultSchedulingPolicy Daemons to connect. If greater than N local daemons connect during this period,
+	// which it expects all Local Daemons to connect. If greater than N local daemons connect during this period,
 	// where N is the initial cluster size, then those extra daemons will be disabled.
 	//
-	// TODO: If a DefaultSchedulingPolicy Daemon connects "unexpectedly", then perhaps it should be disabled by default?
+	// TODO: If a Local Daemon connects "unexpectedly", then perhaps it should be disabled by default?
 	initialConnectionPeriod time.Duration
 
 	// inInitialConnectionPeriod indicates whether we're still in the "initial connection period" or not.
@@ -908,8 +908,8 @@ func (d *ClusterGatewayImpl) Listen(transport string, addr string) (net.Listener
 	return d, nil
 }
 
-// acceptHostConnection accepts an incoming connection from a DefaultSchedulingPolicy Daemon and establishes a bidirectional
-// gRPC connection with that DefaultSchedulingPolicy Daemon.
+// acceptHostConnection accepts an incoming connection from a Local Daemon and establishes a bidirectional
+// gRPC connection with that Local Daemon.
 //
 // This returns the gRPC connection, the initial connection, the replacement connection, and an error if one occurs.
 func (d *ClusterGatewayImpl) acceptHostConnection() (*grpc.ClientConn, net.Conn, net.Conn, error) {
@@ -951,21 +951,21 @@ func (d *ClusterGatewayImpl) acceptHostConnection() (*grpc.ClientConn, net.Conn,
 	return gConn, conn, incoming, err
 }
 
-// restoreHost is used to restore an existing Host when a DefaultSchedulingPolicy Daemon loses connection with the Cluster Gateway
+// restoreHost is used to restore an existing Host when a Local Daemon loses connection with the Cluster Gateway
 // and then reconnects.
 //
 // This will return nil on success.
 func (d *ClusterGatewayImpl) restoreHost(host scheduling.Host) error {
-	d.log.Warn("Newly-connected DefaultSchedulingPolicy Daemon actually already exists.")
+	d.log.Warn("Newly-connected Local Daemon actually already exists.")
 
 	// Sanity check.
 	if host == nil {
-		errorMessage := "We're supposed to restore a DefaultSchedulingPolicy Daemon, but the host with which we would perform the restoration is nil...\n"
-		d.notifyDashboardOfError("Failed to Re-Register DefaultSchedulingPolicy Daemon", errorMessage)
+		errorMessage := "We're supposed to restore a Local Daemon, but the host with which we would perform the restoration is nil...\n"
+		d.notifyDashboardOfError("Failed to Re-Register Local Daemon", errorMessage)
 		log.Fatalf(utils.RedStyle.Render(errorMessage))
 	}
 
-	// Restore the DefaultSchedulingPolicy Daemon.
+	// Restore the Local Daemon.
 	// This replaces the gRPC connection of the existing Host struct with that of a new one,
 	// as well as a few other fields.
 	registered, loaded := d.cluster.GetHost(host.GetID())
@@ -976,33 +976,33 @@ func (d *ClusterGatewayImpl) restoreHost(host scheduling.Host) error {
 			return err
 		}
 
-		d.log.Debug("Successfully restored existing DefaultSchedulingPolicy Daemon %s (ID=%s).", registered.GetNodeName(), registered.GetID())
+		d.log.Debug("Successfully restored existing Local Daemon %s (ID=%s).", registered.GetNodeName(), registered.GetID())
 		go d.notifyDashboardOfInfo(
-			fmt.Sprintf("DefaultSchedulingPolicy Daemon %s Reconnected", registered.GetNodeName()),
-			fmt.Sprintf("DefaultSchedulingPolicy Daemon %s on node %s has reconnected to the Cluster Gateway.",
+			fmt.Sprintf("Local Daemon %s Reconnected", registered.GetNodeName()),
+			fmt.Sprintf("Local Daemon %s on node %s has reconnected to the Cluster Gateway.",
 				registered.GetID(),
 				registered.GetNodeName()))
 		return nil
 	}
 
-	errorMessage := fmt.Sprintf("Supposedly existing DefaultSchedulingPolicy Daemon (re)connected, but cannot find associated Host struct... "+
-		"Node claims to be DefaultSchedulingPolicy Daemon %s (ID=%s).", host.GetID(), host.GetNodeName())
+	errorMessage := fmt.Sprintf("Supposedly existing Local Daemon (re)connected, but cannot find associated Host struct... "+
+		"Node claims to be Local Daemon %s (ID=%s).", host.GetID(), host.GetNodeName())
 	d.log.Error(errorMessage)
 
 	go d.notifyDashboardOfError(
-		fmt.Sprintf("DefaultSchedulingPolicy Daemon %s Restoration has Failed", registered.GetNodeName()),
+		fmt.Sprintf("Local Daemon %s Restoration has Failed", registered.GetNodeName()),
 		fmt.Sprintf(errorMessage,
 			registered.GetID(),
 			registered.GetNodeName()))
 
-	// TODO: We could conceivably just register the Host as a new DefaultSchedulingPolicy Daemon, despite the fact
+	// TODO: We could conceivably just register the Host as a new Local Daemon, despite the fact
 	// 		 that the Host thinks it already exists. We may have to re-contact the Host through the
 	//	     SetID procedure, though. We'll at least have to re-create the Host struct, as it was only
 	//		 populated with some of the required fields.
 	return entity.ErrRestorationFailed
 }
 
-// registerNewHost is used to register a new Host (i.e., DefaultSchedulingPolicy Daemon) with the Cluster after the Host connects
+// registerNewHost is used to register a new Host (i.e., Local Daemon) with the Cluster after the Host connects
 // to the Cluster Gateway.
 //
 // This will return nil on success.
@@ -1032,7 +1032,7 @@ func (d *ClusterGatewayImpl) registerNewHost(host scheduling.Host) error {
 		return err
 	}
 
-	go d.notifyDashboardOfInfo("DefaultSchedulingPolicy Daemon Connected", fmt.Sprintf("DefaultSchedulingPolicy Daemon %s (ID=%s) has connected to the Cluster Gateway.", host.GetNodeName(), host.GetID()))
+	go d.notifyDashboardOfInfo("Local Scheduler Connected", fmt.Sprintf("Local Scheduler %s (ID=%s) has connected to the Cluster Gateway.", host.GetNodeName(), host.GetID()))
 
 	return nil
 }
@@ -1113,7 +1113,7 @@ func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
 	}
 
-	d.log.Debug("Issuing UpdateReplicaAddr RPC for replica %d of kernel %s. Sending request to DefaultSchedulingPolicy Daemon of replica %d.", nodeId, kernelId, targetReplica.ReplicaID())
+	d.log.Debug("Issuing UpdateReplicaAddr RPC for replica %d of kernel %s. Sending request to Local Daemon of replica %d.", nodeId, kernelId, targetReplica.ReplicaID())
 	replicaInfo := &proto.ReplicaInfoWithAddr{
 		Id:       nodeId,
 		KernelId: kernelId,
@@ -1130,7 +1130,7 @@ func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 	time.Sleep(time.Second * 5)
 }
 
-// SmrReady is an RPC handler called by the DefaultSchedulingPolicy Daemon to the Cluster Gateway to notify the Gateway that a
+// SmrReady is an RPC handler called by the Local Daemon to the Cluster Gateway to notify the Gateway that a
 // "smr_node_ready" message was received.
 func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *proto.SmrReadyNotification) (*proto.Void, error) {
 	kernelId := smrReadyNotification.KernelId
@@ -1181,7 +1181,7 @@ func (d *ClusterGatewayImpl) SmrReady(_ context.Context, smrReadyNotification *p
 // 	return gateway.VOID, nil
 // }
 
-// SmrNodeAdded is an RPC function called by the DefaultSchedulingPolicy Daemon to the Cluster Gateway when the DefaultSchedulingPolicy Daemon
+// SmrNodeAdded is an RPC function called by the Local Daemon to the Cluster Gateway when the Local Daemon
 // receives a "smr_node_added" IOPub message.
 //
 // NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called. We use SMR_READY instead.
@@ -1292,7 +1292,7 @@ func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificati
 }
 
 func (d *ClusterGatewayImpl) localDaemonDisconnected(localDaemonId string, nodeName string, errorName string, errorMessage string) (err error) {
-	d.log.Warn("DefaultSchedulingPolicy Daemon %s (Node %s) has disconnected. Removing from Cluster.", localDaemonId, nodeName)
+	d.log.Warn("Local Daemon %s (Node %s) has disconnected. Removing from Cluster.", localDaemonId, nodeName)
 	_, err = d.RemoveHost(context.TODO(), &proto.HostId{
 		Id:       localDaemonId,
 		NodeName: nodeName, /* Not needed */
@@ -2236,7 +2236,7 @@ func (d *ClusterGatewayImpl) PingGateway(_ context.Context, in *proto.Void) (*pr
 	return in, nil
 }
 
-// ForceLocalDaemonToReconnect is used to tell a DefaultSchedulingPolicy Daemon to reconnect to the Cluster Gateway.
+// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
 // This is mostly used for testing/debugging the reconnection process.
 func (d *ClusterGatewayImpl) ForceLocalDaemonToReconnect(_ context.Context, in *proto.ForceLocalDaemonToReconnectRequest) (*proto.Void, error) {
 	daemonId := in.LocalDaemonId
@@ -2251,7 +2251,7 @@ func (d *ClusterGatewayImpl) ForceLocalDaemonToReconnect(_ context.Context, in *
 	})
 
 	if err != nil {
-		d.log.Error("Error while instruction DefaultSchedulingPolicy Daemon %s to reconnect to us: %v", daemonId, err)
+		d.log.Error("Error while instruction Local Daemon %s to reconnect to us: %v", daemonId, err)
 
 		if _, ok := status.FromError(err); !ok {
 			err = status.Error(codes.Internal, err.Error())
@@ -2627,7 +2627,7 @@ func (d *ClusterGatewayImpl) GetClusterActualGpuInfo(ctx context.Context, in *pr
 	d.cluster.RangeOverHosts(func(hostId string, host scheduling.Host) (contd bool) {
 		data, err := host.GetActualGpuInfo(ctx, in)
 		if err != nil {
-			d.log.Error("Failed to retrieve actual GPU info from DefaultSchedulingPolicy Daemon %s on node %s because: %v", hostId, host.GetNodeName(), err)
+			d.log.Error("Failed to retrieve actual GPU info from Local Daemon %s on node %s because: %v", hostId, host.GetNodeName(), err)
 			resp.GpuInfo[host.GetNodeName()] = nil
 		} else {
 			resp.GpuInfo[host.GetNodeName()] = data
@@ -2647,7 +2647,7 @@ func (d *ClusterGatewayImpl) getClusterVirtualGpuInfo(ctx context.Context, in *p
 	d.cluster.RangeOverHosts(func(hostId string, host scheduling.Host) (contd bool) {
 		data, err := host.GetVirtualGpuInfo(ctx, in)
 		if err != nil {
-			d.log.Error("Failed to retrieve virtual GPU info from DefaultSchedulingPolicy Daemon %s on node %s because: %v", hostId, host.GetNodeName(), err)
+			d.log.Error("Failed to retrieve virtual GPU info from Local Daemon %s on node %s because: %v", hostId, host.GetNodeName(), err)
 			resp.GpuInfo[host.GetNodeName()] = nil
 		} else {
 			resp.GpuInfo[host.GetNodeName()] = data
@@ -2682,7 +2682,7 @@ func (d *ClusterGatewayImpl) setTotalVirtualGPUs(ctx context.Context, in *proto.
 
 	// If we didn't find a local daemon running on a node with the specified name, then return an error.
 	if targetHost == nil {
-		d.log.Error("Could not find a DefaultSchedulingPolicy Daemon running on Kubernetes node %s.", in.KubernetesNodeName)
+		d.log.Error("Could not find a Local Daemon running on Kubernetes node %s.", in.KubernetesNodeName)
 		return nil, ErrDaemonNotFoundOnNode
 	}
 
@@ -3631,13 +3631,13 @@ func (d *ClusterGatewayImpl) FailNextExecution(ctx context.Context, in *proto.Ke
 		// The newKernels for which the `YieldNextExecution` succeeded will simply yield.
 		_, err := host.YieldNextExecution(ctx, in)
 		if err != nil {
-			d.log.Error("Failed to issue 'FailNextExecution' to DefaultSchedulingPolicy Daemon %s (%s) because: %s",
+			d.log.Error("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s",
 				hostId, host.GetAddress(), err.Error())
 			go d.notifyDashboardOfError("'FailNextExecution' Request Failed",
-				fmt.Sprintf("Failed to issue 'FailNextExecution' to DefaultSchedulingPolicy Daemon %s (%s) because: %s",
+				fmt.Sprintf("Failed to issue 'FailNextExecution' to Local Daemon %s (%s) because: %s",
 					hostId, host.GetAddress(), err.Error()))
 		} else {
-			d.log.Debug("Successfully issued 'FailNextExecution' to DefaultSchedulingPolicy Daemon %s (%s) targeting kernel %s.",
+			d.log.Debug("Successfully issued 'FailNextExecution' to Local Daemon %s (%s) targeting kernel %s.",
 				hostId, host.GetAddress(), in.Id)
 		}
 	}
@@ -4101,7 +4101,7 @@ func (d *ClusterGatewayImpl) GetVirtualDockerNodes(_ context.Context, _ *proto.V
 
 	// TODO: For now, both Docker Swarm mode and Docker Compose mode support Virtual Docker Nodes.
 	// Eventually, Docker Swarm mode will ~only~ support Docker Swarm nodes, which correspond to real machines or VMs.
-	// Virtual Docker nodes correspond to each DefaultSchedulingPolicy Daemon container, and are primarily used for development or small, local simulations.
+	// Virtual Docker nodes correspond to each Local Daemon container, and are primarily used for development or small, local simulations.
 	if !d.DockerMode() {
 		return nil, types.ErrIncompatibleDeploymentMode
 	}
@@ -4135,7 +4135,7 @@ func (d *ClusterGatewayImpl) GetLocalDaemonNodeIDs(_ context.Context, _ *proto.V
 
 	// TODO: For now, both Docker Swarm mode and Docker Compose mode support Virtual Docker Nodes.
 	// Eventually, Docker Swarm mode will ~only~ support Docker Swarm nodes, which correspond to real machines or VMs.
-	// Virtual Docker nodes correspond to each DefaultSchedulingPolicy Daemon container, and are primarily used for development or small, local simulations.
+	// Virtual Docker nodes correspond to each Local Daemon container, and are primarily used for development or small, local simulations.
 	if !d.DockerMode() {
 		return nil, types.ErrIncompatibleDeploymentMode
 	}

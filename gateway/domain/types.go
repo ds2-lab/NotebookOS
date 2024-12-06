@@ -22,9 +22,9 @@ const (
 	// DefaultNumResendAttempts is the default number of attempts we'll resend a message before giving up.
 	DefaultNumResendAttempts = 3
 
-	// DefaultPrometheusPort is the default port on which the DefaultSchedulingPolicy Daemon will serve Prometheus metrics.
+	// DefaultPrometheusPort is the default port on which the Local Daemon will serve Prometheus metrics.
 	DefaultPrometheusPort int = 8089
-	// DefaultPrometheusIntervalSeconds is the default interval, in seconds, on which the DefaultSchedulingPolicy Daemon will push new Prometheus metrics.
+	// DefaultPrometheusIntervalSeconds is the default interval, in seconds, on which the Local Daemon will push new Prometheus metrics.
 	DefaultPrometheusIntervalSeconds = 15
 )
 
@@ -41,8 +41,8 @@ type ClusterDaemonOptions struct {
 	NotebookImageTag                  string `name:"notebook-image-tag"               json:"notebook-image-tag"                yaml:"notebook-image-tag"                  description:"Name of the docker image to use for the jupyter notebook/kernel image"` // Tag to use for the jupyter notebook/kernel image
 	DistributedClusterServicePort     int    `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
 	RemoteDockerEventAggregatorPort   int    `name:"remote-docker-event-aggregator-port" json:"remote-docker-event-aggregator-port" yaml:"remote-docker-event-aggregator-port" description:"The port to be used by the Docker Remote Event Aggregator when running in Docker Swarm mode."`
-	InitialClusterSize                int    `name:"initial-cluster-size" json:"initial-cluster-size" yaml:"initial-cluster-size" description:"The initial size of the cluster. If more than this many DefaultSchedulingPolicy Daemons connect during the 'initial connection period', then the extra nodes will be disabled until a scale-out event occurs."`
-	InitialClusterConnectionPeriodSec int    `name:"initial-connection-period" json:"initial-connection-period" yaml:"initial-connection-period" description:"The initial connection period is the time immediately after the Cluster Gateway begins running during which it expects all DefaultSchedulingPolicy Daemons to connect. If greater than N local daemons connect during this period, where N is the initial cluster size, then those extra daemons will be disabled."`
+	InitialClusterSize                int    `name:"initial-cluster-size" json:"initial-cluster-size" yaml:"initial-cluster-size" description:"The initial size of the cluster. If more than this many Local Daemons connect during the 'initial connection period', then the extra nodes will be disabled until a scale-out event occurs."`
+	InitialClusterConnectionPeriodSec int    `name:"initial-connection-period" json:"initial-connection-period" yaml:"initial-connection-period" description:"The initial connection period is the time immediately after the Cluster Gateway begins running during which it expects all Local Daemons to connect. If greater than N local daemons connect during this period, where N is the initial cluster size, then those extra daemons will be disabled."`
 }
 
 // PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
