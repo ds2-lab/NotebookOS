@@ -501,6 +501,8 @@ message RequestTrace {
   // ElectionEndTime is when the execution fully completed and/or the follower was notified by the leader that it
   // finished executing.
   int64 electionEndTime = 30;
+
+  float e2eLatencyMilliseconds = 31;
 }
 
 message PingInstruction {
