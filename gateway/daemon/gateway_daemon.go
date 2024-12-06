@@ -3181,12 +3181,23 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 // sendShellErrorResponse is used to respond to a shell message immediately, before we've routed it to any local
 // schedulers or kernel replicas, because we encountered an unrecoverable error while (pre)processing the message.
 func (d *ClusterGatewayImpl) sendShellErrorResponse(kernel scheduling.Kernel, request *messaging.JupyterMessage, preprocessingError error) error {
+	d.log.Warn("Sending error response to shell \"%s\" message \"%s\" targeting kernel \"%s\": %v",
+		request.JupyterMessageType(), request.JupyterMessageId(), kernel.ID(), preprocessingError)
+
 	// First, update the header to be a "_reply" message type.
 	header, err := request.GetHeader()
 	if err != nil {
 		d.log.Error("Failed to extract header from shell \"%s\" message \"%s\": %v",
 			request.JupyterMessageType(), request.JupyterMessageId(), err)
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Extract Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response", request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Extract Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		return err
+	}
+
+	err = request.JupyterFrames.EncodeParentHeader(&header)
+	if err != nil {
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Encode Parent Header for Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
 		return err
 	}
 
@@ -3199,13 +3210,15 @@ func (d *ClusterGatewayImpl) sendShellErrorResponse(kernel scheduling.Kernel, re
 	// Re-encode the header.
 	header, err = request.GetHeader()
 	if err != nil {
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Get Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response", request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Get Header from Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
 		return err
 	}
 
 	err = request.EncodeMessageHeader(header)
 	if err != nil {
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Re-Encode Header of Shell \"%s\" Message \"%s\" While Sending Shell Error Response", request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Re-Encode Header of Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
 		return err
 	}
 
@@ -3217,7 +3230,8 @@ func (d *ClusterGatewayImpl) sendShellErrorResponse(kernel scheduling.Kernel, re
 	}
 	err = request.JupyterFrames.EncodeContent(&errorContent)
 	if err != nil {
-		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Encode Error Content of Shell \"%s\" Message \"%s\" While Sending Shell Error Response", request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Encode Error Content of Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+			request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
 		return err
 	}
 
@@ -3225,7 +3239,8 @@ func (d *ClusterGatewayImpl) sendShellErrorResponse(kernel scheduling.Kernel, re
 	if kernel.ConnectionInfo().SignatureScheme != "" && kernel.ConnectionInfo().Key != "" {
 		_, err = request.JupyterFrames.Sign(kernel.ConnectionInfo().SignatureScheme, []byte(kernel.ConnectionInfo().Key))
 		if err != nil {
-			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Sign Response to Shell \"%s\" Message \"%s\" While Sending Shell Error Response", request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
+			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Sign Response to Shell \"%s\" Message \"%s\" While Sending Shell Error Response",
+				request.JupyterMessageType(), request.JupyterMessageId()), err.Error())
 			return err
 		}
 	}
@@ -3270,7 +3285,7 @@ func (d *ClusterGatewayImpl) processExecuteReply(kernelId string, msg *messaging
 		// execution i+1 (i.e., out of order). When this happens, we just stop the current training upon receiving
 		// the "smr_lead_task" message for execution i+1. If and when we receive the "execute_reply" message for
 		// execution i (after we've already moved on to execution i+1), we discard the "old" "execute_reply" message.
-		d.log.Error(utils.RedStyle.Render("Received \"execute_reply\" for \"execute_request\" \"%s\"; however, current execution is for \"execute_request\" \"%s\"."),
+		d.log.Warn(utils.OrangeStyle.Render("Received \"execute_reply\" for \"execute_request\" \"%s\"; however, current execution is for \"execute_request\" \"%s\"."),
 			msg.JupyterParentMessageId(), activeExecution.GetExecuteRequestMessageId())
 
 		oldActiveExecution, loaded := kernel.GetActiveExecutionByExecuteRequestMsgId(msg.JupyterParentMessageId())
@@ -3348,7 +3363,56 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	}
 
 	// The return value will be nil if nothing bad happened in call to processExecuteRequestMetadata.
-	return d.processExecuteRequestMetadata(msg, kernel)
+	err = d.processExecuteRequestMetadata(msg, kernel)
+	if err != nil {
+		return err
+	}
+
+	ineligibleReplicas := make([]scheduling.KernelReplica, 0)
+
+	// Attempt to commit resources for each replica.
+	// If we can't, then we'll convert the request to a yield_request immediately.
+	// Resources will be released if and when the replica loses its leader election.
+	for idx, replica := range kernel.Replicas() {
+		if replica == nil {
+			d.log.Warn("Replica %d of kernel \"%s\" is nil while processing \"execute_request\" \"%s\"...",
+				idx, kernel.ID(), msg.JupyterMessageId())
+			continue
+		}
+
+		container := replica.Container()
+		if container == nil {
+			d.log.Warn("Container for non-nil replica %d of kernel \"%s\" is nil while processing \"execute_request\" \"%s\"...",
+				idx, kernel.ID(), msg.JupyterMessageId())
+			continue
+		}
+
+		host := container.Host()
+		if host == nil {
+			d.log.Warn("Host of container for non-nil replica %d of kernel \"%s\" is nil while processing \"execute_request\" \"%s\"...",
+				idx, kernel.ID(), msg.JupyterMessageId())
+			continue
+		}
+
+		err = host.PreCommitResources(container)
+		if err != nil {
+			d.log.Debug("Failed to pre-commit resources to replica %d of kernel \"%s\". Replica will not be eligible to lead its leader election.",
+				container.ReplicaId(), container.KernelID())
+
+			// TODO: Need to send "yield_request" to this kernel replica.
+			ineligibleReplicas = append(ineligibleReplicas, replica)
+		}
+	}
+
+	if len(ineligibleReplicas) == len(kernel.Replicas()) {
+		d.log.Debug("All replicas of kernel \"%s\" are ineligible to execute code due to insufficient resource availability. Initiating migration now.", kernel.ID())
+
+		// TODO: Initiate migration now. No need to go through leader election process that is destined to fail.
+		//		 Migrate the replica that is scheduled on the host with the largest subscription ratio or the largest
+		//	     number of pending resources.
+	}
+
+	return nil
 }
 
 // processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.
@@ -3625,6 +3689,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 		}
 	}
 
+	// If resp is non-nil, then one or more replicas are not scheduled.
 	if resp != nil {
 		d.log.Debug("Replying with artificial \"%s\" response for Jupyter %s \"%s\" message \"%s\" (JupyterID=\"%s\") for kernel \"%s\".",
 			resp.JupyterMessageType(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), kernel.ID())

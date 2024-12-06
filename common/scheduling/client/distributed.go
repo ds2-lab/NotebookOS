@@ -297,33 +297,54 @@ func (c *DistributedKernelClient) ExecutionComplete(msg *messaging.JupyterMessag
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.activeExecution == nil {
-		log.Fatalf(utils.RedStyle.Render("[ERROR] DistributedKernelClient %s does not have an active execution at all..."), c.id)
-	} else if c.activeExecution.GetActiveReplica() == nil {
-		log.Fatalf(utils.RedStyle.Render("[ERROR] DistributedKernelClient %s has an active execution, but the active replica is nil: %v"),
-			c.id, c.activeExecution.String())
-	}
+	var (
+		associatedExecution *scheduling.ActiveExecution
+		loaded              bool
+	)
 
 	if msg.ReplicaId == -1 {
 		log.Fatalf(utils.RedStyle.Render("[ERROR] Cannot determine which replica \"execute_reply\" %s message came from..."),
 			msg.JupyterMessageId())
 	}
 
-	var (
-		associatedExecution *scheduling.ActiveExecution
-		loaded              bool
-	)
-	if msg.JupyterParentMessageId() != c.activeExecution.GetExecuteRequestMessageId() {
+	if c.activeExecution == nil {
+		c.log.Error(utils.RedStyle.Render("[ERROR] DistributedKernelClient %s does not have an active execution at all..."), c.id)
+
+		associatedExecution, loaded = c.activeExecutionsByExecuteRequestMsgId.Load(msg.JupyterParentMessageId())
+		if !loaded {
+			errorMessage := fmt.Sprintf("Cannot find active execution with \"execute_request\" message ID of \"%s\" associated with kernel \"%s\"...\n",
+				msg.JupyterParentMessageId(), c.id)
+			c.log.Error(utils.RedStyle.Render(errorMessage))
+
+			if c.notificationCallback != nil {
+				go c.notificationCallback("Cannot Find Active Execution", errorMessage, messaging.ErrorNotification)
+			}
+
+			return false, fmt.Errorf(errorMessage)
+		}
+	} else if msg.JupyterParentMessageId() != c.activeExecution.GetExecuteRequestMessageId() {
 		c.log.Error("Received \"execute_reply\" targeting active execution \"%s\" of kernel %s; however, current active execution has \"execute_request\" ID = \"%s\"",
 			msg.JupyterParentMessageId(), c.id, c.activeExecution.GetExecuteRequestMessageId())
 
 		associatedExecution, loaded = c.activeExecutionsByExecuteRequestMsgId.Load(msg.JupyterParentMessageId())
 		if !loaded {
-			log.Fatalf(utils.RedStyle.Render("[ERROR] Cannot find active execution associated with \"execute_request\" \"%s\", for which we just received an \"execute_reply\"..."),
-				msg.JupyterParentMessageId())
+			errorMessage := fmt.Sprintf("Cannot find active execution with \"execute_request\" message ID of \"%s\" associated with kernel \"%s\"...\n",
+				msg.JupyterParentMessageId(), c.id)
+			c.log.Error(utils.RedStyle.Render(errorMessage))
+
+			if c.notificationCallback != nil {
+				go c.notificationCallback("Cannot Find Active Execution", errorMessage, messaging.ErrorNotification)
+			}
+
+			return false, fmt.Errorf(errorMessage)
 		}
 	} else {
 		associatedExecution = c.activeExecution
+	}
+
+	if associatedExecution.GetActiveReplica() == nil {
+		c.log.Error(utils.RedStyle.Render("[ERROR] DistributedKernelClient %s has an active execution, but the active replica is nil: %v"),
+			c.id, c.activeExecution.String())
 	}
 
 	err := c.markExecutionAsComplete(associatedExecution, msg.ReplicaId)
@@ -941,8 +962,6 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplica
 	}
 
 	if msgErr.ErrName == messaging.MessageErrYieldExecution {
-		replica.ReceivedExecuteReply(msg)
-
 		errWhileHandlingYield := c.handleExecutionYieldedNotification(replica, msgErr, msg)
 		if errWhileHandlingYield != nil {
 			msg.IsFailedExecuteRequest = true
@@ -1293,17 +1312,14 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 	st := time.Now()
 	allResponsesReceivedNotificationChannel := make(chan interface{}, 1)
 
-	// TODO: Make sure we can reliably resubmit messages if necessary, due to shell
-	// 		 messages being blocked behind long-running "execute_request" messages.
-	var timeout time.Duration
+	var ctx context.Context
 	if typ == messaging.ShellMessage {
-		timeout = time.Second * 120
+		ctx = context.Background()
 	} else {
-		timeout = time.Second * 60
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Second*60)
+		defer cancel()
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 
 	// Spawn a goroutine to just send a notification when the sync.WaitGroup reaches 0.
 	go func() {
@@ -1323,29 +1339,12 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 			done()
 
 			// Cancel the context before we return.
-			cancel()
 			return
 		}
 	case <-ctx.Done():
 		{
-			// We timed-out. What we do now depends on what type of request was sent.
-			// For now, we'll always just keep waiting.
-			// But we'll log different types of messages depending on how long we've been waiting.
-			if typ == messaging.ShellMessage {
-				// If this is a Shell request and the kernel is training, then it (probably) makes
-				// sense that we've not yet received a response.
-				//
-				// If we aren't training, then it may be a little suspect that our message hasn't been
-				// processed yet. We'll log a warning message, but we'll keep waiting.
-				c.log.Warn("Giving up. Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Received %d/%d responses so far.",
-					time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
-			} else {
-				// We've waited for over 5 minutes, and we've not heard anything. This is a non-shell message.
-				// NOTE: If we're in debug mode, then jMsg will not necessarily be the exact same message that was sent to the replica,
-				// as we clone the messages before sending them!!!
-				c.log.Warn("Giving up. Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Received %d/%d responses so far.",
-					time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
-			}
+			c.log.Warn("Giving up. Have been waiting for a total of %v for all responses to %s \"%s\" request %s (JupyterID=\"%s\"). Received %d/%d responses so far.",
+				time.Since(st), typ.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), numResponsesSoFar.Load(), numResponsesExpected)
 		}
 	}
 }
@@ -1717,7 +1716,7 @@ func (c *DistributedKernelClient) handleIOKernelStatus(replica *KernelReplicaCli
 func (c *DistributedKernelClient) getActiveExecution(msgId string, replica *KernelReplicaClient) *scheduling.ActiveExecution {
 	var associatedActiveExecution *scheduling.ActiveExecution
 	if c.activeExecution == nil {
-		c.log.Error("Received 'YIELD' proposal from %v, but we have no active execution...", replica)
+		c.log.Warn("Received 'YIELD' proposal from %v, but we have no active execution...", replica)
 		associatedActiveExecution, _ = c.activeExecutionsByExecuteRequestMsgId.Load(msgId)
 	} else if c.activeExecution.GetExecuteRequestMessageId() != msgId {
 		c.log.Warn("Received 'YIELD' proposal for ActiveExecution associated with \"execute_request\" %s; however, current ActiveExecution is associated with \"execute_request\" %s...",
@@ -1735,11 +1734,37 @@ func (c *DistributedKernelClient) getActiveExecution(msgId string, replica *Kern
 	return associatedActiveExecution
 }
 
+func (c *DistributedKernelClient) releasePreCommitedResourcesFromReplica(replica *KernelReplicaClient, msg *messaging.JupyterMessage) {
+	container := replica.Container()
+	if container == nil {
+		c.log.Warn("Container for non-nil replica %d of kernel \"%s\" is nil while processing \"execute_reply\" \"%s\"...",
+			replica.ReplicaID(), c.id, msg.JupyterMessageId())
+		return
+	}
+
+	host := container.Host()
+	if host == nil {
+		c.log.Warn("Host of container for non-nil replica %d of kernel \"%s\" is nil while processing \"execute_reply\" \"%s\"...",
+			replica.ReplicaID(), c.id, msg.JupyterMessageId())
+		return
+	}
+
+	err := host.ReleasePreCommitedResources(container)
+	if err != nil {
+		c.log.Debug("Failed to release pre-committed resources from replica %d of kernel \"%s\" because: %s",
+			container.ReplicaId(), container.KernelID(), err.Error())
+	}
+}
+
 // handleExecutionYieldedNotification is called when we receive a 'YIELD' proposal from a replica of a kernel.
 // handleExecutionYieldedNotification registers the 'yield' proposal with the kernel's current scheduling.ActiveExecution
 // struct. If we find that we've received all three proposals, and they were ALL 'yield', then we'll handle the situation
 // according to the scheduling policy that we've been configured to use.
 func (c *DistributedKernelClient) handleExecutionYieldedNotification(replica *KernelReplicaClient, msgErr *messaging.MessageErrorWithYieldReason, msg *messaging.JupyterMessage) error {
+	c.releasePreCommitedResourcesFromReplica(replica, msg)
+
+	replica.ReceivedExecuteReply(msg)
+
 	// targetExecuteRequestId is the Jupyter message ID of the "execute_request" message associated
 	// with the 'YIELD' proposal that we just received.
 	targetExecuteRequestId := msg.JupyterParentMessageId()

@@ -87,6 +87,26 @@ type Host interface {
 	// If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
 	ReserveResources(spec *proto.KernelSpec, usePendingResources bool) (bool, error)
 
+	// PreCommitResources pre-commits resources to the given KernelContainer.
+	//
+	// The specified KernelContainer must already be scheduled on the Host.
+	//
+	// This method is intended to be used when processing an "execute_request" that is about to be forwarded to
+	// the Local Schedulers of the kernel replicas. The resources need to be pre-allocated to the KernelContainer
+	// instances in case one of them wins.
+	//
+	// The resources will be released from the KernelContainer upon receiving an "execute_reply" indicating that a
+	// particular KernelReplica yielded, or after the KernelContainer finishes executing the code in the event that
+	// it wins its leader election.
+	//
+	// PreCommitResources is the inverse/counterpart to ReleasePreCommitedResources.
+	PreCommitResources(container KernelContainer) error
+
+	// ReleasePreCommitedResources releases resources that were pre-committed to the given KernelContainer.
+	//
+	// ReleasePreCommitedResources is the inverse/counterpart to PreCommitResources.
+	ReleasePreCommitedResources(container KernelContainer) error
+
 	// KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 	// Host is updated or changed. This ensures that the Host's resource counts are up to date.
 	KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer) error
@@ -138,11 +158,11 @@ type Host interface {
 	GetLastRemoteSync() time.Time
 	GetCreatedAt() time.Time // GetCreatedAt returns the time at which the Host was created.
 	AddToPendingResources(spec *types.DecimalSpec) error
+	AddToCommittedResources(spec *types.DecimalSpec) error
 	//SubtractFromPendingResources(spec *types.DecimalSpec) error
 	//SubtractFromIdleResources(spec *types.DecimalSpec) error
 	//SubtractFromCommittedResources(spec *types.DecimalSpec) error
 	//AddToIdleResources(spec *types.DecimalSpec) error
-	//AddToCommittedResources(spec *types.DecimalSpec) error
 }
 
 type HostStatistics interface {

@@ -560,6 +560,11 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					Expect(localGatewayClient).ToNot(BeNil())
 					Expect(resourceSpoofer).ToNot(BeNil())
 
+					if i != (numAdditionalHosts + numHosts - 1) {
+						err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+						Expect(err).To(BeNil())
+					}
+
 					hosts[i] = host
 					localGatewayClients[i] = localGatewayClient
 					resourceSpoofers[i] = resourceSpoofer
@@ -722,6 +727,14 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				Expect(err).To(BeNil())
 				container3.EXPECT().Host().AnyTimes().Return(host3)
 				kernelReplica3.EXPECT().Host().AnyTimes().Return(host3)
+
+				kernelProvider.EXPECT().GetKernel(gomock.Any()).AnyTimes().DoAndReturn(func(id string) (scheduling.Kernel, bool) {
+					if id == kernelId {
+						return kernel, true
+					}
+
+					return nil, false
+				})
 
 				hostMapper.EXPECT().GetHostsOfKernel(kernelId).AnyTimes().Return([]scheduling.Host{host1, host2, host3}, nil)
 
