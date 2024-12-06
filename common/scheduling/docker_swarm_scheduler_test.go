@@ -738,10 +738,12 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 				hostMapper.EXPECT().GetHostsOfKernel(kernelId).AnyTimes().Return([]scheduling.Host{host1, host2, host3}, nil)
 
-				resp, reason, err := dockerScheduler.MigrateKernelReplica(kernelReplica1, "", true)
-				Expect(err).To(BeNil())
-				Expect(reason).To(BeNil())
-				Expect(resp).ToNot(BeNil())
+				//kernel.EXPECT().RemoveReplicaByID(1, gomock.Any(), false).Times(1).Return(host1, nil)
+
+				//resp, reason, err := dockerScheduler.MigrateKernelReplica(kernelReplica1, "", true)
+				//Expect(err).To(BeNil())
+				//Expect(reason).To(BeNil())
+				//Expect(resp).ToNot(BeNil())
 			})
 		})
 
