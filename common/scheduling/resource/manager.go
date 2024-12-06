@@ -191,6 +191,15 @@ func NewManager(spec types.Spec) *Manager {
 	}
 }
 
+func (m *Manager) GetResourceCountsAsString() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
+	// return fmt.Sprintf("CPUs (mCPUs): %s, %s, %s // Memory (MB): %s, %s, %s // GPUs: %s, %s, %s // VRAM (GB): %s, %s, %s",
+	return fmt.Sprintf("IDLE [%s], PENDING [%s], COMMITTED [%s]", m.idleResources.GetResourceCountsAsString(),
+		m.pendingResources.GetResourceCountsAsString(), m.committedResources.GetResourceCountsAsString())
+}
+
 // ApplySnapshotToResourceWrapper atomically overwrites the target resourceWrapper's resource quantities with
 // the resource quantities encoded by the given HostResourceSnapshot instance.
 //
@@ -229,141 +238,141 @@ func ApplySnapshotToResourceWrapper[T types.ArbitraryResourceSnapshot](r *Manage
 }
 
 // String returns a string representation of the Manager that is suitable for logging.
-func (r *Manager) String() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) String() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	return fmt.Sprintf("Manager{%s, %s, %s, %s}",
-		r.idleResources.String(), r.pendingResources.String(), r.committedResources.String(), r.specResources.String())
+		m.idleResources.String(), m.pendingResources.String(), m.committedResources.String(), m.specResources.String())
 }
 
 // IdleResources returns a ComputeResourceState that is responsible for encoding the current idle HostResources
 // of the target Manager.
-func (r *Manager) IdleResources() *HostResources {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) IdleResources() *HostResources {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.idleResources
+	return m.idleResources
 }
 
 // PendingResources returns a ComputeResourceState that is responsible for encoding the current pending HostResources
 // of the target Manager.
-func (r *Manager) PendingResources() *HostResources {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) PendingResources() *HostResources {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.pendingResources
+	return m.pendingResources
 }
 
 // CommittedResources returns a ComputeResourceState that is responsible for encoding the current committed HostResources
 // of the target Manager.
-func (r *Manager) CommittedResources() *HostResources {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) CommittedResources() *HostResources {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.committedResources
+	return m.committedResources
 }
 
 // SpecResources returns a ComputeResourceState that is responsible for encoding the current spec HostResources
 // of the target Manager.
-func (r *Manager) SpecResources() *HostResources {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) SpecResources() *HostResources {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.specResources
+	return m.specResources
 }
 
 // idleResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current idle HostResources
 // of the target Manager.
-func (r *Manager) idleResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) idleResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.idleResources.ResourceSnapshot(snapshotId)
+	return m.idleResources.ResourceSnapshot(snapshotId)
 }
 
 // pendingResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current pending HostResources
 // of the target Manager.
-func (r *Manager) pendingResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) pendingResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.pendingResources.ResourceSnapshot(snapshotId)
+	return m.pendingResources.ResourceSnapshot(snapshotId)
 }
 
 // committedResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current committed HostResources
 // of the target Manager.
-func (r *Manager) committedResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) committedResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.committedResources.ResourceSnapshot(snapshotId)
+	return m.committedResources.ResourceSnapshot(snapshotId)
 }
 
 // specResourcesSnapshot returns a *ComputeResourceSnapshot struct capturing the current spec HostResources
 // of the target Manager.
-func (r *Manager) specResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) specResourcesSnapshot(snapshotId int32) *ComputeResourceSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.specResources.ResourceSnapshot(snapshotId)
+	return m.specResources.ResourceSnapshot(snapshotId)
 }
 
 // IdleProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current idle HostResources
 // of the target Manager.
-func (r *Manager) IdleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) IdleProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.idleResources.ProtoSnapshot(snapshotId)
+	return m.idleResources.ProtoSnapshot(snapshotId)
 }
 
 // PendingProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current pending HostResources
 // of the target Manager.
-func (r *Manager) PendingProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) PendingProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.pendingResources.ProtoSnapshot(snapshotId)
+	return m.pendingResources.ProtoSnapshot(snapshotId)
 }
 
 // CommittedProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current committed HostResources
 // of the target Manager.
-func (r *Manager) CommittedProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) CommittedProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.committedResources.ProtoSnapshot(snapshotId)
+	return m.committedResources.ProtoSnapshot(snapshotId)
 }
 
 // SpecProtoResourcesSnapshot returns a *proto.ResourcesSnapshot struct capturing the current spec HostResources
 // of the target Manager.
-func (r *Manager) SpecProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (m *Manager) SpecProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return r.specResources.ProtoSnapshot(snapshotId)
+	return m.specResources.ProtoSnapshot(snapshotId)
 }
 
 // ComputeResourceSnapshot returns a pointer to a ComputeResourceSnapshot created for the specified "status" of HostResources
 // (i.e., "idle", "pending", "committed", or "spec").
-func (r *Manager) ResourceSnapshot(status Status, snapshotId int32) *ComputeResourceSnapshot {
+func (m *Manager) ResourceSnapshot(status Status, snapshotId int32) *ComputeResourceSnapshot {
 	switch status {
 	case IdleResources:
 		{
-			return r.idleResourcesSnapshot(snapshotId)
+			return m.idleResourcesSnapshot(snapshotId)
 		}
 	case PendingResources:
 		{
-			return r.pendingResourcesSnapshot(snapshotId)
+			return m.pendingResourcesSnapshot(snapshotId)
 		}
 	case CommittedResources:
 		{
-			return r.committedResourcesSnapshot(snapshotId)
+			return m.committedResourcesSnapshot(snapshotId)
 		}
 	case SpecResources:
 		{
-			return r.specResourcesSnapshot(snapshotId)
+			return m.specResourcesSnapshot(snapshotId)
 		}
 	default:
 		{

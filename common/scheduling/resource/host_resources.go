@@ -31,6 +31,14 @@ type HostResources struct {
 	vramGB         decimal.Decimal // vram is the amount of GPU memory in GB.
 }
 
+func (res *HostResources) GetResourceCountsAsString() string {
+	res.Lock()
+	defer res.Unlock()
+
+	return fmt.Sprintf("%s mCPU, %s MB, %s GPUs, %s GB VRAM",
+		res.millicpus.StringFixed(4), res.memoryMB.StringFixed(4), res.gpus.StringFixed(0), res.vramGB.StringFixed(4))
+}
+
 // ApplySnapshotToResources atomically overwrites its resource quantities with the quantities encoded
 // in the given ArbitraryResourceSnapshot instance.
 //
