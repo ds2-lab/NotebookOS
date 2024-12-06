@@ -2042,6 +2042,20 @@ func (mr *MockHostMockRecorder) GetReservation(kernelId any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetReservation", reflect.TypeOf((*MockHost)(nil).GetReservation), kernelId)
 }
 
+// GetResourceCountsAsString mocks base method.
+func (m *MockHost) GetResourceCountsAsString() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetResourceCountsAsString")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetResourceCountsAsString indicates an expected call of GetResourceCountsAsString.
+func (mr *MockHostMockRecorder) GetResourceCountsAsString() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceCountsAsString", reflect.TypeOf((*MockHost)(nil).GetResourceCountsAsString))
+}
+
 // GetResourceSpec mocks base method.
 func (m *MockHost) GetResourceSpec() types.Spec {
 	m.ctrl.T.Helper()
@@ -2965,6 +2979,20 @@ func (m *MockHost) SubscribedRatioAsDecimal() decimal.Decimal {
 func (mr *MockHostMockRecorder) SubscribedRatioAsDecimal() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribedRatioAsDecimal", reflect.TypeOf((*MockHost)(nil).SubscribedRatioAsDecimal))
+}
+
+// SubtractFromIdleResources mocks base method.
+func (m *MockHost) SubtractFromIdleResources(spec *types.DecimalSpec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubtractFromIdleResources", spec)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SubtractFromIdleResources indicates an expected call of SubtractFromIdleResources.
+func (mr *MockHostMockRecorder) SubtractFromIdleResources(spec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubtractFromIdleResources", reflect.TypeOf((*MockHost)(nil).SubtractFromIdleResources), spec)
 }
 
 // SynchronizeResourceInformation mocks base method.

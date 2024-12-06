@@ -158,11 +158,16 @@ type Host interface {
 	GetLastRemoteSync() time.Time
 	GetCreatedAt() time.Time // GetCreatedAt returns the time at which the Host was created.
 
+	// GetResourceCountsAsString returns the current resource counts of the Host as a string and is useful for printing.
+	GetResourceCountsAsString() string
+
 	// AddToPendingResources is only meant to be used during unit tests.
 	AddToPendingResources(spec *types.DecimalSpec) error
+	// AddToCommittedResources is only intended to be used during unit tests.
 	AddToCommittedResources(spec *types.DecimalSpec) error
+	// SubtractFromIdleResources is only intended to be used during unit tests.
+	SubtractFromIdleResources(spec *types.DecimalSpec) error
 	//SubtractFromPendingResources(spec *types.DecimalSpec) error
-	//SubtractFromIdleResources(spec *types.DecimalSpec) error
 	//SubtractFromCommittedResources(spec *types.DecimalSpec) error
 	//AddToIdleResources(spec *types.DecimalSpec) error
 }

@@ -551,12 +551,6 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			It("Will select a host with available idle resources when doing so for a replica that is training", func() {
 				validateVariablesNonNil()
 
-				for i := 0; i < numHosts; i++ {
-					host := hosts[i]
-					err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
-					Expect(err).To(BeNil())
-				}
-
 				numAdditionalHosts := 3
 				for i := numHosts; i < numAdditionalHosts+numHosts; i++ {
 					fmt.Printf("Adding host #%d\n", i)
@@ -568,6 +562,8 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 					if i != (numAdditionalHosts + numHosts - 1) {
 						err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+						Expect(err).To(BeNil())
+						err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 40))
 						Expect(err).To(BeNil())
 					}
 
@@ -757,9 +753,22 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					ResourceSpec:    nextResourceSpec,
 				}
 
+				for i := 0; i < numHosts; i++ {
+					host := hosts[i]
+					err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+					Expect(err).To(BeNil())
+					err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 40))
+					Expect(err).To(BeNil())
+				}
+
 				candidates, err := dockerScheduler.GetCandidateHosts(context.Background(), nextKernelSpec)
-				Expect(err).ToNot(BeNil())
+				Expect(err).To(BeNil())
 				Expect(candidates).ToNot(BeNil())
+
+				for _, candidate := range candidates {
+					fmt.Printf("Host %s resources: %s\n", candidate.GetID(), candidate.GetResourceCountsAsString())
+					Expect(candidate.IdleResources().IsZero()).To(BeTrue())
+				}
 
 				//kernel.EXPECT().RemoveReplicaByID(1, gomock.Any(), false).Times(1).Return(host1, nil)
 

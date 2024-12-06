@@ -3165,12 +3165,12 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 	}
 
 	// If all replicas were eligible, then just use the standard path of sending via forwardRequest.
-	if len(ineligibleReplicas) == 0 {
+	if ineligibleReplicas == nil || len(ineligibleReplicas) == 0 {
 		return d.forwardRequest(kernel, messaging.ShellMessage, jMsg)
 	}
 
 	// Broadcast to all replicas.
-	replicas := make([]scheduling.KernelReplica, kernel.Size())
+	replicas := make([]scheduling.KernelReplica, 0, kernel.Size())
 	for _, replica := range kernel.Replicas() {
 		replicas = append(replicas, replica)
 	}
