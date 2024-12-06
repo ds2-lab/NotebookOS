@@ -708,7 +708,7 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 	if !reservation.CreatedUsingPendingResources {
 		h.log.Debug("Releasing committed resources [%s] from reservation made for replica of kernel \"%s\". Current resources: %s.",
 			spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
-		err := h.unsafeUncommitResources(spec.DecimalSpecFromKernelSpec(), spec.Id)
+		err := h.unsafeUncommitResources(spec.DecimalSpecFromKernelSpec(), spec.Id, false)
 		if err != nil {
 			h.log.Error("Failed to release committed resource reservation for a replica of kernel %s: %v.",
 				spec.Id, err)
@@ -783,31 +783,20 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 		return false, nil
 	}
 
-	// Increment the pending resources on the host, which represents the reservation.
-	if err := h.addPendingResources(resourceSpec, spec.Id, -1); err != nil {
-		return false, nil
-	}
-
-	if !usePendingResources {
-		h.log.Debug("Attempting reservation upgrade for new replica of kernel %s: pending --> committed (%s)", spec.Id, resourceSpec.String())
-		err := h.unsafeCommitResources(resourceSpec, spec.Id, -1)
+	if usePendingResources {
+		// Increment the pending resources on the host, which represents the reservation.
+		err := h.addPendingResources(resourceSpec, spec.Id, -1)
 		if err != nil {
-			h.log.Debug("Failed to upgrade pending resource reservation to committed for new replica of kernel %s because: %v",
+			return false, nil
+		}
+	} else {
+		err := h.unsafeCommitResources(resourceSpec, spec.Id, -1, false)
+		if err != nil {
+			h.log.Debug("Failed to create committed resource reservation to committed for new replica of kernel %s because: %v",
 				spec.Id, err)
-
-			// Release the pending request before returning.
-			deallocateError := h.subtractFromPendingResources(resourceSpec, spec.Id, -1)
-			if deallocateError != nil {
-				h.log.Error("Failed to release temporarily-allocated pending resources during reservation process (for new replica of kernel \"%s\"): %v",
-					spec.Id, err)
-				return false, err
-			}
 
 			return false, nil // Not an actual error, just didn't have enough resources available.
 		}
-
-		h.log.Debug("Successfully upgraded pending resource reservation to committed for new replica of kernel %s.",
-			spec.Id)
 	}
 
 	oldSubscribedRatio := h.subscribedRatio
@@ -900,7 +889,7 @@ func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelConta
 	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
 		h.log.Debug("Releasing committed resources [%s] from replica %d of kernel \"%s\" during eviction process. Current resources: %s.",
 			container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
-		err := h.unsafeUncommitResources(container.ResourceSpec(), container.KernelID())
+		err := h.unsafeUncommitResources(container.ResourceSpec(), container.KernelID(), true)
 		if err != nil {
 			h.log.Error("Failed to release committed resources %s from container for replica %d of kernel %s during eviction process: %v",
 				container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), err)
@@ -948,7 +937,7 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 		h.log.Debug("Releasing committed resources [%s] from replica %d of kernel \"%s\". Current resources: %s.",
 			spec.String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
 
-		err := h.unsafeUncommitResources(spec, container.KernelID())
+		err := h.unsafeUncommitResources(spec, container.KernelID(), true)
 		if err != nil {
 			h.log.Error("Failed to deallocate resources from previously-training replica %d of kernel %s: %v",
 				container.ReplicaId(), container.KernelID(), err)
@@ -1037,13 +1026,13 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 		h.log.Debug("Committing resources %v to container for replica %d of kernel \"%s\" so it can train.",
 			container.ResourceSpec().String(), container.ReplicaId(), container.KernelID())
 
-		return h.unsafeCommitResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId())
+		return h.unsafeCommitResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId(), true)
 	}
 
 	return nil
 }
 
-func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string) (err error) {
+func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string, incrementPending bool) (err error) {
 	if _, loaded := h.kernelsWithCommittedResources[kernelId]; !loaded {
 		h.log.Error("Cannot release committed resources from replica of kernel \"%s\". No replica of kernel \"%s\" has resources committed to it. (Requested to release: %s)",
 			kernelId, kernelId, spec.String())
@@ -1052,7 +1041,11 @@ func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string)
 
 	err = h.resourceManager.RunTransaction(func(m resource.TransactionState) {
 		m.CommittedResources().Subtract(spec)
-		m.PendingResources().Add(spec)
+
+		if incrementPending {
+			m.PendingResources().Add(spec)
+		}
+
 		m.IdleResources().Add(spec)
 	})
 
@@ -1130,7 +1123,7 @@ func (h *Host) PreCommitResources(container scheduling.KernelContainer) error {
 	h.log.Debug("Pre-Committing resources [%v] to replica %d of kernel \"%s\" so that it can potentially train.",
 		container.ResourceSpec().String(), container.ReplicaId(), container.KernelID())
 
-	err := h.unsafeCommitResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId())
+	err := h.unsafeCommitResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId(), true)
 	if err != nil {
 		return err
 	}
@@ -1160,7 +1153,7 @@ func (h *Host) ReleasePreCommitedResources(container scheduling.KernelContainer)
 	}
 
 	spec := container.ResourceSpec()
-	err := h.unsafeUncommitResources(spec, container.KernelID())
+	err := h.unsafeUncommitResources(spec, container.KernelID(), true)
 	if err != nil {
 		h.log.Error("Failed to release pre-committed resources (%s) from replica %d of kernel \"%s\": %v",
 			spec.String(), container.ReplicaId(), container.KernelID(), err)
@@ -1174,7 +1167,7 @@ func (h *Host) ReleasePreCommitedResources(container scheduling.KernelContainer)
 	return nil
 }
 
-func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, replicaId int32) (err error) {
+func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, replicaId int32, decrementPending bool) (err error) {
 	if existingReplicaId, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
 		h.log.Error("Attempting to commit resources [%s] to replica %d of kernel %s, but we've already committed resources to replica %d of kernel %s.",
 			spec.String(), replicaId, kernelId, existingReplicaId)
@@ -1183,13 +1176,17 @@ func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, r
 
 	err = h.resourceManager.RunTransaction(func(m resource.TransactionState) {
 		m.CommittedResources().Add(spec)
-		m.PendingResources().Subtract(spec)
+
+		if decrementPending {
+			m.PendingResources().Subtract(spec)
+		}
+
 		m.IdleResources().Subtract(spec)
 	})
 
 	if err != nil {
-		h.log.Error("Failed to commit resources [%s] to replica %d of kernel %s.",
-			spec.String(), kernelId, replicaId, kernelId)
+		h.log.Error("Failed to commit resources [%s] to replica %d of kernel %s: %v",
+			spec.String(), replicaId, kernelId, err)
 		return
 	}
 

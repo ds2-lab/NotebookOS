@@ -229,11 +229,7 @@ func (m *Manager) RunTransaction(transaction Transaction) error {
 	defer m.mu.Unlock()
 
 	resultChan := make(chan interface{}, 1)
-	runner := &TransactionRunner{
-		transaction: transaction,
-		state:       m.unsafeGetTransactionState(),
-		resultChan:  resultChan,
-	}
+	runner := NewTransactionRunner(transaction, m.unsafeGetTransactionState(), resultChan, "")
 
 	runner.runTransaction()
 

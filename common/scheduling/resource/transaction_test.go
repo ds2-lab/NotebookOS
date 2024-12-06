@@ -14,7 +14,7 @@ var _ = Describe("Transaction", func() {
 
 		resultChan := make(chan interface{}, 1)
 
-		runner := resource.NewTransactionRunner(transaction, nil, resultChan)
+		runner := resource.NewTransactionRunner(transaction, nil, resultChan, "")
 
 		Expect(runner).ToNot(BeNil())
 	})

@@ -3,8 +3,11 @@ package resource
 import (
 	"errors"
 	"fmt"
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
+	"time"
 )
 
 var (
@@ -145,10 +148,8 @@ type transactionResources struct {
 // Sanitize attempts to round all of its working resource values to either the min or the max, if any corresponding
 // quantities are within epsilon of the quantity in min or max.
 func (t *transactionResources) Sanitize(min types.Spec, max types.Spec) {
-	minDecimal := types.ToDecimalSpec(min)
-	maxDecimal := types.ToDecimalSpec(max)
-
 	if min != nil {
+		minDecimal := types.ToDecimalSpec(min)
 		t.working.Millicpus = TryRoundToDecimal(t.working.Millicpus, minDecimal.Millicpus)
 		t.working.MemoryMb = TryRoundToDecimal(t.working.MemoryMb, minDecimal.MemoryMb)
 		t.working.GPUs = TryRoundToDecimal(t.working.GPUs, minDecimal.GPUs)
@@ -156,6 +157,7 @@ func (t *transactionResources) Sanitize(min types.Spec, max types.Spec) {
 	}
 
 	if max != nil {
+		maxDecimal := types.ToDecimalSpec(max)
 		t.working.Millicpus = TryRoundToDecimal(t.working.Millicpus, maxDecimal.Millicpus)
 		t.working.MemoryMb = TryRoundToDecimal(t.working.MemoryMb, maxDecimal.MemoryMb)
 		t.working.GPUs = TryRoundToDecimal(t.working.GPUs, maxDecimal.GPUs)
@@ -309,14 +311,24 @@ type TransactionRunner struct {
 	transaction Transaction
 	state       TransactionState
 	resultChan  chan interface{}
+
+	log logger.Logger
 }
 
-func NewTransactionRunner(transaction Transaction, state TransactionState, resultChan chan interface{}) *TransactionRunner {
-	return &TransactionRunner{
+func NewTransactionRunner(transaction Transaction, state TransactionState, resultChan chan interface{}, name string) *TransactionRunner {
+	runner := &TransactionRunner{
 		transaction: transaction,
 		state:       state,
 		resultChan:  resultChan,
 	}
+
+	if name != "" {
+		config.InitLogger(&runner.log, name)
+	} else {
+		config.InitLogger(&runner.log, runner)
+	}
+
+	return runner
 }
 
 func (r *TransactionRunner) State() TransactionState {
@@ -324,10 +336,14 @@ func (r *TransactionRunner) State() TransactionState {
 }
 
 func (r *TransactionRunner) runTransaction() {
+	st := time.Now()
+
 	defer func() {
 		if err := recover(); err != nil {
+			r.log.Warn("Transaction failed after %v: %v", time.Since(st), err)
 			r.resultChan <- err
 		} else {
+			r.log.Debug("Transaction succeeded. Time elapsed: %v.", time.Since(st))
 			r.resultChan <- struct{}{}
 		}
 	}()
