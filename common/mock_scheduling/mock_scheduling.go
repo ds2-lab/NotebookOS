@@ -4108,6 +4108,20 @@ func (mr *MockKernelMockRecorder) Context() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Context", reflect.TypeOf((*MockKernel)(nil).Context))
 }
 
+// DebugMode mocks base method.
+func (m *MockKernel) DebugMode() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DebugMode")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// DebugMode indicates an expected call of DebugMode.
+func (mr *MockKernelMockRecorder) DebugMode() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DebugMode", reflect.TypeOf((*MockKernel)(nil).DebugMode))
+}
+
 // EnqueueActiveExecution mocks base method.
 func (m *MockKernel) EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
 	m.ctrl.T.Helper()

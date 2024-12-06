@@ -157,6 +157,8 @@ type Host interface {
 	SetContainedWithinIndex(bool)
 	GetLastRemoteSync() time.Time
 	GetCreatedAt() time.Time // GetCreatedAt returns the time at which the Host was created.
+
+	// AddToPendingResources is only meant to be used during unit tests.
 	AddToPendingResources(spec *types.DecimalSpec) error
 	AddToCommittedResources(spec *types.DecimalSpec) error
 	//SubtractFromPendingResources(spec *types.DecimalSpec) error
