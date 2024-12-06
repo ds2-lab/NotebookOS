@@ -1014,7 +1014,7 @@ func (m *JupyterMessage) StringFormatted() string {
 // This function will NOT check this. It should be checked before calling this function.
 func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, error) {
 	// If the message is already a yield request, then just return it.
-	if m.JupyterParentMessageType() == ShellYieldRequest {
+	if m.JupyterMessageType() == ShellYieldRequest {
 		return m, nil
 	}
 
