@@ -3,7 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/scusemua/distributed-notebook/common/configuration"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"strings"
 
 	"github.com/Scusemua/go-utils/config"
@@ -52,7 +52,7 @@ func (o *LocalDaemonOptions) String() string {
 type SchedulerDaemonConfig func(SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
-	configuration.CommonOptions `yaml:",inline"`
+	scheduling.SchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
 
 	// If the scheduler serves jupyter notebook directly, set this to true.
 	DirectServer      bool   `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`

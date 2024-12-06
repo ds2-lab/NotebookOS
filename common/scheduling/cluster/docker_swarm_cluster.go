@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
+	"math/rand"
 	"strings"
+	"time"
 )
 
 // DockerSwarmCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
@@ -23,16 +26,19 @@ type DockerSwarmCluster struct {
 //
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally by the
 // DockerSwarmCluster for scheduling decisions.
-func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
-	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker, opts *scheduling.SchedulerOptions) *DockerSwarmCluster {
+func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper,
+	kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
+	notificationBroker scheduler.NotificationBroker, schedulingPolicy scheduling.Policy,
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)), opts *scheduling.SchedulerOptions) *DockerSwarmCluster {
 
-	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerSwarmCluster")
+	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerSwarmCluster", statisticsUpdaterProvider)
 
 	dockerCluster := &DockerSwarmCluster{
 		BaseCluster: baseCluster,
 	}
 
-	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider, notificationBroker, opts)
+	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider,
+		notificationBroker, schedulingPolicy, opts)
 	if err != nil {
 		dockerCluster.log.Error("Failed to create Docker Swarm Cluster Scheduler: %v", err)
 		panic(err)
@@ -155,6 +161,11 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 
 				c.log.Debug("Using disabled host %s in scale-out operation.", hostId)
 
+				scaleOutDurationSec := (rand.NormFloat64() * c.StdDevScaleOutPerHost.Seconds()) + c.MeanScaleOutPerHost.Seconds()
+				scaleOutDuration := time.Duration(scaleOutDurationSec) * time.Second
+				c.log.Debug("Simulating scale-out with duration %v", scaleOutDuration)
+				time.Sleep(scaleOutDuration)
+
 				// This will add the host back to the Cluster.
 				err = c.NewHostAddedOrConnected(host)
 				if err != nil {
@@ -230,6 +241,11 @@ func (c *DockerSwarmCluster) unsafeGetTargetedScaleInCommand(targetScale int32, 
 				disabledHosts = append(disabledHosts, id)
 			}
 		}
+
+		scaleInDurationSec := (rand.NormFloat64() * c.StdDevScaleInPerHost.Seconds()) + c.MeanScaleInPerHost.Seconds()
+		scaleInDuration := time.Duration(scaleInDurationSec) * time.Second
+		c.log.Debug("Simulating scale-out with duration %v", scaleInDuration)
+		time.Sleep(scaleInDuration)
 
 		// If we failed to disable one or more hosts, then we'll abort the entire operation.
 		if len(errs) > 0 {

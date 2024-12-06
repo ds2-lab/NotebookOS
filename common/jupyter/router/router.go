@@ -7,6 +7,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"strings"
 	"time"
@@ -35,7 +36,7 @@ type Router struct {
 }
 
 func New(ctx context.Context, opts *jupyter.ConnectionInfo, provider Provider, messageAcknowledgementsEnabled bool,
-	name string, shouldAckMessages bool, nodeType metrics.NodeType, debugMode bool) *Router {
+	name string, shouldAckMessages bool, nodeType metrics.NodeType, debugMode bool, statisticsUpdater func(func(statistics *statistics.ClusterStatistics))) *Router {
 
 	router := &Router{
 		name: name,
@@ -60,6 +61,7 @@ func New(ctx context.Context, opts *jupyter.ConnectionInfo, provider Provider, m
 			s.ReconnectOnAckFailure = false
 			s.ShouldAckMessages = shouldAckMessages
 			s.DebugMode = debugMode
+			s.StatisticsUpdaterProvider = statisticsUpdater
 			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
 			s.Name = fmt.Sprintf("Router[%s] ", name)
 			config.InitLogger(&s.Log, s.Name)

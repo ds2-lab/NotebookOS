@@ -2,10 +2,12 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/configuration"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	types2 "github.com/scusemua/distributed-notebook/common/types"
 
@@ -26,7 +28,7 @@ const (
 	signatureScheme string = "hmac-sha256"
 )
 
-var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
+var _ = Describe("Local Daemon Tests", func() {
 	var (
 		schedulerDaemon  *SchedulerDaemonImpl
 		vgpuPluginServer device.VirtualGpuPluginServer
@@ -46,6 +48,15 @@ var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 			MemoryMb:  decimal.NewFromFloat(8000),
 		})
 
+		schedulingPolicy, err := policy.GetSchedulingPolicy(&scheduling.SchedulerOptions{
+			CommonOptions: configuration.CommonOptions{
+				SchedulingPolicy:             string(scheduling.Static),
+				IdleSessionReclamationPolicy: string(scheduling.NoIdleSessionReclamation),
+			},
+		})
+		Expect(err).To(BeNil())
+		Expect(schedulingPolicy).ToNot(BeNil())
+
 		schedulerDaemon = &SchedulerDaemonImpl{
 			transport:              "tcp",
 			kernels:                hashmap.NewCornelkMap[string, scheduling.KernelReplica](1000),
@@ -53,6 +64,7 @@ var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 			cleaned:                make(chan struct{}),
 			resourceManager:        resourceManager,
 			virtualGpuPluginServer: vgpuPluginServer,
+			schedulingPolicy:       schedulingPolicy,
 		}
 		config.InitLogger(&schedulerDaemon.log, schedulerDaemon)
 
@@ -119,7 +131,7 @@ var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 				Type:   zmq4.UsrMsg,
 			}
 			jMsg := messaging.NewJupyterMessage(msg)
-			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel)
+			processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernel)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
@@ -156,7 +168,7 @@ var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 			// Make it so that there are no idle GPUs available.
 			resourceManager.DebugSetIdleGPUs(0)
 
-			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
+			processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
@@ -191,7 +203,7 @@ var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 			// Make it so that there are no idle GPUs available.
 			resourceManager.DebugSetIdleGPUs(0)
 
-			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
+			processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
@@ -250,9 +262,9 @@ var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 			Expect(err).To(BeNil())
 
 			GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
-			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(0))
-			GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(0))
-			GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(0))
+			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(1))
+			GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(1))
+			GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(1))
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
 			Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
@@ -277,7 +289,7 @@ var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 				Type:   zmq4.UsrMsg,
 			}
 			jMsg := messaging.NewJupyterMessage(msg)
-			processedMessage := schedulerDaemon.processExecuteRequest(jMsg, kernel) // , header, offset)
+			processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernel) // , header, offset)
 			Expect(processedMessage).ToNot(BeNil())
 			Expect(processedMessage.JupyterFrames.Len()).To(Equal(len(frames)))
 
@@ -286,7 +298,7 @@ var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
 			Expect(err).To(BeNil())
-			Expect(len(metadata)).To(Equal(6))
+			Expect(len(metadata)).To(Equal(8))
 
 			var header messaging.MessageHeader
 			err = processedMessage.JupyterFrames.DecodeHeader(&header)
@@ -299,9 +311,9 @@ var _ = Describe("DefaultSchedulingPolicy Daemon Tests", func() {
 			By("Creating a pending allocation for the associated kernel")
 
 			GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
-			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(0))
-			GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(0))
-			GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(0))
+			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(1))
+			GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(1))
+			GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(1))
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
 			Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))

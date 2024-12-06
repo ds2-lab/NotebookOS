@@ -107,6 +107,17 @@ func NewDecimalSpec(millicpus float64, memoryMb float64, gpus float64, vramGb fl
 	}
 }
 
+// ToMap converts the target DecimalSpec to a map[string]interface{} with keys matching the JSON tags of
+// the DecimalSpec struct.
+func (d *DecimalSpec) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"cpus":      d.Millicpus.InexactFloat64(),
+		"memory_mb": d.MemoryMb.InexactFloat64(),
+		"gpus":      d.GPUs.InexactFloat64(),
+		"vram":      d.VRam.InexactFloat64(),
+	}
+}
+
 func (d *DecimalSpec) IsZero() bool {
 	return d.GPUs.IsZero() && d.Millicpus.IsZero() && d.MemoryMb.IsZero() && d.VRam.IsZero()
 }
@@ -190,7 +201,7 @@ func (d *DecimalSpec) Validate(requirement Spec) bool {
 
 func (d *DecimalSpec) String() string {
 	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s, VRAM: %s GB]",
-		d.Millicpus.StringFixed(0), d.MemoryMb.StringFixed(4), d.GPUs.StringFixed(0), d.VRam.StringFixed(4))
+		d.Millicpus.StringFixed(6), d.MemoryMb.StringFixed(6), d.GPUs.StringFixed(1), d.VRam.StringFixed(6))
 }
 
 // CloneDecimalSpec returns a copy/clone of the target DecimalSpec as a *DecimalSpec.

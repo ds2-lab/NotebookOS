@@ -10,6 +10,7 @@ distributed_notebook_kernel_docker_image_name: scusemua/jupyter-debug
 distributed_notebook_kernel_docker_image_tag: latest
 distributed_notebook_num_replicas: 3
 distributed_notebook_scheduling_policy: static
+distributed_notebook_idle_session_reclamation_policy: none
 distributed_notebook_predictive_autoscaling_enabled: true
 distributed_notebook_debug_mode: true
 distributed_notebook_debug_port: 9996
@@ -31,6 +32,11 @@ distributed_notebook_subscribed_scaling_limit: 1.1
 distributed_notebook_subscribed_scaling_in_limit: 2
 distributed_notebook_initial_cluster_size: 4
 distributed_notebook_initial_connection_period: 60
+distributed_notebook_election_timeout_seconds: 3
+distributed_notebook_mean_scale_out_per_host_sec: 15
+distributed_notebook_std_dev_scale_out_per_host_sec: 2
+distributed_notebook_mean_scale_in_per_host_sec: 10
+distributed_notebook_std_dev_scale_in_per_host_sec: 1
 
 # Specify 'hdfs' to use HDFS or 'redis' to use Redis.
 distributed_notebook_remote_storage_type: redis

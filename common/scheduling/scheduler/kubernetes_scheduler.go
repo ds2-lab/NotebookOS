@@ -29,14 +29,16 @@ type KubernetesScheduler struct {
 	kubeClient scheduling.KubeClient // Kubernetes client.
 }
 
-func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, kernelProvider KernelProvider, hostSpec types.Spec,
-	kubeClient scheduling.KubeClient, notificationBroker NotificationBroker, opts *scheduling.SchedulerOptions) (*KubernetesScheduler, error) {
+func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
+	kernelProvider KernelProvider, hostSpec types.Spec, kubeClient scheduling.KubeClient, notificationBroker NotificationBroker,
+	schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) (*KubernetesScheduler, error) {
 
 	baseScheduler := newBaseSchedulerBuilder().
 		WithCluster(cluster).
 		WithHostMapper(hostMapper).
 		WithPlacer(placer).
 		WithHostSpec(hostSpec).
+		WithSchedulingPolicy(schedulingPolicy).
 		WithKernelProvider(kernelProvider).
 		WithNotificationBroker(notificationBroker).
 		WithOptions(opts).Build()
@@ -94,7 +96,7 @@ func (s *KubernetesScheduler) RemoveReplicaFromHost(_ scheduling.KernelReplica) 
 	panic("Not implemented")
 }
 
-func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpec, _ scheduling.Host, _ []scheduling.Host) error {
+func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpec, _ scheduling.Host, _ []scheduling.Host, forTraining bool) error {
 	if err := s.kubeClient.ScaleOutCloneSet(spec.Kernel.Id); err != nil {
 		s.log.Error("Failed to add replica %d to kernel %s. Could not scale-up CloneSet because: %v",
 			spec.ReplicaId, spec.Kernel.Id, err)
@@ -104,12 +106,12 @@ func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpe
 	return nil
 }
 
-// DeployNewKernel is responsible for creating the necessary infrastructure ot schedule the replicas of a new
+// DeployKernelReplicas is responsible for creating the necessary infrastructure ot schedule the replicas of a new
 // kernel onto Host instances.
 //
 // In the case of KubernetesScheduler, DeployNewKernel uses the Kubernetes API to deploy the necessary Kubernetes
 // Resources to create the new Kernel replicas.
-func (s *KubernetesScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
+func (s *KubernetesScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	if len(blacklistedHosts) > 0 {
 		panic("Support for blacklisted hosts with Kubernetes scheduler may not have been implemented yet (I don't think it has)...")
 	}
@@ -165,6 +167,10 @@ func (s *KubernetesScheduler) HandleKubeSchedulerFilterRequest(ctx *gin.Context)
 
 	s.log.Debug("Returning %d node(s) without any processing.", len(extenderArgs.Nodes.Items))
 	ctx.JSON(http.StatusOK, extenderFilterResult)
+}
+
+func (s *KubernetesScheduler) selectViableHostForReplica(replicaSpec *proto.KernelReplicaSpec, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+	panic("Not implemented")
 }
 
 // StartHttpKubernetesSchedulerService starts the HTTP service used to make scheduling decisions.

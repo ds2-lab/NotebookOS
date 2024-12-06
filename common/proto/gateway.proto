@@ -21,7 +21,7 @@ service ClusterGateway {
   // MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
   // Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
   // need to start immediately after replica started, e.g., preempting a training task.
-  // 
+  //
   // The function will simply remove the replica from the kernel without stopping it.
   // The caller should stop the replica after confirmed that the new replica is ready.
   rpc MigrateKernelReplica(MigrationRequest) returns (MigrateKernelResponse) {}
@@ -73,7 +73,7 @@ service DistributedCluster {
   // MigrateKernelReplica selects a qualified host and adds a kernel replica to the replica set.
   // Unlike StartKernelReplica, a new replica is added to the replica set and a training task may
   // need to start immediately after replica started, e.g., preempting a training task.
-  // 
+  //
   // The function will simply remove the replica from the kernel without stopping it.
   // The caller should stop the replica after confirmed that the new replica is ready.
   rpc MigrateKernelReplica(MigrationRequest) returns (MigrateKernelResponse) {}
@@ -144,6 +144,25 @@ service DistributedCluster {
   // ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
   // This is mostly used for testing/debugging the reconnection process.
   rpc ForceLocalDaemonToReconnect(ForceLocalDaemonToReconnectRequest) returns (Void) {}
+
+  // ClusterStatistics is used to request a serialized ClusterStatistics struct.
+  rpc ClusterStatistics(ClusterStatisticsRequest) returns (ClusterStatisticsResponse) {}
+
+  // ClearClusterStatistics clears the current ClusterStatistics struct.
+  //
+  // ClearClusterStatistics returns the serialized ClusterStatistics struct before it was cleared.
+  rpc ClearClusterStatistics(Void) returns (ClusterStatisticsResponse) {}
+}
+
+message ClusterStatisticsRequest {
+  string requestId = 1;
+  bool updateFirst = 2;
+}
+
+// ClusterStatisticsResponse encapsulates a serialized ClusterStatistics struct.
+message ClusterStatisticsResponse {
+  string requestId = 1;
+  bytes serializedClusterStatistics = 2;
 }
 
 // ForceLocalDaemonToReconnectRequest is sent as an argument for the ForceLocalDaemonToReconnect RPC.
@@ -291,7 +310,7 @@ message ModifyClusterNodesResponse {
 // SetNumClusterNodesRequest encodes the target number of nodes.
 message SetNumClusterNodesRequest {
   string requestId = 1;
-  // TargetNumNodes is the target number of nodes to scale to. 
+  // TargetNumNodes is the target number of nodes to scale to.
   int32 targetNumNodes = 2;
 }
 
@@ -410,8 +429,8 @@ message Pong {
 message Trace {
   string id = 1;
   string name = 2;
-  int64 startTimeUnixMilliseconds = 3;
-  int64 endTimeUnixMilliseconds = 4;
+  int64 startTimeUnixMicro = 3;
+  int64 endTimeUnixMicro = 4;
   google.protobuf.Timestamp startTimestamp = 5;
   google.protobuf.Timestamp endTimestamp = 6;
   int64 durationMicroseconds = 7;
@@ -424,6 +443,7 @@ message RequestTraceUpdated {
   int32 replicaId = 4;
   string requestTraceUuid = 5;
   repeated Trace traces = 6;
+  google.protobuf.Timestamp creationTimestamp = 7;
 }
 
 message RequestTrace {
@@ -442,11 +462,51 @@ message RequestTrace {
   int64 replyReceivedByGateway = 13;
   int64 replySentByGateway = 14;
   string requestTraceUuid = 15;
+
+  // CudaInitMicroseconds is the amount of time spent initializing the CUDA runtime, if applicable.
+  // The units are microseconds.
+  int64 cudaInitMicroseconds = 16;
+  // DownloadDependencyMicroseconds is the amount of time spent downloading library dependencies, if applicable.
+  // The units are microseconds.
+  int64 downloadDependencyMicroseconds = 17;
+  // DownloadModelAndTrainingDataMicroseconds is the amount of time spent downloading the model and training data,
+  // if applicable. The units are microseconds.
+  int64 downloadModelAndTrainingDataMicroseconds = 18;
+  // UploadModelAndTrainingDataMicroseconds is the amount of time spent uploading the model and training data,
+  // if applicable. The units are microseconds.
+  int64 uploadModelAndTrainingDataMicroseconds = 19;
+  // ExecutionTimeMicroseconds is the amount of time spent executing user-submitted code, excluding any other
+  // overheads, if applicable. The units are microseconds.
+  int64 executionTimeMicroseconds = 20;
+  int64 executionStartUnixMillis = 21;
+  int64 executionEndUnixMillis = 22;
+  // ReplayTimeMicroseconds is the amount of time spent replaying previous cells, excluding any other overheads,
+  // if applicable. The units are microseconds.
+  int64 replayTimeMicroseconds = 23;
+  // CopyFromCpuToGpuMicroseconds is the amount of time, in microseconds, that was spent copying data from the CPU
+  // to the GPU by the kernel before executing the user-submitted code.
+  int64 copyFromCpuToGpuMicroseconds = 24;
+  // CopyFromCpuToGpuMicroseconds is the amount of time, in microseconds, that was spent copying data from the GPU
+  // to the CPU by the kernel after executing the user-submitted code.
+  int64 copyFromGpuToCpuMicroseconds = 25;
+  // LeaderElectionTimeMicroseconds is the amount of time, in microseconds, that the kernel spent handling the
+  // leader election prior to executing the user-submitted code, if applicable.
+  int64 leaderElectionTimeMicroseconds = 26;
+  // ElectionCreationTime is the time at which the kernel created its Election object, if applicable.
+  int64 electionCreationTime = 27;
+  // ElectionProposalPhaseStartTime is the time at which the kernel started its Election, if applicable.
+  int64 electionProposalPhaseStartTime = 28;
+  // ElectionExecutionPhaseStartTime is when the leader was selected.
+  int64 electionExecutionPhaseStartTime = 29;
+  // ElectionEndTime is when the execution fully completed and/or the follower was notified by the leader that it
+  // finished executing.
+  int64 electionEndTime = 30;
 }
 
 message PingInstruction {
-  string kernelId = 1; // The kernel to target 
+  string kernelId = 1; // The kernel to target
   string socketType = 2; // The type of socket to use to issue the "ping" ("control" or "shell")
+  google.protobuf.Timestamp createdAtTimestamp = 3;
 }
 
 message Notification {
@@ -614,12 +674,12 @@ message ReconnectToGatewayRequest {
 // NodeResourcesSnapshotWithContainers encapsulates a NodeResourcesSnapshot struct as well as information about the
 // Containers that are actively scheduled/running on the Host.
 message NodeResourcesSnapshotWithContainers {
-    // Id is a unique identifier for the NodeResourcesSnapshotWithContainers struct/message.
-    string id = 1;
-    // ResourceSnapshot is the NodeResourcesSnapshot.
-    NodeResourcesSnapshot resourceSnapshot = 2;
-    // Containers encodes the containers that are presently scheduled on the Host.
-    repeated ReplicaInfo containers = 3;
+  // Id is a unique identifier for the NodeResourcesSnapshotWithContainers struct/message.
+  string id = 1;
+  // ResourceSnapshot is the NodeResourcesSnapshot.
+  NodeResourcesSnapshot resourceSnapshot = 2;
+  // Containers encodes the containers that are presently scheduled on the Host.
+  repeated ReplicaInfo containers = 3;
 }
 
 // NodeResourcesSnapshot encodes a snapshot of the current resource quantities on a particular node.
@@ -714,6 +774,7 @@ message KernelReplicaSpec {
   bool join = 5;
   optional string persistentId = 6;
   int32 dockerModeKernelDebugPort = 7;
+  string workloadId = 8;
 }
 
 message ResourceSpec {
@@ -739,7 +800,8 @@ message ReplicaInfo {
 
 message MigrationRequest {
   ReplicaInfo targetReplica = 1;
-  optional string targetNodeId = 2;
+  bool forTraining = 2;
+  optional string targetNodeId = 3;
 }
 
 message SmrReadyNotification {
@@ -763,6 +825,9 @@ message PrepareToMigrateResponse {
 message MigrateKernelResponse {
   int32 id = 1;
   string hostname = 2;
+  string newNodeId = 3;
+  string newNodeName = 4;
+  bool success = 5;
 }
 
 // Similar to ReplicaInfo, but instead of a persistentId field, this has a hostname field.
@@ -780,6 +845,7 @@ message KernelSpec {
   string signatureScheme = 4; // The signature scheme to use.
   string key = 5; // The key to use for signing messages.
   ResourceSpec resourceSpec = 6; // Resource requirements of the kernel.
+  string workloadId = 7;
 }
 
 // The connection info for a kernel.

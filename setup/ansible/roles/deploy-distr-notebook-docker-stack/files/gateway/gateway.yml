@@ -28,6 +28,7 @@ notebook-image-name: scusemua/jupyter
 notebook-image-tag: latest
 scheduler-http-port: 8078
 scheduling-policy: static
+idle-session-reclamation-policy: none
 subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.05
@@ -56,3 +57,6 @@ simulate_checkpointing_latency: true
 remote-docker-event-aggregator-port: 5821
 initial-cluster-size: 4
 initial-connection-period: 60
+election_timeout_seconds: 3
+starting_resource_port: 9007
+num_resource_ports: 4096

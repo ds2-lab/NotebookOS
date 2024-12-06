@@ -15,30 +15,9 @@ import (
 const (
 	SchedulerPoolTypeUndersubscribed SchedulerPoolType = 1
 	SchedulerPoolTypeOversubscribed  SchedulerPoolType = 2
-
-	DefaultSchedulingPolicy Policy = "default"
-	Static                  Policy = "static"
-	DynamicV3               Policy = "dynamic-v3"
-	DynamicV4               Policy = "dynamic-v4"
-	FcfsBatch               Policy = "fcfs-batch"
-
-	// BindResourcesAtTrainingStart indicates that resources are to be committed when training begins and
-	// uncommitted when training ends.
-	BindResourcesAtTrainingStart ResourceBindingMode = "BindResourcesAtTrainingStart"
-
-	// BindResourcesWhenContainerScheduled indicates that resources are to be committed when a container is
-	// scheduled and only uncommitted when that container is evicted.
-	BindResourcesWhenContainerScheduled ResourceBindingMode = "BindResourcesWhenContainerScheduled"
 )
 
-// Policy indicates the scheduling policy/methodology/algorithm that the internalCluster Gateway is configured to use.
-type Policy string
-
 type SchedulerPoolType int
-
-// ResourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly
-// when they are uncommitted from containers as well.
-type ResourceBindingMode string
 
 // ErrorDuringScheduling is a custom error for when the scheduling of a new kernel fails.
 type ErrorDuringScheduling struct {
@@ -64,16 +43,20 @@ func (e *ErrorDuringScheduling) String() string {
 
 type KernelScheduler interface {
 	// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
-	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
-	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) (*proto.MigrateKernelResponse, error)
+	//
+	// The first error that is returned (i.e., 'reason') does not indicate that an actual error occurred.
+	// It simply provides an explanation for why the migration failed.
+	//
+	// The second error that is returned (i.e., 'err') indicates that an actual error occurs.
+	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error)
 
-	// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-	DeployNewKernel(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []Host) error
+	// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
+	DeployKernelReplicas(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []Host) error
 
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//
 	// If targetHost is nil, then a candidate host is identified automatically by the Scheduler.
-	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host) error
+	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host, forTraining bool) error
 
 	// RemoveReplicaFromHost removes the specified replica from its Host.
 	RemoveReplicaFromHost(kernelReplica KernelReplica) error
@@ -123,8 +106,10 @@ type SchedulerMetricsManager interface {
 
 // PolicyManager is an interface that exposes methods for reporting what policies the Scheduler is configured to use.
 type PolicyManager interface {
-	SchedulingPolicy() Policy
-	GetResourceBindingMode() ResourceBindingMode
+	PolicyKey() PolicyKey
+
+	// Policy returns the Policy used by the Scheduler.
+	Policy() Policy
 }
 
 // Scheduler defines the interface of a scheduler for the Cluster.

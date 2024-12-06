@@ -47,6 +47,9 @@ class SyncAST(ast.NodeVisitor):
     def fast_forward_executions(self):
         self._executions += 1
 
+    def set_executions(self, executions: int):
+        self._executions = executions
+
     @property
     def execution_count(self) -> int:
         return self._executions
@@ -91,14 +94,15 @@ class SyncAST(ast.NodeVisitor):
         return SynchronizedValue(self._executions, (ret, tuple(self._globals.keys())))
 
     def update(self, val: SynchronizedValue) -> Any:
-        """Apply the AST of incremental execution to the full AST.
-           Raising exception if the exection count is not the immediate
-           next execution."""
+        """
+        Apply the AST of incremental execution to the full AST.
+        Raising exception if the execution count is not the immediate next execution.
+        """
         if self._tree is None:
             # Restore
             self._tree = val.data[0]
         elif val.tag <= self._executions:
-            # Update but execution count dismatch.
+            # Update but execution count mismatch.
             self._log.error(
                 f"Failed to update AST. Expected tag to be greater than {self._executions}, but but SynchronizedValue had tag={val.tag}")
             self._log.error(f"Synchronization value in question: {val}")

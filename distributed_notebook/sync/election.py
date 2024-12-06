@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import logging
 import time
-from enum import IntEnum, Enum
+from enum import IntEnum
 from typing import Dict, Optional, List, MutableMapping, Any
 
 from .log import LeaderElectionVote, LeaderElectionProposal
@@ -23,6 +23,19 @@ AllReplicasProposedYield = "all_proposed_yield"
 ElectionSkipped = "election_skipped"
 
 
+class ElectionTimestamps(object):
+    """
+    ElectionTimestamps encapsulates some finer-grained metrics/timestamps about the election, namely how long
+    each phase lasts.
+    """
+
+    def __init__(self, proposal_phase_start_time: float = 0):
+        self.creation_time: float = time.time() * 1.0e3
+        self.proposal_phase_start_time: float = proposal_phase_start_time  # includes the "voting" phase
+        self.execution_phase_start_time: int = 0
+        self.end_time: int = 0
+
+
 class ElectionState(IntEnum):
     INACTIVE = 1  # Created, but not yet started.
     ACTIVE = 2  # Active, in progress
@@ -31,7 +44,7 @@ class ElectionState(IntEnum):
     EXECUTION_COMPLETE = 5  # The execution of the associated user-submitted code has completed for this election.
     SKIPPED = 6  # Skipped because messages from our Local Daemon were delayed, and the election was orchestrated to its conclusion by our peers.
 
-    def get_name(self)->str:
+    def get_name(self) -> str:
         if self.value == 1:
             return "INACTIVE"
         elif self.value == 2:
@@ -46,6 +59,7 @@ class ElectionState(IntEnum):
             return "SKIPPED"
         else:
             raise ValueError(f"Unknown or unsupported Enum value for ElectionState: {self.value}")
+
 
 class Election(object):
     """
@@ -71,6 +85,11 @@ class Election(object):
 
         # Mapping from SMR Node ID to the LeaderElectionProposal that it proposed during this election term.
         self._proposals: Dict[int, LeaderElectionProposal] = {}
+
+        # Mapping from attempt number to the associated ElectionTimestamps object.
+        self._election_timestamps: Dict[int, ElectionTimestamps] = {
+            1: ElectionTimestamps(proposal_phase_start_time=time.time() * 1.0e3)}
+        self._current_election_timestamps: ElectionTimestamps = self._election_timestamps[1]
 
         # Set of node IDs for which we're missing proposals.
         # The set of node IDs for which we've received proposals is simply `self._proposals.keys()`.
@@ -365,6 +384,10 @@ class Election(object):
         return self._election_state
 
     @property
+    def current_election_timestamps(self) -> Optional[ElectionTimestamps]:
+        return self._current_election_timestamps
+
+    @property
     def is_in_failed_state(self) -> bool:
         return self._election_state == ElectionState.FAILED
 
@@ -377,7 +400,7 @@ class Election(object):
 
         # If the election has also finished the code-execution phase, then the voting phase is necessarily done,
         # so we also need to check on that.
-        return self._election_state == ElectionState.VOTE_COMPLETE or self.code_execution_completed_successfully
+        return self._election_state == ElectionState.VOTE_COMPLETE or self.code_execution_completed_successfully or self.was_skipped
 
     @property
     def code_execution_completed_successfully(self) -> bool:
@@ -385,7 +408,7 @@ class Election(object):
         Return a bool indicating whether the elected leader of this election has finished
         executing the user-submitted code.
         """
-        return self._election_state == ElectionState.EXECUTION_COMPLETE
+        return self._election_state == ElectionState.EXECUTION_COMPLETE or self._election_state == ElectionState.SKIPPED
 
     @property
     def has_been_started(self) -> bool:
@@ -575,9 +598,14 @@ class Election(object):
 
         self._election_state = ElectionState.ACTIVE
 
+        if self._current_election_timestamps is not None:
+            self._current_election_timestamps.proposal_phase_start_time = time.time() * 1.0e3
+
     def restart(self, latest_attempt_number: int = -1) -> None:
         """
         Restart a failed election.
+
+        :param latest_attempt_number: the new attempt number
 
         State Transition:
         FAILED --> ACTIVE
@@ -590,7 +618,7 @@ class Election(object):
 
         if latest_attempt_number <= 0:
             raise ValueError(
-                f"invalid 'last attempt number' {latest_attempt_number} when restarting election for term {self.term_number} (must be > 0).")
+                f"invalid 'lastest attempt number' {latest_attempt_number} when restarting election for term {self.term_number} (must be > 0).")
 
         if self._election_state != ElectionState.FAILED:
             raise ValueError(
@@ -599,6 +627,9 @@ class Election(object):
         self._pick_and_propose_winner_future = None
         self._election_state = ElectionState.ACTIVE
         self._num_restarts += 1
+
+        self._current_election_timestamps = ElectionTimestamps(proposal_phase_start_time=time.time() * 1.0e3)
+        self._election_timestamps[latest_attempt_number] = self._current_election_timestamps
 
         self.completion_reason = "N/A"
         self.election_finished_event.clear()  # Reset the asyncio.Event so that it can be reused.
@@ -710,6 +741,9 @@ class Election(object):
             self._election_state = ElectionState.EXECUTION_COMPLETE
             self.completion_reason = ExecutionCompleted
 
+        if self._current_election_timestamps is not None:
+            self._current_election_timestamps.end_time = time.time() * 1.0e3
+
         # As mentioned above, we only care if the condition is None if fast_forwarding is False.
         # If we're fast-forwarding, then we expect the condition to be None.
         if self.election_finished_condition_waiter_loop is None and not fast_forwarding:
@@ -749,6 +783,9 @@ class Election(object):
 
         self._winner_id = winner_id
         self._election_state = ElectionState.VOTE_COMPLETE
+
+        if self._current_election_timestamps is not None:
+            self._current_election_timestamps.execution_phase_start_time = time.time() * 1.0e3
 
         self.logger.debug(f"The voting phase for election {self.term_number} "
                           f"has completed successfully with winner: node {winner_id}.")
@@ -884,6 +921,10 @@ class Election(object):
         Returns:
             (bool) True if this is the first vote proposal (of whatever attempt number the proposal has) that has been received during this election, otherwise False
         """
+        if vote.election_term != self.term_number:
+            self.logger.error(f"Attempting to add VOTE from term {vote.election_term} to election {self.term_number}: {vote}")
+            raise ValueError(f"vote proposal's term {vote.election_term} differs from target election with term {self.term_number}")
+
         proposer_id: int = vote.proposer_id
         current_attempt_number: int = vote.attempt_number
 

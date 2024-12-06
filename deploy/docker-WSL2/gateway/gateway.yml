@@ -32,9 +32,10 @@ use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter
 notebook-image-tag: latest
-# scheduling-policy: static
-scheduling-policy: fcfs-batch
-subscribed-ratio-update-interval: 1
+idle-session-reclamation-policy: none
+scheduling-policy: static
+# scheduling-policy: fcfs-batch
+# subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.05
 scaling-interval: 30
@@ -60,3 +61,11 @@ checkpointing_enabled: true
 remote-docker-event-aggregator-port: 5821
 initial-cluster-size: 4
 initial-connection-period: 60
+election_timeout_seconds: 3
+simulate_checkpointing_latency: true
+mean_scale_out_per_host_sec: 15
+std_dev_scale_out_per_host_sec: 2
+mean_scale_in_per_host_sec: 10
+std_dev_scale_in_per_host_sec: 1
+starting_resource_port: 9007
+num_resource_ports: 4096

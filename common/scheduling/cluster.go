@@ -8,15 +8,18 @@ import (
 )
 
 type ClusterSessionManager interface {
-	// Sessions returns a mapping from session ID to Session.
+	// Sessions returns a mapping from UserSession ID to UserSession.
 	Sessions() hashmap.HashMap[string, UserSession]
 
-	// AddSession adds a Session to the Cluster.
+	// AddSession adds a UserSession to the Cluster.
 	AddSession(sessionId string, session UserSession)
 
-	// GetSession returns the Session with the specified ID.
+	// RemoveSession removes and returns a UserSession.
+	RemoveSession(sessionId string) UserSession
+
+	// GetSession returns the UserSession with the specified ID.
 	//
-	// We return the UserSession so that we can use this in unit tests with a mocked Session.
+	// We return the UserSession so that we can use this in unit tests with a mocked UserSession.
 	GetSession(sessionID string) (UserSession, bool)
 }
 
@@ -59,6 +62,11 @@ type ClusterHostManager interface {
 	//
 	// Importantly, this function does NOT lock the hostsMutex.
 	RangeOverHosts(f func(key string, value Host) bool)
+
+	// RangeOverSessions executes the provided function on each enabled UserSession in the Cluster.
+	//
+	// Importantly, this function does NOT lock the hostsMutex.
+	RangeOverSessions(f func(key string, value UserSession) bool)
 
 	// RangeOverDisabledHosts executes the provided function on each disabled Host in the Cluster.
 	//
@@ -179,15 +187,6 @@ type ClusterMetricsManager interface {
 	// NumReplicas returns the numer of replicas that each Jupyter kernel has associated with it.
 	// This is typically equal to 3, but may be altered in the system configuration.
 	NumReplicas() int
-
-	// NumReplicasAsDecimal returns the numer of replicas that each Jupyter kernel has associated with it as
-	// a decimal.Decimal struct.
-	//
-	// This value is typically equal to 3, but may be altered in the system configuration.
-	//
-	// This API exists as basically an optimization so we can return a cached decimal.Decimal struct,
-	// rather than recreate it each time we need it.
-	NumReplicasAsDecimal() decimal.Decimal
 
 	// GetOversubscriptionFactor returns the oversubscription factor calculated as the difference between
 	// the given ratio and the Cluster's current subscription ratio.

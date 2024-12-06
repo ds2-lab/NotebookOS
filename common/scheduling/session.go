@@ -17,12 +17,14 @@ const (
 	SessionStateMigrating         SessionState = "SESSION_MIGRATING"          // Indicates that one or more replicas are currently migrating to new Hosts.
 )
 
+// SessionState defines the various lifecycle states that a UserSession can be in at any given time.
 type SessionState string
 
 func (s SessionState) String() string {
 	return string(s)
 }
 
+// SessionStatistic exposes an API related to a single statistic of a UserSession.
 type SessionStatistic interface {
 	Add(val float64)
 	Sum() float64
@@ -33,6 +35,7 @@ type SessionStatistic interface {
 	LastN(n int64) float64
 }
 
+// UserSession encapsulates a long-running Notebook session associated with a single particular user.
 type UserSession interface {
 	Lock()
 	Unlock()
@@ -40,11 +43,10 @@ type UserSession interface {
 	RemoveReplica(container KernelContainer) error
 	RemoveReplicaById(replicaId int32) error
 	ResourceSpec() types.CloneableSpec
+	UpdateResourceSpec(spec types.CloneableSpec)
 	ID() string
 	Context() context.Context
 	SetContext(ctx context.Context)
-	ResourceUtilization() Utilization
-	SetResourceUtilization(util Utilization)
 	KernelSpec() *proto.KernelSpec
 	String() string
 	SetExpectingTraining() promise.Promise
@@ -66,10 +68,22 @@ type UserSession interface {
 	StartedAt() time.Time
 	Duration() time.Duration
 	SessionStartedTraining(container KernelContainer) promise.Promise
-	SessionStoppedTraining() promise.Promise
+	SessionStoppedTraining(reason string) promise.Promise
 	GetReplicaContainer(replicaId int32) (KernelContainer, bool)
+
+	// IdleTime returns the time that the Session has been idle (i.e., not training), as well as a flag indicating
+	// whether the Session is currently idle.
+	IdleTime() (time.Duration, bool)
+
+	// CumulativeTrainingTime returns the sum of time that this Session has spent training, excluding any associated overheads.
+	CumulativeTrainingTime() time.Duration
+
+	// NumTrainingEventsProcessed returns the number of training events processed by this Session.
+	NumTrainingEventsProcessed() int
 }
 
+// SessionStatistics is an interface that maintains/reports/provides access to the various statistical quantities
+// and metrics associated with a particular UserSession.
 type SessionStatistics interface {
 	Explainer
 

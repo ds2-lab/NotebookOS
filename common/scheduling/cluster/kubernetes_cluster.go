@@ -5,6 +5,7 @@ import (
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 )
@@ -38,17 +39,18 @@ func (c *KubernetesCluster) Scheduler() scheduling.Scheduler {
 // NewKubernetesCluster should be used when the system is deployed in Kubernetes mode.
 // This function accepts parameters that are used to construct a KubernetesScheduler to be used internally
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
-func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper,
-	kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
-	notificationBroker scheduler.NotificationBroker, opts *scheduling.SchedulerOptions) *KubernetesCluster {
+func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec, placer scheduling.Placer,
+	hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
+	notificationBroker scheduler.NotificationBroker, schedulingPolicy scheduling.Policy,
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)), opts *scheduling.SchedulerOptions) *KubernetesCluster {
 
-	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "KubernetesCluster")
+	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "KubernetesCluster", statisticsUpdaterProvider)
 	kubernetesCluster := &KubernetesCluster{
 		BaseCluster: baseCluster,
 	}
 
 	kubeScheduler, err := scheduler.NewKubernetesScheduler(kubernetesCluster, placer, hostMapper, kernelProvider,
-		hostSpec, kubeClient, notificationBroker, opts)
+		hostSpec, kubeClient, notificationBroker, schedulingPolicy, opts)
 
 	if err != nil {
 		kubernetesCluster.log.Error("Failed to create Kubernetes Cluster Scheduler: %v", err)

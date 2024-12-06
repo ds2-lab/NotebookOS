@@ -38,9 +38,11 @@ func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas i
 // reservationShouldUsePendingResources returns true if resource reservations on candidate hosts should be made
 // using pending resources, and false if they should be made using committed resources.
 //
-// They are only made using committed resources when using FCFS batch scheduling.
+// Reservations should use pending resources if the resources are only bound when training starts.
+//
+// If resources are bound when the container is created, then pending resources should NOT be used.
 func (placer *AbstractPlacer) reservationShouldUsePendingResources() bool {
-	return placer.schedulingPolicy != scheduling.FcfsBatch
+	return placer.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart
 }
 
 // FindHosts returns a list of hosts that can satisfy the resourceSpec.
@@ -80,17 +82,18 @@ func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts i
 			With(prometheus.Labels{"successful": successLabel}).Observe(float64(latency.Microseconds()))
 	}
 
+	placer.instance.UpdateIndexMultiple(hosts)
 	return hosts
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec) scheduling.Host {
+func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 
 	st := time.Now()
 	// Invoke internalPlacer's implementation of the findHost method for the core logic of FindHost.
-	host := placer.instance.findHost(blacklist, kernelSpec)
+	host := placer.instance.findHost(blacklist, kernelSpec, forTraining)
 	latency := time.Since(st)
 
 	if host == nil {
@@ -109,7 +112,7 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *prot
 		}
 	}
 
-	// The Host could not satisfy the resourceSpec, so return nil.
+	placer.instance.UpdateIndex(host)
 	return host
 }
 
@@ -144,6 +147,7 @@ func (placer *AbstractPlacer) Place(host scheduling.Host, in *proto.KernelReplic
 		return nil, scheduling.ErrNilConnectionInfo
 	}
 
+	placer.instance.UpdateIndex(host)
 	return connInfo, err
 }
 

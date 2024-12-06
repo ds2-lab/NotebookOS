@@ -98,8 +98,8 @@ type InsufficientResourcesError struct {
 }
 
 // NewInsufficientResourcesError constructs a new InsufficientResourcesError struct and returns a pointer to it.
-func NewInsufficientResourcesError(avail types.Spec, req types.Spec, kinds []Kind) *InsufficientResourcesError {
-	return &InsufficientResourcesError{
+func NewInsufficientResourcesError(avail types.Spec, req types.Spec, kinds []Kind) InsufficientResourcesError {
+	return InsufficientResourcesError{
 		AvailableResources:     avail,
 		RequestedResources:     req,
 		OffendingResourceKinds: kinds,
@@ -123,10 +123,18 @@ func (e InsufficientResourcesError) String() string {
 // Kind can be one of CPU, GPU, or Memory
 type Kind string
 
+func (k Kind) String() string {
+	return string(k)
+}
+
 // Inconsistency defines the various ways in which HostResources can be in an inconsistent or illegal state.
 // Examples include a resource being negative, a resource quantity being larger than the total available HostResources
 // of that kind on the node, and so on.
 type Inconsistency string
+
+func (i Inconsistency) String() string {
+	return string(i)
+}
 
 // Manager is a wrapper around several HostResources structs, each of which corresponds to idle, pending,
 // committed, or spec HostResources.

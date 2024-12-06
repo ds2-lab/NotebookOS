@@ -31,8 +31,9 @@ device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter
 notebook-image-tag: latest
 scheduler-http-port: 8078
-# scheduling-policy: static
-scheduling-policy: fcfs-batch
+idle-session-reclamation-policy: none
+scheduling-policy: static
+# scheduling-policy: fcfs-batch
 subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.05
@@ -57,3 +58,7 @@ run_kernels_in_gdb: true
 acks_enabled: false
 checkpointing_enabled: true
 docker_app_name: distributed_notebook
+election_timeout_seconds: 3
+simulate_checkpointing_latency: true
+starting_resource_port: 16007
+num_resource_ports: 4096

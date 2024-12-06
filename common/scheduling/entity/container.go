@@ -17,18 +17,19 @@ type Container struct {
 
 	log logger.Logger
 
-	session           scheduling.UserSession    // The Session associated with the Container.
-	replicaId         int32                     // The SMR node ID of the kernel replica running within the Container.
-	host              scheduling.Host           // The Host on which the Container is currently scheduled.
-	id                string                    // The kernel ID of the Container.
-	containerState    scheduling.ContainerState // The current state of the Container.
-	executions        atomic.Int32              // The number of training events processed by the Container.
-	trainingStartedAt time.Time                 // The time at which the Container started training.
-	startedAt         time.Time                 // The time at which the Container was created.
-	addr              string                    // The address of the Container.
+	session                    scheduling.UserSession    // The Session associated with the Container.
+	replicaId                  int32                     // The SMR node ID of the kernel replica running within the Container.
+	host                       scheduling.Host           // The Host on which the Container is currently scheduled.
+	id                         string                    // The kernel ID of the Container.
+	containerState             scheduling.ContainerState // The current state of the Container.
+	executions                 atomic.Int32              // The number of training events processed by the Container.
+	trainingStartedAt          time.Time                 // The time at which the Container started training.
+	startedAt                  time.Time                 // The time at which the Container was created.
+	addr                       string                    // The address of the Container.
+	numTrainingEventsProcessed int                       // numTrainingEventsProcessed is the number of training events processed by this Container.
 
-	spec     *types.DecimalSpec
-	lastSpec *types.DecimalSpec
+	spec *types.DecimalSpec
+	// lastSpec *types.DecimalSpec
 
 	interactivePriorityBase        float64
 	interactivePriority            cache.InlineCache
@@ -135,7 +136,7 @@ func (c *Container) Host() scheduling.Host {
 
 func (c *Container) getInteractivePriority() float64 {
 	c.interactivePriority.Validator(time.Now())
-	required := float64(c.session.ResourceUtilization().GetNumGpus())
+	required := float64(c.session.ResourceSpec().GPU())
 	idleGPUs := c.host.Stats().IdleGPUs()
 	extras := 0.0
 	extraExplain := "0.0"
@@ -227,9 +228,13 @@ func (c *Container) ResourceSpec() *types.DecimalSpec {
 	return c.spec
 }
 
+func (c *Container) UpdateResourceSpec(spec *types.DecimalSpec) {
+	c.spec = spec
+}
+
 // ScaleOutPriority returns the host's "scheduling-out priority", or SOP, which is defined as the time of the
 // last rescheduling operation plus the frequency of training tasks multiplied by the interactive priority of the
-// potential training task plus the sum of the preemption priorities of the preemptible tasks.
+// potential training task plus the sum of the preemption priorities of the pre-emptible tasks.
 //
 // SOP(h) = Last Rescheduling Clock + Freq(h) * IP(h) + SUM PP(h').
 // To schedule out a potential task, we need to weight benefits of migration(IP) and penalty of preempting running task(s) if stay(PP).
@@ -239,26 +244,15 @@ func (c *Container) ScaleOutPriority() float64 {
 
 // TrainingStartedInContainer should be called when the Container begins training.
 func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
-	c.lastSpec = c.spec
-
-	//if snapshot != nil {
-	//	err := ApplyResourceSnapshotToHost(c.host, snapshot)
-	//	if err != nil {
-	//		c.log.Warn("Failed to apply Resource Snapshot: %v", err)
-	//	}
-	//} else {
-	//	log.Fatalf("Container %s did not receive Resource Snapshot on TrainingStartedInContainer...", c.id)
-	//}
-
 	err := c.host.ContainerStartedTraining(c)
 	if err != nil {
 		return err
 	}
 
 	c.trainingStartedAt = time.Now()
-	c.spec.UpdateSpecGPUs(float64(c.Session().ResourceUtilization().GetNumGpus()))
-	c.spec.UpdateSpecCPUs(c.Session().ResourceUtilization().GetCpuUtilization())
-	c.spec.UpdateSpecMemoryMB(c.Session().ResourceUtilization().GetMemoryUsageMb())
+	//c.spec.UpdateSpecGPUs(c.Session().ResourceSpec().GPU())
+	//c.spec.UpdateSpecCPUs(c.Session().ResourceSpec().CPU())
+	//c.spec.UpdateSpecMemoryMB(c.Session().ResourceSpec().MemoryMB())
 
 	// Processing a new training event.
 	c.executions.Add(1)
@@ -269,6 +263,9 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 		c.log.Error("Failed to transition to state %v because: %v", scheduling.ContainerStateTraining, err)
 		return err
 	}
+
+	c.log.Debug("Container for replica %d of kernel \"%s\" has successfully started training. ResourceSpec: %v.",
+		c.replicaId, c.id, c.ResourceSpec().String())
 
 	return nil
 }
@@ -282,17 +279,7 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 		return err
 	}
 
-	c.log.Debug("Training stopping after %v. Outputting Resources before training officially stops.", time.Since(c.trainingStartedAt))
-	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
-		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
-	c.log.Debug("Idle CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
-		c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs(), c.host.Stats().IdleVRAM())
-	c.log.Debug("Committed CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
-		c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs(), c.host.Stats().CommittedVRAM())
-
-	c.spec = c.lastSpec
-
-	c.log.Debug("Training stopped. Outputting Resources now that training has officially stopped.")
+	c.log.Debug("Training stopping after %v. Outputting Resources before training officially stops. ResourceSpec of %s: %s", time.Since(c.trainingStartedAt), c.ContainerID(), c.spec.String())
 	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
 	c.log.Debug("Idle CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
@@ -305,17 +292,21 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 		return err
 	}
 
-	//if snapshot == nil {
-	//	c.log.Warn("Received nil ResourceSnapshot. This should only happen if we're about to be terminated.")
-	//} else {
-	//	// Just compare the snapshot against our local resources.
-	//}
+	c.log.Debug("Training stopped. Outputting Resources now that training has officially stopped.")
+	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
+	c.log.Debug("Idle CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+		c.host.Stats().IdleCPUs(), c.host.Stats().IdleMemoryMb(), c.host.Stats().IdleGPUs(), c.host.Stats().IdleVRAM())
+	c.log.Debug("Committed CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
+		c.host.Stats().CommittedCPUs(), c.host.Stats().CommittedMemoryMb(), c.host.Stats().CommittedGPUs(), c.host.Stats().CommittedVRAM())
+
+	c.numTrainingEventsProcessed += 1
 
 	return nil
 }
 
-// ContainedStopped should be called when the Container is stopped, such as when its Session is stopped.
-func (c *Container) ContainedStopped() error {
+// ContainerStopped should be called when the Container is stopped, such as when its Session is stopped.
+func (c *Container) ContainerStopped() error {
 	//
 	// IMPORTANT
 	// If I change the order of anything here, then I will need to update DistributedKernelClient::RemoveReplica,
@@ -323,7 +314,7 @@ func (c *Container) ContainedStopped() error {
 	// Container::ContainerStopped returns either an ErrInvalidStateTransition error or an ErrNilHost error.
 	//
 	// (ErrInvalidStateTransition is returned by Container::transition in the event that an illegal transition
-	// is attempted, and ErrNilHost is returned directly by ContainedStopped if the Container's host field is nil.)
+	// is attempted, and ErrNilHost is returned directly by ContainerStopped if the Container's host field is nil.)
 	//
 
 	if err := c.transition(scheduling.ContainerStateStopped); err != nil {
@@ -345,4 +336,10 @@ func (c *Container) ContainedStopped() error {
 	c.log.Debug("scheduling.Container for replica %d of kernel %s has stopped.", c.replicaId, c.id)
 
 	return nil
+}
+
+// NumTrainingEventsProcessed returns the number of training events processed by this particular Container.
+// This is NOT (necessarily) equal to the total number of training events processed by the UserSession.
+func (c *Container) NumTrainingEventsProcessed() int {
+	return c.numTrainingEventsProcessed
 }

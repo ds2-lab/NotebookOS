@@ -23,8 +23,9 @@ const (
 	ShellExecuteRequest        = "execute_request"
 	ShellExecuteReply          = "execute_reply"
 	ShellYieldRequest          = "yield_request"
-	ShellKernelInfoRequest     = "kernel_info_request"
 	ShellShutdownRequest       = "shutdown_request"
+	KernelInfoRequest          = "kernel_info_request"
+	KernelInfoReply            = "kernel_info_reply"
 	MessageTypeShutdownRequest = "shutdown_request"
 	MessageTypeShutdownReply   = "shutdown_reply"
 
@@ -335,13 +336,15 @@ func extractRequestTraceFromJupyterMessage(msg *JupyterMessage, logger logger.Lo
 //
 // If there is an error decoding or encoding the metadata frame of the jupyter.JupyterMessage, then an error is
 // returned, and the boolean returned along with the error is always false.
-func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket, timestamp time.Time, logger logger.Logger) (*proto.RequestTrace, bool, error) {
+func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, timestamp time.Time, logger logger.Logger) (*proto.RequestTrace, bool, error) {
 	var (
 		wrapper      *proto.JupyterRequestTraceFrame
 		requestTrace *proto.RequestTrace
 		added        bool
 		err          error
 	)
+
+	//logger.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.", msg.JupyterMessageType())
 
 	// Check if the message has enough frames to have a RequestTrace in it (i.e., if there are buffers frames or not).
 	// If not, then we'll assume that the message does not have a buffers frame/RequestTrace (as there aren't enough
@@ -358,13 +361,8 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket
 
 		// The metadata did not already contain a RequestTrace.
 		// Let's first create one.
-		requestTrace = proto.NewRequestTrace()
+		requestTrace = proto.NewRequestTrace(msg.JupyterSession(), msg.JupyterMessageType(), msg.JupyterMessageId())
 		added = true
-
-		// Then we'll populate the sort of metadata fields of the RequestTrace.
-		requestTrace.MessageId = msg.JupyterMessageId()
-		requestTrace.MessageType = msg.JupyterMessageType()
-		requestTrace.KernelId = msg.JupyterSession()
 
 		// Create the wrapper/frame itself.
 		wrapper = &proto.JupyterRequestTraceFrame{RequestTrace: requestTrace}
@@ -516,7 +514,8 @@ type JupyterMessage struct {
 	RequestId     string
 	DestinationId string
 
-	RequestTrace *proto.RequestTrace
+	RequestTraceUpdated *proto.RequestTraceUpdated
+	RequestTrace        *proto.RequestTrace
 
 	header       *MessageHeader
 	parentHeader *MessageHeader
@@ -689,10 +688,21 @@ func (m *JupyterMessage) EncodeMetadata(metadata map[string]interface{}) (err er
 	err = m.JupyterFrames.EncodeMetadata(metadata)
 	if err == nil {
 		m.metadata = metadata
+		m.metadataDecoded = true
 		return nil
 	}
 
 	return
+}
+
+func (m *JupyterMessage) EncodeMessageHeader(header *MessageHeader) error {
+	err := m.JupyterFrames.EncodeHeader(&header)
+	if err == nil {
+		m.header = header
+		return nil
+	}
+
+	return err
 }
 
 // SetSignatureSchemeIfNotSet sets the signature scheme of the JupyterMessage if it has not already been set.
@@ -787,9 +797,18 @@ func (m *JupyterMessage) GetParentHeader() *MessageHeader {
 		return nil
 	}
 
+	if len(m.JupyterFrames.Frames[JupyterFrameParentHeader]) == 0 {
+		m.parentHeader = &parentHeader
+		m.parentHeaderDecoded = true
+
+		return m.parentHeader
+	}
+
 	if err := m.JupyterFrames.DecodeParentHeader(&parentHeader); err != nil {
-		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode parent header from frame \"%v\" because: %v\n"), string(m.JupyterFrames.Frames[JupyterFrameHeader]), err)
-		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Message frames (for which we failed to decode parent header): %s\n"), m.msg.String())
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode parent header from frame \"%v\" because: %v\n"),
+			string(m.JupyterFrames.Frames[JupyterFrameParentHeader]), err)
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Message frames (for which we failed to decode parent header): %s\n"),
+			m.msg.String())
 	}
 
 	m.parentHeader = &parentHeader
@@ -845,17 +864,39 @@ func (m *JupyterMessage) Validate() error {
 	return nil
 }
 
-func (m *JupyterMessage) SetMessageType(typ string) {
+func (m *JupyterMessage) SetMessageType(typ JupyterMessageType, reEncode bool) error {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
 		debug.PrintStack()
 		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
 	}
-	header.MsgType = JupyterMessageType(typ)
+	header.MsgType = typ
 	m.header = header
+
+	if reEncode {
+		return m.EncodeMessageHeader(m.header)
+	}
+
+	return nil
 }
 
-func (m *JupyterMessage) SetDate(date string) {
+func (m *JupyterMessage) SetMessageId(msgId string, reEncode bool) error {
+	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
+	if header == nil || err != nil {
+		debug.PrintStack()
+		panic(fmt.Sprintf("Failed to decode message header. Message: %s. Error: %v\n", m.msg.String(), err))
+	}
+	header.MsgID = msgId
+	m.header = header
+
+	if reEncode {
+		return m.EncodeMessageHeader(m.header)
+	}
+
+	return nil
+}
+
+func (m *JupyterMessage) SetDate(date string, reEncode bool) error {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
 		debug.PrintStack()
@@ -863,6 +904,12 @@ func (m *JupyterMessage) SetDate(date string) {
 	}
 	header.Date = date
 	m.header = header
+
+	if reEncode {
+		return m.EncodeMessageHeader(m.header)
+	}
+
+	return nil
 }
 
 // JupyterMessageType is a convenience/utility method for retrieving the Jupyter message type from the Jupyter message header.
@@ -947,9 +994,54 @@ func (m *JupyterMessage) JupyterParentMessageId() string {
 }
 
 func (m *JupyterMessage) String() string {
-	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.String())
+	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset(), m.JupyterFrames.String())
 }
 
 func (m *JupyterMessage) StringFormatted() string {
 	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.StringFormatted())
+}
+
+// CreateAndReturnYieldRequestMessage creates a "yield_request" message from the target message.
+//
+// If the target message is not of type "execute_request", then an error is returned.
+//
+// This will return a COPY of the original message with the type field modified to contact "yield_request" instead of "execute_request".
+// On success, the returned error will be nil. If an error occurs, then the returned message will be nil, and the error will be non-nil.
+//
+// PRECONDITION: The given message must be an "execute_request" message.
+// This function will NOT check this. It should be checked before calling this function.
+func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, error) {
+	if m.JupyterMessageType() != ShellExecuteRequest {
+		return nil, fmt.Errorf("%w: message is of type \"%s\", not \"%s\"", ErrInvalidJupyterMessage, m.JupyterMessageType(), ShellExecuteRequest)
+	}
+
+	// Clone the original message.
+	var newMessage = m.GetZmqMsg().Clone()
+	jMsg := NewJupyterMessage(&newMessage)
+
+	// Change the message header.
+	_ = jMsg.SetMessageType(ShellYieldRequest, false)
+
+	// Create a JupyterFrames struct by wrapping with the message's frames.
+	if err := jMsg.Validate(); err != nil {
+		// m.notifyClusterGatewayAndPanic("Failed to Validate \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
+		return nil, err
+	}
+
+	// Replace the header with the new header (that has the 'yield_request' MsgType).
+	header, err := jMsg.GetHeader()
+	if err != nil {
+		return nil, err
+	}
+
+	if err = jMsg.JupyterFrames.EncodeHeader(&header); err != nil {
+		// m.notifyClusterGatewayAndPanic("Failed to Encode Header for \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
+		return nil, err
+	}
+
+	// Replace the frames of the cloned message. I don't think this is really necessary, as we do this automatically,
+	// but whatever.
+	newMessage.Frames = jMsg.JupyterFrames.Frames
+
+	return jMsg, nil
 }

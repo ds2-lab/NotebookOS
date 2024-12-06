@@ -29,6 +29,7 @@ notebook-image-name: scusemua/jupyter
 notebook-image-tag: latest
 scheduler-http-port: 8078
 scheduling-policy: static
+idle-session-reclamation-policy: none
 subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.05
@@ -53,3 +54,10 @@ run_kernels_in_gdb: false
 acks_enabled: true
 simulate_checkpointing_latency: true
 docker_app_name: distributed_notebook
+election_timeout_seconds: 3
+mean_scale_out_per_host_sec: 15
+std_dev_scale_out_per_host_sec: 2
+mean_scale_in_per_host_sec: 10
+std_dev_scale_in_per_host_sec: 1
+starting_resource_port: 16007
+num_resource_ports: 4096

@@ -99,7 +99,11 @@ func (index *RandomClusterIndex) Add(host scheduling.Host) {
 	index.len += 1
 }
 
-func (index *RandomClusterIndex) Update(host scheduling.Host) {
+func (index *RandomClusterIndex) Update(_ scheduling.Host) {
+	// No-op.
+}
+
+func (index *RandomClusterIndex) UpdateMultiple(_ []scheduling.Host) {
 	// No-op.
 }
 
@@ -159,11 +163,12 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 }
 
 func (index *RandomClusterIndex) compactLocked(from int32) {
-	frontier := int(from)
-	for i := frontier + 1; i < len(index.hosts); i++ {
+	frontier := from
+	for i := frontier + 1; i < int32(len(index.hosts)); i++ {
 		if index.hosts[i] != nil {
 			index.hosts[frontier], index.hosts[i] = index.hosts[i], nil
 			index.hosts[frontier].SetMeta(HostMetaRandomIndex, frontier)
+			index.hosts[frontier].SetContainedWithinIndex(true)
 			frontier += 1
 		}
 	}
@@ -212,12 +217,6 @@ func (index *RandomClusterIndex) getBlacklist(blacklist []interface{}) []int32 {
 	return __blacklist
 }
 
-// isHostBlacklisted is a helper function that returns true if the given Host is contained within the blacklist,
-// based on the HostMetaRandomIndex metadata of the specified Host.
-func isHostBlacklisted(host scheduling.Host, blacklist []int32) bool {
-	return slices.Contains(blacklist, host.GetMeta(HostMetaRandomIndex).(int32))
-}
-
 // unsafeSeek does the actual work of the Seek method.
 // unsafeSeek does not acquire the mutex. It should be called from a function that has already acquired the mutex.
 func (index *RandomClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics ...[]float64) (scheduling.Host, interface{}) {
@@ -244,7 +243,7 @@ func (index *RandomClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics 
 			hostsSeen += 1
 
 			// If the given host is blacklisted, then look for a different host.
-			if isHostBlacklisted(host, blacklist) {
+			if slices.Contains(blacklist, host.GetMeta(HostMetaRandomIndex).(int32)) {
 				// Set to nil so that we have to continue searching.
 				host = nil
 			}
@@ -263,16 +262,6 @@ func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 	defer index.mu.Unlock()
 
 	return index.unsafeSeek(blacklist, metrics...)
-}
-
-// SeekFrom seeks from the given position. Pass nil as pos to reset the seek.
-func (index *RandomClusterIndex) SeekFrom(pos interface{}, metrics ...[]float64) (ret scheduling.Host, newPos interface{}) {
-	if start, ok := pos.(int32); ok {
-		index.seekStart = start
-	} else {
-		index.seekStart = 0
-	}
-	return index.Seek(make([]interface{}, 0), metrics...)
 }
 
 // SeekMultipleFrom seeks n Host instances from a random permutation of the index.
@@ -322,7 +311,7 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 	// If the number of shuffles becomes equal to initialNumShuffles+2, then we've iterated through the entire
 	// permutation of hosts at least once, and we need to give up.
 	//
-	// This is because the first call to unsafeSeek will cause a new permutation to be generated, as we've reset
+	// This is because the first call to seekInternal will cause a new permutation to be generated, as we've reset
 	// index.seekStart to 0. So, that will increment numShuffles by 1. Then, we'll iterate through that entire
 	// permutation (if necessary) until we've found the n requested hosts. If we fail to find n hosts by that
 	// point, then we'll reshuffle again, at which point we'll know we have looked at all possible hosts.
@@ -362,7 +351,7 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 	}
 
 	if len(hosts) < n {
-		index.log.Error("Returning %d/%d candidateHost(s) from SeekMultipleFrom in %v.", len(hosts), n, time.Since(st))
+		index.log.Warn("Returning %d/%d candidateHost(s) from SeekMultipleFrom in %v.", len(hosts), n, time.Since(st))
 	} else {
 		index.log.Debug("Returning %d/%d candidateHost(s) from SeekMultipleFrom in %v.", len(hosts), n, time.Since(st))
 	}

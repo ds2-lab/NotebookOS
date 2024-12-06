@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"strings"
 )
 
@@ -140,21 +141,39 @@ func (ci ConnectionInfoForKernel) String() string {
 }
 
 type DistributedKernelConfig struct {
-	StorageBase             string   `json:"storage_base"`
-	SMRPort                 int      `json:"smr_port"`
-	SMRNodeID               int      `json:"smr_node_id"`
-	SMRNodes                []string `json:"smr_nodes"`
-	SMRJoin                 bool     `json:"smr_join"`
-	PersistentID            string   `json:"persistent_id,omitempty"`
-	RemoteStorageEndpoint   string   `json:"remote_storage_hostname"`
-	RemoteStorage           string   `json:"remote_storage"`
-	RegisterWithLocalDaemon bool     `json:"should_register_with_local_daemon"`
-	LocalDaemonAddr         string   `json:"local_daemon_addr"` // Only used in Docker mode.
+	StorageBase                          string               `json:"storage_base"`
+	SMRPort                              int                  `json:"smr_port"`
+	SMRNodeID                            int                  `json:"smr_node_id"`
+	SMRNodes                             []string             `json:"smr_nodes"`
+	SMRJoin                              bool                 `json:"smr_join"`
+	PersistentID                         string               `json:"persistent_id,omitempty"`
+	RemoteStorageEndpoint                string               `json:"remote_storage_hostname"`
+	RemoteStorage                        string               `json:"remote_storage"`
+	RegisterWithLocalDaemon              bool                 `json:"should_register_with_local_daemon"`
+	LocalDaemonAddr                      string               `json:"local_daemon_addr"` // Only used in Docker mode.
+	SpecCpus                             float64              `json:"spec_cpus"`
+	SpecMemoryMb                         float64              `json:"spec_mem_mb"`
+	SpecGpus                             int                  `json:"spec_gpus"`
+	SpecVramGb                           float64              `json:"spec_vram_gb"`
+	DeploymentMode                       types.DeploymentMode `json:"deployment_mode"`
+	SimulateCheckpointingLatency         bool                 `json:"simulate_checkpointing_latency"`
+	ElectionTimeoutSeconds               int                  `json:"election_timeout_seconds"`
+	SimulateWriteAfterExec               bool                 `json:"simulate_write_after_execute"`                  // Simulate network write after executing code?
+	SimulateWriteAfterExecOnCriticalPath bool                 `json:"simulate_write_after_execute_on_critical_path"` // Should the simulated network write after executing code be on the critical path?
+	WorkloadId                           string               `json:"workload_id"`
+	SmrEnabled                           bool                 `json:"smr_enabled"`
+	PrometheusServerPort                 int                  `json:"prometheus_port"` // PrometheusServerPort is the port of the Prometheus metrics server on/in each kernel replica container.
 }
 
 func (c DistributedKernelConfig) String() string {
-	return fmt.Sprintf("StorageBase: %s, SMRPort: %d, SMRNodeID: %d, SMRJoin: %v, PersistentID: %s, SMRNodes: %s, RemoteStorage: %s, RemoteStorageEndpoint: %s",
-		c.StorageBase, c.SMRPort, c.SMRNodeID, c.SMRJoin, c.PersistentID, strings.Join(c.SMRNodes, ","), c.RemoteStorage, c.RemoteStorageEndpoint)
+	m, err := json.Marshal(c)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(m)
+	//return fmt.Sprintf("StorageBase: %s, SMRPort: %d, SMRNodeID: %d, SMRJoin: %v, PersistentID: %s, SMRNodes: %s, RemoteStorage: %s, RemoteStorageEndpoint: %s",
+	//	c.StorageBase, c.SMRPort, c.SMRNodeID, c.SMRJoin, c.PersistentID, strings.Join(c.SMRNodes, ","), c.RemoteStorage, c.RemoteStorageEndpoint)
 }
 
 type ConfigFile struct {

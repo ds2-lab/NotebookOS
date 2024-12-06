@@ -52,7 +52,7 @@ func (pc *PenaltyContainers) Penalty(gpus float64) (float64, int, error) {
 			return penalty, preempted, ErrInsufficientPreemptableContainers
 		}
 		penalty += pc.ContainerList[preempted].ContainerStatistics().PreemptionPriority()
-		gpus -= float64(pc.ContainerList[preempted].Session().ResourceUtilization().GetNumGpus())
+		gpus -= float64(pc.ContainerList[preempted].Session().ResourceSpec().GPU())
 		preempted++
 	}
 	return penalty, preempted, nil

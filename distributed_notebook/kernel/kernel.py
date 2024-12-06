@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import random
 import signal
 import socket
 import sys
@@ -23,6 +24,7 @@ from typing import Union, Optional, Dict, Any
 
 import debugpy
 import grpc
+import numpy as np
 import zmq
 from ipykernel import jsonutil
 from ipykernel.ipkernel import IPythonKernel
@@ -37,7 +39,7 @@ from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
 from ..logging import ColoredLogFormatter
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
-from ..sync.election import Election
+from ..sync.election import Election, ElectionTimestamps
 from ..sync.errors import DiscardMessageError
 from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer, get_estimated_io_time_seconds, \
     format_size
@@ -78,6 +80,21 @@ DeploymentMode_DockerSwarm: str = "DOCKER-SWARM"
 DeploymentMode_DockerCompose: str = "DOCKER-COMPOSE"
 DeploymentMode_Local: str = "LOCAL"
 
+# The average time to initialize CUDA on an AWS P3 instance (with a V100 GPU), based on our empirical benchmark.
+AverageCudaInitTimeSec: float = 0.17389775
+# Standard deviation of CUDA runtime initialization latency on an AWS P3 instance, based on our empirical benchmark.
+StandardDeviationCudaInitTimeSec: float = 0.00057978810784631
+
+# Bandwidth (in GB/s) of transferring data from host memory to device (GPU) memory for a V100 GPU (AWS P3 instance).
+# This is calculated from our own empirical benchmark.
+V100_AvgBandwidth_GbSec_HostToDevice: float = 11.106566666667
+V100_StdDevBandwidth_GbSec_HostToDevice: float = 0.0039555867664186
+
+# Bandwidth (in GB/s) of transferring data from device (GPU) memory to host memory for a V100 GPU (AWS P3 instance).
+# This is calculated from our own empirical benchmark.
+V100_AvgBandwidth_GbSec_DeviceToHost: float = 12.484746666667
+V100_StdDevBandwidth_GbSec_DeviceToHost: float = 0.018405739270544
+
 SMR_LEAD_TASK: str = "smr_lead_task"
 
 storage_base_default = os.path.dirname(os.path.realpath(__file__))
@@ -115,6 +132,40 @@ def gen_error_response(err):
             }
 
 
+class ExecutionStats(object):
+    """
+    Encapsulates some metrics related to code execution and whatnot.
+    """
+
+    def __init__(
+            self,
+            cuda_init_microseconds: float = 0,
+            download_runtime_dependencies_microseconds: float = 0,
+            download_model_and_training_data_microseconds: float = 0,
+            upload_model_and_training_data_microseconds: float = 0,
+            execution_time_microseconds: float = 0,
+            leader_election_microseconds: float = 0,
+            copy_data_from_cpu_to_gpu_microseconds: float = 0,
+            copy_data_from_gpu_to_cpu_microseconds: float = 0,
+            replay_time_microseconds: float = 0,
+            execution_start_unix_millis: float = 0,
+            execution_end_unix_millis: float = 0,
+            won_election: bool = False,  # always true for non-static/non-dynamic scheduling policies
+    ):
+        self.cuda_init_microseconds: float = cuda_init_microseconds
+        self.download_runtime_dependencies_microseconds: float = download_runtime_dependencies_microseconds
+        self.download_model_and_training_data_microseconds: float = download_model_and_training_data_microseconds
+        self.upload_model_and_training_data_microseconds: float = upload_model_and_training_data_microseconds
+        self.execution_start_unix_millis: float = execution_start_unix_millis
+        self.execution_end_unix_millis: float = execution_end_unix_millis
+        self.execution_time_microseconds: float = execution_time_microseconds
+        self.replay_time_microseconds: float = replay_time_microseconds
+        self.leader_election_microseconds: float = leader_election_microseconds
+        self.copy_data_from_cpu_to_gpu_microseconds: float = copy_data_from_cpu_to_gpu_microseconds
+        self.copy_data_from_gpu_to_cpu_microseconds: float = copy_data_from_gpu_to_cpu_microseconds
+        self.won_election: bool = won_election
+
+
 class DistributedKernel(IPythonKernel):
     # Configurable properties
     storage_base: Union[str, Unicode] = Unicode(storage_base_default,  # type: ignore
@@ -148,6 +199,48 @@ class DistributedKernel(IPythonKernel):
 
     persistent_id: Union[str, Unicode] = Unicode(help="""Persistent id for storage""", allow_none=True).tag(config=True)
 
+    remote_storage_hostname: Union[str, Unicode] = Unicode(
+        help="""Hostname of the remotestorage. The SyncLog's RemoteStorage client will connect to this.""").tag(
+        config=True)
+
+    remote_storage: Union[str, Unicode] = Unicode(
+        help="The type of remote storage we're using. Valid options, as of right now, are 'hdfs' and 'redis'.",
+        default_value='hdfs').tag(config=True)
+
+    prometheus_port: Integer = Integer(8089, help="Port of the Prometheus Server").tag(config=True)
+
+    spec_cpus: Float = Float(0, help="Amount of vCPU used by the kernel").tag(config=True)
+
+    spec_gpus: Integer = Integer(0, help="Number of GPUs used by the kernel").tag(config=True)
+
+    spec_mem_mb: Float = Float(0, help="Amount of memory in MB used by the kernel").tag(config=True)
+
+    spec_vram_gb: Float = Float(0, help="Amount of VRAM in GB used by the kernel").tag(config=True)
+
+    gpu_memory_bandwidth_bytes_sec: Float = Float(900_000_000_000, help="Memory bandwidth of the GPU in bytes/sec").tag(
+        config=True)
+
+    simulate_checkpointing_latency: Bool = Bool(True, help="Simulate network I/O").tag(config=True)
+
+    deployment_mode: Union[str, Unicode] = Unicode(default_value='docker-swarm',
+                                                   help="The deployment mode of the cluster").tag(config=True)
+
+    workload_id: Union[str, Unicode] = Unicode(default_value='N/A',
+                                               help="The ID of the workload in which the kernel is execution.").tag(
+        config=True)
+
+    election_timeout_seconds: Float = Float(10.0,
+                                            help="""How long to wait to receive other proposals before making a decision 
+                                            (if we can, like if we have at least received one LEAD proposal). """).tag(
+        config=True)
+
+    simulate_write_after_execute: Bool = Bool(True, help="Simulate network write after executing code?").tag(
+        config=True)
+
+    simulate_write_after_execute_on_critical_path: Bool = Bool(True,
+                                                               help="Should the simulated network write after executing code be on the critical path?").tag(
+        config=True)
+
     pod_name: Union[str, Unicode] = Unicode(
         help="""Kubernetes name of the Pod encapsulating this distributed kernel replica""").tag(config=False)
 
@@ -157,23 +250,11 @@ class DistributedKernel(IPythonKernel):
     hostname: Union[str, Unicode] = Unicode(
         help="""Hostname of the Pod encapsulating this distributed kernel replica""").tag(config=False)
 
-    remote_storage_hostname: Union[str, Unicode] = Unicode(
-        help="""Hostname of the remotestorage. The SyncLog's RemoteStorage client will connect to this.""").tag(
-        config=True)
-
-    remote_storage: Union[str, Unicode] = Unicode(
-        help="The type of remote storage we're using. Valid options, as of right now, are 'hdfs' and 'redis'.",
-        default_value='hdfs').tag(config=True)
-
     kernel_id: Union[str, Unicode] = Unicode(help="""The ID of the kernel.""").tag(config=False)
-
-    # data_directory: Union[str, Unicode] = Unicode(help="""The etcd-raft WAL/data directory. This will always be equal to the empty string unless we're created during a migration operation.""").tag(config=False)
 
     debug_port: Integer = Integer(8464, help="""Port of debug HTTP server.""").tag(config=False)
 
-    election_timeout_seconds: Float = Float(10.0,
-                                            help="""How long to wait to receive other proposals before making a decision (if we can, like if we have at least received one LEAD proposal). """).tag(
-        config=True)
+    smr_enabled: Bool = Bool(default_value=True).tag(config=True)
 
     implementation = 'Distributed Python 3'
     implementation_version = '0.2'
@@ -233,14 +314,47 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
 
+        ########################
+        # Execution/Data State #
+        ########################
+        self.current_execution_stats: Optional[ExecutionStats] = None
+
+        # Indicates if the CUDA runtime initialized.
+        self.cuda_initialized: bool = False
+
+        # Indicates of the data is already on the GPU.
+        self.data_on_gpu: bool = False
+
+        # Indicates if the runtime dependencies (e.g., PyTorch/TensorFlow, etc.) are already downloaded.
+        self.runtime_dependencies_downloaded: bool = False
+
+        # Indicates if the (latest) model parameters and training data are downloaded.
+        self.model_and_training_data_downloaded: bool = False
+
         # This is set to True in self.loaded_serialized_state_callback, which is called by the RaftLog after it
         # loads its serialized state from intermediate storage.
         self.loaded_serialized_state: bool = False
 
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
-        self.remote_storages: Dict[str, SimulatedCheckpointer] = {}
-        self.resource_requests: list[Dict[str, Number | List[Number]]] = []
-        self.current_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = None
+        self.remote_storages: Dict[str, SimulatedCheckpointer] = {
+            "AWS S3 (Default)": SimulatedCheckpointer(
+                name="AWS S3 (Default)",
+                download_rate=200_000_000,  # 200MB/sec
+                upload_rate=1_000_000,  # 1MB/sec
+                download_variance_percent=0.05,
+                upload_variance_percent=0.05,
+                read_failure_chance_percentage=0.0,
+                write_failure_chance_percentage=0.0
+            )
+        }
+
+        self.current_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = {
+            "cpus": self.spec_cpus,
+            "gpus": self.spec_gpus,
+            "memory_mb": self.spec_mem_mb,
+            "vram": self.spec_vram_gb
+        }
+        self.resource_requests: list[Dict[str, Number | List[Number]]] = [self.current_resource_request]
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
@@ -249,6 +363,9 @@ class DistributedKernel(IPythonKernel):
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
+
+        self.log.debug(f"Initial resource request: {self.current_resource_request}")
+        self.log.debug(f"GPU memory bandwidth: {self.gpu_memory_bandwidth_bytes_sec / 1.0e9} bytes/sec")
 
         if "local_tcp_server_port" in kwargs:
             self.log.warning(f"Overriding default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
@@ -292,6 +409,7 @@ class DistributedKernel(IPythonKernel):
                 name="kernel_remote_storage_read_latency_milliseconds",
                 documentation="The amount of time the kernel spent reading data from RemoteStorage.",
                 unit="milliseconds",
+                labelnames=["session_id", "workload_id"],
                 buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
             self.remote_storage_write_latency_milliseconds: Histogram = Histogram(
                 namespace="distributed_cluster",
@@ -299,6 +417,7 @@ class DistributedKernel(IPythonKernel):
                 name="kernel_remote_storage_write_latency_milliseconds",
                 documentation="The amount of time the kernel spent writing data to RemoteStorage.",
                 unit="milliseconds",
+                labelnames=["session_id", "workload_id"],
                 buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
             self.registration_time_milliseconds: Histogram = Histogram(
                 namespace="distributed_cluster",
@@ -316,22 +435,28 @@ class DistributedKernel(IPythonKernel):
                 buckets=[10, 100, 250, 500, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7,
                          6e8,
                          6e9])
-            self.checkpointing_write_latency_milliseconds: Histogram = Histogram(
+            # self.checkpointing_write_latency_milliseconds: Histogram = Histogram(
+            #     namespace="distributed_cluster",
+            #     subsystem="jupyter",
+            #     name="checkpointing_write_latency_milliseconds",
+            #     documentation="Latency in milliseconds of writing checkpointed state to external storage.",
+            #     unit="milliseconds",
+            #     buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
+            #              6e9])
+            # self.checkpointing_read_latency_milliseconds: Histogram = Histogram(
+            #     namespace="distributed_cluster",
+            #     subsystem="jupyter",
+            #     name="checkpointing_read_latency_milliseconds",
+            #     documentation="Latency in milliseconds of reading checkpointed state from external storage.",
+            #     unit="milliseconds",
+            #     buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
+            #              6e9])
+            self.delay_milliseconds: Counter = Counter(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
-                name="checkpointing_write_latency_milliseconds",
-                documentation="Latency in milliseconds of writing checkpointed state to external storage.",
-                unit="milliseconds",
-                buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
-                         6e9])
-            self.checkpointing_read_latency_milliseconds: Histogram = Histogram(
-                namespace="distributed_cluster",
-                subsystem="jupyter",
-                name="checkpointing_read_latency_milliseconds",
-                documentation="Latency in milliseconds of reading checkpointed state from external storage.",
-                unit="milliseconds",
-                buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
-                         6e9])
+                name="delay_milliseconds",
+                documentation="Delay incurred by a particular Session.",
+                labelnames=["session_id", "workload_id"])
 
         from ipykernel.debugger import _is_debugpy_available
         if _is_debugpy_available:
@@ -380,13 +505,7 @@ class DistributedKernel(IPythonKernel):
 
         self.log.info("Kwargs: %s" % str(kwargs))
 
-        self.checkpointing_enabled: bool = False
-        if len(os.environ.get("SIMULATE_CHECKPOINTING_LATENCY", "")) > 0:
-            self.checkpointing_enabled = True
-        elif "checkpointing_enabled" in kwargs:
-            self.checkpointing_enabled = kwargs.get("checkpointing_enabled", False)
-
-        if self.checkpointing_enabled:
+        if self.simulate_checkpointing_latency:
             self.log.debug("Checkpointing Latency Simulation is enabled.")
         else:
             self.log.debug("Checkpointing Latency Simulation is disabled.")
@@ -427,40 +546,8 @@ class DistributedKernel(IPythonKernel):
         if len(self.remote_storage_hostname) == 0:
             raise ValueError("The RemoteStorage hostname is empty. Was it specified in the configuration file?")
 
-        try:
-            # The amount of CPU used by this kernel replica (when training) in millicpus (1/1000th of a CPU core).
-            self.spec_cpu: int = int(float(os.environ.get("SPEC_CPU", "0")))
-        except ValueError as ex:
-            self.log.error(
-                f"Failed to parse \"SPEC_CPU\" environment variable \"{os.environ.get('SPEC_CPU')}\" because: {ex}")
-            self.spec_cpu = 1
-
-        try:
-            # The amount of RAM used by this kernel replica (when training) in megabytes (MB).
-            self.spec_mem: float = float(os.environ.get("SPEC_MEM", "0"))
-        except ValueError as ex:
-            self.log.error(
-                f"Failed to parse \"SPEC_MEM\" environment variable \"{os.environ.get('SPEC_MEM')}\" because: {ex}")
-            self.spec_mem = 128
-
-        try:
-            # The number of GPUs used by this kernel replica (when training).
-            self.spec_gpu: int = int(float(os.environ.get("SPEC_GPU", "0")))
-        except ValueError as ex:
-            self.log.error(
-                f"Failed to parse \"SPEC_GPU\" environment variable \"{os.environ.get('SPEC_GPU')}\" because: {ex}")
-            self.spec_gpu = 1
-
-        try:
-            # The amount of VRAM (i.e., GPU memory) used by this kernel replica (when training) in gigabytes (GB).
-            self.spec_vram: float = float(os.environ.get("SPEC_VRAM", "0"))
-        except ValueError as ex:
-            self.log.error(
-                f"Failed to parse \"SPEC_VRAM\" environment variable \"{os.environ.get('SPEC_VRAM')}\" because: {ex}")
-            self.spec_vram = 0.128
-
-        self.log.info("CPU: %s, Memory: %s, GPU: %s, VRAM: %s." %
-                      (self.spec_cpu, str(self.spec_mem), str(self.spec_gpu), str(self.spec_vram)))
+        self.log.info("CPU: %.2f, Memory: %.2f, GPUs: %d, VRAM: %.2f." %
+                      (self.spec_cpus, self.spec_mem_mb, self.spec_gpus, self.spec_vram_gb))
 
         # This should only be accessed from the control IO loop (rather than the main/shell IO loop).
         self.persistent_store_cv = asyncio.Condition()
@@ -585,6 +672,7 @@ class DistributedKernel(IPythonKernel):
             "podName": self.pod_name,
             "nodeName": self.node_name,
             "connection-info": connection_info,
+            "workload_id": self.workload_id,
             "kernel": {
                 "id": self.kernel_id,
                 "session": session_id,
@@ -683,14 +771,6 @@ class DistributedKernel(IPythonKernel):
         # Establish gRPC connection with Local Daemon so that we can send notifications if/when errors occur.
         self.kernel_notification_service_channel = grpc.insecure_channel(f"{local_daemon_service_name}:{grpc_port}")
         self.kernel_notification_service_stub = KernelErrorReporterStub(self.kernel_notification_service_channel)
-
-        # self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-        #     title="Kernel Replica Registered with Local Daemon",
-        #     message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has registered with its Local Daemon.",
-        #     notificationType=InfoNotification,
-        #     kernelId=self.kernel_id,
-        #     replicaId=self.smr_node_id,
-        # ))
 
         self.daemon_registration_socket.close()
 
@@ -1131,6 +1211,7 @@ class DistributedKernel(IPythonKernel):
             sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO, node_id=self.smr_node_id)  # type: ignore
 
         sync_log.set_fast_forward_executions_handler(self.synchronizer.fast_forward_execution_count)
+        sync_log.set_set_execution_count_handler(self.synchronizer.set_execution_count)
 
         self.init_synchronizer_event.set()
 
@@ -1141,13 +1222,24 @@ class DistributedKernel(IPythonKernel):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be started before we attempt to catch-up.
-        # The catch-up process involves appending a new value and waiting until it gets committed. This cannot be done until the RaftLog has started.
-        # And the RaftLog is started by the Synchronizer, within Synchronizer::start.
-        if self.synclog.needs_to_catch_up:
-            self.log.debug("We need to catchup with our peers, but before we do that, we must simulate checkpointing.")
-            await self.simulate_remote_checkpointing(None, io_type="download")
+        duration_sec: float = await self.download_model_and_training_data()
 
+        if duration_sec > 0 and self.prometheus_enabled:
+            self.remote_storage_read_latency_milliseconds.labels(
+                session_id=self.kernel_id,
+                workload_id=self.workload_id).observe(duration_sec * 1e3)
+            self.delay_milliseconds.labels(
+                session_id=self.kernel_id,
+                workload_id=self.workload_id).inc(duration_sec * 1e3)
+
+            if self.current_execution_stats is not None:
+                self.current_execution_stats.download_model_and_training_data_microseconds = duration_sec * 1.0e6
+
+        # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be
+        # started before we attempt to catch-up. The catch-up process involves appending a new value and waiting until
+        # it gets committed. This cannot be done until the RaftLog has started. And the RaftLog is started by the
+        # Synchronizer, within Synchronizer::start.
+        if self.synclog.needs_to_catch_up:
             self.log.debug("RaftLog will need to propose a \"catch up\" value "
                            "so that it can tell when it has caught up with its peers.")
             await self.synclog.catchup_with_peers()
@@ -1246,7 +1338,7 @@ class DistributedKernel(IPythonKernel):
         return remote_storage_name
 
     def register_remote_storage_definition(self, remote_storage_definition: Dict[str, Any] | SimulatedCheckpointer) -> \
-    Optional[str]:
+            Optional[str]:
         """
         Convert the remote storage definition that was extracted from the metadata of an "execute_request" or
         "yield_request" message to a SimulatedCheckpointer object and store the new SimulatedCheckpointer object
@@ -1307,6 +1399,9 @@ class DistributedKernel(IPythonKernel):
         """Override for receiving specific instructions about which replica should execute some code."""
         start_time: float = time.time()
 
+        # Reset the current ExecutionStats object.
+        self.current_execution_stats = ExecutionStats()
+
         parent_header: dict[str, Any] = extract_header(parent)
 
         self.log.debug(
@@ -1342,7 +1437,7 @@ class DistributedKernel(IPythonKernel):
 
         # Process the metadata included in the request.
         # If we get back a remote storage name, then we'll use it to simulate I/O after we finish the execution.
-        remote_storage_name: str[Optional] = await self.process_execute_request_metadata(parent_header["msg_id"],
+        remote_storage_name: Optional[str] = await self.process_execute_request_metadata(parent_header["msg_id"],
                                                                                          parent_header["msg_type"],
                                                                                          metadata)
 
@@ -1386,14 +1481,20 @@ class DistributedKernel(IPythonKernel):
         reply_content = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
 
-        # Schedule task to wait until this current election either fails (due to all replicas yielding)
-        # or until the leader finishes executing the user-submitted code.
-        current_election: Election = self.synchronizer.current_election
-        term_number: int = current_election.term_number
+        term_number: int = -1
+        if self.smr_enabled:
+            # Schedule task to wait until this current election either fails (due to all replicas yielding)
+            # or until the leader finishes executing the user-submitted code.
+            current_election: Election = self.synchronizer.current_election
 
-        metadata["election_metadata"] = current_election.get_election_metadata()
+            metadata["election_metadata"] = current_election.get_election_metadata()
+            term_number = current_election.term_number
 
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent,
+            -1,
+            execution_stats=self.current_execution_stats
+        )
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "execute_reply",
@@ -1408,26 +1509,49 @@ class DistributedKernel(IPythonKernel):
 
         if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
             self._abort_queues()
-        task: asyncio.Task = asyncio.create_task(self.synchronizer.wait_for_election_to_end(term_number))
 
-        # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
-        # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
-        self.background_tasks.add(task)
+        await_election_end_task: Optional[asyncio.Task] = None
+        if self.smr_enabled:
+            await_election_end_task = asyncio.create_task(
+                self.synchronizer.wait_for_election_to_end(term_number))
 
-        # To prevent keeping references to finished tasks forever, we make each task remove its own reference
-        # from the "background tasks" set after completion.
-        task.add_done_callback(self.background_tasks.discard)
+            # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
+            # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
+            self.background_tasks.add(await_election_end_task)
 
-        # Wait for the task to end. By not returning here, we ensure that we cannot process any additional
-        # "execute_request" messages until all replicas have finished.
+            # To prevent keeping references to finished tasks forever, we make each task remove its own reference
+            # from the "background tasks" set after completion.
+            await_election_end_task.add_done_callback(self.background_tasks.discard)
 
-        # TODO: Might there still be race conditions where one replica starts processing a future "execute_request"
-        #       message before the others, and possibly starts a new election and proposes something before the
-        #       others do?
-        self.log.debug(f"Waiting for election {term_number} "
-                       "to be totally finished before returning from execute_request function.")
+            # Wait for the task to end. By not returning here, we ensure that we cannot process any additional
+            # "execute_request" messages until all replicas have finished.
 
-        await task
+            # TODO: Might there still be race conditions where one replica starts processing a future "execute_request"
+            #       message before the others, and possibly starts a new election and proposes something before the
+            #       others do?
+            self.log.debug(f"Waiting for election {term_number} "
+                           "to be totally finished before returning from execute_request function.")
+
+        # If we're supposed to write-after-execute, but the write operation is not supposed to be on the critical path,
+        # then we'll perform the write now, as we already sent the "execute_reply" back to the Local Daemon. That will
+        # allow the Local Daemon to release our GPU resources, and we can now perform the write operation off of the
+        # critical path. The write operation will still block future executions from running if they arrive during the
+        # write operation, but that's correct.
+        if remote_storage_name is not None and self.simulate_write_after_execute and not self.simulate_write_after_execute_on_critical_path:
+            self.log.debug(
+                f"Performing post-execution simulated network write operation to '{remote_storage_name}' off of critical path.")
+            duration: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
+
+            # TODO: What if we receive next message before this completes?
+            if duration > 0 and self.prometheus_enabled:
+                self.remote_storage_write_latency_milliseconds.labels(
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id
+                ).observe(duration * 1e3)
+
+        if self.smr_enabled:
+            assert await_election_end_task is not None
+            await await_election_end_task
 
         end_time: float = time.time()
         duration_ms: float = (end_time - start_time) * 1.0e3
@@ -1499,7 +1623,7 @@ class DistributedKernel(IPythonKernel):
         term_number: int = self.synchronizer.execution_count
         self.log.debug(f"Checking status of previous election (term {term_number}).")
 
-        # If we've not yet created/held the first election, then we have nothing to check. 
+        # If we've not yet created/held the first election, then we have nothing to check.
         if not self.synchronizer.created_first_election():
             return
 
@@ -1544,14 +1668,14 @@ class DistributedKernel(IPythonKernel):
         except ValueError as ex:
             self.log.warning(f"Encountered ValueError while checking status of previous election: {ex}")
             self.report_error(
-                error_title=f"ValueError While Checking Status of Election {term_number}",
-                error_message=str(ex)
+                error_title=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Encountered a ValueError While Checking Status of Election {term_number}",
+                error_message=f"Error: {ex}. Kernel knows only about the following election terms: {self.synchronizer.get_known_election_terms()}"
             )
         except Exception as ex:
             self.log.error(f"Error encountered while checking status of previous election: {ex}")
             self.report_error(
-                error_title=f"Unexpected {type(ex).__name__} While Checking Status of Election {term_number}",
-                error_message=str(ex)
+                error_title=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Encountered Unexpected {type(ex).__name__} While Checking Status of Election {term_number}",
+                error_message=f"Error: {ex}. Kernel knows only about the following election terms: {self.synchronizer.get_known_election_terms()}"
             )
 
     async def yield_request(self, stream, ident, parent):
@@ -1671,7 +1795,7 @@ class DistributedKernel(IPythonKernel):
         # "yield_request" message, then we'll include it in our response as well as in our response's metadata.
         request_metadata: dict[str, Any] = parent.get("metadata", {})
         if "yield-reason" in request_metadata:
-            yield_reason:str = request_metadata["yield-reason"]
+            yield_reason: str = request_metadata["yield-reason"]
             reply_content["yield-reason"] = yield_reason
             metadata["yield-reason"] = yield_reason
 
@@ -1714,6 +1838,136 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(f"Waiting for election {term_number} "
                        "to be totally finished before returning from yield_request function.")
         await self.synchronizer.wait_for_election_to_end(term_number)
+
+    def copy_data_from_gpu_to_cpu(self, size_gb: float = 0, force: bool = False) -> None:
+        if size_gb == 0:
+            return
+
+        # If the data is already on the CPU, then just return (unless force is True).
+        if not self.data_on_gpu and not force:
+            return
+
+        if size_gb < 0:
+            self.log.error(f"Cannot copy data of negative size from GPU to CPU: {size_gb} GB")
+            return
+
+        bandwidth_gb_sec: float = np.random.normal(V100_AvgBandwidth_GbSec_DeviceToHost,
+                                                   V100_StdDevBandwidth_GbSec_DeviceToHost)
+        self.log.debug(
+            f"Copying {size_gb} GB of data from the GPU to main memory with bandwidth of {bandwidth_gb_sec} GB/s.")
+
+        latency_sec: float = size_gb / bandwidth_gb_sec
+        time.sleep(latency_sec)
+
+        self.data_on_gpu = False
+
+    def copy_data_from_cpu_to_gpu(self, size_gb: float = 0, force: bool = False) -> None:
+        if size_gb == 0:
+            return
+
+        # If the data is already on the GPU, then just return (unless force is True).
+        if self.data_on_gpu and not force:
+            return
+
+        if size_gb < 0:
+            self.log.error(f"Cannot copy data of negative size from CPU to GPU: {size_gb} GB")
+            return
+
+        bandwidth_gb_sec: float = np.random.normal(V100_AvgBandwidth_GbSec_HostToDevice,
+                                                   V100_StdDevBandwidth_GbSec_HostToDevice)
+        self.log.debug(
+            f"Copying {size_gb} GB of data from main memory to the GPU with bandwidth of {bandwidth_gb_sec} GB/s.")
+
+        latency_sec: float = size_gb / bandwidth_gb_sec
+        time.sleep(latency_sec)
+
+        self.data_on_gpu = True
+
+    def initialize_cuda_runtime(self, force: bool = False) -> None:
+        # If the CUDA runtime is already initialized, then just return (unless force is True).
+        if self.cuda_initialized and not force:
+            return
+
+        self.log.debug("Initializing CUDA runtime.")
+
+        cuda_init_latency_sec = np.random.normal(AverageCudaInitTimeSec, StandardDeviationCudaInitTimeSec)
+        time.sleep(cuda_init_latency_sec)
+
+        self.cuda_initialized = True
+
+    async def download_model_and_training_data(self, force: bool = False) -> float:
+        # If the model and training data are already downloaded, then just return (unless force is True).
+        if self.model_and_training_data_downloaded and not force:
+            return 0
+
+        self.log.debug("Downloading model and training data.")
+        return await self.simulate_remote_checkpointing(None, io_type="download")
+
+    def download_runtime_dependencies(
+            self,
+            n: int = 5,
+            avg_latency: float = 5.0,
+            std_dev_latency: float = 1.0,
+            force: bool = False,
+    ) -> None:
+        """
+        Simulate the downloading of runtime dependencies.
+
+        :param n: the number of dependencies we'll pretend to download. this does not impact latency.
+        :param avg_latency: the average time spent downloading + installing runtime dependencies (in seconds).
+        :param std_dev_latency: standard deviation of time to download + install runtime dependencies (in seconds).
+        :param force: if True, then simulate the download even if runtime_dependencies_downloaded is set to True.
+        """
+        # If the runtime dependencies are already downloaded & installed, then just return (unless force is True).
+        if self.runtime_dependencies_downloaded and not force:
+            return
+
+        self.log.debug("Downloading runtime dependencies (e.g., PyTorch, TensorFlow, etc.).")
+
+        # We're just going to randomly select ~5 dependencies to pretend to download.
+        dependencies = ["TensorFlow", "PyTorch", "scikit-learn", "XGBoost", "LightGBM", "Hugging Face Transformers",
+                        "NumPy", "SciPy", "Pandas", "Matplotlib", "Seaborn", "Plotly", "TensorBoard", "Dask", "Ray",
+                        "Horovod", "OpenCV", "Pillow (PIL)", "NLTK/SpaCy", "Fastai"]
+        dependencies_subset = random.sample(dependencies, n)
+
+        latency: float = np.random.normal(avg_latency, std_dev_latency)
+        latency_frac: float = latency / n
+
+        for dependency in dependencies_subset:
+            self.log.debug(f"Download dependency: '{dependency}'")
+            time.sleep(latency_frac)
+
+        self.runtime_dependencies_downloaded = True
+
+    def perform_initializations(self, vram_size_gb: float = 0):
+        """
+        Perform any necessary initialization steps, [possibly but not necessarily] including:
+        - Initialize the CUDA runtime
+        - Download (and install) any runtime dependencies, such as PyTorch or TensorFlow
+        - Download the latest model parameters + training data
+        - Copy the model + training data from host memory to device memory
+        """
+        # We have this here because we don't want to bother initializing CUDA if we lose the election.
+        # if not self.runtime_dependencies_downloaded:
+        #     download_runtime_deps_start: float = time.time()
+        #     self.download_runtime_dependencies()
+        #     download_runtime_deps_ms: float = (time.time() - download_runtime_deps_start) * 1.0e3
+        #     self.log.debug(f"Downloaded & installed runtime dependencies in {download_runtime_deps_ms} ms.")
+        #     self.current_execution_stats.download_runtime_dependencies_microseconds = download_runtime_deps_ms * 1.0e3  # it's already in milliseconds
+
+        if not self.cuda_initialized:
+            init_cuda_start: float = time.time()
+            self.initialize_cuda_runtime()
+            init_cuda_ms: float = (time.time() - init_cuda_start) * 1.0e3
+            self.log.debug(f"Initialized CUDA runtime in {init_cuda_ms} ms.")
+            self.current_execution_stats.cuda_init_microseconds = init_cuda_ms * 1.0e3  # it's already in milliseconds
+
+        if not self.data_on_gpu:
+            copy_data_to_gpu_start: float = time.time()
+            self.copy_data_from_cpu_to_gpu(size_gb=vram_size_gb)
+            copy_data_to_gpu_ms: float = (time.time() - copy_data_to_gpu_start) * 1.0e3
+            self.log.debug(f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms.")
+            self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3  # it's already in milliseconds
 
     async def do_execute(
             self,
@@ -1780,34 +2034,42 @@ class DistributedKernel(IPythonKernel):
             term_number = self.synchronizer.execution_count + 1
             self.log.info(f"Calling synchronizer.ready({term_number}) now with LEAD proposal.")
 
-            # Pass 'True' for the 'lead' parameter to propose LEAD.
-            # Pass 'False' for the 'lead' parameter to propose YIELD.
-            #
-            # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
-            # Pass value > 0 to lead a specific execution.
-            # In either case, the execution will wait until states are synchronized.
-            # type: ignore
-            self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id, term_number,
-                                                                       True)
+            if self.smr_enabled:
+                election_start: float = time.time()
+                # Pass 'True' for the 'lead' parameter to propose LEAD.
+                # Pass 'False' for the 'lead' parameter to propose YIELD.
+                #
+                # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
+                # Pass value > 0 to lead a specific execution.
+                # In either case, the execution will wait until states are synchronized.
+                # type: ignore
+                self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id,
+                                                                           term_number,
+                                                                           True)
+                self.current_execution_stats.leader_election_microseconds = int((time.time() - election_start) * 1.0e6)
 
-            self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
-                          f"shell.execution_count: {self.shell.execution_count}")
+                self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
+                              f"shell.execution_count: {self.shell.execution_count}")
 
-            if self.prometheus_enabled:
-                self.num_lead_proposals.inc()
+                if self.prometheus_enabled:
+                    self.num_lead_proposals.inc()
 
-            if self.shell.execution_count == 0:  # type: ignore
-                self.log.debug("I will NOT leading this execution.")
-                raise err_failed_to_lead_execution
+                if self.shell.execution_count == 0:  # type: ignore
+                    self.log.debug("I will NOT leading this execution.")
+                    raise err_failed_to_lead_execution
 
             self.log.debug(f"I WILL lead this execution ({self.shell.execution_count}).")
+            self.current_execution_stats.won_election = True
+
+            vram_size_gb = self.current_resource_request.get('vram', 0)
+            self.perform_initializations(vram_size_gb=vram_size_gb)
 
             # Notify the client that we will lead the execution.
             # TODO: Eventually, we could pass "gpu" as True or False depending on whether we really
             #       do need GPUs for this training task, assuming we'd know about that here.
             content: dict[str, str | float | bool] = {
                 "gpu": True,
-                "unix_milliseconds": time.time_ns() // 1_000_000,
+                "msg_created_at_unix_milliseconds": time.time_ns() // 1_000_000,
                 "execute_request_msg_id": self.next_execute_request_msg_id
             }
 
@@ -1816,6 +2078,7 @@ class DistributedKernel(IPythonKernel):
 
             self.log.debug("Executing the following code now: %s" % code)
 
+            self.current_execution_stats.execution_start_unix_millis = time.time() * 1.0e3
             # Execute code
             reply_routing = super().do_execute(
                 code, silent, store_history=store_history,
@@ -1823,8 +2086,12 @@ class DistributedKernel(IPythonKernel):
 
             # Wait for the settlement of variables.
             reply_content = await reply_routing
+            self.current_execution_stats.execution_end_unix_millis = time.time() * 1.0e3
+            exec_duration_millis: float = self.current_execution_stats.execution_end_unix_millis - self.current_execution_stats.execution_start_unix_millis
+            self.current_execution_stats.execution_time_microseconds = exec_duration_millis * 1.0e3
 
-            self.log.info("Returning the following message for do_execute: \"%s\"" % str(reply_content))
+            self.log.info(f"Finished executing user-submitted code in {exec_duration_millis} ms. "
+                          f"Returning the following content: {reply_content}")
 
             # Disable stdout and stderr forwarding.
             self.toggle_outstream(override=True, enable=False)
@@ -1834,31 +2101,55 @@ class DistributedKernel(IPythonKernel):
             else:
                 self.log.debug("Synchronizing now. Execution AST is NOT None.")
 
-            # Synchronize
-            coro = self.synchronizer.sync(self.execution_ast, self.source)
+            if self.smr_enabled:
+                # Synchronize
+                coro = self.synchronizer.sync(self.execution_ast, self.source)
 
-            self.execution_ast = None
-            self.source = None
+                self.execution_ast = None
+                self.source = None
 
-            try:
-                await coro
-            except Exception as ex:
-                self.log.error(f"Synchronization failed: {ex}")
-                self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-                    title="Synchronization Error",
-                    message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has experienced a synchronization error: {ex}.",
-                    notificationType=ErrorNotification,
-                    kernelId=self.kernel_id,
-                    replicaId=self.smr_node_id,
-                ))
+                try:
+                    await coro
+                except Exception as ex:
+                    self.log.error(f"Synchronization failed: {ex}")
+                    self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+                        title="Synchronization Error",
+                        message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has experienced a synchronization error: {ex}.",
+                        notificationType=ErrorNotification,
+                        kernelId=self.kernel_id,
+                        replicaId=self.smr_node_id,
+                    ))
 
-            assert self.execution_count is not None
-            self.log.info("Synchronized. End of sync execution: {}".format(term_number))
+                assert self.execution_count is not None
+                self.log.info("Synchronized. End of sync execution: {}".format(term_number))
 
-            if remote_storage_name is not None:
-                await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
+            if self.data_on_gpu:
+                copy_data_to_cpu_start: float = time.time()
+                self.copy_data_from_gpu_to_cpu(size_gb=vram_size_gb)
+                copy_data_to_cpu_ms: float = (time.time() - copy_data_to_cpu_start) * 1.0e3
+                self.log.debug(
+                    f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms.")
+                self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = copy_data_to_cpu_ms * 1.0e3  # it's already in milliseconds
 
-            await self.schedule_notify_execution_complete(term_number)
+            if remote_storage_name is not None and self.simulate_write_after_execute and self.simulate_write_after_execute_on_critical_path:
+                self.log.debug(
+                    f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path.")
+                duration_sec: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
+
+                if duration_sec > 0 and self.prometheus_enabled:
+                    self.remote_storage_write_latency_milliseconds.labels(
+                        session_id=self.kernel_id,
+                        workload_id=self.workload_id
+                    ).observe(duration_sec * 1e3)
+
+                    self.delay_milliseconds.labels(
+                        session_id=self.kernel_id,
+                        workload_id=self.workload_id).inc(duration_sec * 1e3)
+
+                self.current_execution_stats.upload_runtime_dependencies_microseconds = duration_sec * 1.0e6
+
+            if self.smr_enabled:
+                await self.schedule_notify_execution_complete(term_number)
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
 
@@ -1884,7 +2175,11 @@ class DistributedKernel(IPythonKernel):
 
         return reply_content
 
-    async def simulate_remote_checkpointing(self, remote_storage_name: Optional[str], io_type: Optional[str] = None):
+    async def simulate_remote_checkpointing(
+            self,
+            remote_storage_name: Optional[str],
+            io_type: Optional[str] = None
+    ) -> float:
         """
         Simulate checkpointing using the current resource request and the specified remote storage name.
 
@@ -1893,9 +2188,10 @@ class DistributedKernel(IPythonKernel):
 
         io_type must be "read", "write", "upload", or "download" (case-insensitive).
         """
-        if not self.checkpointing_enabled:
+        if not self.simulate_checkpointing_latency:
             self.log.debug(f"Checkpointing is disabled. Skipping simulation of network {io_type} "
                            f"targeting remote storage {remote_storage_name}.")
+            return 0
 
         if io_type is None:
             raise ValueError("must specify an IO type")
@@ -1909,18 +2205,18 @@ class DistributedKernel(IPythonKernel):
             self.report_error('No Current Resource Request',
                               f'Kernel {self.kernel_id} does not have a resource request, so it cannot '
                               f'simulate checkpointing with specified remote storage "{remote_storage_name}"...')
-            return
+            return 0
 
         if self.current_resource_request.get("vram", 0) == 0:
             self.log.debug("Latest resource request specifies 0GB for VRAM. Nothing to checkpoint.")
-            return
+            return 0
 
         if self.remote_storages is None or len(self.remote_storages) == 0:
             self.log.warning("No remote storages registered; cannot simulate checkpointing...")
             self.report_error(f'Unknown Remote Storage "{remote_storage_name}"',
                               f'Could not find requested remote storage "{remote_storage_name}" to simulate '
                               f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"')
-            return
+            return 0
 
         if remote_storage_name is None or remote_storage_name == "":
             self.log.info("No remote storage specified. Will select most-recently-used remote storage.")
@@ -1943,7 +2239,7 @@ class DistributedKernel(IPythonKernel):
             self.report_error(f'Unknown Remote Storage "{remote_storage_name}"',
                               f'Could not find requested remote storage "{remote_storage_name}" to simulate '
                               f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"')
-            return
+            return 0
 
         vram_gb: float | int = self.current_resource_request.get("vram", -1)
 
@@ -1951,12 +2247,10 @@ class DistributedKernel(IPythonKernel):
             self.report_error('Current Resource Request Does Not Specify VRAM',
                               f'The current resource request for {self.kernel_id} does not have a VRAM entry, '
                               f'so the kernel cannot simulate checkpointing with specified remote storage "{remote_storage_name}"...')
-            return
+            return 0
 
         vram_bytes: int = int(vram_gb * 1e9)
 
-        rate_formatted: str = ""
-        rate: float | int = -1
         if io_type == "read" or io_type == "download":
             rate_formatted = simulated_checkpointer.download_rate_formatted
             rate = simulated_checkpointer.download_rate
@@ -1980,8 +2274,11 @@ class DistributedKernel(IPythonKernel):
                               f"{type(ex).__name__} while simulating checkpointing with remote storage "
                               f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {ex}")
 
+        duration: float = time.time() - start_time
         self.log.debug(f"Finished simulated checkpointing of {format_size(vram_bytes)} bytes to remote storage "
-                       f"{remote_storage_name} in {time.time() - start_time} seconds.")
+                       f"{remote_storage_name} in {duration} seconds.")
+
+        return duration
 
     async def schedule_notify_execution_complete(self, term_number: int):
         """
@@ -2042,7 +2339,7 @@ class DistributedKernel(IPythonKernel):
         else:
             self.log.info("Not stopping/removing node from etcd/raft cluster.")
 
-        # Disabling debug mode here, as there is apparently a bug/issue when we're shutting down where we 
+        # Disabling debug mode here, as there is apparently a bug/issue when we're shutting down where we
         # call self.kernel.loop.call_later, but we're presumably running in the control thread's IO loop,
         # so this isn't safe...?
         # TODO: Look into this.
@@ -2113,7 +2410,10 @@ class DistributedKernel(IPythonKernel):
 
             write_duration_ms: float = (time.time() - write_start) * 1.0e3
             if self.prometheus_enabled:
-                self.remote_storage_write_latency_milliseconds.observe(write_duration_ms)
+                self.remote_storage_write_latency_milliseconds.labels(
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id
+                ).observe(write_duration_ms)
             self.log.info(
                 "Wrote etcd-Raft data directory to RemoteStorage. Path: \"%s\"" % waldir_path)
         except Exception as e:
@@ -2144,7 +2444,7 @@ class DistributedKernel(IPythonKernel):
                 f"Failed to Close RemoteStorage Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}",
                 error_message=str(e))
 
-            # We don't return an error here, though. 
+            # We don't return an error here, though.
 
         return {'status': 'ok', "id": self.smr_node_id,
                 "kernel_id": self.kernel_id}, True  # "data_directory": waldir_path,
@@ -2263,7 +2563,12 @@ class DistributedKernel(IPythonKernel):
                            f"message \"{msg_id}\" (type={type(first_buffers_frame).__name__}): {first_buffers_frame}")
             return {}
 
-    def extract_and_process_request_trace(self, msg: dict[str, Any], received_at: float) -> Optional[list[bytes]]:
+    def extract_and_process_request_trace(
+            self,
+            msg: dict[str, Any],
+            received_at: float,
+            execution_stats: Optional[ExecutionStats] = None
+    ) -> Optional[list[bytes]]:
         """
         Attempt to extract the RequestTrace dictionary from the (first) buffers frame of the request.
 
@@ -2273,6 +2578,8 @@ class DistributedKernel(IPythonKernel):
         can be directly passed to the Session class' send method.
 
         received_at should be unix milliseconds.
+
+        execution_stats should only be passed when calling extract_and_process_request_trace from execute_request.
 
         Returns:
             If the extraction of the request trace was successful, then this returns the message's buffers
@@ -2312,6 +2619,51 @@ class DistributedKernel(IPythonKernel):
                 request_trace["replySentByKernelReplica"] = reply_sent_by_kernel_replica
 
             request_trace["replicaId"] = self.smr_node_id
+
+            # If the execution_stats parameter is non-null, then embed the included statistics/metrics.
+            if execution_stats is not None:
+                request_trace["cudaInitMicroseconds"] = int(execution_stats.cuda_init_microseconds)
+                request_trace[
+                    "downloadDependencyMicroseconds"] = int(execution_stats.download_runtime_dependencies_microseconds)
+                request_trace[
+                    "downloadModelAndTrainingDataMicroseconds"] = int(execution_stats.download_model_and_training_data_microseconds)
+                request_trace[
+                    "uploadModelAndTrainingDataMicroseconds"] = int(execution_stats.upload_model_and_training_data_microseconds)
+                request_trace["executionTimeMicroseconds"] = int(execution_stats.execution_time_microseconds)
+                request_trace["executionStartUnixMillis"] = int(execution_stats.execution_start_unix_millis)
+                request_trace["executionEndUnixMillis"] = int(execution_stats.execution_end_unix_millis)
+                request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
+                request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
+                request_trace["copyFromCpuToGpuMicroseconds"] = int(execution_stats.copy_data_from_cpu_to_gpu_microseconds)
+                request_trace["copyFromGpuToCpuMicroseconds"] = int(execution_stats.copy_data_from_gpu_to_cpu_microseconds)
+                request_trace["leaderElectionTimeMicroseconds"] = int(execution_stats.leader_election_microseconds)
+
+                # We only want to embed election statistics if this request trace is being embedded in an
+                # "execute_request" or "yield_request" message (i.e., a code submission).
+                if msg_type == "execute_request" or msg_type == "yield_request":
+                    current_election: Election = self.synchronizer.current_election
+
+                    # It shouldn't be None, but let's double-check, just to be safe.
+                    if current_election is not None:
+                        # 'current_election_timestamps' is a property. Need to capture its value and use that in a separate
+                        # if-statement to ensure that it is a valid, non-null reference.
+                        current_election_timestamps: Optional[
+                            ElectionTimestamps] = current_election.current_election_timestamps
+                        if current_election_timestamps is not None:
+                            request_trace["electionCreationTime"] = int(current_election_timestamps.creation_time)
+                            request_trace[
+                                "electionProposalPhaseStartTime"] = int(current_election_timestamps.proposal_phase_start_time)
+                            request_trace[
+                                "electionExecutionPhaseStartTime"] = int(current_election_timestamps.execution_phase_start_time)
+                            request_trace["electionEndTime"] = int(current_election_timestamps.end_time)
+                        else:
+                            self.log.warning(
+                                f"Current Election's timestamp data is None while embedding request trace in '{msg_type}' request '{msg_id}'")
+                    else:
+                        self.log.warning(
+                            f"Current Election is None while embedding request trace in '{msg_type}' request '{msg_id}'")
+
+                self.log.debug(f"Embedding the following RequestTrace in response to '{msg_type}' message:\n{json.dumps(request_trace, indent = 2)}")
 
             buffers[0] = json.dumps(request_trace_frame).encode('utf-8')
             # self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")
@@ -2368,8 +2720,8 @@ class DistributedKernel(IPythonKernel):
     async def do_update_replica(self, replicaId, addr) -> tuple:
         """
         Update a replica to have a new address
-        
-        We also reset certain SMR-related state for this replica, as it will have restarted. 
+
+        We also reset certain SMR-related state for this replica, as it will have restarted.
         For example, its attempt number(s) for the current term will be starting over.
         """
         if not await self.check_persistent_store():
@@ -2435,7 +2787,7 @@ class DistributedKernel(IPythonKernel):
         Send an error report/message to our local daemon via our IOPub socket.
         """
         if self.kernel_notification_service_stub is None:
-            self.log.error(
+            self.log.warning(
                 f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup.")
             return
 
@@ -2454,7 +2806,7 @@ class DistributedKernel(IPythonKernel):
             raise ValueError(f"Invalid notification type specified: \"%d\"", notification_type)
 
         if self.kernel_notification_service_stub is None:
-            self.log.error(
+            self.log.warning(
                 f"Cannot send '{notification_type}' notification '{notification_title}' as our gRPC connection was never setup.")
             return
 
@@ -2526,7 +2878,7 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Creating RaftLog now.")
         try:
-            self.synclog = RaftLog(self.smr_node_id,
+            self.synclog: RaftLog = RaftLog(self.smr_node_id,
                                    base_path=store,
                                    kernel_id=self.kernel_id,
                                    num_replicas=self.num_replicas,
@@ -2553,7 +2905,7 @@ class DistributedKernel(IPythonKernel):
 
             self.report_error(error_title="Failed to Create RaftLog", error_message=str(ex))
 
-            # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting. 
+            # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting.
             await asyncio.sleep(10)
 
             # Terminate.
@@ -2607,7 +2959,9 @@ class DistributedKernel(IPythonKernel):
             return
 
         if self.prometheus_enabled:
-            self.remote_storage_read_latency_milliseconds.observe(latency_ms)
+            self.remote_storage_read_latency_milliseconds.labels(
+                session_id=self.kernel_id,
+                workload_id=self.workload_id).observe(latency_ms)
 
     def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):
         self.log.debug("Running cell: %s" % str(raw_cell))
@@ -2627,8 +2981,7 @@ class DistributedKernel(IPythonKernel):
     def toggle_outstream(self, override=False, enable=True):
         # Is sys.stdout has attribute 'disable'?
         if not hasattr(sys.stdout, 'disable'):
-            self.log.warning(
-                "sys.stdout didn't initialized with kernel.OutStream.")
+            # self.log.warning("sys.stdout didn't initialized with kernel.OutStream.")
             return
 
         if override:

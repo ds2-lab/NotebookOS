@@ -22,7 +22,7 @@ type Placer interface {
 
 	// FindHost returns a host that can satisfy the resourceSpec.
 	// This method is provided for development. Implementation are not required to implement this method.
-	FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec) Host
+	FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) Host
 
 	// Place atomically places a replica on a host.
 	// The subscription rate of the host will be checked before placing the replica. If the rate is above the threshold, a new host will be launched to place the replica.
@@ -37,6 +37,10 @@ type Placer interface {
 
 	// NumHostsInIndex returns the length of the Placer's index.
 	NumHostsInIndex() int
+
+	UpdateIndex(host Host)
+
+	UpdateIndexMultiple(hosts []Host)
 
 	// GetIndex returns the placer's index.ClusterIndex.
 	GetIndex() ClusterIndex

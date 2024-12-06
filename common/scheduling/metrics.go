@@ -1,6 +1,8 @@
 package scheduling
 
-import "github.com/prometheus/client_golang/prometheus"
+import (
+	"github.com/prometheus/client_golang/prometheus"
+)
 
 type MetricsProvider interface {
 	GetScaleOutLatencyMillisecondsHistogram() prometheus.Histogram

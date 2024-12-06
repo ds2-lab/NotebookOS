@@ -389,8 +389,8 @@ func (res *HostResources) String() string {
 	defer res.Unlock()
 
 	return fmt.Sprintf("[%s HostResources: millicpus=%s,gpus=%s,vram=%sGB,memory=%sMB]",
-		res.resourceStatus.String(), res.millicpus.StringFixed(0),
-		res.gpus.StringFixed(0), res.vramGB.StringFixed(4), res.memoryMB.StringFixed(4))
+		res.resourceStatus.String(), res.millicpus.StringFixed(6),
+		res.gpus.StringFixed(1), res.vramGB.StringFixed(6), res.memoryMB.StringFixed(6))
 }
 
 func (res *HostResources) ResourceStatus() Status {
@@ -434,6 +434,14 @@ func (res *HostResources) VRAMAsDecimal() decimal.Decimal {
 	defer res.Unlock()
 
 	return res.vramGB.Copy()
+}
+
+// SetVRAM sets the amount of VRAM to a copy of the specified decimal.Decimal value.
+func (res *HostResources) SetVRAM(vramGB decimal.Decimal) {
+	res.Lock()
+	defer res.Unlock()
+
+	res.vramGB = vramGB
 }
 
 func (res *HostResources) GPUs() float64 {
@@ -492,31 +500,35 @@ func (res *HostResources) Add(spec *types.DecimalSpec) error {
 	defer res.Unlock()
 
 	updatedCPUs := res.millicpus.Add(spec.Millicpus)
+	updatedCPUs = TryRoundToZero(updatedCPUs)
 	if updatedCPUs.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s Millicpus would be set to %s millicpus after addition (current=%s,addend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedCPUs.String(),
-			res.millicpus.StringFixed(0), spec.Millicpus.StringFixed(0))
+			res.millicpus.StringFixed(6), spec.Millicpus.StringFixed(6))
 	}
 
 	updatedMemory := res.memoryMB.Add(spec.MemoryMb)
+	updatedMemory = TryRoundToZero(updatedMemory)
 	if updatedMemory.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after addition (current=%s,addend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedMemory.String(),
-			res.memoryMB.StringFixed(4), spec.MemoryMb.StringFixed(4))
+			res.memoryMB.StringFixed(6), spec.MemoryMb.StringFixed(6))
 	}
 
 	updatedGPUs := res.gpus.Add(spec.GPUs)
+	updatedGPUs = TryRoundToZero(updatedGPUs)
 	if updatedGPUs.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs after addition (current=%s,addend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedGPUs.String(),
-			res.gpus.StringFixed(0), spec.GPUs.StringFixed(0))
+			res.gpus.StringFixed(6), spec.GPUs.StringFixed(6))
 	}
 
 	updatedVRAM := res.vramGB.Add(spec.VRam)
+	updatedVRAM = TryRoundToZero(updatedVRAM)
 	if updatedVRAM.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s VRAM would be set to %s GB after subtraction (current=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedVRAM.String(),
-			res.vramGB.StringFixed(0), spec.VRam.StringFixed(0))
+			res.vramGB.StringFixed(6), spec.VRam.StringFixed(6))
 	}
 
 	// If we've gotten to this point, then all the updated resource counts are valid, at least with respect
@@ -541,31 +553,35 @@ func (res *HostResources) Subtract(spec *types.DecimalSpec) error {
 	defer res.Unlock()
 
 	updatedCPUs := res.millicpus.Sub(spec.Millicpus)
+	updatedCPUs = TryRoundToZero(updatedCPUs)
 	if updatedCPUs.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s Millicpus would be set to %s millicpus after subtraction (current=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedCPUs.String(),
-			res.millicpus.StringFixed(0), spec.Millicpus.StringFixed(0))
+			res.millicpus.StringFixed(6), spec.Millicpus.StringFixed(6))
 	}
 
 	updatedMemory := res.memoryMB.Sub(spec.MemoryMb)
+	updatedMemory = TryRoundToZero(updatedMemory)
 	if updatedMemory.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after subtraction (current=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedMemory.String(),
-			res.memoryMB.StringFixed(4), spec.MemoryMb.StringFixed(4))
+			res.memoryMB.StringFixed(6), spec.MemoryMb.StringFixed(6))
 	}
 
 	updatedGPUs := res.gpus.Sub(spec.GPUs)
+	updatedGPUs = TryRoundToZero(updatedGPUs)
 	if updatedGPUs.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs after subtraction (current=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedGPUs.String(),
-			res.gpus.StringFixed(0), spec.GPUs.StringFixed(0))
+			res.gpus.StringFixed(1), spec.GPUs.StringFixed(1))
 	}
 
 	updatedVRAM := res.vramGB.Sub(spec.VRam)
+	updatedVRAM = TryRoundToZero(updatedVRAM)
 	if updatedVRAM.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s VRAM would be set to %s GB after subtraction (current=%s,subtrahend=%s)",
 			ErrInvalidOperation, res.resourceStatus.String(), updatedVRAM.String(),
-			res.vramGB.StringFixed(0), spec.VRam.StringFixed(0))
+			res.vramGB.StringFixed(6), spec.VRam.StringFixed(6))
 	}
 
 	// If we've gotten to this point, then all the updated resource counts are valid, at least with respect

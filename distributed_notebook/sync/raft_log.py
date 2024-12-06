@@ -71,10 +71,12 @@ class RaftLog(object):
             send_notification_func: Callable[[str, str, int], None] = None,
             remote_storage_read_latency_callback: Optional[Callable[[int], None]] = None,
             fast_forward_execution_count_handler: Callable[[], None] = None,
+            set_execution_count_handler: Callable[[int], None] = None,
             loaded_serialized_state_callback: Callable[[dict[str, Any]], None] = None,
             election_timeout_seconds: float = 10,
             deployment_mode: str = "LOCAL",
     ):
+        self._snapshotCallback = None
         self._shouldSnapshotCallback = None
         if len(remote_storage_hostname) == 0:
             raise ValueError("RemoteStorage hostname is empty.")
@@ -118,6 +120,7 @@ class RaftLog(object):
         self._deployment_mode = deployment_mode
         self._leader_term_before_migration: int = -1
         self._fast_forward_execution_count_handler: Callable[[], None] = fast_forward_execution_count_handler
+        self._set_execution_count_handler: Callable[[int], None] = set_execution_count_handler
         self._loaded_serialized_state_callback: Callable[
             [dict[str, dict[str, Any]]], None] = loaded_serialized_state_callback
 
@@ -273,6 +276,9 @@ class RaftLog(object):
     def set_fast_forward_executions_handler(self, fast_forward_execution_count_handler: Callable[[], None]):
         self._fast_forward_execution_count_handler = fast_forward_execution_count_handler
 
+    def set_set_execution_count_handler(self, set_execution_count_handler: Callable[[int], None]):
+        self._set_execution_count_handler = set_execution_count_handler
+
     def create_log_node(
             self,
             node_id: int,
@@ -366,7 +372,7 @@ class RaftLog(object):
         :param buffered_vote: if True, then we're handling a buffered vote proposal, and thus we should not buffer it again.
         """
         if self.needs_to_catch_up:
-            if vote.election_term > self._leader_term_before_migration and vote.attempt_number > self._current_election.current_attempt_number:
+            if vote.election_term > self._leader_term_before_migration and self._current_election is not None and vote.attempt_number > self._current_election.current_attempt_number:
                 # TODO: We probably need to keep track of these in case we receive any votes/proposals from the latest election while we're catching up.
                 self.logger.warning(
                     f"Received vote from term {vote.election_term} (with attempt number {vote.attempt_number})."
@@ -383,6 +389,15 @@ class RaftLog(object):
                 sys.stderr.flush()
                 sys.stdout.flush()
                 return GoNilError()
+
+        # If we receive an old vote out-of-order or after a delay, then we can just discard it.
+        if self._current_election is not None and vote.election_term < self._current_election.term_number:
+            self.logger.warning(f"Received old vote for node \"{vote.proposed_node_id}\" from node {vote.proposer_id} "
+                                f"with term number {vote.election_term}, while our current election is for term  "
+                                f"{self._current_election.term_number}... Will just discard the vote.")
+            sys.stderr.flush()
+            sys.stdout.flush()
+            return GoNilError()
 
         # If we do not have an election upon receiving a vote, then we buffer the vote, as we presumably
         # haven't received the associated 'execute_request' or 'yield_request' message, whereas one of our peer
@@ -515,7 +530,9 @@ class RaftLog(object):
             current_term_number = self.current_election.term_number
             num_terms_to_skip: int = notification.election_term - current_term_number
             self.logger.debug(f"Fast-forwarding from election term {current_term_number} to election term "
-                              f"{notification.election_term}. Skipping ahead by {num_terms_to_skip} term number(s).")
+                              f"{notification.election_term}. Skipping ahead by {num_terms_to_skip} term number(s). "
+                              f"Existing local election is/was for term {self.current_election.term_number} and is "
+                              f"in state {self.current_election.state.get_name()}.")
 
             # If our local election hasn't been started yet, then start it.
             if self._current_election.is_inactive:
@@ -536,14 +553,21 @@ class RaftLog(object):
                                   f"of {self._current_election.election_state.get_name()}")
                 self._current_election.set_execution_complete(fast_forwarding=True)
                 self._num_elections_skipped += 1
-                self._fast_forward_execution_count_handler()
+
+                try:
+                    self._set_execution_count_handler(current_term_number)
+                except ValueError:
+                    self.logger.warning(f"Failed to set execution count to {current_term_number}; current value must be higher...")
+                    pass
+
+                # self._fast_forward_execution_count_handler()
         else:
             self.logger.debug(f"Fast-forwarding from election term {current_term_number} to election term "
-                              f"{notification.election_term}. Skipping ahead by {notification.election_term} term number(s).")
+                              f"{notification.election_term}. Skipping ahead by {notification.election_term} term number(s). "
+                              "We do not have an active/existing local election as of right now.")
 
         # Define a function to create and skip elections so we can skip ahead as far as is necessary.
-        def create_and_skip_election(election_term: int = -1, set_election_complete: bool = True,
-                                     jupyter_message_id: str = ""):
+        def create_and_skip_election(election_term: int, set_election_complete: bool, jupyter_message_id: str = ""):
             """
             Create an election for the specified term, optionally skipping it immediately.
             """
@@ -575,9 +599,22 @@ class RaftLog(object):
             self._current_election.set_election_vote_completed(notification.proposer_id)
 
             if set_election_complete:
+                self.logger.debug(f"Calling 'set_execution_complete' to fully skip election {election_term}.")
                 self.current_election.set_execution_complete(fast_forwarding=True)
                 self._num_elections_skipped += 1
-                self._fast_forward_execution_count_handler()
+
+                try:
+                    self._set_execution_count_handler(election_term)
+                except ValueError:
+                    self.logger.warning(f"Failed to set execution count to {election_term}; current value must be higher...")
+                    pass
+
+                # self._fast_forward_execution_count_handler()
+            else:
+                self.logger.debug(f"Not calling 'set_execution_complete' while creating & skipping election {election_term}.")
+
+        self.logger.debug(f"Creating and skipping election(s) from term {current_term_number + 1} to term "
+                          f"{notification.election_term}.")
 
         # Create and entirely skip any elections between the current one and the election right before the
         # one for which we just received the "execution complete" notification.
@@ -585,11 +622,24 @@ class RaftLog(object):
         # So, if we're on term 5, and we just got an "execute complete" notification for term 10, then we'll create
         # and immediately skip elections 6, 7, 8, and 9. We'll handle the election for term 10 after the for-loop.
         for term_number in range(current_term_number + 1, notification.election_term):
-            create_and_skip_election(term_number, set_election_complete=True)
+            create_and_skip_election(term_number, True)
 
         # We call this one more time outside the for-loop so that we can pass set_election_complete as False instead of True.
-        create_and_skip_election(notification.election_term, set_election_complete=False,
-                                 jupyter_message_id=notification.jupyter_message_id)
+        # The reason we don't want to call set_election_complete here is that __fast_forward_to_future_election is called
+        # by __handle_execution_complete_notification. We want to skip ahead so that our current election has the same
+        # term number as the "execution complete" notification, so that we can just call set_election_complete like
+        # normal in __handle_execution_complete_notification. So, we skip ahead, calling set_election_complete for all
+        # elections from term i to term j-1, where i is the term of whatever election we happen to have currently, and
+        # term j is the term of the "execution complete" notification. Then, for term j, we create the election and
+        # skip through the phases such that the election for term j is in the state right before execution completes
+        # (i.e., voting phase complete / execution phase started). So, when we return from this method (i.e., the
+        # __fast_forward_to_future_election method), we're ready to call set_election_complete on the election for
+        # term j in __handle_execution_complete_notification.
+        create_and_skip_election(notification.election_term, False, jupyter_message_id=notification.jupyter_message_id)
+
+        self.logger.debug(f"Finished creating and skipping election(s) from term {current_term_number + 1} to term "
+                          f"{notification.election_term}. Our local election now has term {self.current_election.term_number} "
+                          f"and is in state {self.current_election.state.get_name()}.")
 
         self._leader_id = notification.proposer_id
         self._leader_term = notification.election_term
@@ -633,7 +683,7 @@ class RaftLog(object):
                 fast_forwarding = True
 
             if self.current_election.term_number != notification.election_term:
-                self.logger.warning(f"Current election is for term {self.current_election.term_number}, "
+                self.logger.warning(f"Current election is for term {self.current_election.term_number} (state={self.current_election.state.get_name()}, "
                                     f"but we just received a notification that election {notification.election_term} has finished...")
 
                 if notification.election_term > self.current_election.term_number:
@@ -658,7 +708,11 @@ class RaftLog(object):
 
             if fast_forwarding:
                 self._num_elections_skipped += 1
-                self._fast_forward_execution_count_handler()
+                try:
+                    self._set_execution_count_handler(notification.election_term)
+                except ValueError:
+                    self.logger.warning(f"Failed to set execution count to {notification.election_term}; current value must be higher...")
+                    pass
 
         return GoNilError()
 
@@ -1192,11 +1246,11 @@ class RaftLog(object):
 
         If there is no serialized state, then the returned bytes object will be empty.
         """
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.GetSerializedState)")
+        #self.logger.info(">> CALLING INTO GO CODE (_log_node.GetSerializedState)")
         sys.stderr.flush()
         sys.stdout.flush()
         val: Slice_byte = self._log_node.GetSerializedState()
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.GetSerializedState)")
+        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.GetSerializedState)")
         sys.stderr.flush()
         sys.stdout.flush()
         self.logger.debug(f"Retrieved serialized state from LogNode: {val}")
@@ -1329,6 +1383,12 @@ class RaftLog(object):
             return False, self._leader_id == self._node_id
         else:
             return True, False
+
+    def get_known_election_terms(self)->list[int]:
+        """
+        :return: a list of term numbers for which we have an associated Election object
+        """
+        return list(self._elections.keys())
 
     def get_election(self, term_number: int):
         """
@@ -1463,9 +1523,9 @@ class RaftLog(object):
     def propose(self, value: bytes, resolve: Callable[[str, Exception], Any], key: str):
         sys.stderr.flush()
         sys.stdout.flush()
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.Propose)")
+        #self.logger.info(">> CALLING INTO GO CODE (_log_node.Propose)")
         self._log_node.Propose(NewBytes(value), resolve, key)
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.Propose)")
+        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.Propose)")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1960,11 +2020,11 @@ class RaftLog(object):
         """
         self.logger.info("Adding node %d at addr %s to the SMR cluster." % (node_id, address))
         future, resolve = self._get_callback(future_name=f"add_node[{node_id}]")
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.AddHost)")
+        #self.logger.info(">> CALLING INTO GO CODE (_log_node.AddHost)")
         sys.stderr.flush()
         sys.stdout.flush()
         self._log_node.AddNode(node_id, address, resolve)
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.AddHost)")
+        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.AddHost)")
         sys.stderr.flush()
         sys.stdout.flush()
         res = await future.result()
@@ -1976,11 +2036,11 @@ class RaftLog(object):
         """Add a node to the etcd-raft  cluster."""
         self.logger.info("Updating node %d with new addr %s." % (node_id, address))
         future, resolve = self._get_callback(future_name=f"update_node[{node_id}]")
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.UpdateNode)")
+        #self.logger.info(">> CALLING INTO GO CODE (_log_node.UpdateNode)")
         sys.stderr.flush()
         sys.stdout.flush()
         self._log_node.UpdateNode(node_id, address, resolve)
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.UpdateNode)")
+        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.UpdateNode)")
         sys.stderr.flush()
         sys.stdout.flush()
         res = await future.result()
@@ -1994,15 +2054,15 @@ class RaftLog(object):
         future, resolve = self._get_callback(future_name=f"remove_node[{node_id}]")
 
         try:
-            self.logger.info(">> CALLING INTO GO CODE (_log_node.RemoveNode)")
+            #self.logger.info(">> CALLING INTO GO CODE (_log_node.RemoveNode)")
             sys.stderr.flush()
             sys.stdout.flush()
             self._log_node.RemoveNode(node_id, resolve)
-            self.logger.info("<< RETURNED FROM GO CODE (_log_node.RemoveNode)")
+            #self.logger.info("<< RETURNED FROM GO CODE (_log_node.RemoveNode)")
             sys.stderr.flush()
             sys.stdout.flush()
         except Exception as ex:
-            self.logger.info("<< RETURNED FROM GO CODE (_log_node.RemoveNode)")
+            #self.logger.info("<< RETURNED FROM GO CODE (_log_node.RemoveNode)")
             sys.stderr.flush()
             sys.stdout.flush()
             self.logger.error("Error in LogNode while removing replica %d: %s" % (node_id, str(ex)))
@@ -2075,11 +2135,11 @@ class RaftLog(object):
     @property
     def num_changes(self) -> int:
         """The number of incremental changes since first term or the latest checkpoint."""
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.NumChanges)")
+        #self.logger.info(">> CALLING INTO GO CODE (_log_node.NumChanges)")
         sys.stderr.flush()
         sys.stdout.flush()
         num_changes: int = self._log_node.NumChanges()
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.NumChanges)")
+        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.NumChanges)")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -2130,12 +2190,12 @@ class RaftLog(object):
         self._async_loop.set_debug(True)
         self._start_loop = self._async_loop
 
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.Start)")
+        #self.logger.info(">> CALLING INTO GO CODE (_log_node.Start)")
         sys.stderr.flush()
         sys.stdout.flush()
 
         startSuccessful: bool = self._log_node.Start(config)
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.Start)")
+        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.Start)")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -2147,13 +2207,13 @@ class RaftLog(object):
 
     # Close the LogNode's RemoteStorage client.
     def close_remote_storage_client(self) -> None:
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.CloseRemoteStorageClient)")
+        #self.logger.info(">> CALLING INTO GO CODE (_log_node.CloseRemoteStorageClient)")
         sys.stderr.flush()
         sys.stdout.flush()
 
         self._log_node.CloseRemoteStorageClient()
 
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.CloseRemoteStorageClient)")
+        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.CloseRemoteStorageClient)")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -2168,7 +2228,7 @@ class RaftLog(object):
         """
         self.logger.warning(f"Closing LogNode {self._node_id} now.")
 
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.Close)")
+        #self.logger.info(">> CALLING INTO GO CODE (_log_node.Close)")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -2194,7 +2254,7 @@ class RaftLog(object):
             self._shouldSnapshotCallback = None
             return
 
-        def shouldSnapshotCallback(logNode):
+        def should_snapshot_callback(logNode):
             sys.stderr.flush()
             sys.stdout.flush()
             logNode = LogNode(handle=logNode)
@@ -2205,7 +2265,7 @@ class RaftLog(object):
             # print("in direct shouldSnapshotCallback")
             return callback(self)
 
-        self._shouldSnapshotCallback = shouldSnapshotCallback
+        self._shouldSnapshotCallback = should_snapshot_callback
 
     def set_checkpoint_callback(self, callback):
         """Set the callback that will be called when the SyncLog decides to checkpoint.
@@ -2214,7 +2274,7 @@ class RaftLog(object):
             self._snapshotCallback = None
             return
 
-        def snapshotCallback(wc) -> bytes:
+        def snapshot_callback(wc) -> bytes:
             sys.stderr.flush()
             sys.stdout.flush()
             try:
@@ -2230,10 +2290,10 @@ class RaftLog(object):
                 self._ignore_changes = 0
                 return GoNilError()
             except Exception as e:
-                self.logger.error("Error on snapshoting: {}".format(e))
+                self.logger.error("Error on snapshotting: {}".format(e))
                 return GoError(e)
 
-        self._snapshotCallback = snapshotCallback
+        self._snapshotCallback = snapshot_callback
 
     async def write_data_dir_to_remote_storage(
             self,
@@ -2254,14 +2314,14 @@ class RaftLog(object):
 
         future, resolve = self._get_callback(future_name="write_data_remote_storage")
 
-        self.logger.info(">> CALLING INTO GO CODE (_log_node.WriteDataDirectoryToRemoteStorage)")
+        #self.logger.info(">> CALLING INTO GO CODE (_log_node.WriteDataDirectoryToRemoteStorage)")
         sys.stderr.flush()
         sys.stdout.flush()
 
         # This will return immediately, as the actual work of the method is performed by a separate goroutine.
         self._log_node.WriteDataDirectoryToRemoteStorage(Slice_byte(serialized_state), resolve)
 
-        self.logger.info("<< RETURNED FROM GO CODE (_log_node.WriteDataDirectoryToRemoteStorage)")
+        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.WriteDataDirectoryToRemoteStorage)")
         sys.stderr.flush()
         sys.stdout.flush()
 

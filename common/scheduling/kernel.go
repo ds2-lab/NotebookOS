@@ -57,7 +57,9 @@ type SessionManager interface {
 type ExecutionLatencyCallback func(latency time.Duration, workloadId string, kernelId string)
 
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
-type ExecutionFailedCallback func(c Kernel) error
+type ExecutionFailedCallback func(c Kernel, msg *messaging.JupyterMessage) error
+
+type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
 type Kernel interface {
 	types.Contextable
@@ -81,9 +83,18 @@ type Kernel interface {
 	ID() string
 	SourceKernelID() string
 	ResourceSpec() *types.DecimalSpec
+
+	// UpdateResourceSpec updates the ResourceSpec of the Kernel, all of its KernelReplica instances, the UserSession
+	// of each KernelReplica, and the KernelContainer of each KernelReplica.
+	//
+	// It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/KernelReplica.
+	UpdateResourceSpec(spec types.Spec) error
 	KernelSpec() *proto.KernelSpec
 	ConnectionInfo() *jupyter.ConnectionInfo
 	Status() jupyter.KernelStatus
+	// ReplicasAreScheduled returns a flag indicating whether the replicas of this Kernel are scheduled.
+	// Under certain scheduling policies, we only schedule a Container when an "execute_request" arrives.
+	ReplicasAreScheduled() bool
 	AggregateBusyStatus() string
 	BindSession(sess string)
 	Size() int
@@ -97,6 +108,7 @@ type Kernel interface {
 	RemoveReplica(r KernelReplica, remover ReplicaRemover, noop bool) (Host, error)
 	GetReplicaByID(id int32) (KernelReplica, error)
 	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (Host, error)
+	RemoveAllReplicas(remover ReplicaRemover, noop bool) error
 	Validate() error
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
 	InitializeIOForwarder() (*messaging.Socket, error)
@@ -106,9 +118,20 @@ type Kernel interface {
 	GetSocketPort(typ messaging.MessageType) int
 	IsReplicaReady(replicaId int32) (bool, error)
 	RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
-	RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType, jMsg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func(), replicas ...KernelReplica) error
+	RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType, jupyterMessages []*messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func(), replicas ...KernelReplica) error
 	Shutdown(remover ReplicaRemover, restart bool) error
 	WaitClosed() jupyter.KernelStatus
+	DebugMode() bool
+
+	// AddDestFrameIfNecessary adds the destination frame to the specified Jupyter message if it isn't already present.
+	AddDestFrameIfNecessary(jMsg *messaging.JupyterMessage) *messaging.JupyterMessage
+
+	// SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the DistributedKernelClient.
+	SetKernelKey(string)
+
+	// SetSignatureScheme sets the SignatureScheme field of the ConnectionInfo of the server.AbstractServer underlying the
+	// DistributedKernelClient.
+	SetSignatureScheme(string)
 
 	// NumActiveExecutionOperations returns the number of ActiveExecution structs registered with
 	// the kernel. This counts both the current ActiveExecution and the length of the queue of
@@ -116,6 +139,12 @@ type Kernel interface {
 	//
 	// This method is thread safe.
 	NumActiveExecutionOperations() int
+
+	// TemporaryKernelReplicaClient returns the TemporaryKernelReplicaClient struct used by the DistributedKernelClient.
+	//
+	// TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
+	// of a given kernel is/are not scheduled, and that kernel receives a message.
+	TemporaryKernelReplicaClient() KernelReplicaInfo
 }
 
 type KernelReplica interface {
@@ -124,6 +153,7 @@ type KernelReplica interface {
 	Server
 
 	Container() KernelContainer
+	Host() Host
 	SetContainer(container KernelContainer)
 	IsTraining() bool
 	WaitForTrainingToStop()
@@ -134,7 +164,7 @@ type KernelReplica interface {
 	NumPendingExecuteRequests() int
 	SentExecuteRequest(msg *messaging.JupyterMessage)
 	ReceivedExecuteReply(msg *messaging.JupyterMessage)
-	KernelStoppedTraining() error
+	KernelStoppedTraining(reason string) error
 	TrainingStartedAt() time.Time
 	WorkloadId() string
 	SetWorkloadId(workloadId string)
@@ -157,11 +187,29 @@ type KernelReplica interface {
 	SetPersistentID(persistentId string)
 	PersistentID() string
 	ResourceSpec() *types.DecimalSpec
-	SetResourceSpec(spec *proto.ResourceSpec)
+
+	// InitializeResourceSpec sets the ResourceSpec of the KernelReplica.
+	//
+	// This does NOT propagate the updated spec to any UserSession or KernelContainer or Host.
+	// As such, SetReplicaSpec should only be called when instantiating/initializing a new KernelReplica.
+	//
+	// If you wish to update the ResourceSpec of an existing KernelReplica, then you should use the
+	// UpdateResourceSpec method.
+	InitializeResourceSpec(spec *proto.ResourceSpec)
+
+	// UpdateResourceSpec updates the ResourceSpec of the KernelReplica, the UserSession of the KernelReplica, and the
+	// KernelContainer of the KernelReplica.
+	//
+	// It also ensures that the updated ResourceSpec is propagated to the Host of the KernelContainer / KernelReplica.
+	//
+	// UpdateResourceSpec should only be used to update the ResourceSpec of an existing KernelReplica. When
+	// instantiating/initializing (the ResourceSpec of) a new KernelReplica, you should use the InitializeResourceSpec
+	// method instead of UpdateResourceSpec.
+	UpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec) error
 	KernelSpec() *proto.KernelSpec
+	KernelReplicaSpec() *proto.KernelReplicaSpec
 	Address() string
 	String() string
-	UpdateResourceSpec(types.Spec) error
 	IsReady() bool
 	HostId() string
 	SetReady()
