@@ -331,11 +331,30 @@ func NewTransactionRunner(transaction Transaction, state TransactionState, resul
 	return runner
 }
 
+func NewTransactionRunnerFromManager(transaction Transaction, manager *Manager, resultChan chan interface{}, name string) *TransactionRunner {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	runner := &TransactionRunner{
+		transaction: transaction,
+		state:       manager.unsafeGetTransactionState(),
+		resultChan:  resultChan,
+	}
+
+	if name != "" {
+		config.InitLogger(&runner.log, name)
+	} else {
+		config.InitLogger(&runner.log, runner)
+	}
+
+	return runner
+}
+
 func (r *TransactionRunner) State() TransactionState {
 	return r.state
 }
 
-func (r *TransactionRunner) runTransaction() {
+func (r *TransactionRunner) RunTransaction() {
 	st := time.Now()
 
 	defer func() {

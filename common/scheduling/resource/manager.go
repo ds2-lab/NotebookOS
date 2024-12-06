@@ -231,7 +231,7 @@ func (m *Manager) RunTransaction(transaction Transaction) error {
 	resultChan := make(chan interface{}, 1)
 	runner := NewTransactionRunner(transaction, m.unsafeGetTransactionState(), resultChan, "")
 
-	runner.runTransaction()
+	runner.RunTransaction()
 
 	result := <-resultChan
 
