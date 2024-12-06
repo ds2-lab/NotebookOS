@@ -213,6 +213,36 @@ func (s *BaseScheduler) isScalingEnabled() bool {
 	return s.PolicyKey() != scheduling.FcfsBatch
 }
 
+// GetCandidateHost identifies a single candidate host for a particular kernel replica, reserving resources on hosts
+// before returning them.
+//
+// If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it to
+// the blacklist.
+func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+	if blacklistedHosts == nil {
+		blacklistedHosts = make([]scheduling.Host, 0)
+	}
+
+	if replica.Host() != nil {
+		currentHost := replica.Host()
+		found := false
+
+		// If the replica's current host isn't already blacklisted, then add it to the blacklist.
+		for _, blacklistedHost := range blacklistedHosts {
+			if blacklistedHost.GetID() == currentHost.GetID() {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			blacklistedHosts = append(blacklistedHosts, currentHost)
+		}
+	}
+
+	return s.findViableHostForReplica(replica, blacklistedHosts, forTraining)
+}
+
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //

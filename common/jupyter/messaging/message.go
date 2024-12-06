@@ -1001,7 +1001,9 @@ func (m *JupyterMessage) StringFormatted() string {
 	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.StringFormatted())
 }
 
-// CreateAndReturnYieldRequestMessage creates a "yield_request" message from the target message.
+// CreateAndReturnYieldRequestMessage creates a "yield_request" message from the target JupyterMessage.
+//
+// If the target JupyterMessage is already a "yield_request" message, then the target JupyterMessage is simply returned.
 //
 // If the target message is not of type "execute_request", then an error is returned.
 //
@@ -1011,6 +1013,11 @@ func (m *JupyterMessage) StringFormatted() string {
 // PRECONDITION: The given message must be an "execute_request" message.
 // This function will NOT check this. It should be checked before calling this function.
 func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, error) {
+	// If the message is already a yield request, then just return it.
+	if m.JupyterParentMessageType() == ShellYieldRequest {
+		return m, nil
+	}
+
 	if m.JupyterMessageType() != ShellExecuteRequest {
 		return nil, fmt.Errorf("%w: message is of type \"%s\", not \"%s\"", ErrInvalidJupyterMessage, m.JupyterMessageType(), ShellExecuteRequest)
 	}

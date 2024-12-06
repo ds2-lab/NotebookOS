@@ -735,7 +735,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 						return kernel, true
 					}
 
-					return nil, false
+					return kernel, false
 				})
 
 				hostMapper.EXPECT().GetHostsOfKernel(kernelId).AnyTimes().Return([]scheduling.Host{host1, host2, host3}, nil)
@@ -767,15 +767,44 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 				for _, candidate := range candidates {
 					fmt.Printf("Host %s resources: %s\n", candidate.GetID(), candidate.GetResourceCountsAsString())
-					Expect(candidate.IdleResources().IsZero()).To(BeTrue())
+					Expect(candidate.IdleResources().GPUs.IsZero()).To(BeTrue())
 				}
 
-				//kernel.EXPECT().RemoveReplicaByID(1, gomock.Any(), false).Times(1).Return(host1, nil)
+				nextDataDirectory := uuid.NewString()
+				nextKernelReplicaSpec := &proto.KernelReplicaSpec{
+					Kernel:                    nextKernelSpec,
+					ReplicaId:                 2,
+					Join:                      true,
+					NumReplicas:               3,
+					DockerModeKernelDebugPort: -1,
+					PersistentId:              &nextDataDirectory,
+					WorkloadId:                workloadId,
+					Replicas:                  []string{"10.0.0.4:8000", "10.0.0.5:8000", "10.0.0.6:8000"},
+				}
 
-				//resp, reason, err := dockerScheduler.MigrateKernelReplica(kernelReplica1, "", true)
-				//Expect(err).To(BeNil())
-				//Expect(reason).To(BeNil())
-				//Expect(resp).ToNot(BeNil())
+				nextContainer := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				nextContainer.EXPECT().ReplicaId().AnyTimes().Return(int32(2))
+				nextContainer.EXPECT().KernelID().AnyTimes().Return(nextKernelId)
+				nextContainer.EXPECT().ContainerID().AnyTimes().Return(fmt.Sprintf("%s-%d", nextKernelId, 2))
+				nextContainer.EXPECT().ResourceSpec().AnyTimes().Return(nextResourceSpec.ToDecimalSpec())
+				nextContainer.EXPECT().String().AnyTimes().Return("NextMockedContainer")
+
+				nextKernelReplica := mock_scheduling.NewMockKernelReplica(mockCtrl)
+				nextKernelReplica.EXPECT().KernelSpec().AnyTimes().Return(nextKernelSpec)
+				nextKernelReplica.EXPECT().ReplicaID().AnyTimes().Return(int32(2))
+				nextKernelReplica.EXPECT().ID().AnyTimes().Return(nextKernelId)
+				nextKernelReplica.EXPECT().ResourceSpec().AnyTimes().Return(nextResourceSpec.ToDecimalSpec())
+				nextKernelReplica.EXPECT().Container().AnyTimes().Return(nextContainer)
+				nextKernelReplica.EXPECT().String().AnyTimes().Return("NextMockedKernelReplica")
+				nextKernelReplica.EXPECT().KernelReplicaSpec().AnyTimes().Return(nextKernelReplicaSpec)
+				nextKernelReplica.EXPECT().Host().Times(1).Return(nil)
+
+				hostMapper.EXPECT().GetHostsOfKernel(nextKernelId).AnyTimes().Return([]scheduling.Host{}, nil)
+
+				host, err := dockerScheduler.GetCandidateHost(nextKernelReplica, nil, true)
+				Expect(err).To(BeNil())
+				Expect(host).ToNot(BeNil())
+				Expect(host.IdleResources().IsZero()).To(BeFalse())
 			})
 		})
 

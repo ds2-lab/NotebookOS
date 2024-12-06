@@ -84,8 +84,8 @@ type KernelReplicaClient struct {
 	nodeName                         string                                             // Name of the node that the Pod or Container is running on.
 	ready                            bool                                               // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
 	yieldNextExecutionRequest        bool                                               // If true, then we will yield the next 'execute_request'.
-	hostId                           string                                             // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
 	host                             scheduling.Host                                    // The host that the kernel replica is running on.
+	hostId                           string                                             // The ID of the scheduling.Host that this KernelReplicaClient is running on. This field exists because we don't actually use scheduling.Host structs on Local Daemons.
 	workloadId                       string                                             // workloadId is the ID of the workload associated with this kernel, if this kernel was created within a workload. This is populated after extracting the ID from the metadata frame of a Jupyter message.
 	workloadIdSet                    bool                                               // workloadIdSet is a flag indicating whether workloadId has been assigned a "meaningful" value or not.
 	trainingStartedAt                time.Time                                          // trainingStartedAt is the time at which the kernel associated with this client began actively training.
@@ -1243,6 +1243,10 @@ func (c *KernelReplicaClient) GetHost() scheduling.Host {
 // SetHost sets the Host of the kernel.
 func (c *KernelReplicaClient) SetHost(host scheduling.Host) {
 	c.host = host
+
+	if host != nil {
+		c.hostId = host.GetID()
+	}
 }
 
 // InitializeIOSub initializes the ZMQ SUB socket for handling IO messages from the Jupyter kernel.

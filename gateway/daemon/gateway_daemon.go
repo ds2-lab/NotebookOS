@@ -1900,10 +1900,10 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// Initialize kernel client
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
 		jupyter.ConnectionInfoFromKernelConnectionInfo(in.ConnectionInfo),
-		d.id, d.numResendAttempts, in.PodOrContainerName, in.NodeName,
-		nil, nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
-		host, metrics.ClusterGateway, true, true, d.DebugMode, d.gatewayPrometheusManager,
-		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics)
+		d.id, d.numResendAttempts, in.PodOrContainerName, in.NodeName, nil, nil,
+		d.MessageAcknowledgementsEnabled, kernel.PersistentID(), host.GetID(), host, metrics.ClusterGateway,
+		true, true, d.DebugMode, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
+		d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics)
 
 	err := replica.Validate()
 	if err != nil {
@@ -2033,9 +2033,7 @@ func (d *ClusterGatewayImpl) AddReplicaDynamic(_ context.Context, in *proto.Kern
 	return nil
 }
 
-func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
-	d.log.Info("Received kernel registration notification.")
-
+func (d *ClusterGatewayImpl) printKernelRegistrationNotification(in *proto.KernelRegistrationNotification) {
 	connectionInfo := in.ConnectionInfo
 	sessionId := in.SessionId
 	kernelId := in.KernelId
@@ -2060,25 +2058,23 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	d.log.Info("Node ID: %v", hostId)
 	d.log.Info("Node Name: %v", nodeName)
 	d.log.Info("Notification ID: %v", in.NotificationId)
+}
 
-	d.clusterStatisticsMutex.Lock()
-	now := time.Now()
-	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
-		Name:                statistics.KernelReplicaRegistered,
-		KernelId:            kernelId,
-		ReplicaId:           -1,
-		Timestamp:           now,
-		TimestampUnixMillis: now.UnixMilli(),
-	})
-	d.clusterStatisticsMutex.Unlock()
-
+func (d *ClusterGatewayImpl) unsafeNotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, *registrationWaitGroups, error) {
 	d.Lock()
+	defer d.Unlock()
+
+	connectionInfo := in.ConnectionInfo
+	kernelId := in.KernelId
+	hostId := in.HostId
+	kernelPodOrContainerName := in.PodOrContainerName
+	nodeName := in.NodeName
+	replicaId := in.ReplicaId
 
 	_, loaded := d.kernelRegisteredNotifications.LoadOrStore(in.NotificationId, in)
 	if loaded {
 		d.log.Warn("Received duplicate \"Kernel Registered\" notification with ID=%s", in.NotificationId)
-		d.Unlock()
-		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
+		return nil, nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
 	}
 
 	kernel, loaded := d.kernels.Load(kernelId)
@@ -2086,7 +2082,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		d.log.Error("Could not find kernel with ID \"%s\"; however, just received 'kernel registered' notification for that kernel...", kernelId)
 		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find Kernel \"%s\" Despite Receiving 'Kernel Registered' Notification for that Kernel", kernelId), "See notification title.")
 
-		return nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, kernelId)
+		return nil, nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, kernelId)
 	}
 
 	kernelSpec, loaded := d.kernelSpecs.Load(kernelId)
@@ -2114,7 +2110,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 			err = status.Error(codes.Internal, err.Error())
 		}
 
-		return result, err
+		return result, nil, err
 	} else {
 		d.log.Debug("There are 0 active add-replica operations targeting kernel %s.", kernel.ID())
 	}
@@ -2150,7 +2146,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	replica := client.NewKernelReplicaClient(context.Background(), replicaSpec,
 		jupyter.ConnectionInfoFromKernelConnectionInfo(connectionInfo), d.id,
 		d.numResendAttempts, kernelPodOrContainerName, nodeName, nil,
-		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
+		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), host.GetID(), host, metrics.ClusterGateway,
 		true, true, d.DebugMode, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
 		d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics)
 
@@ -2197,13 +2193,56 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	err := kernel.AddReplica(replica, host)
 	if err != nil {
 		d.log.Error("Kernel::AddReplica call failed: %v", err)
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, nil, status.Error(codes.Internal, err.Error())
 		// panic(fmt.Sprintf("Kernel::AddReplica call failed: %v", err)) // TODO(Ben): Handle gracefully.
 	}
 
 	// The replica is fully operational at this point, so record that it is ready.
 	replica.SetReady()
-	d.Unlock()
+
+	return nil, waitGroup, nil
+}
+
+func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
+	d.log.Info("Received kernel registration notification.")
+
+	kernelId := in.KernelId
+	d.printKernelRegistrationNotification(in)
+
+	d.clusterStatisticsMutex.Lock()
+	now := time.Now()
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		Name:                statistics.KernelReplicaRegistered,
+		KernelId:            kernelId,
+		ReplicaId:           -1,
+		Timestamp:           now,
+		TimestampUnixMillis: now.UnixMilli(),
+	})
+	d.clusterStatisticsMutex.Unlock()
+
+	hostId := in.HostId
+	kernelIp := in.KernelIp
+	replicaId := in.ReplicaId
+
+	response, waitGroup, err := d.unsafeNotifyKernelRegistered(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the response is non-nil, then there was an active migration operation, and we handled it already.
+	if response != nil {
+		return response, nil
+	}
+
+	kernel, loaded := d.kernels.Load(kernelId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find kernel with ID %s", kernelId))
+	}
+
+	kernelSpec, loaded := d.kernelSpecs.Load(kernelId)
+	if !loaded {
+		panic(fmt.Sprintf("Expected to find kernel spec for kernel with ID %s", kernelId))
+	}
 
 	waitGroup.SetReplica(replicaId, kernelIp)
 
@@ -2215,7 +2254,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	waitGroup.WaitRegistered()
 
 	persistentId := kernel.PersistentID()
-	response := &proto.KernelRegistrationNotificationResponse{
+	response = &proto.KernelRegistrationNotificationResponse{
 		Id:                              replicaId,
 		Replicas:                        waitGroup.GetReplicas(),
 		PersistentId:                    &persistentId,

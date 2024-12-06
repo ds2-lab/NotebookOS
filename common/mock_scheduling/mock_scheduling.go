@@ -701,6 +701,21 @@ func (mr *MockSchedulerMockRecorder) GetAddReplicaOperationManager() *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAddReplicaOperationManager", reflect.TypeOf((*MockScheduler)(nil).GetAddReplicaOperationManager))
 }
 
+// GetCandidateHost mocks base method.
+func (m *MockScheduler) GetCandidateHost(replica scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCandidateHost", replica, blacklistedHosts, forTraining)
+	ret0, _ := ret[0].(scheduling.Host)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCandidateHost indicates an expected call of GetCandidateHost.
+func (mr *MockSchedulerMockRecorder) GetCandidateHost(replica, blacklistedHosts, forTraining any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCandidateHost", reflect.TypeOf((*MockScheduler)(nil).GetCandidateHost), replica, blacklistedHosts, forTraining)
+}
+
 // GetCandidateHosts mocks base method.
 func (m *MockScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
 	m.ctrl.T.Helper()
