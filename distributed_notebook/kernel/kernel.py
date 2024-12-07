@@ -129,6 +129,7 @@ def gen_error_response(err):
             'ename': str(type(err).__name__),
             'evalue': str(err),
             'traceback': [],
+            'msg_created_at_unix_milliseconds': time.time_ns() // 1_000_000,
             }
 
 
@@ -2090,6 +2091,8 @@ class DistributedKernel(IPythonKernel):
             self.current_execution_stats.execution_end_unix_millis = time.time() * 1.0e3
             exec_duration_millis: float = self.current_execution_stats.execution_end_unix_millis - self.current_execution_stats.execution_start_unix_millis
             self.current_execution_stats.execution_time_microseconds = exec_duration_millis * 1.0e3
+            reply_content['execution_start_unix_millis'] = self.current_execution_stats.execution_start_unix_millis
+            reply_content['execution_finished_unix_millis'] = self.current_execution_stats.execution_end_unix_millis
 
             self.log.info(f"Finished executing user-submitted code in {exec_duration_millis} ms. "
                           f"Returning the following content: {reply_content}")
@@ -2173,8 +2176,6 @@ class DistributedKernel(IPythonKernel):
             self.report_error("Execution Error", str(e))
 
             reply_content = gen_error_response(e)
-
-        reply_content["msg_created_at_unix_milliseconds"] = time.time_ns() // 1_000_000
         return reply_content
 
     async def simulate_remote_checkpointing(
