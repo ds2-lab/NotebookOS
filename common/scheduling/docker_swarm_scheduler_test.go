@@ -26,6 +26,7 @@ import (
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/net/context"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -1061,10 +1062,19 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					Key:             uuid.NewString(),
 				}, nil)
 
-				resp, reason, err := dockerScheduler.MigrateKernelReplica(kernelReplica1, "", true)
-				Expect(err).To(BeNil())
-				Expect(reason).To(BeNil())
-				Expect(resp).ToNot(BeNil())
+				var wg sync.WaitGroup
+				wg.Add(1)
+
+				go func() {
+					defer GinkgoRecover()
+					resp, reason, err := dockerScheduler.MigrateKernelReplica(kernelReplica1, "", true)
+					Expect(err).To(BeNil())
+					Expect(reason).To(BeNil())
+					Expect(resp).ToNot(BeNil())
+					wg.Done()
+				}()
+
+				wg.Done()
 			})
 		})
 

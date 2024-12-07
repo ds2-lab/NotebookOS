@@ -440,6 +440,10 @@ class RaftLog(object):
 
         self.logger.debug(f"Received VOTE: {str(vote)}")
 
+        _received_vote_future = self._received_vote_future
+        if _received_vote_future is not None and vote.election_term == self._received_vote_future_term:
+            self._future_io_loop.call_soon_threadsafe(_received_vote_future.set_result, 1)
+
         # The first 'VOTE' proposal received during the term automatically wins.
         with self._election_lock:
             was_first_vote_proposal: bool = self._current_election.add_vote_proposal(vote, overwrite=True,
@@ -557,7 +561,8 @@ class RaftLog(object):
                 try:
                     self._set_execution_count_handler(current_term_number)
                 except ValueError:
-                    self.logger.warning(f"Failed to set execution count to {current_term_number}; current value must be higher...")
+                    self.logger.warning(
+                        f"Failed to set execution count to {current_term_number}; current value must be higher...")
                     pass
 
                 # self._fast_forward_execution_count_handler()
@@ -606,12 +611,14 @@ class RaftLog(object):
                 try:
                     self._set_execution_count_handler(election_term)
                 except ValueError:
-                    self.logger.warning(f"Failed to set execution count to {election_term}; current value must be higher...")
+                    self.logger.warning(
+                        f"Failed to set execution count to {election_term}; current value must be higher...")
                     pass
 
                 # self._fast_forward_execution_count_handler()
             else:
-                self.logger.debug(f"Not calling 'set_execution_complete' while creating & skipping election {election_term}.")
+                self.logger.debug(
+                    f"Not calling 'set_execution_complete' while creating & skipping election {election_term}.")
 
         self.logger.debug(f"Creating and skipping election(s) from term {current_term_number + 1} to term "
                           f"{notification.election_term}.")
@@ -683,8 +690,9 @@ class RaftLog(object):
                 fast_forwarding = True
 
             if self.current_election.term_number != notification.election_term:
-                self.logger.warning(f"Current election is for term {self.current_election.term_number} (state={self.current_election.state.get_name()}, "
-                                    f"but we just received a notification that election {notification.election_term} has finished...")
+                self.logger.warning(
+                    f"Current election is for term {self.current_election.term_number} (state={self.current_election.state.get_name()}, "
+                    f"but we just received a notification that election {notification.election_term} has finished...")
 
                 if notification.election_term > self.current_election.term_number:
                     self.__fast_forward_to_future_election(notification)
@@ -711,7 +719,8 @@ class RaftLog(object):
                 try:
                     self._set_execution_count_handler(notification.election_term)
                 except ValueError:
-                    self.logger.warning(f"Failed to set execution count to {notification.election_term}; current value must be higher...")
+                    self.logger.warning(
+                        f"Failed to set execution count to {notification.election_term}; current value must be higher...")
                     pass
 
         return GoNilError()
@@ -815,6 +824,7 @@ class RaftLog(object):
                 self.logger.debug(f"decide_election called for election {current_term}. "
                                   f"Sleeping for {sleep_duration} seconds in decide_election coroutine for election {current_term}.")
                 await asyncio.sleep(sleep_duration)
+                self.logger.debug(f"Woke up in decide_election call for election {current_term}.")
 
                 if _pick_and_propose_winner_future.done():
                     self.logger.debug(
@@ -827,9 +837,9 @@ class RaftLog(object):
                     return
 
                 try:
-                    selected_winner: bool = self.__try_pick_winner_to_propose(current_term)
+                    picked_a_winner: bool = self.__try_pick_winner_to_propose(current_term)
 
-                    if not selected_winner:
+                    if not picked_a_winner:
                         if self._current_election.is_active:
                             self.logger.error(
                                 f"Could not select a winner for election term {current_term} after timeout period elapsed...")
@@ -883,6 +893,8 @@ class RaftLog(object):
             True if a winner was selected for proposal (including just proposing 'FAILURE' due to all nodes
             proposing 'YIELD'); otherwise, return False.
         """
+        self.logger.debug(f"Trying to pick winner for election {term_number}.")
+
         if self._current_election is None:
             raise ValueError(f"cannot try to pick winner for election {term_number}; current election field is null.")
 
@@ -909,7 +921,6 @@ class RaftLog(object):
                                                                              proposer_id=self._node_id,
                                                                              election_term=term_number,
                                                                              attempt_number=self._current_election.current_attempt_number))
-                # self._election_decision_future.set_result(LeaderElectionVote(proposed_node_id = id_of_winner_to_propose, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
                 return True
             else:
                 assert self._election_decision_future is not None
@@ -919,7 +930,6 @@ class RaftLog(object):
                                                                              proposer_id=self._node_id,
                                                                              election_term=term_number,
                                                                              attempt_number=self._current_election.current_attempt_number))
-                # self._election_decision_future.set_result(LeaderElectionVote(proposed_node_id = -1, proposer_id = self._node_id, election_term = term_number, attempt_number = self._current_election.current_attempt_number))
                 return True
         except ValueError as ex:
             self.logger.debug(
@@ -1246,11 +1256,11 @@ class RaftLog(object):
 
         If there is no serialized state, then the returned bytes object will be empty.
         """
-        #self.logger.info(">> CALLING INTO GO CODE (_log_node.GetSerializedState)")
+        # self.logger.info(">> CALLING INTO GO CODE (_log_node.GetSerializedState)")
         sys.stderr.flush()
         sys.stdout.flush()
         val: Slice_byte = self._log_node.GetSerializedState()
-        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.GetSerializedState)")
+        # self.logger.info("<< RETURNED FROM GO CODE (_log_node.GetSerializedState)")
         sys.stderr.flush()
         sys.stdout.flush()
         self.logger.debug(f"Retrieved serialized state from LogNode: {val}")
@@ -1384,7 +1394,7 @@ class RaftLog(object):
         else:
             return True, False
 
-    def get_known_election_terms(self)->list[int]:
+    def get_known_election_terms(self) -> list[int]:
         """
         :return: a list of term numbers for which we have an associated Election object
         """
@@ -1523,9 +1533,9 @@ class RaftLog(object):
     def propose(self, value: bytes, resolve: Callable[[str, Exception], Any], key: str):
         sys.stderr.flush()
         sys.stdout.flush()
-        #self.logger.info(">> CALLING INTO GO CODE (_log_node.Propose)")
+        # self.logger.info(">> CALLING INTO GO CODE (_log_node.Propose)")
         self._log_node.Propose(NewBytes(value), resolve, key)
-        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.Propose)")
+        # self.logger.info("<< RETURNED FROM GO CODE (_log_node.Propose)")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1783,12 +1793,15 @@ class RaftLog(object):
         self._future_io_loop.set_debug(True)
         # This is the future we'll use to submit a formal vote for who should lead, based on the proposals that are committed to the etcd-raft log.
         self._election_decision_future = self._future_io_loop.create_future()
+        self._received_vote_future: asyncio.Future = self._future_io_loop.create_future()
+        self._received_vote_future_term: int = target_term_number
         # This is the future that we'll use to inform the local kernel replica if it has been selected to "lead" the election (and therefore execute the user-submitted code).
         self._leading_future: Optional[asyncio.Future[int]] = self._future_io_loop.create_future()
 
         # Create local references.
         _election_decision_future: asyncio.Future[Any] = self._election_decision_future
         _leading_future: asyncio.Future[int] = self._leading_future
+        _received_vote_future: asyncio.Future[Any] = self._received_vote_future
 
         # Process any buffered votes and proposals that we may have received.
         # If we have any buffered votes, then we'll process those first, as that'll presumably be all we need to do.
@@ -1856,31 +1869,60 @@ class RaftLog(object):
 
             await self._append_election_proposal(proposal)
 
-            voteProposal: LeaderElectionVote = await _election_decision_future
-            self._election_decision_future = None
+            self.logger.debug(f"Waiting on 'election decision' future for term {election_term}.")
 
-            # Validate that the term number matches the current election.
-            if voteProposal.election_term != election_term:
-                raise ValueError(
-                    f"received LeaderElectionVote with mis-matched term number ({voteProposal.election_term}) compared to current election term number ({election_term})")
+            done, pending = await asyncio.wait([_election_decision_future, _received_vote_future], return_when = asyncio.FIRST_COMPLETED)
 
-            if voteProposal.election_failed:
+            if _received_vote_future in done or _received_vote_future.done():
+                self.logger.debug(f"The voting phase for election {election_term} has already completed, "
+                                  "before we had a chance to propose our own vote.")
+
+                if self._current_election.term_number != election_term:
+                    self.logger.error(
+                        f"Current election has term {self._current_election.term_number} while handling election {election_term}...")
+                    self._send_notification_func(
+                        f"Current election has term {self._current_election.term_number} while handling election {election_term}...",
+                        f"Current election has term {self._current_election.term_number} while handling election {election_term}...",
+                        1)
+                    wait, is_leading = self._is_leading(target_term_number)
+                    assert wait == False
+                    return is_leading
+
+                assert self._current_election.voting_phase_completed_successfully
+                self._received_vote_future = None
+                self._election_decision_future = None
+            else:
+                assert _election_decision_future.done()
+                voteProposal: LeaderElectionVote = _election_decision_future.result()
+
                 self.logger.debug(
-                    "RaftLog %d: Got decision to propose: election failed. No replicas proposed 'LEAD'." % self._node_id)
+                    f"Finished waiting on 'election decision' future for term {election_term}: {voteProposal}")
+                self._received_vote_future = None
+                self._election_decision_future = None
 
-                with self._election_lock:
-                    self._current_election.set_election_failed()
+                # Validate that the term number matches the current election.
+                if voteProposal.election_term != election_term:
+                    raise ValueError(
+                        f"received LeaderElectionVote with mis-matched term number ({voteProposal.election_term}) compared to current election term number ({election_term})")
 
-                # None of the replicas proposed 'LEAD'
-                # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
-                return False
+                # Are we proposing that the election failed?
+                if voteProposal.election_failed:
+                    self.logger.debug(
+                        "RaftLog %d: Got decision to propose: election failed. No replicas proposed 'LEAD'." % self._node_id)
 
-            self.logger.debug(
-                "RaftLog %d: Appending decision proposal for term %s now." % (
+                    with self._election_lock:
+                        self._current_election.set_election_failed()
+
+                    # None of the replicas proposed 'LEAD'
+                    # It is likely that a migration of some sort will be triggered as a result, leading to another election round for this term.
+                    return False
+
+                self.logger.debug(
+                    "RaftLog %d: Appending decision proposal for term %s now." % (
+                        self._node_id, voteProposal.election_term))
+                await self._append_election_vote(voteProposal)
+                self.logger.debug("RaftLog %d: Successfully appended decision proposal for term %s now." % (
                     self._node_id, voteProposal.election_term))
-            await self._append_election_vote(voteProposal)
-            self.logger.debug("RaftLog %d: Successfully appended decision proposal for term %s now." % (
-                self._node_id, voteProposal.election_term))
         else:
             self.logger.debug(
                 f"Skipping the {len(buffered_proposals)} buffered proposal(s) as well as our own proposal "
@@ -2020,11 +2062,11 @@ class RaftLog(object):
         """
         self.logger.info("Adding node %d at addr %s to the SMR cluster." % (node_id, address))
         future, resolve = self._get_callback(future_name=f"add_node[{node_id}]")
-        #self.logger.info(">> CALLING INTO GO CODE (_log_node.AddHost)")
+        # self.logger.info(">> CALLING INTO GO CODE (_log_node.AddHost)")
         sys.stderr.flush()
         sys.stdout.flush()
         self._log_node.AddNode(node_id, address, resolve)
-        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.AddHost)")
+        # self.logger.info("<< RETURNED FROM GO CODE (_log_node.AddHost)")
         sys.stderr.flush()
         sys.stdout.flush()
         res = await future.result()
@@ -2036,11 +2078,11 @@ class RaftLog(object):
         """Add a node to the etcd-raft  cluster."""
         self.logger.info("Updating node %d with new addr %s." % (node_id, address))
         future, resolve = self._get_callback(future_name=f"update_node[{node_id}]")
-        #self.logger.info(">> CALLING INTO GO CODE (_log_node.UpdateNode)")
+        # self.logger.info(">> CALLING INTO GO CODE (_log_node.UpdateNode)")
         sys.stderr.flush()
         sys.stdout.flush()
         self._log_node.UpdateNode(node_id, address, resolve)
-        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.UpdateNode)")
+        # self.logger.info("<< RETURNED FROM GO CODE (_log_node.UpdateNode)")
         sys.stderr.flush()
         sys.stdout.flush()
         res = await future.result()
@@ -2054,15 +2096,15 @@ class RaftLog(object):
         future, resolve = self._get_callback(future_name=f"remove_node[{node_id}]")
 
         try:
-            #self.logger.info(">> CALLING INTO GO CODE (_log_node.RemoveNode)")
+            # self.logger.info(">> CALLING INTO GO CODE (_log_node.RemoveNode)")
             sys.stderr.flush()
             sys.stdout.flush()
             self._log_node.RemoveNode(node_id, resolve)
-            #self.logger.info("<< RETURNED FROM GO CODE (_log_node.RemoveNode)")
+            # self.logger.info("<< RETURNED FROM GO CODE (_log_node.RemoveNode)")
             sys.stderr.flush()
             sys.stdout.flush()
         except Exception as ex:
-            #self.logger.info("<< RETURNED FROM GO CODE (_log_node.RemoveNode)")
+            # self.logger.info("<< RETURNED FROM GO CODE (_log_node.RemoveNode)")
             sys.stderr.flush()
             sys.stdout.flush()
             self.logger.error("Error in LogNode while removing replica %d: %s" % (node_id, str(ex)))
@@ -2135,11 +2177,11 @@ class RaftLog(object):
     @property
     def num_changes(self) -> int:
         """The number of incremental changes since first term or the latest checkpoint."""
-        #self.logger.info(">> CALLING INTO GO CODE (_log_node.NumChanges)")
+        # self.logger.info(">> CALLING INTO GO CODE (_log_node.NumChanges)")
         sys.stderr.flush()
         sys.stdout.flush()
         num_changes: int = self._log_node.NumChanges()
-        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.NumChanges)")
+        # self.logger.info("<< RETURNED FROM GO CODE (_log_node.NumChanges)")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -2190,12 +2232,12 @@ class RaftLog(object):
         self._async_loop.set_debug(True)
         self._start_loop = self._async_loop
 
-        #self.logger.info(">> CALLING INTO GO CODE (_log_node.Start)")
+        # self.logger.info(">> CALLING INTO GO CODE (_log_node.Start)")
         sys.stderr.flush()
         sys.stdout.flush()
 
         startSuccessful: bool = self._log_node.Start(config)
-        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.Start)")
+        # self.logger.info("<< RETURNED FROM GO CODE (_log_node.Start)")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -2207,13 +2249,13 @@ class RaftLog(object):
 
     # Close the LogNode's RemoteStorage client.
     def close_remote_storage_client(self) -> None:
-        #self.logger.info(">> CALLING INTO GO CODE (_log_node.CloseRemoteStorageClient)")
+        # self.logger.info(">> CALLING INTO GO CODE (_log_node.CloseRemoteStorageClient)")
         sys.stderr.flush()
         sys.stdout.flush()
 
         self._log_node.CloseRemoteStorageClient()
 
-        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.CloseRemoteStorageClient)")
+        # self.logger.info("<< RETURNED FROM GO CODE (_log_node.CloseRemoteStorageClient)")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -2228,7 +2270,7 @@ class RaftLog(object):
         """
         self.logger.warning(f"Closing LogNode {self._node_id} now.")
 
-        #self.logger.info(">> CALLING INTO GO CODE (_log_node.Close)")
+        # self.logger.info(">> CALLING INTO GO CODE (_log_node.Close)")
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -2314,14 +2356,14 @@ class RaftLog(object):
 
         future, resolve = self._get_callback(future_name="write_data_remote_storage")
 
-        #self.logger.info(">> CALLING INTO GO CODE (_log_node.WriteDataDirectoryToRemoteStorage)")
+        # self.logger.info(">> CALLING INTO GO CODE (_log_node.WriteDataDirectoryToRemoteStorage)")
         sys.stderr.flush()
         sys.stdout.flush()
 
         # This will return immediately, as the actual work of the method is performed by a separate goroutine.
         self._log_node.WriteDataDirectoryToRemoteStorage(Slice_byte(serialized_state), resolve)
 
-        #self.logger.info("<< RETURNED FROM GO CODE (_log_node.WriteDataDirectoryToRemoteStorage)")
+        # self.logger.info("<< RETURNED FROM GO CODE (_log_node.WriteDataDirectoryToRemoteStorage)")
         sys.stderr.flush()
         sys.stdout.flush()
 

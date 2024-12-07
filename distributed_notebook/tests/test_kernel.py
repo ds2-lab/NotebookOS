@@ -94,7 +94,7 @@ DefaultResourceRequest: Dict[str, Any] = {
     "gpus": 1,
     "cpus": 1000,
     "memory_mb": 512,
-    "vram": 0.5,
+    "vram": 0.1,
 }
 
 async def create_kernel(
@@ -1346,6 +1346,17 @@ async def test_election_fails_when_all_propose_yield(kernel: DistributedKernel, 
 
         assert False
 
+    try:
+        await asyncio.wait_for(execute_request_task, 5)
+    except TimeoutError:
+        unit_test_logger.debug("[ERROR] \"execute_request_task\" future was not resolved.")
+
+        for task in asyncio.all_tasks():
+            asyncio.Task.print_stack(task)
+            unit_test_logger.debug("\n\n\n")
+
+        assert False
+
     assert_election_failed(election, execute_request_task, election_decision_future, expected_proposer_id=1,
                            expected_term_number=1, expected_attempt_number=1, expected_proposals_received=3)
 
@@ -1435,6 +1446,8 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
             unit_test_logger.debug("\n\n\n")
 
         assert False
+
+    await asyncio.sleep(1)
 
     assert_election_failed(election, execute_request_task, election_decision_future, expected_proposer_id=1,
                            expected_term_number=1, expected_attempt_number=1, expected_proposals_received=3)
@@ -1719,6 +1732,17 @@ async def fail_election(
         await asyncio.wait_for(election_decision_future, 5)
     except TimeoutError:
         unit_test_logger.debug("[ERROR] \"election_decision\" future was not resolved.")
+
+        for task in asyncio.all_tasks():
+            asyncio.Task.print_stack(task)
+            unit_test_logger.debug("\n\n\n")
+
+        assert False
+
+    try:
+        await asyncio.wait_for(execute_request_task, 5)
+    except TimeoutError:
+        unit_test_logger.debug("[ERROR] \"execute_request_task\" future was not resolved.")
 
         for task in asyncio.all_tasks():
             asyncio.Task.print_stack(task)

@@ -51,6 +51,7 @@ func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, host
 
 	dockerCluster.scheduler = dockerScheduler
 	baseCluster.instance = dockerCluster
+	baseCluster.initRatioUpdater()
 
 	return dockerCluster
 }

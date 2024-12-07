@@ -1838,6 +1838,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(f"Waiting for election {term_number} "
                        "to be totally finished before returning from yield_request function.")
         await self.synchronizer.wait_for_election_to_end(term_number)
+        self.log.debug(f"Done with yield_request for term {term_number}.")
 
     def copy_data_from_gpu_to_cpu(self, size_gb: float = 0, force: bool = False) -> None:
         if size_gb == 0:

@@ -46,6 +46,7 @@ func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMa
 
 	dockerCluster.scheduler = dockerScheduler
 	baseCluster.instance = dockerCluster
+	baseCluster.initRatioUpdater()
 
 	return dockerCluster
 }

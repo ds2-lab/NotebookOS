@@ -875,9 +875,9 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 		gRpcClientConnection := originalHost.GetGrpcConnection()
 
 		if gRpcClientConnection == nil {
-			err := fmt.Errorf("gRPC Client Connection with host %s (ID=%s) is nil",
+			err := fmt.Errorf("gRPC Client Connection with host %s (ID=%s) is nil. I hope we're unit-testing.",
 				originalHost.GetNodeName(), originalHost.GetID())
-			s.log.Error(utils.RedStyle.Render(err.Error()))
+			s.log.Warn(utils.OrangeStyle.Render(err.Error()))
 			// resultChan <- err
 		} else {
 			s.log.Debug("State of gRPC ClientConn with host %s (ID=%s): %s (%v)", originalHost.GetNodeName(),

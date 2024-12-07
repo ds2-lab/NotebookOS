@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -89,6 +90,8 @@ type BaseCluster struct {
 	MeanScaleInPerHost   time.Duration
 	StdDevScaleInPerHost time.Duration
 
+	closed atomic.Bool
+
 	opts *scheduling.SchedulerOptions
 }
 
@@ -118,6 +121,7 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		MeanScaleInPerHost:        time.Second * time.Duration(opts.MeanScaleInPerHostSec),
 		StdDevScaleInPerHost:      time.Second * time.Duration(opts.StdDevScaleInPerHostSec),
 	}
+	cluster.closed.Store(false)
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
 
 	if loggerPrefix == "" {
@@ -138,23 +142,29 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		config.InitLogger(&cluster.log, loggerPrefix)
 	}
 
-	go func() {
-		cluster.log.Debug("Sleeping for %v before periodically validating Cluster capacity.", cluster.validateCapacityInterval)
-
-		// We wait for `validateCapacityInterval` before the first call to UpdateRatio (which calls ValidateCapacity).
-		time.Sleep(cluster.validateCapacityInterval)
-
-		for {
-			cluster.scheduler.UpdateRatio(false)
-			time.Sleep(cluster.validateCapacityInterval)
-		}
-	}()
-
 	if err := cluster.AddIndex(placer.GetIndex()); err != nil {
 		panic(err)
 	}
 
 	return cluster
+}
+
+func (c *BaseCluster) initRatioUpdater() {
+	go func() {
+		c.log.Debug("Sleeping for %v before periodically validating Cluster capacity.", c.validateCapacityInterval)
+
+		// We wait for `validateCapacityInterval` before the first call to UpdateRatio (which calls ValidateCapacity).
+		time.Sleep(c.validateCapacityInterval)
+
+		for !c.closed.Load() {
+			c.scheduler.UpdateRatio(false)
+			time.Sleep(c.validateCapacityInterval)
+		}
+	}()
+}
+
+func (c *BaseCluster) Close() {
+	c.closed.Store(true)
 }
 
 // NumScalingOperationsSucceeded returns the number of scale-in and scale-out operations that have been
