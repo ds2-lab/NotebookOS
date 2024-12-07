@@ -31,6 +31,7 @@
 - name: Initialize Docker Swarm cluster with first manager node
   docker_swarm:
     state: present
+    subnet_size: 20
     advertise_addr: "{{ hostvars[inventory_hostname].ansible_default_ipv4.address|default(hostvars[inventory_hostname].ansible_all_ipv4_addresses[0]) }}:{{ docker_swarm_advertise_address_port }}"
   register: swarm_output
   when: inventory_hostname in 'swarm-leader'

@@ -440,10 +440,6 @@ class RaftLog(object):
 
         self.logger.debug(f"Received VOTE: {str(vote)}")
 
-        _received_vote_future = self._received_vote_future
-        if _received_vote_future is not None and vote.election_term == self._received_vote_future_term:
-            self._future_io_loop.call_soon_threadsafe(_received_vote_future.set_result, 1)
-
         # The first 'VOTE' proposal received during the term automatically wins.
         with self._election_lock:
             was_first_vote_proposal: bool = self._current_election.add_vote_proposal(vote, overwrite=True,
@@ -465,6 +461,11 @@ class RaftLog(object):
 
             with self._election_lock:
                 self._current_election.set_election_vote_completed(vote.proposed_node_id)
+
+                _received_vote_future = self._received_vote_future
+                if _received_vote_future is not None and vote.election_term == self._received_vote_future_term and not _received_vote_future.done():
+                    self._received_vote_future = None
+                    self._future_io_loop.call_soon_threadsafe(_received_vote_future.set_result, vote)
 
             self._last_winner_id = vote.proposed_node_id
             self._last_completed_election = self._current_election
@@ -550,6 +551,8 @@ class RaftLog(object):
                                   f"from state {self._current_election.election_state.get_name()}")
                 self._current_election.set_election_vote_completed(notification.proposer_id)
 
+                # TODO: Should we try setting value on "vote received" future here?
+
             # Now designate the current election as complete (skipped, specifically, in this case).
             if not self._current_election.code_execution_completed_successfully:
                 self.logger.debug(f"Fast-forwarding election {current_term_number} to EXECUTION_COMPLETE state "
@@ -602,6 +605,8 @@ class RaftLog(object):
             # We know who won the voting in the election for which we received the "execute complete" notification --
             # it's whichever node proposed/appended the "execution complete" notification.
             self._current_election.set_election_vote_completed(notification.proposer_id)
+
+            # TODO: Should we try setting value on "vote received" future here?
 
             if set_election_complete:
                 self.logger.debug(f"Calling 'set_execution_complete' to fully skip election {election_term}.")
@@ -1869,13 +1874,13 @@ class RaftLog(object):
 
             await self._append_election_proposal(proposal)
 
-            self.logger.debug(f"Waiting on 'election decision' future for term {election_term}.")
+            self.logger.debug(f"Waiting on 'election decision' and 'received vote' futures for term {election_term}.")
 
             done, pending = await asyncio.wait([_election_decision_future, _received_vote_future], return_when = asyncio.FIRST_COMPLETED)
 
             if _received_vote_future in done or _received_vote_future.done():
                 self.logger.debug(f"The voting phase for election {election_term} has already completed, "
-                                  "before we had a chance to propose our own vote.")
+                                  f"before we had a chance to propose our own vote. Received vote: {_received_vote_future.result()}")
 
                 if self._current_election.term_number != election_term:
                     self.logger.error(

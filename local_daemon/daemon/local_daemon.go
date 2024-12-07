@@ -1234,8 +1234,8 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		panic(domain.ErrKernelRegistrationNotificationFailure)
 	}
 
-	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.",
-		response.Id, response.Replicas)
+	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v. Response: %v.",
+		response.Id, response.Replicas, response.String())
 
 	if response.ResourceSpec == nil {
 		errorMessage := fmt.Sprintf("ResourceSpec for kernel %s is nil.", kernel.ID())

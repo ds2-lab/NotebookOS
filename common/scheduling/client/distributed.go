@@ -978,6 +978,9 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 // Process a response to a shell message. This is called before the handler that was passed when issuing the request.
 // Return true if the message is a 'yield' message (indicating that the replica yielded an execution).
 func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplicaClient, msg *messaging.JupyterMessage) (error, bool) {
+	c.log.Debug("Preprocessing shell \"%s\" message \"%s\" (JupyterID=\"%s\") received by replica %d: %v",
+		msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), replica.ReplicaID(), msg)
+	
 	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
 	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) < 5 {
 		c.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)", replica.ReplicaID(), c.id)

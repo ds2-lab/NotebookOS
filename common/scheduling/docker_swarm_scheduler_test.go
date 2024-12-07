@@ -1049,7 +1049,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 				targetGatewayClient := localGatewayClients[5]
 				Expect(targetGatewayClient).ToNot(BeNil())
-				targetGatewayClient.EXPECT().StartKernelReplica(gomock.Any(), returnedSpec).Times(1).Return(&proto.KernelConnectionInfo{
+				targetGatewayClient.EXPECT().StartKernelReplica(gomock.Any(), returnedSpec, gomock.Any).Times(1).Return(&proto.KernelConnectionInfo{
 					Ip:              "10.0.0.1",
 					Transport:       "tcp",
 					ControlPort:     9000,
@@ -1060,7 +1060,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					IosubPort:       9005,
 					SignatureScheme: jupyter.JupyterSignatureScheme,
 					Key:             uuid.NewString(),
-				}, nil)
+				}, nil).AnyTimes()
 
 				var wg sync.WaitGroup
 				wg.Add(1)
@@ -1071,10 +1071,11 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					Expect(err).To(BeNil())
 					Expect(reason).To(BeNil())
 					Expect(resp).ToNot(BeNil())
+					fmt.Printf("Response: %v\n", resp)
 					wg.Done()
 				}()
 
-				wg.Done()
+				wg.Wait()
 			})
 		})
 
@@ -1427,59 +1428,6 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				Expect(candidateHosts).ToNot(BeNil())
 				// Expect(len(candidateHosts)).To(Equal(3))
 				Expect(len(candidateHosts)).To(Equal(1))
-
-				//combinedSpec := smallKernelSpec.DecimalSpecFromKernelSpec().Add(bigKernelSpec.DecimalSpecFromKernelSpec())
-
-				//for _, candidateHost := range candidateHosts {
-				//	if candidateHost.ResourceSpec().GPU() > 8 {
-				//		Expect(candidateHost.NumReservations()).To(Equal(1))
-				//		reservation, loaded := candidateHost.GetReservation(smallKernelId)
-				//		Expect(loaded).To(BeTrue())
-				//		// Matches kernel.
-				//		Expect(reservation.GetKernelId()).To(Equal(smallKernelId))
-				//		// Matches host.
-				//		Expect(reservation.GetHostId()).To(Equal(candidateHost.GetID()))
-				//		// Not pending.
-				//		Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
-				//		// Created recently.
-				//		Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
-				//		// Correct amount of resources.
-				//		Expect(reservation.GetResourcesReserved().Equals(smallKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
-				//
-				//		//reservation, loaded = candidateHost.GetReservation(kernelId)
-				//		//Expect(loaded).To(BeTrue())
-				//		//// Matches kernel.
-				//		//Expect(reservation.GetKernelId()).To(Equal(kernelId))
-				//		//// Matches host.
-				//		//Expect(reservation.GetHostId()).To(Equal(candidateHost.GetID()))
-				//		//// Not pending.
-				//		//Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
-				//		//// Created recently.
-				//		//Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
-				//		//// Correct amount of resources.
-				//		//Expect(reservation.GetResourcesReserved().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
-				//		//
-				//		//Expect(candidateHost.PendingResources().Equals(combinedSpec)).To(BeFalse())
-				//		//Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
-				//	} else {
-				//		Expect(candidateHost.NumReservations()).To(Equal(1))
-				//		reservation, loaded := candidateHost.GetReservation(smallKernelId)
-				//		Expect(loaded).To(BeTrue())
-				//		// Matches kernel.
-				//		Expect(reservation.GetKernelId()).To(Equal(smallKernelId))
-				//		// Matches host.
-				//		Expect(reservation.GetHostId()).To(Equal(candidateHost.GetID()))
-				//		// Not pending.
-				//		Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
-				//		// Created recently.
-				//		Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
-				//		// Correct amount of resources.
-				//		Expect(reservation.GetResourcesReserved().Equals(smallKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
-				//
-				//		Expect(candidateHost.PendingResources().Equals(smallKernelSpec.DecimalSpecFromKernelSpec())).To(BeFalse())
-				//		Expect(candidateHost.CommittedResources().Equals(smallKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
-				//	}
-				//}
 			})
 
 			It("Will fail to schedule replicas and not attempt to scale if resources are unavailable", func() {
@@ -1533,27 +1481,6 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				Expect(candidateHosts).To(BeNil())
 				Expect(len(candidateHosts)).To(Equal(0))
 			})
-
-			//It("Will correctly return an error when requested to scale up or down", func() {
-			//	validateVariablesNonNil()
-			//
-			//	initialSize := len(hosts)
-			//	Expect(initialSize).To(Equal(3))
-			//
-			//	p := dockerCluster.ScaleToSize(context.Background(), int32(initialSize+1))
-			//	Expect(p).ToNot(BeNil())
-			//
-			//	err := p.Error()
-			//	Expect(err).ToNot(BeNil())
-			//	Expect(errors.Is(err, scheduling.ErrScalingProhibitedBySchedulingPolicy)).To(BeTrue())
-			//
-			//	p = dockerCluster.ScaleToSize(context.Background(), int32(initialSize-1))
-			//	Expect(p).ToNot(BeNil())
-			//
-			//	err = p.Error()
-			//	Expect(err).ToNot(BeNil())
-			//	Expect(errors.Is(err, scheduling.ErrScalingProhibitedBySchedulingPolicy)).To(BeTrue())
-			//})
 		})
 	})
 

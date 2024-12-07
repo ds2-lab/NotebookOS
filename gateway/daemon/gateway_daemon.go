@@ -1988,7 +1988,9 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 
 	d.log.Debug("About to issue 'update replica' request for replica %d of kernel %s. Client ready: %v", replicaSpec.ReplicaId, in.KernelId, replica.IsReady())
 
-	d.issueUpdateReplicaRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
+	if d.cluster.Scheduler().Policy().NumReplicas() > 1 {
+		d.issueUpdateReplicaRequest(in.KernelId, replicaSpec.ReplicaId, in.KernelIp)
+	}
 
 	// Issue the AddHost request now, so that the node can join when it starts up.
 	// d.issueAddNodeRequest(in.KernelId, replicaSpec.ReplicaID, in.KernelIp)
@@ -3107,7 +3109,7 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 
 	// For any message that isn't an "execute_request" message, we'll return an artificial response when the
 	// replicas of the kernel are not actively running.
-	if typ != messaging.ShellMessage || msg.JupyterMessageType() != messaging.ShellExecuteRequest {
+	if typ != messaging.ShellMessage || (msg.JupyterMessageType() != messaging.ShellExecuteRequest && msg.JupyterMessageType() != messaging.ShellYieldRequest) {
 		d.log.Debug("Replicas of kernel %s are NOT scheduled. Generating artificial response to %s \"%s\" message %s (JupyterID=\"%s\").",
 			kernel.ID(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
 		return d.generateArtificialResponse(kernel, msg, typ)
@@ -3185,6 +3187,15 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 // "execute_request" messages. It first calls processExecuteRequest before forwarding the "execute_request"
 // to the replicas (well, to the Local Schedulers first).
 func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMsg *messaging.JupyterMessage) error {
+	// TODO: Will this cause problems when using non-static policy, since we don't call to check if all replicas
+	//       are scheduled here?
+	_, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage)
+	if err != nil {
+		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
+			kernel.ID(), jMsg.JupyterMessageType(), err)
+		return err // TODO: Should this be returned? Or should it be sent back to the client?
+	}
+
 	ineligibleReplicas, err := d.processExecuteRequest(jMsg, kernel)
 	if err != nil {
 		// Send a response with the error as the content.

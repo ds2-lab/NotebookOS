@@ -690,7 +690,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	// Start the operation.
 	result, err := scaleOp.Start(ctx)
 	if err != nil {
-		c.log.Debug("Scale-out from %d nodes to %d nodes failed because: %v",
+		c.log.Warn("Scale-out from %d nodes to %d nodes failed because: %v",
 			scaleOp.InitialScale, scaleOp.TargetScale, err)
 
 		// Unregister the failed scale-out operation.
