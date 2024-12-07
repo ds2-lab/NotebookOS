@@ -1,17 +1,19 @@
-package resource_test
+package transaction_test
 
 import (
 	"errors"
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
+	"github.com/scusemua/distributed-notebook/common/scheduling/resource/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 )
 
 var _ = Describe("Transaction Tests", func() {
 	It("Should commit transactions that would not result in invalid resource counts", func() {
-		transaction := func(s resource.TransactionState) {
+		transaction := func(s *transaction.State) {
 			s.IdleResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 
 			s.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
@@ -29,12 +31,12 @@ var _ = Describe("Transaction Tests", func() {
 		pending := manager.PendingResources().ToDecimalSpec()
 		committed := manager.CommittedResources().ToDecimalSpec()
 
-		fmt.Printf("Pre-transaction: %s\n", manager.GetResourceCountsAsString())
+		fmt.Printf("Pre-operation: %s\n", manager.GetResourceCountsAsString())
 
 		err := manager.RunTransaction(transaction)
 		Expect(err).To(BeNil())
 
-		fmt.Printf("Post-transaction: %s\n", manager.GetResourceCountsAsString())
+		fmt.Printf("Post-operation: %s\n", manager.GetResourceCountsAsString())
 
 		Expect(idle.Equals(manager.IdleResources().ToDecimalSpec())).To(BeFalse())
 		Expect(pending.Equals(manager.PendingResources().ToDecimalSpec())).To(BeTrue())
@@ -42,7 +44,7 @@ var _ = Describe("Transaction Tests", func() {
 	})
 
 	It("Should reject transactions that would result in invalid resource counts", func() {
-		transaction := func(s resource.TransactionState) {
+		transaction := func(s *transaction.State) {
 			s.IdleResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 
 			s.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
@@ -60,13 +62,13 @@ var _ = Describe("Transaction Tests", func() {
 		pending := manager.PendingResources().ToDecimalSpec()
 		committed := manager.CommittedResources().ToDecimalSpec()
 
-		fmt.Printf("Pre-transaction: %s\n", manager.GetResourceCountsAsString())
+		fmt.Printf("Pre-operation: %s\n", manager.GetResourceCountsAsString())
 
 		err := manager.RunTransaction(transaction)
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, resource.ErrInvalidOperation)).To(BeTrue())
+		Expect(errors.Is(err, scheduling.ErrInvalidOperation)).To(BeTrue())
 
-		fmt.Printf("Post-transaction: %s\n", manager.GetResourceCountsAsString())
+		fmt.Printf("Post-operation: %s\n", manager.GetResourceCountsAsString())
 
 		Expect(idle.Equals(manager.IdleResources().ToDecimalSpec())).To(BeTrue())
 		Expect(pending.Equals(manager.PendingResources().ToDecimalSpec())).To(BeTrue())

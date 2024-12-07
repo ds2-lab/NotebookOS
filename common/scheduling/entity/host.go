@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
+	"github.com/scusemua/distributed-notebook/common/scheduling/resource/transaction"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/connectivity"
@@ -1048,14 +1049,14 @@ func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string,
 		return ErrInvalidContainer
 	}
 
-	err = h.resourceManager.RunTransaction(func(m resource.TransactionState) {
-		m.CommittedResources().Subtract(spec)
+	err = h.resourceManager.RunTransaction(func(state *transaction.State) {
+		state.CommittedResources().Subtract(spec)
 
 		if incrementPending {
-			m.PendingResources().Add(spec)
+			state.PendingResources().Add(spec)
 		}
 
-		m.IdleResources().Add(spec)
+		state.IdleResources().Add(spec)
 	})
 
 	if err != nil {
@@ -1183,14 +1184,14 @@ func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, r
 		return fmt.Errorf("%w (replica %d of kernel \"%s\")", ErrResourcesAlreadyCommitted, existingReplicaId, kernelId)
 	}
 
-	err = h.resourceManager.RunTransaction(func(m resource.TransactionState) {
-		m.CommittedResources().Add(spec)
+	err = h.resourceManager.RunTransaction(func(state *transaction.State) {
+		state.CommittedResources().Add(spec)
 
 		if decrementPending {
-			m.PendingResources().Subtract(spec)
+			state.PendingResources().Subtract(spec)
 		}
 
-		m.IdleResources().Subtract(spec)
+		state.IdleResources().Subtract(spec)
 	})
 
 	if err != nil {

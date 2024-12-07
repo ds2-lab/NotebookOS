@@ -490,13 +490,33 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.Spec) error {
 		return nil
 	}
 
-	updateSpecErrors := make([]error, 0)
+	ackChan := make(chan bool, len(c.replicas))
+	commitChannels := make(map[int32]chan bool)
+
+	var done sync.WaitGroup
+	done.Add(len(c.replicas))
+
 	for _, kernelReplica := range c.replicas {
-		err := kernelReplica.UpdateResourceSpec(newSpec, oldSpec)
-		if err != nil {
-			c.log.Warn("Failed to update ResourceSpec of replica %d of kernel \"%s\" because: %v",
-				kernelReplica.ReplicaID(), c.ID(), err)
-			updateSpecErrors = append(updateSpecErrors, err)
+		commitChannel := make(chan bool, 1)
+		commitChannels[kernelReplica.ReplicaID()] = commitChannel
+		go func(commitChannel <-chan bool) {
+			_ = kernelReplica.UpdateResourceSpec(newSpec, oldSpec, ackChan, commitChannel, &done)
+		}(commitChannel)
+	}
+
+	numResponses := 0
+	for numResponses < len(c.replicas) {
+		canCommit := <-ackChan
+		numResponses++
+
+		// If a replica encountered an error, then we need to abort.
+		if !canCommit {
+			for _, commitChannel := range commitChannels {
+				// Tell replica to abort.
+				commitChannel <- false
+			}
+
+			return fmt.Errorf("update failed: one or more replicas could not adjust their resource requests")
 		}
 	}
 
@@ -504,10 +524,6 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.Spec) error {
 	c.spec.ResourceSpec.Cpu = int32(newSpec.CPU())
 	c.spec.ResourceSpec.Vram = float32(newSpec.VRAM())
 	c.spec.ResourceSpec.Memory = float32(newSpec.MemoryMB())
-
-	if len(updateSpecErrors) > 0 {
-		return errors.Join(updateSpecErrors...)
-	}
 
 	return nil
 }
@@ -980,7 +996,7 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplicaClient, msg *messaging.JupyterMessage) (error, bool) {
 	c.log.Debug("Preprocessing shell \"%s\" message \"%s\" (JupyterID=\"%s\") received by replica %d: %v",
 		msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), replica.ReplicaID(), msg)
-	
+
 	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
 	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) < 5 {
 		c.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)", replica.ReplicaID(), c.id)

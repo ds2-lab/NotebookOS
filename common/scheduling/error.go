@@ -28,4 +28,8 @@ var (
 	// ErrMigrationFailed indicates that a migration failed for a "valid" reason, such as there simply not being a
 	// viable target Host available. Importantly, it does NOT indicate that the Cluster is in an error state.
 	ErrMigrationFailed = errors.New("failed to migrate kernel replica")
+	// ErrInvalidOperation indicates that adding or subtracting the specified HostResources to/from the internal resource
+	// counts of a HostResources struct would result in an invalid/illegal resource count within that HostResources struct,
+	// such as a negative quantity for cpus, gpus, or memory.
+	ErrInvalidOperation = errors.New("the requested resource operation would result in an invalid resource count")
 )

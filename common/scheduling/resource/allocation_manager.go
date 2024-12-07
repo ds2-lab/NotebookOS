@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
@@ -596,7 +597,7 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 		m.log.Error("Cannot adjust resources of replica %d of kernel %s, "+
 			"as resources are already committed to that kernel replica: %s", replicaId, kernelId, allocation.String())
 		return fmt.Errorf("%w: could not find existing pending resource allocation for replica %d of kernel %s",
-			ErrInvalidOperation, replicaId, kernelId)
+			scheduling.ErrInvalidOperation, replicaId, kernelId)
 	}
 
 	// First, release the original amount of pending resources.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/resource/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
 	"log"
@@ -82,6 +83,8 @@ var (
 	// If the source and target Status values do not match, then the snapshot will be rejected.
 	ErrIncompatibleResourceStatus = errors.New("source and target Status values are not the same")
 )
+
+type Transaction func(state *transaction.State)
 
 // InsufficientResourcesError is a custom error type that is used to indicate that HostResources could not be
 // allocated because there are insufficient HostResources available for one or more HostResources (CPU, GPU, or RAM).
@@ -197,18 +200,18 @@ func NewManager(spec types.Spec) *Manager {
 // unsafeGetTransactionState returns a *transactionState to use as input to a Transaction.
 //
 // unsafeGetTransactionState is NOT thread-safe and must be called while the Manager's mutex is already acquired.
-func (m *Manager) unsafeGetTransactionState() *transactionState {
-	return &transactionState{
-		idleResources:      m.idleResources.toTransactionResources(true),
-		pendingResources:   m.pendingResources.toTransactionResources(true),
-		committedResources: m.committedResources.toTransactionResources(true),
-		specResources:      m.specResources.toTransactionResources(false),
-	}
+func (m *Manager) unsafeGetTransactionState() *transaction.State {
+	idleResources := m.idleResources.toTransactionResources(true)
+	pendingResources := m.pendingResources.toTransactionResources(true)
+	committedResources := m.committedResources.toTransactionResources(true)
+	specResources := m.specResources.toTransactionResources(false)
+
+	return transaction.NewState(idleResources, pendingResources, committedResources, specResources)
 }
 
 // unsafeCommitTransaction commits the final working resource counts from the Transaction
 // to the resource counts of the Manager.
-func (m *Manager) unsafeCommitTransaction(t TransactionState) {
+func (m *Manager) unsafeCommitTransaction(t *transaction.State) {
 	m.idleResources.SetTo(t.IdleResources().Working())
 	m.pendingResources.SetTo(t.PendingResources().Working())
 	m.committedResources.SetTo(t.CommittedResources().Working())
@@ -220,26 +223,21 @@ func (m *Manager) unsafeCommitTransaction(t TransactionState) {
 // will be applied to the resource counts of the Manager.
 //
 // If there are any errors, then the Transaction is discarded entirely.
-func (m *Manager) RunTransaction(transaction Transaction) error {
-	if transaction == nil {
-		return ErrNilTransaction
+func (m *Manager) RunTransaction(operation transaction.Operation) error {
+	if operation == nil {
+		return transaction.ErrNilTransactionOperation
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	resultChan := make(chan interface{}, 1)
-	runner := NewTransactionRunner(transaction, m.unsafeGetTransactionState(), resultChan, "")
-
-	runner.RunTransaction()
-
-	result := <-resultChan
-
-	if err, ok := result.(error); ok {
+	tx := transaction.New(operation, m.unsafeGetTransactionState())
+	state, err := tx.Run()
+	if err != nil {
 		return err
 	}
 
-	m.unsafeCommitTransaction(runner.State())
+	m.unsafeCommitTransaction(state)
 
 	return nil
 }
