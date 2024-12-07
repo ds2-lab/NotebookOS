@@ -9,6 +9,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -490,34 +491,17 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.Spec) error {
 		return nil
 	}
 
-	ackChan := make(chan bool, len(c.replicas))
-	commitChannels := make(map[int32]chan bool)
-
-	var done sync.WaitGroup
-	done.Add(len(c.replicas))
+	coordinatedTransaction := transaction.NewCoordinatedTransaction(len(c.replicas))
 
 	for _, kernelReplica := range c.replicas {
-		commitChannel := make(chan bool, 1)
-		commitChannels[kernelReplica.ReplicaID()] = commitChannel
-		go func(commitChannel <-chan bool) {
-			_ = kernelReplica.UpdateResourceSpec(newSpec, oldSpec, ackChan, commitChannel, &done)
-		}(commitChannel)
+		go func() {
+			_ = kernelReplica.UpdateResourceSpec(newSpec, oldSpec, coordinatedTransaction)
+		}()
 	}
 
-	numResponses := 0
-	for numResponses < len(c.replicas) {
-		canCommit := <-ackChan
-		numResponses++
-
-		// If a replica encountered an error, then we need to abort.
-		if !canCommit {
-			for _, commitChannel := range commitChannels {
-				// Tell replica to abort.
-				commitChannel <- false
-			}
-
-			return fmt.Errorf("update failed: one or more replicas could not adjust their resource requests")
-		}
+	success := coordinatedTransaction.Wait()
+	if !success {
+		return coordinatedTransaction.FailureReason()
 	}
 
 	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())

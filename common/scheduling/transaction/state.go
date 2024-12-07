@@ -2,7 +2,6 @@ package transaction
 
 import (
 	"fmt"
-	"github.com/scusemua/distributed-notebook/common/scheduling"
 )
 
 type State struct {
@@ -40,30 +39,30 @@ func (t *State) SpecResources() *Resources {
 // Validate checks that the operation state is in a valid state. Validate error returns nil if so.
 func (t *State) Validate() error {
 	if hasNegativeField, kind := t.idleResources.hasNegativeField(); hasNegativeField {
-		return fmt.Errorf("%w: %s would become negative (%s)", scheduling.ErrInvalidOperation, kind.String(), getQuantityOfResourceKind(t.idleResources, kind))
+		return fmt.Errorf("%w: %s would become negative (%s)", ErrTransactionFailed, kind.String(), getQuantityOfResourceKind(t.idleResources, kind))
 	}
 
 	if hasNegativeField, kind := t.pendingResources.hasNegativeField(); hasNegativeField {
-		return fmt.Errorf("%w: %s would become negative (%s)", scheduling.ErrInvalidOperation, kind.String(), getQuantityOfResourceKind(t.pendingResources, kind))
+		return fmt.Errorf("%w: %s would become negative (%s)", ErrTransactionFailed, kind.String(), getQuantityOfResourceKind(t.pendingResources, kind))
 	}
 
 	if hasNegativeField, kind := t.committedResources.hasNegativeField(); hasNegativeField {
-		return fmt.Errorf("%w: %s would become negative (%s)", scheduling.ErrInvalidOperation, kind.String(), getQuantityOfResourceKind(t.committedResources, kind))
+		return fmt.Errorf("%w: %s would become negative (%s)", ErrTransactionFailed, kind.String(), getQuantityOfResourceKind(t.committedResources, kind))
 	}
 
 	if hasNegativeField, kind := t.specResources.hasNegativeField(); hasNegativeField {
-		return fmt.Errorf("%w: %s would become negative (%s)", scheduling.ErrInvalidOperation, kind.String(), getQuantityOfResourceKind(t.specResources, kind))
+		return fmt.Errorf("%w: %s would become negative (%s)", ErrTransactionFailed, kind.String(), getQuantityOfResourceKind(t.specResources, kind))
 	}
 
 	if isLessThanOrEqual, offendingKind := t.committedResources.lessThanOrEqual(t.specResources.initial); !isLessThanOrEqual {
 		return fmt.Errorf("%w: committed %s (%s) would exceed spec %s (%s)",
-			scheduling.ErrInvalidOperation, offendingKind.String(), getQuantityOfResourceKind(t.committedResources, offendingKind).StringFixed(4),
+			ErrTransactionFailed, offendingKind.String(), getQuantityOfResourceKind(t.committedResources, offendingKind).StringFixed(4),
 			offendingKind.String(), getQuantityOfResourceKind(t.specResources, offendingKind).StringFixed(4))
 	}
 
 	if isLessThanOrEqual, offendingKind := t.idleResources.lessThanOrEqual(t.specResources.initial); !isLessThanOrEqual {
 		return fmt.Errorf("%w: idle %s (%s) would exceed spec %s (%s)",
-			scheduling.ErrInvalidOperation, offendingKind.String(), getQuantityOfResourceKind(t.idleResources, offendingKind).StringFixed(4),
+			ErrTransactionFailed, offendingKind.String(), getQuantityOfResourceKind(t.idleResources, offendingKind).StringFixed(4),
 			offendingKind.String(), getQuantityOfResourceKind(t.specResources, offendingKind).StringFixed(4))
 	}
 

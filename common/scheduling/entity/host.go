@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource/transaction"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/connectivity"
@@ -1344,6 +1344,52 @@ func (h *Host) getSIP(sess scheduling.UserSession) float64 {
 	return rb - penalty
 }
 
+// KernelAdjustedItsResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
+// this Host is updated or changed. This ensures that the Host's resource counts are up to date.
+//
+// This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
+func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	// Sanity check.
+	if _, loaded := h.containers.Load(container.ContainerID()); !loaded {
+		return fmt.Errorf("the specified KernelContainer is not running on the target Host")
+	}
+
+	// Ensure that we're even allowed to do this (based on the scheduling policy).
+	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
+		return scheduling.ErrDynamicResourceAdjustmentProhibited
+	}
+
+	oldSubscribedRatio := h.subscribedRatio
+	h.log.Debug("Updating resource reservation for %s", container.ContainerID())
+
+	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
+	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
+
+	initialState, commit := h.resourceManager.GetTransactionData()
+
+	_ = coordinatedTransaction.RegisterParticipant(container.ReplicaId(), initialState,
+		func(state *transaction.State) {
+			state.PendingResources().Subtract(oldSpecDecimal)
+			state.PendingResources().Add(newSpecDecimal)
+		}, commit)
+
+	succeeded := coordinatedTransaction.Wait()
+	if succeeded {
+		h.RecomputeSubscribedRatio()
+		h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
+			container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
+		return nil
+	}
+
+	h.log.Debug("Failed to update ResourceRequest for replica %d of kernel %s (possibly because of another replica).",
+		container.ReplicaId(), container.KernelID())
+
+	return nil
+}
+
 // KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 // Host is updated or changed. This ensures that the Host's resource counts are up to date.
 func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer) error {
@@ -1363,8 +1409,14 @@ func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec 
 	oldSubscribedRatio := h.subscribedRatio
 	h.log.Debug("Updating resource reservation for %s", container.ContainerID())
 
-	// Deallocate the previously-reserved resources.
-	err := h.subtractFromPendingResources(types.ToDecimalSpec(oldSpec), container.KernelID(), container.ReplicaId())
+	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
+	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
+
+	err := h.resourceManager.RunTransaction(func(state *transaction.State) {
+		state.PendingResources().Subtract(oldSpecDecimal)
+		state.PendingResources().Add(newSpecDecimal)
+	})
+
 	if err != nil {
 		h.log.Warn("Resource update failed for replica %d of kernel \"%s\": %v",
 			container.ReplicaId(), container.KernelID(), err)
@@ -1372,19 +1424,9 @@ func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec 
 		return err
 	}
 
-	// Allocate the updated resource request.
-	updatedSpecAsDecimalSpec := types.ToDecimalSpec(updatedSpec)
-	err = h.addPendingResources(updatedSpecAsDecimalSpec, container.KernelID(), container.ReplicaId())
-	if err != nil {
-		h.log.Error("Failed to adjust (pending) resources associated with replica %d of kernel %s: %v",
-			container.KernelID(), container.ReplicaId(), err)
-		return err
-	}
-
 	h.RecomputeSubscribedRatio()
 	h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
 		container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
-	h.reservations.Store(container.KernelID(), NewReservation(h.ID, container.KernelID(), time.Now(), true, updatedSpecAsDecimalSpec))
 
 	return nil
 }

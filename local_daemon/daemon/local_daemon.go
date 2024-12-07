@@ -2575,7 +2575,7 @@ func (d *SchedulerDaemonImpl) updateKernelResourceSpec(kernel scheduling.KernelR
 		return err
 	}
 
-	err = kernel.UpdateResourceSpec(newSpec, oldSpec)
+	err = kernel.UpdateResourceSpec(newSpec, oldSpec, nil)
 	if err != nil {
 		panic(err)
 	}

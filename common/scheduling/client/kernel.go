@@ -8,6 +8,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
@@ -284,11 +285,11 @@ func (c *KernelReplicaClient) WaitForTrainingToStop() {
 //
 // Note for internal usage: this method is thread safe. Do not call this method if the lock for the kernel
 // is already held. If the lock is already held, then call the unsafeUpdateResourceSpec method instead.
-func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec, ackChan chan<- bool, commitChan <-chan bool, doneWg *sync.WaitGroup) error {
+func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.unsafeUpdateResourceSpec(newSpec, oldSpec, ackChan, commitChan, doneWg)
+	return c.unsafeUpdateResourceSpec(newSpec, oldSpec, tx) // , ackChan, commitChan, doneWg)
 }
 
 // UpdateResourceSpec updates the resource spec of the target KernelReplicaClient to the resource
@@ -299,13 +300,9 @@ func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, oldSpec typ
 // On success, nil is returned.
 //
 // Note: this method is thread safe. Do not call this method if the lock for the kernel is already held.
-func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec, ackChan chan<- bool, commitChan <-chan bool, doneWg *sync.WaitGroup) error {
+func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
 	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
 		err := fmt.Errorf("%w: %s", ErrInvalidResourceSpec, newSpec.String())
-		if ackChan != nil {
-			ackChan <- false
-		}
-
 		return err
 	}
 
@@ -313,51 +310,21 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, oldSp
 		c.replicaId, c.id, c.spec.ResourceSpec.String(), newSpec.String())
 
 	if c.Container() == nil { // Will be nil in local daemon.
-		// If we're using channels to orchestrate this, then tell the orchestrator that we're good.
-		if ackChan != nil {
-			// TODO: Should we really send 'true' here? Might be misleading, since we don't even have a container.
-			ackChan <- true
-		}
-
-		// We can just return though, as our container is nil.
-		if doneWg != nil {
-			doneWg.Done()
-		}
-
 		return nil
 	}
 
 	container := c.Container()
 	specAsDecimalSpec := types.ToDecimalSpec(newSpec)
 
-	// TODO: This will need to be different.
-	err := container.Host().KernelAdjustedItsResourceRequest(newSpec, oldSpec, container)
-	if err != nil {
-		// We got an error.
-		if ackChan != nil {
-			ackChan <- false
-		}
-
-		if doneWg != nil {
-			doneWg.Done()
-		}
-
-		return err
+	var err error
+	if tx != nil {
+		err = container.Host().KernelAdjustedItsResourceRequestCoordinated(newSpec, oldSpec, container, tx)
+	} else {
+		err = container.Host().KernelAdjustedItsResourceRequest(newSpec, oldSpec, container)
 	}
 
-	ackChan <- true
-
-	// TODO: Add commit feature.
-	shouldCommit := <-commitChan
-
-	if !shouldCommit {
-		// TODO: Abort transaction.
-
-		if doneWg != nil {
-			doneWg.Done()
-		}
-
-		return nil
+	if err != nil {
+		return err
 	}
 
 	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
@@ -374,7 +341,6 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, oldSp
 	container.UpdateResourceSpec(specAsDecimalSpec)
 	container.Session().UpdateResourceSpec(specAsDecimalSpec)
 
-	doneWg.Done()
 	return nil
 }
 

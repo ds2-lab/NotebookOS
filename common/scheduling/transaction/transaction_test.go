@@ -7,12 +7,12 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource/transaction"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 )
 
 var _ = Describe("Transaction Tests", func() {
-	It("Should commit transactions that would not result in invalid resource counts", func() {
+	It("Should commit participants that would not result in invalid resource counts", func() {
 		transaction := func(s *transaction.State) {
 			s.IdleResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 
@@ -43,7 +43,7 @@ var _ = Describe("Transaction Tests", func() {
 		Expect(committed.Equals(manager.CommittedResources().ToDecimalSpec())).To(BeFalse())
 	})
 
-	It("Should reject transactions that would result in invalid resource counts", func() {
+	It("Should reject participants that would result in invalid resource counts", func() {
 		transaction := func(s *transaction.State) {
 			s.IdleResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 

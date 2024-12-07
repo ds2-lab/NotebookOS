@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource/transaction"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
 	"log"
@@ -197,7 +197,7 @@ func NewManager(spec types.Spec) *Manager {
 	}
 }
 
-// unsafeGetTransactionState returns a *transactionState to use as input to a Transaction.
+// unsafeGetTransactionState returns a *transaction.State to use as input to a Transaction.
 //
 // unsafeGetTransactionState is NOT thread-safe and must be called while the Manager's mutex is already acquired.
 func (m *Manager) unsafeGetTransactionState() *transaction.State {
@@ -209,12 +209,33 @@ func (m *Manager) unsafeGetTransactionState() *transaction.State {
 	return transaction.NewState(idleResources, pendingResources, committedResources, specResources)
 }
 
+// GetTransactionState returns a *transaction.State to use as input to a Transaction.
+func (m *Manager) GetTransactionState() *transaction.State {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.unsafeGetTransactionState()
+}
+
 // unsafeCommitTransaction commits the final working resource counts from the Transaction
 // to the resource counts of the Manager.
 func (m *Manager) unsafeCommitTransaction(t *transaction.State) {
 	m.idleResources.SetTo(t.IdleResources().Working())
 	m.pendingResources.SetTo(t.PendingResources().Working())
 	m.committedResources.SetTo(t.CommittedResources().Working())
+}
+
+// GetTransactionData returns the data required to perform a transaction.CoordinatedTransaction.
+func (m *Manager) GetTransactionData() (*transaction.State, transaction.CommitTransactionResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	initialState := m.unsafeGetTransactionState()
+	commit := func(state *transaction.State) {
+		m.unsafeCommitTransaction(state)
+	}
+
+	return initialState, commit
 }
 
 // RunTransaction atomically executes the specified Transaction.
