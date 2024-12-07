@@ -3956,6 +3956,10 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 	}
 
 	d.ClusterStatistics.CumulativeExecutionTimeMicroseconds += float64(trace.ExecutionTimeMicroseconds)
+
+	if trace.MessageType == messaging.ShellExecuteRequest || trace.MessageType == messaging.ShellExecuteReply || trace.MessageType == messaging.ShellYieldRequest {
+		d.ClusterStatistics.ExecuteRequestTraces = append(d.ClusterStatistics.ExecuteRequestTraces, trace)
+	}
 }
 
 func (d *ClusterGatewayImpl) forwardResponse(from scheduling.KernelInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
@@ -4001,13 +4005,6 @@ func (d *ClusterGatewayImpl) forwardResponse(from scheduling.KernelInfo, typ mes
 	d.log.Debug(utils.DarkGreenStyle.Render("[gid=%d] Forwarding %v \"%s\" response \"%s\" (JupyterID=\"%s\") from kernel %s via %s: %v"),
 		goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), from.ID(), socket.Name, msg)
 
-	sendError := d.sendZmqMessage(msg, socket, from.ID())
-	if sendError == nil {
-		d.clusterStatisticsMutex.Lock()
-		d.ClusterStatistics.NumJupyterRepliesSentByClusterGateway += 1
-		d.clusterStatisticsMutex.Unlock()
-	}
-
 	// If we just processed an "execute_reply" (without error, or else we would've returned earlier), and the
 	// scheduling policy indicates that the kernel container(s) should be stopped after processing a training
 	// event, then let's stop the kernel container(s).
@@ -4023,6 +4020,13 @@ func (d *ClusterGatewayImpl) forwardResponse(from scheduling.KernelInfo, typ mes
 		go func() {
 			_ = d.removeAllReplicasOfKernel(kernel)
 		}()
+	}
+
+	sendError := d.sendZmqMessage(msg, socket, from.ID())
+	if sendError == nil {
+		d.clusterStatisticsMutex.Lock()
+		d.ClusterStatistics.NumJupyterRepliesSentByClusterGateway += 1
+		d.clusterStatisticsMutex.Unlock()
 	}
 
 	return sendError

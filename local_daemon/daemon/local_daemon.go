@@ -123,6 +123,8 @@ type SchedulerDaemonImpl struct {
 
 	schedulingPolicy scheduling.Policy
 
+	kernelsStopping hashmap.HashMap[string, chan struct{}]
+
 	proto.UnimplementedLocalGatewayServer
 	proto.UnimplementedKernelErrorReporterServer
 	router *router.Router
@@ -277,6 +279,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		ip:                                 ip,
 		id:                                 dockerNodeId,
 		nodeName:                           nodeName,
+		kernelsStopping:                    hashmap.NewCornelkMap[string, chan struct{}](128),
 		kernels:                            hashmap.NewCornelkMap[string, scheduling.KernelReplica](128),
 		kernelClientCreationChannels:       hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](128),
 		kernelDebugPorts:                   hashmap.NewCornelkMap[string, int](256),

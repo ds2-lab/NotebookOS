@@ -1,6 +1,9 @@
 package statistics
 
-import "time"
+import (
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"time"
+)
 
 const (
 	KernelReplicaRegistered ClusterEventName = "kernel_replica_registered"
@@ -57,6 +60,8 @@ type ClusterStatistics struct {
 	NumEmptyHosts    int `csv:"NumEmptyHosts" json:"NumEmptyHosts"` // The number of Hosts with 0 sessions/containers scheduled on them.
 
 	ClusterEvents []*ClusterEvent `json:"cluster_events" csv:"-"`
+
+	ExecuteRequestTraces []*proto.RequestTrace `json:"execute_request_traces" csv:"-"`
 
 	// The amount of time hosts have spent not idling throughout the entire simulation
 	CumulativeHostActiveTime float64 `csv:"CumulativeHostActiveTimeSec" json:"CumulativeHostActiveTimeSec"`
@@ -247,6 +252,9 @@ type ClusterStatistics struct {
 	// Delay between when client submits "execute_request" and when kernel begins executing.
 	JupyterTrainingStartLatencyMillis   float64   `json:"jupyter_training_start_latency_millis" csv:"jupyter_training_start_latency_millis"`
 	JupyterTrainingStartLatenciesMillis []float64 `json:"jupyter_training_start_latencies_millis" csv:"-"`
+
+	TotalReplyLatencyMillis   float64   `json:"total_reply_latency_millis" csv:"total_reply_latency_millis"`
+	TotalReplyLatenciesMillis []float64 `json:"total_reply_latencies_millis" csv:"total_reply_latencies_millis"`
 }
 
 func NewClusterStatistics() *ClusterStatistics {
@@ -254,5 +262,7 @@ func NewClusterStatistics() *ClusterStatistics {
 		JupyterTrainingStartLatenciesMillis: make([]float64, 0),
 		AggregateSessionLifetimesSec:        make([]float64, 0),
 		ClusterEvents:                       make([]*ClusterEvent, 0),
+		ExecuteRequestTraces:                make([]*proto.RequestTrace, 0),
+		TotalReplyLatenciesMillis:           make([]float64, 0),
 	}
 }

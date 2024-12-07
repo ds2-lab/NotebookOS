@@ -2174,6 +2174,7 @@ class DistributedKernel(IPythonKernel):
 
             reply_content = gen_error_response(e)
 
+        reply_content["msg_created_at_unix_milliseconds"] = time.time_ns() // 1_000_000
         return reply_content
 
     async def simulate_remote_checkpointing(
