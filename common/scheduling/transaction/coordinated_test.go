@@ -1,6 +1,7 @@
 package transaction_test
 
 import (
+	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
@@ -32,6 +33,11 @@ func (rc *resourceContainer) getStateForTransaction() *transaction.State {
 	spec := transaction.NewResources(rc.Spec, false)
 
 	return transaction.NewState(idle, pending, committed, spec)
+}
+
+func (rc *resourceContainer) GetResourceCountsAsString() string {
+	return fmt.Sprintf("IDLE [%s], PENDING [%s], COMMITTED [%s]",
+		rc.Idle.String(), rc.Pending.String(), rc.Committed.String())
 }
 
 func newResourceContainer(id int32, spec types.Spec) *resourceContainer {

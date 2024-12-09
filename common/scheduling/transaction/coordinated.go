@@ -11,9 +11,11 @@ import (
 
 var (
 	// ErrInvalidParticipantId         = errors.New("invalid participant id")
+	// ErrAbortFailed                  = errors.New("failed to abort coordinated transaction as it already started")
 
 	ErrTransactionRegistrationError = errors.New("failed to register coordinated transaction participant")
 	ErrTransactionAlreadyStarted    = errors.New("cannot register participant as transaction has already started")
+	ErrTransactionAborted           = errors.New("transaction was manually aborted")
 )
 
 // CommitTransactionResult defines a function that is used to commit the result of a transaction.
@@ -71,6 +73,10 @@ type CoordinatedTransaction struct {
 	succeeded atomic.Bool
 	// started indicates whether the CoordinatedTransaction has been started
 	started atomic.Bool
+	// shouldAbort is true when the CoordinatedTransaction runs, it will automatically fail no matter what
+	shouldAbort atomic.Bool
+	// aborted is set to true if the CoordinatedTransaction was (successfully) aborted
+	aborted atomic.Bool
 
 	// failureReason will hold the error returned by the first participant to fail.
 	// It will be nil if the CoordinatedTransaction has not been started or if the CoordinatedTransaction succeeded.
@@ -126,6 +132,14 @@ func (t *CoordinatedTransaction) Wait() bool {
 	t.doneGroup.Wait()
 
 	return t.succeeded.Load()
+}
+
+// Abort attempts to abort the transaction.
+func (t *CoordinatedTransaction) Abort() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.shouldAbort.Store(true)
 }
 
 // RegisterParticipant is used to register a "participant" of the CoordinatedTransaction.
@@ -229,11 +243,17 @@ func (t *CoordinatedTransaction) run() error {
 		}
 	}
 
+	if t.shouldAbort.Load() {
+		t.log.Warn("Aborting transaction.")
+		t.recordFinished(false, ErrTransactionAborted)
+		return nil
+	}
+
 	for _, participant := range t.participants {
 		participant.commitResult()
 	}
-
 	t.recordFinished(true, nil)
+
 	return nil
 }
 

@@ -5,14 +5,13 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 )
 
 var _ = Describe("Transaction Tests", func() {
 	It("Should commit participants that would not result in invalid resource counts", func() {
-		transaction := func(s *transaction.State) {
+		operation := func(s *transaction.State) {
 			s.PendingResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 			s.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 
@@ -23,53 +22,65 @@ var _ = Describe("Transaction Tests", func() {
 			s.CommittedResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 		}
 
-		manager := resource.NewManager(types.NewDecimalSpec(200, 200, 200, 200))
+		container := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
 
-		idle := manager.IdleResources().ToDecimalSpec()
-		pending := manager.PendingResources().ToDecimalSpec()
-		committed := manager.CommittedResources().ToDecimalSpec()
+		idle := container.Idle.CloneDecimalSpec()
+		pending := container.Pending.CloneDecimalSpec()
+		committed := container.Committed.CloneDecimalSpec()
 
-		fmt.Printf("Pre-operation: %s\n", manager.GetResourceCountsAsString())
+		fmt.Printf("Pre-operation: %s\n", container.GetResourceCountsAsString())
 
-		err := manager.RunTransaction(transaction)
+		tx := transaction.New(operation, container.getStateForTransaction())
+		state, err := tx.Run()
 		Expect(err).To(BeNil())
+		Expect(state).ToNot(BeNil())
 
-		fmt.Printf("Post-operation: %s\n", manager.GetResourceCountsAsString())
+		commit := container.getCommit()
+		commit(state)
 
-		Expect(idle.Equals(manager.IdleResources().ToDecimalSpec())).To(BeFalse())
-		Expect(pending.Equals(manager.PendingResources().ToDecimalSpec())).To(BeTrue())
-		Expect(committed.Equals(manager.CommittedResources().ToDecimalSpec())).To(BeFalse())
+		fmt.Printf("Post-operation: %s\n", container.GetResourceCountsAsString())
+
+		Expect(idle.Equals(container.Idle)).To(BeFalse())
+		Expect(pending.Equals(container.Pending)).To(BeTrue())
+		Expect(committed.Equals(container.Committed)).To(BeFalse())
 	})
 
 	It("Should reject participants that would result in invalid resource counts", func() {
-		tx := func(s *transaction.State) {
-			s.IdleResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
+		operation := func(state *transaction.State) {
+			state.PendingResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
+			state.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 
-			s.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
-			s.PendingResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
+			state.IdleResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
+			state.IdleResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 
-			s.CommittedResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
-			s.CommittedResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
-			s.CommittedResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
-			s.CommittedResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
+			state.CommittedResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
+			state.CommittedResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
+
+			// Will result in a negative count
+			state.PendingResources().Subtract(types.NewDecimalSpec(1000, 0, 0, 0))
 		}
 
-		manager := resource.NewManager(types.NewDecimalSpec(100, 100, 100, 100))
+		container := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
 
-		idle := manager.IdleResources().ToDecimalSpec()
-		pending := manager.PendingResources().ToDecimalSpec()
-		committed := manager.CommittedResources().ToDecimalSpec()
+		idle := container.Idle.CloneDecimalSpec()
+		pending := container.Pending.CloneDecimalSpec()
+		committed := container.Committed.CloneDecimalSpec()
 
-		fmt.Printf("Pre-operation: %s\n", manager.GetResourceCountsAsString())
+		fmt.Printf("Pre-operation: %s\n", container.GetResourceCountsAsString())
 
-		err := manager.RunTransaction(tx)
+		tx := transaction.New(operation, container.getStateForTransaction())
+		Expect(tx).ToNot(BeNil())
+
+		_, err := tx.Run()
+
+		fmt.Printf("Post-operation: %s\n", container.GetResourceCountsAsString())
+
 		Expect(err).ToNot(BeNil())
 		Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
+		Expect(errors.Is(err, transaction.ErrNegativeResourceCount)).To(BeTrue())
 
-		fmt.Printf("Post-operation: %s\n", manager.GetResourceCountsAsString())
-
-		Expect(idle.Equals(manager.IdleResources().ToDecimalSpec())).To(BeTrue())
-		Expect(pending.Equals(manager.PendingResources().ToDecimalSpec())).To(BeTrue())
-		Expect(committed.Equals(manager.CommittedResources().ToDecimalSpec())).To(BeTrue())
+		Expect(idle.Equals(container.Idle)).To(BeTrue())
+		Expect(pending.Equals(container.Pending)).To(BeTrue())
+		Expect(committed.Equals(container.Committed)).To(BeTrue())
 	})
 })

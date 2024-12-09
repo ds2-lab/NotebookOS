@@ -1370,11 +1370,16 @@ func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spe
 
 	initialState, commit := h.resourceManager.GetTransactionData()
 
-	_ = coordinatedTransaction.RegisterParticipant(container.ReplicaId(), initialState,
+	err := coordinatedTransaction.RegisterParticipant(container.ReplicaId(), initialState,
 		func(state *transaction.State) {
 			state.PendingResources().Subtract(oldSpecDecimal)
 			state.PendingResources().Add(newSpecDecimal)
 		}, commit)
+	if err != nil {
+		h.log.Error("Received error upon registering for coordination transaction when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
+			container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), err)
+		return err
+	}
 
 	succeeded := coordinatedTransaction.Wait()
 	if succeeded {
