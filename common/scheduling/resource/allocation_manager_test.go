@@ -4,6 +4,7 @@ import (
 	"errors"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -538,7 +539,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		err = resourceManager.AdjustPendingResources(1, "Kernel1", kernel1SpecV2)
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, resource.ErrInvalidOperation)).To(BeTrue())
+		Expect(errors.Is(err, scheduling.ErrInvalidOperation)).To(BeTrue())
 	})
 
 	It("Will fail to adjust a resource request that does not exist", func() {

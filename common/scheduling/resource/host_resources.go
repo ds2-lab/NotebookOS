@@ -11,13 +11,6 @@ import (
 	"sync"
 )
 
-// Status differentiates between idle, pending, committed, and spec HostResources.
-type Status string
-
-func (t Status) String() string {
-	return string(t)
-}
-
 // HostResources is a struct used by the AllocationManager to track its total idle, pending, committed, and spec HostResources
 // of each type (CPU, GPU, and Memory).
 type HostResources struct {
@@ -34,6 +27,17 @@ type HostResources struct {
 
 	// maximum provides a maximum of each Kind of resource so we can clamp from above as well.
 	maximum *types.DecimalSpec
+}
+
+func NewHostResources(spec *types.DecimalSpec, maximum *types.DecimalSpec, status Status) *HostResources {
+	return &HostResources{
+		resourceStatus: status,
+		millicpus:      spec.Millicpus,
+		gpus:           spec.GPUs,
+		memoryMB:       spec.MemoryMb,
+		vramGB:         spec.VRam,
+		maximum:        maximum,
+	}
 }
 
 func (res *HostResources) GetResourceCountsAsString() string {

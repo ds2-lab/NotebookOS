@@ -7,7 +7,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"github.com/shopspring/decimal"
 	"log"
 	"sync"
 )
@@ -83,6 +82,13 @@ var (
 	// If the source and target Status values do not match, then the snapshot will be rejected.
 	ErrIncompatibleResourceStatus = errors.New("source and target Status values are not the same")
 )
+
+// Status differentiates between idle, pending, committed, and spec HostResources.
+type Status string
+
+func (t Status) String() string {
+	return string(t)
+}
 
 type Transaction func(state *transaction.State)
 
@@ -163,37 +169,10 @@ func NewManager(spec types.Spec) *Manager {
 	return &Manager{
 		// ManagerSnapshot IDs begin at 0, so -1 will always be less than the first snapshot to be applied.
 		lastAppliedSnapshotId: -1,
-		idleResources: &HostResources{
-			resourceStatus: IdleResources,
-			millicpus:      resourceSpec.Millicpus.Copy(),
-			memoryMB:       resourceSpec.MemoryMb.Copy(),
-			gpus:           resourceSpec.GPUs.Copy(),
-			vramGB:         resourceSpec.VRam.Copy(),
-			maximum:        types.ToDecimalSpec(spec),
-		},
-		pendingResources: &HostResources{
-			resourceStatus: PendingResources,
-			millicpus:      decimal.Zero.Copy(),
-			memoryMB:       decimal.Zero.Copy(),
-			gpus:           decimal.Zero.Copy(),
-			vramGB:         decimal.Zero.Copy(),
-		},
-		committedResources: &HostResources{
-			resourceStatus: CommittedResources,
-			millicpus:      decimal.Zero.Copy(),
-			memoryMB:       decimal.Zero.Copy(),
-			gpus:           decimal.Zero.Copy(),
-			vramGB:         decimal.Zero.Copy(),
-			maximum:        types.ToDecimalSpec(spec),
-		},
-		specResources: &HostResources{
-			resourceStatus: SpecResources,
-			millicpus:      resourceSpec.Millicpus.Copy(),
-			memoryMB:       resourceSpec.MemoryMb.Copy(),
-			gpus:           resourceSpec.GPUs.Copy(),
-			vramGB:         resourceSpec.VRam.Copy(),
-			maximum:        types.ToDecimalSpec(spec),
-		},
+		idleResources:         NewHostResources(resourceSpec, resourceSpec, IdleResources),
+		pendingResources:      NewHostResources(types.ZeroDecimalSpec, nil, PendingResources),
+		committedResources:    NewHostResources(types.ZeroDecimalSpec, resourceSpec, CommittedResources),
+		specResources:         NewHostResources(resourceSpec, resourceSpec, SpecResources),
 	}
 }
 
