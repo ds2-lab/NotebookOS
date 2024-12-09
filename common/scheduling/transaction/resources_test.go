@@ -236,4 +236,30 @@ var _ = Describe("Resources", func() {
 		working := res.Working()
 		Expect(working).ToNot(BeNil())
 	})
+
+	Context("Sanitization", func() {
+		It("Will correctly round values to min", func() {
+			res := transaction.NewResources(types.NewDecimalSpec(0.00000001, 0.00000001, 0.00000001, 0.00000001), true)
+
+			res.Sanitize(types.NewDecimalSpec(0, 0, 0, 0), types.NewDecimalSpec(100, 100, 100, 100))
+
+			working := res.Working()
+			Expect(working).ToNot(BeNil())
+			Expect(working.IsZero()).To(BeTrue())
+		})
+
+		It("Will correctly round values to max", func() {
+			res := transaction.NewResources(types.NewDecimalSpec(99.9999999, 99.9999999, 99.9999999, 99.9999999), true)
+
+			res.Sanitize(types.NewDecimalSpec(0, 0, 0, 0), types.NewDecimalSpec(100, 100, 100, 100))
+
+			working := res.Working()
+			Expect(working).ToNot(BeNil())
+			Expect(working.IsZero()).To(BeFalse())
+			Expect(working.CPU()).To(Equal(100.0))
+			Expect(working.MemoryMB()).To(Equal(100.0))
+			Expect(working.GPU()).To(Equal(100.0))
+			Expect(working.VRAM()).To(Equal(100.0))
+		})
+	})
 })
