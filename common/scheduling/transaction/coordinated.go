@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"errors"
+	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"sync"
@@ -116,6 +117,10 @@ func (t *CoordinatedTransaction) Succeeded() bool {
 	return t.succeeded.Load()
 }
 
+func (t *CoordinatedTransaction) Started() bool {
+	return t.started.Load()
+}
+
 // Wait blocks until the CoordinatedTransaction completes and returns whether it was successful.
 func (t *CoordinatedTransaction) Wait() bool {
 	t.doneGroup.Wait()
@@ -134,7 +139,19 @@ func (t *CoordinatedTransaction) RegisterParticipant(id int32, state *State, ope
 		return errors.Join(ErrTransactionRegistrationError, ErrTransactionAlreadyStarted)
 	}
 
+	if state == nil {
+		return ErrNilInitialState
+	}
+
+	if operation == nil {
+		return ErrNilTransactionOperation
+	}
+
 	tx := New(operation, state)
+	if tx == nil {
+		return fmt.Errorf("unexpectedly failed to initialize transaction")
+	}
+
 	if err := tx.validateInputs(); err != nil {
 		return errors.Join(ErrTransactionRegistrationError, err)
 	}
@@ -145,16 +162,10 @@ func (t *CoordinatedTransaction) RegisterParticipant(id int32, state *State, ope
 	}
 
 	if len(t.participants) == t.expectedNumParticipants {
-		return t.run()
+		_ = t.run()
 	}
 
 	return nil
-}
-
-// runIndividual runs an individual transaction.
-func (t *CoordinatedTransaction) runIndividual(tx *Transaction, wg *sync.WaitGroup) {
-	defer wg.Done()
-	tx.run()
 }
 
 // NumExpectedParticipants returns the number of participants that are expected to register.
@@ -224,4 +235,10 @@ func (t *CoordinatedTransaction) run() error {
 
 	t.recordFinished(true, nil)
 	return nil
+}
+
+// runIndividual runs an individual transaction.
+func (t *CoordinatedTransaction) runIndividual(tx *Transaction, wg *sync.WaitGroup) {
+	defer wg.Done()
+	tx.run()
 }
