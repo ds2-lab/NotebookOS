@@ -63,6 +63,14 @@ var _ = Describe("Coordinated", func() {
 
 		tx := func(state *transaction.State) {
 			state.PendingResources().Add(spec1)
+
+			state.PendingResources().Add(spec1)
+
+			state.PendingResources().Add(spec1)
+
+			state.PendingResources().Subtract(spec1)
+			state.IdleResources().Subtract(spec1)
+			state.CommittedResources().Add(spec1)
 		}
 
 		err := coordinatedTransaction.RegisterParticipant(container1.Id, container1.getStateForTransaction(), tx, container1.getCommit())
