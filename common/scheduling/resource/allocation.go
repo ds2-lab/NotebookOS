@@ -52,10 +52,10 @@ type Allocation struct {
 
 	// Millicpus is the number of Millicpus in the Allocation, represented as 1/1000th cores.
 	// That is, 1000 Millicpus is equal to 1 vCPU.
-	Millicpus decimal.Decimal `json:"millicpus"`
+	Millicpus decimal.Decimal `json:"cpus"`
 
 	// MemoryMB is the amount of RAM in the Allocation in megabytes.
-	MemoryMB decimal.Decimal `json:"memory_mb"`
+	MemoryMB decimal.Decimal `json:"memory"`
 
 	// ReplicaId is the SMR node ID of the replica to which the GPUs were allocated.
 	ReplicaId int32 `json:"replica_id"`
@@ -140,7 +140,7 @@ func (a *Allocation) String() string {
 // of the String() methods of types.Spec implementations.
 func (a *Allocation) ToSpecString() string {
 	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s]",
-		a.Millicpus.StringFixed(6), a.MemoryMB.StringFixed(6), a.GPUs.StringFixed(1))
+		a.Millicpus.StringFixed(4), a.MemoryMB.StringFixed(4), a.GPUs.StringFixed(1))
 }
 
 // ToSpec converts the Allocation to a types.Spec instance with the same resource values as the

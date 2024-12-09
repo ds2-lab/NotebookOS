@@ -38,7 +38,7 @@ ENV LD_LIBRARY_PATH=/home/jovyan/Python-3.12.6/debug
 # Install amd version of pytorch and torchvision
 # RUN python3 -m pip install torch torchvision
 # RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0 debugpy
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==5.28.1 grpcio==1.66.1 grpcio-tools==1.66.1 debugpy
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==5.28.1 grpcio==1.66.1 grpcio-tools==1.66.1 debugpy torch torchvision
 
 # Switch back to jovyan
 USER jovyan:users
@@ -53,7 +53,7 @@ USER root:root
 RUN mkdir -p /storage && chown jovyan:users /storage
 
 # For debugging.
-RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vim gdb screen -y
+RUN apt-get update && apt-get install iputils-ping dnsutils unzip vim gdb screen -y
 # RUN python3 -m pip install kubernetes 
 
 # Install frontend extension.

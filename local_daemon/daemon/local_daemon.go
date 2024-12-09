@@ -2567,7 +2567,7 @@ func (d *SchedulerDaemonImpl) updateKernelResourceSpec(kernel scheduling.KernelR
 	}
 
 	oldSpec := kernel.ResourceSpec()
-	d.log.Debug("Attempting to update pending resource allocation for kernel %s from %s to %s.",
+	d.log.Debug("Updating pending alloc for kernel %s: from %s to %s.",
 		kernel.ID(), oldSpec.String(), newSpec.String())
 	err := d.resourceManager.AdjustPendingResources(kernel.ReplicaID(), kernel.ID(), newSpec)
 	if err != nil {
@@ -2731,8 +2731,8 @@ func (d *SchedulerDaemonImpl) processExecOrYieldRequest(msg *messaging.JupyterMe
 	metadataDict["required-vram-gb"] = kernel.ResourceSpec().VRAM()
 
 	d.log.Debug("[gid=%d] Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %s, idle VRAM: %s.",
-		gid, idleResourcesBeforeReservation.Millicpus.StringFixed(6), idleResourcesBeforeReservation.MemoryMb.StringFixed(6),
-		idleResourcesBeforeReservation.GPUs.StringFixed(1), idleResourcesBeforeReservation.VRam.StringFixed(6))
+		gid, idleResourcesBeforeReservation.Millicpus.StringFixed(4), idleResourcesBeforeReservation.MemoryMb.StringFixed(4),
+		idleResourcesBeforeReservation.GPUs.StringFixed(1), idleResourcesBeforeReservation.VRam.StringFixed(4))
 
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
 	// - If there are insufficient GPUs on this node, then our replica will need to yield.

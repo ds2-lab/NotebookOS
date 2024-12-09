@@ -807,7 +807,7 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 	// Perform the resource count adjustments, as we've validated that everything is correct/as it should be.
 	// We'll pass nil for the second argument as we don't need the *types.DecimalSpec anywhere else in
 	// the ReleaseCommittedResources method.
-	m.unsafeReleaseCommittedResources(allocation, nil)
+	m.unsafeReleaseCommittedResources(allocation, allocation.ToDecimalSpec())
 
 	m.log.Debug("Attempting to release the following committed HostResources from replica %d of kernel %s: %v. Current resource counts: %v.",
 		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.GetResourceCountsAsString())

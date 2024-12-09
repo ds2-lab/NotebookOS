@@ -5,6 +5,10 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+var (
+	ZeroDecimalSpec = NewDecimalSpec(0, 0, 0, 0)
+)
+
 // CloneableSpec is a superset of the Spec interface with an additional Clone method.
 // The Clone method returns a new CloneableSpec instance with the same resource (cpu, gpu, memory) values.
 type CloneableSpec interface {
@@ -90,11 +94,13 @@ func ToDecimalSpec(spec Spec) *DecimalSpec {
 
 // DecimalSpec is a concrete implementation of the Spec interface that is backed by decimal.Decimal structs
 // for each resource value (Millicpus, GPUs, and memory).
+//
+// DecimalSpec is immutable (unless you explicitly modify the fields yourself).
 type DecimalSpec struct {
-	GPUs      decimal.Decimal `json:"gpus"`      // Number of vGPUs.
-	VRam      decimal.Decimal `json:"vram"`      // Amount of VRAM required in GB.
-	Millicpus decimal.Decimal `json:"cpus"`      // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU.
-	MemoryMb  decimal.Decimal `json:"memory_mb"` // Amount of memory in megabytes (MB).
+	GPUs      decimal.Decimal `json:"gpus"`   // Number of vGPUs.
+	VRam      decimal.Decimal `json:"vram"`   // Amount of VRAM required in GB.
+	Millicpus decimal.Decimal `json:"cpus"`   // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU.
+	MemoryMb  decimal.Decimal `json:"memory"` // Amount of memory in megabytes (MB).
 }
 
 // NewDecimalSpec creates a new DecimalSpec struct and returns a pointer to it.
@@ -111,10 +117,10 @@ func NewDecimalSpec(millicpus float64, memoryMb float64, gpus float64, vramGb fl
 // the DecimalSpec struct.
 func (d *DecimalSpec) ToMap() map[string]interface{} {
 	return map[string]interface{}{
-		"cpus":      d.Millicpus.InexactFloat64(),
-		"memory_mb": d.MemoryMb.InexactFloat64(),
-		"gpus":      d.GPUs.InexactFloat64(),
-		"vram":      d.VRam.InexactFloat64(),
+		"cpus":   d.Millicpus.InexactFloat64(),
+		"memory": d.MemoryMb.InexactFloat64(),
+		"gpus":   d.GPUs.InexactFloat64(),
+		"vram":   d.VRam.InexactFloat64(),
 	}
 }
 
@@ -212,7 +218,7 @@ func (d *DecimalSpec) Validate(requirement Spec) bool {
 
 func (d *DecimalSpec) String() string {
 	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s, VRAM: %s GB]",
-		d.Millicpus.StringFixed(6), d.MemoryMb.StringFixed(6), d.GPUs.StringFixed(1), d.VRam.StringFixed(6))
+		d.Millicpus.StringFixed(4), d.MemoryMb.StringFixed(4), d.GPUs.StringFixed(1), d.VRam.StringFixed(4))
 }
 
 // CloneDecimalSpec returns a copy/clone of the target DecimalSpec as a *DecimalSpec.
@@ -233,10 +239,10 @@ func (d *DecimalSpec) Clone() CloneableSpec {
 // Float64Spec is a concrete implementation of the Spec interface that is backed by float64 variables for each
 // resource value (Millicpus, GPUs, and memory).
 type Float64Spec struct {
-	GPUs      float64 `json:"gpus"`      // Number of vGPUs.
-	VRam      float64 `json:"vram"`      // Amount of VRAM in GB.
-	Millicpus float64 `json:"cpus"`      // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU
-	MemoryMb  float64 `json:"memory_mb"` // Amount of memory in megabytes (MB).
+	GPUs      float64 `json:"gpus"`   // Number of vGPUs.
+	VRam      float64 `json:"vram"`   // Amount of VRAM in GB.
+	Millicpus float64 `json:"cpus"`   // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU
+	MemoryMb  float64 `json:"memory"` // Amount of memory in megabytes (MB).
 }
 
 // GPU returns the number of GPUs required.

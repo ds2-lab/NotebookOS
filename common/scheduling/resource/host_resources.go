@@ -414,8 +414,8 @@ func (res *HostResources) String() string {
 	defer res.Unlock()
 
 	return fmt.Sprintf("[%s HostResources: millicpus=%s,gpus=%s,vram=%sGB,memory=%sMB]",
-		res.resourceStatus.String(), res.millicpus.StringFixed(6),
-		res.gpus.StringFixed(1), res.vramGB.StringFixed(6), res.memoryMB.StringFixed(6))
+		res.resourceStatus.String(), res.millicpus.StringFixed(4),
+		res.gpus.StringFixed(1), res.vramGB.StringFixed(4), res.memoryMB.StringFixed(4))
 }
 
 func (res *HostResources) ResourceStatus() Status {
@@ -549,7 +549,7 @@ func (res *HostResources) Add(spec *types.DecimalSpec) error {
 	if updatedCPUs.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s Millicpus would be set to %s millicpus after addition (working=%s,addend=%s)",
 			scheduling.ErrInvalidOperation, res.resourceStatus.String(), updatedCPUs.String(),
-			res.millicpus.StringFixed(6), spec.Millicpus.StringFixed(6))
+			res.millicpus.StringFixed(4), spec.Millicpus.StringFixed(4))
 	}
 
 	updatedMemory := res.memoryMB.Add(spec.MemoryMb)
@@ -561,7 +561,7 @@ func (res *HostResources) Add(spec *types.DecimalSpec) error {
 	if updatedMemory.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after addition (working=%s,addend=%s)",
 			scheduling.ErrInvalidOperation, res.resourceStatus.String(), updatedMemory.String(),
-			res.memoryMB.StringFixed(6), spec.MemoryMb.StringFixed(6))
+			res.memoryMB.StringFixed(4), spec.MemoryMb.StringFixed(4))
 	}
 
 	updatedGPUs := res.gpus.Add(spec.GPUs)
@@ -573,7 +573,7 @@ func (res *HostResources) Add(spec *types.DecimalSpec) error {
 	if updatedGPUs.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s GPUs would be set to %s GPUs after addition (working=%s,addend=%s)",
 			scheduling.ErrInvalidOperation, res.resourceStatus.String(), updatedGPUs.String(),
-			res.gpus.StringFixed(6), spec.GPUs.StringFixed(6))
+			res.gpus.StringFixed(4), spec.GPUs.StringFixed(4))
 	}
 
 	updatedVRAM := res.vramGB.Add(spec.VRam)
@@ -585,7 +585,7 @@ func (res *HostResources) Add(spec *types.DecimalSpec) error {
 	if updatedVRAM.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s VRAM would be set to %s GB after subtraction (working=%s,subtrahend=%s)",
 			scheduling.ErrInvalidOperation, res.resourceStatus.String(), updatedVRAM.String(),
-			res.vramGB.StringFixed(6), spec.VRam.StringFixed(6))
+			res.vramGB.StringFixed(4), spec.VRam.StringFixed(4))
 	}
 
 	// If we've gotten to this point, then all the updated resource counts are valid, at least with respect
@@ -618,7 +618,7 @@ func (res *HostResources) Subtract(spec *types.DecimalSpec) error {
 	if updatedCPUs.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s Millicpus would be set to %s millicpus after subtraction (working=%s,subtrahend=%s)",
 			scheduling.ErrInvalidOperation, res.resourceStatus.String(), updatedCPUs.String(),
-			res.millicpus.StringFixed(6), spec.Millicpus.StringFixed(6))
+			res.millicpus.StringFixed(4), spec.Millicpus.StringFixed(4))
 	}
 
 	updatedMemory := res.memoryMB.Sub(spec.MemoryMb)
@@ -630,7 +630,7 @@ func (res *HostResources) Subtract(spec *types.DecimalSpec) error {
 	if updatedMemory.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s memory would be equal to %s megabytes after subtraction (working=%s,subtrahend=%s)",
 			scheduling.ErrInvalidOperation, res.resourceStatus.String(), updatedMemory.String(),
-			res.memoryMB.StringFixed(6), spec.MemoryMb.StringFixed(6))
+			res.memoryMB.StringFixed(4), spec.MemoryMb.StringFixed(4))
 	}
 
 	updatedGPUs := res.gpus.Sub(spec.GPUs)
@@ -654,7 +654,7 @@ func (res *HostResources) Subtract(spec *types.DecimalSpec) error {
 	if updatedVRAM.LessThan(decimal.Zero) {
 		return fmt.Errorf("%w: %s VRAM would be set to %s GB after subtraction (working=%s,subtrahend=%s)",
 			scheduling.ErrInvalidOperation, res.resourceStatus.String(), updatedVRAM.String(),
-			res.vramGB.StringFixed(6), spec.VRam.StringFixed(6))
+			res.vramGB.StringFixed(4), spec.VRam.StringFixed(4))
 	}
 
 	// If we've gotten to this point, then all the updated resource counts are valid, at least with respect

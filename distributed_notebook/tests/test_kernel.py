@@ -93,7 +93,7 @@ def mock_create_log_node(*args, **mock_kwargs):
 DefaultResourceRequest: Dict[str, Any] = {
     "gpus": 1,
     "cpus": 1000,
-    "memory_mb": 512,
+    "memory": 512,
     "vram": 0.1,
 }
 
