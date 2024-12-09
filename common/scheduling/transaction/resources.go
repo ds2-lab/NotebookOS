@@ -53,11 +53,11 @@ func (t *Resources) IsMutable() bool {
 	return t.isMutable
 }
 
-// hasNegativeField returns true if there is at least one field less than 0 in the Resources's
+// hasNegativeWorkingField returns true if there is at least one field less than 0 in the Resources's
 // working *types.DecimalSpec.
 //
 // If there is at least one negative resource Kind, then that Kind is also returned.
-func (t *Resources) hasNegativeField() (bool, Kind) {
+func (t *Resources) hasNegativeWorkingField() (bool, Kind) {
 	if t.working.Millicpus.LessThan(decimal.Zero) {
 		return true, CPU
 	}

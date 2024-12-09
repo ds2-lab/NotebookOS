@@ -13,13 +13,12 @@ import (
 var _ = Describe("Transaction Tests", func() {
 	It("Should commit participants that would not result in invalid resource counts", func() {
 		transaction := func(s *transaction.State) {
+			s.PendingResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
+			s.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
+
+			s.IdleResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 			s.IdleResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 
-			s.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
-			s.PendingResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
-
-			s.CommittedResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
-			s.CommittedResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 			s.CommittedResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 			s.CommittedResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 		}
