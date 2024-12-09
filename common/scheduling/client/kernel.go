@@ -285,11 +285,11 @@ func (c *KernelReplicaClient) WaitForTrainingToStop() {
 //
 // Note for internal usage: this method is thread safe. Do not call this method if the lock for the kernel
 // is already held. If the lock is already held, then call the unsafeUpdateResourceSpec method instead.
-func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.unsafeUpdateResourceSpec(newSpec, oldSpec, tx) // , ackChan, commitChan, doneWg)
+	return c.unsafeUpdateResourceSpec(newSpec, tx)
 }
 
 // UpdateResourceSpec updates the resource spec of the target KernelReplicaClient to the resource
@@ -300,31 +300,33 @@ func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, oldSpec typ
 // On success, nil is returned.
 //
 // Note: this method is thread safe. Do not call this method if the lock for the kernel is already held.
-func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
 	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
 		err := fmt.Errorf("%w: %s", ErrInvalidResourceSpec, newSpec.String())
 		return err
 	}
 
+	oldSpec := c.ResourceSpec()
 	c.log.Debug("Updating ResourceSpec of replica %d of kernel %s now. Changing from %s to %s.",
 		c.replicaId, c.id, c.spec.ResourceSpec.String(), newSpec.String())
 
-	if c.Container() == nil { // Will be nil in local daemon.
-		return nil
-	}
-
-	container := c.Container()
 	specAsDecimalSpec := types.ToDecimalSpec(newSpec)
+	if c.Container() != nil { // Will be nil in local daemon.
+		container := c.Container()
 
-	var err error
-	if tx != nil {
-		err = container.Host().KernelAdjustedItsResourceRequestCoordinated(newSpec, oldSpec, container, tx)
-	} else {
-		err = container.Host().KernelAdjustedItsResourceRequest(newSpec, oldSpec, container)
-	}
+		var err error
+		if tx != nil {
+			err = container.Host().KernelAdjustedItsResourceRequestCoordinated(newSpec, oldSpec, container, tx)
+		} else {
+			err = container.Host().KernelAdjustedItsResourceRequest(newSpec, oldSpec, container)
+		}
 
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
+
+		container.UpdateResourceSpec(specAsDecimalSpec)
+		container.Session().UpdateResourceSpec(specAsDecimalSpec)
 	}
 
 	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
@@ -338,8 +340,8 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, oldSp
 	c.replicaSpec.Kernel.ResourceSpec.Vram = float32(newSpec.VRAM())
 	c.replicaSpec.Kernel.ResourceSpec.Memory = float32(newSpec.MemoryMB())
 
-	container.UpdateResourceSpec(specAsDecimalSpec)
-	container.Session().UpdateResourceSpec(specAsDecimalSpec)
+	c.log.Debug("Successfully updated ResourceSpec of replica %d of kernel %s from %s to %s.",
+		c.replicaId, c.id, oldSpec.String(), newSpec.String())
 
 	return nil
 }

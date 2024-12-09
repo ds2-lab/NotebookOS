@@ -495,7 +495,7 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.Spec) error {
 
 	for _, kernelReplica := range c.replicas {
 		go func() {
-			_ = kernelReplica.UpdateResourceSpec(newSpec, oldSpec, coordinatedTransaction)
+			_ = kernelReplica.UpdateResourceSpec(newSpec, coordinatedTransaction)
 		}()
 	}
 

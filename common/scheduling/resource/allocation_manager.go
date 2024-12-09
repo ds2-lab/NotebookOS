@@ -632,7 +632,7 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 	}
 
 	m.log.Debug("Successfully adjusting pending resource request for replica %d of kernel \"%s\" from %v to %v.",
-		replicaId, kernelId, originalAllocatedResources.String(), decimalSpec.String())
+		replicaId, kernelId, originalAllocatedResources.String(), adjustedAllocation.ToSpecString())
 
 	return nil
 }
@@ -1180,7 +1180,7 @@ func (m *AllocationManager) unsafeReleaseCommittedResources(allocation *Allocati
 		allocatedResources = allocation.ToDecimalSpec()
 	}
 
-	m.log.Debug("Releasing committed resources. Current resource counts: %s. Resources to be allocated: %v.",
+	m.log.Debug("Releasing committed resources. Current resource counts: %s. Resources to be deallocated: %v.",
 		m.resourcesWrapper.GetResourceCountsAsString(), allocatedResources.String())
 
 	// If we've gotten this far, then we have enough HostResources available to commit the requested HostResources
