@@ -80,7 +80,7 @@ var _ = Describe("Spec", func() {
 			GPUs:      4.0,
 			VRam:      12.0,
 			Millicpus: 2000.0,
-			MemoryMb:  13500.0,
+			Memory:    13500.0,
 		}
 
 		decimalSpec := types.NewDecimalSpec(2000, 13500, 4, 12)

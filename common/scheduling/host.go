@@ -111,7 +111,7 @@ type Host interface {
 	// KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 	// Host is updated or changed. This ensures that the Host's resource counts are up to date.
 	KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer) error
-	
+
 	// KernelAdjustedItsResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
 	// this Host is updated or changed. This ensures that the Host's resource counts are up to date.
 	//
@@ -211,7 +211,7 @@ type HostStatistics interface {
 	IdleMemoryMb() float64
 
 	// PendingMemoryMb returns the amount of memory, in megabytes (MB), that is oversubscribed by Containers scheduled on the Host.
-	// Pending MemoryMb are NOT actively bound to any
+	// Pending Memory are NOT actively bound to any
 	PendingMemoryMb() float64
 
 	// CommittedMemoryMb returns the amount of memory, in megabytes (MB), that is actively bound to Containers scheduled on the Host.
@@ -221,7 +221,7 @@ type HostStatistics interface {
 	IdleVRAM() float64
 
 	// PendingVRAM returns the amount of memory, in gigabytes (GB), that is oversubscribed by Containers scheduled on the Host.
-	// Pending MemoryMb are NOT actively bound to any
+	// Pending Memory are NOT actively bound to any
 	PendingVRAM() float64
 
 	// CommittedVRAM returns the amount of memory, in gigabytes (GB), that is actively bound to Containers scheduled on the Host.

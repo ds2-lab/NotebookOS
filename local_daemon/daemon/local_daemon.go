@@ -337,7 +337,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		GPUs:      float64(localDaemonOptions.GpusPerHost),
 		VRam:      scheduling.VramPerHostGb,
 		Millicpus: scheduling.MillicpusPerHost,
-		MemoryMb:  scheduling.MemoryMbPerHost})
+		Memory:    scheduling.MemoryMbPerHost})
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)

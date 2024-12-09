@@ -239,10 +239,10 @@ func (d *DecimalSpec) Clone() CloneableSpec {
 // Float64Spec is a concrete implementation of the Spec interface that is backed by float64 variables for each
 // resource value (Millicpus, GPUs, and memory).
 type Float64Spec struct {
-	GPUs      float64 `json:"gpus"`   // Number of vGPUs.
-	VRam      float64 `json:"vram"`   // Amount of VRAM in GB.
-	Millicpus float64 `json:"cpus"`   // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU
-	MemoryMb  float64 `json:"memory"` // Amount of memory in megabytes (MB).
+	Millicpus float64 `json:"cpus" mapstructure:"cpus"`     // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU
+	Memory    float64 `json:"memory" mapstructure:"memory"` // Amount of memory in megabytes (MB).
+	GPUs      float64 `json:"gpus" mapstructure:"gpus"`     // Number of vGPUs.
+	VRam      float64 `json:"vram" mapstructure:"vram"`     // Amount of VRAM in GB.
 }
 
 // GPU returns the number of GPUs required.
@@ -267,7 +267,7 @@ func (s *Float64Spec) CPU() float64 {
 
 // MemoryMB returns the amount of memory in MB.
 func (s *Float64Spec) MemoryMB() float64 {
-	return s.MemoryMb
+	return s.Memory
 }
 
 // UpdateSpecGPUs can be used to update the number of GPUs.
@@ -278,7 +278,7 @@ func (s *Float64Spec) UpdateSpecGPUs(gpus float64) {
 func (s *Float64Spec) Add(other Spec) Spec {
 	return &Float64Spec{
 		Millicpus: s.Millicpus + other.CPU(),
-		MemoryMb:  s.MemoryMb + other.MemoryMB(),
+		Memory:    s.Memory + other.MemoryMB(),
 		GPUs:      s.GPUs + other.GPU(),
 		VRam:      s.VRam + other.VRAM(),
 	}
@@ -286,7 +286,7 @@ func (s *Float64Spec) Add(other Spec) Spec {
 
 // IsZero returns true of the resource quantities are all zero.
 func (s *Float64Spec) IsZero() bool {
-	return s.Millicpus == 0 && s.MemoryMb == 0 && s.GPUs == 0 && s.VRam == 0
+	return s.Millicpus == 0 && s.Memory == 0 && s.GPUs == 0 && s.VRam == 0
 }
 
 // UpdateSpecCPUs can be used to update the number of Millicpus.
@@ -296,11 +296,11 @@ func (s *Float64Spec) UpdateSpecCPUs(cpus float64) {
 
 // UpdateSpecMemoryMB can be used to update the amount of memory (in MB).
 func (s *Float64Spec) UpdateSpecMemoryMB(memory float64) {
-	s.MemoryMb = memory
+	s.Memory = memory
 }
 
 func (s *Float64Spec) String() string {
-	return fmt.Sprintf("ResourceSpec[Millicpus: %.0f, Memory: %.2f MB, GPUs: %.0f, VRAM: %.2f GB]", s.Millicpus, s.MemoryMb, s.GPUs, s.VRAM())
+	return fmt.Sprintf("ResourceSpec[Millicpus: %.0f, Memory: %.2f MB, GPUs: %.0f, VRAM: %.2f GB]", s.Millicpus, s.Memory, s.GPUs, s.VRAM())
 }
 
 func (s *Float64Spec) Equals(other Spec) bool {
@@ -326,7 +326,7 @@ func (s *Float64Spec) Clone() CloneableSpec {
 	return &Float64Spec{
 		GPUs:      s.GPUs,
 		Millicpus: s.Millicpus,
-		MemoryMb:  s.MemoryMb,
+		Memory:    s.Memory,
 	}
 }
 

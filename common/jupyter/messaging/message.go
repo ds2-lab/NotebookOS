@@ -433,22 +433,22 @@ type ElectionVoteProposalMetadata struct {
 // ElectionMetadata is metadata from the Python Election that took place to determine which
 // replica would execute the code. This is only sent on the return (i.e., "execute_reply").
 type ElectionMetadata struct {
-	TermNumber                int                                     `json:"term_number"`
-	ElectionState             int                                     `json:"election_state"`
-	ElectionStateString       int                                     `json:"election_state_string"`
-	WinnerSelected            bool                                    `json:"winner_selected"`
-	WinnerID                  int                                     `json:"winner_id"`
-	Proposals                 map[int]*ElectionLeaderProposalMetadata `json:"proposals"`
-	VoteProposals             map[int]*ElectionVoteProposalMetadata   `json:"vote_proposals"`
-	DiscardedProposals        map[int]*ElectionLeaderProposalMetadata `json:"discarded_proposals"`
-	NumDiscardedProposals     int                                     `json:"num_discarded_proposals"`
-	NumDiscardedVoteProposals int                                     `json:"num_discarded_vote_proposals"`
-	NumLeadProposalsReceived  int                                     `json:"num_lead_proposals_received"`
-	NumYieldProposalsReceived int                                     `json:"num_yield_proposals_received"`
-	NumRestarts               int                                     `json:"num_restarts"`
-	CurrentAttemptNumber      int                                     `json:"current_attempt_number"`
-	CompletionReason          string                                  `json:"completion_reason"`
-	MissingProposals          []int                                   `json:"missing_proposals"`
+	TermNumber                int                                     `json:"term_number" mapstructure:"term_number"`
+	ElectionState             int                                     `json:"election_state" mapstructure:"election_state"`
+	ElectionStateString       int                                     `json:"election_state_string" mapstructure:"election_state_string"`
+	WinnerSelected            bool                                    `json:"winner_selected" mapstructure:"winner_selected"`
+	WinnerID                  int                                     `json:"winner_id" mapstructure:"winner_id"`
+	Proposals                 map[int]*ElectionLeaderProposalMetadata `json:"proposals" mapstructure:"proposals"`
+	VoteProposals             map[int]*ElectionVoteProposalMetadata   `json:"vote_proposals" mapstructure:"vote_proposals"`
+	DiscardedProposals        map[int]*ElectionLeaderProposalMetadata `json:"discarded_proposals" mapstructure:"discarded_proposals"`
+	NumDiscardedProposals     int                                     `json:"num_discarded_proposals" mapstructure:"num_discarded_proposals"`
+	NumDiscardedVoteProposals int                                     `json:"num_discarded_vote_proposals" mapstructure:"num_discarded_vote_proposals"`
+	NumLeadProposalsReceived  int                                     `json:"num_lead_proposals_received" mapstructure:"num_lead_proposals_received"`
+	NumYieldProposalsReceived int                                     `json:"num_yield_proposals_received" mapstructure:"num_yield_proposals_received"`
+	NumRestarts               int                                     `json:"num_restarts" mapstructure:"num_restarts"`
+	CurrentAttemptNumber      int                                     `json:"current_attempt_number" mapstructure:"current_attempt_number"`
+	CompletionReason          string                                  `json:"completion_reason" mapstructure:"completion_reason"`
+	MissingProposals          []int                                   `json:"missing_proposals" mapstructure:"missing_proposals"`
 }
 
 // ExecuteRequestMetadata includes all the metadata entries we might expect to find in the metadata frame
