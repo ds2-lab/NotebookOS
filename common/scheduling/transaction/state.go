@@ -54,13 +54,13 @@ func (t *State) Validate() error {
 		return fmt.Errorf("%w: %s would become negative (%s)", ErrTransactionFailed, kind.String(), getQuantityOfResourceKind(t.specResources, kind))
 	}
 
-	if isLessThanOrEqual, offendingKind := t.committedResources.lessThanOrEqual(t.specResources.initial); !isLessThanOrEqual {
+	if isLessThanOrEqual, offendingKind := t.committedResources.LessThanOrEqual(t.specResources.initial); !isLessThanOrEqual {
 		return fmt.Errorf("%w: committed %s (%s) would exceed spec %s (%s)",
 			ErrTransactionFailed, offendingKind.String(), getQuantityOfResourceKind(t.committedResources, offendingKind).StringFixed(4),
 			offendingKind.String(), getQuantityOfResourceKind(t.specResources, offendingKind).StringFixed(4))
 	}
 
-	if isLessThanOrEqual, offendingKind := t.idleResources.lessThanOrEqual(t.specResources.initial); !isLessThanOrEqual {
+	if isLessThanOrEqual, offendingKind := t.idleResources.LessThanOrEqual(t.specResources.initial); !isLessThanOrEqual {
 		return fmt.Errorf("%w: idle %s (%s) would exceed spec %s (%s)",
 			ErrTransactionFailed, offendingKind.String(), getQuantityOfResourceKind(t.idleResources, offendingKind).StringFixed(4),
 			offendingKind.String(), getQuantityOfResourceKind(t.specResources, offendingKind).StringFixed(4))

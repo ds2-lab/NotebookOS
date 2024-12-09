@@ -5,7 +5,6 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -44,7 +43,7 @@ var _ = Describe("Transaction Tests", func() {
 	})
 
 	It("Should reject participants that would result in invalid resource counts", func() {
-		transaction := func(s *transaction.State) {
+		tx := func(s *transaction.State) {
 			s.IdleResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 
 			s.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
@@ -64,9 +63,9 @@ var _ = Describe("Transaction Tests", func() {
 
 		fmt.Printf("Pre-operation: %s\n", manager.GetResourceCountsAsString())
 
-		err := manager.RunTransaction(transaction)
+		err := manager.RunTransaction(tx)
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, scheduling.ErrInvalidOperation)).To(BeTrue())
+		Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
 
 		fmt.Printf("Post-operation: %s\n", manager.GetResourceCountsAsString())
 

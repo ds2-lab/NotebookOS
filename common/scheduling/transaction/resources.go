@@ -79,7 +79,7 @@ func (t *Resources) hasNegativeField() (bool, Kind) {
 
 // Working returns the current/working resource quantities.
 func (t *Resources) Working() types.Spec {
-	return t.working.Clone()
+	return t.working.CloneDecimalSpec()
 }
 
 // Add adds the given types.Spec to the working/current resources quantities.
@@ -108,25 +108,46 @@ func (t *Resources) Subtract(spec types.Spec) {
 	t.working = t.working.Subtract(spec)
 }
 
-// Equals returns a flag indicating whether the current transactional state is equal to the given types.Spec.
-func (t *Resources) Equals(spec types.Spec) bool {
-	if !t.isMutable {
-		panic(ErrImmutableResourceModification)
-	}
-
+// Equals returns a flag indicating whether the current transactional state is equal to the given interface{}.
+//
+// The given interface must be a types.Spec or another Resource struct, or this will return false.
+func (t *Resources) Equals(other interface{}) bool {
 	if t.working == nil {
 		t.working = t.initial.CloneDecimalSpec()
 	}
 
-	return t.working.Equals(spec)
-}
+	var (
+		spec       types.Spec
+		res        Resources
+		resPointer *Resources
+		ok         bool
+	)
 
-// greaterThan returns a flag indicating whether the current transactional state is greater than the given types.Spec.
-func (t *Resources) greaterThan(spec types.Spec) (bool, Kind) {
-	if !t.isMutable {
-		panic(ErrImmutableResourceModification)
+	if spec, ok = other.(types.Spec); ok {
+		if t.working == nil {
+			t.working = t.initial.CloneDecimalSpec()
+		}
+
+		return t.working.Equals(spec)
 	}
 
+	if res, ok = other.(Resources); ok {
+		resSpec := res.Working()
+
+		return t.working.Equals(resSpec)
+	}
+
+	if resPointer, ok = other.(*Resources); ok {
+		resSpec := resPointer.Working()
+
+		return t.working.Equals(resSpec)
+	}
+
+	return false
+}
+
+// GreaterThan returns a flag indicating whether the current transactional state is greater than the given types.Spec.
+func (t *Resources) GreaterThan(spec types.Spec) (bool, Kind) {
 	if t.working == nil {
 		t.working = t.initial.CloneDecimalSpec()
 	}
@@ -152,12 +173,8 @@ func (t *Resources) greaterThan(spec types.Spec) (bool, Kind) {
 	return true, NoResource
 }
 
-// lessThanOrEqual returns a flag indicating whether the current transactional state is <= than the given types.Spec.
-func (t *Resources) lessThanOrEqual(spec types.Spec) (bool, Kind) {
-	if !t.isMutable {
-		panic(ErrImmutableResourceModification)
-	}
-
+// LessThanOrEqual returns a flag indicating whether the current transactional state is <= than the given types.Spec.
+func (t *Resources) LessThanOrEqual(spec types.Spec) (bool, Kind) {
 	if t.working == nil {
 		t.working = t.initial.CloneDecimalSpec()
 	}
