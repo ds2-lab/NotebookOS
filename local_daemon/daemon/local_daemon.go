@@ -239,6 +239,9 @@ type SchedulerDaemonImpl struct {
 	// localDaemonOptions is the options struct that the Local Daemon was created with.
 	localDaemonOptions *domain.LocalDaemonOptions
 
+	// useRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	useRealGpus bool
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -306,6 +309,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		MessageAcknowledgementsEnabled:     localDaemonOptions.MessageAcknowledgementsEnabled,
 		SimulateCheckpointingLatency:       localDaemonOptions.SimulateCheckpointingLatency,
 		electionTimeoutSeconds:             localDaemonOptions.ElectionTimeoutSeconds,
+		useRealGpus:                        localDaemonOptions.UseRealGPUs,
 	}
 
 	for _, configFunc := range configs {

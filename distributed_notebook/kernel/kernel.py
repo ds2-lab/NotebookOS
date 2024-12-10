@@ -44,6 +44,22 @@ from ..sync.errors import DiscardMessageError
 from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer, get_estimated_io_time_seconds, \
     format_size
 
+try:
+    import torch
+    torch_available: bool = True
+    print("[INFO] PyTorch is installed.")
+except ImportError as ex:
+    torch_available: bool = False
+    cuda_available: bool = False
+    print("[WARNING] PyTorch is not installed (and therefore CUDA is unavailable).")
+
+if torch_available:
+    cuda_available: bool = torch.cuda.is_available()
+
+    if cuda_available:
+        print("[INFO] CUDA is available.")
+    else:
+        print("[WARNING] CUDA is unavailable (even though PyTorch is enabled).")
 
 def sigabrt_handler(sig, frame):
     print(f'Received SIGABORT (Python): {sig} {frame}', flush=True)
@@ -1435,6 +1451,7 @@ class DistributedKernel(IPythonKernel):
         stop_on_error = content.get("stop_on_error", True)
 
         metadata = self.init_metadata(parent)
+        metadata.update(parent['metadata'])
 
         # Process the metadata included in the request.
         # If we get back a remote storage name, then we'll use it to simulate I/O after we finish the execution.
@@ -1442,29 +1459,31 @@ class DistributedKernel(IPythonKernel):
                                                                                          parent_header["msg_type"],
                                                                                          metadata)
 
+        training_duration_millis: float = -1
+        if "training_duration_millis" in metadata:
+            try:
+                training_duration_millis = float(metadata['training_duration_millis']) * 1.0e3
+            except ValueError:
+                pass
+
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
         if not silent:
             self.execution_count += 1
             self._publish_execute_input(code, parent, self.execution_count)
 
-        # Arguments based on the do_execute signature
-        do_execute_args = {
-            "code": code,
-            "silent": silent,
-            "store_history": store_history,
-            "user_expressions": user_expressions,
-            "allow_stdin": allow_stdin,
-            "remote_storage_name": remote_storage_name,
-        }
-
-        if self._do_exec_accepted_params["cell_meta"]:
-            do_execute_args["cell_meta"] = cell_meta
-        if self._do_exec_accepted_params["cell_id"]:
-            do_execute_args["cell_id"] = cell_id
-
         # Call do_execute with the appropriate arguments
-        reply_content = self.do_execute(**do_execute_args)
+        reply_content = self.do_execute(
+            code = code,
+            silent = silent,
+            store_history = store_history,
+            user_expressions = user_expressions,
+            allow_stdin = allow_stdin,
+            remote_storage_name = remote_storage_name,
+            cell_meta = cell_meta,
+            cell_id = cell_id,
+            training_duration_millis = training_duration_millis,
+        )
 
         if inspect.isawaitable(reply_content):
             reply_content = await reply_content
@@ -1971,6 +1990,9 @@ class DistributedKernel(IPythonKernel):
             self.log.debug(f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms.")
             self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3  # it's already in milliseconds
 
+    def get_custom_training_code(self, training_duration_millis: float) -> str:
+        return ""
+
     async def do_execute(
             self,
             code: str,
@@ -1979,6 +2001,7 @@ class DistributedKernel(IPythonKernel):
             user_expressions: dict = None,
             allow_stdin: bool = False,
             remote_storage_name: Optional[str] = None,
+            training_duration_millis: float = -1,
             *,
             cell_meta=None,
             cell_id=None
@@ -1988,14 +2011,15 @@ class DistributedKernel(IPythonKernel):
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
-            remote_storage_name: the name of the remote storage that we should use for (simulated) checkpointing
-            cell_meta:
-            cell_id:
-            code (str): The code to be executed.
-            silent (bool): Whether to display output.
-            store_history (bool, optional): Whether to record this code in history and increase the execution count. If silent is True, this is implicitly False. Defaults to True.
-            user_expressions (dict, optional): Mapping of names to expressions to evaluate after the code has run. You can ignore this if you need to. Defaults to None.
-            allow_stdin (bool, optional): Whether the frontend can provide input on request (e.g. for Python's raw_input()). Defaults to False.
+            :param remote_storage_name: the name of the remote storage that we should use for (simulated) checkpointing
+            :param cell_meta:
+            :param cell_id:
+            :param code: (str): The code to be executed.
+            :param silent: (bool): Whether to display output.
+            :param store_history: (bool, optional): Whether to record this code in history and increase the execution count. If silent is True, this is implicitly False. Defaults to True.
+            :param user_expressions: (dict, optional): Mapping of names to expressions to evaluate after the code has run. You can ignore this if you need to. Defaults to None.
+            :param allow_stdin: (bool, optional): Whether the frontend can provide input on request (e.g. for Python's raw_input()). Defaults to False.
+            :param training_duration_millis: (float): The length of time that the kernel should train for. If specified, we run special training code and ignore what we were told to execute.
 
         Raises:
             err_wait_persistent_store: If the persistent data store is not available yet.
@@ -2078,9 +2102,17 @@ class DistributedKernel(IPythonKernel):
             self.session.send(self.iopub_socket, SMR_LEAD_TASK, content,
                               ident=self._topic(SMR_LEAD_TASK))  # type: ignore
 
+            if training_duration_millis > 0:
+                self.log.debug(f"Explicitly instructed to train for {training_duration_millis} milliseconds. "
+                               f"Discarding specified code. Will use custom training code instead.")
+                code = f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
+            else:
+                pass
+
             self.log.debug("Executing the following code now: %s" % code)
 
             self.current_execution_stats.execution_start_unix_millis = time.time() * 1.0e3
+
             # Execute code
             reply_routing = super().do_execute(
                 code, silent, store_history=store_history,

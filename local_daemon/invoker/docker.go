@@ -105,6 +105,7 @@ type DockerInvoker struct {
 	prometheusMetricsPort                int                              // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
 	simulateWriteAfterExec               bool                             // Simulate network write after executing code?
 	simulateWriteAfterExecOnCriticalPath bool                             // Should the simulated network write after executing code be on the critical path?
+	useRealGpus                          bool                             // UseRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
 	workloadId                           string
 	smrEnabled                           bool
 
@@ -168,6 +169,9 @@ type DockerInvokerOptions struct {
 	SmrEnabled bool
 
 	WorkloadId string
+
+	// UseRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	UseRealGpus bool
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider metrics.ContainerMetricsProvider) *DockerInvoker {
@@ -205,6 +209,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		simulateWriteAfterExecOnCriticalPath: opts.SimulateWriteAfterExecOnCriticalPath,
 		workloadId:                           opts.WorkloadId,
 		smrEnabled:                           opts.SmrEnabled,
+		useRealGpus:                          opts.UseRealGpus,
 	}
 
 	// This is a DockerInvoker, so it's one of these two.
