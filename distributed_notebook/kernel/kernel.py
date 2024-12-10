@@ -1462,7 +1462,7 @@ class DistributedKernel(IPythonKernel):
         training_duration_millis: float = -1
         if "training_duration_millis" in metadata:
             try:
-                training_duration_millis = float(metadata['training_duration_millis']) * 1.0e3
+                training_duration_millis = float(metadata['training_duration_millis']) 
             except ValueError:
                 pass
 
@@ -2103,7 +2103,7 @@ class DistributedKernel(IPythonKernel):
                               ident=self._topic(SMR_LEAD_TASK))  # type: ignore
 
             if training_duration_millis > 0:
-                self.log.debug(f"Explicitly instructed to train for {training_duration_millis} milliseconds. "
+                self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
                                f"Discarding specified code. Will use custom training code instead.")
                 code = f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
             else:
