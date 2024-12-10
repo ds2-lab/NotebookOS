@@ -1462,7 +1462,7 @@ class DistributedKernel(IPythonKernel):
         training_duration_millis: float = -1
         if "training_duration_millis" in metadata:
             try:
-                training_duration_millis = float(metadata['training_duration_millis']) 
+                training_duration_millis = float(metadata['training_duration_millis'])
             except ValueError:
                 pass
 

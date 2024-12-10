@@ -13,7 +13,7 @@ ENV LANG=C.UTF-8 \
 # Switch to root to build debug-enabled version of python
 USER root:root
 
-RUN sudo apt-get update 
+RUN sudo apt-get update
 
 RUN sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
 

@@ -1,4 +1,5 @@
-FROM scusemua/base-jupyter-image-python3.12.6:latest
+# FROM scusemua/base-jupyter-image-python3.12.6:latest
+FROM scusemua/base-jupyter-image:python3.12.6-cuda
 
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
