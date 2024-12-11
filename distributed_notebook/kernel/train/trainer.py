@@ -19,27 +19,28 @@ def print_cuda_memory(
         beforeHeader:Optional[str] = None,
         afterHeader: Optional[str] = None
 ):
-    t = torch.cuda.get_device_properties(0).total_memory
-    r = torch.cuda.memory_reserved(0)
-    a = torch.cuda.memory_allocated(0)
-    f = r-a  # free inside reserved
+    t1 = torch.cuda.get_device_properties(0).total_memory
+    r1 = torch.cuda.memory_reserved(0)
+    a1 = torch.cuda.memory_allocated(0)
+    f1 = r1-a1  # free inside reserved
 
     prefix:str = ""
     if beforeHeader is not None:
-        print("=================================")
+        print("=========================================")
         print(beforeHeader)
         prefix = "\t"
 
-    print("---------------------------------")
-    print(f"{prefix}Total memory: {t:,} bytes")
-    print(f"{prefix}Memory reserved: {r:,} bytes")
-    print(f"{prefix}Memory allocated: {a:,} bytes")
-    print(f"{prefix}Free inside reserved: {f:,} bytes")
-    print("---------------------------------")
+    print("------------------------------------------")
+    print(f"{prefix}Total memory: {t1:,} bytes")
+    print(f"{prefix}Memory reserved: {r1:,} bytes")
+    print(f"{prefix}Memory allocated: {a1:,} bytes")
+    print(f"{prefix}Free inside reserved: {f1:,} bytes")
+    print("------------------------------------------")
 
     if action is not None:
         st: float  = time.time()
         res = action()
+        torch.cuda.synchronize()
         et: float  = time.time()
         time_elapsed = et - st
     else:
@@ -49,14 +50,18 @@ def print_cuda_memory(
         print(afterHeader % time_elapsed)
         prefix = "\t"
 
-    print("---------------------------------")
-    print(f"{prefix}Total memory: {t:,} bytes")
-    print(f"{prefix}Memory reserved: {r:,} bytes")
-    print(f"{prefix}Memory allocated: {a:,} bytes")
-    print(f"{prefix}Free inside reserved: {f:,} bytes")
-    print("---------------------------------")
+    t2 = torch.cuda.get_device_properties(0).total_memory
+    r2 = torch.cuda.memory_reserved(0)
+    a2 = torch.cuda.memory_allocated(0)
+    f2 = r2-a2  # free inside reserved
+    print("------------------------------------------")
+    print(f"{prefix}Total memory: {t2:,} bytes (Δ={t2-t1:,} bytes)")
+    print(f"{prefix}Memory reserved: {r2:,} bytes (Δ={r2-r1:,} bytes)")
+    print(f"{prefix}Memory allocated: {a2:,} bytes (Δ={a2-a1:,} bytes)")
+    print(f"{prefix}Free inside reserved: {f2:,} bytes (Δ={f2-f1:,} bytes)")
+    print("------------------------------------------")
 
-    print("=================================\n")
+    print("=========================================\n")
 
     return res
 
@@ -116,9 +121,10 @@ class Trainer(object):
 
         self.model.train()
         running_loss = 0.0
-        for images, labels in self.train_loader:
+        for images, labels in tqdm(self.train_loader):
             if copied_to_gpu:
                 images, labels = images.to(self.gpu_device), labels.to(self.gpu_device)
+                torch.cuda.synchronize()
 
             # Zero the parameter gradients
             self.optimizer.zero_grad()
@@ -136,9 +142,11 @@ class Trainer(object):
             if copied_to_gpu:
                 del images
                 del labels
+                torch.cuda.synchronize()
 
         if copied_to_gpu:
             self.model = self.model.to(self.cpu_device)
+            torch.cuda.synchronize()
 
         print_cuda_memory(
             action = lambda: torch.cuda.empty_cache(),
@@ -152,16 +160,24 @@ class Trainer(object):
     def test(self):
         copied_to_gpu: bool = False
         if self.gpu_device is not None:
-            self.model = self.model.to(self.gpu_device)
+            def action():
+                self.model = self.model.to(self.gpu_device)
+            print_cuda_memory(
+                action = action,
+                beforeHeader = f"Copying model from the CPU to the GPU...",
+                afterHeader = "Copied model from the CPU to the GPU in %.9f seconds."
+            )
+            copied_to_gpu = True
 
         self.model.eval()
         correct = 0
         total = 0
         test_loss = 0.0
         with torch.no_grad():
-            for images, labels in self.test_loader:
+            for images, labels in tqdm(self.test_loader):
                 if copied_to_gpu:
                     images, labels = images.to(self.gpu_device), labels.to(self.gpu_device)
+                torch.cuda.synchronize()
 
                 outputs = self.model(images)
                 loss = self.criterion(outputs, labels)
@@ -175,11 +191,13 @@ class Trainer(object):
                 if copied_to_gpu:
                     del images
                     del labels
+                    torch.cuda.synchronize()
 
         accuracy = 100.0 * correct / total
 
         if copied_to_gpu:
             self.model = self.model.to(self.cpu_device)
+            torch.cuda.synchronize()
 
         print_cuda_memory(
             action = lambda: torch.cuda.empty_cache(),
