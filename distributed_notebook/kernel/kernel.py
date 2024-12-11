@@ -33,6 +33,8 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
+from .datasets.cifar10 import CIFAR10
+from .models.resnet18 import RESNET18
 from .execution_yield_error import ExecutionYieldError
 from .util import extract_header
 from ..gateway import gateway_pb2
@@ -273,6 +275,8 @@ class DistributedKernel(IPythonKernel):
 
     smr_enabled: Bool = Bool(default_value=True).tag(config=True)
 
+    use_real_gpus: Bool = Bool(default_value=False).tag(config=True)
+
     implementation = 'Distributed Python 3'
     implementation_version = '0.2'
     language = 'no-op'
@@ -330,6 +334,9 @@ class DistributedKernel(IPythonKernel):
         self.message_acknowledgements_enabled: bool = True  # default to True
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
+
+        self.model = None
+        self.dataset = None
 
         ########################
         # Execution/Data State #
@@ -571,6 +578,11 @@ class DistributedKernel(IPythonKernel):
 
         # If we're part of a migration operation, then it will be set when we register with the local daemon.
         self.should_read_data_from_remote_storage: bool = False
+
+        if self.use_real_gpus:
+            self.log.info("The use of real GPUs is ENABLED.")
+        else:
+            self.log.warning("The use of real GPUs is DISABLED.")
 
         connection_info: dict[str, Any] = {}
         try:
@@ -1991,7 +2003,32 @@ class DistributedKernel(IPythonKernel):
             self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3  # it's already in milliseconds
 
     def get_custom_training_code(self, training_duration_millis: float) -> str:
-        return ""
+        if self.use_real_gpus:
+            if self.model is None:
+                self.log.debug("Creating RESNET-18 model.")
+                self.model = RESNET18()
+                self.log.debug("Creating CIFAR-10 dataset.")
+                self.dataset = CIFAR10()
+            code:str = f"""
+from distributed_notebook.kernel.datasets.cifar10 import CIFAR10
+from distributed_notebook.kernel.models.resnet18 import RESNET18
+
+if 'model' not in locals() and 'model' not in globals():
+    print("Creating model and dataset for the first time.")
+    model = RESNET18()
+    dataset = CIFAR10()
+else:
+    print("Model and dataset already exist.")
+        
+training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis = model.train(dataset.train_loader, training_duration_millis = {training_duration_millis})
+print("Finished training. Actual training time: %.3f ms." % training_time_millis)
+print("Copied model from CPU to GPU in %.3f ms." % copy_cpu2gpu_millis)
+print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
+"""
+        else:
+            code:str = f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
+
+        return code
 
     async def do_execute(
             self,
@@ -2070,8 +2107,8 @@ class DistributedKernel(IPythonKernel):
                 # In either case, the execution will wait until states are synchronized.
                 # type: ignore
                 self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id,
-                                                                           term_number,
-                                                                           True)
+                                                                           term_number, True)
+
                 self.current_execution_stats.leader_election_microseconds = int((time.time() - election_start) * 1.0e6)
 
                 self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
@@ -2105,7 +2142,12 @@ class DistributedKernel(IPythonKernel):
             if training_duration_millis > 0:
                 self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
                                f"Discarding specified code. Will use custom training code instead.")
-                code = f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
+                code = self.get_custom_training_code(training_duration_millis = training_duration_millis)
+            elif "training_duration_millis = " in code:
+                training_duration_millis = int(float(code[27:]))
+                self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
+                               f"Discarding specified code. Will use custom training code instead.")
+                code = self.get_custom_training_code(training_duration_millis = training_duration_millis)
             else:
                 pass
 
@@ -3016,7 +3058,7 @@ class DistributedKernel(IPythonKernel):
     def toggle_outstream(self, override=False, enable=True):
         # Is sys.stdout has attribute 'disable'?
         if not hasattr(sys.stdout, 'disable'):
-            # self.log.warning("sys.stdout didn't initialized with kernel.OutStream.")
+            # self.log.warning("sys.stdout didn't initialize with kernel.OutStream.")
             return
 
         if override:

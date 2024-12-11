@@ -4,6 +4,8 @@ import torch.optim as optim
 from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
 
+import gc
+
 from tqdm import tqdm
 
 from typing import Optional, Callable
@@ -59,6 +61,11 @@ def print_cuda_memory(
     print(f"{prefix}Memory reserved: {r2:,} bytes (Δ={r2-r1:,} bytes)")
     print(f"{prefix}Memory allocated: {a2:,} bytes (Δ={a2-a1:,} bytes)")
     print(f"{prefix}Free inside reserved: {f2:,} bytes (Δ={f2-f1:,} bytes)")
+    print(torch.cuda.memory_summary())
+    stats: dict = torch.cuda.memory_stats()
+    print("torch.cuda.memory_stats()")
+    for k,v in stats.items():
+        print(f"{k}: {v}")
     print("------------------------------------------")
 
     print("=========================================\n")
@@ -67,7 +74,7 @@ def print_cuda_memory(
 
 
 class Trainer(object):
-    def __init__(self):
+    def __init__(self, batch_size: int = 64, num_workers: int = 4):
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
         self.log.setLevel(logging.DEBUG)
@@ -94,8 +101,8 @@ class Trainer(object):
         self.train_dataset = datasets.CIFAR10(root='data', train=True, download=True, transform=self.transform)
         self.test_dataset = datasets.CIFAR10(root='data', train=False, download=True, transform=self.transform)
 
-        self.train_loader = DataLoader(self.train_dataset, batch_size=64, shuffle=True, num_workers=2)
-        self.test_loader = DataLoader(self.test_dataset, batch_size=64, shuffle=False, num_workers=2)
+        self.train_loader = DataLoader(self.train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+        self.test_loader = DataLoader(self.test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
         # 4. Load a pre-trained model (ResNet18) and modify for CIFAR-10
         self.model = models.resnet18(pretrained=False)
@@ -136,20 +143,29 @@ class Trainer(object):
             # Backward pass and optimization
             loss.backward()
             self.optimizer.step()
+            # Add this line to clear grad tensors
+            self.optimizer.zero_grad(set_to_none=True)
 
             running_loss += loss.item()
 
             if copied_to_gpu:
                 del images
                 del labels
+                del loss
+                del outputs
                 torch.cuda.synchronize()
 
         if copied_to_gpu:
             self.model = self.model.to(self.cpu_device)
             torch.cuda.synchronize()
 
+        def action():
+            gc.collect()
+            with torch.no_grad():
+                torch.cuda.empty_cache()
+
         print_cuda_memory(
-            action = lambda: torch.cuda.empty_cache(),
+            action = action,
             beforeHeader = "Preparing to empty CUDA cache.",
             afterHeader = "Emptied CUDA cache in %.9f seconds."
         )
@@ -191,6 +207,9 @@ class Trainer(object):
                 if copied_to_gpu:
                     del images
                     del labels
+                    del loss
+                    del outputs
+                    del predicted
                     torch.cuda.synchronize()
 
         accuracy = 100.0 * correct / total
@@ -199,8 +218,13 @@ class Trainer(object):
             self.model = self.model.to(self.cpu_device)
             torch.cuda.synchronize()
 
+        def action():
+            gc.collect()
+            with torch.no_grad():
+                torch.cuda.empty_cache()
+
         print_cuda_memory(
-            action = lambda: torch.cuda.empty_cache(),
+            action = action,
             beforeHeader = "Preparing to empty CUDA cache.",
             afterHeader = "Emptied CUDA cache in %.9f seconds."
         )
@@ -217,5 +241,5 @@ class Trainer(object):
             test_loss, test_accuracy = self.test()
 
             print(f"Epoch [{epoch+1}/{num_epochs}]: "
-                  f"Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%")
+                f"Train Loss: {train_loss:.4f}, Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%")
 
