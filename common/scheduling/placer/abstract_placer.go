@@ -148,6 +148,10 @@ func (placer *AbstractPlacer) Place(host scheduling.Host, in *proto.KernelReplic
 	}
 
 	placer.instance.UpdateIndex(host)
+
+	placer.log.Debug("Returning connection info for replica %d of kernel %s after placing it on Host %s: %v",
+		in.ReplicaId, in.Kernel.Id, host.GetID(), connInfo)
+
 	return connInfo, err
 }
 

@@ -497,7 +497,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, targetHost scheduling.
 		smrWg.Done()
 
 		if !addReplicaOp.Completed() {
-			s.log.Error("AddReplicaOperation \"%s\" does not think it's done, even though it should...", addReplicaOp.Completed())
+			s.log.Error("AddReplicaOperation \"%s\" does not think it's done, even though it should...", addReplicaOp.OperationID())
 			go s.sendErrorNotification(fmt.Sprintf("AddReplicaOperation \"%s\" is Confused", addReplicaOp.OperationID()),
 				fmt.Sprintf("AddReplicaOperation \"%s\" does not think it's done, even though it should: %s",
 					addReplicaOp.OperationID(), addReplicaOp.String()))
@@ -761,6 +761,9 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 		}, nil, err
 	}
 
+	s.log.Debug("Successfully added new replica %d of kernel \"%s\" during migration (not quite done yet)",
+		addReplicaOp.ReplicaId(), kernelReplica.ID())
+
 	var newlyAddedReplica scheduling.KernelReplica
 	newlyAddedReplica, err = addReplicaOp.Kernel().GetReplicaByID(addReplicaOp.ReplicaId())
 	if err != nil {
@@ -781,8 +784,12 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			Success:     false,
 		}, nil, err
 	} else {
-		s.log.Debug("Successfully added new replica %d to kernel %s during migration operation.", addReplicaOp.ReplicaId(), kernelReplica.ID())
+		s.log.Debug("Successfully added new replica %d to kernel %s during migration operation.",
+			addReplicaOp.ReplicaId(), kernelReplica.ID())
 	}
+
+	s.log.Debug("Designating new replica %d of kernel \"%s\" as \"ready\"",
+		addReplicaOp.ReplicaId(), kernelReplica.ID())
 
 	// The replica is fully operational at this point, so record that it is ready.
 	newlyAddedReplica.SetReady()

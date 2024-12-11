@@ -5814,17 +5814,17 @@ func (mr *MockKernelReplicaMockRecorder) UnbindSession(sess any) *gomock.Call {
 }
 
 // UpdateResourceSpec mocks base method.
-func (m *MockKernelReplica) UpdateResourceSpec(newSpec, oldSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+func (m *MockKernelReplica) UpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateResourceSpec", newSpec, oldSpec, tx)
+	ret := m.ctrl.Call(m, "UpdateResourceSpec", newSpec, tx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateResourceSpec indicates an expected call of UpdateResourceSpec.
-func (mr *MockKernelReplicaMockRecorder) UpdateResourceSpec(newSpec, oldSpec, tx any) *gomock.Call {
+func (mr *MockKernelReplicaMockRecorder) UpdateResourceSpec(newSpec, tx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateResourceSpec", reflect.TypeOf((*MockKernelReplica)(nil).UpdateResourceSpec), newSpec, oldSpec, tx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateResourceSpec", reflect.TypeOf((*MockKernelReplica)(nil).UpdateResourceSpec), newSpec, tx)
 }
 
 // Validate mocks base method.
