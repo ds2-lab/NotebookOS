@@ -562,6 +562,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			ElectionTimeoutSeconds:       ivk.electionTimeoutSeconds,
 			WorkloadId:                   ivk.workloadId,
 			SmrEnabled:                   ivk.smrEnabled,
+			UseRealGpus:                  ivk.useRealGpus,
 		},
 	}
 	if spec.PersistentId != nil {

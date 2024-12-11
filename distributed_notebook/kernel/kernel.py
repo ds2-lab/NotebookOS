@@ -2151,7 +2151,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             else:
                 pass
 
-            self.log.debug("Executing the following code now: %s" % code)
+            self.log.debug(f"Executing the following code now:\n{code}\n")
 
             self.current_execution_stats.execution_start_unix_millis = time.time() * 1.0e3
 

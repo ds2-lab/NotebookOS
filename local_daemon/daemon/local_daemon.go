@@ -1027,6 +1027,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 			SimulateWriteAfterExec:               d.schedulingPolicy.PostExecutionStatePolicy().ShouldPerformWriteOperation(),
 			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
+			UseRealGpus:                          d.useRealGpus,
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1878,6 +1879,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
 			WorkloadId:                           in.WorkloadId,
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
+			UseRealGpus:                          d.useRealGpus,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.
