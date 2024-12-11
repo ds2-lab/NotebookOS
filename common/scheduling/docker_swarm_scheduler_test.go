@@ -26,6 +26,7 @@ import (
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"go.uber.org/mock/gomock"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1046,27 +1047,33 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					ReplicaId:    int32(1),
 				}
 				kernel.EXPECT().PrepareNewReplica(dataDirectory, int32(1)).Times(1).Return(returnedSpec)
+				kernel.EXPECT().GetReplicaByID(int32(1)).Times(1).Return(kernelReplica1, nil)
+				kernelReplica1.EXPECT().SetReady().Times(1)
 
 				targetGatewayClient := localGatewayClients[5]
 				Expect(targetGatewayClient).ToNot(BeNil())
-				targetGatewayClient.EXPECT().StartKernelReplica(gomock.Any(), returnedSpec, gomock.Any).Times(1).Return(&proto.KernelConnectionInfo{
-					Ip:              "10.0.0.1",
-					Transport:       "tcp",
-					ControlPort:     9000,
-					ShellPort:       9001,
-					StdinPort:       9002,
-					HbPort:          9003,
-					IopubPort:       9004,
-					IosubPort:       9005,
-					SignatureScheme: jupyter.JupyterSignatureScheme,
-					Key:             uuid.NewString(),
-				}, nil).AnyTimes()
+				targetGatewayClient.EXPECT().StartKernelReplica(gomock.Any(), returnedSpec, gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+					fmt.Printf("StartKernelReplica called on LocalGateway #%d with KernelReplicaSpec:\n%v\n", 5, in)
+
+					return &proto.KernelConnectionInfo{
+						Ip:              "10.0.0.1",
+						Transport:       "tcp",
+						ControlPort:     9000,
+						ShellPort:       9001,
+						StdinPort:       9002,
+						HbPort:          9003,
+						IopubPort:       9004,
+						IosubPort:       9005,
+						SignatureScheme: jupyter.JupyterSignatureScheme,
+						Key:             uuid.NewString(),
+					}, nil
+				}).AnyTimes()
 
 				var wg sync.WaitGroup
 				wg.Add(1)
 
 				go func() {
-					defer GinkgoRecover()
+					// defer GinkgoRecover()
 					resp, reason, err := dockerScheduler.MigrateKernelReplica(kernelReplica1, "", true)
 					Expect(err).To(BeNil())
 					Expect(reason).To(BeNil())
@@ -1074,6 +1081,33 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					fmt.Printf("Response: %v\n", resp)
 					wg.Done()
 				}()
+
+				//Eventually(migrateReplica).Should(Not(Panic()))
+
+				key := fmt.Sprintf("%s-%d", kernelId, 1)
+				getAddReplicaOp := func() *scheduling.AddReplicaOperation {
+					addReplicaOp, _ := dockerScheduler.GetAddReplicaOperation(key)
+					return addReplicaOp
+				}
+
+				Eventually(getAddReplicaOp, "2s").ShouldNot(BeNil())
+
+				addReplicaOp, loaded := dockerScheduler.GetAddReplicaOperationManager().Load(key)
+				Expect(loaded).To(BeTrue())
+				Expect(addReplicaOp).ToNot(BeNil())
+
+				addReplicaOp.SetReplicaStarted()
+
+				addReplicaOp.SetContainerName("UnitTestDockerContainer")
+
+				err = addReplicaOp.SetReplicaRegistered()
+				Expect(err).To(BeNil())
+
+				addReplicaOp.SetReplicaJoinedSMR()
+
+				Expect(addReplicaOp.ReplicaRegistered()).To(BeTrue())
+				Expect(addReplicaOp.ReplicaJoinedSMR()).To(BeTrue())
+				Expect(addReplicaOp.PodOrContainerStarted()).To(BeTrue())
 
 				wg.Wait()
 			})
