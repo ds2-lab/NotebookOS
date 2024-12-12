@@ -1,5 +1,9 @@
-from distributed_notebook.sync.checkpointing.checkpointer import RemoteCheckpointer
+from abc import ABC
 
-class S3Checkpointer(RemoteCheckpointer):
+from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+
+class S3Checkpointer(RemoteCheckpointer, ABC):
     def __init__(self):
         super().__init__()
+
+        raise ValueError("S3 is not yet supported.")

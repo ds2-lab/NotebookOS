@@ -1,5 +1,10 @@
-from distributed_notebook.sync.checkpointing.checkpointer import RemoteCheckpointer
+from abc import ABC
 
-class HdfsCheckpointer(RemoteCheckpointer):
+from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+
+
+class HdfsCheckpointer(RemoteCheckpointer, ABC):
     def __init__(self):
         super().__init__()
+
+        raise ValueError("HDFS is not yet supported.")

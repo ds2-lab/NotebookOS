@@ -41,6 +41,8 @@ from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
 from ..logging import ColoredLogFormatter
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
+from ..sync.checkpointing.factory import get_remote_checkpointer
+from ..sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 from ..sync.election import Election, ElectionTimestamps
 from ..sync.errors import DiscardMessageError
 from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer, get_estimated_io_time_seconds, \
@@ -358,6 +360,8 @@ class DistributedKernel(IPythonKernel):
         # This is set to True in self.loaded_serialized_state_callback, which is called by the RaftLog after it
         # loads its serialized state from intermediate storage.
         self.loaded_serialized_state: bool = False
+
+        self._remote_checkpointer: RemoteCheckpointer = get_remote_checkpointer(self.remote_storage, self.remote_storage_hostname)
 
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
         self.remote_storages: Dict[str, SimulatedCheckpointer] = {
@@ -1237,7 +1241,11 @@ class DistributedKernel(IPythonKernel):
         # Start the synchronizer.
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
         self.synchronizer = Synchronizer(
-            sync_log, module=self.shell.user_module, opts=CHECKPOINT_AUTO, node_id=self.smr_node_id)  # type: ignore
+            sync_log,
+            module=self.shell.user_module,
+            opts=CHECKPOINT_AUTO,
+            node_id=self.smr_node_id,
+            remote_checkpointer=self._remote_checkpointer)  # type: ignore
 
         sync_log.set_fast_forward_executions_handler(self.synchronizer.fast_forward_execution_count)
         sync_log.set_set_execution_count_handler(self.synchronizer.set_execution_count)
@@ -2971,6 +2979,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                                    remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
                                    deployment_mode=self.deployment_mode,
                                    election_timeout_seconds=self.election_timeout_seconds,
+                                   remote_checkpointer=self._remote_checkpointer,
                                    loaded_serialized_state_callback=self.loaded_serialized_state_callback)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))

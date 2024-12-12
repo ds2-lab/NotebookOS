@@ -14,6 +14,7 @@ from typing import Tuple, Callable, Optional, Any, Iterable, Dict, List
 import debugpy
 
 from .checkpoint import Checkpoint
+from .checkpointing.remote_checkpointer import RemoteCheckpointer
 from .election import Election
 from .errors import print_trace, SyncError, GoError, GoNilError, InconsistentTermNumberError, DiscardMessageError
 from .file_log import FileLog
@@ -74,6 +75,7 @@ class RaftLog(object):
             set_execution_count_handler: Callable[[int], None] = None,
             loaded_serialized_state_callback: Callable[[dict[str, Any]], None] = None,
             election_timeout_seconds: float = 10,
+            remote_checkpointer: RemoteCheckpointer = None,
             deployment_mode: str = "LOCAL",
     ):
         self._snapshotCallback = None
@@ -123,6 +125,10 @@ class RaftLog(object):
         self._set_execution_count_handler: Callable[[int], None] = set_execution_count_handler
         self._loaded_serialized_state_callback: Callable[
             [dict[str, dict[str, Any]]], None] = loaded_serialized_state_callback
+
+        if remote_checkpointer is None:
+            raise ValueError("the remote_checkpointer cannot be null")
+        self._remote_checkpointer: RemoteCheckpointer = remote_checkpointer
 
         # How long to wait to receive other proposals before making a decision (if we can, like if we
         # have at least received one LEAD proposal).

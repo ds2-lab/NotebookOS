@@ -1,12 +1,12 @@
 from abc import ABC, abstractmethod
 
 import logging
+from typing import Any
 
 from distributed_notebook.datasets.base import Dataset
 from distributed_notebook.logging import ColoredLogFormatter
 from distributed_notebook.models.model import DeepLearningModel
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
-
 
 class RemoteCheckpointer(ABC):
     def __init__(self):

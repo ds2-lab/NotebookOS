@@ -29,6 +29,17 @@ class RedisCheckpointer(RemoteCheckpointer):
 
         self._use_async: bool = use_async
 
+        if ':' in host:
+            host_orig:str = host
+            idx = host_orig.index(':')
+            host = host_orig[:idx]
+
+            try:
+                port = int(host_orig[idx+1:]) # +1 because idx is the index of the ':', not the beginning of the port
+            except IndexError:
+                # Apparently there's nothing after the colon, so we'll use the default of 6379 (or whatever was passed).
+                pass
+
         self._redis_password: str = password
         self._redis_db: int = db
         self._redis_port = port

@@ -6,6 +6,7 @@ import types
 from typing import Optional
 
 from .ast import SyncAST
+from .checkpointing.remote_checkpointer import RemoteCheckpointer
 from .election import Election
 from .errors import SyncError, DiscardMessageError
 from .log import Checkpointer, SyncLog, SynchronizedValue, KEY_SYNC_END
@@ -33,7 +34,15 @@ class Synchronizer:
     _module: types.ModuleType
     _async_loop: asyncio.AbstractEventLoop
 
-    def __init__(self, sync_log: SyncLog, module: Optional[types.ModuleType] = None, ns=None, opts=0, node_id: int = -1):
+    def __init__(
+            self,
+            sync_log: SyncLog,
+            module: Optional[types.ModuleType] = None,
+            ns=None,
+            opts=0,
+            node_id: int = -1,
+            remote_checkpointer: RemoteCheckpointer = None,
+    ):
         if module is None and ns is not None:
             self._module = SyncModule()  # type: ignore
             ns.setdefault("__name__", "__main__")
@@ -71,6 +80,11 @@ class Synchronizer:
         self._syncing = False  # Avoid checkpoint in the middle of syncing.
 
         self._synclog: SyncLog = sync_log
+
+        if remote_checkpointer is None:
+            raise ValueError("remote checkpointer cannot be null")
+        self._remote_checkpointer: RemoteCheckpointer = remote_checkpointer
+
         self._log.debug("Finished creating Synchronizer")
 
     def start(self):
@@ -452,10 +466,12 @@ class Synchronizer:
         if isinstance(val, Dataset):
             self._log.debug(f"Synchronizing Dataset \"{val.name}\". Will convert to pointer before appending to RaftLog.")
             dataset_pointer: DatasetPointer = DatasetPointer(dataset = val)
+            self._remote_checkpointer.write_dataset(dataset_pointer)
             val = dataset_pointer
         elif isinstance(val, DeepLearningModel):
             self._log.debug(f"Synchronizing Model \"{val.name}\". Will convert to pointer before appending to RaftLog.")
             model_pointer: ModelPointer = ModelPointer(deep_learning_model = val)
+            self._remote_checkpointer.write_model_state_dict(model_pointer)
             val = model_pointer
 
         if checkpointing:
