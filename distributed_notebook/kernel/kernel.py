@@ -42,6 +42,7 @@ from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
 from ..logging import ColoredLogFormatter
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.checkpointing.factory import get_remote_checkpointer
+from ..sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPointer
 from ..sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 from ..sync.election import Election, ElectionTimestamps
 from ..sync.errors import DiscardMessageError
@@ -2912,6 +2913,35 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 'user_expressions': {},
                 }
 
+    def __model_committed(self, pointer: ModelPointer):
+        """
+        Callback to be executed when a pointer to a DeepLearningModel object is committed to the RaftLog.
+        :param pointer: the pointer to the DeepLearningModel object.
+        """
+        self.log.debug(f"An updated \"{pointer.name}\" model was committed.")
+        pass
+
+    def __dataset_committed(self, pointer: DatasetPointer):
+        """
+        Callback to be executed when a pointer to a Dataset object is committed to the RaftLog.
+        :param pointer: the pointer to the Dataset object.
+        """
+        self.log.debug(f"The \"{pointer.name}\" dataset was committed.")
+        pass
+
+    def large_object_pointer_committed(self, pointer: SyncPointer):
+        """
+        Callback to be executed when a pointer to a large object is committed to the RaftLog.
+        :param pointer: the pointer to the large object.
+        """
+        if isinstance(pointer, DatasetPointer):
+            self.__dataset_committed(pointer)
+        elif isinstance(pointer, ModelPointer):
+            self.__model_committed(pointer)
+        else:
+            self.log.error(f"SyncPointer of unknown or unsupported type committed: {pointer}")
+            raise ValueError(f"SyncPointer of unknown or unsupported type committed: {pointer}")
+
     async def override_shell(self):
         """Override IPython Core"""
         self.old_run_cell = self.shell.run_cell  # type: ignore
@@ -2980,6 +3010,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                                    deployment_mode=self.deployment_mode,
                                    election_timeout_seconds=self.election_timeout_seconds,
                                    remote_checkpointer=self._remote_checkpointer,
+                                   large_object_pointer_committed = self.large_object_pointer_committed,
                                    loaded_serialized_state_callback=self.loaded_serialized_state_callback)
         except Exception as ex:
             self.log.error("Error while creating RaftLog: %s" % str(ex))
