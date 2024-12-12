@@ -33,7 +33,8 @@ dependencies = [
     "docker",
     "jsondiff",
     "numpy",
-    "redis"
+    "redis",
+    "boto3"
 ]
 
 readme = "README.md"
