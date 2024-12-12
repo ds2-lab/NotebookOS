@@ -65,7 +65,7 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip vim gdb screen
 # RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
 # RUN chmod -R 777 /home/jovyan/datasets/*
 
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch numpy pandas
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch numpy pandas typing_extensions redis
 RUN /home/jovyan/Python-3.12.6/debug/python -m pip install --upgrade ipyflow
 
 # Install Golang for debugging.
