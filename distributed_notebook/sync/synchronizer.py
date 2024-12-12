@@ -12,9 +12,8 @@ from .errors import SyncError, DiscardMessageError
 from .log import Checkpointer, SyncLog, SynchronizedValue, KEY_SYNC_END
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
-from .syncpointer import DatasetPointer, ModelPointer
+from .checkpointing.pointer import DatasetPointer, ModelPointer
 from ..datasets.base import Dataset
-from ..demo.script.training import model
 from ..logging import ColoredLogFormatter
 from ..models.model import DeepLearningModel
 

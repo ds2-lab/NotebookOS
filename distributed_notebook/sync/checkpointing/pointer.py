@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 
 from distributed_notebook.datasets.base import Dataset
-from distributed_notebook.demo.script.training import model
 from distributed_notebook.models.model import DeepLearningModel
 from distributed_notebook.sync.log import SynchronizedValue
 

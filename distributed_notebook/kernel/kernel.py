@@ -33,8 +33,8 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
-from .datasets.cifar10 import CIFAR10
-from .models.resnet18 import RESNET18
+from ..datasets.cifar10 import CIFAR10
+from ..models.resnet18 import RESNET18
 from .execution_yield_error import ExecutionYieldError
 from .util import extract_header
 from ..gateway import gateway_pb2
