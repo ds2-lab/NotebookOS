@@ -3,7 +3,7 @@ import json
 import os
 import time
 from abc import ABC
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import boto3
 import torch
@@ -42,49 +42,77 @@ class S3Checkpointer(RemoteCheckpointer, ABC):
             self.log.error(f"Error uploading data: {e}")
             return False
 
-    def download_file_from_s3(self, object_name, file_name):
+    def download_file_from_s3(self, object_name)->io.BytesIO:
         """
         Download a file from an S3 bucket.
 
         :param object_name: S3 object name
-        :param file_name: File name to save as locally
         :return: True if file was downloaded, else False
         """
+        buffer: io.BytesIO = io.BytesIO()
         try:
-            self._s3_client.download_file(self._bucket_name, object_name, file_name)
-            self.log.debug(f"File {object_name} from {self._bucket_name} downloaded as {file_name}")
-            return True
+            self._s3_client.download_fileobj(self._bucket_name, object_name, buffer)
+            return buffer
         except Exception as e:
             self.log.error(f"Error downloading file: {e}")
-            return False
+            raise e # re-raise
+
+    def __read_state_dict(self, object_name: str, model_name: str)->Optional[Dict[str, Any]]:
+        """
+        Read a single state dictionary from AWS S3.
+
+        :param object_name: the AWS S3 object name.
+        :param model_name: the name of the model associated with the state dictionary that we've been instructed to read.
+        :return:
+        """
+        try:
+            st: float = time.time()
+            buffer: io.BytesIO = self.download_file_from_s3(object_name)
+            et: float = time.time()
+        except Exception as ex:
+            self.log.error(f"Failed to read state of model \"{model_name}\" from AWS S3 at bucket/key \"{os.path.join(self._bucket_name, object_name)}\" "
+                           f"because: {ex}")
+            raise ex # re-raise
+
+        self.log.debug(f"Successfully read state of model \"{model_name}\" to AWS S3 at bucket/key \"{os.path.join(self._bucket_name, object_name)}\" "
+                       f"(model size: {buffer.getbuffer().nbytes} MB) in {et - st} seconds.")
+
+        try:
+            state_dict: Dict[str, Any] = torch.load(buffer)
+        except Exception as ex:
+            self.log.error(f"Failed to load state of model \"{model_name}\" from data retrieved from AWS S3 at "
+                           f"bucket/key \"{os.path.join(self._bucket_name, object_name)}\"because: {ex}.")
+            raise ex # re-raise
+
+        return state_dict
 
     def read_state_dicts(self, pointer: ModelPointer) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         if pointer is None:
             raise ValueError("cannot read model using nil ModelPointer")
 
         model_name: str = pointer.name
-        base_redis_key: str = pointer.key
+        base_object_name: str = pointer.key
 
-        model_redis_key: str = os.path.join(base_redis_key, "model.pt")
-        optimizer_redis_key: str = os.path.join(base_redis_key, "optimizer.pt")
-        criterion_redis_key: str = os.path.join(base_redis_key, "criterion.pt")
+        model_object_name: str = os.path.join(base_object_name, "model.pt")
+        optimizer_object_name: str = os.path.join(base_object_name, "optimizer.pt")
+        criterion_object_name: str = os.path.join(base_object_name, "criterion.pt")
 
         try:
-            model_state_dict = self.__read_state_dict(model_redis_key, model_name)
+            model_state_dict = self.__read_state_dict(model_object_name, model_name)
         except Exception as ex:
-            self.log.error(f"Failed to read model state dictionary from Redis: {ex}")
+            self.log.error(f"Failed to read model state dictionary from AWS S3: {ex}")
             raise ex  # re-raise
 
         try:
-            optimizer_state_dict = self.__read_state_dict(optimizer_redis_key, model_name)
+            optimizer_state_dict = self.__read_state_dict(optimizer_object_name, model_name)
         except Exception as ex:
-            self.log.error(f"Failed to read optimizer state dictionary from Redis: {ex}")
+            self.log.error(f"Failed to read optimizer state dictionary from AWS S3: {ex}")
             raise ex  # re-raise
 
         try:
-            criterion_state_dict = self.__read_state_dict(criterion_redis_key, model_name)
+            criterion_state_dict = self.__read_state_dict(criterion_object_name, model_name)
         except Exception as ex:
-            self.log.error(f"Failed to read criterion state dictionary from Redis: {ex}")
+            self.log.error(f"Failed to read criterion state dictionary from AWS S3: {ex}")
             raise ex  # re-raise
 
         return model_state_dict, optimizer_state_dict, criterion_state_dict

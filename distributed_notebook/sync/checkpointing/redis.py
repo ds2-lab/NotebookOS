@@ -133,7 +133,7 @@ class RedisCheckpointer(RemoteCheckpointer):
             self.log.error(f"Failed to load dataset: {ex}")
             raise ValueError(f"failed to load dataset \"{dataset_name}\" because: {ex}")
 
-    def __read_state_dict(self, redis_key: str, model_name: str)->Dict[str, Any]:
+    def __read_state_dict(self, redis_key: str, model_name: str)->Optional[Dict[str, Any]]:
         """
         Read a single state dictionary from Redis.
         :param redis_key: the key at which the desired state dictionary is stored
@@ -152,6 +152,8 @@ class RedisCheckpointer(RemoteCheckpointer):
         if val is None:
             self.log.error(f"Failed to read state of model \"{model_name}\" from Redis at key \"{redis_key}\" "
                            f"because there was no value stored at that key.")
+            raise ValueError(f"Failed to read state of model \"{model_name}\" from Redis at key \"{redis_key}\" "
+                             f"because there was no value stored at that key.")
 
         buffer: io.BytesIO = io.BytesIO(val)
 
