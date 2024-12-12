@@ -858,6 +858,10 @@ class DistributedKernel(IPythonKernel):
             self.log.warning(
                 "Will NOT be initializing Persistent Store on start, as persistent ID is not yet available.")
 
+        self.shell.user_ns["__test_variable1__"] = 999
+        self.shell.user_ns["__test_variable2__"] = "hello, world"
+        self.shell.user_ns["__test_variable3__"] = "you cannot change me"
+
     async def init_persistent_store_on_start(self, persistent_id: str):
         self.log.info(f"Initializing Persistent Store on start, as persistent ID is available: \"{persistent_id}\"")
         # Create future to avoid duplicate initialization
@@ -2177,6 +2181,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             reply_content['execution_start_unix_millis'] = self.current_execution_stats.execution_start_unix_millis
             reply_content['execution_finished_unix_millis'] = self.current_execution_stats.execution_end_unix_millis
 
+            self.shell.user_ns["__test_variable3__"] = "you cannot change me" # for debugging/testing
+
             self.log.info(f"Finished executing user-submitted code in {exec_duration_millis} ms. "
                           f"Returning the following content: {reply_content}")
 
@@ -3012,15 +3018,15 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                                    remote_checkpointer=self._remote_checkpointer,
                                    large_object_pointer_committed = self.large_object_pointer_committed,
                                    loaded_serialized_state_callback=self.loaded_serialized_state_callback)
-        except Exception as ex:
-            self.log.error("Error while creating RaftLog: %s" % str(ex))
+        except Exception as exc:
+            self.log.error("Error while creating RaftLog: %s" % str(exc))
 
             # Print the stack.
-            stack: list[str] = traceback.format_exception(ex)
+            stack: list[str] = traceback.format_exception(exc)
             for stack_entry in stack:
                 self.log.error(stack_entry)
 
-            self.report_error(error_title="Failed to Create RaftLog", error_message=str(ex))
+            self.report_error(error_title="Failed to Create RaftLog", error_message=str(exc))
 
             # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting.
             await asyncio.sleep(10)

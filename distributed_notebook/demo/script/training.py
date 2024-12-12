@@ -1,24 +1,15 @@
 from __future__ import print_function
 
-import json
 import os
 
 import numpy as np
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-
-from torch.autograd import Variable
-
-import torchvision
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 import torchvision.models as models
-
-import matplotlib.pyplot as plt
-from itertools import islice
 
 directory = "datasets/tiny-imagenet-200/"
 num_classes = 200
