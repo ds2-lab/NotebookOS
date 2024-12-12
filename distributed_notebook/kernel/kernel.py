@@ -2029,15 +2029,15 @@ class DistributedKernel(IPythonKernel):
                 self.log.debug("Creating CIFAR-10 dataset.")
                 self.dataset = CIFAR10()
             code:str = f"""
-from distributed_notebook.kernel.datasets.cifar10 import CIFAR10
-from distributed_notebook.kernel.models.resnet18 import RESNET18
+from distributed_notebook.datasets.cifar10 import CIFAR10
+from distributed_notebook.models.resnet18 import ResNet18, ResNet18Name 
 
 if 'model' not in locals() and 'model' not in globals():
-    print("Creating model and dataset for the first time.")
-    model = RESNET18()
+    print("Creating model ('%s') and dataset ('%s') for the first time." % (ResNet18Name, "CIFAR-10"))
+    model = ResNet18()
     dataset = CIFAR10()
 else:
-    print("Model and dataset already exist.")
+    print("Model ('%s') and dataset ('%s') already exist." % (model.name, dataset.name))
         
 training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis = model.train(dataset.train_loader, training_duration_millis = {training_duration_millis})
 print("Finished training. Actual training time: %.3f ms." % training_time_millis)
@@ -2096,6 +2096,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 "Using special code to initialize persistent store: \"%s\"" % code)
             return await asyncio.ensure_future(self.init_persistent_store(code))
 
+        # Ensure persistent store is ready
         if not await self.check_persistent_store():
             if 'persistent_id' in self.shell.user_ns:
                 self.persistent_id = self.shell.user_ns['persistent_id']
