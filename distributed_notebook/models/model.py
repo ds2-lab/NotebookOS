@@ -23,7 +23,7 @@ class DeepLearningModel(ABC):
             criterion: Module = None,
             criterion_state_dict: Optional[Dict[str, Any]] = None,
             out_features: int = 10,
-            total_epochs_trained: int = 0,
+            total_training_time_seconds: int = 0,
     ):
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
@@ -51,7 +51,7 @@ class DeepLearningModel(ABC):
         if criterion_state_dict is not None:
             self._criterion.load_state_dict(criterion_state_dict)
 
-        self.total_epochs_trained: int = total_epochs_trained
+        self.total_training_time_seconds: int = total_training_time_seconds
         self.model: Optional[Module] = None
         self._optimizer: Optional[Module] = None
         self._name:str = name

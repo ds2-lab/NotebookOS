@@ -130,7 +130,9 @@ class ResNet18(DeepLearningModel):
 
             print(f"Completed iteration through training dataset. Time elapsed: {time.time() - start_time} seconds.")
 
-        training_time_millis: float = (time.time() - start_time) * 1.0e3
+        time_spent_training_sec: float = (time.time() - start_time)
+        self.total_training_time_seconds += time_spent_training_sec
+        training_time_millis: float = time_spent_training_sec * 1.0e3
         self.log.debug(f"Training completed. Target time: {training_duration_millis} ms. "
                        f"Time elapsed: {training_time_millis} ms. "
                        f"Processed {num_minibatches_processed} mini-batches ({num_images_processed} individual samples).")
@@ -194,7 +196,7 @@ class ResNet18(DeepLearningModel):
         return test_loss / len(loader), accuracy
 
     def __str__(self)->str:
-        return ""
+        return f"{self.name} (ResNet-18) [TotalTrainingTime={self.total_training_time_seconds}sec]"
 
     def __repr__(self)->str:
-        return ""
+        return f"{self.name} (ResNet-18) [TotalTrainingTime={self.total_training_time_seconds}sec]"
