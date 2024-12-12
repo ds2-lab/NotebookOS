@@ -33,8 +33,12 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
+from ..datasets.base import Dataset
 from ..datasets.cifar10 import CIFAR10
-from ..models.resnet18 import RESNET18
+from ..datasets.loader import load_dataset
+from ..models.loader import load_model
+from ..models.model import DeepLearningModel
+from ..models.resnet18 import ResNet18
 from .execution_yield_error import ExecutionYieldError
 from .util import extract_header
 from ..gateway import gateway_pb2
@@ -858,6 +862,8 @@ class DistributedKernel(IPythonKernel):
             self.log.warning(
                 "Will NOT be initializing Persistent Store on start, as persistent ID is not yet available.")
 
+        # These are some hard-coded test variables that I am using to see how the effects of manually
+        # adding/removing/updating entries in/to the shell.user_ns dictionary works when executing code.
         self.shell.user_ns["__test_variable1__"] = 999
         self.shell.user_ns["__test_variable2__"] = "hello, world"
         self.shell.user_ns["__test_variable3__"] = "you cannot change me"
@@ -2019,7 +2025,7 @@ class DistributedKernel(IPythonKernel):
         if self.use_real_gpus:
             if self.model is None:
                 self.log.debug("Creating RESNET-18 model.")
-                self.model = RESNET18()
+                self.model = ResNet18()
                 self.log.debug("Creating CIFAR-10 dataset.")
                 self.dataset = CIFAR10()
             code:str = f"""
@@ -2925,7 +2931,32 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         :param pointer: the pointer to the DeepLearningModel object.
         """
         self.log.debug(f"An updated \"{pointer.name}\" model was committed.")
-        pass
+
+        try:
+            model_state_dict, optimizer_state_dict, criterion_state_dict = self._remote_checkpointer.read_state_dicts(pointer)
+        except Exception as exc:
+            self.log.error(f"Failed to read state dictionaries for model \"{pointer.name}\" "
+                           f"from remote storage \"{self._remote_checkpointer.storage_name}\" because: {exc}")
+            raise exc # re-raise
+
+        try:
+            st: float = time.time()
+            model: DeepLearningModel = load_model(
+                model_name = pointer.name,
+                existing_model = self.shell.user_ns.get("model", None),
+                out_features = pointer.out_features,
+                model_state_dict = model_state_dict,
+                optimizer_state_dict = optimizer_state_dict,
+                criterion_state_dict = criterion_state_dict
+            )
+            et: float = time.time()
+        except Exception as exc:
+            self.log.error(f"Failed to load committed dataset \"{pointer.name}\" because: {exc}")
+            self.report_error("Failed to Load Committed Dataset \"{pointer.name}\"", str(exc))
+            return
+
+        self.shell.user_ns["model"] = model
+        self.log.debug(f"Successfully loaded committed model \"{pointer.name}\" in {et - st} seconds.")
 
     def __dataset_committed(self, pointer: DatasetPointer):
         """
@@ -2933,7 +2964,30 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         :param pointer: the pointer to the Dataset object.
         """
         self.log.debug(f"The \"{pointer.name}\" dataset was committed.")
-        pass
+
+        existing_dataset: Dataset = self.shell.user_ns.get("dataset", None)
+
+        if existing_dataset is not None:
+            self.log.debug(f"Found existing dataset \"{existing_dataset.name}\" in user namespace.")
+
+            # If they match, then we're done here.
+            if existing_dataset.name == pointer.name:
+                return
+
+            self.log.warning(f"Existing dataset \"{existing_dataset.name}\" does not match "
+                             f"committed dataset \"{pointer.name}\".")
+
+        try:
+            st: float = time.time()
+            dataset: Dataset = load_dataset(pointer.dataset_description)
+            et: float = time.time()
+        except Exception as exc:
+            self.log.error(f"Failed to load committed dataset \"{pointer.name}\" because: {exc}")
+            self.report_error("Failed to Load Committed Dataset \"{pointer.name}\"", str(exc))
+            return
+
+        self.shell.user_ns["dataset"] = dataset
+        self.log.debug(f"Successfully loaded committed dataset \"{pointer.name}\" in {et - st} seconds.")
 
     def large_object_pointer_committed(self, pointer: SyncPointer):
         """

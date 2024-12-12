@@ -8,3 +8,6 @@ class HdfsCheckpointer(RemoteCheckpointer, ABC):
         super().__init__()
 
         raise ValueError("HDFS is not yet supported.")
+
+    def storage_name(self)->str:
+        return f"HDFS"

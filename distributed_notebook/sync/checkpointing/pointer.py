@@ -48,7 +48,12 @@ class DatasetPointer(SyncPointer):
 
     def __getstate__(self):
         d = dict(self.__dict__)
+
+        if self._dataset is not None:
+            d['dataset_description'] = self._dataset.description
+
         del d['_dataset']
+
         return d
 
     @property
@@ -70,11 +75,16 @@ class ModelPointer(SyncPointer):
         super().__init__(name = deep_learning_model.name, key = model_path, **kwargs)
 
         self._model: DeepLearningModel = deep_learning_model
+        self._out_features: int = deep_learning_model.out_features
 
     def __getstate__(self):
         d = dict(self.__dict__)
         del d['_model']
         return d
+
+    @property
+    def out_features(self)->int:
+        return self._out_features
 
     @property
     def model(self)->Optional[DeepLearningModel]:

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 import logging
-from typing import Any
+from typing import Any, Dict
 
 from distributed_notebook.datasets.base import Dataset
 from distributed_notebook.logging import ColoredLogFormatter
@@ -17,18 +17,34 @@ class RemoteCheckpointer(ABC):
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+    @property
     @abstractmethod
-    def read_dataset(self, pointer: DatasetPointer)->Dataset:
+    def storage_name(self)->str:
         pass
 
-    @abstractmethod
-    def read_model_state_dict(self, pointer: ModelPointer)->DeepLearningModel:
-        pass
+    # @abstractmethod
+    # def read_dataset(self, pointer: DatasetPointer)->Dataset:
+    #     pass
 
     @abstractmethod
-    def write_dataset(self, pointer: DatasetPointer):
+    def read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        """
+        Read the state dictionaries of the model, its optimizer, and its criterion from intermediate storage.
+
+        :param pointer: a pointer to the DeepLearningModel whose state dictionaries we're going to write.
+        :return: return the state dictionaries of the model, its optimizer, and its criterion.
+        """
         pass
 
+    # @abstractmethod
+    # def write_dataset(self, pointer: DatasetPointer)->None:
+    #     pass
+
     @abstractmethod
-    def write_model_state_dict(self, pointer: ModelPointer):
+    def write_state_dicts(self, pointer: ModelPointer)->None:
+        """
+        Write the state dictionaries of the model, its optimizer, and its criterion to intermediate storage.
+
+        :param pointer: a pointer to the DeepLearningModel whose state dictionaries we're going to write.
+        """
         pass

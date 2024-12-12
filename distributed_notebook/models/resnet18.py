@@ -9,8 +9,9 @@ from torchvision import models
 
 from distributed_notebook.models.model import DeepLearningModel
 
+ResNet18Name = "ResNet-18"
 
-class RESNET18(DeepLearningModel):
+class ResNet18(DeepLearningModel):
     def __init__(
             self,
             out_features: int = 10,
@@ -20,7 +21,12 @@ class RESNET18(DeepLearningModel):
             criterion_state_dict: Optional[Dict[str, Any]] = None,
             model_state_dict: Optional[Dict[str, Any]] = None,
     ):
-        super().__init__(name="ResNet-18", criterion = criterion, criterion_state_dict = criterion_state_dict)
+        super().__init__(
+            name=ResNet18Name,
+            criterion = criterion,
+            criterion_state_dict = criterion_state_dict,
+            out_features=out_features,
+        )
 
         self.model = models.resnet18(pretrained=False)
         self.model.fc = nn.Linear(self.model.fc.in_features, out_features)  # Modify the fully connected layer for 10 classes
@@ -35,6 +41,27 @@ class RESNET18(DeepLearningModel):
 
         if optimizer_state_dict is not None:
             self.optimizer.load_state_dict(optimizer_state_dict)
+
+    def apply_model_state_dict(self, model_state_dict: Dict[str, Any]):
+        try:
+            self.model.load_state_dict(model_state_dict)
+        except Exception as ex:
+            self.log.error(f"Failed to apply model state dictionary to model because: {ex}")
+            raise ex # re-raise
+
+    def apply_optimizer_state_dict(self, optimizer_state_dict: Dict[str, Any]):
+        try:
+            self.optimizer.load_state_dict(optimizer_state_dict)
+        except Exception as ex:
+            self.log.error(f"Failed to apply optimizer state dictionary to model because: {ex}")
+            raise ex # re-raise
+
+    def apply_criterion_state_dict(self, criterion_state_dict: Dict[str, Any]):
+        try:
+            self.criterion.load_state_dict(criterion_state_dict)
+        except Exception as ex:
+            self.log.error(f"Failed to apply criterion state dictionary to model because: {ex}")
+            raise ex # re-raise
 
     def train(self, loader, training_duration_millis: int|float = 0.0)->tuple[float, float, float]:
         """

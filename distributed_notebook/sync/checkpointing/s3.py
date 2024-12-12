@@ -7,3 +7,6 @@ class S3Checkpointer(RemoteCheckpointer, ABC):
         super().__init__()
 
         raise ValueError("S3 is not yet supported.")
+
+    def storage_name(self)->str:
+        return f"AWS S3"

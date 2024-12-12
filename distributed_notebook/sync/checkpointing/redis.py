@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import time
 
 import torch
@@ -132,15 +133,13 @@ class RedisCheckpointer(RemoteCheckpointer):
             self.log.error(f"Failed to load dataset: {ex}")
             raise ValueError(f"failed to load dataset \"{dataset_name}\" because: {ex}")
 
-    def read_model_state_dict(self, pointer: ModelPointer)->Dict[str, Any]:
-        if pointer is None:
-            raise ValueError("cannot read model using nil ModelPointer")
-
-        self.__ensure_redis()
-
-        model_name:str = pointer.name
-        redis_key:str = pointer.key
-
+    def __read_state_dict(self, redis_key: str, model_name: str)->Dict[str, Any]:
+        """
+        Read a single state dictionary from Redis.
+        :param redis_key: the key at which the desired state dictionary is stored
+        :param model_name: the name of the model associated with the state dictionary that we've been instructed to read
+        :return: the desired state dictionary after being retrieved from redis and deserialized using torch.load()
+        """
         try:
             st: float = time.time()
             val: str|bytes|memoryview = self._redis.get(redis_key)
@@ -167,6 +166,43 @@ class RedisCheckpointer(RemoteCheckpointer):
             raise ex # re-raise
 
         return state_dict
+
+    def storage_name(self)->str:
+        return f"Redis({self._redis_host}:{self._redis_port},db={self._redis_db})"
+
+    def read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        if pointer is None:
+            raise ValueError("cannot read model using nil ModelPointer")
+
+        self.__ensure_redis()
+
+        model_name:str = pointer.name
+        base_redis_key:str = pointer.key
+
+        model_redis_key: str = os.path.join(base_redis_key, "model.pt")
+        optimizer_redis_key: str = os.path.join(base_redis_key, "optimizer.pt")
+        criterion_redis_key: str = os.path.join(base_redis_key, "criterion.pt")
+
+        try:
+            model_state_dict = self.__read_state_dict(model_redis_key, model_name)
+        except Exception as ex:
+            self.log.error(f"Failed to read model state dictionary from Redis: {ex}")
+            raise ex # re-raise
+
+        try:
+            optimizer_state_dict = self.__read_state_dict(optimizer_redis_key, model_name)
+        except Exception as ex:
+            self.log.error(f"Failed to read optimizer state dictionary from Redis: {ex}")
+            raise ex # re-raise
+
+        try:
+            criterion_state_dict = self.__read_state_dict(criterion_redis_key, model_name)
+        except Exception as ex:
+            self.log.error(f"Failed to read criterion state dictionary from Redis: {ex}")
+            raise ex # re-raise
+
+        return model_state_dict, optimizer_state_dict, criterion_state_dict
+
 
     def write_dataset(self, pointer: DatasetPointer):
         if pointer is None:
@@ -198,7 +234,7 @@ class RedisCheckpointer(RemoteCheckpointer):
 
         await self._async_redis.set(redis_key, payload)
 
-    def write_model_state_dict(self, pointer: ModelPointer):
+    def write_state_dicts(self, pointer: ModelPointer):
         if pointer is None:
             raise ValueError("cannot write model using nil ModelPointer")
 

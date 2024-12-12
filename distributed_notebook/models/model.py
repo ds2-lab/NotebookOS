@@ -17,7 +17,13 @@ from distributed_notebook.logging import ColoredLogFormatter
 from abc import ABC, abstractmethod
 
 class DeepLearningModel(ABC):
-    def __init__(self, name:str = "", criterion: Module = None, criterion_state_dict: Optional[Dict[str, Any]] = None):
+    def __init__(
+            self,
+            name:str = "",
+            criterion: Module = None,
+            criterion_state_dict: Optional[Dict[str, Any]] = None,
+            out_features: int = 10,
+    ):
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
         self.log.setLevel(logging.DEBUG)
@@ -48,10 +54,27 @@ class DeepLearningModel(ABC):
         self.model: Optional[Module] = None
         self.optimizer = None
         self._name:str = name
+        self._out_features: int = out_features
+
+    @abstractmethod
+    def apply_model_state_dict(self, model_state_dict: Dict[str, Any]):
+        pass
+
+    @abstractmethod
+    def apply_optimizer_state_dict(self, optimizer_state_dict: Dict[str, Any]):
+        pass
+
+    @abstractmethod
+    def apply_criterion_state_dict(self, criterion_state_dict: Dict[str, Any]):
+        pass
 
     @abstractmethod
     def train(self, loader, training_duration_millis: int|float = 0.0)->tuple[float, float, float]:
         pass
+
+    @property
+    def out_features(self)->int:
+        return self._out_features
 
     @property
     def state_dict(self) -> Dict[str, Any]:
