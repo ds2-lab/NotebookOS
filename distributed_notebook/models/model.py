@@ -1,8 +1,11 @@
+from typing import Optional, Dict, Any
+
 import torch
 import gc
 import time
 import torch.nn as nn
 import torch.optim as optim
+from torch.nn import Module
 from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
 
@@ -11,8 +14,10 @@ import time
 
 from distributed_notebook.logging import ColoredLogFormatter
 
-class DeepLearningModel(object):
-    def __init__(self, criterion = None):
+from abc import ABC, abstractmethod
+
+class DeepLearningModel(ABC):
+    def __init__(self, name:str = "", criterion: Module = None, criterion_state_dict: Optional[Dict[str, Any]] = None):
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
         self.log.setLevel(logging.DEBUG)
@@ -32,13 +37,29 @@ class DeepLearningModel(object):
             self.gpu_available: bool = False
 
         if criterion is not None:
-            self.criterion = criterion
+            self.criterion: Module = criterion
         else:
-            self.criterion = nn.CrossEntropyLoss()
+            self.criterion: Module = nn.CrossEntropyLoss()
+
+        if criterion_state_dict is not None:
+            self.criterion.load_state_dict(criterion_state_dict)
 
         self.total_epochs_trained: int = 0
-        self.model = None
+        self.model: Optional[Module] = None
         self.optimizer = None
+        self._name:str = name
+
+    @abstractmethod
+    def train(self, loader, training_duration_millis: int|float = 0.0)->tuple[float, float, float]:
+        pass
+
+    @property
+    def state_dict(self) -> Dict[str, Any]:
+        return self.model.state_dict()
+
+    @property
+    def name(self)->str:
+        return self._name
 
     @property
     def size_bytes(self)->int:

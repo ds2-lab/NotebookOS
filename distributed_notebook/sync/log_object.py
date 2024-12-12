@@ -13,7 +13,7 @@ from .object import SyncObjectMeta
 
 @runtime_checkable
 class SyncLogObject:
-  """A object wrapper that implemented SyncObject and support incremental synchronization."""
+  """An object wrapper that implemented SyncObject and support incremental synchronization."""
 
   def __init__(self, referer:SyncReferer, raw:Any=None, tag:Any=None):
     self.raw: Any = raw

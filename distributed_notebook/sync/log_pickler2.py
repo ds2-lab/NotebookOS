@@ -62,7 +62,7 @@ class SyncLogSearchStack(list):
 class SyncLogPickler(Pickler):
   def __init__(self, buffer: IO[bytes], protocol: Optional[int]=None, *args, **kwargs):
     super().__init__(buffer, 5, *args, **kwargs)
-    logging.info("Init SyncLogPickler")
+    # logging.info("Init SyncLogPickler")
 
     self._buffer: IO[bytes] = buffer
 
@@ -79,11 +79,11 @@ class SyncLogPickler(Pickler):
 
     # Enqueue whatsoever.
     self._queue.append(obj)
-    logging.info("Queued object: {}".format(id(obj)))
+    # logging.info("Queued object: {}".format(id(obj)))
 
     # Abandon dumping and allow the dump() of root object scheduling the dumping.
     if len(self._queue) > 1 or self._dumping is not None:
-      logging.info("Delayed object: {}".format(id(obj)))
+      # logging.info("Delayed object: {}".format(id(obj)))
       return
     
     # Root object only, dump any sub-object added to the queue during dumping.
@@ -102,7 +102,7 @@ class SyncLogPickler(Pickler):
     """Write a pickled representation of obj to the open file. This version overrides the default dump method to embed the PROTO opcode in the frame."""
 
     obj_id = id(obj)
-    logging.info("Started object: {}, written {}: {}".format(obj_id, self._buffer.getbuffer().nbytes, obj))
+    # logging.info("Started object: {}, written {}: {}".format(obj_id, self._buffer.getbuffer().nbytes, obj))
     
     # create profile
     profile = SyncLogPickleProfile(self._buffer.getbuffer().nbytes, type(obj))
@@ -113,7 +113,7 @@ class SyncLogPickler(Pickler):
     # update size
     profile.size = self._buffer.getbuffer().nbytes - profile.offset
 
-    logging.info("Dumped object: {}".format(obj_id))
+    # logging.info("Dumped object: {}".format(obj_id))
 
   def get_polifiller(self, cb: Callable[[SyncPRID], int]) -> Callable[[SyncPRID], None]:
     return lambda prid: self._pickle_profile[cb(prid)].polyfill(prid)

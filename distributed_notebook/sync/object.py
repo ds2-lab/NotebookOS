@@ -119,7 +119,7 @@ class SyncObjectWrapper:
     else:
       buff = io.BytesIO()
 
-      # Instaniate pickler
+      # Instantiate pickler
       reference_id_provider: Optional[Callable[[Any, int], SyncRID]] = None
       pickler = self._pickler(buff)
       if self._profiling:

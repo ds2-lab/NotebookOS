@@ -1,25 +1,40 @@
 import gc
 import time
+from typing import Optional, Dict, Any
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import models
 
-from distributed_notebook.kernel.models.model import DeepLearningModel
+from distributed_notebook.models.model import DeepLearningModel
 
 
 class RESNET18(DeepLearningModel):
-    def __init__(self, out_features: int = 10, optimizer = None, criterion = None):
-        super().__init__(criterion = criterion)
+    def __init__(
+            self,
+            out_features: int = 10,
+            optimizer: Optional[nn.Module] = None,
+            optimizer_state_dict: Optional[Dict[str, Any]] = None,
+            criterion: Optional[nn.Module] = None,
+            criterion_state_dict: Optional[Dict[str, Any]] = None,
+            model_state_dict: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(name="ResNet-18", criterion = criterion, criterion_state_dict = criterion_state_dict)
 
         self.model = models.resnet18(pretrained=False)
         self.model.fc = nn.Linear(self.model.fc.in_features, out_features)  # Modify the fully connected layer for 10 classes
+
+        if model_state_dict is not None:
+            self.model.load_state_dict(model_state_dict)
 
         if optimizer is not None:
             self.optimizer = optimizer
         else:
             self.optimizer = optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
+
+        if optimizer_state_dict is not None:
+            self.optimizer.load_state_dict(optimizer_state_dict)
 
     def train(self, loader, training_duration_millis: int|float = 0.0)->tuple[float, float, float]:
         """

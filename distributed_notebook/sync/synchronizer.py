@@ -11,7 +11,11 @@ from .errors import SyncError, DiscardMessageError
 from .log import Checkpointer, SyncLog, SynchronizedValue, KEY_SYNC_END
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
+from .syncpointer import DatasetPointer, ModelPointer
+from ..datasets.base import Dataset
+from ..demo.script.training import model
 from ..logging import ColoredLogFormatter
+from ..models.model import DeepLearningModel
 
 KEY_SYNC_AST = "_ast_"
 CHECKPOINT_AUTO = 1
@@ -444,6 +448,15 @@ class Synchronizer:
         # Switch context
         old_main_modules = sys.modules["__main__"]
         sys.modules["__main__"] = self._module
+
+        if isinstance(val, Dataset):
+            self._log.debug(f"Synchronizing Dataset \"{val.name}\". Will convert to pointer before appending to RaftLog.")
+            dataset_pointer: DatasetPointer = DatasetPointer(dataset = val)
+            val = dataset_pointer
+        elif isinstance(val, DeepLearningModel):
+            self._log.debug(f"Synchronizing Model \"{val.name}\". Will convert to pointer before appending to RaftLog.")
+            model_pointer: ModelPointer = ModelPointer(deep_learning_model = val)
+            val = model_pointer
 
         if checkpointing:
             sync_val = existed.dump(meta=meta)
