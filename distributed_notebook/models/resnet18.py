@@ -20,12 +20,14 @@ class ResNet18(DeepLearningModel):
             criterion: Optional[nn.Module] = None,
             criterion_state_dict: Optional[Dict[str, Any]] = None,
             model_state_dict: Optional[Dict[str, Any]] = None,
+            **kwargs,
     ):
         super().__init__(
             name=ResNet18Name,
             criterion = criterion,
             criterion_state_dict = criterion_state_dict,
             out_features=out_features,
+            **kwargs,
         )
 
         self.model = models.resnet18(pretrained=False)
@@ -190,3 +192,9 @@ class ResNet18(DeepLearningModel):
             torch.cuda.synchronize()
 
         return test_loss / len(loader), accuracy
+
+    def __str__(self)->str:
+        return ""
+
+    def __repr__(self)->str:
+        return ""

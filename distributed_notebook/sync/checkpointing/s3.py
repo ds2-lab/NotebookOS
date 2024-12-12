@@ -1,5 +1,4 @@
 import io
-import json
 import os
 import time
 from abc import ABC
@@ -8,7 +7,6 @@ from typing import Any, Dict, Optional
 import boto3
 import torch
 
-from distributed_notebook.models.model import DeepLearningModel
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 

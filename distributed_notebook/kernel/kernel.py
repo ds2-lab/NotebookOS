@@ -2108,7 +2108,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         term_number: int = -1
         try:
-            self.toggle_outstream(override=True, enable=False)
+            # self.toggle_outstream(override=True, enable=False)
 
             # Ensure persistent store is ready
             if not await self.check_persistent_store():
@@ -3157,24 +3157,25 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         return node
 
     def toggle_outstream(self, override=False, enable=True):
+        pass
         # Is sys.stdout has attribute 'disable'?
-        if not hasattr(sys.stdout, 'disable'):
-            # self.log.warning("sys.stdout didn't initialize with kernel.OutStream.")
-            return
-
-        if override:
-            sys.stdout.disable = not enable  # type: ignore
-            sys.stderr.disable = not enable  # type: ignore
-
-            if sys.stdout.disable:
-                self.log.debug("stdout and stderr DISABLED.")
-            else:
-                self.log.debug("stdout and stderr ENABLED.")
-        else:
-            sys.stdout.disable = not sys.stdout.disable  # type: ignore
-            sys.stderr.disable = not sys.stderr.disable  # type: ignore
-
-            if sys.stdout.disable:
-                self.log.debug("stdout and stderr DISABLED.")
-            else:
-                self.log.debug("stdout and stderr ENABLED.")
+        # if not hasattr(sys.stdout, 'disable'):
+        #     # self.log.warning("sys.stdout didn't initialize with kernel.OutStream.")
+        #     return
+        #
+        # if override:
+        #     sys.stdout.disable = not enable  # type: ignore
+        #     sys.stderr.disable = not enable  # type: ignore
+        #
+        #     if sys.stdout.disable:
+        #         self.log.debug("stdout and stderr DISABLED.")
+        #     else:
+        #         self.log.debug("stdout and stderr ENABLED.")
+        # else:
+        #     sys.stdout.disable = not sys.stdout.disable  # type: ignore
+        #     sys.stderr.disable = not sys.stderr.disable  # type: ignore
+        #
+        #     if sys.stdout.disable:
+        #         self.log.debug("stdout and stderr DISABLED.")
+        #     else:
+        #         self.log.debug("stdout and stderr ENABLED.")
