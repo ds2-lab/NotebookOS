@@ -3190,7 +3190,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.KernelReplica,
 }
 
 // addResourceSnapshotToJupyterMessage decodes the metadata frame of the given messaging.JupyterMessage
-// and adds an entry under the scheduling.ResourceSnapshotMetadataKey key with the value being a snapshot
+// and adds an entry under the scheduling.SnapshotMetadataKey key with the value being a snapshot
 // of the current resource quantities of the Local Daemon's ResourceManager.
 func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *messaging.JupyterMessage, kernel scheduling.KernelReplica) (*resource.ManagerSnapshot, error) {
 	var snapshot *resource.ManagerSnapshot
@@ -3212,7 +3212,7 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *messagin
 		return nil, decodeError
 	} else {
 		snapshot = d.resourceManager.ResourcesSnapshot()
-		metadata[resource.ResourceSnapshotMetadataKey] = snapshot
+		metadata[resource.SnapshotMetadataKey] = snapshot
 
 		// Re-encode the metadata frame. It will have the number of idle GPUs available,
 		// as well as the reason that the request was yielded (if it was yielded).
