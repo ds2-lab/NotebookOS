@@ -22,10 +22,6 @@ class RemoteCheckpointer(ABC):
     def storage_name(self)->str:
         pass
 
-    # @abstractmethod
-    # def read_dataset(self, pointer: DatasetPointer)->Dataset:
-    #     pass
-
     @abstractmethod
     def read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         """
@@ -35,10 +31,6 @@ class RemoteCheckpointer(ABC):
         :return: return the state dictionaries of the model, its optimizer, and its criterion.
         """
         pass
-
-    # @abstractmethod
-    # def write_dataset(self, pointer: DatasetPointer)->None:
-    #     pass
 
     @abstractmethod
     def write_state_dicts(self, pointer: ModelPointer)->None:

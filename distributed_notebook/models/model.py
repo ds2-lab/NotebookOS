@@ -43,18 +43,26 @@ class DeepLearningModel(ABC):
             self.gpu_available: bool = False
 
         if criterion is not None:
-            self.criterion: Module = criterion
+            self._criterion: Optional[Module] = criterion
         else:
-            self.criterion: Module = nn.CrossEntropyLoss()
+            self._criterion: Optional[Module] = nn.CrossEntropyLoss()
 
         if criterion_state_dict is not None:
-            self.criterion.load_state_dict(criterion_state_dict)
+            self._criterion.load_state_dict(criterion_state_dict)
 
         self.total_epochs_trained: int = 0
         self.model: Optional[Module] = None
-        self.optimizer = None
+        self._optimizer: Optional[Module] = None
         self._name:str = name
         self._out_features: int = out_features
+
+    @property
+    def optimizer(self)->Optional[Module]:
+        return self._optimizer
+
+    @property
+    def criterion(self)->Optional[Module]:
+        return self._criterion
 
     @abstractmethod
     def apply_model_state_dict(self, model_state_dict: Dict[str, Any]):
@@ -77,8 +85,25 @@ class DeepLearningModel(ABC):
         return self._out_features
 
     @property
-    def state_dict(self) -> Dict[str, Any]:
+    def state_dict(self) -> Optional[Dict[str, Any]]:
+        if self.model is None:
+            return None
+
         return self.model.state_dict()
+
+    @property
+    def optimizer_state_dict(self) -> Optional[Dict[str, Any]]:
+        if self._optimizer is None:
+            return None
+
+        return self._optimizer.state_dict()
+
+    @property
+    def criterion_state_dict(self) -> Optional[Dict[str, Any]]:
+        if self._criterion is None:
+            return None
+
+        return self._criterion.state_dict()
 
     @property
     def name(self)->str:
@@ -114,14 +139,14 @@ class DeepLearningModel(ABC):
         et_model: float = time.time()
 
         # Move the optimizer back to GPU
-        for state in self.optimizer.state.values():
+        for state in self._optimizer.state.values():
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
                     state[k] = v.to(self.gpu_device)
 
         et_optimizer: float = time.time()
 
-        self.criterion = self.criterion.to(self.gpu_device)
+        self._criterion = self._criterion.to(self.gpu_device)
 
         et_criterion: float = time.time()
 
@@ -143,14 +168,14 @@ class DeepLearningModel(ABC):
         et_model: float = time.time()
 
         # Move the optimizer back to CPU
-        for state in self.optimizer.state.values():
+        for state in self._optimizer.state.values():
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
                     state[k] = v.cpu()
 
         et_optimizer: float = time.time()
 
-        self.criterion = self.criterion.cpu()
+        self._criterion = self._criterion.cpu()
 
         et_criterion: float = time.time()
 

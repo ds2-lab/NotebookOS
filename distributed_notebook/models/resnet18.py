@@ -35,12 +35,12 @@ class ResNet18(DeepLearningModel):
             self.model.load_state_dict(model_state_dict)
 
         if optimizer is not None:
-            self.optimizer = optimizer
+            self._optimizer = optimizer
         else:
-            self.optimizer = optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
+            self._optimizer = optim.SGD(self.model.parameters(), lr=0.01, momentum=0.9, weight_decay=5e-4)
 
         if optimizer_state_dict is not None:
-            self.optimizer.load_state_dict(optimizer_state_dict)
+            self._optimizer.load_state_dict(optimizer_state_dict)
 
     def apply_model_state_dict(self, model_state_dict: Dict[str, Any]):
         try:
@@ -51,14 +51,14 @@ class ResNet18(DeepLearningModel):
 
     def apply_optimizer_state_dict(self, optimizer_state_dict: Dict[str, Any]):
         try:
-            self.optimizer.load_state_dict(optimizer_state_dict)
+            self._optimizer.load_state_dict(optimizer_state_dict)
         except Exception as ex:
             self.log.error(f"Failed to apply optimizer state dictionary to model because: {ex}")
             raise ex # re-raise
 
     def apply_criterion_state_dict(self, criterion_state_dict: Dict[str, Any]):
         try:
-            self.criterion.load_state_dict(criterion_state_dict)
+            self._criterion.load_state_dict(criterion_state_dict)
         except Exception as ex:
             self.log.error(f"Failed to apply criterion state dictionary to model because: {ex}")
             raise ex # re-raise
@@ -98,18 +98,18 @@ class ResNet18(DeepLearningModel):
                     torch.cuda.synchronize()
 
                 # Zero the parameter gradients
-                self.optimizer.zero_grad()
+                self._optimizer.zero_grad()
 
                 # Forward pass
                 outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
+                loss = self._criterion(outputs, labels)
 
                 # Backward pass and optimization
                 loss.backward()
-                self.optimizer.step()
+                self._optimizer.step()
 
                 # Add this line to clear grad tensors
-                self.optimizer.zero_grad(set_to_none=True)
+                self._optimizer.zero_grad(set_to_none=True)
 
                 running_loss += loss.item()
 
@@ -163,7 +163,7 @@ class ResNet18(DeepLearningModel):
                 torch.cuda.synchronize()
 
                 outputs = self.model(images)
-                loss = self.criterion(outputs, labels)
+                loss = self._criterion(outputs, labels)
                 test_loss += loss.item()
 
                 # Calculate accuracy

@@ -204,35 +204,41 @@ class RedisCheckpointer(RemoteCheckpointer):
         return model_state_dict, optimizer_state_dict, criterion_state_dict
 
 
-    def write_dataset(self, pointer: DatasetPointer):
-        if pointer is None:
-            raise ValueError("cannot write dataset using nil DatasetPointer")
+    def __write_state_dict(self, redis_key: str, state_dict: Dict[str, Any], model_name: str = ""):
+        """
+        Write an individual state dictionary to Redis.
 
-        if pointer.dataset is None:
-            self.log.error(f"Cannot write dataset \"{pointer.name}\"; invalid pointer.")
-            raise ValueError(f"DatasetPointer for dataset \"{pointer.name}\" does not have a valid pointer")
+        :param redis_key: the key at which the specified state dictionary is to be written.
+        :param model_name: the name of the model associated with the state dictionary that we've been instructed to write
+        """
+        buffer: io.BytesIO = io.BytesIO()
 
-        self.__ensure_redis()
+        try:
+            torch.save(state_dict, buffer)
+        except Exception as ex:
+            self.log.error(f"Failed to save state of model \"{model_name}\" to io.BytesIO buffer because: {ex}")
+            raise ex # re-raise
 
-        redis_key:str = pointer.key
-        dataset_description: dict[str, str|int|bool] = pointer.dataset_description
-        payload: str = json.dumps(dataset_description)
+        size_mb: float = buffer.getbuffer().nbytes / 1.0e6
+        if buffer.getbuffer().nbytes > 512e6:
+            self.log.error(f"Cannot write state of model \"{model_name}\" to Redis. "
+                           f"Model state is larger than maximum size of 512 MB: {size_mb:,} MB.")
+            raise ValueError("state dictionary buffer is too large (); maximum size is 512 MB")
 
-        self._redis.set(redis_key, payload)
+        self.log.debug(f"Writing state dictionary associated with model \"{model_name}\" to Redis at key \"{redis_key}\". "
+                       f"Model size: {size_mb:,} MB.")
 
-    async def async_write_dataset(self, pointer: DatasetPointer):
-        if pointer is None:
-            raise ValueError("cannot write dataset using nil DatasetPointer")
+        try:
+            st: float = time.time()
+            self._redis.set(redis_key, buffer.getbuffer())
+            et: float = time.time()
+        except Exception as ex:
+            self.log.error(f"Failed to write state of model \"{model_name}\" to Redis at key \"{redis_key}\" "
+                           f"(model size: {size_mb} MB) because: {ex}")
+            raise ex # re-raise
 
-        if pointer.dataset is None:
-            self.log.error(f"Cannot write dataset \"{pointer.name}\"; invalid pointer.")
-            raise ValueError(f"DatasetPointer for dataset \"{pointer.name}\" does not have a valid pointer")
-
-        redis_key:str = pointer.key
-        dataset_description: dict[str, str|int|bool] = pointer.dataset_description
-        payload: str = json.dumps(dataset_description)
-
-        await self._async_redis.set(redis_key, payload)
+        self.log.debug(f"Successfully wrote state of model \"{model_name}\" to Redis at key \"{redis_key}\" "
+                       f"(model size: {size_mb} MB) in {et - st} seconds.")
 
     def write_state_dicts(self, pointer: ModelPointer):
         if pointer is None:
@@ -242,33 +248,14 @@ class RedisCheckpointer(RemoteCheckpointer):
             self.log.error(f"Cannot model dataset \"{pointer.name}\"; invalid pointer.")
             raise ValueError(f"ModelPointer for model \"{pointer.name}\" does not have a valid pointer")
 
-        model: DeepLearningModel = pointer.model
-        buffer: io.BytesIO = io.BytesIO()
+        model_name:str = pointer.name
+        base_redis_key:str = pointer.key
 
-        try:
-            torch.save(pointer.model.state_dict, buffer)
-        except Exception as ex:
-            self.log.error(f"Failed to save state of model \"{model.name}\" to io.BytesIO buffer because: {ex}")
-            raise ex # re-raise
+        model_redis_key: str = os.path.join(base_redis_key, "model.pt")
+        self.__write_state_dict(model_redis_key, pointer.model.state_dict, model_name)
 
-        size_mb: float = buffer.getbuffer().nbytes / 1.0e6
-        if buffer.getbuffer().nbytes > 512e6:
-            self.log.error(f"Cannot write state of model \"{model.name}\" to Redis. "
-                           f"Model state is larger than maximum size of 512 MB: {size_mb:,} MB.")
+        optimizer_redis_key: str = os.path.join(base_redis_key, "optimizer.pt")
+        self.__write_state_dict(optimizer_redis_key, pointer.model.optimizer_state_dict, model_name)
 
-        redis_key:str = pointer.key
-
-        self.log.debug(f"Writing state of model \"{model.name}\" to Redis at key \"{redis_key}\". "
-                       f"Model size: {size_mb:,} MB.")
-
-        try:
-            st: float = time.time()
-            self._redis.set(redis_key, buffer.getbuffer())
-            et: float = time.time()
-        except Exception as ex:
-            self.log.error(f"Failed to write state of model \"{model.name}\" to Redis at key \"{redis_key}\" "
-                           f"(model size: {size_mb} MB) because: {ex}")
-            raise ex # re-raise
-
-        self.log.debug(f"Successfully wrote state of model \"{model.name}\" to Redis at key \"{redis_key}\" "
-                       f"(model size: {size_mb} MB) in {et - st} seconds.")
+        criterion_redis_key: str = os.path.join(base_redis_key, "criterion.pt")
+        self.__write_state_dict(criterion_redis_key, pointer.model.criterion_state_dict, model_name)
