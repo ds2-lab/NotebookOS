@@ -6,7 +6,7 @@ from enum import IntEnum
 from typing import Dict, Optional, List, MutableMapping, Any
 
 from .log import LeaderElectionVote, LeaderElectionProposal
-from ..logging import ColoredLogFormatter
+from ..logs import ColoredLogFormatter
 
 # Indicates that the election was completed because the elected leader finished executing the user-submitted code.
 ExecutionCompleted = "execution_completed"

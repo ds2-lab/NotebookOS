@@ -9,6 +9,7 @@ def load_model(
         existing_model: Optional[DeepLearningModel] = None,
         out_features: int = 10,
         total_training_time_seconds: int = 0,
+        total_num_epochs: int = 0,
         model_state_dict: Optional[Dict[str, Any]] = None,
         optimizer_state_dict: Optional[Dict[str, Any]] = None,
         criterion_state_dict: Optional[Dict[str, Any]] = None,
@@ -17,14 +18,16 @@ def load_model(
         existing_model.apply_model_state_dict(model_state_dict)
         existing_model.apply_optimizer_state_dict(optimizer_state_dict)
         existing_model.apply_criterion_state_dict(criterion_state_dict)
-        existing_model._total_epochs_trained = total_training_time_seconds
+        existing_model.total_training_time_seconds = total_training_time_seconds
+        existing_model.total_num_epochs = total_num_epochs
 
         return existing_model
 
     if model_name == ResNet18Name:
         return ResNet18(
             out_features = out_features,
-            total_epochs_trained = total_training_time_seconds,
+            total_training_time_seconds = total_training_time_seconds,
+            total_num_epochs = total_num_epochs,
             model_state_dict = model_state_dict,
             optimizer_state_dict = optimizer_state_dict,
             criterion_state_dict = criterion_state_dict,

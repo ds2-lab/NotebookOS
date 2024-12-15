@@ -80,6 +80,9 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
 		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec.Subtract(kernel1Spec))).To(BeTrue())
 		Expect(resourceManager.CommittedResources().Equals(kernel1Spec)).To(BeTrue())
+
+		Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(2))
+		Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(6))
 	})
 
 	It("Will fail to promote a pending allocation to a committed allocation for a non-existent pending allocation", func() {
@@ -114,6 +117,8 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(resourceManager.NumAllocations()).To(Equal(2))
 		Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
 		Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(2))
+		Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(6))
 
 		By("Correctly handling the scheduling of the second committed resources")
 
@@ -129,6 +134,8 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
 		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec.Subtract(kernel1And2Spec))).To(BeTrue())
 		Expect(resourceManager.CommittedResources().Equals(kernel1And2Spec)).To(BeTrue())
+		Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(4))
+		Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(4))
 
 		By("Correctly handling the scheduling of the third pending resources")
 
@@ -319,6 +326,8 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
 		Expect(resourceManager.NumAllocations()).To(Equal(1))
 		Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(2))
+		Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(6))
 
 		Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
 		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec.Subtract(kernel1Spec))).To(BeTrue())
@@ -334,6 +343,8 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(resourceManager.PendingResources().Equals(kernel1Spec)).To(BeTrue())
 		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
 		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+		Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(0))
+		Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(8))
 	})
 
 	It("Will fail to allocate pending resources for a request it cannot satisfy", func() {

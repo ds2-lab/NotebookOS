@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 import logging
 import time
 
-from distributed_notebook.logging import ColoredLogFormatter
+from distributed_notebook.logs import ColoredLogFormatter
 
 from abc import ABC, abstractmethod
 
@@ -24,6 +24,7 @@ class DeepLearningModel(ABC):
             criterion_state_dict: Optional[Dict[str, Any]] = None,
             out_features: int = 10,
             total_training_time_seconds: int = 0,
+            total_num_epochs: int = 0,
     ):
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
@@ -52,6 +53,7 @@ class DeepLearningModel(ABC):
             self._criterion.load_state_dict(criterion_state_dict)
 
         self.total_training_time_seconds: int = total_training_time_seconds
+        self.total_num_epochs: int = total_num_epochs
         self.model: Optional[Module] = None
         self._optimizer: Optional[Module] = None
         self._name:str = name
@@ -75,6 +77,14 @@ class DeepLearningModel(ABC):
 
     @abstractmethod
     def apply_criterion_state_dict(self, criterion_state_dict: Dict[str, Any]):
+        pass
+
+    @abstractmethod
+    def test(self, loader):
+        pass
+
+    @abstractmethod
+    def train_epochs(self, loader, num_epochs: int = 1):
         pass
 
     @abstractmethod

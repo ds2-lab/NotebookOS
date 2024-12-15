@@ -5,7 +5,7 @@ import math
 
 from typing import Any
 
-from ...logging.color_formatter import ColoredLogFormatter
+from ...logs.color_formatter import ColoredLogFormatter
 
 def get_new_rate(base_rate: int, percent_deviation: float)->int:
     """

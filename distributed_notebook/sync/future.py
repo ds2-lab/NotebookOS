@@ -4,7 +4,7 @@ import logging
 from typing import Any 
 
 from .errors import FromGoError
-from ..logging import ColoredLogFormatter
+from ..logs import ColoredLogFormatter
 
 
 class Future:

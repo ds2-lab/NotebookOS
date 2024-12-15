@@ -2700,7 +2700,7 @@ func (d *SchedulerDaemonImpl) processExecOrYieldRequest(msg *messaging.JupyterMe
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
 		d.log.Debug("[gid=%d] Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
 			gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
-		resourceAllocationError := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
+		gpuDeviceIds, resourceAllocationError := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
 
 		if resourceAllocationError != nil {
 			d.log.Warn("[gid=%d] Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",
@@ -2719,9 +2719,11 @@ func (d *SchedulerDaemonImpl) processExecOrYieldRequest(msg *messaging.JupyterMe
 
 			shouldYield = true
 		} else {
-			d.log.Debug("[gid=%d] Successfully reserved the following resources for replica %d of kernel %s in anticipation of its leader election: %s.",
-				gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
+			d.log.Debug("[gid=%d] Successfully reserved the following resources for replica %d of kernel %s in anticipation of its leader election: %s (GPU Device IDs: %v).",
+				gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String(), gpuDeviceIds)
 			allocationFailedDueToInsufficientResources = false
+
+			metadataDict["gpu_device_ids"] = gpuDeviceIds
 		}
 	}
 

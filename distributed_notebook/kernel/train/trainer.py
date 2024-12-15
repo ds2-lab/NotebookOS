@@ -13,7 +13,7 @@ from typing import Optional, Callable
 import logging
 import time
 
-from distributed_notebook.logging import ColoredLogFormatter
+from distributed_notebook.logs import ColoredLogFormatter
 
 
 def print_cuda_memory(

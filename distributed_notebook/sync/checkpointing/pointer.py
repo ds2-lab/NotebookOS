@@ -77,11 +77,16 @@ class ModelPointer(SyncPointer):
         self._model: DeepLearningModel = deep_learning_model
         self._out_features: int = deep_learning_model.out_features
         self._total_training_time_seconds: int = deep_learning_model.total_training_time_seconds
+        self._total_num_epochs: int = deep_learning_model.total_num_epochs
 
     def __getstate__(self):
         d = dict(self.__dict__)
         del d['_model']
         return d
+
+    @property
+    def total_num_epochs(self)->int:
+        return self._total_num_epochs
 
     @property
     def total_training_time_seconds(self)->int:

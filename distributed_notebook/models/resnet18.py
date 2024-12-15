@@ -65,6 +65,93 @@ class ResNet18(DeepLearningModel):
             self.log.error(f"Failed to apply criterion state dictionary to model because: {ex}")
             raise ex # re-raise
 
+    def train_epochs(self, loader, num_epochs: int = 1):
+        """
+        Train for a certain number of epochs.
+
+        :return: a tuple where the first element is the actual training time, the second is the time copying the model
+                 from the CPU to the GPU, and the third is the time spent copying the model from the GPU to the CPU.
+        """
+        copy_cpu2gpu_millis:float = 0.0
+        copy_gpu2cpu_millis:float = 0.0
+        training_time_millis: float = 0.0
+
+        if self.gpu_available:
+            st: float = time.time()
+            self.to_gpu()
+            et: float = time.time()
+            copy_cpu2gpu_millis:float = (et - st) * 1.0e3
+            self.log.debug(f"Copied model from CPU to GPU in {copy_cpu2gpu_millis} ms.")
+
+        if num_epochs <= 0:
+            return training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
+
+        self.log.debug(f"Training for {num_epochs} epoch(s).")
+
+        self.model.train()
+        start_time: float = time.time()
+
+        running_loss = 0.0
+        num_minibatches_processed: int = 0
+        num_images_processed:int = 0
+        for epoch in range(0, num_epochs):
+            self.log.debug(f"Training -- Epoch #{epoch+1}/{num_epochs}")
+            for images, labels in loader:
+                if self.gpu_available:
+                    images, labels = images.to(self.gpu_device), labels.to(self.gpu_device)
+                    torch.cuda.synchronize()
+
+                # Zero the parameter gradients
+                self._optimizer.zero_grad()
+
+                # Forward pass
+                outputs = self.model(images)
+                loss = self._criterion(outputs, labels)
+
+                # Backward pass and optimization
+                loss.backward()
+                self._optimizer.step()
+
+                # Add this line to clear grad tensors
+                self._optimizer.zero_grad(set_to_none=True)
+
+                running_loss += loss.item()
+
+                num_minibatches_processed += 1
+                num_images_processed += len(images)
+
+                if self.gpu_available:
+                    del images
+                    del labels
+                    del loss
+                    del outputs
+                    torch.cuda.synchronize()
+
+            self.total_num_epochs += 1
+            self.log.debug(f"Epoch {epoch+1}/{num_epochs} finished. Time elapsed: {time.time() - start_time} seconds.")
+
+        time_spent_training_sec: float = (time.time() - start_time)
+        self.total_training_time_seconds += time_spent_training_sec
+        training_time_millis: float = time_spent_training_sec * 1.0e3
+        self.log.debug(f"Training completed. Number of epochs: {num_epochs}. "
+                       f"Time elapsed: {training_time_millis} ms. "
+                       f"Processed {num_minibatches_processed} mini-batches ({num_images_processed} individual samples).")
+
+        if self.gpu_available:
+            self.log.debug("Copying model from GPU to CPU.")
+            copy_start:float = time.time()
+            self.to_cpu()
+
+            gc.collect()
+            with torch.no_grad():
+                torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            copy_end:float = time.time()
+            copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
+            self.log.debug(f"Copied model from GPU to CPU in {copy_gpu2cpu_millis} ms.")
+
+        return training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
+
     def train(self, loader, training_duration_millis: int|float = 0.0)->tuple[float, float, float]:
         """
         Train for a target amount of time.
@@ -128,6 +215,7 @@ class ResNet18(DeepLearningModel):
                 if ((time.time() - start_time) * 1.0e3) > training_duration_millis:
                     break
 
+            self.total_num_epochs += 1
             print(f"Completed iteration through training dataset. Time elapsed: {time.time() - start_time} seconds.")
 
         time_spent_training_sec: float = (time.time() - start_time)
@@ -152,7 +240,7 @@ class ResNet18(DeepLearningModel):
 
         return training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
-    def __test(self, loader):
+    def test(self, loader):
         if self.gpu_available:
             self.to_gpu()
 
@@ -196,7 +284,7 @@ class ResNet18(DeepLearningModel):
         return test_loss / len(loader), accuracy
 
     def __str__(self)->str:
-        return f"{self.name} (ResNet-18) [TotalTrainingTime={self.total_training_time_seconds}sec]"
+        return f"{self.name} (ResNet-18) [TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"
 
     def __repr__(self)->str:
-        return f"{self.name} (ResNet-18) [TotalTrainingTime={self.total_training_time_seconds}sec]"
+        return f"{self.name} (ResNet-18) [TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"

@@ -14,7 +14,7 @@ from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
 from .checkpointing.pointer import DatasetPointer, ModelPointer
 from ..datasets.base import Dataset
-from ..logging import ColoredLogFormatter
+from ..logs import ColoredLogFormatter
 from ..models.model import DeepLearningModel
 
 KEY_SYNC_AST = "_ast_"

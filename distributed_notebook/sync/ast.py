@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 from .errors import SyncError
 from .log import SynchronizedValue
-from ..logging import ColoredLogFormatter
+from ..logs import ColoredLogFormatter
 
 ExplorerActionCopy = 0
 ExplorerActionPass = 1

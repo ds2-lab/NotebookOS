@@ -43,7 +43,7 @@ from .execution_yield_error import ExecutionYieldError
 from .util import extract_header
 from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
-from ..logging import ColoredLogFormatter
+from ..logs import ColoredLogFormatter
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.checkpointing.factory import get_remote_checkpointer
 from ..sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPointer
@@ -231,7 +231,7 @@ class DistributedKernel(IPythonKernel):
 
     remote_storage: Union[str, Unicode] = Unicode(
         help="The type of remote storage we're using. Valid options, as of right now, are 'hdfs' and 'redis'.",
-        default_value='hdfs').tag(config=True)
+        default_value='redis').tag(config=True)
 
     prometheus_port: Integer = Integer(8089, help="Port of the Prometheus Server").tag(config=True)
 
@@ -576,7 +576,10 @@ class DistributedKernel(IPythonKernel):
         self.log.info("RemoteStorage hostname: \"%s\"" %
                       self.remote_storage_hostname)
 
-        if len(self.remote_storage_hostname) == 0:
+        if self.remote_storage_hostname == "":
+            self.remote_storage_hostname = kwargs.get('remote_storage_hostname', '')
+
+        if self.remote_storage_hostname == "":
             raise ValueError("The RemoteStorage hostname is empty. Was it specified in the configuration file?")
 
         self.log.info("CPU: %.2f, Memory: %.2f, GPUs: %d, VRAM: %.2f." %
@@ -3157,25 +3160,24 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         return node
 
     def toggle_outstream(self, override=False, enable=True):
-        pass
         # Is sys.stdout has attribute 'disable'?
-        # if not hasattr(sys.stdout, 'disable'):
-        #     # self.log.warning("sys.stdout didn't initialize with kernel.OutStream.")
-        #     return
-        #
-        # if override:
-        #     sys.stdout.disable = not enable  # type: ignore
-        #     sys.stderr.disable = not enable  # type: ignore
-        #
-        #     if sys.stdout.disable:
-        #         self.log.debug("stdout and stderr DISABLED.")
-        #     else:
-        #         self.log.debug("stdout and stderr ENABLED.")
-        # else:
-        #     sys.stdout.disable = not sys.stdout.disable  # type: ignore
-        #     sys.stderr.disable = not sys.stderr.disable  # type: ignore
-        #
-        #     if sys.stdout.disable:
-        #         self.log.debug("stdout and stderr DISABLED.")
-        #     else:
-        #         self.log.debug("stdout and stderr ENABLED.")
+        if not hasattr(sys.stdout, 'disable'):
+            # self.log.warning("sys.stdout didn't initialize with kernel.OutStream.")
+            return
+
+        if override:
+            sys.stdout.disable = not enable  # type: ignore
+            sys.stderr.disable = not enable  # type: ignore
+
+            if sys.stdout.disable:
+                self.log.debug("stdout and stderr DISABLED.")
+            else:
+                self.log.debug("stdout and stderr ENABLED.")
+        else:
+            sys.stdout.disable = not sys.stdout.disable  # type: ignore
+            sys.stderr.disable = not sys.stderr.disable  # type: ignore
+
+            if sys.stdout.disable:
+                self.log.debug("stdout and stderr DISABLED.")
+            else:
+                self.log.debug("stdout and stderr ENABLED.")

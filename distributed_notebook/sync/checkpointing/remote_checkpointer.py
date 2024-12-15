@@ -4,7 +4,7 @@ import logging
 from typing import Any, Dict
 
 from distributed_notebook.datasets.base import Dataset
-from distributed_notebook.logging import ColoredLogFormatter
+from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.models.model import DeepLearningModel
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
 

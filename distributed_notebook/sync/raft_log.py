@@ -23,7 +23,7 @@ from .future import Future
 from .log import SynchronizedValue, LeaderElectionVote, BufferedLeaderElectionVote, LeaderElectionProposal, \
     BufferedLeaderElectionProposal, ElectionProposalKey, KEY_CATCHUP, ExecutionCompleteNotification
 from .reader import readCloser
-from ..logging import ColoredLogFormatter
+from ..logs import ColoredLogFormatter
 from ..smr.go import Slice_string, Slice_int, Slice_byte
 from ..smr.smr import LogNode, NewLogNode, NewConfig, NewBytes, WriteCloser, ReadCloser
 
