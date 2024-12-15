@@ -1015,6 +1015,27 @@ func (m *AllocationManager) HasSufficientIdleResourcesAvailable(spec types.Spec)
 	return m.resourcesWrapper.idleResources.Validate(spec)
 }
 
+func (m *AllocationManager) GetGpuDeviceIdsAssignedToReplica(replicaId int32, kernelId string) ([]int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var (
+		key              string
+		allocation       *Allocation
+		allocationExists bool
+	)
+
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		m.log.Error("Cannot retrieve GPU device IDs committed to replica %d of kernel %s: no existing resource "+
+			"allocation found for that kernel replica.", replicaId, kernelId)
+		return nil, fmt.Errorf("%w: no resource allocation found for replica %d of kernel %s",
+			ErrAllocationNotFound, replicaId, kernelId)
+	}
+
+	return allocation.GpuDeviceIds, nil
+}
+
 // HasSufficientIdleResourcesAvailableWithError returns true if there are sufficiently many idle HostResources available
 // on the node such that the requested HostResources could be commited to a locally-running kernel replica.
 //

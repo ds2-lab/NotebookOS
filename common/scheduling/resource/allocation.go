@@ -294,6 +294,7 @@ func (b *AllocationBuilder) WithMemoryMB(memoryMb float64) *AllocationBuilder {
 func (b *AllocationBuilder) BuildResourceAllocation() *Allocation {
 	return &Allocation{
 		AllocationId:        b.allocationId,
+		GpuDeviceIds:        b.gpuDeviceIds,
 		GPUs:                b.gpus,
 		VramGB:              b.vramGb,
 		Millicpus:           b.millicpus,
