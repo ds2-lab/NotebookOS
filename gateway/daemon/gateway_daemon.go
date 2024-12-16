@@ -3911,9 +3911,19 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 		}
 	}
 
-	if trace.DownloadDependencyMicroseconds > 0 {
-		d.ClusterStatistics.CumulativeTimeDownloadingDependenciesMicroseconds += float64(trace.DownloadDependencyMicroseconds)
-		d.ClusterStatistics.NumTimesDownloadedDependencies += 1
+	//if trace.DownloadDependencyMicroseconds > 0 {
+	//	d.ClusterStatistics.CumulativeTimeDownloadingDependenciesMicroseconds += float64(trace.DownloadDependencyMicroseconds)
+	//	d.ClusterStatistics.NumTimesDownloadedDependencies += 1
+	//}
+
+	if trace.DownloadModelMicroseconds > 0 {
+		d.ClusterStatistics.CumulativeTimeDownloadModelMicroseconds += float64(trace.DownloadDatasetMicroseconds)
+		d.ClusterStatistics.NumTimesDownloadModelMicroseconds += 1
+	}
+
+	if trace.DownloadDatasetMicroseconds > 0 {
+		d.ClusterStatistics.CumulativeTimeDownloadTrainingDataMicroseconds += float64(trace.DownloadDatasetMicroseconds)
+		d.ClusterStatistics.NumTimesDownloadTrainingDataMicroseconds += 1
 	}
 
 	if trace.UploadModelAndTrainingDataMicroseconds > 0 {

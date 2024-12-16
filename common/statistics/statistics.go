@@ -119,15 +119,20 @@ type ClusterStatistics struct {
 
 	// CumulativeTimeDownloadingDependenciesMicroseconds is the cumulative, aggregate time spent downloading
 	// runtime/library/module dependencies by all kernels.
-	CumulativeTimeDownloadingDependenciesMicroseconds float64 `json:"cumulative_time_downloading_dependencies_microseconds" csv:"cumulative_time_downloading_dependencies_microseconds"`
+	// CumulativeTimeDownloadingDependenciesMicroseconds float64 `json:"cumulative_time_downloading_dependencies_microseconds" csv:"cumulative_time_downloading_dependencies_microseconds"`
 	// NumTimesDownloadedDependencies is the total number of times that a kernel downloaded dependencies.
-	NumTimesDownloadedDependencies float64 `json:"num_times_downloaded_dependencies" csv:"num_times_downloaded_dependencies"`
+	// NumTimesDownloadedDependencies float64 `json:"num_times_downloaded_dependencies" csv:"num_times_downloaded_dependencies"`
 
-	// CumulativeTimeDownloadingDependenciesMicroseconds is the cumulative, aggregate time spent downloading the model
-	// and training data by all kernels.
-	CumulativeTimeDownloadModelAndTrainingDataMicroseconds float64 `json:"cumulative_time_download_model_and_training_data_microseconds" csv:"cumulative_time_download_model_and_training_data_microseconds"`
-	// NumTimesDownloadedDependencies is the total number of times that a kernel downloaded the model and training data.
-	NumTimesDownloadModelAndTrainingDataMicroseconds float64 `json:"num_times_download_model_and_training_data_microseconds" csv:"num_times_download_model_and_training_data_microseconds"`
+	// CumulativeTimeDownloadTrainingDataMicroseconds is the cumulative, aggregate time spent downloading the
+	// training data by all kernels.
+	CumulativeTimeDownloadTrainingDataMicroseconds float64 `json:"cumulative_time_download_training_data_microseconds" csv:"cumulative_time_download_training_data_microseconds"`
+	// NumTimesDownloadTrainingDataMicroseconds is the total number of times that a kernel downloaded the training data.
+	NumTimesDownloadTrainingDataMicroseconds float64 `json:"num_times_download_training_data_microseconds" csv:"num_times_download_training_data_microseconds"`
+
+	// CumulativeTimeDownloadModelMicroseconds is the cumulative, aggregate time spent downloading the model by all kernels.
+	CumulativeTimeDownloadModelMicroseconds float64 `json:"cumulative_time_download_model_microseconds" csv:"cumulative_time_download_model_microseconds"`
+	// NumTimesDownloadModelMicroseconds is the total number of times that a kernel downloaded the model.
+	NumTimesDownloadModelMicroseconds float64 `json:"num_times_download_model_microseconds" csv:"num_times_download_model_microseconds"`
 
 	// CumulativeTimeDownloadingDependenciesMicroseconds is the cumulative, aggregate time spent uploading the model
 	// and training data by all kernels.

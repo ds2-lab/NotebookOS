@@ -2367,7 +2367,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         self.log.debug(
             f"Retrieved most recent GPU to CPU time from model in shell user namespace: {gpu2cpu_micros} µs")
 
-    async def extract_dataset_download_latenc(
+    async def extract_dataset_download_latency(
             self,
             code: str = "",
     ):
@@ -2424,7 +2424,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 self.current_execution_stats.upload_runtime_dependencies_microseconds = duration_sec * 1.0e6
         elif self.use_real_gpus and performing_gpu_training:
             await self.extract_mem_copy_times(code = code)
-            await self.extract_dataset_download_latenc(code = code)
+            await self.extract_dataset_download_latency(code = code)
 
     async def simulate_remote_checkpointing(
             self,
