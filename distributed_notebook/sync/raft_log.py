@@ -2402,10 +2402,10 @@ class RaftLog(object):
 
         if self.current_election.term_number != term_number:
             self.logger.error(f"Current election has term number {self.current_election.term_number}, "
-                              f"whereas the term number specified is {term_number}."
+                              f"whereas the term number specified is {term_number}. "
                               "Cannot wait for specified election to end.")
             raise ValueError(f"Current election has term number {self.current_election.term_number}, "
-                             f"whereas the term number specified is {term_number}."
+                             f"whereas the term number specified is {term_number}. "
                              "Cannot wait for specified election to end.")
 
         # Wait for the election to be finished, either because the leader finished execution the user-submitted code,

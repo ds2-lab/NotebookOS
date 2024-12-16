@@ -104,6 +104,9 @@ class DeepLearningModel(ABC):
             self.log.debug(f"Wrapping model from DataParallel. GPU device IDs: {device_ids}.")
             self.model = torch.nn.DataParallel(self.model, device_ids = device_ids)
 
+            self.gpu_device = torch.device(f"cuda:{device_ids[0]}")
+            self.model = self.model.to(self.gpu_device)
+
         et: float = time.time()
         self.log.debug(f"Changed GPU device IDs from {old_device_ids} to {device_ids} in {et - st} seconds.")
 

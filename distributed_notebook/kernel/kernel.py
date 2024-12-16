@@ -144,10 +144,6 @@ enable_storage = True
 # Used as the value for an environment variable that was not set.
 UNAVAILABLE: str = "N/A"
 
-
-# logging.basicConfig(level=logging.DEBUG,
-#                    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s [%(threadName)s (%(thread)d)] ")
-
 def tracefunc(frame, event, arg, indent: list[int] = [0]):
     if event == "call":
         indent[0] += 2
@@ -411,7 +407,12 @@ class DistributedKernel(IPythonKernel):
 
         if self.prometheus_port > 0:
             self.log.debug(f"Starting Prometheus HTTP server on port {self.prometheus_port}.")
-            self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
+            try:
+                self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
+            except OSError as exc:
+                self.log.error(f"Failed to start Prometheus Server because: {exc}")
+                self.log.error("Disabling Prometheus.")
+                self.prometheus_enabled = False
         else:
             self.log.warning(f"Prometheus Port is configured as {self.prometheus_port}. "
                              f"Skipping creation of Prometheus HTTP server.")
@@ -1318,7 +1319,7 @@ class DistributedKernel(IPythonKernel):
             self.log.debug("Calling `notify_all` on the Persistent Store condition variable.")
             self.persistent_store_cv.notify_all()
 
-        return store_path
+        return self.store_path
 
     def get_most_recently_used_remote_storage(self) -> Optional[SimulatedCheckpointer]:
         """
@@ -2144,6 +2145,7 @@ class DistributedKernel(IPythonKernel):
                 )
                 download_code: str = f"""
 
+# Download the latest model parameters from remote storage.
 model = __download_func__(__model_pointer__)
 
 """
@@ -2152,15 +2154,28 @@ model = __download_func__(__model_pointer__)
 from distributed_notebook.datasets.cifar10 import CIFAR10
 from distributed_notebook.models.resnet18 import ResNet18, ResNet18Name 
 
+# Check if we have already created the model and dataset variables for the first time.
+# If not, then we'll create them now.
 if 'model' not in locals() and 'model' not in globals():
     print("Creating model ('%s') and dataset ('%s') for the first time." % (ResNet18Name, "CIFAR-10"))
+    
+    # Create the model.
+    # For now, we've hard-coded the ResNet-18 model, but in the future, we will use whatever 
+    # model has been assigned to the associated session by the workload driver.
     model = ResNet18()
+    
+    # Create the dataset. This will download the dataset if it is not present locally.
     dataset = CIFAR10()
 else:
     print("Model ('%s') and dataset ('%s') already exist." % (model.name, dataset.name))
-{download_code}        
+
+# Download the latest model parameters from remote storage.
+{download_code}
+       
+# Distribute the model across the GPUs that we've been allocated.
 model.set_gpu_device_ids(device_ids = {gpu_device_ids})
         
+# Train for the specified amount of time.
 training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis = model.train(dataset.train_loader, training_duration_millis = {training_duration_millis})
 print("Finished training. Actual training time: %.3f ms." % training_time_millis)
 print("Copied model from CPU to GPU in %.3f ms." % copy_cpu2gpu_millis)
