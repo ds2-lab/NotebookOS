@@ -332,6 +332,7 @@ class DistributedKernel(IPythonKernel):
         self.message_acknowledgements_enabled: bool = True  # default to True
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
+        self.store_path: str = ""
 
         self.model = None
         self.dataset = None
@@ -1218,11 +1219,11 @@ class DistributedKernel(IPythonKernel):
     async def init_persistent_store_with_persistent_id(self, persistent_id: str) -> str:
         """Initialize persistent store with persistent id. Return store path."""
         assert isinstance(self.storage_base, str)
-        store_path = os.path.join(self.storage_base, "store", persistent_id)
+        self.store_path: str = os.path.join(self.storage_base, "store", persistent_id)
 
         self.log.info(
             "Initializing the Persistent Store with Persistent ID: \"%s\"" % persistent_id)
-        self.log.debug("Full path of Persistent Store: \"%s\"" % store_path)
+        self.log.debug("Full path of Persistent Store: \"%s\"" % self.store_path)
         self.log.debug("Disabling `outstream` now.")
 
         sys.stderr.flush()
@@ -1240,7 +1241,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Overrode shell hooks.")
 
         # Get synclog for synchronization.
-        sync_log: RaftLog = await self.get_synclog(store_path)
+        sync_log: RaftLog = await self.get_synclog(self.store_path)
 
         self.init_raft_log_event.set()
 
@@ -1248,6 +1249,7 @@ class DistributedKernel(IPythonKernel):
         # Starting can be non-blocking, call synchronizer.ready() later to confirm the actual execution_count.
         self.synchronizer = Synchronizer(
             sync_log,
+            store_path=self.store_path,
             module=self.shell.user_module,
             opts=CHECKPOINT_AUTO,
             node_id=self.smr_node_id,
@@ -1454,7 +1456,7 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name
 
-    async def checkpoint_model_state(self)->tuple[float, float, float]:
+    async def checkpoint_model_state(self):
         """
         Checkpoint the state dictionary of the DeepLearningModel used during training to remote storage.
 
@@ -1466,13 +1468,13 @@ class DistributedKernel(IPythonKernel):
         model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
         if model is None:
             self.log.debug("Did not find any objects of type DeepLearningModel in the user namespace.")
-            return 0.0
+            return
 
         if model.requires_checkpointing:
             self.log.debug(f"Found model '{model.name}' in user namespace; however, model does not require checkpointing.")
-            return 0.0
+            return
 
-        model_pointer: ModelPointer = ModelPointer(deep_learning_model = model)
+        model_pointer: ModelPointer = ModelPointer(deep_learning_model = model, model_path = os.path.join(self.store_path, model.name))
 
         self.log.debug(f"Checkpointing updated state of model '{model.name}' (on critical path)")
 
@@ -1481,8 +1483,17 @@ class DistributedKernel(IPythonKernel):
         et: float = time.time()
         duration_ms: float = (et - st) * 1.0e3
 
+        if self.prometheus_enabled and getattr(self, 'remote_storage_write_latency_milliseconds') is not None:
+            self.remote_storage_write_latency_milliseconds.labels(
+                session_id=self.kernel_id,
+                workload_id=self.workload_id
+            ).observe(duration_ms * 1e3)
+
+        self.current_execution_stats.upload_model_and_training_data_microseconds += (duration_ms * 1.0e3)
+        self.current_execution_stats.upload_model_start_unix_millis = st
+        self.current_execution_stats.upload_model_end_unix_millis = et
+
         self.log.debug(f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path).")
-        return st, et, duration_ms
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -1560,7 +1571,9 @@ class DistributedKernel(IPythonKernel):
         if inspect.isawaitable(reply_content):
             reply_content = await reply_content
 
+        was_primary_replica: bool = False
         if LEADER_KEY in reply_content:
+            was_primary_replica = True
             del reply_content[LEADER_KEY]
 
             performed_gpu_training: bool = reply_content.pop('performed_gpu_training', False)
@@ -1570,24 +1583,17 @@ class DistributedKernel(IPythonKernel):
             assert term_number >= 0
             assert code is not None
 
-            # Synchronize.
-            await self.synchronize_updated_state(term_number)
-
             await self.handle_post_execution_overheads(
                 remote_storage_name=remote_storage_name,
                 performing_gpu_training=performed_gpu_training,
                 code=code,
             )
 
-            if self.smr_enabled:
-                await self.schedule_notify_execution_complete(term_number)
-
         # Flush output before sending the reply.
         sys.stdout.flush()
         sys.stderr.flush()
-        # FIXME: on rare occasions, the flush doesn't seem to make it to the
-        # clients... This seems to mitigate the problem, but we definitely need
-        # to better understand what's going on.
+        # FIXME: on rare occasions, the flush doesn't seem to make it to the clients...
+        #        This seems to mitigate the problem, but we definitely need to better understand what's going on.
         if self._execute_sleep:
             time.sleep(self._execute_sleep)
 
@@ -1600,22 +1606,11 @@ class DistributedKernel(IPythonKernel):
             # Schedule task to wait until this current election either fails (due to all replicas yielding)
             # or until the leader finishes executing the user-submitted code.
             current_election: Election = self.synchronizer.current_election
-
             metadata["election_metadata"] = current_election.get_election_metadata()
-            term_number = current_election.term_number
         else:
-            checkpoint_model_state_start_time, checkpoint_model_state_end_time, checkpoint_model_state_duration_ms = await self.checkpoint_model_state()
+            await self.checkpoint_model_state()
 
-            if checkpoint_model_state_duration_ms > 0:
-                self.remote_storage_write_latency_milliseconds.labels(
-                    session_id=self.kernel_id,
-                    workload_id=self.workload_id
-                ).observe(checkpoint_model_state_duration_ms * 1e3)
-
-                self.current_execution_stats.upload_model_and_training_data_microseconds += (checkpoint_model_state_duration_ms * 1.0e3)
-                self.current_execution_stats.upload_model_start_unix_millis = checkpoint_model_state_start_time
-                self.current_execution_stats.upload_model_end_unix_millis = checkpoint_model_state_end_time
-
+        # Send the reply now.
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
             parent,
             -1,
@@ -1633,11 +1628,16 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug(f"Sent \"execute_reply\" message: {reply_msg}")
 
+        if self.smr_enabled and was_primary_replica:
+            # Synchronize.
+            await self.synchronize_updated_state(term_number)
+            await self.schedule_notify_execution_complete(term_number)
+
         if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
             self._abort_queues()
 
         await_election_end_task: Optional[asyncio.Task] = None
-        if self.smr_enabled:
+        if self.smr_enabled and not was_primary_replica:
             await_election_end_task = asyncio.create_task(
                 self.synchronizer.wait_for_election_to_end(term_number))
 
@@ -1663,7 +1663,7 @@ class DistributedKernel(IPythonKernel):
         # allow the Local Daemon to release our GPU resources, and we can now perform the write operation off of the
         # critical path. The write operation will still block future executions from running if they arrive during the
         # write operation, but that's correct.
-        if remote_storage_name is not None and self.simulate_write_after_execute and not self.simulate_write_after_execute_on_critical_path:
+        if not self.use_real_gpus and remote_storage_name is not None and self.simulate_write_after_execute and not self.simulate_write_after_execute_on_critical_path:
             self.log.debug(
                 f"Performing post-execution simulated network write operation to '{remote_storage_name}' off of critical path.")
             duration: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
@@ -1675,7 +1675,7 @@ class DistributedKernel(IPythonKernel):
                     workload_id=self.workload_id
                 ).observe(duration * 1e3)
 
-        if self.smr_enabled:
+        if self.smr_enabled and not was_primary_replica:
             assert await_election_end_task is not None
             await await_election_end_task
 
@@ -2133,6 +2133,21 @@ class DistributedKernel(IPythonKernel):
                 self.model = ResNet18()
                 self.log.debug("Creating CIFAR-10 dataset.")
                 self.dataset = CIFAR10()
+
+            download_code:str = ""
+
+            if not self.smr_enabled or self.num_replicas <= 1:
+                self.shell.user_ns["__download_func__"] = self.__load_model_from_remote_storage
+                self.shell.user_ns["__model_pointer__"] = ModelPointer(
+                    deep_learning_model = self.model,
+                    model_path = os.path.join(self.store_path, self.model.name)
+                )
+                download_code: str = f"""
+
+model = __download_func__(__model_pointer__)
+
+"""
+
             code: str = f"""
 from distributed_notebook.datasets.cifar10 import CIFAR10
 from distributed_notebook.models.resnet18 import ResNet18, ResNet18Name 
@@ -2143,7 +2158,7 @@ if 'model' not in locals() and 'model' not in globals():
     dataset = CIFAR10()
 else:
     print("Model ('%s') and dataset ('%s') already exist." % (model.name, dataset.name))
-        
+{download_code}        
 model.set_gpu_device_ids(device_ids = {gpu_device_ids})
         
 training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis = model.train(dataset.train_loader, training_duration_millis = {training_duration_millis})
@@ -2155,6 +2170,36 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             code: str = f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
 
         return code
+
+    async def primary_replica_protocol(self, term_number: int = -1, election_start: float = time.time()):
+        assert term_number >= 0
+
+        if not self.smr_enabled:
+            return True
+
+        # Pass 'True' for the 'lead' parameter to propose LEAD.
+        # Pass 'False' for the 'lead' parameter to propose YIELD.
+        #
+        # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
+        # Pass value > 0 to lead a specific execution.
+        # In either case, the execution will wait until states are synchronized.
+        # type: ignore
+        self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id,
+                                                                   term_number, True)
+
+        self.current_execution_stats.leader_election_microseconds = int((time.time() - election_start) * 1.0e6)
+
+        self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
+                      f"shell.execution_count: {self.shell.execution_count}")
+
+        if self.prometheus_enabled:
+            self.num_lead_proposals.inc()
+
+        if self.shell.execution_count == 0:  # type: ignore
+            self.log.debug("I will NOT leading this execution.")
+            return False
+
+        return True
 
     async def do_execute(
             self,
@@ -2224,29 +2269,14 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             term_number = self.synchronizer.execution_count + 1
             self.log.info(f"Calling synchronizer.ready({term_number}) now with LEAD proposal.")
 
-            if self.smr_enabled:
-                election_start: float = time.time()
-                # Pass 'True' for the 'lead' parameter to propose LEAD.
-                # Pass 'False' for the 'lead' parameter to propose YIELD.
-                #
-                # Pass 0 to lead the next execution based on history, which should be passed only if a duplicated execution is acceptable.
-                # Pass value > 0 to lead a specific execution.
-                # In either case, the execution will wait until states are synchronized.
-                # type: ignore
-                self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id,
-                                                                           term_number, True)
+            election_start: float = time.time()
+            is_primary_replica: bool = await self.primary_replica_protocol(
+                term_number = term_number,
+                election_start = election_start
+            )
 
-                self.current_execution_stats.leader_election_microseconds = int((time.time() - election_start) * 1.0e6)
-
-                self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
-                              f"shell.execution_count: {self.shell.execution_count}")
-
-                if self.prometheus_enabled:
-                    self.num_lead_proposals.inc()
-
-                if self.shell.execution_count == 0:  # type: ignore
-                    self.log.debug("I will NOT leading this execution.")
-                    raise err_failed_to_lead_execution
+            if not is_primary_replica:
+                raise err_failed_to_lead_execution
 
             self.log.debug(f"I WILL lead this execution ({self.shell.execution_count}).")
             self.current_execution_stats.won_election = True
@@ -2272,8 +2302,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 code=code,
             )
 
-            # Disable stdout and stderr forwarding.
-            self.toggle_outstream(override=True, enable=False)
+            # Re-enable stdout and stderr forwarding.
+            self.toggle_outstream(override=True, enable=True)
 
             reply_content[LEADER_KEY] = True
             reply_content['term_number'] = term_number
@@ -3179,23 +3209,31 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 'user_expressions': {},
                 }
 
-    def __model_committed(self, pointer: ModelPointer):
+    def __load_model_from_remote_storage(self, pointer: ModelPointer)->Optional[DeepLearningModel]:
         """
         Callback to be executed when a pointer to a DeepLearningModel object is committed to the RaftLog.
         :param pointer: the pointer to the DeepLearningModel object.
         """
-        self.log.debug(f"An updated \"{pointer.name}\" model was committed.")
-
         try:
+            read_st: float = time.time()
             model_state_dict, optimizer_state_dict, criterion_state_dict = self._remote_checkpointer.read_state_dicts(
                 pointer)
+            read_et: float = time.time()
+
+            self.log.debug(f"Read updated model state from remote storage '{self._remote_checkpointer.storage_name}' "
+                           f"in {read_et - read_st} seconds.")
+
+            if not self.smr_enabled or self.num_replicas <= 1:
+                assert self.current_execution_stats is not None
+                self.current_execution_stats.download_model_microseconds += (read_et - read_st) * 1.0e6
+                self.current_execution_stats.download_model_start_unix_millis += (read_st * 1.0e3)
+                self.current_execution_stats.download_model_end_unix_millis += (read_et * 1.0e3)
         except Exception as exc:
             self.log.error(f"Failed to read state dictionaries for model \"{pointer.name}\" "
                            f"from remote storage \"{self._remote_checkpointer.storage_name}\" because: {exc}")
             raise exc  # re-raise
 
         try:
-            st: float = time.time()
             model: DeepLearningModel = load_model(
                 model_name=pointer.name,
                 existing_model=self.shell.user_ns.get("model", None),
@@ -3204,14 +3242,12 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 optimizer_state_dict=optimizer_state_dict,
                 criterion_state_dict=criterion_state_dict
             )
-            et: float = time.time()
         except Exception as exc:
             self.log.error(f"Failed to load committed dataset \"{pointer.name}\" because: {exc}")
             self.report_error("Failed to Load Committed Dataset \"{pointer.name}\"", str(exc))
-            return
+            return None
 
-        self.shell.user_ns["model"] = model
-        self.log.debug(f"Successfully loaded committed model \"{pointer.name}\" in {et - st} seconds.")
+        return model
 
     def __dataset_committed(self, pointer: DatasetPointer):
         """
@@ -3252,7 +3288,13 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         if isinstance(pointer, DatasetPointer):
             self.__dataset_committed(pointer)
         elif isinstance(pointer, ModelPointer):
-            self.__model_committed(pointer)
+            self.log.debug(f"An updated \"{pointer.name}\" model was committed.")
+
+            st: float = time.time()
+            model: Optional[DeepLearningModel] = self.__load_model_from_remote_storage(pointer)
+            et: float = time.time()
+            self.shell.user_ns["model"] = model
+            self.log.debug(f"Successfully loaded committed model \"{pointer.name}\" in {et - st} seconds.")
         else:
             self.log.error(f"SyncPointer of unknown or unsupported type committed: {pointer}")
             raise ValueError(f"SyncPointer of unknown or unsupported type committed: {pointer}")

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 import traceback
 import types
@@ -36,6 +37,7 @@ class Synchronizer:
     def __init__(
             self,
             sync_log: SyncLog,
+            store_path:str = "",
             module: Optional[types.ModuleType] = None,
             ns=None,
             opts=0,
@@ -51,6 +53,7 @@ class Synchronizer:
         else:
             self._module = module
 
+        self._store_path:str = store_path
         self._node_id:int = node_id
 
         # Set callbacks for synclog
@@ -464,12 +467,12 @@ class Synchronizer:
 
         if isinstance(val, Dataset):
             self._log.debug(f"Synchronizing Dataset \"{val.name}\". Will convert to pointer before appending to RaftLog.")
-            dataset_pointer: DatasetPointer = DatasetPointer(dataset = val)
+            dataset_pointer: DatasetPointer = DatasetPointer(dataset = val, dataset_path = os.path.join(self._store_path, val.name))
             # self._remote_checkpointer.write_dataset(dataset_pointer)
             val = dataset_pointer
         elif isinstance(val, DeepLearningModel):
             self._log.debug(f"Synchronizing Model \"{val.name}\". Will convert to pointer before appending to RaftLog.")
-            model_pointer: ModelPointer = ModelPointer(deep_learning_model = val)
+            model_pointer: ModelPointer = ModelPointer(deep_learning_model = val, model_path = os.path.join(self._store_path, val.name))
             await self._remote_checkpointer.write_state_dicts_async(model_pointer)
             val = model_pointer
 
