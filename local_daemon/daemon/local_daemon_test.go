@@ -298,7 +298,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
 			GinkgoWriter.Printf("metadata: %v\n", metadata)
 			Expect(err).To(BeNil())
-			Expect(len(metadata)).To(Equal(8))
+			Expect(len(metadata)).To(Equal(9))
 
 			var header messaging.MessageHeader
 			err = processedMessage.JupyterFrames.DecodeHeader(&header)
