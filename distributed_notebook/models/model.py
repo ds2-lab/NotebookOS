@@ -59,6 +59,26 @@ class DeepLearningModel(ABC):
         self._name:str = name
         self._out_features: int = out_features
 
+        # List of the times, in seconds, spent copying data from the CPU to the GPU.
+        self._cpu2gpu_times: list[float] = []
+
+        # List of the times, in seconds, spent copying data from the GPU to the CPU.
+        self._gpu2cpu_times: list[float] = []
+
+    @property
+    def cpu_to_gpu_times(self)->list[float]:
+        """
+        :return: the list of the times, in seconds, spent copying data from the CPU to the GPU.
+        """
+        return self._cpu2gpu_times
+
+    @property
+    def gpu_to_cpu_times(self)->list[float]:
+        """
+        :return: the list of the times, in seconds, spent copying data from the GPU to the CPU.
+        """
+        return self._gpu2cpu_times
+
     @property
     def optimizer(self)->Optional[Module]:
         return self._optimizer
@@ -167,6 +187,8 @@ class DeepLearningModel(ABC):
         self.log.debug(f"\t\tCopied model in {et_optimizer - et_model} seconds.")
         self.log.debug(f"\t\tCopied model in {et_criterion - et_optimizer} seconds.")
 
+        self.cpu_to_gpu_times.append(total_time_elapsed)
+
         return total_time_elapsed
 
     def to_cpu(self)->float: # Return the total time elapsed in seconds.
@@ -195,5 +217,7 @@ class DeepLearningModel(ABC):
         self.log.debug(f"\tTotal time elapsed: {total_time_elapsed} seconds.")
         self.log.debug(f"\t\tCopied model in {et_optimizer - et_model} seconds.")
         self.log.debug(f"\t\tCopied model in {et_criterion - et_optimizer} seconds.")
+
+        self.gpu_to_cpu_times.append(total_time_elapsed)
 
         return total_time_elapsed
