@@ -60,9 +60,11 @@ class DeepLearningModel(ABC):
         self._out_features: int = out_features
 
         # List of the times, in seconds, spent copying data from the CPU to the GPU.
+        # IMPORTANT: These are NOT checkpointed as of right now.
         self._cpu2gpu_times: list[float] = []
 
         # List of the times, in seconds, spent copying data from the GPU to the CPU.
+        # IMPORTANT: These are NOT checkpointed as of right now.
         self._gpu2cpu_times: list[float] = []
 
     @property
