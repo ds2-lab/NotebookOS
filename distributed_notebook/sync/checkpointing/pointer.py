@@ -18,7 +18,7 @@ class SyncPointer(SynchronizedValue, ABC):
     (e.g., 10s or 100s of MB or larger).
     """
     def __init__(self, name: str = "", **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(None, None, **kwargs)
 
         self._name: str = name
 

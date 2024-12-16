@@ -1475,7 +1475,11 @@ class DistributedKernel(IPythonKernel):
             self.log.debug(f"Found model '{model.name}' in user namespace; however, model does not require checkpointing.")
             return
 
-        model_pointer: ModelPointer = ModelPointer(deep_learning_model = model, model_path = os.path.join(self.store_path, model.name))
+        model_pointer: ModelPointer = ModelPointer(
+            deep_learning_model = model,
+            model_path = os.path.join(self.store_path, model.name),
+            proposer_id = self.smr_node_id,
+        )
 
         self.log.debug(f"Checkpointing updated state of model '{model.name}' (on critical path)")
 

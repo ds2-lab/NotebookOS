@@ -467,12 +467,20 @@ class Synchronizer:
 
         if isinstance(val, Dataset):
             self._log.debug(f"Synchronizing Dataset \"{val.name}\". Will convert to pointer before appending to RaftLog.")
-            dataset_pointer: DatasetPointer = DatasetPointer(dataset = val, dataset_path = os.path.join(self._store_path, val.name))
+            dataset_pointer: DatasetPointer = DatasetPointer(
+                dataset = val,
+                dataset_path = os.path.join(self._store_path, val.name),
+                proposer_id = self._node_id
+            )
             # self._remote_checkpointer.write_dataset(dataset_pointer)
             val = dataset_pointer
         elif isinstance(val, DeepLearningModel):
             self._log.debug(f"Synchronizing Model \"{val.name}\". Will convert to pointer before appending to RaftLog.")
-            model_pointer: ModelPointer = ModelPointer(deep_learning_model = val, model_path = os.path.join(self._store_path, val.name))
+            model_pointer: ModelPointer = ModelPointer(
+                deep_learning_model = val,
+                model_path = os.path.join(self._store_path, val.name),
+                proposer_id = self._node_id,
+            )
             await self._remote_checkpointer.write_state_dicts_async(model_pointer)
             val = model_pointer
 
