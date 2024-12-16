@@ -1572,6 +1572,7 @@ class DistributedKernel(IPythonKernel):
         if inspect.isawaitable(reply_content):
             reply_content = await reply_content
 
+        term_number: int = -1
         was_primary_replica: bool = False
         if LEADER_KEY in reply_content:
             was_primary_replica = True
@@ -1602,12 +1603,16 @@ class DistributedKernel(IPythonKernel):
         reply_content = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
 
-        term_number: int = -1
         if self.smr_enabled:
             # Schedule task to wait until this current election either fails (due to all replicas yielding)
             # or until the leader finishes executing the user-submitted code.
             current_election: Election = self.synchronizer.current_election
             metadata["election_metadata"] = current_election.get_election_metadata()
+
+            # If we weren't the lead replica, then we didn't recover the term number up above, so
+            # let's get the current term number from the election object.
+            if term_number == -1:
+                term_number = current_election.term_number
         else:
             await self.checkpoint_model_state()
 
