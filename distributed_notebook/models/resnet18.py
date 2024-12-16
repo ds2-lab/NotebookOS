@@ -150,6 +150,8 @@ class ResNet18(DeepLearningModel):
             copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
             self.log.debug(f"Copied model from GPU to CPU in {copy_gpu2cpu_millis} ms.")
 
+        self._requires_checkpointing = True
+
         return training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
     def train(self, loader, training_duration_millis: int|float = 0.0)->tuple[float, float, float]:
@@ -237,6 +239,8 @@ class ResNet18(DeepLearningModel):
             copy_end:float = time.time()
             copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
             self.log.debug(f"Copied model from GPU to CPU in {copy_gpu2cpu_millis} ms.")
+
+        self._requires_checkpointing = True
 
         return training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 

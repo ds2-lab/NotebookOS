@@ -33,6 +33,25 @@ class RemoteCheckpointer(ABC):
         pass
 
     @abstractmethod
+    async def read_state_dicts_async(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        """
+        Asynchronously read the state dictionaries of the model, its optimizer, and its criterion from intermediate storage.
+
+        :param pointer: a pointer to the DeepLearningModel whose state dictionaries we're going to write.
+        :return: return the state dictionaries of the model, its optimizer, and its criterion.
+        """
+        pass
+
+    @abstractmethod
+    async def write_state_dicts_async(self, pointer: ModelPointer)->None:
+        """
+        Asynchronously write the state dictionaries of the model, its optimizer, and its criterion to intermediate storage.
+
+        :param pointer: a pointer to the DeepLearningModel whose state dictionaries we're going to write.
+        """
+        pass
+
+    @abstractmethod
     def write_state_dicts(self, pointer: ModelPointer)->None:
         """
         Write the state dictionaries of the model, its optimizer, and its criterion to intermediate storage.

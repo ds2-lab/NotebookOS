@@ -84,6 +84,15 @@ class ModelPointer(SyncPointer):
         del d['_model']
         return d
 
+    def wrote_model_state(self):
+        """
+        Record that we wrote the model's state to remote storage.
+        """
+        if not self._model.requires_checkpointing:
+            raise ValueError(f"model '{self._model.name}' does not seem to require checkpointing")
+
+        self._model.checkpointed()
+
     @property
     def total_num_epochs(self)->int:
         return self._total_num_epochs

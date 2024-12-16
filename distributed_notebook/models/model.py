@@ -6,6 +6,7 @@ import time
 import torch.nn as nn
 import torch.optim as optim
 from torch.nn import Module
+from torch.xpu import device
 from torchvision import datasets, transforms, models
 from torch.utils.data import DataLoader
 
@@ -58,6 +59,11 @@ class DeepLearningModel(ABC):
         self._optimizer: Optional[Module] = None
         self._name:str = name
         self._out_features: int = out_features
+        self._device_ids: list[int] = []
+
+        # Flag that is set to True everytime we train and set to False everytime we write the model's parameters or
+        # state dictionary to remote storage.
+        self._requires_checkpointing: bool = False
 
         # List of the times, in seconds, spent copying data from the CPU to the GPU.
         # IMPORTANT: These are NOT checkpointed as of right now.
@@ -66,6 +72,58 @@ class DeepLearningModel(ABC):
         # List of the times, in seconds, spent copying data from the GPU to the CPU.
         # IMPORTANT: These are NOT checkpointed as of right now.
         self._gpu2cpu_times: list[float] = []
+
+    def set_gpu_device_ids(self, device_ids: list[int] = None):
+        """
+        Change the GPU device IDs used by the model.
+
+        If the model is wrapped in torch.nn.DataParallel, then this will first unwrap the model before
+        either re-wrapping it in torch.nn.DataParallel, or just specifying a new PyTorch device with the
+        specified GPU device ID.
+        """
+        if len(device_ids) == 0:
+            raise ValueError("device IDs list is empty")
+
+        st: float = time.time()
+
+        # Unwrap from DataParallel (if in DataParallel).
+        if isinstance(self.model, torch.nn.DataParallel):
+            old_device_ids: list[int] = self.model.device_ids
+            self.log.debug(f"Unwrapping model from DataParallel. Old GPU device IDs: {old_device_ids}.")
+            self.model = self.model.module
+        else:
+            old_device_ids: list[int] = [0]
+
+        if len(device_ids) == 1:
+            gpu_device_id: int = device_ids[0]
+            self.log.debug(f"Using GPU #{gpu_device_id}")
+            self.gpu_device = torch.device(f'cuda:{gpu_device_id}')
+
+            self.model = self.model.to(self.gpu_device)
+        else:
+            self.log.debug(f"Wrapping model from DataParallel. GPU device IDs: {device_ids}.")
+            self.model = torch.nn.DataParallel(self.model, device_ids = device_ids)
+
+        et: float = time.time()
+        self.log.debug(f"Changed GPU device IDs from {old_device_ids} to {device_ids} in {et - st} seconds.")
+
+        self._device_ids = device_ids
+
+    def checkpointed(self):
+        """
+        This should be called whenever the model's state dictionary is written to remote storage.
+        """
+        if not self._requires_checkpointing:
+            raise ValueError(f"model '{self._name}' does not require checkpointing")
+
+        self._requires_checkpointing = False
+
+    @property
+    def requires_checkpointing(self)->bool:
+        """
+        Return a bool indicating whether this model has updated state that needs to be checkpointed.
+        """
+        return self._requires_checkpointing
 
     @property
     def cpu_to_gpu_times(self)->list[float]:
@@ -185,9 +243,9 @@ class DeepLearningModel(ABC):
 
         total_time_elapsed: float = et_criterion - st
         self.log.debug(f"Finished moving RESNET-18 model, optimizer, and criterion to GPU. Model size: {size_mb} MB.")
-        self.log.debug(f"\tTotal time elapsed: {total_time_elapsed} seconds.")
-        self.log.debug(f"\t\tCopied model in {et_optimizer - et_model} seconds.")
-        self.log.debug(f"\t\tCopied model in {et_criterion - et_optimizer} seconds.")
+        self.log.debug(f"\tTotal time elapsed: {total_time_elapsed * 1.0e3} ms.")
+        self.log.debug(f"\t\tCopied optimizer in {(et_optimizer - et_model) * 1.0e3} ms.")
+        self.log.debug(f"\t\tCopied criterion in {(et_criterion - et_optimizer) * 1.0e3} ms.")
 
         self.cpu_to_gpu_times.append(total_time_elapsed)
 
@@ -216,9 +274,9 @@ class DeepLearningModel(ABC):
 
         total_time_elapsed: float = et_criterion - st
         self.log.debug(f"Finished moving RESNET-18 model, optimizer, and criterion to CPU. Model size: {size_mb} MB.")
-        self.log.debug(f"\tTotal time elapsed: {total_time_elapsed} seconds.")
-        self.log.debug(f"\t\tCopied model in {et_optimizer - et_model} seconds.")
-        self.log.debug(f"\t\tCopied model in {et_criterion - et_optimizer} seconds.")
+        self.log.debug(f"\tTotal time elapsed: {total_time_elapsed * 1.0e3} ms.")
+        self.log.debug(f"\t\tCopied optimizer in {(et_optimizer - et_model) * 1.0e6} μs.")
+        self.log.debug(f"\t\tCopied criterion in {(et_criterion - et_optimizer) * 1.0e6} μs.")
 
         self.gpu_to_cpu_times.append(total_time_elapsed)
 

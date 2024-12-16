@@ -470,7 +470,7 @@ class Synchronizer:
         elif isinstance(val, DeepLearningModel):
             self._log.debug(f"Synchronizing Model \"{val.name}\". Will convert to pointer before appending to RaftLog.")
             model_pointer: ModelPointer = ModelPointer(deep_learning_model = val)
-            self._remote_checkpointer.write_state_dicts(model_pointer)
+            await self._remote_checkpointer.write_state_dicts_async(model_pointer)
             val = model_pointer
 
         if checkpointing:

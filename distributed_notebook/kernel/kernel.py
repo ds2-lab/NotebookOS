@@ -300,6 +300,22 @@ class DistributedKernel(IPythonKernel):
 
         super().__init__(**kwargs)
 
+        # Initialize logging
+        self.log = logging.getLogger(__class__.__name__)
+        self.log.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(ColoredLogFormatter())
+        self.log.addHandler(ch)
+
+        for handler in self.log.handlers:
+            handler.setLevel(logging.DEBUG)
+
+        self.log.info("INFO")
+        self.log.debug("DEBUG")
+        self.log.warning("WARNING")
+        self.log.error("ERROR")
+
         # Used to create strong references to tasks, such as notifying peer replicas that execution has complete.
         self.background_tasks = set()
         self.next_execute_request_msg_id: Optional[str] = None
@@ -369,14 +385,6 @@ class DistributedKernel(IPythonKernel):
             "vram": self.spec_vram_gb
         }
         self.resource_requests: list[Dict[str, Number | List[Number]]] = [self.current_resource_request]
-
-        # Initialize logging
-        self.log = logging.getLogger(__class__.__name__)
-        self.log.setLevel(logging.DEBUG)
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.DEBUG)
-        ch.setFormatter(ColoredLogFormatter())
-        self.log.addHandler(ch)
 
         self.log.debug(f"Initial resource request: {self.current_resource_request}")
         self.log.debug(f"GPU memory bandwidth: {self.gpu_memory_bandwidth_bytes_sec / 1.0e9} bytes/sec")
@@ -1443,6 +1451,36 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name
 
+    async def checkpoint_model_state(self)->float:
+        """
+        Checkpoint the state dictionary of the DeepLearningModel used during training to remote storage.
+
+        This particular method is only used for non-SMR/non-replica-based scheduling policies.
+
+        :return: the e2e latency of the network write, if it occurred, in milliseconds
+        """
+        # Write the updated model state to remote storage.
+        model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
+        if model is None:
+            self.log.debug("Did not find any objects of type DeepLearningModel in the user namespace.")
+            return 0.0
+
+        if model.requires_checkpointing:
+            self.log.debug(f"Found model '{model.name}' in user namespace; however, model does not require checkpointing.")
+            return 0.0
+
+        model_pointer: ModelPointer = ModelPointer(deep_learning_model = model)
+
+        self.log.debug(f"Checkpointing updated state of model '{model.name}' (on critical path)")
+
+        st: float = time.time()
+        await self._remote_checkpointer.write_state_dicts_async(model_pointer)
+        et: float = time.time()
+        duration_ms: float = (et - st) * 1.0e3
+
+        self.log.debug(f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path).")
+        return duration_ms
+
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
         start_time: float = time.time()
@@ -1540,6 +1578,16 @@ class DistributedKernel(IPythonKernel):
 
             metadata["election_metadata"] = current_election.get_election_metadata()
             term_number = current_election.term_number
+        else:
+            duration_ms: float = await self.checkpoint_model_state()
+
+            if duration_ms > 0:
+                self.remote_storage_write_latency_milliseconds.labels(
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id
+                ).observe(duration_ms * 1e3)
+
+                self.current_execution_stats.upload_model_and_training_data_microseconds += (duration_ms * 1.0e3)
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
             parent,
@@ -2043,8 +2091,16 @@ class DistributedKernel(IPythonKernel):
             self.log.debug(f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms.")
             self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3  # it's already in milliseconds
 
-    def get_custom_training_code(self, training_duration_millis: float) -> str:
+    def get_custom_training_code(
+            self,
+            training_duration_millis: float,
+            gpu_device_ids: list[int] = None,
+    ) -> str:
         if self.use_real_gpus:
+            if gpu_device_ids is None or len(gpu_device_ids) == 0:
+                self.log.warning("No GPU device IDs specified. Defaulting to [0].")
+                gpu_device_ids = [0]
+
             if self.model is None:
                 self.log.debug("Creating RESNET-18 model.")
                 self.model = ResNet18()
@@ -2060,6 +2116,8 @@ if 'model' not in locals() and 'model' not in globals():
     dataset = CIFAR10()
 else:
     print("Model ('%s') and dataset ('%s') already exist." % (model.name, dataset.name))
+        
+model.set_gpu_device_ids(device_ids = {gpu_device_ids})
         
 training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis = model.train(dataset.train_loader, training_duration_millis = {training_duration_millis})
 print("Finished training. Actual training time: %.3f ms." % training_time_millis)
