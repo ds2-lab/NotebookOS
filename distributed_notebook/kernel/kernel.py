@@ -33,6 +33,7 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
+from .stats import ExecutionStats
 from ..datasets.base import Dataset
 from ..datasets.cifar10 import CIFAR10
 from ..datasets.loader import load_dataset
@@ -53,6 +54,7 @@ from ..sync.errors import DiscardMessageError
 from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer, get_estimated_io_time_seconds, \
     format_size
 
+import_torch_start:float = time.time()
 try:
     import torch
     torch_available: bool = True
@@ -64,9 +66,11 @@ except ImportError as ex:
 
 if torch_available:
     cuda_available: bool = torch.cuda.is_available()
+    import_torch_end:float = time.time()
+    import_torch_duration_sec: float = import_torch_end - import_torch_start
 
     if cuda_available:
-        print("[INFO] CUDA is available.")
+        print(f"[INFO] CUDA is available. Imported PyTorch and initialized CUDA in {import_torch_duration_sec} seconds.")
     else:
         print("[WARNING] CUDA is unavailable (even though PyTorch is enabled).")
 
@@ -156,41 +160,6 @@ def gen_error_response(err):
             'traceback': [],
             'msg_created_at_unix_milliseconds': time.time_ns() // 1_000_000,
             }
-
-
-class ExecutionStats(object):
-    """
-    Encapsulates some metrics related to code execution and whatnot.
-    """
-
-    def __init__(
-            self,
-            cuda_init_microseconds: float = 0,
-            download_runtime_dependencies_microseconds: float = 0,
-            download_model_and_training_data_microseconds: float = 0,
-            upload_model_and_training_data_microseconds: float = 0,
-            execution_time_microseconds: float = 0,
-            leader_election_microseconds: float = 0,
-            copy_data_from_cpu_to_gpu_microseconds: float = 0,
-            copy_data_from_gpu_to_cpu_microseconds: float = 0,
-            replay_time_microseconds: float = 0,
-            execution_start_unix_millis: float = 0,
-            execution_end_unix_millis: float = 0,
-            won_election: bool = False,  # always true for non-static/non-dynamic scheduling policies
-    ):
-        self.cuda_init_microseconds: float = cuda_init_microseconds
-        self.download_runtime_dependencies_microseconds: float = download_runtime_dependencies_microseconds
-        self.download_model_and_training_data_microseconds: float = download_model_and_training_data_microseconds
-        self.upload_model_and_training_data_microseconds: float = upload_model_and_training_data_microseconds
-        self.execution_start_unix_millis: float = execution_start_unix_millis
-        self.execution_end_unix_millis: float = execution_end_unix_millis
-        self.execution_time_microseconds: float = execution_time_microseconds
-        self.replay_time_microseconds: float = replay_time_microseconds
-        self.leader_election_microseconds: float = leader_election_microseconds
-        self.copy_data_from_cpu_to_gpu_microseconds: float = copy_data_from_cpu_to_gpu_microseconds
-        self.copy_data_from_gpu_to_cpu_microseconds: float = copy_data_from_gpu_to_cpu_microseconds
-        self.won_election: bool = won_election
-
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
@@ -351,15 +320,19 @@ class DistributedKernel(IPythonKernel):
         self.current_execution_stats: Optional[ExecutionStats] = None
 
         # Indicates if the CUDA runtime initialized.
+        # This is only used when simulating the use of real GPUs.
         self.cuda_initialized: bool = False
 
         # Indicates of the data is already on the GPU.
+        # This is only used when simulating the use of real GPUs.
         self.data_on_gpu: bool = False
 
         # Indicates if the runtime dependencies (e.g., PyTorch/TensorFlow, etc.) are already downloaded.
+        # This is only used when simulating the use of real GPUs.
         self.runtime_dependencies_downloaded: bool = False
 
         # Indicates if the (latest) model parameters and training data are downloaded.
+        # This is only used when simulating the use of real GPUs.
         self.model_and_training_data_downloaded: bool = False
 
         # This is set to True in self.loaded_serialized_state_callback, which is called by the RaftLog after it
@@ -2147,8 +2120,9 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             self.log.debug(f"I WILL lead this execution ({self.shell.execution_count}).")
             self.current_execution_stats.won_election = True
 
-            vram_size_gb = self.current_resource_request.get('vram', 0)
-            self.perform_initializations(vram_size_gb=vram_size_gb)
+            if not self.use_real_gpus:
+                vram_size_gb = self.current_resource_request.get('vram', 0)
+                self.perform_initializations(vram_size_gb=vram_size_gb)
 
             # Notify the client that we will lead the execution.
             # TODO: Eventually, we could pass "gpu" as True or False depending on whether we really
@@ -2162,94 +2136,21 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             self.session.send(self.iopub_socket, SMR_LEAD_TASK, content,
                               ident=self._topic(SMR_LEAD_TASK))  # type: ignore
 
-            if training_duration_millis > 0:
-                self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
-                               f"Discarding specified code. Will use custom training code instead.")
-                code = self.get_custom_training_code(training_duration_millis = training_duration_millis)
-            elif "training_duration_millis = " in code:
-                training_duration_millis = int(float(code[27:]))
-                self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
-                               f"Discarding specified code. Will use custom training code instead.")
-                code = self.get_custom_training_code(training_duration_millis = training_duration_millis)
-            else:
-                pass
-
-            self.log.debug(f"Executing the following code now:\n{code}\n")
-
-            self.current_execution_stats.execution_start_unix_millis = time.time() * 1.0e3
-
-            # Execute code
-            reply_routing = super().do_execute(
-                code, silent, store_history=store_history,
-                user_expressions=user_expressions, allow_stdin=allow_stdin)
-
-            # Wait for the settlement of variables.
-            reply_content = await reply_routing
-            self.current_execution_stats.execution_end_unix_millis = time.time() * 1.0e3
-            exec_duration_millis: float = self.current_execution_stats.execution_end_unix_millis - self.current_execution_stats.execution_start_unix_millis
-            self.current_execution_stats.execution_time_microseconds = exec_duration_millis * 1.0e3
-            reply_content['execution_start_unix_millis'] = self.current_execution_stats.execution_start_unix_millis
-            reply_content['execution_finished_unix_millis'] = self.current_execution_stats.execution_end_unix_millis
-
-            self.shell.user_ns["__test_variable3__"] = "you cannot change me" # for debugging/testing
-
-            self.log.info(f"Finished executing user-submitted code in {exec_duration_millis} ms. "
-                          f"Returning the following content: {reply_content}")
+            reply_content, performed_gpu_training = await self.execute_user_code(
+                training_duration_millis = training_duration_millis,
+                code = code,
+            )
 
             # Disable stdout and stderr forwarding.
             self.toggle_outstream(override=True, enable=False)
 
-            if self.execution_ast is None:
-                self.log.warning("Execution AST is None. Synchronization will likely fail...")
-            else:
-                self.log.debug("Synchronizing now. Execution AST is NOT None.")
+            # Synchronize.
+            await self.synchronize_updated_state(term_number)
 
-            if self.smr_enabled:
-                # Synchronize
-                coro = self.synchronizer.sync(self.execution_ast, self.source)
-
-                self.execution_ast = None
-                self.source = None
-
-                try:
-                    await coro
-                except Exception as ex:
-                    self.log.error(f"Synchronization failed: {ex}")
-                    self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-                        title="Synchronization Error",
-                        message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has experienced a synchronization error: {ex}.",
-                        notificationType=ErrorNotification,
-                        kernelId=self.kernel_id,
-                        replicaId=self.smr_node_id,
-                    ))
-
-                assert self.execution_count is not None
-                self.log.info("Synchronized. End of sync execution: {}".format(term_number))
-
-            if self.data_on_gpu:
-                copy_data_to_cpu_start: float = time.time()
-                self.copy_data_from_gpu_to_cpu(size_gb=vram_size_gb)
-                copy_data_to_cpu_ms: float = (time.time() - copy_data_to_cpu_start) * 1.0e3
-                self.log.debug(
-                    f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms.")
-                self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = copy_data_to_cpu_ms * 1.0e3  # it's already in milliseconds
-
-            if remote_storage_name is not None and self.simulate_write_after_execute and self.simulate_write_after_execute_on_critical_path:
-                self.log.debug(
-                    f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path.")
-                duration_sec: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
-
-                if duration_sec > 0 and self.prometheus_enabled:
-                    self.remote_storage_write_latency_milliseconds.labels(
-                        session_id=self.kernel_id,
-                        workload_id=self.workload_id
-                    ).observe(duration_sec * 1e3)
-
-                    self.delay_milliseconds.labels(
-                        session_id=self.kernel_id,
-                        workload_id=self.workload_id).inc(duration_sec * 1e3)
-
-                self.current_execution_stats.upload_runtime_dependencies_microseconds = duration_sec * 1.0e6
+            await self.handle_post_execution_overheads(
+                remote_storage_name = remote_storage_name,
+                performing_gpu_training = performed_gpu_training
+            )
 
             if self.smr_enabled:
                 await self.schedule_notify_execution_complete(term_number)
@@ -2276,6 +2177,157 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
             reply_content = gen_error_response(e)
         return reply_content
+
+    async def execute_user_code(
+            self,
+            training_duration_millis: float = 0,
+            code: str = "",
+            silent: bool = False,
+            store_history: bool = True,
+            user_expressions: dict = None,
+            allow_stdin: bool = False,
+    ) -> tuple[Dict[str, Any], bool]:
+        """
+        Execute the user-submitted code.
+
+        :return: a tuple containing the reply content and a bool indicating whether the training we performed
+                 used an actual (or simulated/fake) GPU.
+        """
+        performed_gpu_training: bool = False
+        if training_duration_millis > 0:
+            self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
+                           f"Discarding specified code. Will use custom training code instead.")
+            code = self.get_custom_training_code(training_duration_millis = training_duration_millis)
+            performed_gpu_training = True
+        elif "training_duration_millis = " in code:
+            training_duration_millis = int(float(code[27:]))
+            self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
+                           f"Discarding specified code. Will use custom training code instead.")
+            code = self.get_custom_training_code(training_duration_millis = training_duration_millis)
+            performed_gpu_training = True
+        else:
+            pass
+
+        self.log.debug(f"Executing the following code now:\n{code}\n")
+
+        self.current_execution_stats.execution_start_unix_millis = time.time() * 1.0e3
+
+        # Execute code
+        reply_routing = super().do_execute(
+            code, silent, store_history=store_history,
+            user_expressions=user_expressions, allow_stdin=allow_stdin)
+
+        # Wait for the settlement of variables.
+        reply_content = await reply_routing
+        self.current_execution_stats.execution_end_unix_millis = time.time() * 1.0e3
+        exec_duration_millis: float = self.current_execution_stats.execution_end_unix_millis - self.current_execution_stats.execution_start_unix_millis
+        self.current_execution_stats.execution_time_microseconds = exec_duration_millis * 1.0e3
+        reply_content['execution_start_unix_millis'] = self.current_execution_stats.execution_start_unix_millis
+        reply_content['execution_finished_unix_millis'] = self.current_execution_stats.execution_end_unix_millis
+
+        self.shell.user_ns["__test_variable3__"] = "you cannot change me" # for debugging/testing
+
+        self.log.info(f"Finished executing user-submitted code in {exec_duration_millis} ms. "
+                      f"Returning the following content: {reply_content}")
+
+        return reply_content, performed_gpu_training
+
+    async def synchronize_updated_state(self, term_number: int):
+        """
+        Synchronize any state updated during the last execution with peer replicas.
+
+        If SMR is disabled, then synchronize_updated_state returns immediately.
+
+        Warning: as of right now, any synchronization errors are simply caught and logged.
+
+        :param term_number: the term for which we're performing the state synchronization.
+        """
+        if not self.smr_enabled:
+            self.log.debug("SMR is not enabled. Skipping updated state synchronization.")
+            return
+
+        if self.execution_ast is None:
+            self.log.warning("Execution AST is None. Synchronization will likely fail...")
+        else:
+            self.log.debug("Synchronizing now. Execution AST is NOT None.")
+
+        sync_start_time: float = time.time() * 1.0e3
+
+        try:
+            # Do the synchronization
+            await self.synchronizer.sync(self.execution_ast, self.source)
+            synchronized_successfully = True
+        except Exception as exc:
+            self.log.error(f"Synchronization failed: {exc}")
+            synchronized_successfully = False
+            self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
+                title="Synchronization Error",
+                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has experienced a synchronization error: {exc}.",
+                notificationType=ErrorNotification,
+                kernelId=self.kernel_id,
+                replicaId=self.smr_node_id,
+            ))
+        sync_end_time: float = time.time() * 1.0e3
+        sync_duration_millis: float = sync_end_time - sync_start_time
+
+        if synchronized_successfully:
+            self.log.debug(f"Successfully synchronized updated state from term {term_number} "
+                           f"with peers in {sync_duration_millis} ms.")
+            self.current_execution_stats.sync_start_unix_millis = sync_start_time
+            self.current_execution_stats.sync_end_unix_millis = sync_end_time
+            self.current_execution_stats.sync_duration_millis = sync_duration_millis
+
+        self.execution_ast = None
+        self.source = None
+
+        assert self.execution_count is not None
+
+    async def handle_post_execution_overheads(
+            self,
+            remote_storage_name: Optional[str] = None,
+            performing_gpu_training: bool = False):
+        if not self.use_real_gpus and self.data_on_gpu:
+            vram_size_gb = self.current_resource_request.get('vram', 0)
+            copy_data_to_cpu_start: float = time.time()
+            self.copy_data_from_gpu_to_cpu(size_gb=vram_size_gb)
+            copy_data_to_cpu_ms: float = (time.time() - copy_data_to_cpu_start) * 1.0e3
+            self.log.debug(
+                f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms.")
+            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = copy_data_to_cpu_ms * 1.0e3  # it's already in milliseconds
+
+            if remote_storage_name is not None and self.simulate_write_after_execute and self.simulate_write_after_execute_on_critical_path:
+                self.log.debug(
+                    f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path.")
+                duration_sec: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
+
+                if duration_sec > 0 and self.prometheus_enabled:
+                    self.remote_storage_write_latency_milliseconds.labels(
+                        session_id=self.kernel_id,
+                        workload_id=self.workload_id
+                    ).observe(duration_sec * 1e3)
+
+                    self.delay_milliseconds.labels(
+                        session_id=self.kernel_id,
+                        workload_id=self.workload_id).inc(duration_sec * 1e3)
+
+                self.current_execution_stats.upload_runtime_dependencies_microseconds = duration_sec * 1.0e6
+        elif self.use_real_gpus and performing_gpu_training:
+            model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
+
+            if model is not None:
+                assert len(model.gpu_to_cpu_times) > 0
+                assert len(model.cpu_to_gpu_times) > 0
+
+                # Grab the most-recent copy time for both directions.
+                cpu2gpu_micros: float = model.gpu_to_cpu_times[-1]
+                gpu2cpu_micros: float = model.cpu_to_gpu_times[-1]
+
+                # Store the most recent copy times for both directions in the current ExecutionStats.
+                self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = cpu2gpu_micros
+                self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = gpu2cpu_micros
+
+                self.log.debug(f"Retrieved most recent CPU to GPU time from model in shell user namespace: {cpu2gpu_micros} µs")
+                self.log.debug(f"Retrieved most recent GPU to CPU time from model in shell user namespace: {gpu2cpu_micros} µs")
 
     async def simulate_remote_checkpointing(
             self,
