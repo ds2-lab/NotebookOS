@@ -466,12 +466,12 @@ message RequestTrace {
   // CudaInitMicroseconds is the amount of time spent initializing the CUDA runtime, if applicable.
   // The units are microseconds.
   int64 cudaInitMicroseconds = 16;
-  // DownloadDependencyMicroseconds is the amount of time spent downloading library dependencies, if applicable.
+  // DownloadModelMicroseconds is the amount of time spent downloading the model, if applicable.
   // The units are microseconds.
-  int64 downloadDependencyMicroseconds = 17;
-  // DownloadModelAndTrainingDataMicroseconds is the amount of time spent downloading the model and training data,
+  int64 downloadModelMicroseconds = 17;
+  // DownloadDatasetMicroseconds is the amount of time spent downloading the training data,
   // if applicable. The units are microseconds.
-  int64 downloadModelAndTrainingDataMicroseconds = 18;
+  int64 downloadDatasetMicroseconds = 18;
   // UploadModelAndTrainingDataMicroseconds is the amount of time spent uploading the model and training data,
   // if applicable. The units are microseconds.
   int64 uploadModelAndTrainingDataMicroseconds = 19;
@@ -498,6 +498,7 @@ message RequestTrace {
   int64 electionProposalPhaseStartTime = 28;
   // ElectionExecutionPhaseStartTime is when the leader was selected.
   int64 electionExecutionPhaseStartTime = 29;
+
   // ElectionEndTime is when the execution fully completed and/or the follower was notified by the leader that it
   // finished executing.
   int64 electionEndTime = 30;

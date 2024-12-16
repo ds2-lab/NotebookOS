@@ -7,7 +7,8 @@ class ExecutionStats(object):
             self,
             cuda_init_microseconds: float = 0,
             download_runtime_dependencies_microseconds: float = 0,
-            download_model_and_training_data_microseconds: float = 0,
+            download_model_microseconds: float = 0,
+            download_training_data_microseconds: float = 0,
             upload_model_and_training_data_microseconds: float = 0,
             execution_time_microseconds: float = 0,
             leader_election_microseconds: float = 0,
@@ -33,7 +34,8 @@ class ExecutionStats(object):
         """
         self.cuda_init_microseconds: float = cuda_init_microseconds
         self.download_runtime_dependencies_microseconds: float = download_runtime_dependencies_microseconds
-        self.download_model_and_training_data_microseconds: float = download_model_and_training_data_microseconds
+        self.download_model_microseconds: float = download_model_microseconds
+        self.download_training_data_microseconds: float = download_training_data_microseconds
         self.upload_model_and_training_data_microseconds: float = upload_model_and_training_data_microseconds
         self.execution_start_unix_millis: float = execution_start_unix_millis
         self.execution_end_unix_millis: float = execution_end_unix_millis

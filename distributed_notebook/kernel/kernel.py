@@ -33,18 +33,18 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
+from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
+from .util import extract_header
 from ..datasets.base import Dataset
 from ..datasets.cifar10 import CIFAR10
 from ..datasets.loader import load_dataset
-from ..models.loader import load_model
-from ..models.model import DeepLearningModel
-from ..models.resnet18 import ResNet18
-from .execution_yield_error import ExecutionYieldError
-from .util import extract_header
 from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
 from ..logs import ColoredLogFormatter
+from ..models.loader import load_model
+from ..models.model import DeepLearningModel
+from ..models.resnet18 import ResNet18
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.checkpointing.factory import get_remote_checkpointer
 from ..sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPointer
@@ -54,25 +54,27 @@ from ..sync.errors import DiscardMessageError
 from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer, get_estimated_io_time_seconds, \
     format_size
 
-import_torch_start:float = time.time()
+import_torch_start: float = time.time()
 try:
     import torch
+
     torch_available: bool = True
     print("[INFO] PyTorch is installed.")
+
+    cuda_available: bool = torch.cuda.is_available()
 except ImportError as ex:
     torch_available: bool = False
     cuda_available: bool = False
     print("[WARNING] PyTorch is not installed (and therefore CUDA is unavailable).")
 
-if torch_available:
-    cuda_available: bool = torch.cuda.is_available()
-    import_torch_end:float = time.time()
-    import_torch_duration_sec: float = import_torch_end - import_torch_start
+import_torch_end: float = time.time()
+import_torch_duration_sec: float = import_torch_end - import_torch_start
 
-    if cuda_available:
-        print(f"[INFO] CUDA is available. Imported PyTorch and initialized CUDA in {import_torch_duration_sec} seconds.")
-    else:
-        print("[WARNING] CUDA is unavailable (even though PyTorch is enabled).")
+if cuda_available:
+    print(f"[INFO] CUDA is available. Imported PyTorch and initialized CUDA in {import_torch_duration_sec} seconds.")
+else:
+    print("[WARNING] CUDA is unavailable (even though PyTorch is enabled).")
+
 
 def sigabrt_handler(sig, frame):
     print(f'Received SIGABORT (Python): {sig} {frame}', flush=True)
@@ -160,6 +162,7 @@ def gen_error_response(err):
             'traceback': [],
             'msg_created_at_unix_milliseconds': time.time_ns() // 1_000_000,
             }
+
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
@@ -331,6 +334,10 @@ class DistributedKernel(IPythonKernel):
         # This is only used when simulating the use of real GPUs.
         self.runtime_dependencies_downloaded: bool = False
 
+        # datasaet_downloaded indicates whether the PyTorch dataset assigned to this kernel has been downloaded.
+        # This is only used when we're using real GPUs.
+        self.datasaet_downloaded: bool = False
+
         # Indicates if the (latest) model parameters and training data are downloaded.
         # This is only used when simulating the use of real GPUs.
         self.model_and_training_data_downloaded: bool = False
@@ -339,7 +346,8 @@ class DistributedKernel(IPythonKernel):
         # loads its serialized state from intermediate storage.
         self.loaded_serialized_state: bool = False
 
-        self._remote_checkpointer: RemoteCheckpointer = get_remote_checkpointer(self.remote_storage, self.remote_storage_hostname)
+        self._remote_checkpointer: RemoteCheckpointer = get_remote_checkpointer(self.remote_storage,
+                                                                                self.remote_storage_hostname)
 
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
         self.remote_storages: Dict[str, SimulatedCheckpointer] = {
@@ -1246,18 +1254,31 @@ class DistributedKernel(IPythonKernel):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        duration_sec: float = await self.download_model_and_training_data()
+        # If we're not using real GPUs, then we can simulate downloading the model and training data here.
+        if not self.use_real_gpus:
+            download_model_duration, download_training_data_duration = await self.simulate_download_model_and_training_data()
 
-        if duration_sec > 0 and self.prometheus_enabled:
-            self.remote_storage_read_latency_milliseconds.labels(
-                session_id=self.kernel_id,
-                workload_id=self.workload_id).observe(duration_sec * 1e3)
-            self.delay_milliseconds.labels(
-                session_id=self.kernel_id,
-                workload_id=self.workload_id).inc(duration_sec * 1e3)
+            if download_model_duration > 0 and self.prometheus_enabled:
+                self.remote_storage_read_latency_milliseconds.labels(
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id).observe(download_model_duration * 1e3)
+                self.delay_milliseconds.labels(
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id).inc(download_model_duration * 1e3)
 
-            if self.current_execution_stats is not None:
-                self.current_execution_stats.download_model_and_training_data_microseconds = duration_sec * 1.0e6
+                if self.current_execution_stats is not None:
+                    self.current_execution_stats.download_model_microseconds = download_model_duration * 1.0e6
+
+            if download_training_data_duration > 0 and self.prometheus_enabled:
+                self.remote_storage_read_latency_milliseconds.labels(
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id).observe(download_training_data_duration * 1e3)
+                self.delay_milliseconds.labels(
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id).inc(download_training_data_duration * 1e3)
+
+                if self.current_execution_stats is not None:
+                    self.current_execution_stats.download_training_data_microseconds = download_training_data_duration * 1.0e6
 
         # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be
         # started before we attempt to catch-up. The catch-up process involves appending a new value and waiting until
@@ -1266,7 +1287,10 @@ class DistributedKernel(IPythonKernel):
         if self.synclog.needs_to_catch_up:
             self.log.debug("RaftLog will need to propose a \"catch up\" value "
                            "so that it can tell when it has caught up with its peers.")
+
             await self.synclog.catchup_with_peers()
+
+        # TODO: Retrieve time spent downloading model state here.
 
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
         await self.smr_ready()
@@ -1481,15 +1505,15 @@ class DistributedKernel(IPythonKernel):
 
         # Call do_execute with the appropriate arguments
         reply_content = self.do_execute(
-            code = code,
-            silent = silent,
-            store_history = store_history,
-            user_expressions = user_expressions,
-            allow_stdin = allow_stdin,
-            remote_storage_name = remote_storage_name,
-            cell_meta = cell_meta,
-            cell_id = cell_id,
-            training_duration_millis = training_duration_millis,
+            code=code,
+            silent=silent,
+            store_history=store_history,
+            user_expressions=user_expressions,
+            allow_stdin=allow_stdin,
+            remote_storage_name=remote_storage_name,
+            cell_meta=cell_meta,
+            cell_id=cell_id,
+            training_duration_millis=training_duration_millis,
         )
 
         if inspect.isawaitable(reply_content):
@@ -1923,13 +1947,43 @@ class DistributedKernel(IPythonKernel):
 
         self.cuda_initialized = True
 
-    async def download_model_and_training_data(self, force: bool = False) -> float:
+    async def simulate_download_model_and_training_data(self, force: bool = False) -> tuple[float, float]:
         # If the model and training data are already downloaded, then just return (unless force is True).
         if self.model_and_training_data_downloaded and not force:
-            return 0
+            return 0.0, 0.0
 
-        self.log.debug("Downloading model and training data.")
-        return await self.simulate_remote_checkpointing(None, io_type="download")
+        if not self.use_real_gpus:
+            return 0.0, 0.0
+
+        if self.current_resource_request is None:
+            self.log.warning("Current resource request is None; cannot simulate downloading model/training data...")
+            self.report_error('No Current Resource Request',
+                              f'Kernel {self.kernel_id} does not have a resource request, so it cannot '
+                              f'simulate network I/O...')
+            return 0.0, 0.0
+
+        if self.current_resource_request.get("vram", 0) == 0:
+            self.log.debug("Latest resource request specifies 0GB for VRAM. Nothing to download.")
+            return 0.0, 0.0
+
+        vram_gb: float | int = self.current_resource_request.get("vram", -1)
+
+        if vram_gb == -1:
+            self.report_error('Current Resource Request Does Not Specify VRAM',
+                              f'The current resource request for {self.kernel_id} does not have a VRAM entry, '
+                              f'so the kernel cannot simulate downloading model/training data...')
+            return 0.0, 0.0
+
+        vram_mb: float = vram_gb * 1.0e3
+        vram_bytes: int = int(vram_mb * 1e6)
+
+        self.log.debug(f"Downloading model and training data. Combined size: {vram_mb:,} MB.")
+        download_model_duration: float = await self.simulate_remote_checkpointing(
+            None, io_type="download", vram_bytes = vram_bytes // 2)
+        download_training_data_duration: float = await self.simulate_remote_checkpointing(
+            None, io_type="download", vram_bytes = vram_bytes // 2)
+
+        return download_model_duration, download_training_data_duration
 
     def download_runtime_dependencies(
             self,
@@ -1975,14 +2029,6 @@ class DistributedKernel(IPythonKernel):
         - Download the latest model parameters + training data
         - Copy the model + training data from host memory to device memory
         """
-        # We have this here because we don't want to bother initializing CUDA if we lose the election.
-        # if not self.runtime_dependencies_downloaded:
-        #     download_runtime_deps_start: float = time.time()
-        #     self.download_runtime_dependencies()
-        #     download_runtime_deps_ms: float = (time.time() - download_runtime_deps_start) * 1.0e3
-        #     self.log.debug(f"Downloaded & installed runtime dependencies in {download_runtime_deps_ms} ms.")
-        #     self.current_execution_stats.download_runtime_dependencies_microseconds = download_runtime_deps_ms * 1.0e3  # it's already in milliseconds
-
         if not self.cuda_initialized:
             init_cuda_start: float = time.time()
             self.initialize_cuda_runtime()
@@ -2004,7 +2050,7 @@ class DistributedKernel(IPythonKernel):
                 self.model = ResNet18()
                 self.log.debug("Creating CIFAR-10 dataset.")
                 self.dataset = CIFAR10()
-            code:str = f"""
+            code: str = f"""
 from distributed_notebook.datasets.cifar10 import CIFAR10
 from distributed_notebook.models.resnet18 import ResNet18, ResNet18Name 
 
@@ -2021,7 +2067,7 @@ print("Copied model from CPU to GPU in %.3f ms." % copy_cpu2gpu_millis)
 print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 """
         else:
-            code:str = f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
+            code: str = f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
 
         return code
 
@@ -2136,9 +2182,9 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             self.session.send(self.iopub_socket, SMR_LEAD_TASK, content,
                               ident=self._topic(SMR_LEAD_TASK))  # type: ignore
 
-            reply_content, performed_gpu_training = await self.execute_user_code(
-                training_duration_millis = training_duration_millis,
-                code = code,
+            reply_content, performed_gpu_training, code = await self.execute_user_code(
+                training_duration_millis=training_duration_millis,
+                code=code,
             )
 
             # Disable stdout and stderr forwarding.
@@ -2148,8 +2194,9 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             await self.synchronize_updated_state(term_number)
 
             await self.handle_post_execution_overheads(
-                remote_storage_name = remote_storage_name,
-                performing_gpu_training = performed_gpu_training
+                remote_storage_name=remote_storage_name,
+                performing_gpu_training=performed_gpu_training,
+                code=code,
             )
 
             if self.smr_enabled:
@@ -2186,24 +2233,26 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             store_history: bool = True,
             user_expressions: dict = None,
             allow_stdin: bool = False,
-    ) -> tuple[Dict[str, Any], bool]:
+    ) -> tuple[Dict[str, Any], bool, str]:
         """
         Execute the user-submitted code.
 
-        :return: a tuple containing the reply content and a bool indicating whether the training we performed
-                 used an actual (or simulated/fake) GPU.
+        :return: a tuple containing:
+                 - (1) the reply content
+                 - (2) a bool indicating whether the training we performed used an actual (or simulated/fake) GPU
+                 - (3) the code that was executed (which may have been updated/changed)
         """
         performed_gpu_training: bool = False
         if training_duration_millis > 0:
             self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
                            f"Discarding specified code. Will use custom training code instead.")
-            code = self.get_custom_training_code(training_duration_millis = training_duration_millis)
+            code = self.get_custom_training_code(training_duration_millis=training_duration_millis)
             performed_gpu_training = True
         elif "training_duration_millis = " in code:
             training_duration_millis = int(float(code[27:]))
             self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
                            f"Discarding specified code. Will use custom training code instead.")
-            code = self.get_custom_training_code(training_duration_millis = training_duration_millis)
+            code = self.get_custom_training_code(training_duration_millis=training_duration_millis)
             performed_gpu_training = True
         else:
             pass
@@ -2225,12 +2274,12 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         reply_content['execution_start_unix_millis'] = self.current_execution_stats.execution_start_unix_millis
         reply_content['execution_finished_unix_millis'] = self.current_execution_stats.execution_end_unix_millis
 
-        self.shell.user_ns["__test_variable3__"] = "you cannot change me" # for debugging/testing
+        self.shell.user_ns["__test_variable3__"] = "you cannot change me"  # for debugging/testing
 
         self.log.info(f"Finished executing user-submitted code in {exec_duration_millis} ms. "
                       f"Returning the following content: {reply_content}")
 
-        return reply_content, performed_gpu_training
+        return reply_content, performed_gpu_training, code
 
     async def synchronize_updated_state(self, term_number: int):
         """
@@ -2282,10 +2331,72 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         assert self.execution_count is not None
 
+    async def extract_mem_copy_times(
+            self,
+            code: str = "",
+    ):
+        """
+        Extract the latencies of copying memory from the CPU to the GPU and from the GPU to the CPU from the model
+        variable that was used in the last user-executed code.
+        :param code: the code that the user executed
+        """
+        model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
+
+        if model is None:
+            self.log.debug("Could not find 'model' variable in user namespace.")
+            return
+
+        if "model" not in code:
+            self.log.debug("Found 'model' variable in user namespace; "
+                           "however, 'model' was not referenced in last executed user-submitted code.")
+            return
+
+        assert len(model.gpu_to_cpu_times) > 0
+        assert len(model.cpu_to_gpu_times) > 0
+
+        # Grab the most-recent copy time for both directions.
+        cpu2gpu_micros: float = model.gpu_to_cpu_times[-1]
+        gpu2cpu_micros: float = model.cpu_to_gpu_times[-1]
+
+        # Store the most recent copy times for both directions in the current ExecutionStats.
+        self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = cpu2gpu_micros
+        self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = gpu2cpu_micros
+
+        self.log.debug(
+            f"Retrieved most recent CPU to GPU time from model in shell user namespace: {cpu2gpu_micros} µs")
+        self.log.debug(
+            f"Retrieved most recent GPU to CPU time from model in shell user namespace: {gpu2cpu_micros} µs")
+
+    async def extract_dataset_download_latenc(
+            self,
+            code: str = "",
+    ):
+        dataset: Optional[Dataset] = self.shell.user_ns.get("dataset", None)
+        if dataset is None:
+            self.log.debug("Could not find 'dataset' variable in user namespace.")
+            return
+
+        if "dataset" not in code:
+            self.log.debug("Found 'dataset' variable in user namespace; "
+                           "however, 'dataset' was not referenced in the last executed user-submitted code.")
+            return
+
+        dataset_already_downloaded: bool = dataset.dataset_already_downloaded
+        if dataset_already_downloaded:
+            self.log.debug("Dataset was already downloaded.")
+            return
+
+        # If the dataset was not already downloaded, then record the time
+        # it took to download the dataset in the current execution stats.
+        self.log.debug("Dataset was NOT already downloaded. Extracting download times now.")
+        self.current_execution_stats.download_training_data_microseconds = dataset.download_duration_sec * 1.0e6
+
     async def handle_post_execution_overheads(
             self,
             remote_storage_name: Optional[str] = None,
-            performing_gpu_training: bool = False):
+            performing_gpu_training: bool = False,
+            code: str = "",
+    ):
         if not self.use_real_gpus and self.data_on_gpu:
             vram_size_gb = self.current_resource_request.get('vram', 0)
             copy_data_to_cpu_start: float = time.time()
@@ -2312,27 +2423,14 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
                 self.current_execution_stats.upload_runtime_dependencies_microseconds = duration_sec * 1.0e6
         elif self.use_real_gpus and performing_gpu_training:
-            model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
-
-            if model is not None:
-                assert len(model.gpu_to_cpu_times) > 0
-                assert len(model.cpu_to_gpu_times) > 0
-
-                # Grab the most-recent copy time for both directions.
-                cpu2gpu_micros: float = model.gpu_to_cpu_times[-1]
-                gpu2cpu_micros: float = model.cpu_to_gpu_times[-1]
-
-                # Store the most recent copy times for both directions in the current ExecutionStats.
-                self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = cpu2gpu_micros
-                self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = gpu2cpu_micros
-
-                self.log.debug(f"Retrieved most recent CPU to GPU time from model in shell user namespace: {cpu2gpu_micros} µs")
-                self.log.debug(f"Retrieved most recent GPU to CPU time from model in shell user namespace: {gpu2cpu_micros} µs")
+            await self.extract_mem_copy_times(code = code)
+            await self.extract_dataset_download_latenc(code = code)
 
     async def simulate_remote_checkpointing(
             self,
             remote_storage_name: Optional[str],
-            io_type: Optional[str] = None
+            io_type: Optional[str] = None,
+            vram_bytes: float = -1,
     ) -> float:
         """
         Simulate checkpointing using the current resource request and the specified remote storage name.
@@ -2395,15 +2493,16 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                               f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"')
             return 0
 
-        vram_gb: float | int = self.current_resource_request.get("vram", -1)
+        if vram_bytes < 0:
+            vram_gb: float | int = self.current_resource_request.get("vram", -1)
 
-        if vram_gb == -1:
-            self.report_error('Current Resource Request Does Not Specify VRAM',
-                              f'The current resource request for {self.kernel_id} does not have a VRAM entry, '
-                              f'so the kernel cannot simulate checkpointing with specified remote storage "{remote_storage_name}"...')
-            return 0
+            if vram_gb == -1:
+                self.report_error('Current Resource Request Does Not Specify VRAM',
+                                  f'The current resource request for {self.kernel_id} does not have a VRAM entry, '
+                                  f'so the kernel cannot simulate checkpointing with specified remote storage "{remote_storage_name}"...')
+                return 0
 
-        vram_bytes: int = int(vram_gb * 1e9)
+            vram_bytes: int = int(vram_gb * 1e9)
 
         if io_type == "read" or io_type == "download":
             rate_formatted = simulated_checkpointer.download_rate_formatted
@@ -2778,19 +2877,27 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             if execution_stats is not None:
                 request_trace["cudaInitMicroseconds"] = int(execution_stats.cuda_init_microseconds)
                 request_trace[
-                    "downloadDependencyMicroseconds"] = int(execution_stats.download_runtime_dependencies_microseconds)
+                    "downloadModelMicroseconds"] = int(
+                    execution_stats.download_model_microseconds)
                 request_trace[
-                    "downloadModelAndTrainingDataMicroseconds"] = int(execution_stats.download_model_and_training_data_microseconds)
+                    "downloadDatasetMicroseconds"] = int(
+                    execution_stats.download_training_data_microseconds)
                 request_trace[
-                    "uploadModelAndTrainingDataMicroseconds"] = int(execution_stats.upload_model_and_training_data_microseconds)
+                    "uploadModelAndTrainingDataMicroseconds"] = int(
+                    execution_stats.upload_model_and_training_data_microseconds)
                 request_trace["executionTimeMicroseconds"] = int(execution_stats.execution_time_microseconds)
                 request_trace["executionStartUnixMillis"] = int(execution_stats.execution_start_unix_millis)
                 request_trace["executionEndUnixMillis"] = int(execution_stats.execution_end_unix_millis)
                 request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
                 request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
-                request_trace["copyFromCpuToGpuMicroseconds"] = int(execution_stats.copy_data_from_cpu_to_gpu_microseconds)
-                request_trace["copyFromGpuToCpuMicroseconds"] = int(execution_stats.copy_data_from_gpu_to_cpu_microseconds)
+                request_trace["copyFromCpuToGpuMicroseconds"] = int(
+                    execution_stats.copy_data_from_cpu_to_gpu_microseconds)
+                request_trace["copyFromGpuToCpuMicroseconds"] = int(
+                    execution_stats.copy_data_from_gpu_to_cpu_microseconds)
                 request_trace["leaderElectionTimeMicroseconds"] = int(execution_stats.leader_election_microseconds)
+                request_trace["syncStartUnixMillis"] = execution_stats.sync_start_unix_millis
+                request_trace["syncEndUnixMillis"] = execution_stats.sync_end_unix_millis
+                request_trace["syncDurationMillis"] = execution_stats.sync_duration_millis
 
                 # We only want to embed election statistics if this request trace is being embedded in an
                 # "execute_request" or "yield_request" message (i.e., a code submission).
@@ -2806,9 +2913,11 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                         if current_election_timestamps is not None:
                             request_trace["electionCreationTime"] = int(current_election_timestamps.creation_time)
                             request_trace[
-                                "electionProposalPhaseStartTime"] = int(current_election_timestamps.proposal_phase_start_time)
+                                "electionProposalPhaseStartTime"] = int(
+                                current_election_timestamps.proposal_phase_start_time)
                             request_trace[
-                                "electionExecutionPhaseStartTime"] = int(current_election_timestamps.execution_phase_start_time)
+                                "electionExecutionPhaseStartTime"] = int(
+                                current_election_timestamps.execution_phase_start_time)
                             request_trace["electionEndTime"] = int(current_election_timestamps.end_time)
                         else:
                             self.log.warning(
@@ -2817,7 +2926,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                         self.log.warning(
                             f"Current Election is None while embedding request trace in '{msg_type}' request '{msg_id}'")
 
-                self.log.debug(f"Embedding the following RequestTrace in response to '{msg_type}' message:\n{json.dumps(request_trace, indent = 2)}")
+                self.log.debug(
+                    f"Embedding the following RequestTrace in response to '{msg_type}' message:\n{json.dumps(request_trace, indent=2)}")
 
             buffers[0] = json.dumps(request_trace_frame).encode('utf-8')
             # self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")
@@ -2989,21 +3099,22 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         self.log.debug(f"An updated \"{pointer.name}\" model was committed.")
 
         try:
-            model_state_dict, optimizer_state_dict, criterion_state_dict = self._remote_checkpointer.read_state_dicts(pointer)
+            model_state_dict, optimizer_state_dict, criterion_state_dict = self._remote_checkpointer.read_state_dicts(
+                pointer)
         except Exception as exc:
             self.log.error(f"Failed to read state dictionaries for model \"{pointer.name}\" "
                            f"from remote storage \"{self._remote_checkpointer.storage_name}\" because: {exc}")
-            raise exc # re-raise
+            raise exc  # re-raise
 
         try:
             st: float = time.time()
             model: DeepLearningModel = load_model(
-                model_name = pointer.name,
-                existing_model = self.shell.user_ns.get("model", None),
-                out_features = pointer.out_features,
-                model_state_dict = model_state_dict,
-                optimizer_state_dict = optimizer_state_dict,
-                criterion_state_dict = criterion_state_dict
+                model_name=pointer.name,
+                existing_model=self.shell.user_ns.get("model", None),
+                out_features=pointer.out_features,
+                model_state_dict=model_state_dict,
+                optimizer_state_dict=optimizer_state_dict,
+                criterion_state_dict=criterion_state_dict
             )
             et: float = time.time()
         except Exception as exc:
@@ -3110,24 +3221,24 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         self.log.debug("Creating RaftLog now.")
         try:
             self.synclog: RaftLog = RaftLog(self.smr_node_id,
-                                   base_path=store,
-                                   kernel_id=self.kernel_id,
-                                   num_replicas=self.num_replicas,
-                                   remote_storage_hostname=self.remote_storage_hostname,
-                                   remote_storage=self.remote_storage,
-                                   should_read_data=self.should_read_data_from_remote_storage,
-                                   peer_addresses=peer_addresses,
-                                   peer_ids=ids,
-                                   join=self.smr_join,
-                                   debug_port=self.debug_port,
-                                   report_error_callback=self.report_error,
-                                   send_notification_func=self.send_notification,
-                                   remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
-                                   deployment_mode=self.deployment_mode,
-                                   election_timeout_seconds=self.election_timeout_seconds,
-                                   remote_checkpointer=self._remote_checkpointer,
-                                   large_object_pointer_committed = self.large_object_pointer_committed,
-                                   loaded_serialized_state_callback=self.loaded_serialized_state_callback)
+                                            base_path=store,
+                                            kernel_id=self.kernel_id,
+                                            num_replicas=self.num_replicas,
+                                            remote_storage_hostname=self.remote_storage_hostname,
+                                            remote_storage=self.remote_storage,
+                                            should_read_data=self.should_read_data_from_remote_storage,
+                                            peer_addresses=peer_addresses,
+                                            peer_ids=ids,
+                                            join=self.smr_join,
+                                            debug_port=self.debug_port,
+                                            report_error_callback=self.report_error,
+                                            send_notification_func=self.send_notification,
+                                            remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
+                                            deployment_mode=self.deployment_mode,
+                                            election_timeout_seconds=self.election_timeout_seconds,
+                                            remote_checkpointer=self._remote_checkpointer,
+                                            large_object_pointer_committed=self.large_object_pointer_committed,
+                                            loaded_serialized_state_callback=self.loaded_serialized_state_callback)
         except Exception as exc:
             self.log.error("Error while creating RaftLog: %s" % str(exc))
 
