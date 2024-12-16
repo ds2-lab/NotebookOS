@@ -61,6 +61,9 @@ COPY dockfiles/cpu-python3-amd64-debug/jupyter_server_config.py /home/jovyan/.ju
 # Update path.
 ENV PATH=/usr/local/go/bin:/usr/local/bin:/opt/conda/condabin:/opt/conda/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
 
+# Set the value of the PYTHONUNBUFFERED environment variable.
+ENV PYTHONUNBUFFERED=1
+
 EXPOSE 5678
 
 # Switch back to jovyan

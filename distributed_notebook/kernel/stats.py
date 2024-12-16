@@ -19,6 +19,12 @@ class ExecutionStats(object):
             execution_end_unix_millis: float = 0,
             sync_start_unix_millis: float = 0,
             sync_end_unix_millis: float = 0,
+            download_training_data_start_unix_millis: float = 0,
+            download_training_data_end_unix_millis: float = 0,
+            download_model_start_unix_millis: float = 0,
+            download_model_end_unix_millis: float = 0,
+            upload_model_start_unix_millis: float = 0,
+            upload_model_end_unix_millis: float = 0,
             won_election: bool = False,  # always true for non-static/non-dynamic scheduling policies
     ):
         """
@@ -48,3 +54,12 @@ class ExecutionStats(object):
         self.sync_start_unix_millis: float = sync_start_unix_millis
         self.sync_end_unix_millis: float = sync_end_unix_millis
         self.sync_duration_millis: float = sync_end_unix_millis - sync_start_unix_millis
+
+        self.download_training_data_start_unix_millis: float = download_training_data_start_unix_millis
+        self.download_training_data_end_unix_millis: float = download_training_data_end_unix_millis
+
+        self.download_model_start_unix_millis: float = download_model_start_unix_millis
+        self.download_model_end_unix_millis: float = download_model_end_unix_millis
+
+        self.upload_model_start_unix_millis: float = upload_model_start_unix_millis
+        self.upload_model_end_unix_millis: float = upload_model_end_unix_millis

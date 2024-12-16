@@ -275,8 +275,8 @@ class DeepLearningModel(ABC):
         total_time_elapsed: float = et_criterion - st
         self.log.debug(f"Finished moving RESNET-18 model, optimizer, and criterion to CPU. Model size: {size_mb} MB.")
         self.log.debug(f"\tTotal time elapsed: {total_time_elapsed * 1.0e3} ms.")
-        self.log.debug(f"\t\tCopied optimizer in {(et_optimizer - et_model) * 1.0e6} μs.")
-        self.log.debug(f"\t\tCopied criterion in {(et_criterion - et_optimizer) * 1.0e6} μs.")
+        self.log.debug(f"\t\tCopied optimizer in {(et_optimizer - et_model) * 1.0e3} ms.") # μ
+        self.log.debug(f"\t\tCopied criterion in {(et_criterion - et_optimizer) * 1.0e3} ms.")
 
         self.gpu_to_cpu_times.append(total_time_elapsed)
 

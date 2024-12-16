@@ -128,6 +128,9 @@ V100_StdDevBandwidth_GbSec_DeviceToHost: float = 0.018405739270544
 
 SMR_LEAD_TASK: str = "smr_lead_task"
 
+# This is added to reply_content for replicas that actually executed the user-submitted code.
+LEADER_KEY:str = "__LEADER__"
+
 storage_base_default = os.path.dirname(os.path.realpath(__file__))
 smr_port_default = 10000
 err_wait_persistent_store = RuntimeError(
@@ -1451,7 +1454,7 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name
 
-    async def checkpoint_model_state(self)->float:
+    async def checkpoint_model_state(self)->tuple[float, float, float]:
         """
         Checkpoint the state dictionary of the DeepLearningModel used during training to remote storage.
 
@@ -1479,7 +1482,7 @@ class DistributedKernel(IPythonKernel):
         duration_ms: float = (et - st) * 1.0e3
 
         self.log.debug(f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path).")
-        return duration_ms
+        return st, et, duration_ms
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -1557,6 +1560,28 @@ class DistributedKernel(IPythonKernel):
         if inspect.isawaitable(reply_content):
             reply_content = await reply_content
 
+        if LEADER_KEY in reply_content:
+            del reply_content[LEADER_KEY]
+
+            performed_gpu_training: bool = reply_content.pop('performed_gpu_training', False)
+            term_number: int = reply_content.pop('term_number', -1)
+            code: str = reply_content.pop('code', None)
+
+            assert term_number >= 0
+            assert code is not None
+
+            # Synchronize.
+            await self.synchronize_updated_state(term_number)
+
+            await self.handle_post_execution_overheads(
+                remote_storage_name=remote_storage_name,
+                performing_gpu_training=performed_gpu_training,
+                code=code,
+            )
+
+            if self.smr_enabled:
+                await self.schedule_notify_execution_complete(term_number)
+
         # Flush output before sending the reply.
         sys.stdout.flush()
         sys.stderr.flush()
@@ -1579,15 +1604,17 @@ class DistributedKernel(IPythonKernel):
             metadata["election_metadata"] = current_election.get_election_metadata()
             term_number = current_election.term_number
         else:
-            duration_ms: float = await self.checkpoint_model_state()
+            checkpoint_model_state_start_time, checkpoint_model_state_end_time, checkpoint_model_state_duration_ms = await self.checkpoint_model_state()
 
-            if duration_ms > 0:
+            if checkpoint_model_state_duration_ms > 0:
                 self.remote_storage_write_latency_milliseconds.labels(
                     session_id=self.kernel_id,
                     workload_id=self.workload_id
-                ).observe(duration_ms * 1e3)
+                ).observe(checkpoint_model_state_duration_ms * 1e3)
 
-                self.current_execution_stats.upload_model_and_training_data_microseconds += (duration_ms * 1.0e3)
+                self.current_execution_stats.upload_model_and_training_data_microseconds += (checkpoint_model_state_duration_ms * 1.0e3)
+                self.current_execution_stats.upload_model_start_unix_millis = checkpoint_model_state_start_time
+                self.current_execution_stats.upload_model_end_unix_millis = checkpoint_model_state_end_time
 
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
             parent,
@@ -2188,7 +2215,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         term_number: int = -1
         try:
-            # self.toggle_outstream(override=True, enable=False)
+            self.toggle_outstream(override=True, enable=False)
 
             # Ensure persistent store is ready
             if not await self.check_persistent_store():
@@ -2248,17 +2275,10 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             # Disable stdout and stderr forwarding.
             self.toggle_outstream(override=True, enable=False)
 
-            # Synchronize.
-            await self.synchronize_updated_state(term_number)
-
-            await self.handle_post_execution_overheads(
-                remote_storage_name=remote_storage_name,
-                performing_gpu_training=performed_gpu_training,
-                code=code,
-            )
-
-            if self.smr_enabled:
-                await self.schedule_notify_execution_complete(term_number)
+            reply_content[LEADER_KEY] = True
+            reply_content['term_number'] = term_number
+            reply_content['performed_gpu_training'] = performed_gpu_training
+            reply_content['code'] = code
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
 
@@ -2281,6 +2301,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             self.report_error("Execution Error", str(e))
 
             reply_content = gen_error_response(e)
+
         return reply_content
 
     async def execute_user_code(
@@ -2448,6 +2469,9 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         # it took to download the dataset in the current execution stats.
         self.log.debug("Dataset was NOT already downloaded. Extracting download times now.")
         self.current_execution_stats.download_training_data_microseconds = dataset.download_duration_sec * 1.0e6
+
+        self.current_execution_stats.download_training_data_start_unix_millis = dataset.download_start
+        self.current_execution_stats.download_training_data_end_unix_millis = dataset.download_end
 
     async def handle_post_execution_overheads(
             self,
@@ -2940,6 +2964,12 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 request_trace[
                     "downloadDatasetMicroseconds"] = int(
                     execution_stats.download_training_data_microseconds)
+                request_trace[
+                    "downloadDatasetStartUnixMillis"] = int(
+                    execution_stats.download_training_data_start_unix_millis)
+                request_trace[
+                    "downloadDatasetEndUnixMillis"] = int(
+                    execution_stats.download_training_data_end_unix_millis)
                 request_trace[
                     "uploadModelAndTrainingDataMicroseconds"] = int(
                     execution_stats.upload_model_and_training_data_microseconds)
