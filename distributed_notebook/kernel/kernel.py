@@ -310,10 +310,10 @@ class DistributedKernel(IPythonKernel):
         for handler in self.log.handlers:
             handler.setLevel(logging.DEBUG)
 
-        self.log.info("INFO")
-        self.log.debug("DEBUG")
-        self.log.warning("WARNING")
-        self.log.error("ERROR")
+        # self.log.info("INFO")
+        # self.log.debug("DEBUG")
+        # self.log.warning("WARNING")
+        # self.log.error("ERROR")
 
         # Used to create strong references to tasks, such as notifying peer replicas that execution has complete.
         self.background_tasks = set()
@@ -329,6 +329,9 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
+
+        if "use_real_gpus" in kwargs:
+            self.use_real_gpus = kwargs['use_real_gpus']
 
         self.model = None
         self.dataset = None
@@ -462,22 +465,6 @@ class DistributedKernel(IPythonKernel):
                 buckets=[10, 100, 250, 500, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7,
                          6e8,
                          6e9])
-            # self.checkpointing_write_latency_milliseconds: Histogram = Histogram(
-            #     namespace="distributed_cluster",
-            #     subsystem="jupyter",
-            #     name="checkpointing_write_latency_milliseconds",
-            #     documentation="Latency in milliseconds of writing checkpointed state to external storage.",
-            #     unit="milliseconds",
-            #     buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
-            #              6e9])
-            # self.checkpointing_read_latency_milliseconds: Histogram = Histogram(
-            #     namespace="distributed_cluster",
-            #     subsystem="jupyter",
-            #     name="checkpointing_read_latency_milliseconds",
-            #     documentation="Latency in milliseconds of reading checkpointed state from external storage.",
-            #     unit="milliseconds",
-            #     buckets=[10, 500, 1e3, 5e3, 10e3, 15e3, 30e3, 45e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7, 6e8,
-            #              6e9])
             self.delay_milliseconds: Counter = Counter(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
@@ -1424,15 +1411,16 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name
 
-    async def process_execute_request_metadata(self, msg_id: str, msg_type: str, metadata: Dict[str, Any]) -> Optional[
-        str]:
+    async def process_execute_request_metadata(self, msg_id: str, msg_type: str, metadata: Dict[str, Any]) -> tuple[Optional[str], list[int]]:
         """
         Process the metadata included in a shell "execute_request" or "yield_request" message.
+
+        :return: a tuple where the first element is the remote storage name and the second is a list of GPU device IDs.
         """
         self.log.debug(f"Processing metadata of \"{msg_type}\" request \"{msg_id}\": {metadata}")
 
         if metadata is None:
-            return None
+            return None, []
 
         resource_request: Dict[str, Any] = metadata.get("resource_request", {})
 
@@ -1455,7 +1443,9 @@ class DistributedKernel(IPythonKernel):
         if len(workload_id) > 0:
             self.log.debug(f"Extracted workload ID from \"{msg_type}\" metadata: {workload_id}")
 
-        return remote_storage_name
+        gpu_device_ids: list[int] = metadata.get("gpu_device_ids", [])
+
+        return remote_storage_name, gpu_device_ids
 
     async def checkpoint_model_state(self):
         """
@@ -1543,7 +1533,7 @@ class DistributedKernel(IPythonKernel):
 
         # Process the metadata included in the request.
         # If we get back a remote storage name, then we'll use it to simulate I/O after we finish the execution.
-        remote_storage_name: Optional[str] = await self.process_execute_request_metadata(parent_header["msg_id"],
+        remote_storage_name, gpu_device_ids = await self.process_execute_request_metadata(parent_header["msg_id"],
                                                                                          parent_header["msg_type"],
                                                                                          metadata)
 
@@ -1571,6 +1561,7 @@ class DistributedKernel(IPythonKernel):
             cell_meta=cell_meta,
             cell_id=cell_id,
             training_duration_millis=training_duration_millis,
+            gpu_device_ids=gpu_device_ids,
         )
 
         if inspect.isawaitable(reply_content):
@@ -2033,11 +2024,15 @@ class DistributedKernel(IPythonKernel):
         self.cuda_initialized = True
 
     async def simulate_download_model_and_training_data(self, force: bool = False) -> tuple[float, float]:
+        self.log.debug("Simulating the downloading of model and training data...")
+
         # If the model and training data are already downloaded, then just return (unless force is True).
         if self.model_and_training_data_downloaded and not force:
+            self.log.debug("Model and training data are already downloaded (simulated). Returning immediately.")
             return 0.0, 0.0
 
-        if not self.use_real_gpus:
+        if self.use_real_gpus:
+            self.log.debug("We're using real GPUs. No need to simulate the downloading of model and training data.")
             return 0.0, 0.0
 
         if self.current_resource_request is None:
@@ -2133,33 +2128,35 @@ class DistributedKernel(IPythonKernel):
             training_duration_millis: float,
             gpu_device_ids: list[int] = None,
     ) -> str:
-        if self.use_real_gpus:
-            if gpu_device_ids is None or len(gpu_device_ids) == 0:
-                self.log.warning("No GPU device IDs specified. Defaulting to [0].")
-                gpu_device_ids = [0]
+        if not self.use_real_gpus:
+            return f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
 
-            if self.model is None:
-                self.log.debug("Creating RESNET-18 model.")
-                self.model = ResNet18()
-                self.log.debug("Creating CIFAR-10 dataset.")
-                self.dataset = CIFAR10()
+        if gpu_device_ids is None or len(gpu_device_ids) == 0:
+            self.log.warning("No GPU device IDs specified. Defaulting to [0].")
+            gpu_device_ids = [0]
 
-            download_code:str = ""
+        if self.model is None:
+            self.log.debug("Creating RESNET-18 model.")
+            self.model = ResNet18()
+            self.log.debug("Creating CIFAR-10 dataset.")
+            self.dataset = CIFAR10()
 
-            if not self.smr_enabled or self.num_replicas <= 1:
-                self.shell.user_ns["__download_func__"] = self.__load_model_from_remote_storage
-                self.shell.user_ns["__model_pointer__"] = ModelPointer(
-                    deep_learning_model = self.model,
-                    model_path = os.path.join(self.store_path, self.model.name)
-                )
-                download_code: str = f"""
+        download_code:str = ""
+        if not self.smr_enabled or self.num_replicas <= 1:
+            self.shell.user_ns["__download_func__"] = self.__load_model_from_remote_storage
+            self.shell.user_ns["__model_pointer__"] = ModelPointer(
+                deep_learning_model = self.model,
+                model_path = os.path.join(self.store_path, self.model.name)
+            )
+            download_code: str = f"""
 
-# Download the latest model parameters from remote storage.
+# Explicitly download the latest model parameters from remote storage.
+print("Explicitly downloading the latest model parameters from remote storage.")
 model = __download_func__(__model_pointer__)
 
 """
 
-            code: str = f"""
+        return f"""
 from distributed_notebook.datasets.cifar10 import CIFAR10
 from distributed_notebook.models.resnet18 import ResNet18, ResNet18Name 
 
@@ -2178,9 +2175,7 @@ if 'model' not in locals() and 'model' not in globals():
 else:
     print("Model ('%s') and dataset ('%s') already exist." % (model.name, dataset.name))
 
-# Download the latest model parameters from remote storage.
-{download_code}
-       
+{download_code} 
 # Distribute the model across the GPUs that we've been allocated.
 model.set_gpu_device_ids(device_ids = {gpu_device_ids})
         
@@ -2190,12 +2185,13 @@ print("Finished training. Actual training time: %.3f ms." % training_time_millis
 print("Copied model from CPU to GPU in %.3f ms." % copy_cpu2gpu_millis)
 print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 """
-        else:
-            code: str = f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
 
-        return code
-
-    async def primary_replica_protocol(self, term_number: int = -1, election_start: float = time.time()):
+    async def primary_replica_protocol(
+            self,
+            term_number: int = -1,
+            election_start: float = time.time(),
+            jupyter_message_id: str = "",
+    ):
         assert term_number >= 0
 
         if not self.smr_enabled:
@@ -2208,8 +2204,11 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         # Pass value > 0 to lead a specific execution.
         # In either case, the execution will wait until states are synchronized.
         # type: ignore
-        self.shell.execution_count = await self.synchronizer.ready(self.next_execute_request_msg_id,
-                                                                   term_number, True)
+        self.shell.execution_count = await self.synchronizer.ready(
+            jupyter_message_id,
+            term_number,
+            True
+        )
 
         self.current_execution_stats.leader_election_microseconds = int((time.time() - election_start) * 1.0e6)
 
@@ -2234,6 +2233,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             allow_stdin: bool = False,
             remote_storage_name: Optional[str] = None,
             training_duration_millis: float = -1,
+            gpu_device_ids: list[int] = None,
             *,
             cell_meta=None,
             cell_id=None
@@ -2243,6 +2243,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
+            :param gpu_device_ids: the gpu device IDs that we've been assigned/allocated
             :param remote_storage_name: the name of the remote storage that we should use for (simulated) checkpointing
             :param cell_meta:
             :param cell_id:
@@ -2265,6 +2266,16 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             self.log.info("DistributedKernel is preparing to execute some code: %s\n\n", code)
         else:
             self.log.warning("DistributedKernel is preparing to execute empty codeblock...\n\n")
+
+        # Make sure we have some GPU device IDs if we're using real GPUs.
+        if self.use_real_gpus and (gpu_device_ids is None or len(gpu_device_ids) == 0):
+            self.log.error("We're using real GPUs, but we've not been assigned any GPU device IDs...")
+            self.report_error(
+                f"Replica {self.smr_node_id} of Kernel '{self.kernel_id}' Was Not Assigned Any GPU Device IDs",
+                f"Replica {self.smr_node_id} of kernel '{self.kernel_id}' was not assigned any GPU device "
+                f"IDs for 'execute_request' message '{self.next_execute_request_msg_id}'"
+            )
+            gpu_device_ids = [0] # Default to this for now.
 
         # Special code to initialize persistent store
         if code[:len(key_persistent_id)] == key_persistent_id:
@@ -2296,7 +2307,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             election_start: float = time.time()
             is_primary_replica: bool = await self.primary_replica_protocol(
                 term_number = term_number,
-                election_start = election_start
+                election_start = election_start,
+                jupyter_message_id = self.next_execute_request_msg_id,
             )
 
             if not is_primary_replica:
@@ -2324,6 +2336,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             reply_content, performed_gpu_training, code = await self.execute_user_code(
                 training_duration_millis=training_duration_millis,
                 code=code,
+                gpu_device_ids=gpu_device_ids,
             )
 
             # Re-enable stdout and stderr forwarding.
@@ -2366,6 +2379,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             store_history: bool = True,
             user_expressions: dict = None,
             allow_stdin: bool = False,
+            gpu_device_ids: list[int] = None,
     ) -> tuple[Dict[str, Any], bool, str]:
         """
         Execute the user-submitted code.
@@ -2375,17 +2389,26 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                  - (2) a bool indicating whether the training we performed used an actual (or simulated/fake) GPU
                  - (3) the code that was executed (which may have been updated/changed)
         """
+        if self.use_real_gpus:
+            assert gpu_device_ids is not None and len(gpu_device_ids) > 0
+
         performed_gpu_training: bool = False
         if training_duration_millis > 0:
             self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
                            f"Discarding specified code. Will use custom training code instead.")
-            code = self.get_custom_training_code(training_duration_millis=training_duration_millis)
+            code = self.get_custom_training_code(
+                training_duration_millis=training_duration_millis,
+                gpu_device_ids=gpu_device_ids,
+            )
             performed_gpu_training = True
         elif "training_duration_millis = " in code:
             training_duration_millis = int(float(code[27:]))
             self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
                            f"Discarding specified code. Will use custom training code instead.")
-            code = self.get_custom_training_code(training_duration_millis=training_duration_millis)
+            code = self.get_custom_training_code(
+                training_duration_millis=training_duration_millis,
+                gpu_device_ids=gpu_device_ids,
+            )
             performed_gpu_training = True
         else:
             pass
@@ -2615,6 +2638,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 assert self.remote_storages is None or len(self.remote_storages) == 0
                 self.log.warning("No simulated check-pointers identified.")
 
+            remote_storage_name = simulated_checkpointer.name
             self.log.debug(
                 f"Identified remote storage \"{simulated_checkpointer.name}\" as most-recently-used checkpointer.")
         else:
@@ -2643,11 +2667,11 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         if io_type == "read" or io_type == "download":
             rate_formatted = simulated_checkpointer.download_rate_formatted
             rate = simulated_checkpointer.download_rate
-            simulation_func: t.Callable[[int | float], None] = simulated_checkpointer.download_data
+            simulation_func = simulated_checkpointer.download_data
         else:
             rate_formatted = simulated_checkpointer.upload_rate_formatted
             rate = simulated_checkpointer.upload_rate
-            simulation_func: t.Callable[[int | float], None] = simulated_checkpointer.upload_data
+            simulation_func = simulated_checkpointer.upload_data
 
         start_time: float = time.time()
         try:
@@ -2655,13 +2679,15 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                            f"bytes targeting remote storage {simulated_checkpointer.name}. "
                            f"I/O rate: {rate_formatted}. "
                            f"Expected time to complete I/O operation: {get_estimated_io_time_seconds(size_bytes=vram_bytes, rate=rate)} seconds.")
-            simulation_func(int(vram_bytes))
-        except Exception as ex:
-            self.log.error(f"{type(ex).__name__} while simulating checkpointing with remote storage "
-                           f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {ex}")
+            await simulation_func(size_bytes = int(vram_bytes))
+        except Exception as exc:
+            traceback.print_exc()
+            self.log.error(f"{type(exc).__name__} while simulating checkpointing with remote storage "
+                           f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {exc}")
             self.report_error(f'Kernel "{self.kernel_id}" Failed to Simulate Checkpointing',
-                              f"{type(ex).__name__} while simulating checkpointing with remote storage "
-                              f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {ex}")
+                              f"{type(exc).__name__} while simulating checkpointing with remote storage "
+                              f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {exc}")
+            raise exc # re-raise
 
         duration: float = time.time() - start_time
         self.log.debug(f"Finished simulated checkpointing of {format_size(vram_bytes)} bytes to remote storage "

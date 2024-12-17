@@ -116,6 +116,7 @@ async def create_kernel(
         persistent_id: Optional[str] = None,
         resource_request: Optional[Dict[str, Any]] = None,
         remote_storage_definitions: Optional[Dict[str, Any]] = None,
+        use_real_gpus: bool = False,
         **kwargs
 ) -> DistributedKernel:
     global DefaultResourceRequest
@@ -145,6 +146,7 @@ async def create_kernel(
         "local_tcp_server_port": local_tcp_server_port,
         "persistent_id": persistent_id,
         "simulate_checkpointing_latency": simulate_checkpointing_latency,
+        "use_real_gpus": use_real_gpus,
     }
 
     keyword_args.update(kwargs)

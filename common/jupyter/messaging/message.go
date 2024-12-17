@@ -483,6 +483,9 @@ type ExecuteRequestMetadata struct {
 	// checkpointing its state.
 	RemoteStorageDefinition *proto.RemoteStorageDefinition `json:"remote_storage_definition" mapstructure:"remote_storage_definition"`
 
+	// GpuDeviceIds are the GPU device IDs allocated to the replica.
+	GpuDeviceIds []int `json:"gpu_device_ids" mapstructure:"gpu_device_ids"`
+
 	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
 	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.
 	OtherMetadata map[string]interface{} `mapstructure:",remain"`

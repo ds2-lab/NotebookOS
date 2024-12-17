@@ -601,6 +601,10 @@ class RaftLog(object):
             self._elections[election_term] = election
 
             if jupyter_message_id != "":
+                if jupyter_message_id in self._elections_by_jupyter_message_id:
+                    # TODO: What should we do here?
+                    self.logger.error(f"We already have an election associated with Jupyter msg '{jupyter_message_id}': "
+                                      f"{self._elections_by_jupyter_message_id[jupyter_message_id]}")
                 self._elections_by_jupyter_message_id[jupyter_message_id] = election
 
             # Elections contain a sort of (singly-)linked list between themselves.
@@ -656,7 +660,11 @@ class RaftLog(object):
         # (i.e., voting phase complete / execution phase started). So, when we return from this method (i.e., the
         # __fast_forward_to_future_election method), we're ready to call set_election_complete on the election for
         # term j in __handle_execution_complete_notification.
-        create_and_skip_election(notification.election_term, False, jupyter_message_id=notification.jupyter_message_id)
+        create_and_skip_election(
+            notification.election_term,
+            False,
+            jupyter_message_id=notification.jupyter_message_id
+        )
 
         self.logger.debug(f"Finished creating and skipping election(s) from term {current_term_number + 1} to term "
                           f"{notification.election_term}. Our local election now has term {self.current_election.term_number} "
@@ -931,19 +939,25 @@ class RaftLog(object):
                 self.logger.debug(
                     f"Will propose that node {id_of_winner_to_propose} win the election in term {self._current_election.term_number}.")
                 self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result,
-                                                          LeaderElectionVote(proposed_node_id=id_of_winner_to_propose,
-                                                                             proposer_id=self._node_id,
-                                                                             election_term=term_number,
-                                                                             attempt_number=self._current_election.current_attempt_number))
+                                                          LeaderElectionVote(
+                                                              proposed_node_id=id_of_winner_to_propose,
+                                                              jupyter_message_id=self._current_election.jupyter_message_id,
+                                                              proposer_id=self._node_id,
+                                                              election_term=term_number,
+                                                              attempt_number=self._current_election.current_attempt_number
+                                                          ))
                 return True
             else:
                 assert self._election_decision_future is not None
                 self.logger.debug(f"Will propose 'FAILURE' for election in term {self._current_election.term_number}.")
                 self._future_io_loop.call_soon_threadsafe(self._election_decision_future.set_result,
-                                                          LeaderElectionVote(proposed_node_id=-1,
-                                                                             proposer_id=self._node_id,
-                                                                             election_term=term_number,
-                                                                             attempt_number=self._current_election.current_attempt_number))
+                                                          LeaderElectionVote(
+                                                              proposed_node_id=-1,
+                                                              jupyter_message_id=self._current_election.jupyter_message_id,
+                                                              proposer_id=self._node_id,
+                                                              election_term=term_number,
+                                                              attempt_number=self._current_election.current_attempt_number
+                                                          ))
                 return True
         except ValueError as ex:
             self.logger.debug(
@@ -1454,10 +1468,13 @@ class RaftLog(object):
             self.logger.debug(f"Found no previous proposal for term {term_number}.")
 
         # Create the new proposal.
-        proposal: LeaderElectionProposal = LeaderElectionProposal(key=str(key), proposer_id=self._node_id,
-                                                                  election_term=term_number,
-                                                                  attempt_number=attempt_number,
-                                                                  jupyter_message_id=jupyter_message_id)
+        proposal: LeaderElectionProposal = LeaderElectionProposal(
+            key=str(key),
+            proposer_id=self._node_id,
+            election_term=term_number,
+            attempt_number=attempt_number,
+            jupyter_message_id=jupyter_message_id
+        )
 
         # Add the new proposal to the mapping of proposals for the specified term.
         existing_proposals[attempt_number] = proposal
@@ -1571,6 +1588,19 @@ class RaftLog(object):
         election: Election = Election(term_number, self._num_replicas, jupyter_message_id,
                                       timeout_seconds=self._election_timeout_sec)
         self._elections[term_number] = election
+
+        if jupyter_message_id in self._elections_by_jupyter_message_id:
+            self.logger.warning(f"We already have an election associated with Jupyter msg '{jupyter_message_id}': "
+                              f"{self._elections_by_jupyter_message_id[jupyter_message_id]}")
+
+            existing_election: Election = self._elections_by_jupyter_message_id[jupyter_message_id]
+
+            if existing_election.code_execution_completed_successfully:
+                self.logger.warning(f"Existing election associated with Jupyter msg '{jupyter_message_id}' already "
+                                    f"completed. We must have received the Jupyter msg after a long delay. Discarding.")
+                raise ValueError("Election associated with Jupyter execute_request "
+                                f"{jupyter_message_id} has already completed")
+
         self._elections_by_jupyter_message_id[jupyter_message_id] = election
 
         # Elections contain a sort of (singly-)linked list between themselves.
@@ -1890,7 +1920,8 @@ class RaftLog(object):
 
             self.logger.debug(f"Waiting on 'election decision' and 'received vote' futures for term {election_term}.")
 
-            done, pending = await asyncio.wait([_election_decision_future, _received_vote_future], return_when = asyncio.FIRST_COMPLETED)
+            done, pending = await asyncio.wait([_election_decision_future, _received_vote_future],
+                                               return_when=asyncio.FIRST_COMPLETED)
 
             if _received_vote_future in done or _received_vote_future.done():
                 self.logger.debug(f"The voting phase for election {election_term} has already completed, "
@@ -2453,13 +2484,18 @@ class RaftLog(object):
         self.logger.debug("RaftLog %d is proposing to lead term %d." % (self._node_id, term_number))
 
         # Create a 'LEAD' proposal.
-        proposal: LeaderElectionProposal = await self._create_election_proposal(ElectionProposalKey.LEAD,
-                                                                                term_number,
-                                                                                jupyter_message_id)
+        proposal: LeaderElectionProposal = await self._create_election_proposal(
+            ElectionProposalKey.LEAD,
+            term_number,
+            jupyter_message_id
+        )
 
         # Orchestrate/carry out the election.
-        is_leading: bool = await self._handle_election(proposal, target_term_number=term_number,
-                                                       jupyter_message_id=jupyter_message_id)
+        is_leading: bool = await self._handle_election(
+            proposal,
+            target_term_number=term_number,
+            jupyter_message_id=jupyter_message_id
+        )
 
         return is_leading
 
