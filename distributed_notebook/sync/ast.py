@@ -75,7 +75,6 @@ class SyncAST(ast.NodeVisitor):
         if raw is not None:
             try:
                 self._source = meta
-                ret = None
                 if self._tree is None:
                     self._tree = self.visit(raw)
                     ret = self._tree

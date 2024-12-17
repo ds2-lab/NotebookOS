@@ -94,7 +94,7 @@ class RedisCheckpointer(RemoteCheckpointer):
 
         self.__ensure_redis()
         redis_key:str = pointer.key
-        dataset_name: str = pointer.name
+        dataset_name: str = pointer.large_object_name
 
         self.log.debug(f"Reading description of dataset \"{dataset_name}\" from redis at key \"{redis_key}\" now...")
 
@@ -212,7 +212,7 @@ class RedisCheckpointer(RemoteCheckpointer):
 
         self.__ensure_redis()
 
-        model_name:str = pointer.name
+        model_name:str = pointer.large_object_name
         base_redis_key:str = pointer.key
 
         model_redis_key: str = os.path.join(base_redis_key, "model.pt")
@@ -246,7 +246,7 @@ class RedisCheckpointer(RemoteCheckpointer):
 
             self.__ensure_async_redis()
 
-            model_name:str = pointer.name
+            model_name:str = pointer.large_object_name
             base_redis_key:str = pointer.key
 
             model_redis_key: str = os.path.join(base_redis_key, "model.pt")
@@ -354,10 +354,10 @@ class RedisCheckpointer(RemoteCheckpointer):
             self.__ensure_async_redis()
 
             if pointer.model is None:
-                self.log.error(f"Cannot model dataset \"{pointer.name}\"; invalid pointer.")
-                raise ValueError(f"ModelPointer for model \"{pointer.name}\" does not have a valid pointer")
+                self.log.error(f"Cannot model dataset \"{pointer.large_object_name}\"; invalid pointer.")
+                raise ValueError(f"ModelPointer for model \"{pointer.large_object_name}\" does not have a valid pointer")
 
-            model_name:str = pointer.name
+            model_name:str = pointer.large_object_name
             base_redis_key:str = pointer.key
 
             model_redis_key: str = os.path.join(base_redis_key, "model.pt")
@@ -376,10 +376,10 @@ class RedisCheckpointer(RemoteCheckpointer):
             raise ValueError("cannot write model using nil ModelPointer")
 
         if pointer.model is None:
-            self.log.error(f"Cannot model dataset \"{pointer.name}\"; invalid pointer.")
-            raise ValueError(f"ModelPointer for model \"{pointer.name}\" does not have a valid pointer")
+            self.log.error(f"Cannot model dataset \"{pointer.large_object_name}\"; invalid pointer.")
+            raise ValueError(f"ModelPointer for model \"{pointer.large_object_name}\" does not have a valid pointer")
 
-        model_name:str = pointer.name
+        model_name:str = pointer.large_object_name
         base_redis_key:str = pointer.key
 
         model_redis_key: str = os.path.join(base_redis_key, "model.pt")

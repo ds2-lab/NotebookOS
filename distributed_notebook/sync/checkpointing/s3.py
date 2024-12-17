@@ -88,7 +88,7 @@ class S3Checkpointer(RemoteCheckpointer, ABC):
         if pointer is None:
             raise ValueError("cannot read model using nil ModelPointer")
 
-        model_name: str = pointer.name
+        model_name: str = pointer.large_object_name
         base_object_name: str = pointer.key
 
         model_object_name: str = os.path.join(base_object_name, "model.pt")
@@ -161,10 +161,10 @@ class S3Checkpointer(RemoteCheckpointer, ABC):
             raise ValueError("cannot write model using nil ModelPointer")
 
         if pointer.model is None:
-            self.log.error(f"Cannot model dataset \"{pointer.name}\"; invalid pointer.")
-            raise ValueError(f"ModelPointer for model \"{pointer.name}\" does not have a valid pointer")
+            self.log.error(f"Cannot model dataset \"{pointer.large_object_name}\"; invalid pointer.")
+            raise ValueError(f"ModelPointer for model \"{pointer.large_object_name}\" does not have a valid pointer")
 
-        model_name:str = pointer.name
+        model_name:str = pointer.large_object_name
         base_redis_key:str = pointer.key
 
         model_object_name: str = os.path.join(base_redis_key, "model.pt")

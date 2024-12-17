@@ -330,6 +330,40 @@ class DistributedKernel(IPythonKernel):
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
 
+        # Committed DatasetPointers that we encounter while catching-up after a migration.
+        # Once we're caught-up, we download all of these.
+        #
+        # Keys are user namespace variable names and values are the pointers.
+        # This way, if the user overwrote a variable with a different dataset pointer,
+        # then we'll only retrieve the most up-to-date version of that variable.
+        #
+        # TODO: This would be problematic if the user were to overwrite a variable that was initially committed
+        #       as a large object, such as a dataset or model, but then later assigned that variable to a smaller
+        #       object. That's because we're going to inject the large object pointed to by these pointers into the
+        #       user namespace, so we'll end up overwriting the existing variable.
+        #
+        # TODO: One option is to check if there already exists a variable with the same name once we go and try to
+        #       read all of these. But we won't know if that variable was defined before or after the large object.
+        #       So, at best, we would just know of a potential conflict, but not how to resolve it...
+        self.dataset_pointers_catchup: Dict[str, DatasetPointer] = {}
+
+        # Committed ModelPointers that we encounter while catching-up after a migration.
+        # Once we're caught-up, we download all of these.
+        #
+        # Keys are user namespace variable names and values are the pointers.
+        # This way, if the user overwrote a variable with a different model pointer,
+        # then we'll only retrieve the most up-to-date version of that variable.
+        #
+        # TODO: This would be problematic if the user were to overwrite a variable that was initially committed
+        #       as a large object, such as a dataset or model, but then later assigned that variable to a smaller
+        #       object. That's because we're going to inject the large object pointed to by these pointers into the
+        #       user namespace, so we'll end up overwriting the existing variable.
+        #
+        # TODO: One option is to check if there already exists a variable with the same name once we go and try to
+        #       read all of these. But we won't know if that variable was defined before or after the large object.
+        #       So, at best, we would just know of a potential conflict, but not how to resolve it...
+        self.model_pointers_catchup: Dict[str, ModelPointer] = {}
+
         if "use_real_gpus" in kwargs:
             self.use_real_gpus = kwargs['use_real_gpus']
 
@@ -364,6 +398,9 @@ class DistributedKernel(IPythonKernel):
         # This is set to True in self.loaded_serialized_state_callback, which is called by the RaftLog after it
         # loads its serialized state from intermediate storage.
         self.loaded_serialized_state: bool = False
+
+        # _user_ns_lock ensures atomic operations when accessing self.shell.user_ns from coroutines.
+        self._user_ns_lock: asyncio.Lock = asyncio.Lock()
 
         self._remote_checkpointer: RemoteCheckpointer = get_remote_checkpointer(self.remote_storage,
                                                                                 self.remote_storage_hostname)
@@ -846,12 +883,6 @@ class DistributedKernel(IPythonKernel):
             self.log.warning(
                 "Will NOT be initializing Persistent Store on start, as persistent ID is not yet available.")
 
-        # These are some hard-coded test variables that I am using to see how the effects of manually
-        # adding/removing/updating entries in/to the shell.user_ns dictionary works when executing code.
-        self.shell.user_ns["__test_variable1__"] = 999
-        self.shell.user_ns["__test_variable2__"] = "hello, world"
-        self.shell.user_ns["__test_variable3__"] = "you cannot change me"
-
     async def init_persistent_store_on_start(self, persistent_id: str):
         self.log.info(f"Initializing Persistent Store on start, as persistent ID is available: \"{persistent_id}\"")
         # Create future to avoid duplicate initialization
@@ -1180,8 +1211,11 @@ class DistributedKernel(IPythonKernel):
                 "Successfully executed initialization code: \"%s\"" % str(code))
             # Reset execution_count
             self.shell.execution_count = execution_count  # type: ignore
+
             # type: ignore
-            self.persistent_id = self.shell.user_ns[key_persistent_id]
+            async with self._user_ns_lock:
+                self.persistent_id = self.shell.user_ns[key_persistent_id]
+
             self.log.info("Persistent ID set: \"%s\"" % self.persistent_id)
             # Initialize persistent store
             self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
@@ -1291,10 +1325,12 @@ class DistributedKernel(IPythonKernel):
 
             await self.synclog.catchup_with_peers()
 
+            await self.__download_pointers_committed_while_catching_up()
+
         # TODO: Retrieve time spent downloading model state here.
 
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
-        await self.smr_ready()
+        await self.send_smr_ready_notification()
 
         self.log.info("Started Synchronizer.")
 
@@ -1456,7 +1492,9 @@ class DistributedKernel(IPythonKernel):
         :return: the e2e latency of the network write, if it occurred, in milliseconds
         """
         # Write the updated model state to remote storage.
-        model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
+        async with self._user_ns_lock:
+            model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
+
         if model is None:
             self.log.debug("Did not find any objects of type DeepLearningModel in the user namespace.")
             return
@@ -1467,6 +1505,7 @@ class DistributedKernel(IPythonKernel):
 
         model_pointer: ModelPointer = ModelPointer(
             deep_learning_model = model,
+            user_namespace_variable_name = "model",
             model_path = os.path.join(self.store_path, model.name),
             proposer_id = self.smr_node_id,
         )
@@ -2123,7 +2162,7 @@ class DistributedKernel(IPythonKernel):
             self.log.debug(f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms.")
             self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3  # it's already in milliseconds
 
-    def get_custom_training_code(
+    async def get_custom_training_code(
             self,
             training_duration_millis: float,
             gpu_device_ids: list[int] = None,
@@ -2136,23 +2175,39 @@ class DistributedKernel(IPythonKernel):
             gpu_device_ids = [0]
 
         if self.model is None:
-            self.log.debug("Creating RESNET-18 model.")
+            self.log.debug("Creating ResNet-18 model.")
             self.model = ResNet18()
             self.log.debug("Creating CIFAR-10 dataset.")
             self.dataset = CIFAR10()
 
         download_code:str = ""
         if not self.smr_enabled or self.num_replicas <= 1:
-            self.shell.user_ns["__download_func__"] = self.__load_model_from_remote_storage
-            self.shell.user_ns["__model_pointer__"] = ModelPointer(
-                deep_learning_model = self.model,
-                model_path = os.path.join(self.store_path, self.model.name)
-            )
-            download_code: str = f"""
+            async with self._user_ns_lock:
+                existing_model: Optional[DeepLearningModel | Any] = self.shell.user_ns.get("model", None)
+
+                if existing_model is not None and not isinstance(existing_model, DeepLearningModel):
+                    self.log.warning(f"Found existing variable 'model' in shell user namespace of type "
+                                     f"'{type(existing_model).__name__}'. Variable will be overwritten with "
+                                     f"DeepLearningModel 'ResNet-18'.")
+                    existing_model = None # So that we pass None for the existing_model argument below.
+
+                if existing_model is not None:
+                    self.shell.user_ns["__existing_model__"] = existing_model
+                    existing_model_code:str = "__existing_model__"
+                else:
+                    existing_model_code:str = "None"
+
+                self.shell.user_ns["__download_func__"] = self.__load_model_from_remote_storage
+                self.shell.user_ns["__model_pointer__"] = ModelPointer(
+                    deep_learning_model = self.model,
+                    user_namespace_variable_name = "model", # __model_pointer__ is temporary; the actual variable we want to use is the 'model' variable.
+                    model_path = os.path.join(self.store_path, self.model.name)
+                )
+                download_code: str = f"""
 
 # Explicitly download the latest model parameters from remote storage.
 print("Explicitly downloading the latest model parameters from remote storage.")
-model = __download_func__(__model_pointer__)
+model = __download_func__(__model_pointer__, existing_model = {existing_model_code})
 
 """
 
@@ -2285,8 +2340,11 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         # Ensure persistent store is ready
         if not await self.check_persistent_store():
-            if 'persistent_id' in self.shell.user_ns:
-                self.persistent_id = self.shell.user_ns['persistent_id']
+            async with self._user_ns_lock:
+                persistent_id = self.shell.user_ns.get('persistent_id', None)
+
+            if persistent_id is not None:
+                self.persistent_id = persistent_id
                 code = "persistent_id = \"%s\"" % self.persistent_id
                 await asyncio.ensure_future(self.init_persistent_store(code))
 
@@ -2396,7 +2454,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         if training_duration_millis > 0:
             self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
                            f"Discarding specified code. Will use custom training code instead.")
-            code = self.get_custom_training_code(
+            code = await self.get_custom_training_code(
                 training_duration_millis=training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
             )
@@ -2405,7 +2463,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             training_duration_millis = int(float(code[27:]))
             self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
                            f"Discarding specified code. Will use custom training code instead.")
-            code = self.get_custom_training_code(
+            code = await self.get_custom_training_code(
                 training_duration_millis=training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
             )
@@ -2429,8 +2487,6 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         self.current_execution_stats.execution_time_microseconds = exec_duration_millis * 1.0e3
         reply_content['execution_start_unix_millis'] = self.current_execution_stats.execution_start_unix_millis
         reply_content['execution_finished_unix_millis'] = self.current_execution_stats.execution_end_unix_millis
-
-        self.shell.user_ns["__test_variable3__"] = "you cannot change me"  # for debugging/testing
 
         self.log.info(f"Finished executing user-submitted code in {exec_duration_millis} ms. "
                       f"Returning the following content: {reply_content}")
@@ -2496,7 +2552,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         variable that was used in the last user-executed code.
         :param code: the code that the user executed
         """
-        model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
+        async with self._user_ns_lock:
+            model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
 
         if model is None:
             self.log.debug("Could not find 'model' variable in user namespace.")
@@ -2527,7 +2584,13 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             self,
             code: str = "",
     ):
-        dataset: Optional[Dataset] = self.shell.user_ns.get("dataset", None)
+        """
+        Inspect the 'dataset' variable from the user namespace and determine if we need to record its download
+        latency for the execution request that we're currently processing.
+        """
+        async with self._user_ns_lock:
+            dataset: Optional[Dataset] = self.shell.user_ns.get("dataset", None)
+
         if dataset is None:
             self.log.debug("Could not find 'dataset' variable in user namespace.")
             return
@@ -3259,7 +3322,85 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 'user_expressions': {},
                 }
 
-    def __load_model_from_remote_storage(self, pointer: ModelPointer)->Optional[DeepLearningModel]:
+    async def __download_model_pointers_committed_while_catching_up(self):
+        """
+        Download any Model pointers that were committed while we were catching up.
+        """
+        if len(self.model_pointers_catchup) == 0:
+            self.log.debug("There were no ModelPointer objects committed while we were catching up.")
+            return
+
+        for var_name, model_pointer in self.model_pointers_catchup.items():
+            self.log.debug(f"Loading DeepLearningDataset '{model_pointer.model_name}' for variable '{var_name}'")
+
+            async with self._user_ns_lock:
+                existing_model: Optional[DeepLearningModel] = self.shell.user_ns.get(var_name, None)
+
+                if existing_model is not None and not isinstance(existing_model, DeepLearningModel):
+                    self.log.warning(f"Found existing variable '{var_name}' in shell user namespace of type "
+                                     f"'{type(existing_model).__name__}'. Variable will be overwritten with "
+                                     f"DeepLearningModel '{model_pointer.model_name}'.")
+                    existing_model = None # So that we pass None for the existing_model argument below.
+
+            st: float = time.time()
+            try:
+                model: DeepLearningModel = self.__load_model_from_remote_storage(model_pointer, existing_model = existing_model.model)
+            except Exception as exc:
+                self.log.error(f"Failed to load DeepLearningDataset '{model_pointer.model_name}' for variable '{var_name}'")
+                self.report_error(f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
+                                  f"DeepLearningDataset '{model_pointer.model_name}' for variable '{var_name}' "
+                                  f"while catching-up",
+                                  str(exc))
+                continue
+
+            et: float = time.time()
+            self.log.debug(f"Successfully retrieved DeepLearningDataset '{model_pointer.model_name}' for variable "
+                           f"'{var_name}' from remote storage in {et - st} seconds.")
+
+            async with self._user_ns_lock:
+                self.shell.user_ns[var_name] = model
+
+    async def __download_dataset_pointers_committed_while_catching_up(self):
+        """
+        Download any Dataset pointers that were committed while we were catching up.
+        """
+        if len(self.dataset_pointers_catchup) == 0:
+            self.log.debug("There were no DatasetPointer objects committed while we were catching up.")
+            return
+
+        for var_name, dataset_pointer in self.dataset_pointers_catchup.items():
+            self.log.debug(f"Loading Dataset '{dataset_pointer.dataset_name}' for variable '{var_name}'")
+
+            st: float = time.time()
+            try:
+                dataset: Dataset = self.__load_dataset_from_remote_storage(dataset_pointer)
+            except Exception as exc:
+                self.log.error(f"Failed to load Dataset '{dataset_pointer.model_name}' for variable '{var_name}'")
+                self.report_error(f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
+                                  f"Dataset '{dataset_pointer.model_name}' for variable '{var_name}' "
+                                  f"while catching-up",
+                                  str(exc))
+                continue
+
+            et: float = time.time()
+            self.log.debug(f"Successfully retrieved Dataset '{dataset_pointer.model_name}' for variable "
+                           f"'{var_name}' from remote storage in {et - st} seconds.")
+
+            async with self._user_ns_lock:
+                self.shell.user_ns[var_name] = dataset
+
+    async def __download_pointers_committed_while_catching_up(self):
+        """
+        Download any Dataset and Model pointers that were committed while we were catching up.
+        """
+        await asyncio.gather(self.__download_model_pointers_committed_while_catching_up(),
+                             self.__download_dataset_pointers_committed_while_catching_up())
+
+    def __load_model_from_remote_storage(
+            self,
+            pointer: ModelPointer,
+            existing_model: Optional[DeepLearningModel] = None,
+    )->Optional[DeepLearningModel]:
         """
         Callback to be executed when a pointer to a DeepLearningModel object is committed to the RaftLog.
         :param pointer: the pointer to the DeepLearningModel object.
@@ -3273,83 +3414,143 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             self.log.debug(f"Read updated model state from remote storage '{self._remote_checkpointer.storage_name}' "
                            f"in {read_et - read_st} seconds.")
 
+            if self.prometheus_enabled:
+                self.remote_storage_read_latency_milliseconds.labels(
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id).observe((read_et - read_st) * 1.0e3)
+
             if not self.smr_enabled or self.num_replicas <= 1:
                 assert self.current_execution_stats is not None
                 self.current_execution_stats.download_model_microseconds += (read_et - read_st) * 1.0e6
                 self.current_execution_stats.download_model_start_unix_millis += (read_st * 1.0e3)
                 self.current_execution_stats.download_model_end_unix_millis += (read_et * 1.0e3)
         except Exception as exc:
-            self.log.error(f"Failed to read state dictionaries for model \"{pointer.name}\" "
+            self.log.error(f"Failed to read state dictionaries for model \"{pointer.large_object_name}\" "
                            f"from remote storage \"{self._remote_checkpointer.storage_name}\" because: {exc}")
             raise exc  # re-raise
 
         try:
             model: DeepLearningModel = load_model(
-                model_name=pointer.name,
-                existing_model=self.shell.user_ns.get("model", None),
+                model_name=pointer.large_object_name,
+                existing_model=existing_model,
                 out_features=pointer.out_features,
                 model_state_dict=model_state_dict,
                 optimizer_state_dict=optimizer_state_dict,
                 criterion_state_dict=criterion_state_dict
             )
         except Exception as exc:
-            self.log.error(f"Failed to load committed dataset \"{pointer.name}\" because: {exc}")
+            self.log.error(f"Failed to load committed dataset \"{pointer.model_name}\" because: {exc}")
             self.report_error("Failed to Load Committed Dataset \"{pointer.name}\"", str(exc))
             return None
 
         return model
 
-    def __dataset_committed(self, pointer: DatasetPointer):
-        """
-        Callback to be executed when a pointer to a Dataset object is committed to the RaftLog.
-        :param pointer: the pointer to the Dataset object.
-        """
-        self.log.debug(f"The \"{pointer.name}\" dataset was committed.")
+    def __load_dataset_from_remote_storage(self, pointer: DatasetPointer) -> Optional[Dataset]:
+        var_name:str = pointer.user_namespace_variable_name
+        existing_variable: Any = self.shell.user_ns.get(var_name, None)
 
-        existing_dataset: Dataset = self.shell.user_ns.get("dataset", None)
+        if existing_variable is not None:
+            if isinstance(existing_variable, Dataset):
+                self.log.debug(f"Found existing dataset \"{var_name}\" in user namespace.")
 
-        if existing_dataset is not None:
-            self.log.debug(f"Found existing dataset \"{existing_dataset.name}\" in user namespace.")
+                # If they match, then we're done here.
+                # It is necessarily already downloaded by virtue of being one of our Dataset objects.
+                if existing_variable.name == pointer.dataset_name:
+                    return None
 
-            # If they match, then we're done here.
-            if existing_dataset.name == pointer.name:
-                return
-
-            self.log.warning(f"Existing dataset \"{existing_dataset.name}\" does not match "
-                             f"committed dataset \"{pointer.name}\".")
+                self.log.warning(f"Existing dataset \"{var_name}\" does not match freshly-committed "
+                                 f"dataset \"{pointer.dataset_name}\".")
+                self.log.warning(f"Will overwrite existing {existing_variable.name} dataset "
+                                 f"\"{var_name}\" with '{pointer.dataset_name}' dataset.")
+            else:
+                self.log.warning(f"Found existing variable \"{var_name}\" of type {type(existing_variable).__name__}...")
+                self.log.warning(f"Will overwrite existing {type(existing_variable).__name__} variable "
+                                 f"\"{var_name}\" with '{pointer.dataset_name}' dataset.")
 
         try:
             st: float = time.time()
             dataset: Dataset = load_dataset(pointer.dataset_description)
             et: float = time.time()
         except Exception as exc:
-            self.log.error(f"Failed to load committed dataset \"{pointer.name}\" because: {exc}")
+            self.log.error(f"Failed to load committed dataset \"{pointer.large_object_name}\" because: {exc}")
             self.report_error("Failed to Load Committed Dataset \"{pointer.name}\"", str(exc))
-            return
+            return None
 
-        self.shell.user_ns["dataset"] = dataset
-        self.log.debug(f"Successfully loaded committed dataset \"{pointer.name}\" in {et - st} seconds.")
+        if self.prometheus_enabled:
+            self.remote_storage_read_latency_milliseconds.labels(
+                session_id=self.kernel_id,
+                workload_id=self.workload_id).observe(dataset.download_duration_sec * 1.0e3)
+
+        self.log.debug(f"Successfully loaded committed dataset \"{pointer.large_object_name}\" (varname='{var_name}') "
+                       f"from remote storage in {et - st} seconds.")
+        return dataset
+
+    def __dataset_committed(self, pointer: DatasetPointer):
+        """
+        Callback to be executed when a pointer to a Dataset object is committed to the RaftLog.
+        :param pointer: the pointer to the Dataset object.
+        """
+        self.log.debug(f"The \"{pointer.large_object_name}\" dataset (stored in variable "
+                       f"'{pointer.user_namespace_variable_name}') was committed.")
+
+        # If we're catching up, then we'll save a reference to this to be processed later, once
+        # we're done catching up so that we have the most up-to-date version of the variable.
+        if pointer.proposer_id == self.smr_node_id:
+            if self.synclog.needs_to_catch_up:
+                self.log.debug(f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves "
+                               f"while catching up. Saving for later.")
+                self.dataset_pointers_catchup[pointer.user_namespace_variable_name] = pointer
+                return
+            else:
+                self.log.debug(f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves. "
+                               f"Ignoring.")
+                return
+
+        dataset: Optional[Dataset] = self.__load_dataset_from_remote_storage(pointer)
+        if dataset is not None:
+            self.shell.user_ns[pointer.user_namespace_variable_name] = dataset
+
+    def __model_committed(self, pointer: ModelPointer):
+        self.log.debug(f"An updated \"{pointer.large_object_name}\" model (stored in variable "
+                       f"'{pointer.user_namespace_variable_name}') was committed.")
+
+        # If we're catching up, then we'll save a reference to this to be processed later, once
+        # we're done catching up so that we have the most up-to-date version of the variable.
+        if pointer.proposer_id == self.smr_node_id:
+            if self.synclog.needs_to_catch_up:
+                self.log.debug(f"Received committed '{pointer.model_name}' Model pointer proposed by ourselves "
+                               f"while catching up. Saving for later.")
+                self.model_pointers_catchup[pointer.user_namespace_variable_name] = pointer
+                return
+            else:
+                self.log.debug(f"Received committed '{pointer.model_name}' Model pointer proposed by ourselves. "
+                               f"Ignoring.")
+                return
+
+        # Warning: this does not acquire the _user_ns_lock; however, I don't think this code can run concurrently
+        # with any of the other code...? Maybe?
+        existing_model: Optional[DeepLearningModel | Any] = self.shell.user_ns.get("model", None)
+        if existing_model is not None and not isinstance(existing_model, DeepLearningModel):
+            self.log.warning(f"Found existing variable 'model' in shell user namespace of type "
+                             f"'{type(existing_model).__name__}'. Variable will be overwritten with "
+                             f"DeepLearningModel 'ResNet-18'.")
+            existing_model = None # So that we pass None for the existing_model argument below.
+
+        st: float = time.time()
+        model: Optional[DeepLearningModel] = self.__load_model_from_remote_storage(pointer, existing_model = existing_model)
+        et: float = time.time()
+        self.shell.user_ns["model"] = model
+        self.log.debug(f"Successfully loaded committed model \"{pointer.large_object_name}\" in {et - st} seconds.")
 
     def large_object_pointer_committed(self, pointer: SyncPointer):
         """
         Callback to be executed when a pointer to a large object is committed to the RaftLog.
         :param pointer: the pointer to the large object.
         """
-        # TODO: Need to retrieve all proposals post-migration.
-        if pointer.proposer_id == self.smr_node_id:
-            self.log.debug(f"Received committed pointer proposed by ourselves. Ignoring.")
-            return
-
         if isinstance(pointer, DatasetPointer):
             self.__dataset_committed(pointer)
         elif isinstance(pointer, ModelPointer):
-            self.log.debug(f"An updated \"{pointer.name}\" model was committed.")
-
-            st: float = time.time()
-            model: Optional[DeepLearningModel] = self.__load_model_from_remote_storage(pointer)
-            et: float = time.time()
-            self.shell.user_ns["model"] = model
-            self.log.debug(f"Successfully loaded committed model \"{pointer.name}\" in {et - st} seconds.")
+            self.__model_committed(pointer)
         else:
             self.log.error(f"SyncPointer of unknown or unsupported type committed: {pointer}")
             raise ValueError(f"SyncPointer of unknown or unsupported type committed: {pointer}")
@@ -3360,7 +3561,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         self.shell.run_cell = self.run_cell  # type: ignore
         self.shell.transform_ast = self.transform_ast  # type: ignore
 
-    async def smr_ready(self) -> None:
+    async def send_smr_ready_notification(self) -> None:
         """
         Inform our local daemon that we've joined our SMR cluster.
 

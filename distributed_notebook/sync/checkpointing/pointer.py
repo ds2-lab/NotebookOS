@@ -17,14 +17,24 @@ class SyncPointer(SynchronizedValue, ABC):
     Pointers are used for objects that are too large to be replicated efficiently using the standard SMR protocol
     (e.g., 10s or 100s of MB or larger).
     """
-    def __init__(self, name: str = "", **kwargs):
+    def __init__(
+            self,
+            large_object_name: str = "",
+            user_namespace_variable_name: str = "",
+            **kwargs
+    ):
         super().__init__(None, None, **kwargs)
 
-        self._name: str = name
+        self._large_object_name: str = large_object_name
+        self._user_namespace_variable_name:str = user_namespace_variable_name
 
     @property
-    def name(self)->str:
-        return self._name
+    def large_object_name(self)->str:
+        return self._large_object_name
+
+    @property
+    def user_namespace_variable_name(self)->str:
+        return self._user_namespace_variable_name
 
     @property
     def path(self)->str:
@@ -41,8 +51,19 @@ class DatasetPointer(SyncPointer):
     """
     DatasetPointer is a SyncPointer for datasets.
     """
-    def __init__(self, dataset: Dataset = None, dataset_path:str = "", **kwargs):
-        super().__init__(name = dataset.name, key = dataset_path, **kwargs)
+    def __init__(
+            self,
+            dataset: Dataset = None,
+            dataset_remote_storage_path:str = "",
+            user_namespace_variable_name: str = "",
+            **kwargs
+    ):
+        super().__init__(
+            large_object_name= dataset.name,
+            user_namespace_variable_name = user_namespace_variable_name,
+            key = dataset_remote_storage_path,
+            **kwargs
+        )
 
         self._dataset: Optional[Dataset] = dataset
 
@@ -55,6 +76,10 @@ class DatasetPointer(SyncPointer):
         del d['_dataset']
 
         return d
+
+    @property
+    def dataset_name(self)->str:
+        return self._large_object_name
 
     @property
     def dataset(self)->Optional[Dataset]:
@@ -71,8 +96,19 @@ class ModelPointer(SyncPointer):
     """
     ModelPointer is a SyncPointer for models/model parameters.
     """
-    def __init__(self, deep_learning_model: DeepLearningModel = None, model_path:str = "", **kwargs):
-        super().__init__(name = deep_learning_model.name, key = model_path, **kwargs)
+    def __init__(
+            self,
+            deep_learning_model: DeepLearningModel = None,
+            model_path:str = "",
+            user_namespace_variable_name: str = "",
+            **kwargs
+    ):
+        super().__init__(
+            large_object_name= deep_learning_model.name,
+            key = model_path,
+            user_namespace_variable_name = user_namespace_variable_name,
+            **kwargs
+        )
 
         self._model: DeepLearningModel = deep_learning_model
         self._out_features: int = deep_learning_model.out_features
@@ -92,6 +128,10 @@ class ModelPointer(SyncPointer):
             raise ValueError(f"model '{self._model.name}' does not seem to require checkpointing")
 
         self._model.checkpointed()
+
+    @property
+    def model_name(self)->str:
+        return self._large_object_name
 
     @property
     def total_num_epochs(self)->int:
