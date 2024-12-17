@@ -3337,7 +3337,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         """
         # TODO: Need to retrieve all proposals post-migration.
         if pointer.proposer_id == self.smr_node_id:
-            self.log.debug(f"Received committed pointer proposed by ourselves. Ignoring.")
+            if
             return
 
         if isinstance(pointer, DatasetPointer):

@@ -1031,36 +1031,7 @@ class RaftLog(object):
             assert self._catchup_io_loop is not None
 
             if committedValue.key == KEY_CATCHUP and committedValue.proposer_id == self._node_id and committedValue.id == self._catchup_value.id:
-                self.logger.debug(
-                    f"Received our catch-up value (ID={committedValue.id}, timestamp={committedValue.timestamp}, "
-                    f"election term={committedValue.election_term}). We must be caught up!\n\n")
-                sys.stderr.flush()
-                sys.stdout.flush()
-
-                if self._leader_term_before_migration != committedValue.election_term:
-                    self.logger.error(
-                        f"The leader term before migration was {self._leader_term_before_migration}, "
-                        f"while the committed \"catch-up\" value has term {committedValue.election_term}. "
-                        f"The term of the \"catch-up\" value should be equal to last leader term.")
-                    # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
-                    sys.stderr.flush()
-                    sys.stdout.flush()
-                    raise ValueError(
-                        f"The leader term before migration was {self._leader_term_before_migration}, "
-                        f"while the committed \"catch-up\" value has term {committedValue.election_term}. "
-                        f"The term of the \"catch-up\" value should be equal to last leader term.")
-                    # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
-
-                self._needs_to_catch_up = False
-
-                self._catchup_io_loop.call_soon_threadsafe(self._catchup_future.set_result, committedValue)
-                self._catchup_value = None
-
-                self.logger.debug("Scheduled setting of result of catch-up value on catchup future.")
-
-                sys.stderr.flush()
-                sys.stdout.flush()
-                return GoNilError()
+                return self.__catchup_value_committed(committedValue)
 
         if isinstance(committedValue, LeaderElectionVote):
             return self.__handle_vote(committedValue, received_at=received_at)
@@ -1102,6 +1073,38 @@ class RaftLog(object):
             self.logger.error(f"Failed to handle changed value because: {ex}")
             print_trace(limit=10)
             raise ex
+
+        sys.stderr.flush()
+        sys.stdout.flush()
+        return GoNilError()
+
+    def __catchup_value_committed(self, catchupValue: SynchronizedValue):
+        self.logger.debug(
+            f"Received our catch-up value (ID={catchupValue.id}, timestamp={catchupValue.timestamp}, "
+            f"election term={catchupValue.election_term}). We must be caught up!\n\n")
+        sys.stderr.flush()
+        sys.stdout.flush()
+
+        if self._leader_term_before_migration != catchupValue.election_term:
+            self.logger.error(
+                f"The leader term before migration was {self._leader_term_before_migration}, "
+                f"while the committed \"catch-up\" value has term {catchupValue.election_term}. "
+                f"The term of the \"catch-up\" value should be equal to last leader term.")
+            # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
+            sys.stderr.flush()
+            sys.stdout.flush()
+            raise ValueError(
+                f"The leader term before migration was {self._leader_term_before_migration}, "
+                f"while the committed \"catch-up\" value has term {catchupValue.election_term}. "
+                f"The term of the \"catch-up\" value should be equal to last leader term.")
+            # f"The term of the \"catch-up\" value should be one greater than the last leader term.")
+
+        self._needs_to_catch_up = False
+
+        self._catchup_io_loop.call_soon_threadsafe(self._catchup_future.set_result, catchupValue)
+        self._catchup_value = None
+
+        self.logger.debug("Scheduled setting of result of catch-up value on catchup future.")
 
         sys.stderr.flush()
         sys.stdout.flush()
