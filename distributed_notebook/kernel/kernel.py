@@ -3330,8 +3330,10 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             self.log.debug("There were no ModelPointer objects committed while we were catching up.")
             return
 
+        self.log.debug(f"Retrieving {len(self.model_pointers_catchup)} DeepLearningModels committed during catch-up phase.")
+        _st: float = time.time()
         for var_name, model_pointer in self.model_pointers_catchup.items():
-            self.log.debug(f"Loading DeepLearningDataset '{model_pointer.model_name}' for variable '{var_name}'")
+            self.log.debug(f"Loading DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}'")
 
             async with self._user_ns_lock:
                 existing_model: Optional[DeepLearningModel] = self.shell.user_ns.get(var_name, None)
@@ -3346,19 +3348,23 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             try:
                 model: DeepLearningModel = self.__load_model_from_remote_storage(model_pointer, existing_model = existing_model.model)
             except Exception as exc:
-                self.log.error(f"Failed to load DeepLearningDataset '{model_pointer.model_name}' for variable '{var_name}'")
+                self.log.error(f"Failed to load DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}'")
                 self.report_error(f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
-                                  f"DeepLearningDataset '{model_pointer.model_name}' for variable '{var_name}' "
+                                  f"DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}' "
                                   f"while catching-up",
                                   str(exc))
                 continue
 
             et: float = time.time()
-            self.log.debug(f"Successfully retrieved DeepLearningDataset '{model_pointer.model_name}' for variable "
+            self.log.debug(f"Successfully retrieved DeepLearningModel '{model_pointer.model_name}' for variable "
                            f"'{var_name}' from remote storage in {et - st} seconds.")
 
             async with self._user_ns_lock:
                 self.shell.user_ns[var_name] = model
+
+        _et: float = time.time()
+        self.log.debug(f"Retrieved {len(self.model_pointers_catchup)} models(s) in {_et - _st} seconds.")
+        self.model_pointers_catchup.clear()
 
     async def __download_dataset_pointers_committed_while_catching_up(self):
         """
@@ -3368,6 +3374,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             self.log.debug("There were no DatasetPointer objects committed while we were catching up.")
             return
 
+        self.log.debug(f"Retrieving {len(self.model_pointers_catchup)} Datasets committed during catch-up phase.")
+        _st: float = time.time()
         for var_name, dataset_pointer in self.dataset_pointers_catchup.items():
             self.log.debug(f"Loading Dataset '{dataset_pointer.dataset_name}' for variable '{var_name}'")
 
@@ -3389,10 +3397,15 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             async with self._user_ns_lock:
                 self.shell.user_ns[var_name] = dataset
 
+        _et: float = time.time()
+        self.log.debug(f"Retrieved {len(self.dataset_pointers_catchup)} dataset(s) in {_et - _st} seconds.")
+        self.dataset_pointers_catchup.clear()
+
     async def __download_pointers_committed_while_catching_up(self):
         """
         Download any Dataset and Model pointers that were committed while we were catching up.
         """
+        self.log.debug("Downloading any models and datasets that were committed during catch-up phase...")
         await asyncio.gather(self.__download_model_pointers_committed_while_catching_up(),
                              self.__download_dataset_pointers_committed_while_catching_up())
 
