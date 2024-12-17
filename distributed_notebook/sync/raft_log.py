@@ -1079,6 +1079,9 @@ class RaftLog(object):
         return GoNilError()
 
     def __catchup_value_committed(self, catchupValue: SynchronizedValue):
+        """
+        Handler for when the 'catchup' value is committed, indicating that we've fully caught-up to our peers.
+        """
         self.logger.debug(
             f"Received our catch-up value (ID={catchupValue.id}, timestamp={catchupValue.timestamp}, "
             f"election term={catchupValue.election_term}). We must be caught up!\n\n")
