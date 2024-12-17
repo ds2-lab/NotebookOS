@@ -3405,9 +3405,14 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         """
         Download any Dataset and Model pointers that were committed while we were catching up.
         """
+        if len(self.model_pointers_catchup) == 0 and len(self.dataset_pointers_catchup) == 0:
+            self.log.debug("There were no models or datasets committed during catch-up phase.")
+            return
+
         self.log.debug("Downloading any models and datasets that were committed during catch-up phase...")
         await asyncio.gather(self.__download_model_pointers_committed_while_catching_up(),
                              self.__download_dataset_pointers_committed_while_catching_up())
+        self.log.debug("Finished downloading the models and datasets that were committed during catch-up phase.")
 
     def __load_model_from_remote_storage(
             self,
