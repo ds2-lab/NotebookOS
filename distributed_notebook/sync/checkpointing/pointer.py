@@ -117,7 +117,10 @@ class ModelPointer(SyncPointer):
 
     def __getstate__(self):
         d = dict(self.__dict__)
-        del d['_model']
+
+        if '_model' in d:
+            del d['_model']
+
         return d
 
     def wrote_model_state(self):
