@@ -2046,7 +2046,9 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId
 	// Remove the kernel from our hash map.
 	d.kernels.Delete(in.Id)
 
-	d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
+	if d.prometheusManager != nil {
+		d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
+	}
 
 	// Release any resources allocated to the kernel.
 	if err := d.resourceManager.ReplicaEvicted(kernel.ReplicaID(), in.Id); err != nil {
