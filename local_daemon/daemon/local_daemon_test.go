@@ -1222,5 +1222,188 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(resourceManager.IdleMemoryMB().Equals(decimal.NewFromFloat(128000))).To(BeTrue())
 			Expect(resourceManager.IdleCPUs().Equals(decimal.NewFromFloat(64000))).To(BeTrue())
 		})
+
+		It("Will update attempt to the resource request of a kernel replica if a new request is included in an 'execute_request' message", func() {
+			kernel1Replica1.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
+			kernel1Replica1.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
+
+			validatePending := func(kernelReplica scheduling.KernelReplica) {
+				GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
+				GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(1))
+				GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(1))
+				GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(1))
+
+				Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+				Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+				Expect(resourceManager.PendingCPUs().Equals(kernelReplica.ResourceSpec().Millicpus)).To(BeTrue())
+				Expect(resourceManager.PendingVRAM().Equals(kernelReplica.ResourceSpec().VRam)).To(BeTrue())
+				Expect(resourceManager.PendingMemoryMB().Equals(kernelReplica.ResourceSpec().MemoryMb)).To(BeTrue())
+				Expect(resourceManager.PendingGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
+
+				Expect(resourceManager.CommittedGPUs().Equals(decimal.Zero)).To(BeTrue())
+				Expect(resourceManager.CommittedCPUs().Equals(decimal.Zero)).To(BeTrue())
+				Expect(resourceManager.CommittedVRamGB().Equals(decimal.Zero)).To(BeTrue())
+				Expect(resourceManager.CommittedMemoryMB().Equals(decimal.Zero)).To(BeTrue())
+
+				Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(8))).To(BeTrue())
+				Expect(resourceManager.IdleVRamGB().Equals(decimal.NewFromFloat(32))).To(BeTrue())
+				Expect(resourceManager.IdleMemoryMB().Equals(decimal.NewFromFloat(128000))).To(BeTrue())
+				Expect(resourceManager.IdleCPUs().Equals(decimal.NewFromFloat(64000))).To(BeTrue())
+
+				allocation, exists := resourceManager.GetAllocation(kernelReplica.ReplicaID(), kernelReplica.ID())
+				Expect(exists).To(BeTrue())
+				Expect(allocation).ToNot(BeNil())
+
+				Expect(allocation.ReplicaId).To(Equal(kernelReplica.ReplicaID()))
+				Expect(allocation.KernelId).To(Equal(kernelReplica.ID()))
+
+				Expect(allocation.GPUs.Equal(kernelReplica.ResourceSpec().GPUs)).To(BeTrue())
+				Expect(allocation.Millicpus.Equal(kernelReplica.ResourceSpec().Millicpus)).To(BeTrue())
+				Expect(allocation.MemoryMB.Equal(kernelReplica.ResourceSpec().MemoryMb)).To(BeTrue())
+				Expect(allocation.VramGB.Equal(kernelReplica.ResourceSpec().VRam)).To(BeTrue())
+
+				Expect(allocation.IsPending()).To(BeTrue())
+				Expect(allocation.IsCommitted()).To(BeFalse())
+				Expect(allocation.IsReservation).To(BeFalse())
+			}
+
+			validateCommittedReserved := func(kernelReplica scheduling.KernelReplica) {
+				GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
+				GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(1))
+				GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(1))
+				GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(1))
+
+				Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
+				Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
+				Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(int(kernelReplica.ResourceSpec().GPU())))
+				Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(8 - int(kernelReplica.ResourceSpec().GPU())))
+
+				allocation, exists := resourceManager.GetAllocation(kernelReplica.ReplicaID(), kernelReplica.ID())
+				Expect(exists).To(BeTrue())
+				Expect(allocation).ToNot(BeNil())
+
+				Expect(allocation.ReplicaId).To(Equal(kernelReplica.ReplicaID()))
+				Expect(allocation.KernelId).To(Equal(kernelReplica.ID()))
+
+				Expect(allocation.GPUs.Equal(kernelReplica.ResourceSpec().GPUs)).To(BeTrue())
+				Expect(allocation.Millicpus.Equal(kernelReplica.ResourceSpec().Millicpus)).To(BeTrue())
+				Expect(allocation.MemoryMB.Equal(kernelReplica.ResourceSpec().MemoryMb)).To(BeTrue())
+				Expect(allocation.VramGB.Equal(kernelReplica.ResourceSpec().VRam)).To(BeTrue())
+
+				Expect(allocation.IsPending()).To(BeFalse())
+				Expect(allocation.IsCommitted()).To(BeTrue())
+				Expect(allocation.IsReservation).To(BeTrue())
+
+				Expect(resourceManager.PendingCPUs().Equals(decimal.Zero)).To(BeTrue())
+				Expect(resourceManager.PendingVRAM().Equals(decimal.Zero)).To(BeTrue())
+				Expect(resourceManager.PendingMemoryMB().Equals(decimal.Zero)).To(BeTrue())
+				Expect(resourceManager.PendingGPUs().Equals(decimal.Zero)).To(BeTrue())
+
+				Expect(resourceManager.CommittedGPUs().Equals(kernelReplica.ResourceSpec().GPUs)).To(BeTrue())
+				Expect(resourceManager.CommittedVRamGB().Equals(kernelReplica.ResourceSpec().VRam)).To(BeTrue())
+				Expect(resourceManager.CommittedCPUs().Equals(kernelReplica.ResourceSpec().Millicpus)).To(BeTrue())
+				Expect(resourceManager.CommittedMemoryMB().Equals(kernelReplica.ResourceSpec().MemoryMb)).To(BeTrue())
+
+				Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(8).Sub(kernelReplica.ResourceSpec().GPUs))).To(BeTrue())
+				Expect(resourceManager.IdleVRamGB().Equals(decimal.NewFromFloat(32).Sub(kernelReplica.ResourceSpec().VRam))).To(BeTrue())
+				Expect(resourceManager.IdleMemoryMB().Equals(decimal.NewFromFloat(128000).Sub(kernelReplica.ResourceSpec().MemoryMb))).To(BeTrue())
+				Expect(resourceManager.IdleCPUs().Equals(decimal.NewFromFloat(64000).Sub(kernelReplica.ResourceSpec().Millicpus))).To(BeTrue())
+			}
+
+			validateCommittedFully := func(kernelReplica scheduling.KernelReplica) {
+				GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
+				GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(1))
+				GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(1))
+				GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(1))
+
+				Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
+				Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
+				Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(int(kernelReplica.ResourceSpec().GPU())))
+				Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(8 - int(kernelReplica.ResourceSpec().GPU())))
+
+				allocation, exists := resourceManager.GetAllocation(kernelReplica.ReplicaID(), kernelReplica.ID())
+				Expect(exists).To(BeTrue())
+				Expect(allocation).ToNot(BeNil())
+
+				Expect(allocation.ReplicaId).To(Equal(kernelReplica.ReplicaID()))
+				Expect(allocation.KernelId).To(Equal(kernelReplica.ID()))
+
+				Expect(allocation.GPUs.Equal(kernelReplica.ResourceSpec().GPUs)).To(BeTrue())
+				Expect(allocation.Millicpus.Equal(kernelReplica.ResourceSpec().Millicpus)).To(BeTrue())
+				Expect(allocation.MemoryMB.Equal(kernelReplica.ResourceSpec().MemoryMb)).To(BeTrue())
+				Expect(allocation.VramGB.Equal(kernelReplica.ResourceSpec().VRam)).To(BeTrue())
+
+				Expect(allocation.IsPending()).To(BeFalse())
+				Expect(allocation.IsCommitted()).To(BeTrue())
+				Expect(allocation.IsReservation).To(BeFalse())
+
+				Expect(resourceManager.PendingCPUs().Equals(decimal.Zero)).To(BeTrue())
+				Expect(resourceManager.PendingVRAM().Equals(decimal.Zero)).To(BeTrue())
+				Expect(resourceManager.PendingMemoryMB().Equals(decimal.Zero)).To(BeTrue())
+				Expect(resourceManager.PendingGPUs().Equals(decimal.Zero)).To(BeTrue())
+
+				Expect(resourceManager.CommittedGPUs().Equals(kernelReplica.ResourceSpec().GPUs)).To(BeTrue())
+				Expect(resourceManager.CommittedVRamGB().Equals(kernelReplica.ResourceSpec().VRam)).To(BeTrue())
+				Expect(resourceManager.CommittedCPUs().Equals(kernelReplica.ResourceSpec().Millicpus)).To(BeTrue())
+				Expect(resourceManager.CommittedMemoryMB().Equals(kernelReplica.ResourceSpec().MemoryMb)).To(BeTrue())
+
+				Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(8).Sub(kernelReplica.ResourceSpec().GPUs))).To(BeTrue())
+				Expect(resourceManager.IdleVRamGB().Equals(decimal.NewFromFloat(32).Sub(kernelReplica.ResourceSpec().VRam))).To(BeTrue())
+				Expect(resourceManager.IdleMemoryMB().Equals(decimal.NewFromFloat(128000).Sub(kernelReplica.ResourceSpec().MemoryMb))).To(BeTrue())
+				Expect(resourceManager.IdleCPUs().Equals(decimal.NewFromFloat(64000).Sub(kernelReplica.ResourceSpec().Millicpus))).To(BeTrue())
+			}
+
+			schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
+
+			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			Expect(err).To(BeNil())
+
+			validatePending(kernel1Replica1)
+
+			By("Committing resources (as a reservation) when an 'execute_request' message is received")
+
+			processedMessage := processExecuteRequest(messaging.ShellExecuteRequest, kernel1Replica1)
+			Expect(processedMessage).ToNot(BeNil())
+
+			validateCommittedReserved(kernel1Replica1)
+
+			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+			var metadata map[string]interface{}
+			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
+			GinkgoWriter.Printf("metadata: %v\n", metadata)
+			Expect(err).To(BeNil())
+			Expect(len(metadata)).To(Equal(9))
+
+			var processedMessageHeader messaging.MessageHeader
+			err = processedMessage.JupyterFrames.DecodeHeader(&processedMessageHeader)
+
+			GinkgoWriter.Printf("Header: %v\n", processedMessageHeader)
+
+			Expect(err).To(BeNil())
+			Expect(processedMessageHeader.MsgType.String()).To(Equal(messaging.ShellExecuteRequest))
+
+			By("Promoting the committed resource reservation to a fully-committed allocation when an 'smr_lead_task' message is received")
+
+			kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+
+			leadTaskMsg := createJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
+			err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)
+			Expect(err).To(BeNil())
+
+			validateCommittedFully(kernel1Replica1)
+
+			By("Releasing the resources once training ends")
+
+			kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any()).Times(1)
+			kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
+
+			executeReplyContent := map[string]interface{}{"status": "ok"}
+			executeReplyMsg := createJupyterMessageWithContent(messaging.ShellExecuteReply, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key, executeReplyContent)
+			err = schedulerDaemon.processExecuteReply(executeReplyMsg, kernel1Replica1)
+			Expect(err).To(BeNil())
+
+			validatePending(kernel1Replica1)
+		})
 	})
 })
