@@ -11,6 +11,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"golang.org/x/net/context"
 	"sync"
@@ -63,6 +64,40 @@ func createJupyterMessage(messageType messaging.JupyterMessageType, kernelId str
 	return messaging.NewJupyterMessage(msg)
 }
 
+func createJupyterMessageWithMetadata(messageType messaging.JupyterMessageType, kernelId string, kernelKey string, metadata map[string]interface{}) *messaging.JupyterMessage {
+	header := &messaging.MessageHeader{
+		MsgID:    uuid.NewString(),
+		Username: kernelId,
+		Session:  kernelId,
+		Date:     "2024-04-03T22:55:52.605Z",
+		MsgType:  messageType,
+		Version:  "5.2",
+	}
+
+	metadataEndoded, err := json.Marshal(metadata)
+	Expect(err).To(BeNil())
+
+	unsignedExecReqFrames := [][]byte{
+		[]byte("<IDS|MSG>"), /* Frame start */
+		[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"), /* Signature */
+		[]byte(""),              /* Header */
+		[]byte(""),              /* Parent header */
+		[]byte(metadataEndoded), /* Metadata */
+		[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
+	}
+	jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecReqFrames)
+	err = jFrames.EncodeHeader(header)
+	Expect(err).To(BeNil())
+
+	frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
+	msg := &zmq4.Msg{
+		Frames: frames,
+		Type:   zmq4.UsrMsg,
+	}
+
+	return messaging.NewJupyterMessage(msg)
+}
+
 func createJupyterMessageWithContent(messageType messaging.JupyterMessageType, kernelId string, kernelKey string, content map[string]interface{}) *messaging.JupyterMessage {
 	header := &messaging.MessageHeader{
 		MsgID:    uuid.NewString(),
@@ -95,6 +130,24 @@ func createJupyterMessageWithContent(messageType messaging.JupyterMessageType, k
 	}
 
 	return messaging.NewJupyterMessage(msg)
+}
+
+func processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon *SchedulerDaemonImpl, messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica, updatedResourceSpec *types.Float64Spec) *messaging.JupyterMessage {
+	metadata := map[string]interface{}{
+		"resource_request": updatedResourceSpec,
+	}
+
+	jMsg := createJupyterMessageWithMetadata(messageType, kernelReplica.ID(), kernelReplica.ConnectionInfo().Key, metadata)
+	processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernelReplica) // , header, offset)
+
+	return processedMessage
+}
+
+func processExecuteRequest(schedulerDaemon *SchedulerDaemonImpl, messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica) *messaging.JupyterMessage {
+	jMsg := createJupyterMessage(messageType, kernelReplica.ID(), kernelReplica.ConnectionInfo().Key)
+	processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernelReplica) // , header, offset)
+
+	return processedMessage
 }
 
 func createKernelReplica(mockController *gomock.Controller, kernelId string, kernelKey string, workloadId string, replicaId int32, kernelSpec *proto.KernelSpec, resourceSpec types.Spec) *mock_scheduling.MockKernelReplica {
@@ -440,13 +493,6 @@ var _ = Describe("Local Daemon Tests", func() {
 	})
 
 	Context("Resource allocations", func() {
-		processExecuteRequest := func(messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica) *messaging.JupyterMessage {
-			jMsg := createJupyterMessage(messageType, kernelReplica.ID(), kernelReplica.ConnectionInfo().Key)
-			processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernelReplica) // , header, offset)
-
-			return processedMessage
-		}
-
 		It("Should allocate resources to multiple kernels upon receiving 'execute_request' messages", func() {
 			kernel1Replica1.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 			kernel1Replica1.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
@@ -472,7 +518,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(resourceManager.PendingGPUs().Equals(decimal.NewFromFloat(6))).To(BeTrue())
 			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(8))).To(BeTrue())
 
-			processedMessage := processExecuteRequest(messaging.ShellExecuteRequest, kernel1Replica1)
+			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
 			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
@@ -506,7 +552,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(resourceManager.PendingGPUs().Equals(decimal.NewFromFloat(4))).To(BeTrue())
 			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(6))).To(BeTrue())
 
-			processedMessage = processExecuteRequest(messaging.ShellExecuteRequest, kernel2Replica2)
+			processedMessage = processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel2Replica2)
 			Expect(processedMessage).ToNot(BeNil())
 
 			err = processedMessage.JupyterFrames.DecodeHeader(&processedMessageHeader)
@@ -580,7 +626,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
-			processedMessage := processExecuteRequest(messaging.ShellExecuteRequest, kernel1Replica1)
+			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
 			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
@@ -705,7 +751,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
-			processedMessage := processExecuteRequest(messaging.ShellExecuteRequest, kernel1Replica1)
+			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
 			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
@@ -915,7 +961,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
-			processedMessage := processExecuteRequest(messaging.ShellExecuteRequest, kernel1Replica1)
+			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
 			var metadata map[string]interface{}
@@ -1075,7 +1121,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
-			processedMessage := processExecuteRequest(messaging.ShellExecuteRequest, kernel1Replica1)
+			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
 			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
@@ -1363,7 +1409,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
-			processedMessage := processExecuteRequest(messaging.ShellExecuteRequest, kernel1Replica1)
+			processedMessage := processExecuteRequest(schedulerDaemon, messaging.ShellExecuteRequest, kernel1Replica1)
 			Expect(processedMessage).ToNot(BeNil())
 
 			validateCommittedReserved(kernel1Replica1)
@@ -1404,6 +1450,36 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(err).To(BeNil())
 
 			validatePending(kernel1Replica1)
+
+			By("Correctly updating the resource request of the kernel replica upon receiving another 'execute_request' " +
+				"message with a resource request encoded within the message's metadata")
+
+			updateKernel1Replica1ResourceSpec := func(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+				GinkgoWriter.Printf("Updating resource spec of Kernel 1 Replica 1 from %v to %v.\n", kernel1Replica1.ResourceSpec(), newSpec)
+
+				Expect(tx).To(BeNil())
+
+				currentSpec := kernel1Replica1.ResourceSpec()
+
+				currentSpec.Millicpus = decimal.NewFromFloat(newSpec.CPU())
+				currentSpec.MemoryMb = decimal.NewFromFloat(newSpec.MemoryMB())
+				currentSpec.GPUs = decimal.NewFromFloat(newSpec.GPU())
+				currentSpec.VRam = decimal.NewFromFloat(newSpec.VRAM())
+
+				GinkgoWriter.Printf("Kernel 1 Replica 1 resource spec post-modification: %v\n", kernel1Replica1.ResourceSpec())
+
+				return nil
+			}
+
+			kernel1Replica1.EXPECT().UpdateResourceSpec(gomock.Any(), nil).Times(1).DoAndReturn(updateKernel1Replica1ResourceSpec)
+
+			updatedSpec := types.NewFloat64Spec(256, 2048, 4, 8)
+			processedMessage = processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon, messaging.ShellExecuteRequest,
+				kernel1Replica1, updatedSpec)
+
+			Expect(processedMessage).ToNot(BeNil())
+			Expect(kernel1Replica1.ResourceSpec().Equals(updatedSpec)).To(BeTrue())
+			validateCommittedReserved(kernel1Replica1)
 		})
 	})
 })
