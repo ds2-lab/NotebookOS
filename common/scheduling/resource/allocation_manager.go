@@ -533,6 +533,25 @@ func (m *AllocationManager) NumPendingAllocations() int {
 	return m.numPendingAllocations.LoadInt()
 }
 
+// GetAllocation returns the Allocation associated with the specific kernel repliac, if one exists.
+func (m *AllocationManager) GetAllocation(replicaId int32, kernelId string) (*Allocation, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var (
+		key              string
+		allocation       *Allocation
+		allocationExists bool
+	)
+
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		return nil, false
+	}
+
+	return allocation, true
+}
+
 // PromoteReservation should be called when a kernel replica has won its leader election and begins executing code.
 // This method simply records that the HostResources committed to the kernel are no longer "merely" a reservation.
 // Instead, the resource allocation will indicate that they committed HostResources are being used by a kernel replica
