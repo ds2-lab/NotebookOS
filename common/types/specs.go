@@ -245,6 +245,16 @@ type Float64Spec struct {
 	VRam      float64 `json:"vram" mapstructure:"vram"`     // Amount of VRAM in GB.
 }
 
+// NewFloat64Spec creates a new Float64Spec struct and returns a pointer to it.
+func NewFloat64Spec(millicpus float64, memoryMb float64, gpus float64, vramGb float64) *Float64Spec {
+	return &Float64Spec{
+		Millicpus: millicpus,
+		Memory:    memoryMb,
+		GPUs:      gpus,
+		VRam:      vramGb,
+	}
+}
+
 // GPU returns the number of GPUs required.
 //
 // Although the return type is float64, this is merely because it is often compared to other float64s and rarely
