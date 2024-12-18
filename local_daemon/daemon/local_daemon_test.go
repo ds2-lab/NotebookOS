@@ -51,7 +51,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		resourceManager = resource.NewAllocationManager(&types2.DecimalSpec{
 			GPUs:      decimal.NewFromFloat(8),
 			Millicpus: decimal.NewFromFloat(64000),
-			MemoryMb:  decimal.NewFromFloat(8000),
+			MemoryMb:  decimal.NewFromFloat(128000),
 			VRam:      decimal.NewFromFloat(32),
 		})
 
@@ -352,11 +352,11 @@ var _ = Describe("Local Daemon Tests", func() {
 	})
 
 	Context("Resource allocations", func() {
-		processExecuteRequest := func(messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica) *messaging.JupyterMessage {
+		createJupyterMessage := func(messageType messaging.JupyterMessageType, kernelId string, kernelKey string) *messaging.JupyterMessage {
 			header := &messaging.MessageHeader{
 				MsgID:    uuid.NewString(),
-				Username: kernelReplica.ID(),
-				Session:  kernelReplica.ID(),
+				Username: kernelId,
+				Session:  kernelId,
 				Date:     "2024-04-03T22:55:52.605Z",
 				MsgType:  messageType,
 				Version:  "5.2",
@@ -365,21 +365,26 @@ var _ = Describe("Local Daemon Tests", func() {
 			unsignedExecReqFrames := [][]byte{
 				[]byte("<IDS|MSG>"), /* Frame start */
 				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"), /* Signature */
-				[]byte(""), /* Header */
-				[]byte(""), /* Parent header */
-				[]byte(""), /* Metadata */
+				[]byte(""),   /* Header */
+				[]byte(""),   /* Parent header */
+				[]byte("{}"), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"), /* Content */
 			}
 			jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecReqFrames)
 			err := jFrames.EncodeHeader(header)
 			Expect(err).To(BeNil())
 
-			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelReplica.ConnectionInfo().Key))
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			msg := &zmq4.Msg{
 				Frames: frames,
 				Type:   zmq4.UsrMsg,
 			}
-			jMsg := messaging.NewJupyterMessage(msg)
+
+			return messaging.NewJupyterMessage(msg)
+		}
+
+		processExecuteRequest := func(messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica) *messaging.JupyterMessage {
+			jMsg := createJupyterMessage(messageType, kernelReplica.ID(), kernelReplica.ConnectionInfo().Key)
 			processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernelReplica) // , header, offset)
 
 			return processedMessage
@@ -473,6 +478,129 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(resourceManager.CommittedVRamGB().Equals(decimal.NewFromFloat(16))).To(BeTrue())
 			Expect(resourceManager.PendingGPUs().Equals(decimal.Zero)).To(BeTrue())
 			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
+		})
+
+		It("Should commit resources to a kernel upon receiving an 'smr_lead_task' message", func() {
+			kernel1.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
+			kernel1.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
+
+			err := resourceManager.KernelReplicaScheduled(kernel1.ReplicaID(), kernel1.ID(), kernel1.ResourceSpec())
+			Expect(err).To(BeNil())
+
+			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+			Expect(resourceManager.NumCommittedAllocations()).To(Equal(0))
+
+			Expect(resourceManager.PendingCPUs().Equals(kernel1.ResourceSpec().Millicpus)).To(BeTrue())
+			Expect(resourceManager.PendingVRAM().Equals(kernel1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(resourceManager.PendingMemoryMB().Equals(kernel1.ResourceSpec().MemoryMb)).To(BeTrue())
+			Expect(resourceManager.PendingGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
+
+			Expect(resourceManager.CommittedGPUs().Equals(decimal.Zero)).To(BeTrue())
+			Expect(resourceManager.CommittedCPUs().Equals(decimal.Zero)).To(BeTrue())
+			Expect(resourceManager.CommittedVRamGB().Equals(decimal.Zero)).To(BeTrue())
+			Expect(resourceManager.CommittedMemoryMB().Equals(decimal.Zero)).To(BeTrue())
+
+			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(8))).To(BeTrue())
+			Expect(resourceManager.IdleVRamGB().Equals(decimal.NewFromFloat(32))).To(BeTrue())
+			Expect(resourceManager.IdleMemoryMB().Equals(decimal.NewFromFloat(128000))).To(BeTrue())
+			Expect(resourceManager.IdleCPUs().Equals(decimal.NewFromFloat(64000))).To(BeTrue())
+
+			allocation, exists := resourceManager.GetAllocation(kernel1.ReplicaID(), kernel1.ID())
+			Expect(exists).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+
+			Expect(allocation.ReplicaId).To(Equal(kernel1.ReplicaID()))
+			Expect(allocation.KernelId).To(Equal(kernel1.ID()))
+
+			Expect(allocation.GPUs.Equal(kernel1.ResourceSpec().GPUs)).To(BeTrue())
+			Expect(allocation.Millicpus.Equal(kernel1.ResourceSpec().Millicpus)).To(BeTrue())
+			Expect(allocation.MemoryMB.Equal(kernel1.ResourceSpec().MemoryMb)).To(BeTrue())
+			Expect(allocation.VramGB.Equal(kernel1.ResourceSpec().VRam)).To(BeTrue())
+
+			Expect(allocation.IsPending()).To(BeTrue())
+			Expect(allocation.IsCommitted()).To(BeFalse())
+			Expect(allocation.IsReservation).To(BeFalse())
+
+			processedMessage := processExecuteRequest(messaging.ShellExecuteRequest, kernel1)
+			Expect(processedMessage).ToNot(BeNil())
+
+			By("Embedding the idle GPUs in the metadata of the message for Kernel 1")
+			var metadata map[string]interface{}
+			err = processedMessage.JupyterFrames.DecodeMetadata(&metadata)
+			GinkgoWriter.Printf("metadata: %v\n", metadata)
+			Expect(err).To(BeNil())
+			Expect(len(metadata)).To(Equal(9))
+
+			var processedMessageHeader messaging.MessageHeader
+			err = processedMessage.JupyterFrames.DecodeHeader(&processedMessageHeader)
+
+			GinkgoWriter.Printf("Header: %v\n", processedMessageHeader)
+
+			Expect(err).To(BeNil())
+			Expect(processedMessageHeader.MsgType.String()).To(Equal(messaging.ShellExecuteRequest))
+
+			By("Creating a pending allocation for Kernel 2")
+
+			GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
+			GinkgoWriter.Printf("PendingGPUs: %s\n", resourceManager.PendingGPUs().StringFixed(1))
+			GinkgoWriter.Printf("IdleGPUs: %s\n", resourceManager.IdleGPUs().StringFixed(1))
+			GinkgoWriter.Printf("CommittedGPUs: %s\n", resourceManager.CommittedGPUs().StringFixed(1))
+
+			Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
+			Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
+			Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(2))
+			Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(6))
+			Expect(resourceManager.CommittedGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
+			Expect(resourceManager.CommittedVRamGB().Equals(decimal.NewFromFloat(4))).To(BeTrue())
+			Expect(resourceManager.PendingGPUs().Equals(decimal.NewFromFloat(0))).To(BeTrue())
+			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(6))).To(BeTrue())
+
+			allocation, exists = resourceManager.GetAllocation(kernel1.ReplicaID(), kernel1.ID())
+			Expect(exists).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+
+			Expect(allocation.ReplicaId).To(Equal(kernel1.ReplicaID()))
+			Expect(allocation.KernelId).To(Equal(kernel1.ID()))
+
+			Expect(allocation.GPUs.Equal(kernel1.ResourceSpec().GPUs)).To(BeTrue())
+			Expect(allocation.Millicpus.Equal(kernel1.ResourceSpec().Millicpus)).To(BeTrue())
+			Expect(allocation.MemoryMB.Equal(kernel1.ResourceSpec().MemoryMb)).To(BeTrue())
+			Expect(allocation.VramGB.Equal(kernel1.ResourceSpec().VRam)).To(BeTrue())
+
+			Expect(allocation.IsPending()).To(BeFalse())
+			Expect(allocation.IsCommitted()).To(BeTrue())
+			Expect(allocation.IsReservation).To(BeTrue())
+
+			kernel1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+
+			leadTaskMsg := createJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1.ID(), kernel1.ConnectionInfo().Key)
+			err = schedulerDaemon.handleSMRLeadTask(kernel1, leadTaskMsg.JupyterFrames, leadTaskMsg)
+			Expect(err).To(BeNil())
+
+			Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
+			Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
+			Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(2))
+			Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(6))
+			Expect(resourceManager.CommittedGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
+			Expect(resourceManager.CommittedVRamGB().Equals(decimal.NewFromFloat(4))).To(BeTrue())
+			Expect(resourceManager.PendingGPUs().Equals(decimal.NewFromFloat(0))).To(BeTrue())
+			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(6))).To(BeTrue())
+
+			allocation, exists = resourceManager.GetAllocation(kernel1.ReplicaID(), kernel1.ID())
+			Expect(exists).To(BeTrue())
+			Expect(allocation).ToNot(BeNil())
+
+			Expect(allocation.ReplicaId).To(Equal(kernel1.ReplicaID()))
+			Expect(allocation.KernelId).To(Equal(kernel1.ID()))
+
+			Expect(allocation.GPUs.Equal(kernel1.ResourceSpec().GPUs)).To(BeTrue())
+			Expect(allocation.Millicpus.Equal(kernel1.ResourceSpec().Millicpus)).To(BeTrue())
+			Expect(allocation.MemoryMB.Equal(kernel1.ResourceSpec().MemoryMb)).To(BeTrue())
+			Expect(allocation.VramGB.Equal(kernel1.ResourceSpec().VRam)).To(BeTrue())
+
+			Expect(allocation.IsPending()).To(BeFalse())
+			Expect(allocation.IsCommitted()).To(BeTrue())
+			Expect(allocation.IsReservation).To(BeFalse())
 		})
 	})
 })
