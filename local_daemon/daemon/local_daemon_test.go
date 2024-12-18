@@ -174,6 +174,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		kernel1Replica1  *mock_scheduling.MockKernelReplica
 		kernel2Replica2  *mock_scheduling.MockKernelReplica
 		resourceManager  *resource.AllocationManager
+		hostSpec         *types.DecimalSpec
 
 		kernel1Key          = "23d90942-8c3de3a713a5c3611792b7a5"
 		kernel2Key          = "d2324990-3563adca181e235c77317a9b"
@@ -232,15 +233,16 @@ var _ = Describe("Local Daemon Tests", func() {
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		vgpuPluginServer = mock_device.NewMockVirtualGpuPluginServer(mockCtrl)
-
-		kernel1Replica1 = createKernelReplica(mockCtrl, kernel1Id, kernel1Key, workloadId, 1, kernel1Spec, kernel1ResourceSpec)
-		kernel2Replica2 = createKernelReplica(mockCtrl, kernel2Id, kernel2Key, workloadId, 2, kernel2Spec, kernel2ResourceSpec)
-		resourceManager = resource.NewAllocationManager(&types.DecimalSpec{
+		hostSpec = &types.DecimalSpec{
 			GPUs:      decimal.NewFromFloat(8),
 			Millicpus: decimal.NewFromFloat(64000),
 			MemoryMb:  decimal.NewFromFloat(128000),
 			VRam:      decimal.NewFromFloat(32),
-		})
+		}
+
+		kernel1Replica1 = createKernelReplica(mockCtrl, kernel1Id, kernel1Key, workloadId, 1, kernel1Spec, kernel1ResourceSpec)
+		kernel2Replica2 = createKernelReplica(mockCtrl, kernel2Id, kernel2Key, workloadId, 2, kernel2Spec, kernel2ResourceSpec)
+		resourceManager = resource.NewAllocationManager(hostSpec)
 
 		schedulingPolicy, err := policy.GetSchedulingPolicy(&scheduling.SchedulerOptions{
 			CommonOptions: configuration.CommonOptions{
@@ -1285,7 +1287,7 @@ var _ = Describe("Local Daemon Tests", func() {
 				Expect(resourceManager.PendingCPUs().Equals(kernelReplica.ResourceSpec().Millicpus)).To(BeTrue())
 				Expect(resourceManager.PendingVRAM().Equals(kernelReplica.ResourceSpec().VRam)).To(BeTrue())
 				Expect(resourceManager.PendingMemoryMB().Equals(kernelReplica.ResourceSpec().MemoryMb)).To(BeTrue())
-				Expect(resourceManager.PendingGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
+				Expect(resourceManager.PendingGPUs().Equals(kernelReplica.ResourceSpec().GPUs)).To(BeTrue())
 
 				Expect(resourceManager.CommittedGPUs().Equals(decimal.Zero)).To(BeTrue())
 				Expect(resourceManager.CommittedCPUs().Equals(decimal.Zero)).To(BeTrue())
@@ -1471,15 +1473,76 @@ var _ = Describe("Local Daemon Tests", func() {
 				return nil
 			}
 
-			kernel1Replica1.EXPECT().UpdateResourceSpec(gomock.Any(), nil).Times(1).DoAndReturn(updateKernel1Replica1ResourceSpec)
+			updatedResourceSpecs := []*types.Float64Spec{
+				types.NewFloat64Spec(128, 256, 1, 1),
+				types.NewFloat64Spec(256, 512, 2, 2),
+				types.NewFloat64Spec(512, 1024, 4, 4),
+				types.NewFloat64Spec(1024, 2048, 8, 8),
+				types.NewFloat64Spec(2048, 4096, 6, 16),
+				types.NewFloat64Spec(4096, 8192, 8, 32),
+				types.NewFloat64Spec(5797, 26821, 1, 16),
+				types.NewFloat64Spec(6641, 16023, 6, 32),
+				types.NewFloat64Spec(5965, 19281, 8, 7),
+				types.NewFloat64Spec(4910, 16966, 2, 30),
+				types.NewFloat64Spec(4345, 27219, 8, 14),
+				types.NewFloat64Spec(1247, 532, 4, 6),
+				types.NewFloat64Spec(635, 6546, 5, 5),
+				types.NewFloat64Spec(2336, 25878, 4, 28),
+				types.NewFloat64Spec(5698, 5090, 8, 17),
+				types.NewFloat64Spec(6711, 21702, 1, 20),
+				types.NewFloat64Spec(6638, 22094, 8, 17),
+				types.NewFloat64Spec(932, 15690, 7, 17),
+				types.NewFloat64Spec(892, 20568, 1, 9),
+				types.NewFloat64Spec(6760, 26074, 6, 30),
+				types.NewFloat64Spec(6449, 26315, 8, 14),
+				types.NewFloat64Spec(676, 10821, 5, 5),
+			}
 
-			updatedSpec := types.NewFloat64Spec(256, 2048, 4, 8)
-			processedMessage = processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon, messaging.ShellExecuteRequest,
-				kernel1Replica1, updatedSpec)
+			for _, updatedSpec := range updatedResourceSpecs {
+				kernel1Replica1.EXPECT().UpdateResourceSpec(gomock.Any(), nil).Times(1).DoAndReturn(updateKernel1Replica1ResourceSpec)
 
-			Expect(processedMessage).ToNot(BeNil())
-			Expect(kernel1Replica1.ResourceSpec().Equals(updatedSpec)).To(BeTrue())
-			validateCommittedReserved(kernel1Replica1)
+				processedMessage = processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon, messaging.ShellExecuteRequest,
+					kernel1Replica1, updatedSpec)
+
+				Expect(processedMessage).ToNot(BeNil())
+				Expect(kernel1Replica1.ResourceSpec().Equals(updatedSpec)).To(BeTrue())
+				Expect(resourceManager.CommittedResources().Equals(updatedSpec)).To(BeTrue())
+				Expect(resourceManager.IdleResources().Equals(hostSpec.Subtract(updatedSpec))).To(BeTrue())
+				Expect(resourceManager.SpecResources().Equals(hostSpec.Clone())).To(BeTrue())
+				Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
+				validateCommittedReserved(kernel1Replica1)
+
+				By("Promoting the committed resource reservation to a fully-committed allocation when an 'smr_lead_task' message is received")
+
+				kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+
+				leadTaskMsg = createJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
+				err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)
+				Expect(err).To(BeNil())
+
+				validateCommittedFully(kernel1Replica1)
+				Expect(kernel1Replica1.ResourceSpec().Equals(updatedSpec)).To(BeTrue())
+				Expect(resourceManager.CommittedResources().Equals(updatedSpec)).To(BeTrue())
+				Expect(resourceManager.IdleResources().Equals(hostSpec.Subtract(updatedSpec))).To(BeTrue())
+				Expect(resourceManager.SpecResources().Equals(hostSpec.Clone())).To(BeTrue())
+				Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
+
+				By("Releasing the resources once training ends")
+
+				kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any()).Times(1)
+				kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
+				executeReplyContent = map[string]interface{}{"status": "ok"}
+				executeReplyMsg = createJupyterMessageWithContent(messaging.ShellExecuteReply, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key, executeReplyContent)
+				err = schedulerDaemon.processExecuteReply(executeReplyMsg, kernel1Replica1)
+				Expect(err).To(BeNil())
+
+				validatePending(kernel1Replica1)
+				Expect(kernel1Replica1.ResourceSpec().Equals(updatedSpec)).To(BeTrue())
+				Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+				Expect(resourceManager.IdleResources().Equals(hostSpec)).To(BeTrue())
+				Expect(resourceManager.SpecResources().Equals(hostSpec.Clone())).To(BeTrue())
+				Expect(resourceManager.PendingResources().Equals(updatedSpec)).To(BeTrue())
+			}
 		})
 	})
 })
