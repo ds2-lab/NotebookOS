@@ -454,8 +454,28 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	// Create the internalCluster Scheduler.
 	clusterSchedulerOptions := clusterDaemonOptions.SchedulerOptions
+
+	gpusPerHost := clusterSchedulerOptions.GpusPerHost
+	if gpusPerHost == -1 {
+		if !clusterSchedulerOptions.UseRealGPUs {
+			clusterGateway.log.Error("Invalid number of simulated GPUs specified: %d", gpusPerHost)
+			panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d", gpusPerHost))
+		}
+
+		clusterGateway.log.Debug("Attempting to look up the number of real/actual GPUs available on this node.")
+
+		var err error
+		gpusPerHost, err = utils.GetNumberOfActualGPUs()
+		if err != nil {
+			clusterGateway.log.Error("Failed to look up the number of real/actual GPUs available on this node: %v", err)
+			panic(err)
+		}
+
+		clusterGateway.log.Debug("Successfully looked up the number of real/actual GPUs available on this node: %d", gpusPerHost)
+	}
+
 	clusterGateway.hostSpec = &types.DecimalSpec{
-		GPUs:      decimal.NewFromFloat(float64(clusterSchedulerOptions.GpusPerHost)),
+		GPUs:      decimal.NewFromFloat(float64(gpusPerHost)),
 		VRam:      decimal.NewFromFloat(scheduling.VramPerHostGb),
 		Millicpus: decimal.NewFromFloat(scheduling.MillicpusPerHost),
 		MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),

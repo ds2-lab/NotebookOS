@@ -5,15 +5,15 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
-// GetNumberOfGPUs attempts to use the [Go Bindings for the NVIDIA Management Library] to retrieve the number of
+// GetNumberOfActualGPUs attempts to use the [Go Bindings for the NVIDIA Management Library] to retrieve the number of
 // real/actual GPUs available on the host.
 //
-// GetNumberOfGPUs will return -1 and an error if nvml.Init() or nvml.DeviceGetCount() fail/return an error.
+// GetNumberOfActualGPUs will return -1 and an error if nvml.Init() or nvml.DeviceGetCount() fail/return an error.
 //
-// GetNumberOfGPUs will panic if nvml.Shutdown() fails. The call to nvml.Shutdown() is deferred.
+// GetNumberOfActualGPUs will panic if nvml.Shutdown() fails. The call to nvml.Shutdown() is deferred.
 //
 // [Go Bindings for the NVIDIA Management Library]: https://github.com/NVIDIA/go-nvml?tab=readme-ov-file#quick-start
-func GetNumberOfGPUs() (int, error) {
+func GetNumberOfActualGPUs() (int, error) {
 	ret := nvml.Init()
 	if ret != nvml.SUCCESS { // Official docs for nvml go module do not use errors.Is or errors.As here
 		return -1, fmt.Errorf("unable to initialize NVML: %v", nvml.ErrorString(ret))

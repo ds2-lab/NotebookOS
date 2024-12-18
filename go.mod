@@ -52,6 +52,7 @@ require (
 
 require (
 	github.com/Microsoft/go-winio v0.4.14 // indirect
+	github.com/NVIDIA/go-nvml v0.12.4-0 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/x/ansi v0.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect

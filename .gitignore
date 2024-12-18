@@ -137,7 +137,6 @@ distributed_notebook/demo/store
 distributed_notebook/smr/_smr.*.h
 smr/demo/store
 out
-datasets
 distributed_notebook/kernel/store
 distributed_notebook/smr/bak
 demo_notebook/.jupyter

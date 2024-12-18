@@ -337,8 +337,27 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		daemon.numResendAttempts = DefaultNumResendAttempts
 	}
 
+	gpusPerHost := localDaemonOptions.GpusPerHost
+	if gpusPerHost == -1 {
+		if !localDaemonOptions.UseRealGPUs {
+			daemon.log.Error("Invalid number of simulated GPUs specified: %d", gpusPerHost)
+			panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d", gpusPerHost))
+		}
+
+		daemon.log.Debug("Attempting to look up the number of real/actual GPUs available on this node.")
+
+		var err error
+		gpusPerHost, err = utils.GetNumberOfActualGPUs()
+		if err != nil {
+			daemon.log.Error("Failed to look up the number of real/actual GPUs available on this node: %v", err)
+			panic(err)
+		}
+
+		daemon.log.Debug("Successfully looked up the number of real/actual GPUs available on this node: %d", gpusPerHost)
+	}
+
 	daemon.resourceManager = resource.NewAllocationManager(&types.Float64Spec{
-		GPUs:      float64(localDaemonOptions.GpusPerHost),
+		GPUs:      float64(gpusPerHost),
 		VRam:      scheduling.VramPerHostGb,
 		Millicpus: scheduling.MillicpusPerHost,
 		Memory:    scheduling.MemoryMbPerHost})

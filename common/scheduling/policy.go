@@ -1,6 +1,10 @@
 package scheduling
 
-import "time"
+import (
+	"fmt"
+	"github.com/scusemua/distributed-notebook/common/utils"
+	"time"
+)
 
 const (
 	DefaultSchedulingPolicy PolicyKey = "default"
@@ -169,8 +173,21 @@ func NewScalingConfiguration(opts *SchedulerOptions) *ScalingConfiguration {
 		panic("SchedulerOptions cannot be nil when creating a new ScalingConfiguration struct")
 	}
 
+	gpusPerHost := opts.GpusPerHost
+	if gpusPerHost == -1 {
+		if !opts.UseRealGPUs {
+			panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d", gpusPerHost))
+		}
+
+		var err error
+		gpusPerHost, err = utils.GetNumberOfActualGPUs()
+		if err != nil {
+			panic(err)
+		}
+	}
+
 	return &ScalingConfiguration{
-		GpusPerHost:                  opts.GpusPerHost,
+		GpusPerHost:                  gpusPerHost,
 		ScalingFactor:                opts.ScalingFactor,
 		MaximumHostsToReleaseAtOnce:  int32(opts.MaximumHostsToReleaseAtOnce),
 		ScalingIntervalSec:           int32(opts.ScalingInterval),

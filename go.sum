@@ -19,6 +19,8 @@ github.com/HdrHistogram/hdrhistogram-go v1.1.2 h1:5IcZpTvzydCQeHzK4Ef/D5rrSqwxob
 github.com/HdrHistogram/hdrhistogram-go v1.1.2/go.mod h1:yDgFjdqOqDEKOvasDdhWNXYg9BVp4O+o5f6V/ehm6Oo=
 github.com/Microsoft/go-winio v0.4.14 h1:+hMXMk01us9KgxGb7ftKQt2Xpf5hH/yky+TDA+qxleU=
 github.com/Microsoft/go-winio v0.4.14/go.mod h1:qXqCSQ3Xa7+6tgxaGTIe4Kpcdsi+P8jBhyzoq1bpyYA=
+github.com/NVIDIA/go-nvml v0.12.4-0 h1:4tkbB3pT1O77JGr0gQ6uD8FrsUPqP1A/EOEm2wI1TUg=
+github.com/NVIDIA/go-nvml v0.12.4-0/go.mod h1:8Llmj+1Rr+9VGGwZuRer5N/aCjxGuR5nPb/9ebBiIEQ=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
 github.com/Scusemua/go-utils v0.1.1 h1:ZBxi79umG+2DVaOe96FCYtDvQlDzyP0zuG8edTqayv8=
 github.com/Scusemua/go-utils v0.1.1/go.mod h1:xz8UgdiK+CmMo3gt0OLE1y9HAVQL+GAr8XC6ZkewZpw=
