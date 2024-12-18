@@ -2567,9 +2567,12 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *messaging.JupyterMessage,
 
 	if shouldCallTrainingStopped {
 		_ = kernelClient.KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.")
-		d.prometheusManager.TrainingTimeGaugeVec.
-			With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
-			Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
+
+		if d.prometheusManager != nil {
+			d.prometheusManager.TrainingTimeGaugeVec.
+				With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
+				Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
+		}
 	}
 
 	kernelClient.ReceivedExecuteReply(msg)
@@ -2577,7 +2580,9 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *messaging.JupyterMessage,
 	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
 	_, _ = d.addResourceSnapshotToJupyterMessage(msg, kernelClient)
 
-	d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
+	if d.prometheusManager != nil {
+		d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
+	}
 
 	return nil /* will be nil on success */
 }
