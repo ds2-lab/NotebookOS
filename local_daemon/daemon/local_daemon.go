@@ -2059,7 +2059,7 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId
 
 	stopChan, loaded := d.executeRequestQueueStopChannels.Load(kernel.ID())
 	if !loaded {
-		d.log.Error("Unable to load \"stop channel\" for \"execute_request\" forwarder of replica %d of kernel %s",
+		d.log.Warn("Unable to load \"stop channel\" for \"execute_request\" forwarder of replica %d of kernel %s",
 			kernel.ReplicaID(), kernel.ID())
 	} else {
 		// Tell the goroutine to stop.
