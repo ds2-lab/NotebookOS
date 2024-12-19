@@ -6,8 +6,6 @@ import traceback
 import types
 from typing import Optional, Callable
 
-from scipy.special import large
-
 from .ast import SyncAST
 from .checkpointing.remote_checkpointer import RemoteCheckpointer
 from .election import Election
