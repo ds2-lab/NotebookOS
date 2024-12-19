@@ -1186,10 +1186,9 @@ func (m *AllocationManager) unsafeUnsubscribePendingResources(allocatedResources
 func (m *AllocationManager) unsafeAllocatePendingResources(decimalSpec *types.DecimalSpec, allocation *Allocation, key string, replicaId int32, kernelId string) error {
 	// First, validate against this scheduling.Host's spec.
 	if err := m.resourcesWrapper.specResources.ValidateWithError(decimalSpec); err != nil {
-		m.log.Error("Could not subscribe the following pending HostResources to replica %d of kernel %s due "+
-			"to insufficient host spec: %s. Specific reason for subscription failure: %v.",
-			replicaId, kernelId, decimalSpec.String(), err)
-		return err
+		m.log.Warn("Replica %d of kernel \"%s\" is requesting more resources [%v] than host has available [%v]. Specific reason for subscription failure: %v.",
+			replicaId, kernelId, decimalSpec.String(), m.resourcesWrapper.specResources.GetResourceCountsAsString(), err)
+		// return err
 	}
 
 	m.log.Debug("Allocating pending resources. Current resources: %s. Resources to be allocated: %v.",

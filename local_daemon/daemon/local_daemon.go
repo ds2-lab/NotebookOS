@@ -2655,7 +2655,6 @@ func (d *SchedulerDaemonImpl) processExecuteRequestMetadata(msg *messaging.Jupyt
 			kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
 
 		if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
-			d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
 			return targetReplicaId, metadataDict, err
 		}
 	}
