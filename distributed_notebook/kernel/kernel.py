@@ -3460,6 +3460,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         except Exception as exc:
             self.log.error(f"Failed to load committed dataset \"{pointer.model_name}\" because: {exc}")
             self.report_error("Failed to Load Committed Dataset \"{pointer.name}\"", str(exc))
+            traceback.print_exc()
             return None
 
         return model
@@ -3493,6 +3494,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         except Exception as exc:
             self.log.error(f"Failed to load committed dataset \"{pointer.large_object_name}\" because: {exc}")
             self.report_error("Failed to Load Committed Dataset \"{pointer.name}\"", str(exc))
+            traceback.print_exc()
             return None
 
         if self.prometheus_enabled:
