@@ -330,7 +330,7 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 //
 // Note: this method is thread-safe.
 //
-// In the DefaultSchedulingPolicy Daemon, this won't be called, as the DefaultSchedulingPolicy Daemon does not track ComputeResource in this way.
+// In the Local Daemon, this won't be called, as the Local Daemon does not track ComputeResource in this way.
 //
 // In the Cluster Gateway, this is called in the SessionStartedTraining method of the Kernel.
 // The Kernel's SessionStartedTraining method is called in the handleSmrLeadTaskMessage method

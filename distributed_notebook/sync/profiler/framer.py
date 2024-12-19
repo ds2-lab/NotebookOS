@@ -31,13 +31,13 @@ class _Framer:
         self.sequence += 1
         self.current_id = self.sequence
         self.current_frame = io.BytesIO()
-        logging.info("Started frame {}".format(self.current_id))
+        # logging.info("Started frame {}".format(self.current_id))
 
     def end_framing(self):
         if self.current_frame and self.current_frame.tell() > 0:
             self.commit_frame(force=True)
 
-        logging.info("Ended frame {}".format(self.current_id))
+        # logging.info("Ended frame {}".format(self.current_id))
         self.last_metaframe = (self.current_id, self.current_frame) # Save the last metaframe
         self.current_id, self.current_frame = self.metaframes.pop() # current_frame can be None after this.
 
@@ -58,7 +58,7 @@ class _Framer:
                 # contents without concatenation to the above to avoid a
                 # memory copy.
                 write(data)
-                logging.info("{} bytes: {}".format(len(bytearray(data)), bytearray(data)))
+                # logging.info("{} bytes: {}".format(len(bytearray(data)), bytearray(data)))
 
                 # Start the new frame with a new io.BytesIO instance so that
                 # the file object can have delayed access to the previous frame

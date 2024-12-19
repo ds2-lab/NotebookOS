@@ -16,11 +16,14 @@ fi
 
 ROOT_DIR=$(git rev-parse --show-toplevel)
 PYTHON_VERSION=3.12.6
+PYTHON_MAJOR_VERSION=3.12
 
 mkdir ~/go
 mkdir ~/go/pkg 
 
-pushd ~/go/pkg 
+pushd ~/go/pkg
+
+sudo apt-get update
 
 if [ "$1" != "" ]; then
     GIT_TOKEN=$1
@@ -32,15 +35,17 @@ fi
 popd
 
 # Ansible
-if ! command python3 --version &> /dev/null; then
+if ! command ansible --version &> /dev/null; then
   sudo apt-get install ansible
 fi
 
 # Python 3
 if ! command python3 --version &> /dev/null; then
-    printf "\n[WARNING] Python3.11 is not installed. Installing it now...\n"
+    printf "\n[WARNING] Python%s is not installed. Installing it now...\n" $PYTHON_VERSION
 
-    sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
+    sudo apt-get update
+
+    sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev libgdbm-dev libgdbm-compat-dev uuid-dev
 
     cd /tmp/
     wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz
@@ -48,12 +53,12 @@ if ! command python3 --version &> /dev/null; then
     cd Python-$PYTHON_VERSION
     mkdir debug
     cd debug
-    ../configure --enable-optimizations --with-pydebug --enable-shared
+    ../configure --enable-optimizations --with-pydebug --enable-shared --with-ensurepip=install
     make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG" 
     sudo make altinstall
 
-    if ! command python3.11 --version &> /dev/null; then 
-        printf "\n[ERROR] Failed to install python3.11.\n"
+    if ! command python$PYTHON_MAJOR_VERSION --version &> /dev/null; then
+        printf "\n[ERROR] Failed to install python%s.\n" $PYTHON_VERSION
         exit 
     else 
         echo "Successfully installed Python-$PYTHON_VERSION"
@@ -61,13 +66,13 @@ if ! command python3 --version &> /dev/null; then
 fi 
 
 # Python3 Pip
-if ! command -v python3.11 -m pip &> /dev/null; then 
+if ! command -v python$PYTHON_MAJOR_VERSION -m pip &> /dev/null; then
     printf "\n[WARNING] python3-pip is not installed. Installing it now."
 
     # sudo apt-get --assume-yes install python3-pip
-    python3.11 -m ensurepip --upgrade 
+    python$PYTHON_MAJOR_VERSION -m ensurepip --upgrade
 
-    if ! command -v python3.11 -m pip &> /dev/null; then 
+    if ! command -v python$PYTHON_MAJOR_VERSION -m pip &> /dev/null; then
         printf "\n[ERROR] Installation of python3-pip failed."
         exit 
     fi

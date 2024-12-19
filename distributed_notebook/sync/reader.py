@@ -2,7 +2,7 @@ import io
 import logging
 import uuid
 
-from ..logging import ColoredLogFormatter
+from ..logs import ColoredLogFormatter
 from ..smr.smr import NewBytes, ReadCloser
 
 # TODO: Debug why, when reading from a read closer and we get to the end, it automatically loops back to the beginning.

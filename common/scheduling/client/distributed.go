@@ -9,6 +9,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -106,7 +107,7 @@ type DistributedKernelClient struct {
 	nextNodeId int32
 
 	// activeExecution is the current execution request that should be being processed by the kernels,
-	// assuming the DefaultSchedulingPolicy Daemons forward the requests in the correct order.
+	// assuming the Local Daemons forward the requests in the correct order.
 	activeExecution *scheduling.ActiveExecution
 
 	// activeExecutionsByExecuteRequestMsgId is a map used to keep track of all scheduling.ActiveExecutions
@@ -490,24 +491,23 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.Spec) error {
 		return nil
 	}
 
-	updateSpecErrors := make([]error, 0)
+	coordinatedTransaction := transaction.NewCoordinatedTransaction(len(c.replicas))
+
 	for _, kernelReplica := range c.replicas {
-		err := kernelReplica.UpdateResourceSpec(newSpec, oldSpec)
-		if err != nil {
-			c.log.Warn("Failed to update ResourceSpec of replica %d of kernel \"%s\" because: %v",
-				kernelReplica.ReplicaID(), c.ID(), err)
-			updateSpecErrors = append(updateSpecErrors, err)
-		}
+		go func() {
+			_ = kernelReplica.UpdateResourceSpec(newSpec, coordinatedTransaction)
+		}()
+	}
+
+	success := coordinatedTransaction.Wait()
+	if !success {
+		return coordinatedTransaction.FailureReason()
 	}
 
 	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
 	c.spec.ResourceSpec.Cpu = int32(newSpec.CPU())
 	c.spec.ResourceSpec.Vram = float32(newSpec.VRAM())
 	c.spec.ResourceSpec.Memory = float32(newSpec.MemoryMB())
-
-	if len(updateSpecErrors) > 0 {
-		return errors.Join(updateSpecErrors...)
-	}
 
 	return nil
 }
@@ -978,6 +978,9 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 // Process a response to a shell message. This is called before the handler that was passed when issuing the request.
 // Return true if the message is a 'yield' message (indicating that the replica yielded an execution).
 func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplicaClient, msg *messaging.JupyterMessage) (error, bool) {
+	c.log.Debug("Preprocessing shell \"%s\" message \"%s\" (JupyterID=\"%s\") received by replica %d: %v",
+		msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), replica.ReplicaID(), msg)
+
 	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
 	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) < 5 {
 		c.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)", replica.ReplicaID(), c.id)

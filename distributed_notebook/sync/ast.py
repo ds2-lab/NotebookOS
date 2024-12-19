@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 from .errors import SyncError
 from .log import SynchronizedValue
-from ..logging import ColoredLogFormatter
+from ..logs import ColoredLogFormatter
 
 ExplorerActionCopy = 0
 ExplorerActionPass = 1
@@ -75,7 +75,6 @@ class SyncAST(ast.NodeVisitor):
         if raw is not None:
             try:
                 self._source = meta
-                ret = None
                 if self._tree is None:
                     self._tree = self.visit(raw)
                     ret = self._tree

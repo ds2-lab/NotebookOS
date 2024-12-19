@@ -24,7 +24,7 @@ class OutStream(OutStreamBase):
     if not self.disable and reduce(lambda ret, pattern: ret and not re.match(pattern, string), no_output_patterns, True):
       return super().write(string)
     
-    # Simply echo rest messages.
+    # Simply echo reset messages.
     if self.echo is not None:
       try:
         return self.echo.write(string)

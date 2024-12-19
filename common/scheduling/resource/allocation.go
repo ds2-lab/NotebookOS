@@ -20,9 +20,9 @@ const (
 	//associated kernel replica. These HostResources are not available for use by other kernel replicas.
 	CommittedAllocation AllocationType = "committed"
 
-	// ResourceSnapshotMetadataKey is used as a key for the metadata dictionary of Jupyter messages
-	// when including a snapshot of the AllocationManager's current resource quantities in the message.
-	ResourceSnapshotMetadataKey string = "resource_snapshot"
+	// SnapshotMetadataKey is used as a key for the metadata dictionary of Jupyter messages
+	// when including a snapshot of the AllocationManager's working resource quantities in the message.
+	SnapshotMetadataKey string = "resource_snapshot"
 )
 
 // getKey creates and returns a string of the form "<KernelID>-<ReplicaID>".
@@ -47,15 +47,18 @@ type Allocation struct {
 	// GPUs is the number of GPUs in the Allocation.
 	GPUs decimal.Decimal `json:"gpus"`
 
+	// GPUDeviceIDs refers to the specific GPU devices that are being allocated.
+	GpuDeviceIds []int `json:"gpu_device_ids"`
+
 	// VramGB is the amount of VRAM (i.e., GPU memory) in GB.
 	VramGB decimal.Decimal `json:"vram"`
 
 	// Millicpus is the number of Millicpus in the Allocation, represented as 1/1000th cores.
 	// That is, 1000 Millicpus is equal to 1 vCPU.
-	Millicpus decimal.Decimal `json:"millicpus"`
+	Millicpus decimal.Decimal `json:"cpus"`
 
 	// MemoryMB is the amount of RAM in the Allocation in megabytes.
-	MemoryMB decimal.Decimal `json:"memory_mb"`
+	MemoryMB decimal.Decimal `json:"memory"`
 
 	// ReplicaId is the SMR node ID of the replica to which the GPUs were allocated.
 	ReplicaId int32 `json:"replica_id"`
@@ -109,6 +112,11 @@ func (a *Allocation) CloneAndReturnedAdjusted(spec types.Spec) *Allocation {
 		cpus = decimal.NewFromFloat(spec.CPU())
 	}
 
+	clonedGpuDeviceIds := make([]int, 0, len(a.GpuDeviceIds))
+	for _, deviceId := range a.GpuDeviceIds {
+		clonedGpuDeviceIds = append(clonedGpuDeviceIds, deviceId)
+	}
+
 	clonedResourceAllocation := &Allocation{
 		AllocationId:        a.AllocationId,
 		GPUs:                gpus,
@@ -121,6 +129,7 @@ func (a *Allocation) CloneAndReturnedAdjusted(spec types.Spec) *Allocation {
 		AllocationType:      a.AllocationType,
 		IsReservation:       a.IsReservation,
 		cachedAllocationKey: a.cachedAllocationKey,
+		GpuDeviceIds:        clonedGpuDeviceIds,
 	}
 
 	return clonedResourceAllocation
@@ -139,8 +148,8 @@ func (a *Allocation) String() string {
 // ToSpecString returns a string representation of the Allocation (suitable for logging) in the format
 // of the String() methods of types.Spec implementations.
 func (a *Allocation) ToSpecString() string {
-	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s]",
-		a.Millicpus.StringFixed(6), a.MemoryMB.StringFixed(6), a.GPUs.StringFixed(1))
+	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s (%v)]",
+		a.Millicpus.StringFixed(4), a.MemoryMB.StringFixed(4), a.GPUs.StringFixed(1), a.GpuDeviceIds)
 }
 
 // ToSpec converts the Allocation to a types.Spec instance with the same resource values as the
@@ -191,6 +200,7 @@ type AllocationBuilder struct {
 	vramGb         decimal.Decimal
 	millicpus      decimal.Decimal
 	memoryMb       decimal.Decimal
+	gpuDeviceIds   []int
 	replicaId      int32
 	kernelId       string
 	allocationType AllocationType
@@ -201,6 +211,7 @@ type AllocationBuilder struct {
 func NewResourceAllocationBuilder() *AllocationBuilder {
 	return &AllocationBuilder{
 		allocationId: uuid.NewString(),
+		gpuDeviceIds: make([]int, 0),
 	}
 }
 
@@ -215,6 +226,34 @@ func (b *AllocationBuilder) WithIdOverride(id string) *AllocationBuilder {
 // WithAllocationType enables the specification of the AllocationType of the Allocation that is being created.
 func (b *AllocationBuilder) WithAllocationType(allocationType AllocationType) *AllocationBuilder {
 	b.allocationType = allocationType
+	return b
+}
+
+// WithGpuDeviceIds enables the specification of all of the GPU device IDs to be included within the Allocation.
+func (b *AllocationBuilder) WithGpuDeviceIds(deviceIds []int) *AllocationBuilder {
+	b.gpuDeviceIds = deviceIds
+	return b
+}
+
+// WithGpuDeviceId adds a single GPU device ID to the slice of GPU device IDs to be included within the Allocation.
+// WithGpuDeviceId can be called multiple times to add multiple GPU device IDs in a one-at-a-type manner.
+func (b *AllocationBuilder) WithGpuDeviceId(deviceId int) *AllocationBuilder {
+	if b.gpuDeviceIds == nil {
+		b.gpuDeviceIds = make([]int, 0, 1)
+	}
+
+	found := false
+	for _, id := range b.gpuDeviceIds {
+		if id == deviceId {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		b.gpuDeviceIds = append(b.gpuDeviceIds, deviceId)
+	}
+
 	return b
 }
 
@@ -255,6 +294,7 @@ func (b *AllocationBuilder) WithMemoryMB(memoryMb float64) *AllocationBuilder {
 func (b *AllocationBuilder) BuildResourceAllocation() *Allocation {
 	return &Allocation{
 		AllocationId:        b.allocationId,
+		GpuDeviceIds:        b.gpuDeviceIds,
 		GPUs:                b.gpus,
 		VramGB:              b.vramGb,
 		Millicpus:           b.millicpus,

@@ -1,6 +1,6 @@
 """An example Jupyter kernel"""
 
-from . import demo, kernel, manager, provisioner, handlers, connection, logging
+from . import kernel, manager, provisioner, handlers, connection, logs
 
 __version__ = '0.1'
 

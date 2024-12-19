@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/connectivity"
@@ -142,7 +143,7 @@ type Host struct {
 // newHostForRestoration creates and returns a new Host to be used only for restoring an existing Host.
 // That is, newHostForRestoration should never be used to create a *Host struct for non-restorative purposes.
 //
-// Restoration occurs when a DefaultSchedulingPolicy Daemon that was already connected to the Cluster Gateway reconnects, such as
+// Restoration occurs when a Local Daemon that was already connected to the Cluster Gateway reconnects, such as
 // after suffering from a network partition/lost connection.
 //
 // newHostForRestoration always returns a non-nil error. It either returns an error returned by the network
@@ -152,7 +153,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 	gpuInfoResp, gpuFetchError := localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
 	if gpuFetchError != nil {
 		log.Printf(utils.RedStyle.Render("[ERROR] Failed to fetch latest GPU information from "+
-			"existing+reconnecting DefaultSchedulingPolicy Daemon %s (ID=%s)\n"), confirmedId.NodeName, confirmedId.Id)
+			"existing+reconnecting Local Daemon %s (ID=%s)\n"), confirmedId.NodeName, confirmedId.Id)
 		return nil, gpuFetchError
 	}
 
@@ -170,7 +171,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 	// with the values of this new Host struct.
 	//
 	// The most important is probably the LocalGatewayClient, as that ensures that the
-	// existing Host struct has a new, valid connection to the remote DefaultSchedulingPolicy Daemon.
+	// existing Host struct has a new, valid connection to the remote Local Daemon.
 	host := &Host{
 		ID:                   confirmedId.Id,
 		resourceSpec:         resourceSpec,
@@ -219,7 +220,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 
 	// If the node already exists, then we need to restore it, rather than create an entirely new node.
 	if confirmedId.Existing {
-		log.Printf("[INFO] New DefaultSchedulingPolicy Daemon connection is actually from an existing DefaultSchedulingPolicy Daemon "+
+		log.Printf("[INFO] New Local Daemon connection is actually from an existing Local Daemon "+
 			"(%s, ID=%s) that is reconnecting.\n", confirmedId.NodeName, confirmedId.Id)
 		return newHostForRestoration(localGatewayClient, confirmedId, millicpus, memMb, vramGb, numReplicasPerKernel)
 	}
@@ -299,7 +300,7 @@ func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramG
 	return host, nil
 }
 
-// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote DefaultSchedulingPolicy Daemon.
+// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote Local Daemon.
 func (h *Host) GetGrpcConnection() *grpc.ClientConn {
 	return h.conn
 }
@@ -484,6 +485,10 @@ func (h *Host) OversubscriptionFactor() decimal.Decimal {
 	return h.SubscriptionQuerier.GetOversubscriptionFactor(h.subscribedRatio)
 }
 
+func (h *Host) CommittedResourcesAsString() string {
+	return h.CommittedResources().String()
+}
+
 // ToVirtualDockerNode converts a Host struct to a proto.VirtualDockerNode struct and
 // returns a pointer to the new proto.VirtualDockerNode.
 func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
@@ -492,6 +497,9 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		dockerContainers = append(dockerContainers, container.ToDockerContainer())
 		return true
 	})
+
+	committed := h.resourceManager.CommittedResources()
+	pending := h.resourceManager.PendingResources()
 
 	return &proto.VirtualDockerNode{
 		NodeId:          h.ID,
@@ -503,14 +511,14 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		SpecMemory:      float32(h.resourceSpec.MemoryMB()),
 		SpecGpu:         float32(h.resourceSpec.GPU()),
 		SpecVRAM:        float32(h.resourceSpec.VRAM()),
-		AllocatedCpu:    float32(h.resourceManager.CommittedResources().Millicpus()),
-		AllocatedMemory: float32(h.resourceManager.CommittedResources().MemoryMB()),
-		AllocatedGpu:    float32(h.resourceManager.CommittedResources().GPUs()),
-		AllocatedVRAM:   float32(h.resourceManager.CommittedResources().VRAM()),
-		PendingCpu:      float32(h.resourceManager.PendingResources().Millicpus()),
-		PendingMemory:   float32(h.resourceManager.PendingResources().MemoryMB()),
-		PendingGpu:      float32(h.resourceManager.PendingResources().GPUs()),
-		PendingVRAM:     float32(h.resourceManager.PendingResources().VRAM()),
+		AllocatedCpu:    float32(committed.Millicpus()),
+		AllocatedMemory: float32(committed.MemoryMB()),
+		AllocatedGpu:    float32(committed.GPUs()),
+		AllocatedVRAM:   float32(committed.VRAM()),
+		PendingCpu:      float32(pending.Millicpus()),
+		PendingMemory:   float32(pending.MemoryMB()),
+		PendingGpu:      float32(pending.GPUs()),
+		PendingVRAM:     float32(pending.VRAM()),
 		Enabled:         h.Enabled(),
 	}
 }
@@ -683,6 +691,38 @@ func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 	return h.resourceManager.IdleResources().Validate(types.ToDecimalSpec(resourceRequest))
 }
 
+func (h *Host) releaseCommittedReservation(spec *proto.KernelSpec, reservation *Reservation) error {
+	h.log.Debug("Releasing committed resources [%s] from reservation made for replica of kernel \"%s\". Current resources: %s.",
+		spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
+	err := h.unsafeUncommitResources(spec.DecimalSpecFromKernelSpec(), spec.Id, false)
+	if err != nil {
+		h.log.Error("Failed to release committed resource reservation for a replica of kernel %s: %v.",
+			spec.Id, err)
+		return err
+	}
+
+	h.log.Debug("Successfully released committed resources [%s] from reservation made for replica of kernel \"%s\". Updated resources: %s.",
+		spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
+
+	h.RecomputeSubscribedRatio()
+	return nil
+}
+
+func (h *Host) releasePendingReservation(spec *proto.KernelSpec) error {
+	err := h.subtractFromPendingResources(spec.DecimalSpecFromKernelSpec(), spec.Id, -1)
+	if err != nil {
+		h.log.Error("Failed to release reserved pending resources associated with replica of kernel \"%s\": %v",
+			spec.Id, err)
+		return err
+	}
+
+	h.log.Debug("Successfully released pending resources [%s] from reservation made for replica of kernel \"%s\". Updated resources: %s.",
+		spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
+
+	h.RecomputeSubscribedRatio()
+	return nil
+}
+
 // ReleaseReservation is to be called when a resource reservation should be released because the
 // scheduling of the associated replica of the associated kernel is being aborted.
 func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
@@ -699,31 +739,10 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 	h.isBeingConsideredForScheduling.Add(-1)
 
 	if !reservation.CreatedUsingPendingResources {
-		h.log.Debug("Releasing committed resources [%s] from reservation made for replica of kernel \"%s\". Current resources: %s.",
-			spec.ResourceSpec.String(), spec.Id, h.getResourceCountsAsString())
-		err := h.unsafeUncommitResources(spec.DecimalSpecFromKernelSpec(), spec.Id)
-		if err != nil {
-			h.log.Error("Failed to release committed resource reservation for a replica of kernel %s: %v.",
-				spec.Id, err)
-			return err
-		} else {
-			h.log.Debug("Successfully released committed resources [%s] from reservation made for replica of kernel \"%s\". Updated resources: %s.",
-				spec.ResourceSpec.String(), spec.Id, h.getResourceCountsAsString())
-		}
-
-		// Now we'll need to decrement the pending resources, as unsafeUncommitResources increments them.
+		return h.releaseCommittedReservation(spec, reservation)
 	}
 
-	err := h.subtractFromPendingResources(spec.DecimalSpecFromKernelSpec(), spec.Id, -1)
-	if err != nil {
-		h.log.Error("Failed to release reserved pending resources associated with replica of kernel \"%s\": %v",
-			spec.Id, err)
-		return err
-	}
-
-	h.RecomputeSubscribedRatio()
-
-	return nil
+	return h.releasePendingReservation(spec)
 }
 
 // ReserveResources attempts to reserve the resources required by the specified kernel, returning
@@ -776,31 +795,18 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 		return false, nil
 	}
 
-	// Increment the pending resources on the host, which represents the reservation.
-	if err := h.addPendingResources(resourceSpec, spec.Id, -1); err != nil {
-		return false, nil
+	var err error
+	if usePendingResources {
+		err = h.addPendingResources(resourceSpec, spec.Id, -1)
+	} else {
+		err = h.unsafeCommitResources(resourceSpec, spec.Id, -1, false)
 	}
 
-	if !usePendingResources {
-		h.log.Debug("Attempting reservation upgrade for new replica of kernel %s: pending --> committed (%s)", spec.Id, resourceSpec.String())
-		err := h.unsafeCommitResources(resourceSpec, spec.Id, -1)
-		if err != nil {
-			h.log.Debug("Failed to upgrade pending resource reservation to committed for new replica of kernel %s because: %v",
-				spec.Id, err)
+	if err != nil {
+		h.log.Debug("Failed to create resource reservation for new replica of kernel %s because: %v [usePendingResources=%v]",
+			spec.Id, err, usePendingResources)
 
-			// Release the pending request before returning.
-			deallocateError := h.subtractFromPendingResources(resourceSpec, spec.Id, -1)
-			if deallocateError != nil {
-				h.log.Error("Failed to release temporarily-allocated pending resources during reservation process (for new replica of kernel \"%s\"): %v",
-					spec.Id, err)
-				return false, err
-			}
-
-			return false, nil // Not an actual error, just didn't have enough resources available.
-		}
-
-		h.log.Debug("Successfully upgraded pending resource reservation to committed for new replica of kernel %s.",
-			spec.Id)
+		return false, nil // Not an actual error, just didn't have enough resources available.
 	}
 
 	oldSubscribedRatio := h.subscribedRatio
@@ -891,9 +897,9 @@ func (h *Host) Disable() error {
 // synchronize with the remote Host and try again. If that fails, then we just return an error.
 func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelContainer) error {
 	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
-		h.log.Debug("Releasing committed resources [%s] from replica %s of kernel \"%s\" during eviction process. Current resources: %s.",
-			container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), h.getResourceCountsAsString())
-		err := h.unsafeUncommitResources(container.ResourceSpec(), container.KernelID())
+		h.log.Debug("Releasing committed resources [%s] from replica %d of kernel \"%s\" during eviction process. Current resources: %s.",
+			container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
+		err := h.unsafeUncommitResources(container.ResourceSpec(), container.KernelID(), true)
 		if err != nil {
 			h.log.Error("Failed to release committed resources %s from container for replica %d of kernel %s during eviction process: %v",
 				container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), err)
@@ -905,8 +911,8 @@ func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelConta
 
 			return err
 		} else {
-			h.log.Debug("Successfully released committed resources [%s] from replica %s of kernel \"%s\" during eviction process. Updated resources: %s.",
-				container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), h.getResourceCountsAsString())
+			h.log.Debug("Successfully released committed resources [%s] from replica %d of kernel \"%s\" during eviction process. Updated resources: %s.",
+				container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
 		}
 	}
 
@@ -938,10 +944,10 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 	if h.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
 		spec := container.ResourceSpec()
 
-		h.log.Debug("Releasing committed resources [%s] from replica %s of kernel \"%s\". Current resources: %s.",
-			spec.String(), container.ReplicaId(), container.KernelID(), h.getResourceCountsAsString())
+		h.log.Debug("Releasing committed resources [%s] from replica %d of kernel \"%s\". Current resources: %s.",
+			spec.String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
 
-		err := h.unsafeUncommitResources(spec, container.KernelID())
+		err := h.unsafeUncommitResources(spec, container.KernelID(), true)
 		if err != nil {
 			h.log.Error("Failed to deallocate resources from previously-training replica %d of kernel %s: %v",
 				container.ReplicaId(), container.KernelID(), err)
@@ -952,8 +958,8 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 				err = errors.Join(err2)
 			}
 		} else {
-			h.log.Debug("Released committed resources [%s] from replica %s of kernel \"%s\". Updated resources: %s.",
-				spec.String(), container.ReplicaId(), container.KernelID(), h.getResourceCountsAsString())
+			h.log.Debug("Released committed resources [%s] from replica %d of kernel \"%s\". Updated resources: %s.",
+				spec.String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
 		}
 
 		if _, loaded := h.containersWithPreCommittedResources[container.ContainerID()]; loaded {
@@ -992,24 +998,11 @@ func (h *Host) unsafeHandleResourceError() error {
 		return true
 	})
 
-	h.resourceManager.PendingResources().SetMillicpus(pending.Millicpus)
-	h.resourceManager.PendingResources().SetMemoryMB(pending.MemoryMb)
-	h.resourceManager.PendingResources().SetGpus(pending.GPUs)
-	h.resourceManager.PendingResources().SetVRAM(pending.VRam)
+	h.resourceManager.IdleResources().SetTo(idle)
+	h.resourceManager.PendingResources().SetTo(pending)
+	h.resourceManager.CommittedResources().SetTo(committed)
 
-	h.resourceManager.CommittedResources().SetMillicpus(committed.Millicpus)
-	h.resourceManager.CommittedResources().SetMemoryMB(committed.MemoryMb)
-	h.resourceManager.CommittedResources().SetGpus(committed.GPUs)
-	h.resourceManager.CommittedResources().SetVRAM(committed.VRam)
-
-	h.resourceManager.IdleResources().SetMillicpus(idle.Millicpus)
-	h.resourceManager.IdleResources().SetMemoryMB(idle.MemoryMb)
-	h.resourceManager.IdleResources().SetGpus(idle.GPUs)
-	h.resourceManager.IdleResources().SetVRAM(idle.VRam)
-
-	h.log.Debug("Recomputed idle resources: %v", h.IdleResources().String())
-	h.log.Debug("Recomputed pending resources: %v", h.PendingResources().String())
-	h.log.Debug("Recomputed committed resources: %v", h.CommittedResources().String())
+	h.log.Debug("Recomputed resources: %s", h.GetResourceCountsAsString())
 
 	return nil
 }
@@ -1043,15 +1036,42 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 		h.log.Debug("Committing resources %v to container for replica %d of kernel \"%s\" so it can train.",
 			container.ResourceSpec().String(), container.ReplicaId(), container.KernelID())
 
-		return h.unsafeCommitResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId())
+		return h.unsafeCommitResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId(), true)
 	}
 
 	return nil
 }
 
+func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string, incrementPending bool) (err error) {
+	if _, loaded := h.kernelsWithCommittedResources[kernelId]; !loaded {
+		h.log.Error("Cannot release committed resources from replica of kernel \"%s\". No replica of kernel \"%s\" has resources committed to it. (Requested to release: %s)",
+			kernelId, kernelId, spec.String())
+		return ErrInvalidContainer
+	}
+
+	err = h.resourceManager.RunTransaction(func(state *transaction.State) {
+		state.CommittedResources().Subtract(spec)
+
+		if incrementPending {
+			state.PendingResources().Add(spec)
+		}
+
+		state.IdleResources().Add(spec)
+	})
+
+	if err != nil {
+		h.log.Error("Failed to release committed resources [%s] from replica of kernel %s.",
+			spec.String(), kernelId, kernelId)
+		return
+	}
+
+	delete(h.kernelsWithCommittedResources, kernelId)
+	return
+}
+
 // unsafeUncommitResources releases the specified resources and returns nil on success.
 // unsafeUncommitResources is not thread safe and should only be called with the schedulingMutex already held.
-func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string) error {
+func (h *Host) unsafeUncommitResourcesOld(spec *types.DecimalSpec, kernelId string) error {
 	if _, loaded := h.kernelsWithCommittedResources[kernelId]; !loaded {
 		h.log.Error("Cannot release committed resources from replica of kernel \"%s\". No replica of kernel \"%s\" has resources committed to it. (Requested to release: %s)",
 			kernelId, kernelId, spec.String())
@@ -1110,18 +1130,22 @@ func (h *Host) PreCommitResources(container scheduling.KernelContainer) error {
 		return nil
 	}
 
-	err := h.unsafeCommitResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId())
+	h.log.Debug("Pre-Committing resources [%v] to replica %d of kernel \"%s\" so that it can potentially train.",
+		container.ResourceSpec().String(), container.ReplicaId(), container.KernelID())
+
+	err := h.unsafeCommitResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId(), true)
 	if err != nil {
 		return err
 	}
 
 	h.containersWithPreCommittedResources[container.ContainerID()] = container
-	h.log.Debug("Pre-committed the following resources to replica %d of kernel \"%s\": %s. Updated resources on host: %s.",
-		container.ReplicaId(), container.KernelID(), container.ResourceSpec().String())
+	h.log.Debug("Pre-Committed the following resources to replica %d of kernel \"%s\": %s. Updated resources on host: %s.",
+		container.ReplicaId(), container.KernelID(), container.ResourceSpec().String(), h.GetResourceCountsAsString())
 	return nil
 }
 
-func (h *Host) getResourceCountsAsString() string {
+// GetResourceCountsAsString returns the current resource counts of the Host as a string and is useful for printing.
+func (h *Host) GetResourceCountsAsString() string {
 	return h.resourceManager.GetResourceCountsAsString()
 }
 
@@ -1139,7 +1163,7 @@ func (h *Host) ReleasePreCommitedResources(container scheduling.KernelContainer)
 	}
 
 	spec := container.ResourceSpec()
-	err := h.unsafeUncommitResources(spec, container.KernelID())
+	err := h.unsafeUncommitResources(spec, container.KernelID(), true)
 	if err != nil {
 		h.log.Error("Failed to release pre-committed resources (%s) from replica %d of kernel \"%s\": %v",
 			spec.String(), container.ReplicaId(), container.KernelID(), err)
@@ -1148,14 +1172,41 @@ func (h *Host) ReleasePreCommitedResources(container scheduling.KernelContainer)
 
 	delete(h.containersWithPreCommittedResources, container.ContainerID())
 	h.log.Debug("Released pre-committed resources [%s] from replica %d of kernel \"%s\". Updated resource counts: %s.",
-		spec.String(), container.ReplicaId(), container.KernelID(), h.getResourceCountsAsString())
+		spec.String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
 
 	return nil
 }
 
+func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, replicaId int32, decrementPending bool) (err error) {
+	if existingReplicaId, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
+		h.log.Error("Attempting to commit resources [%s] to replica %d of kernel %s, but we've already committed resources to replica %d of kernel %s.",
+			spec.String(), replicaId, kernelId, existingReplicaId)
+		return fmt.Errorf("%w (replica %d of kernel \"%s\")", ErrResourcesAlreadyCommitted, existingReplicaId, kernelId)
+	}
+
+	err = h.resourceManager.RunTransaction(func(state *transaction.State) {
+		state.CommittedResources().Add(spec)
+
+		if decrementPending {
+			state.PendingResources().Subtract(spec)
+		}
+
+		state.IdleResources().Subtract(spec)
+	})
+
+	if err != nil {
+		h.log.Warn("Failed to commit resources [%s] to replica %d of kernel %s: %v",
+			spec.String(), replicaId, kernelId, err)
+		return
+	}
+
+	h.kernelsWithCommittedResources[kernelId] = replicaId
+	return
+}
+
 // unsafeCommitResources commits the specified resources and returns nil on success.
 // unsafeCommitResources is not thread safe and should only be called with the schedulingMutex already held.
-func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, replicaId int32) error {
+func (h *Host) unsafeCommitResourcesOld(spec *types.DecimalSpec, kernelId string, replicaId int32) error {
 	if replicaId, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
 		h.log.Error("Attempting to commit resources %v to replica of kernel %s, but we've already committed resources to replica %d of kernel %s.",
 			spec.String(), kernelId, replicaId, kernelId)
@@ -1166,7 +1217,7 @@ func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, r
 		return err
 	}
 
-	if err := h.resourceManager.PendingResources().Subtract(spec); err != nil {
+	if err := h.subtractFromPendingResources(spec, kernelId, replicaId); err != nil {
 		return err
 	}
 
@@ -1293,6 +1344,57 @@ func (h *Host) getSIP(sess scheduling.UserSession) float64 {
 	return rb - penalty
 }
 
+// KernelAdjustedItsResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
+// this Host is updated or changed. This ensures that the Host's resource counts are up to date.
+//
+// This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
+func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	// Sanity check.
+	if _, loaded := h.containers.Load(container.ContainerID()); !loaded {
+		return fmt.Errorf("the specified KernelContainer is not running on the target Host")
+	}
+
+	// Ensure that we're even allowed to do this (based on the scheduling policy).
+	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
+		return scheduling.ErrDynamicResourceAdjustmentProhibited
+	}
+
+	oldSubscribedRatio := h.subscribedRatio
+	h.log.Debug("Updating resource reservation for %s", container.ContainerID())
+
+	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
+	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
+
+	initialState, commit := h.resourceManager.GetTransactionData()
+
+	err := coordinatedTransaction.RegisterParticipant(container.ReplicaId(), initialState,
+		func(state *transaction.State) {
+			state.PendingResources().Subtract(oldSpecDecimal)
+			state.PendingResources().Add(newSpecDecimal)
+		}, commit)
+	if err != nil {
+		h.log.Error("Received error upon registering for coordination transaction when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
+			container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), err)
+		return err
+	}
+
+	succeeded := coordinatedTransaction.Wait()
+	if succeeded {
+		h.RecomputeSubscribedRatio()
+		h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
+			container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
+		return nil
+	}
+
+	h.log.Debug("Failed to update ResourceRequest for replica %d of kernel %s (possibly because of another replica).",
+		container.ReplicaId(), container.KernelID())
+
+	return nil
+}
+
 // KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 // Host is updated or changed. This ensures that the Host's resource counts are up to date.
 func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer) error {
@@ -1312,28 +1414,24 @@ func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec 
 	oldSubscribedRatio := h.subscribedRatio
 	h.log.Debug("Updating resource reservation for %s", container.ContainerID())
 
-	// Deallocate the previously-reserved resources.
-	err := h.subtractFromPendingResources(types.ToDecimalSpec(oldSpec), container.KernelID(), container.ReplicaId())
+	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
+	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
+
+	err := h.resourceManager.RunTransaction(func(state *transaction.State) {
+		state.PendingResources().Subtract(oldSpecDecimal)
+		state.PendingResources().Add(newSpecDecimal)
+	})
+
 	if err != nil {
-		h.log.Error("Resource updated for replica %d of kernel failed: %v",
+		h.log.Warn("Resource update failed for replica %d of kernel \"%s\": %v",
 			container.ReplicaId(), container.KernelID(), err)
 
-		return err
-	}
-
-	// Allocate the updated resource request.
-	updatedSpecAsDecimalSpec := types.ToDecimalSpec(updatedSpec)
-	err = h.addPendingResources(updatedSpecAsDecimalSpec, container.KernelID(), container.ReplicaId())
-	if err != nil {
-		h.log.Error("Failed to adjust (pending) resources associated with replica %d of kernel %s: %v",
-			container.KernelID(), container.ReplicaId(), err)
 		return err
 	}
 
 	h.RecomputeSubscribedRatio()
 	h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
 		container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
-	h.reservations.Store(container.KernelID(), NewReservation(h.ID, container.KernelID(), time.Now(), true, updatedSpecAsDecimalSpec))
 
 	return nil
 }
@@ -1580,18 +1678,18 @@ func (h *Host) AddToPendingResources(spec *types.DecimalSpec) error {
 // subtractFromPendingResources is a utility function that subtracts the given resources from the Host's pending
 // resource quantity. subtractFromPendingResources prints before and after so we don't have to do that anywhere else.
 func (h *Host) subtractFromPendingResources(spec *types.DecimalSpec, kernelId string, containerId int32) error {
-	h.log.Debug("Decrementing pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s.",
+	h.log.Debug(utils.DecrementPendingStyle.Render("Decrementing pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s."),
 		spec.String(), containerId, kernelId, h.resourceManager.PendingResources().String())
 
 	err := h.resourceManager.PendingResources().Subtract(spec)
 
 	if err != nil {
-		h.log.Debug("Failed to decrement pending resources by [%v] for replica %d of kernel \"%s\" because: %v",
+		h.log.Debug(utils.LightOrangeStyle.Render("Failed to decrement pending resources by [%v] for replica %d of kernel \"%s\" because: %v"),
 			spec.String(), containerId, kernelId, err)
 		return err
 	}
 
-	h.log.Debug("Successfully decremented pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s.",
+	h.log.Debug(utils.DecrementPendingStyle.Render("Successfully decremented pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s."),
 		spec.String(), containerId, kernelId, h.resourceManager.PendingResources().String())
 	return nil
 }
@@ -1599,47 +1697,49 @@ func (h *Host) subtractFromPendingResources(spec *types.DecimalSpec, kernelId st
 // addPendingResources is a utility function that adds resources to the Host's pending resource quantity.
 // It prints before and after so we don't have to do that anywhere else.
 func (h *Host) addPendingResources(spec *types.DecimalSpec, kernelId string, containerId int32) error {
-	h.log.Debug("Incrementing pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s.",
+	h.log.Debug(utils.IncrementPendingStyle.Render("Incrementing pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s."),
 		spec.String(), containerId, kernelId, h.resourceManager.PendingResources().String())
 
 	err := h.resourceManager.PendingResources().Add(spec)
 
 	if err != nil {
-		h.log.Debug("Failed to increment pending resources by [%v] for replica %d of kernel \"%s\" because: %v",
+		h.log.Warn(utils.LightOrangeStyle.Render("Failed to increment pending resources by [%v] for replica %d of kernel \"%s\" because: %v"),
 			spec.String(), containerId, kernelId, err)
 		return err
 	}
 
-	h.log.Debug("Successfully incremented pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s.",
+	h.log.Debug(utils.IncrementPendingStyle.Render("Successfully incremented pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s."),
 		spec.String(), containerId, kernelId, h.resourceManager.PendingResources().String())
 	return nil
 }
 
+// AddToCommittedResources is only intended to be used during unit tests.
 func (h *Host) AddToCommittedResources(spec *types.DecimalSpec) error {
 	err := h.resourceManager.CommittedResources().Add(spec)
 	h.RecomputeSubscribedRatio()
 	return err
 }
 
-//func (h *Host) SubtractFromPendingResources(spec *types.DecimalSpec) error {
-//	err := h.resourceManager.PendingResources().Subtract(spec)
-//	h.RecomputeSubscribedRatio()
-//	return err
-//}
-//
-//func (h *Host) SubtractFromIdleResources(spec *types.DecimalSpec) error {
-//	err := h.resourceManager.IdleResources().Subtract(spec)
-//	h.RecomputeSubscribedRatio()
-//	return err
-//}
-//
+// SubtractFromIdleResources is only intended to be used during unit tests.
+func (h *Host) SubtractFromIdleResources(spec *types.DecimalSpec) error {
+	err := h.resourceManager.IdleResources().Subtract(spec)
+	h.RecomputeSubscribedRatio()
+	return err
+}
+
+// GetCreatedAt returns the time at which the Host was created.
+func (h *Host) GetCreatedAt() time.Time {
+	return h.CreatedAt
+}
+
 //func (h *Host) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
 //	err := h.resourceManager.CommittedResources().Subtract(spec)
 //	h.RecomputeSubscribedRatio()
 //	return err
 //}
 
-// GetCreatedAt returns the time at which the Host was created.
-func (h *Host) GetCreatedAt() time.Time {
-	return h.CreatedAt
-}
+//func (h *Host) SubtractFromPendingResources(spec *types.DecimalSpec) error {
+//	err := h.resourceManager.PendingResources().Subtract(spec)
+//	h.RecomputeSubscribedRatio()
+//	return err
+//}

@@ -6,7 +6,7 @@ from enum import IntEnum
 from typing import Dict, Optional, List, MutableMapping, Any
 
 from .log import LeaderElectionVote, LeaderElectionProposal
-from ..logging import ColoredLogFormatter
+from ..logs import ColoredLogFormatter
 
 # Indicates that the election was completed because the elected leader finished executing the user-submitted code.
 ExecutionCompleted = "execution_completed"
@@ -698,6 +698,8 @@ class Election(object):
         else:
             self.election_finished_event.set()
 
+        self.logger.debug(f"Election {self.term_number} has officially failed (in attempt {self.current_attempt_number}.")
+
     async def wait_for_election_to_end(self):
         """
         Wait for the election to end (or enter the failed state), either because the elected leader of this election
@@ -842,14 +844,20 @@ class Election(object):
         current_time: float = time.time()
 
         if self._election_state == ElectionState.INACTIVE:
+            self.logger.warning(f"election for term {self._term_number} "
+                                "has not yet been started; cannot identify winner to propose")
             raise RuntimeError(f"election for term {self._term_number} "
                                "has not yet been started; cannot identify winner to propose")
 
         if self._election_state == ElectionState.VOTE_COMPLETE:
+            self.logger.warning(f"election for term {self._term_number} "
+                              "has already completed successfully; cannot identify winner to propose")
             raise RuntimeError(f"election for term {self._term_number} "
                                "has already completed successfully; cannot identify winner to propose")
 
         if self._winner_selected:
+            self.logger.warning(f"election for term {self._term_number} "
+                                f"already selected a node to propose as winner: node {self._proposed_winner}")
             raise RuntimeError(f"election for term {self._term_number} "
                                f"already selected a node to propose as winner: node {self._proposed_winner}")
 

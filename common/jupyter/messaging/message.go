@@ -433,22 +433,22 @@ type ElectionVoteProposalMetadata struct {
 // ElectionMetadata is metadata from the Python Election that took place to determine which
 // replica would execute the code. This is only sent on the return (i.e., "execute_reply").
 type ElectionMetadata struct {
-	TermNumber                int                                     `json:"term_number"`
-	ElectionState             int                                     `json:"election_state"`
-	ElectionStateString       int                                     `json:"election_state_string"`
-	WinnerSelected            bool                                    `json:"winner_selected"`
-	WinnerID                  int                                     `json:"winner_id"`
-	Proposals                 map[int]*ElectionLeaderProposalMetadata `json:"proposals"`
-	VoteProposals             map[int]*ElectionVoteProposalMetadata   `json:"vote_proposals"`
-	DiscardedProposals        map[int]*ElectionLeaderProposalMetadata `json:"discarded_proposals"`
-	NumDiscardedProposals     int                                     `json:"num_discarded_proposals"`
-	NumDiscardedVoteProposals int                                     `json:"num_discarded_vote_proposals"`
-	NumLeadProposalsReceived  int                                     `json:"num_lead_proposals_received"`
-	NumYieldProposalsReceived int                                     `json:"num_yield_proposals_received"`
-	NumRestarts               int                                     `json:"num_restarts"`
-	CurrentAttemptNumber      int                                     `json:"current_attempt_number"`
-	CompletionReason          string                                  `json:"completion_reason"`
-	MissingProposals          []int                                   `json:"missing_proposals"`
+	TermNumber                int                                     `json:"term_number" mapstructure:"term_number"`
+	ElectionState             int                                     `json:"election_state" mapstructure:"election_state"`
+	ElectionStateString       int                                     `json:"election_state_string" mapstructure:"election_state_string"`
+	WinnerSelected            bool                                    `json:"winner_selected" mapstructure:"winner_selected"`
+	WinnerID                  int                                     `json:"winner_id" mapstructure:"winner_id"`
+	Proposals                 map[int]*ElectionLeaderProposalMetadata `json:"proposals" mapstructure:"proposals"`
+	VoteProposals             map[int]*ElectionVoteProposalMetadata   `json:"vote_proposals" mapstructure:"vote_proposals"`
+	DiscardedProposals        map[int]*ElectionLeaderProposalMetadata `json:"discarded_proposals" mapstructure:"discarded_proposals"`
+	NumDiscardedProposals     int                                     `json:"num_discarded_proposals" mapstructure:"num_discarded_proposals"`
+	NumDiscardedVoteProposals int                                     `json:"num_discarded_vote_proposals" mapstructure:"num_discarded_vote_proposals"`
+	NumLeadProposalsReceived  int                                     `json:"num_lead_proposals_received" mapstructure:"num_lead_proposals_received"`
+	NumYieldProposalsReceived int                                     `json:"num_yield_proposals_received" mapstructure:"num_yield_proposals_received"`
+	NumRestarts               int                                     `json:"num_restarts" mapstructure:"num_restarts"`
+	CurrentAttemptNumber      int                                     `json:"current_attempt_number" mapstructure:"current_attempt_number"`
+	CompletionReason          string                                  `json:"completion_reason" mapstructure:"completion_reason"`
+	MissingProposals          []int                                   `json:"missing_proposals" mapstructure:"missing_proposals"`
 }
 
 // ExecuteRequestMetadata includes all the metadata entries we might expect to find in the metadata frame
@@ -482,6 +482,9 @@ type ExecuteRequestMetadata struct {
 	// RemoteStorageDefinition defines the remote storage that should be used by the kernel when simulating
 	// checkpointing its state.
 	RemoteStorageDefinition *proto.RemoteStorageDefinition `json:"remote_storage_definition" mapstructure:"remote_storage_definition"`
+
+	// GpuDeviceIds are the GPU device IDs allocated to the replica.
+	GpuDeviceIds []int `json:"gpu_device_ids" mapstructure:"gpu_device_ids"`
 
 	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
 	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.
@@ -1001,7 +1004,9 @@ func (m *JupyterMessage) StringFormatted() string {
 	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.StringFormatted())
 }
 
-// CreateAndReturnYieldRequestMessage creates a "yield_request" message from the target message.
+// CreateAndReturnYieldRequestMessage creates a "yield_request" message from the target JupyterMessage.
+//
+// If the target JupyterMessage is already a "yield_request" message, then the target JupyterMessage is simply returned.
 //
 // If the target message is not of type "execute_request", then an error is returned.
 //
@@ -1011,6 +1016,11 @@ func (m *JupyterMessage) StringFormatted() string {
 // PRECONDITION: The given message must be an "execute_request" message.
 // This function will NOT check this. It should be checked before calling this function.
 func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, error) {
+	// If the message is already a yield request, then just return it.
+	if m.JupyterMessageType() == ShellYieldRequest {
+		return m, nil
+	}
+
 	if m.JupyterMessageType() != ShellExecuteRequest {
 		return nil, fmt.Errorf("%w: message is of type \"%s\", not \"%s\"", ErrInvalidJupyterMessage, m.JupyterMessageType(), ShellExecuteRequest)
 	}

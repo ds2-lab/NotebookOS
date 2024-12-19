@@ -3,7 +3,7 @@ package resource
 import "github.com/shopspring/decimal"
 
 // ManagerState defines a public interface for accessing (i.e., reading) but not mutating (i.e., writing)
-// the current state of a ManagerState.
+// the working state of a ManagerState.
 //
 // ManagerState wraps several ComputeResourceState instances -- one for HostResources of each of the following types:
 // idle, pending, committed, and spec. As such, ManagerState exposes a collection of several ComputeResourceState
@@ -38,7 +38,7 @@ type ManagerState interface {
 }
 
 // ComputeResourceState defines a public interface for getting (i.e., reading) but not mutating (i.e., writing)
-// the current state of a AllocationManager.
+// the working state of a AllocationManager.
 //
 // ComputeResourceState encapsulates the HostResources for a single type of resource (i.e., idle, pending, committed, or spec).
 // Meanwhile, ManagerState exposes a collection of several ComputeResourceState instances to provide a convenient
@@ -79,6 +79,6 @@ type ComputeResourceState interface {
 	String() string
 
 	// ComputeResourceSnapshot creates and returns a pointer to a new ComputeResourceSnapshot struct, thereby
-	// capturing the current quantities of the HostResources encoded by the ComputeResourceState instance.
+	// capturing the working quantities of the HostResources encoded by the ComputeResourceState instance.
 	ResourceSnapshot(snapshotId int32) *ComputeResourceSnapshot
 }

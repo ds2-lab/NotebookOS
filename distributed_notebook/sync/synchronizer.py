@@ -1,17 +1,22 @@
 import asyncio
 import logging
+import os
 import sys
 import traceback
 import types
 from typing import Optional
 
 from .ast import SyncAST
+from .checkpointing.remote_checkpointer import RemoteCheckpointer
 from .election import Election
 from .errors import SyncError, DiscardMessageError
 from .log import Checkpointer, SyncLog, SynchronizedValue, KEY_SYNC_END
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
-from ..logging import ColoredLogFormatter
+from .checkpointing.pointer import DatasetPointer, ModelPointer
+from ..datasets.base import Dataset
+from ..logs import ColoredLogFormatter
+from ..models.model import DeepLearningModel
 
 KEY_SYNC_AST = "_ast_"
 CHECKPOINT_AUTO = 1
@@ -29,7 +34,16 @@ class Synchronizer:
     _module: types.ModuleType
     _async_loop: asyncio.AbstractEventLoop
 
-    def __init__(self, sync_log: SyncLog, module: Optional[types.ModuleType] = None, ns=None, opts=0, node_id: int = -1):
+    def __init__(
+            self,
+            sync_log: SyncLog,
+            store_path:str = "",
+            module: Optional[types.ModuleType] = None,
+            ns=None,
+            opts=0,
+            node_id: int = -1,
+            remote_checkpointer: RemoteCheckpointer = None,
+    ):
         if module is None and ns is not None:
             self._module = SyncModule()  # type: ignore
             ns.setdefault("__name__", "__main__")
@@ -39,6 +53,7 @@ class Synchronizer:
         else:
             self._module = module
 
+        self._store_path:str = store_path
         self._node_id:int = node_id
 
         # Set callbacks for synclog
@@ -67,6 +82,11 @@ class Synchronizer:
         self._syncing = False  # Avoid checkpoint in the middle of syncing.
 
         self._synclog: SyncLog = sync_log
+
+        if remote_checkpointer is None:
+            raise ValueError("remote checkpointer cannot be null")
+        self._remote_checkpointer: RemoteCheckpointer = remote_checkpointer
+
         self._log.debug("Finished creating Synchronizer")
 
     def start(self):
@@ -444,6 +464,37 @@ class Synchronizer:
         # Switch context
         old_main_modules = sys.modules["__main__"]
         sys.modules["__main__"] = self._module
+
+        if isinstance(val, Dataset):
+            self._log.debug(f"Synchronizing Dataset \"{val.name}\" (\"{key}\"). "
+                            f"Will convert to pointer before appending to RaftLog.")
+            dataset_pointer: DatasetPointer = DatasetPointer(
+                dataset = val,
+                user_namespace_variable_name = key,
+                dataset_remote_storage_path= os.path.join(self._store_path, val.name),
+                proposer_id = self._node_id
+            )
+            # self._remote_checkpointer.write_dataset(dataset_pointer)
+            val = dataset_pointer
+        elif isinstance(val, DeepLearningModel):
+            self._log.debug(f"Synchronizing Model \"{val.name}\" (\"{key}\"). "
+                            f"Will convert to pointer before appending to RaftLog.")
+            model_pointer: ModelPointer = ModelPointer(
+                deep_learning_model = val,
+                user_namespace_variable_name = key,
+                model_path = os.path.join(self._store_path, val.name),
+                proposer_id = self._node_id,
+            )
+            try:
+                await self._remote_checkpointer.write_state_dicts_async(model_pointer)
+            except ValueError as vexc:
+                self._log.warning(f"ValueError encountered while synchronizing '{model_pointer.model_name}' "
+                                  f"DeepLearningModel for variable \"{model_pointer.user_namespace_variable_name}\" "
+                                  f"(\"{key}\"): {vexc}")
+
+            val = model_pointer
+        else:
+            self._log.debug(f"Synchronizing {type(val).__name__} \"{key}\".")
 
         if checkpointing:
             sync_val = existed.dump(meta=meta)

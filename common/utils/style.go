@@ -12,6 +12,8 @@ func init() {
 var (
 	RedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#cc0000"))
+	LightOrangeStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#ff9a59"))
 	OrangeStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#ff7c28"))
 	YellowStyle = lipgloss.NewStyle().
@@ -32,6 +34,9 @@ var (
 			Foreground(lipgloss.Color("#7400e0"))
 	GrayStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#adadad"))
+	IncrementPendingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#34e1ed"))
+	DecrementPendingStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#2dcca1"))
 
 	NotificationStyles = []lipgloss.Style{RedStyle, OrangeStyle, GrayStyle, GreenStyle}
 )

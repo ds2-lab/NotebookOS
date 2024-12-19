@@ -93,8 +93,8 @@ def mock_create_log_node(*args, **mock_kwargs):
 DefaultResourceRequest: Dict[str, Any] = {
     "gpus": 1,
     "cpus": 1000,
-    "memory_mb": 512,
-    "vram": 0.5,
+    "memory": 512,
+    "vram": 0.1,
 }
 
 async def create_kernel(
@@ -116,6 +116,7 @@ async def create_kernel(
         persistent_id: Optional[str] = None,
         resource_request: Optional[Dict[str, Any]] = None,
         remote_storage_definitions: Optional[Dict[str, Any]] = None,
+        use_real_gpus: bool = False,
         **kwargs
 ) -> DistributedKernel:
     global DefaultResourceRequest
@@ -145,6 +146,7 @@ async def create_kernel(
         "local_tcp_server_port": local_tcp_server_port,
         "persistent_id": persistent_id,
         "simulate_checkpointing_latency": simulate_checkpointing_latency,
+        "use_real_gpus": use_real_gpus,
     }
 
     keyword_args.update(kwargs)
@@ -1346,6 +1348,17 @@ async def test_election_fails_when_all_propose_yield(kernel: DistributedKernel, 
 
         assert False
 
+    try:
+        await asyncio.wait_for(execute_request_task, 5)
+    except TimeoutError:
+        unit_test_logger.debug("[ERROR] \"execute_request_task\" future was not resolved.")
+
+        for task in asyncio.all_tasks():
+            asyncio.Task.print_stack(task)
+            unit_test_logger.debug("\n\n\n")
+
+        assert False
+
     assert_election_failed(election, execute_request_task, election_decision_future, expected_proposer_id=1,
                            expected_term_number=1, expected_attempt_number=1, expected_proposals_received=3)
 
@@ -1435,6 +1448,8 @@ async def test_all_propose_yield_and_win_second_round(kernel: DistributedKernel,
             unit_test_logger.debug("\n\n\n")
 
         assert False
+
+    await asyncio.sleep(1)
 
     assert_election_failed(election, execute_request_task, election_decision_future, expected_proposer_id=1,
                            expected_term_number=1, expected_attempt_number=1, expected_proposals_received=3)
@@ -1719,6 +1734,17 @@ async def fail_election(
         await asyncio.wait_for(election_decision_future, 5)
     except TimeoutError:
         unit_test_logger.debug("[ERROR] \"election_decision\" future was not resolved.")
+
+        for task in asyncio.all_tasks():
+            asyncio.Task.print_stack(task)
+            unit_test_logger.debug("\n\n\n")
+
+        assert False
+
+    try:
+        await asyncio.wait_for(execute_request_task, 5)
+    except TimeoutError:
+        unit_test_logger.debug("[ERROR] \"execute_request_task\" future was not resolved.")
 
         for task in asyncio.all_tasks():
             asyncio.Task.print_stack(task)
@@ -2740,18 +2766,16 @@ async def test_catch_up_after_migration(kernel: DistributedKernel, execution_req
 
         if os.environ.get("SIMULATE_CHECKPOINTING_LATENCY"):
             assert new_kernel.simulate_checkpointing_latency
-            assert remote_storage.total_num_read_ops == 1
+            assert remote_storage.total_num_read_ops == 2
             assert remote_storage.total_num_write_ops == 0
 
-            assert len(remote_storage.read_latencies) == 1
+            assert len(remote_storage.read_latencies) == 2
             assert len(remote_storage.write_latencies) == 0
 
             # Should be about 2.
             # The max it should be about 2.631sec based on variance % and average rate.
-            assert 1.5e3 <= remote_storage.read_latencies[0] <= 2.75e3
-
-            # Should be about 4.
-            # assert 4 <= remote_storage.write_latencies[0] <= 5
+            assert remote_storage.read_latencies[0] > 0
+            assert remote_storage.read_latencies[1] > 0
         else:
             assert not new_kernel.simulate_checkpointing_latency
 

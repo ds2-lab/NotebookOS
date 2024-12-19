@@ -187,8 +187,8 @@ func (op *AddReplicaOperation) SetReplicaJoinedSMR() {
 	//replica.SetReady()
 }
 
-// PodStarted Returns true if the new Pod has started.
-func (op *AddReplicaOperation) PodStarted() bool {
+// PodOrContainerStarted Returns true if the new Pod has started.
+func (op *AddReplicaOperation) PodOrContainerStarted() bool {
 	return op.podOrContainerStarted
 }
 

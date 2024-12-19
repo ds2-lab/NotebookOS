@@ -163,6 +163,7 @@ type DistributedKernelConfig struct {
 	WorkloadId                           string               `json:"workload_id"`
 	SmrEnabled                           bool                 `json:"smr_enabled"`
 	PrometheusServerPort                 int                  `json:"prometheus_port"` // PrometheusServerPort is the port of the Prometheus metrics server on/in each kernel replica container.
+	UseRealGpus                          bool                 `json:"use_real_gpus"`
 }
 
 func (c DistributedKernelConfig) String() string {

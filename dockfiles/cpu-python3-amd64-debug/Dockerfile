@@ -1,4 +1,5 @@
-FROM scusemua/base-jupyter-image-python3.12.6:latest
+# FROM scusemua/base-jupyter-image-python3.12.6:latest
+FROM scusemua/base-jupyter-image:python3.12.6-cuda
 
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
@@ -30,13 +31,11 @@ RUN cd /distributed_notebook \
     common/proto/gateway.proto \
     && sed -Ei 's/import gateway_pb2 as gateway__pb2/from . import gateway_pb2 as gateway__pb2/g' distributed_notebook/gateway/gateway_pb2_grpc.py
 
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install typing_extensions
-
 # RUN cd /distributed_notebook && ./install_kernel_debug.sh
 RUN cd /distributed_notebook && ./install_kernel_debug_py3-12-6.sh
 
 # Add .screenrc config file for screen.
-ADD dockfiles/cpu-python3-amd64-debug/.screenrc /home/jovyan/.screenrc 
+ADD dockfiles/cpu-python3-amd64-debug/.screenrc /home/jovyan/.screenrc
 
 # Add gdbinit configuration file.
 ADD dockfiles/cpu-python3-amd64-debug/gdbinit /home/jovyan/.config/gdb/gdbinit
@@ -61,6 +60,9 @@ COPY dockfiles/cpu-python3-amd64-debug/jupyter_server_config.py /home/jovyan/.ju
 
 # Update path.
 ENV PATH=/usr/local/go/bin:/usr/local/bin:/opt/conda/condabin:/opt/conda/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Set the value of the PYTHONUNBUFFERED environment variable.
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 5678
 

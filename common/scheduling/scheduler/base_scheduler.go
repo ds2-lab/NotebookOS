@@ -213,6 +213,36 @@ func (s *BaseScheduler) isScalingEnabled() bool {
 	return s.PolicyKey() != scheduling.FcfsBatch
 }
 
+// GetCandidateHost identifies a single candidate host for a particular kernel replica, reserving resources on hosts
+// before returning them.
+//
+// If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it to
+// the blacklist.
+func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+	if blacklistedHosts == nil {
+		blacklistedHosts = make([]scheduling.Host, 0)
+	}
+
+	if replica.Host() != nil {
+		currentHost := replica.Host()
+		found := false
+
+		// If the replica's current host isn't already blacklisted, then add it to the blacklist.
+		for _, blacklistedHost := range blacklistedHosts {
+			if blacklistedHost.GetID() == currentHost.GetID() {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			blacklistedHosts = append(blacklistedHosts, currentHost)
+		}
+	}
+
+	return s.findViableHostForReplica(replica, blacklistedHosts, forTraining)
+}
+
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -467,7 +497,7 @@ func (s *BaseScheduler) addReplica(in *proto.ReplicaInfo, targetHost scheduling.
 		smrWg.Done()
 
 		if !addReplicaOp.Completed() {
-			s.log.Error("AddReplicaOperation \"%s\" does not think it's done, even though it should...", addReplicaOp.Completed())
+			s.log.Error("AddReplicaOperation \"%s\" does not think it's done, even though it should...", addReplicaOp.OperationID())
 			go s.sendErrorNotification(fmt.Sprintf("AddReplicaOperation \"%s\" is Confused", addReplicaOp.OperationID()),
 				fmt.Sprintf("AddReplicaOperation \"%s\" does not think it's done, even though it should: %s",
 					addReplicaOp.OperationID(), addReplicaOp.String()))
@@ -731,6 +761,9 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 		}, nil, err
 	}
 
+	s.log.Debug("Successfully added new replica %d of kernel \"%s\" during migration (not quite done yet)",
+		addReplicaOp.ReplicaId(), kernelReplica.ID())
+
 	var newlyAddedReplica scheduling.KernelReplica
 	newlyAddedReplica, err = addReplicaOp.Kernel().GetReplicaByID(addReplicaOp.ReplicaId())
 	if err != nil {
@@ -751,8 +784,12 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			Success:     false,
 		}, nil, err
 	} else {
-		s.log.Debug("Successfully added new replica %d to kernel %s during migration operation.", addReplicaOp.ReplicaId(), kernelReplica.ID())
+		s.log.Debug("Successfully added new replica %d to kernel %s during migration operation.",
+			addReplicaOp.ReplicaId(), kernelReplica.ID())
 	}
+
+	s.log.Debug("Designating new replica %d of kernel \"%s\" as \"ready\"",
+		addReplicaOp.ReplicaId(), kernelReplica.ID())
 
 	// The replica is fully operational at this point, so record that it is ready.
 	newlyAddedReplica.SetReady()
@@ -845,9 +882,9 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 		gRpcClientConnection := originalHost.GetGrpcConnection()
 
 		if gRpcClientConnection == nil {
-			err := fmt.Errorf("gRPC Client Connection with host %s (ID=%s) is nil",
+			err := fmt.Errorf("gRPC Client Connection with host %s (ID=%s) is nil. I hope we're unit-testing.",
 				originalHost.GetNodeName(), originalHost.GetID())
-			s.log.Error(utils.RedStyle.Render(err.Error()))
+			s.log.Warn(utils.OrangeStyle.Render(err.Error()))
 			// resultChan <- err
 		} else {
 			s.log.Debug("State of gRPC ClientConn with host %s (ID=%s): %s (%v)", originalHost.GetNodeName(),

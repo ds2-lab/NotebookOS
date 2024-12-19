@@ -8,6 +8,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
@@ -61,7 +62,7 @@ type ResubmissionAfterSuccessfulRevalidationFailedCallback func(replica scheduli
 // These KernelClients are then wrapped/managed by a distributedKernelClientImpl, which is only
 // used by the Gateway.
 //
-// Used by both the Gateway and DefaultSchedulingPolicy Daemon components.
+// Used by both the Gateway and Local Daemon components.
 type KernelReplicaClient struct {
 	*server.BaseServer
 	scheduling.SessionManager
@@ -82,10 +83,10 @@ type KernelReplicaClient struct {
 	numResendAttempts                int                                                // Number of times to try resending a message before giving up.
 	PodOrContainerName               string                                             // Name of the Pod or Container housing the associated distributed kernel replica container.
 	nodeName                         string                                             // Name of the node that the Pod or Container is running on.
-	ready                            bool                                               // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the DefaultSchedulingPolicy Daemon.
+	ready                            bool                                               // True if the replica has registered and joined its SMR cluster. Only used by the internalCluster Gateway, not by the Local Daemon.
 	yieldNextExecutionRequest        bool                                               // If true, then we will yield the next 'execute_request'.
-	hostId                           string                                             // The ID of the host that we're running on (actually, it is the ID of the local daemon running on our host, specifically).
 	host                             scheduling.Host                                    // The host that the kernel replica is running on.
+	hostId                           string                                             // The ID of the scheduling.Host that this KernelReplicaClient is running on. This field exists because we don't actually use scheduling.Host structs on Local Daemons.
 	workloadId                       string                                             // workloadId is the ID of the workload associated with this kernel, if this kernel was created within a workload. This is populated after extracting the ID from the metadata frame of a Jupyter message.
 	workloadIdSet                    bool                                               // workloadIdSet is a flag indicating whether workloadId has been assigned a "meaningful" value or not.
 	trainingStartedAt                time.Time                                          // trainingStartedAt is the time at which the kernel associated with this client began actively training.
@@ -109,7 +110,7 @@ type KernelReplicaClient struct {
 	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback
 
 	// If true, then this client exists on the internalCluster Gateway.
-	// If false, then this client exists on the DefaultSchedulingPolicy Daemon.
+	// If false, then this client exists on the Local Daemon.
 	//
 	// To be clear, this indicates whether this client struct exists within the memory of the internalCluster Gateway.
 	// This is NOT referring to whether the remote client (i.e., the client that this KernelClient is connected to) is on the cluster gateway or local daemon.
@@ -196,7 +197,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 			s.Name = fmt.Sprintf("Kernel-%s", spec.Kernel.Id)
 			s.DebugMode = debugMode
 
-			/* Kernel clients should ACK messages that they're forwarding when the local kernel client lives on the DefaultSchedulingPolicy Daemon. */
+			/* Kernel clients should ACK messages that they're forwarding when the local kernel client lives on the Local Daemon. */
 			s.ShouldAckMessages = shouldAckMessages
 			// s.Sockets.Ack = messaging.NewSocket(Socket: zmq4.NewReq(s.Ctx), Port: info.AckPort}
 			// IOPub is lazily initialized for different subclasses.
@@ -284,11 +285,11 @@ func (c *KernelReplicaClient) WaitForTrainingToStop() {
 //
 // Note for internal usage: this method is thread safe. Do not call this method if the lock for the kernel
 // is already held. If the lock is already held, then call the unsafeUpdateResourceSpec method instead.
-func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec) error {
+func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.unsafeUpdateResourceSpec(newSpec, oldSpec)
+	return c.unsafeUpdateResourceSpec(newSpec, tx)
 }
 
 // UpdateResourceSpec updates the resource spec of the target KernelReplicaClient to the resource
@@ -299,13 +300,34 @@ func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, oldSpec typ
 // On success, nil is returned.
 //
 // Note: this method is thread safe. Do not call this method if the lock for the kernel is already held.
-func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, oldSpec types.Spec) error {
+func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
 	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
-		return fmt.Errorf("%w: %s", ErrInvalidResourceSpec, newSpec.String())
+		err := fmt.Errorf("%w: %s", ErrInvalidResourceSpec, newSpec.String())
+		return err
 	}
 
+	oldSpec := c.ResourceSpec()
 	c.log.Debug("Updating ResourceSpec of replica %d of kernel %s now. Changing from %s to %s.",
 		c.replicaId, c.id, c.spec.ResourceSpec.String(), newSpec.String())
+
+	specAsDecimalSpec := types.ToDecimalSpec(newSpec)
+	if c.Container() != nil { // Will be nil in local daemon.
+		container := c.Container()
+
+		var err error
+		if tx != nil {
+			err = container.Host().KernelAdjustedItsResourceRequestCoordinated(newSpec, oldSpec, container, tx)
+		} else {
+			err = container.Host().KernelAdjustedItsResourceRequest(newSpec, oldSpec, container)
+		}
+
+		if err != nil {
+			return err
+		}
+
+		container.UpdateResourceSpec(specAsDecimalSpec)
+		container.Session().UpdateResourceSpec(specAsDecimalSpec)
+	}
 
 	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
 	c.spec.ResourceSpec.Cpu = int32(newSpec.CPU())
@@ -318,16 +340,10 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, oldSp
 	c.replicaSpec.Kernel.ResourceSpec.Vram = float32(newSpec.VRAM())
 	c.replicaSpec.Kernel.ResourceSpec.Memory = float32(newSpec.MemoryMB())
 
-	if c.Container() == nil {
-		return nil
-	}
+	c.log.Debug("Successfully updated ResourceSpec of replica %d of kernel %s from %s to %s.",
+		c.replicaId, c.id, oldSpec.String(), newSpec.String())
 
-	container := c.Container()
-	specAsDecimalSpec := types.ToDecimalSpec(newSpec)
-
-	container.UpdateResourceSpec(specAsDecimalSpec)
-	container.Session().UpdateResourceSpec(specAsDecimalSpec)
-	return container.Host().KernelAdjustedItsResourceRequest(newSpec, oldSpec, container)
+	return nil
 }
 
 // WaitForPendingExecuteRequests blocks until all outstanding/pending "execute_request" messages sent to the kernel
@@ -383,7 +399,7 @@ func (c *KernelReplicaClient) LastTrainingTimePrometheusUpdate() time.Time {
 
 // KernelStartedTraining should be called when the kernel associated with this client begins actively training.
 //
-// In the DefaultSchedulingPolicy Daemon, this is called in the handleSMRLeadTask method.
+// In the Local Daemon, this is called in the handleSMRLeadTask method.
 //
 // In the internalCluster Gateway, this is called in the handleSmrLeadTaskMessage method of DistributedKernelClient.
 func (c *KernelReplicaClient) KernelStartedTraining() error {
@@ -411,7 +427,7 @@ func (c *KernelReplicaClient) KernelStartedTraining() error {
 
 	// The following code is only executed within the internalCluster Gateway.
 	container := c.Container()
-	if container != nil { // Container will be nil on DefaultSchedulingPolicy Daemons; they don't track resources this way.
+	if container != nil { // Container will be nil on Local Daemons; they don't track resources this way.
 		p := container.Session().SessionStartedTraining(container)
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to start training for session %s: %v", container.Session().ID(), err)
@@ -609,7 +625,7 @@ func (c *KernelReplicaClient) recreateControlSocket() *messaging.Socket {
 
 	var remoteName = messaging.RemoteNameUnspecified
 	if c.isGatewayClient {
-		// The remote client is the kernel client on one of the DefaultSchedulingPolicy Daemons.
+		// The remote client is the kernel client on one of the Local Daemons.
 		remoteName = fmt.Sprintf("K-LD-Ctrl[%s]", c.id)
 	} else {
 		// The remote client is the Jupyter kernel replica itself.
@@ -652,7 +668,7 @@ func (c *KernelReplicaClient) recreateShellSocket() *messaging.Socket {
 
 	var remoteName = messaging.RemoteNameUnspecified
 	if c.isGatewayClient {
-		// The remote client is the kernel client on one of the DefaultSchedulingPolicy Daemons.
+		// The remote client is the kernel client on one of the Local Daemons.
 		remoteName = fmt.Sprintf("K-LD-Shell[%s]", c.id)
 	} else {
 		// The remote client is the Jupyter kernel replica itself.
@@ -679,7 +695,7 @@ func (c *KernelReplicaClient) recreateStdinSocket() *messaging.Socket {
 
 	var remoteName = messaging.RemoteNameUnspecified
 	if c.isGatewayClient {
-		// The remote client is the kernel client on one of the DefaultSchedulingPolicy Daemons.
+		// The remote client is the kernel client on one of the Local Daemons.
 		remoteName = fmt.Sprintf("K-LD-Stdin[%s]", c.id)
 	} else {
 		// The remote client is the Jupyter kernel replica itself.
@@ -702,7 +718,7 @@ func (c *KernelReplicaClient) recreateHeartbeatSocket() *messaging.Socket {
 
 	var remoteName = messaging.RemoteNameUnspecified
 	if c.isGatewayClient {
-		// The remote client is the kernel client on one of the DefaultSchedulingPolicy Daemons.
+		// The remote client is the kernel client on one of the Local Daemons.
 		remoteName = fmt.Sprintf("K-LD-HB[%s]", c.id)
 	} else {
 		// The remote client is the Jupyter kernel replica itself.
@@ -870,7 +886,7 @@ func (c *KernelReplicaClient) String() string {
 }
 
 // IsReady returns true if the replica has registered and joined its SMR cluster.
-// Only used by the internalCluster Gateway, not by the DefaultSchedulingPolicy Daemon.
+// Only used by the internalCluster Gateway, not by the Local Daemon.
 func (c *KernelReplicaClient) IsReady() bool {
 	return c.ready
 }
@@ -881,7 +897,7 @@ func (c *KernelReplicaClient) HostId() string {
 }
 
 // SetReady designates the replica as ready.
-// SetReady is only used by the internalCluster Gateway, not by the DefaultSchedulingPolicy Daemon.
+// SetReady is only used by the internalCluster Gateway, not by the Local Daemon.
 func (c *KernelReplicaClient) SetReady() {
 	c.log.Debug("Kernel %s-%d has been designated as ready.", c.id, c.replicaId)
 	c.ready = true
@@ -1243,6 +1259,10 @@ func (c *KernelReplicaClient) GetHost() scheduling.Host {
 // SetHost sets the Host of the kernel.
 func (c *KernelReplicaClient) SetHost(host scheduling.Host) {
 	c.host = host
+
+	if host != nil {
+		c.hostId = host.GetID()
+	}
 }
 
 // InitializeIOSub initializes the ZMQ SUB socket for handling IO messages from the Jupyter kernel.

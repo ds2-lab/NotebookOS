@@ -3,6 +3,7 @@ package scheduling
 import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
@@ -26,7 +27,7 @@ type PreemptionInfo interface {
 type Host interface {
 	proto.LocalGatewayClient
 
-	// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote DefaultSchedulingPolicy Daemon.
+	// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote Local Daemon.
 	GetGrpcConnection() *grpc.ClientConn
 	GetLocalGatewayClient() proto.LocalGatewayClient
 	GetNodeName() string
@@ -110,6 +111,12 @@ type Host interface {
 	// KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 	// Host is updated or changed. This ensures that the Host's resource counts are up to date.
 	KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer) error
+
+	// KernelAdjustedItsResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
+	// this Host is updated or changed. This ensures that the Host's resource counts are up to date.
+	//
+	// This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
+	KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error
 	Restore(restoreFrom Host, callback ErrorCallback) error
 	Enabled() bool
 	Enable(includeInScheduling bool) error
@@ -158,11 +165,16 @@ type Host interface {
 	GetLastRemoteSync() time.Time
 	GetCreatedAt() time.Time // GetCreatedAt returns the time at which the Host was created.
 
+	// GetResourceCountsAsString returns the current resource counts of the Host as a string and is useful for printing.
+	GetResourceCountsAsString() string
+
 	// AddToPendingResources is only meant to be used during unit tests.
 	AddToPendingResources(spec *types.DecimalSpec) error
+	// AddToCommittedResources is only intended to be used during unit tests.
 	AddToCommittedResources(spec *types.DecimalSpec) error
+	// SubtractFromIdleResources is only intended to be used during unit tests.
+	SubtractFromIdleResources(spec *types.DecimalSpec) error
 	//SubtractFromPendingResources(spec *types.DecimalSpec) error
-	//SubtractFromIdleResources(spec *types.DecimalSpec) error
 	//SubtractFromCommittedResources(spec *types.DecimalSpec) error
 	//AddToIdleResources(spec *types.DecimalSpec) error
 }
@@ -199,7 +211,7 @@ type HostStatistics interface {
 	IdleMemoryMb() float64
 
 	// PendingMemoryMb returns the amount of memory, in megabytes (MB), that is oversubscribed by Containers scheduled on the Host.
-	// Pending MemoryMb are NOT actively bound to any
+	// Pending Memory are NOT actively bound to any
 	PendingMemoryMb() float64
 
 	// CommittedMemoryMb returns the amount of memory, in megabytes (MB), that is actively bound to Containers scheduled on the Host.
@@ -209,7 +221,7 @@ type HostStatistics interface {
 	IdleVRAM() float64
 
 	// PendingVRAM returns the amount of memory, in gigabytes (GB), that is oversubscribed by Containers scheduled on the Host.
-	// Pending MemoryMb are NOT actively bound to any
+	// Pending Memory are NOT actively bound to any
 	PendingVRAM() float64
 
 	// CommittedVRAM returns the amount of memory, in gigabytes (GB), that is actively bound to Containers scheduled on the Host.

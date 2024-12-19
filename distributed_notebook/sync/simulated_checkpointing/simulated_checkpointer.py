@@ -1,11 +1,13 @@
+import asyncio
 import logging
 import random
+import sys
 import time
 import math
 
 from typing import Any
 
-from ...logging.color_formatter import ColoredLogFormatter
+from ...logs.color_formatter import ColoredLogFormatter
 
 def get_new_rate(base_rate: int, percent_deviation: float)->int:
     """
@@ -165,7 +167,7 @@ class SimulatedCheckpointer(object):
 
         self.logger: logging.Logger = logging.getLogger(f"SimulatedCheckpointer[{self.name}] ")
         self.logger.setLevel(logging.DEBUG)
-        self.logger.propagate = False
+        self.logger.propagate = True
         ch = logging.StreamHandler()
         ch.setFormatter(ColoredLogFormatter())
         self.logger.addHandler(ch)
@@ -248,7 +250,7 @@ class SimulatedCheckpointer(object):
 
         return get_estimated_io_time_seconds(size_bytes = read_size_bytes, rate = rate)
 
-    def __simulate_network_io_operation(
+    async def __simulate_network_io_operation(
             self,
             size_bytes: int = 0,
             base_rate: int = 1_000_000,
@@ -281,8 +283,10 @@ class SimulatedCheckpointer(object):
             failure_occurred: bool = roll < failure_percentage_chance
 
             if failure_occurred:
+                self.logger.warning(f"Simulated {operation_name} of 0 bytes failed immediately.")
                 return False, 0 # Size of 0 bytes, so instantaneous.
 
+            self.logger.debug(f"Simulated {operation_name} of 0 bytes succeeded immediately.")
             return True, 0 # Size of 0 bytes, so instantaneous.
 
         if size_bytes > 1.0e6:
@@ -298,6 +302,9 @@ class SimulatedCheckpointer(object):
                           f"targeting {self.name} is estimated to take {round(estimated_time_required_ms, 2)} ms to "
                           f"complete at current data transfer rate of {rate_formatted} {transfer_units}/sec.")
 
+        sys.stdout.flush()
+        sys.stderr.flush()
+
         # If our transfer rate is permitted to vary, then we'll update the rate every second.
         # If the estimated transfer time is less than one second, then the rate will not vary.
         if rate_variance_percent > 0 and estimated_time_required_ms > 1.0e3:
@@ -306,7 +313,8 @@ class SimulatedCheckpointer(object):
 
             # Keep sleeping in ~1sec increments until we've transferred everything.
             while bytes_remaining > 0:
-                time.sleep(sleep_interval_sec)
+                self.logger.debug("Sleeping for 1 second as remaining data transfer is expected to take longer than that.")
+                await asyncio.sleep(sleep_interval_sec)
 
                 # Since current_rate is bytes/second, and we just simulated I/O for 1 second,
                 # the number of bytes transferred is just equal to current_rate.
@@ -342,12 +350,16 @@ class SimulatedCheckpointer(object):
                 # If there's less than 1 second of I/O time remaining based on the current rate, then we'll
                 # sleep for however long is required.
                 sleep_interval_sec = min(1.0, estimated_time_required_sec)
+                sys.stdout.flush()
+                sys.stderr.flush()
         else:
-            time.sleep(estimated_time_required_ms)
+            self.logger.debug(f"Sleeping for {estimated_time_required_ms} ms to simulate network {operation_name} "
+                              f"of size {size_bytes / 1.0e6:,} MB.")
+            await asyncio.sleep(initial_estimated_time_required_seconds)
 
         return True, initial_estimated_time_required_ms
 
-    def upload_data(self, size_bytes: int = 0):
+    async def upload_data(self, size_bytes: int = 0):
         """
         Simulate a write I/O operation.
 
@@ -362,7 +374,7 @@ class SimulatedCheckpointer(object):
         start_time: float = time.time()
         self.last_write_timestamp = start_time
         self.last_io_timestamp = start_time
-        success, estimated_time_required_ms = self.__simulate_network_io_operation(
+        success, estimated_time_required_ms = await self.__simulate_network_io_operation(
             size_bytes = size_bytes,
             base_rate = self.upload_rate,
             rate_variance_percent = self.upload_variance_percent,
@@ -394,7 +406,7 @@ class SimulatedCheckpointer(object):
             self.logger.info(f"Simulated network write of size {transfer_size} {units} targeting {self.name} completed "
                               f"after {latency_ms} ms. Network write took {abs(difference)} ms shorter than expected.")
 
-    def download_data(self, size_bytes: int = 0):
+    async def download_data(self, size_bytes: int = 0):
         """
         Simulate a write I/O operation.
 
@@ -409,7 +421,7 @@ class SimulatedCheckpointer(object):
         start_time: float = time.time()
         self.last_read_timestamp = start_time
         self.last_io_timestamp = start_time
-        success, estimated_time_required_ms = self.__simulate_network_io_operation(
+        success, estimated_time_required_ms = await self.__simulate_network_io_operation(
             size_bytes = size_bytes,
             base_rate = self.download_rate,
             rate_variance_percent = self.upload_variance_percent,
@@ -418,12 +430,14 @@ class SimulatedCheckpointer(object):
         )
 
         if not success:
+            self.logger.warning(f"Simulated read/download of {size_bytes/1.0e6:,} MB failed.")
             # Note: this call will raise a TimeoutError.
             self.__read_operation_failed((time.time() - start_time) * 1.0e3)
             return
 
         latency_ms: float = (time.time() - start_time) * 1.0e3
 
+        self.logger.debug(f"Simulated read/download of {size_bytes/1.0e6:,} MB succeeded.")
         self.__read_operation_succeeded(latency_ms)
 
         if size_bytes > 1.0e6:
@@ -465,10 +479,7 @@ class SimulatedCheckpointer(object):
         raise TimeoutError(f"Simulated network read operation failed after {latency_ms} ms. "
                            f"Roll: {roll}. Likelihood: {self.read_failure_chance_percentage}.")
 
-    read_data = download_data  # alias for download_data
-    write_data = upload_data  # alias for upload_data
-
-def test_simulated_checkpointer():
+async def test_simulated_checkpointer():
     aws_s3 = SimulatedCheckpointer(
         name = "AWS S3",
         download_rate = 50_000_000,
@@ -491,23 +502,23 @@ def test_simulated_checkpointer():
 
     size:int = 512_000_000
     print(f"\n\n\n\n[AWS FSx] DOWNLOAD | SIZE={size} bytes ({size/1.0e6} MB)\n")
-    aws_fsx.download_data(size)
+    await aws_fsx.download_data(size)
 
     size:int = 10_000_000_000
     print(f"\n\n\n\n[AWS FSx] DOWNLOAD | SIZE={size} bytes ({size/1.0e6} MB)\n")
-    aws_fsx.download_data(size)
+    await aws_fsx.download_data(size)
 
     size:int = 128_000_000
     print(f"\n\n\n\n[AWS FSx] UPLOAD | SIZE={size} bytes ({size/1.0e6} MB)\n")
-    aws_fsx.upload_data(size)
+    await aws_fsx.upload_data(size)
 
     size:int = 256_000_000
     print(f"\n\n\n\n[AWS S3] DOWNLOAD | SIZE={size} bytes ({size/1.0e6} MB)\n")
-    aws_s3.download_data(size)
+    await aws_s3.download_data(size)
 
     size:int = 64_000_000
     print(f"\n\n\n\n[AWS S3] UPLOAD | SIZE={size} bytes ({size/1.0e6} MB)\n")
-    aws_s3.upload_data(size)
+    await aws_s3.upload_data(size)
 
 # if __name__ == "__main__":
 #     test_simulated_checkpointer()

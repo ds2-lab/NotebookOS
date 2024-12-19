@@ -46,6 +46,7 @@ func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMa
 
 	dockerCluster.scheduler = dockerScheduler
 	baseCluster.instance = dockerCluster
+	baseCluster.initRatioUpdater()
 
 	return dockerCluster
 }
@@ -203,8 +204,8 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 			return
 		}
 
-		c.log.Error("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.", targetScale)
-		c.log.Error("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.", numDisabledHostsUsed, targetScale-int32(currentScale))
+		c.log.Warn("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.", targetScale)
+		c.log.Warn("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.", numDisabledHostsUsed, targetScale-int32(currentScale))
 
 		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker swarm clusters", scheduling.ErrUnsupportedOperation)
 	}
@@ -271,7 +272,7 @@ func (c *DockerSwarmCluster) unsafeGetTargetedScaleInCommand(targetScale int32, 
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
 //
-// DockerSwarmCluster scales-in by disabling DefaultSchedulingPolicy Daemon nodes while leaving their containers active and running.
+// DockerSwarmCluster scales-in by disabling Local Daemon nodes while leaving their containers active and running.
 //
 // This is because Docker Compose does not allow you to specify the container to be terminated when scaling-down
 // a docker compose service.

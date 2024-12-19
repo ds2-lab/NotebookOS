@@ -4,6 +4,7 @@ import (
 	"errors"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -69,8 +70,11 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 		Expect(err).To(BeNil())
 
-		err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+		var allocatedGpuResourceIds []int
+		allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
 		Expect(err).To(BeNil())
+		Expect(allocatedGpuResourceIds).ToNot(BeNil())
+		Expect(len(allocatedGpuResourceIds)).To(Equal(2))
 
 		Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
 		Expect(resourceManager.NumAllocations()).To(Equal(1))
@@ -79,13 +83,17 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
 		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec.Subtract(kernel1Spec))).To(BeTrue())
 		Expect(resourceManager.CommittedResources().Equals(kernel1Spec)).To(BeTrue())
+
+		Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(2))
+		Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(6))
 	})
 
 	It("Will fail to promote a pending allocation to a committed allocation for a non-existent pending allocation", func() {
 		kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
-		err := resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+		allocatedGpuResourceIds, err := resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
 		Expect(err).ToNot(BeNil())
 		Expect(errors.Is(err, resource.ErrInvalidAllocationRequest)).To(BeTrue())
+		Expect(allocatedGpuResourceIds).To(BeNil())
 	})
 
 	It("Will correctly handle scheduling multiple committed resources", func() {
@@ -107,17 +115,24 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		By("Correctly handling the scheduling of the first committed resources")
 
-		err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+		var allocatedGpuResourceIds []int
+		allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
 
 		Expect(err).To(BeNil())
 		Expect(resourceManager.NumAllocations()).To(Equal(2))
 		Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
 		Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(2))
+		Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(6))
+		Expect(allocatedGpuResourceIds).ToNot(BeNil())
+		Expect(len(allocatedGpuResourceIds)).To(Equal(2))
 
 		By("Correctly handling the scheduling of the second committed resources")
 
-		err = resourceManager.CommitResources(1, "Kernel2", kernel2Spec, false)
+		allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel2", kernel2Spec, false)
 		Expect(err).To(BeNil())
+		Expect(allocatedGpuResourceIds).ToNot(BeNil())
+		Expect(len(allocatedGpuResourceIds)).To(Equal(2))
 
 		kernel1And2Spec := kernel1Spec.Add(kernel2Spec)
 
@@ -128,6 +143,8 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
 		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec.Subtract(kernel1And2Spec))).To(BeTrue())
 		Expect(resourceManager.CommittedResources().Equals(kernel1And2Spec)).To(BeTrue())
+		Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(4))
+		Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(4))
 
 		By("Correctly handling the scheduling of the third pending resources")
 
@@ -141,8 +158,9 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		By("Correctly rejecting the scheduling of the third committed resources due to lack of available CPU")
 
-		err = resourceManager.CommitResources(1, "Kernel3", kernel3spec, false)
+		allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel3", kernel3spec, false)
 		Expect(err).ToNot(BeNil())
+		Expect(allocatedGpuResourceIds).To(BeNil())
 
 		GinkgoWriter.Printf("Error: %v\n", err)
 
@@ -164,8 +182,9 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		By("Correctly rejecting the scheduling of the fourth committed resources due to lack of available GPU")
 
-		err = resourceManager.CommitResources(1, "Kernel4", kernel4spec, false)
+		allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel4", kernel4spec, false)
 		Expect(err).ToNot(BeNil())
+		Expect(allocatedGpuResourceIds).To(BeNil())
 
 		ok = errors.As(err, &insufficientResourcesError)
 		Expect(ok).To(BeTrue())
@@ -184,8 +203,9 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		By("Correctly rejecting the scheduling of the fifth committed resources due to lack of available memory")
 
-		err = resourceManager.CommitResources(1, "Kernel5", kernel5spec, false)
+		allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel5", kernel5spec, false)
 		Expect(err).ToNot(BeNil())
+		Expect(allocatedGpuResourceIds).To(BeNil())
 
 		ok = errors.As(err, &insufficientResourcesError)
 		Expect(ok).To(BeTrue())
@@ -204,8 +224,9 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		By("Correctly rejecting the scheduling of the sixth committed resources due to lack of available memory")
 
-		err = resourceManager.CommitResources(1, "Kernel6", kernel6spec, false)
+		allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel6", kernel6spec, false)
 		Expect(err).ToNot(BeNil())
+		Expect(allocatedGpuResourceIds).To(BeNil())
 
 		ok = errors.As(err, &insufficientResourcesError)
 		Expect(ok).To(BeTrue())
@@ -224,8 +245,9 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		By("Correctly rejecting the scheduling of the seventh committed resources due to lack of availability for all resource types")
 
-		err = resourceManager.CommitResources(1, "Kernel7", kernel7spec, false)
+		allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel7", kernel7spec, false)
 		Expect(err).ToNot(BeNil())
+		Expect(allocatedGpuResourceIds).To(BeNil())
 
 		ok = errors.As(err, &insufficientResourcesError)
 		Expect(ok).To(BeTrue())
@@ -312,12 +334,17 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 		Expect(err).To(BeNil())
 
-		err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+		var allocatedGpuResourceIds []int
+		allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
 		Expect(err).To(BeNil())
+		Expect(allocatedGpuResourceIds).ToNot(BeNil())
+		Expect(len(allocatedGpuResourceIds)).To(Equal(2))
 
 		Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
 		Expect(resourceManager.NumAllocations()).To(Equal(1))
 		Expect(resourceManager.NumCommittedAllocations()).To(Equal(1))
+		Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(2))
+		Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(6))
 
 		Expect(resourceManager.PendingResources().IsZero()).To(BeTrue())
 		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec.Subtract(kernel1Spec))).To(BeTrue())
@@ -333,6 +360,8 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(resourceManager.PendingResources().Equals(kernel1Spec)).To(BeTrue())
 		Expect(resourceManager.IdleResources().Equals(resourceManagerSpec)).To(BeTrue())
 		Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
+		Expect(resourceManager.NumCommittedGpuDevices()).To(Equal(0))
+		Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(8))
 	})
 
 	It("Will fail to allocate pending resources for a request it cannot satisfy", func() {
@@ -411,8 +440,11 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 		Expect(err).To(BeNil())
 
-		err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+		var allocatedGpuResourceIds []int
+		allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
 		Expect(err).To(BeNil())
+		Expect(allocatedGpuResourceIds).ToNot(BeNil())
+		Expect(len(allocatedGpuResourceIds)).To(Equal(2))
 
 		Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
 		Expect(resourceManager.NumAllocations()).To(Equal(1))
@@ -523,8 +555,11 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 		Expect(err).To(BeNil())
 
-		err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+		var allocatedGpuResourceIds []int
+		allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
 		Expect(err).To(BeNil())
+		Expect(allocatedGpuResourceIds).ToNot(BeNil())
+		Expect(len(allocatedGpuResourceIds)).To(Equal(2))
 
 		Expect(resourceManager.NumPendingAllocations()).To(Equal(0))
 		Expect(resourceManager.NumAllocations()).To(Equal(1))
@@ -538,7 +573,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		err = resourceManager.AdjustPendingResources(1, "Kernel1", kernel1SpecV2)
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, resource.ErrInvalidOperation)).To(BeTrue())
+		Expect(errors.Is(err, scheduling.ErrInvalidOperation)).To(BeTrue())
 	})
 
 	It("Will fail to adjust a resource request that does not exist", func() {

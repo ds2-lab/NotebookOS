@@ -48,9 +48,9 @@ import (
 )
 
 const (
-	// DefaultPrometheusPort is the default port on which the DefaultSchedulingPolicy Daemon will serve Prometheus metrics.
+	// DefaultPrometheusPort is the default port on which the Local Daemon will serve Prometheus metrics.
 	DefaultPrometheusPort int = 8089
-	// DefaultPrometheusInterval is the default interval on which the DefaultSchedulingPolicy Daemon will push new Prometheus metrics.
+	// DefaultPrometheusInterval is the default interval on which the Local Daemon will push new Prometheus metrics.
 	DefaultPrometheusInterval = time.Second * 5
 	// DefaultNumResendAttempts is the default number of attempts we'll resend a message before giving up.
 	DefaultNumResendAttempts = 3
@@ -100,14 +100,14 @@ type SchedulerDaemonImpl struct {
 	id       string
 	nodeName string
 
-	// finishedGatewayHandshake is set in setID when the DefaultSchedulingPolicy Daemon completes to registration
+	// finishedGatewayHandshake is set in setID when the Local Daemon completes to registration
 	// procedure with the cluster gateway for the first time.
 	finishedGatewayHandshake bool
 
 	tracer       opentracing.Tracer
 	consulClient *consul.Client
 
-	// The gRPC server used by the DefaultSchedulingPolicy Daemon and Cluster Gateway.
+	// The gRPC server used by the Local Daemon and Cluster Gateway.
 	grpcServer *GRPCServerWrapper
 	listener   net.Listener
 
@@ -123,6 +123,8 @@ type SchedulerDaemonImpl struct {
 
 	schedulingPolicy scheduling.Policy
 
+	kernelsStopping hashmap.HashMap[string, chan struct{}]
+
 	proto.UnimplementedLocalGatewayServer
 	proto.UnimplementedKernelErrorReporterServer
 	router *router.Router
@@ -135,7 +137,7 @@ type SchedulerDaemonImpl struct {
 	provisioner                     proto.ClusterGatewayClient
 	provisionerClientConnectionGRPC *grpc.ClientConn
 
-	// prometheusManager creates and serves Prometheus metrics for the DefaultSchedulingPolicy Daemon.
+	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
 	prometheusManager *metrics.LocalDaemonPrometheusManager
 	// Indicates that a goroutine has been started to publish metrics to Prometheus.
 	servingPrometheus atomic.Int32
@@ -199,7 +201,7 @@ type SchedulerDaemonImpl struct {
 	// numResendAttempts is the number of times to try resending a message before giving up.
 	numResendAttempts int
 
-	// Manages resource allocations on behalf of the DefaultSchedulingPolicy Daemon.
+	// Manages resource allocations on behalf of the Local Daemon.
 	resourceManager *resource.AllocationManager
 
 	// Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
@@ -234,8 +236,11 @@ type SchedulerDaemonImpl struct {
 	// kernelErrorReporterServerPort is the port on which the proto.KernelErrorReporterServer gRPC service is listening.
 	kernelErrorReporterServerPort int
 
-	// localDaemonOptions is the options struct that the DefaultSchedulingPolicy Daemon was created with.
+	// localDaemonOptions is the options struct that the Local Daemon was created with.
 	localDaemonOptions *domain.LocalDaemonOptions
+
+	// useRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	useRealGpus bool
 
 	// lifetime
 	closed  chan struct{}
@@ -277,6 +282,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		ip:                                 ip,
 		id:                                 dockerNodeId,
 		nodeName:                           nodeName,
+		kernelsStopping:                    hashmap.NewCornelkMap[string, chan struct{}](128),
 		kernels:                            hashmap.NewCornelkMap[string, scheduling.KernelReplica](128),
 		kernelClientCreationChannels:       hashmap.NewCornelkMap[string, chan *proto.KernelConnectionInfo](128),
 		kernelDebugPorts:                   hashmap.NewCornelkMap[string, int](256),
@@ -303,6 +309,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		MessageAcknowledgementsEnabled:     localDaemonOptions.MessageAcknowledgementsEnabled,
 		SimulateCheckpointingLatency:       localDaemonOptions.SimulateCheckpointingLatency,
 		electionTimeoutSeconds:             localDaemonOptions.ElectionTimeoutSeconds,
+		useRealGpus:                        localDaemonOptions.UseRealGPUs,
 	}
 
 	for _, configFunc := range configs {
@@ -330,11 +337,30 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		daemon.numResendAttempts = DefaultNumResendAttempts
 	}
 
+	gpusPerHost := localDaemonOptions.GpusPerHost
+	if gpusPerHost == -1 {
+		if !localDaemonOptions.UseRealGPUs {
+			daemon.log.Error("Invalid number of simulated GPUs specified: %d", gpusPerHost)
+			panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d", gpusPerHost))
+		}
+
+		daemon.log.Debug("Attempting to look up the number of real/actual GPUs available on this node.")
+
+		var err error
+		gpusPerHost, err = utils.GetNumberOfActualGPUs()
+		if err != nil {
+			daemon.log.Error("Failed to look up the number of real/actual GPUs available on this node: %v", err)
+			panic(err)
+		}
+
+		daemon.log.Debug("Successfully looked up the number of real/actual GPUs available on this node: %d", gpusPerHost)
+	}
+
 	daemon.resourceManager = resource.NewAllocationManager(&types.Float64Spec{
-		GPUs:      float64(localDaemonOptions.GpusPerHost),
+		GPUs:      float64(gpusPerHost),
 		VRam:      scheduling.VramPerHostGb,
 		Millicpus: scheduling.MillicpusPerHost,
-		MemoryMb:  scheduling.MemoryMbPerHost})
+		Memory:    scheduling.MemoryMbPerHost})
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -535,7 +561,7 @@ func isValidId(id string) bool {
 }
 
 // SetID sets the SchedulerDaemonImpl id by the gateway.
-// This also instructs the DefaultSchedulingPolicy Daemon to create a LocalDaemonPrometheusManager and begin serving metrics.
+// This also instructs the Local Daemon to create a LocalDaemonPrometheusManager and begin serving metrics.
 func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto.HostId, error) {
 	// If we've already done this once before, then we'll use our existing ID and whatnot.
 	if d.finishedGatewayHandshake {
@@ -575,7 +601,7 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 	d.finishedGatewayHandshake = true
 
 	if d.prometheusManager != nil {
-		// We'll just restart the DefaultSchedulingPolicy Daemon's Prometheus Manager.
+		// We'll just restart the Local Daemon's Prometheus Manager.
 		_ = d.prometheusManager.Stop()
 		if err := d.prometheusManager.Start(); err != nil {
 			d.log.Error("Failed to start Prometheus Manager because: %v", err)
@@ -625,7 +651,7 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 		// We only call Done if we're creating the LocalDaemonPrometheusManager for the first time.
 		d.prometheusStarted.Done()
 
-		// Register the Prometheus metrics manager with the ResourceManager and the DefaultSchedulingPolicy Daemon's Router.
+		// Register the Prometheus metrics manager with the ResourceManager and the Local Daemon's Router.
 		d.resourceManager.RegisterMetricsManager(d.prometheusManager)
 		d.router.AssignPrometheusManager(d.prometheusManager)
 	}
@@ -735,13 +761,13 @@ func (d *SchedulerDaemonImpl) initializeConsulAndTracer() {
 // This is thread-safe. If another thread is already executing connectToGateway when the current thread calls
 // connectToGateway, then the current thread will return immediately.
 func (d *SchedulerDaemonImpl) connectToGateway(gatewayAddress string, finalize LocalDaemonFinalizer) error {
-	// We use this finalize function to ensure we don't needlessly terminate the DefaultSchedulingPolicy Daemon process/container
+	// We use this finalize function to ensure we don't needlessly terminate the Local Daemon process/container
 	// when we're purposefully reconnecting to the Cluster Gateway (as doing so necessarily requires that we
 	// shut down the existing gRPC server and whatnot, and ordinarily that causes use to panic).
 	wrappedFinalizeFunction := func(currentRpcServer *GRPCServerWrapper) {
 		// If the server was purposefully shutdown, then we shouldn't terminate.
 		// That is, if we shut it down because we're attempting to reconnect to the Cluster Gateway,
-		// then we shouldn't panic/kill the entire DefaultSchedulingPolicy Daemon process. We're intentionally shutting
+		// then we shouldn't panic/kill the entire Local Daemon process. We're intentionally shutting
 		// down the Provisioner. It's fine.
 		//
 		// If on the other hand, we did NOT manually/explicitly shut down the provisioner ourselves,
@@ -1020,6 +1046,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 			SimulateWriteAfterExec:               d.schedulingPolicy.PostExecutionStatePolicy().ShouldPerformWriteOperation(),
 			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
+			UseRealGpus:                          d.useRealGpus,
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1166,13 +1193,13 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 			if errors.Is(err, types.ErrDuplicateRegistrationNotification) {
 				// TODO: What to do here? If the Gateway received our request but then there was some sort
 				//       of error, then we need a way to get the response. The Gateway could call an RPC to
-				//		 this DefaultSchedulingPolicy Daemon with the response, perhaps. But is it obvious that the Gateway will
+				//		 this Local Daemon with the response, perhaps. But is it obvious that the Gateway will
 				//	     know to do this? Like, will the connection error be visible to the Gateway, or is it just
 				// 		 going to return from the NotifyKernelRegistered RPC handler like nothing is wrong?
 				//
 				//	     In any case, if it becomes a problem, then the Gateway can either send the result proactively
-				//		 via some other RPC, or if the DefaultSchedulingPolicy Daemon gets a types.ErrDuplicateRegistrationNotification
-				//	     error, then maybe the DefaultSchedulingPolicy Daemon can periodically call some other RPC (yet to be implemented)
+				//		 via some other RPC, or if the Local Daemon gets a types.ErrDuplicateRegistrationNotification
+				//	     error, then maybe the Local Daemon can periodically call some other RPC (yet to be implemented)
 				//		 that either attempts to receive the result of the registration, OR just blocks until that
 				//		 result is available.
 				//
@@ -1180,8 +1207,8 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 				notifyCtx, cancelNotify := context.WithTimeout(context.Background(), time.Second*10)
 				d.notifyClusterGatewayOfError(notifyCtx, &proto.Notification{
 					Id:    uuid.NewString(),
-					Title: "DefaultSchedulingPolicy Daemon Sent Duplicate \"Kernel Registered\" Message",
-					Message: fmt.Sprintf("DefaultSchedulingPolicy daemon %s (ID=%s) sent a duplicate \"kernel registered\" notification for replica %d of kernel %s.",
+					Title: "Local Daemon Sent Duplicate \"Kernel Registered\" Message",
+					Message: fmt.Sprintf("Local Daemon %s (ID=%s) sent a duplicate \"kernel registered\" notification for replica %d of kernel %s.",
 						d.nodeName, d.id, registrationPayload.ReplicaId, kernel.ID()),
 					NotificationType: 0,
 					Panicked:         true,
@@ -1234,8 +1261,8 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 		panic(domain.ErrKernelRegistrationNotificationFailure)
 	}
 
-	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v.",
-		response.Id, response.Replicas)
+	d.log.Debug("Successfully notified Gateway of kernel registration. Will be assigning replica ID of %d to kernel. Replicas: %v. Response: %v.",
+		response.Id, response.Replicas, response.String())
 
 	if response.ResourceSpec == nil {
 		errorMessage := fmt.Sprintf("ResourceSpec for kernel %s is nil.", kernel.ID())
@@ -1315,7 +1342,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 	// time.Sleep(time.Second * 1)
 }
 
-// ReconnectToGateway is used to force the DefaultSchedulingPolicy Daemon to reconnect to the Cluster Gateway.
+// ReconnectToGateway is used to force the Local Daemon to reconnect to the Cluster Gateway.
 //
 // The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
 // to avoid causing the ReconnectToGateway to encounter an error.
@@ -1687,7 +1714,7 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 
 // smrNodeAddedCallback is a callback passed to the Kernel of a kernel such that, when the kernel
 // client receives a "smr_node_added" IOPub message, it will call the smrNodeAddedCallback method so that
-// the DefaultSchedulingPolicy Daemon can notify the Cluster Gateway.
+// the Local Daemon can notify the Cluster Gateway.
 //
 // NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
 func (d *SchedulerDaemonImpl) smrNodeAddedCallback(readyMessage *messaging.MessageSMRNodeUpdated) {
@@ -1845,7 +1872,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 
 	// If we're performing FCFS batch scheduling, then we commit resources right away.
 	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-		resourceError = d.resourceManager.CommitResources(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec, false)
+		_, resourceError = d.resourceManager.CommitResources(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec, false)
 
 		if resourceError != nil {
 			d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
@@ -1871,6 +1898,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
 			WorkloadId:                           in.WorkloadId,
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
+			UseRealGpus:                          d.useRealGpus,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.
@@ -2018,7 +2046,9 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId
 	// Remove the kernel from our hash map.
 	d.kernels.Delete(in.Id)
 
-	d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
+	if d.prometheusManager != nil {
+		d.prometheusManager.NumActiveKernelReplicasGauge.Sub(1)
+	}
 
 	// Release any resources allocated to the kernel.
 	if err := d.resourceManager.ReplicaEvicted(kernel.ReplicaID(), in.Id); err != nil {
@@ -2029,7 +2059,7 @@ func (d *SchedulerDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId
 
 	stopChan, loaded := d.executeRequestQueueStopChannels.Load(kernel.ID())
 	if !loaded {
-		d.log.Error("Unable to load \"stop channel\" for \"execute_request\" forwarder of replica %d of kernel %s",
+		d.log.Warn("Unable to load \"stop channel\" for \"execute_request\" forwarder of replica %d of kernel %s",
 			kernel.ReplicaID(), kernel.ID())
 	} else {
 		// Tell the goroutine to stop.
@@ -2142,7 +2172,7 @@ func (d *SchedulerDaemonImpl) startKernelRegistryService() {
 			continue
 		}
 
-		d.log.Info("Accepted kernel registry connection. DefaultSchedulingPolicy: %s. Remote: %s.", conn.LocalAddr(), conn.RemoteAddr())
+		d.log.Info("Accepted kernel registry connection. Local: %s. Remote: %s.", conn.LocalAddr(), conn.RemoteAddr())
 		kernelRegistrationClient := &KernelRegistrationClient{conn: conn}
 		go d.registerKernelReplica(context.TODO(), kernelRegistrationClient)
 	}
@@ -2537,9 +2567,12 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *messaging.JupyterMessage,
 
 	if shouldCallTrainingStopped {
 		_ = kernelClient.KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.")
-		d.prometheusManager.TrainingTimeGaugeVec.
-			With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
-			Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
+
+		if d.prometheusManager != nil {
+			d.prometheusManager.TrainingTimeGaugeVec.
+				With(prometheus.Labels{"workload_id": kernelClient.WorkloadId(), "kernel_id": kernelClient.ID(), "node_id": d.id}).
+				Add(time.Since(kernelClient.LastTrainingTimePrometheusUpdate()).Seconds())
+		}
 	}
 
 	kernelClient.ReceivedExecuteReply(msg)
@@ -2547,7 +2580,9 @@ func (d *SchedulerDaemonImpl) processExecuteReply(msg *messaging.JupyterMessage,
 	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
 	_, _ = d.addResourceSnapshotToJupyterMessage(msg, kernelClient)
 
-	d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
+	if d.prometheusManager != nil {
+		d.prometheusManager.NumTrainingEventsCompletedCounter.Inc()
+	}
 
 	return nil /* will be nil on success */
 }
@@ -2563,16 +2598,15 @@ func (d *SchedulerDaemonImpl) updateKernelResourceSpec(kernel scheduling.KernelR
 		return fmt.Errorf("%w: %s", client.ErrInvalidResourceSpec, newSpec.String())
 	}
 
-	oldSpec := kernel.ResourceSpec()
-	d.log.Debug("Attempting to update pending resource allocation for kernel %s from %s to %s.",
-		kernel.ID(), oldSpec.String(), newSpec.String())
+	d.log.Debug("Updating pending alloc for kernel %s: from %s to %s.",
+		kernel.ID(), kernel.ResourceSpec().String(), newSpec.String())
 	err := d.resourceManager.AdjustPendingResources(kernel.ReplicaID(), kernel.ID(), newSpec)
 	if err != nil {
 		d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
 		return err
 	}
 
-	err = kernel.UpdateResourceSpec(newSpec, oldSpec)
+	err = kernel.UpdateResourceSpec(newSpec, nil)
 	if err != nil {
 		panic(err)
 	}
@@ -2621,7 +2655,6 @@ func (d *SchedulerDaemonImpl) processExecuteRequestMetadata(msg *messaging.Jupyt
 			kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
 
 		if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
-			d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
 			return targetReplicaId, metadataDict, err
 		}
 	}
@@ -2692,7 +2725,7 @@ func (d *SchedulerDaemonImpl) processExecOrYieldRequest(msg *messaging.JupyterMe
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
 		d.log.Debug("[gid=%d] Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
 			gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
-		resourceAllocationError := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
+		gpuDeviceIds, resourceAllocationError := d.resourceManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
 
 		if resourceAllocationError != nil {
 			d.log.Warn("[gid=%d] Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",
@@ -2711,9 +2744,17 @@ func (d *SchedulerDaemonImpl) processExecOrYieldRequest(msg *messaging.JupyterMe
 
 			shouldYield = true
 		} else {
-			d.log.Debug("[gid=%d] Successfully reserved the following resources for replica %d of kernel %s in anticipation of its leader election: %s.",
-				gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
+			d.log.Debug("[gid=%d] Successfully reserved the following resources for replica %d of kernel %s in anticipation of its leader election: %s (GPU Device IDs: %v).",
+				gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String(), gpuDeviceIds)
 			allocationFailedDueToInsufficientResources = false
+
+			metadataDict["gpu_device_ids"] = gpuDeviceIds
+		}
+	} else if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
+		gpuDeviceIds, _ := d.resourceManager.GetGpuDeviceIdsAssignedToReplica(kernel.ReplicaID(), kernel.ID())
+
+		if gpuDeviceIds != nil {
+			metadataDict["gpu_device_ids"] = gpuDeviceIds
 		}
 	}
 
@@ -2728,8 +2769,8 @@ func (d *SchedulerDaemonImpl) processExecOrYieldRequest(msg *messaging.JupyterMe
 	metadataDict["required-vram-gb"] = kernel.ResourceSpec().VRAM()
 
 	d.log.Debug("[gid=%d] Including current idle resource counts in request metadata. Idle Millicpus: %s, idle memory (MB): %s, idle GPUs: %s, idle VRAM: %s.",
-		gid, idleResourcesBeforeReservation.Millicpus.StringFixed(6), idleResourcesBeforeReservation.MemoryMb.StringFixed(6),
-		idleResourcesBeforeReservation.GPUs.StringFixed(1), idleResourcesBeforeReservation.VRam.StringFixed(6))
+		gid, idleResourcesBeforeReservation.Millicpus.StringFixed(4), idleResourcesBeforeReservation.MemoryMb.StringFixed(4),
+		idleResourcesBeforeReservation.GPUs.StringFixed(1), idleResourcesBeforeReservation.VRam.StringFixed(4))
 
 	// There are several circumstances in which we'll need to tell our replica of the target kernel to yield the execution to one of the other replicas:
 	// - If there are insufficient GPUs on this node, then our replica will need to yield.
@@ -3057,8 +3098,8 @@ func (d *SchedulerDaemonImpl) handleErrorReport(kernel scheduling.KernelReplica,
 }
 
 // Notify is an implementation of the proto.KernelErrorReporterServer gRPC interface. Specifically, Notify is used
-// by Jupyter kernel replicas running on the same scheduling.Host as this DefaultSchedulingPolicy Daemon to notify when something occurs.
-// Typically, this API is used to inform the DefaultSchedulingPolicy Daemon that an error has occurred, so that the DefaultSchedulingPolicy Daemon can
+// by Jupyter kernel replicas running on the same scheduling.Host as this Local Daemon to notify when something occurs.
+// Typically, this API is used to inform the Local Daemon that an error has occurred, so that the Local Daemon can
 // in turn notify the Cluster Gateway, which can then send a notification to the Cluster Dashboard UI to inform the user.
 func (d *SchedulerDaemonImpl) Notify(ctx context.Context, notification *proto.KernelNotification) (*proto.Void, error) {
 	if notification.NotificationType == 0 {
@@ -3158,7 +3199,7 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.KernelReplica,
 				jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), kernel.ID(), err)
 		}
 
-		// Note: we don't really need to pass the snapshot here, as it isn't used in the DefaultSchedulingPolicy Daemon.
+		// Note: we don't really need to pass the snapshot here, as it isn't used in the Local Daemon.
 		_ = kernel.KernelStartedTraining()
 
 		// Don't return here -- we want this to be forwarded to the internalCluster Gateway.
@@ -3182,8 +3223,8 @@ func (d *SchedulerDaemonImpl) handleSMRLeadTask(kernel scheduling.KernelReplica,
 }
 
 // addResourceSnapshotToJupyterMessage decodes the metadata frame of the given messaging.JupyterMessage
-// and adds an entry under the scheduling.ResourceSnapshotMetadataKey key with the value being a snapshot
-// of the current resource quantities of the DefaultSchedulingPolicy Daemon's ResourceManager.
+// and adds an entry under the scheduling.SnapshotMetadataKey key with the value being a snapshot
+// of the current resource quantities of the Local Daemon's ResourceManager.
 func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *messaging.JupyterMessage, kernel scheduling.KernelReplica) (*resource.ManagerSnapshot, error) {
 	var snapshot *resource.ManagerSnapshot
 
@@ -3204,7 +3245,7 @@ func (d *SchedulerDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *messagin
 		return nil, decodeError
 	} else {
 		snapshot = d.resourceManager.ResourcesSnapshot()
-		metadata[resource.ResourceSnapshotMetadataKey] = snapshot
+		metadata[resource.SnapshotMetadataKey] = snapshot
 
 		// Re-encode the metadata frame. It will have the number of idle GPUs available,
 		// as well as the reason that the request was yielded (if it was yielded).

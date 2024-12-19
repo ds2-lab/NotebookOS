@@ -22,6 +22,7 @@ import (
 	metrics "github.com/scusemua/distributed-notebook/common/metrics"
 	proto "github.com/scusemua/distributed-notebook/common/proto"
 	scheduling "github.com/scusemua/distributed-notebook/common/scheduling"
+	transaction "github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	types "github.com/scusemua/distributed-notebook/common/types"
 	hashmap "github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	decimal "github.com/shopspring/decimal"
@@ -699,6 +700,21 @@ func (m *MockScheduler) GetAddReplicaOperationManager() hashmap.HashMap[string, 
 func (mr *MockSchedulerMockRecorder) GetAddReplicaOperationManager() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAddReplicaOperationManager", reflect.TypeOf((*MockScheduler)(nil).GetAddReplicaOperationManager))
+}
+
+// GetCandidateHost mocks base method.
+func (m *MockScheduler) GetCandidateHost(replica scheduling.KernelReplica, blacklistedHosts []scheduling.Host, forTraining bool) (scheduling.Host, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCandidateHost", replica, blacklistedHosts, forTraining)
+	ret0, _ := ret[0].(scheduling.Host)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCandidateHost indicates an expected call of GetCandidateHost.
+func (mr *MockSchedulerMockRecorder) GetCandidateHost(replica, blacklistedHosts, forTraining any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCandidateHost", reflect.TypeOf((*MockScheduler)(nil).GetCandidateHost), replica, blacklistedHosts, forTraining)
 }
 
 // GetCandidateHosts mocks base method.
@@ -2042,6 +2058,20 @@ func (mr *MockHostMockRecorder) GetReservation(kernelId any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetReservation", reflect.TypeOf((*MockHost)(nil).GetReservation), kernelId)
 }
 
+// GetResourceCountsAsString mocks base method.
+func (m *MockHost) GetResourceCountsAsString() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetResourceCountsAsString")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetResourceCountsAsString indicates an expected call of GetResourceCountsAsString.
+func (mr *MockHostMockRecorder) GetResourceCountsAsString() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceCountsAsString", reflect.TypeOf((*MockHost)(nil).GetResourceCountsAsString))
+}
+
 // GetResourceSpec mocks base method.
 func (m *MockHost) GetResourceSpec() types.Spec {
 	m.ctrl.T.Helper()
@@ -2290,6 +2320,20 @@ func (m *MockHost) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec types.S
 func (mr *MockHostMockRecorder) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec, container any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelAdjustedItsResourceRequest", reflect.TypeOf((*MockHost)(nil).KernelAdjustedItsResourceRequest), updatedSpec, oldSpec, container)
+}
+
+// KernelAdjustedItsResourceRequestCoordinated mocks base method.
+func (m *MockHost) KernelAdjustedItsResourceRequestCoordinated(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "KernelAdjustedItsResourceRequestCoordinated", updatedSpec, oldSpec, container, coordinatedTransaction)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// KernelAdjustedItsResourceRequestCoordinated indicates an expected call of KernelAdjustedItsResourceRequestCoordinated.
+func (mr *MockHostMockRecorder) KernelAdjustedItsResourceRequestCoordinated(updatedSpec, oldSpec, container, coordinatedTransaction any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelAdjustedItsResourceRequestCoordinated", reflect.TypeOf((*MockHost)(nil).KernelAdjustedItsResourceRequestCoordinated), updatedSpec, oldSpec, container, coordinatedTransaction)
 }
 
 // KillKernel mocks base method.
@@ -2965,6 +3009,20 @@ func (m *MockHost) SubscribedRatioAsDecimal() decimal.Decimal {
 func (mr *MockHostMockRecorder) SubscribedRatioAsDecimal() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribedRatioAsDecimal", reflect.TypeOf((*MockHost)(nil).SubscribedRatioAsDecimal))
+}
+
+// SubtractFromIdleResources mocks base method.
+func (m *MockHost) SubtractFromIdleResources(spec *types.DecimalSpec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubtractFromIdleResources", spec)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SubtractFromIdleResources indicates an expected call of SubtractFromIdleResources.
+func (mr *MockHostMockRecorder) SubtractFromIdleResources(spec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubtractFromIdleResources", reflect.TypeOf((*MockHost)(nil).SubtractFromIdleResources), spec)
 }
 
 // SynchronizeResourceInformation mocks base method.
@@ -5756,17 +5814,17 @@ func (mr *MockKernelReplicaMockRecorder) UnbindSession(sess any) *gomock.Call {
 }
 
 // UpdateResourceSpec mocks base method.
-func (m *MockKernelReplica) UpdateResourceSpec(newSpec, oldSpec types.Spec) error {
+func (m *MockKernelReplica) UpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateResourceSpec", newSpec, oldSpec)
+	ret := m.ctrl.Call(m, "UpdateResourceSpec", newSpec, tx)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // UpdateResourceSpec indicates an expected call of UpdateResourceSpec.
-func (mr *MockKernelReplicaMockRecorder) UpdateResourceSpec(newSpec, oldSpec any) *gomock.Call {
+func (mr *MockKernelReplicaMockRecorder) UpdateResourceSpec(newSpec, tx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateResourceSpec", reflect.TypeOf((*MockKernelReplica)(nil).UpdateResourceSpec), newSpec, oldSpec)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateResourceSpec", reflect.TypeOf((*MockKernelReplica)(nil).UpdateResourceSpec), newSpec, tx)
 }
 
 // Validate mocks base method.

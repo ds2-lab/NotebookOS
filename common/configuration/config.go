@@ -3,7 +3,7 @@ package configuration
 // CommonOptions includes all configuration parameters that are common to both the Cluster Gateway
 // and the Local Daemon components.
 type CommonOptions struct {
-	GpusPerHost                        int    `name:"gpus-per-host"                     json:"gpus-per-host"                    yaml:"gpus-per-host" description:"The number of actual GPUs that are available for use on each node/host."`
+	GpusPerHost                        int    `name:"gpus-per-host"                    json:"gpus-per-host"                     yaml:"gpus-per-host" description:"The number of actual GPUs that are available for use on each node/host."`
 	DeploymentMode                     string `name:"deployment_mode"                  json:"deployment_mode"                   yaml:"deployment_mode"                     description:"SchedulerOptions are 'docker-compose', 'docker-swarm', and 'kubernetes'."`
 	UsingWSL                           bool   `name:"using-wsl"                        json:"using-wsl"                         yaml:"using-wsl"                           description:"Flag indicating whether we're running within WSL2 (Windows Subsystem for Linux). Requires additional networking configuring for the Docker containers."`
 	DockerAppName                      string `name:"docker_app_name" json:"docker_app_name" yaml:"docker_app_name" description:"The name of the Docker application (or Docker Stack) that we're deployed within (only relevant when in Docker mode)."`
@@ -21,5 +21,6 @@ type CommonOptions struct {
 	DebugPort                          int    `name:"debug_port"                       json:"debug_port"                        yaml:"debug_port"                          description:"The port for the debug HTTP server."`
 	SimulateCheckpointingLatency       bool   `name:"simulate_checkpointing_latency"   json:"simulate_checkpointing_latency"    yaml:"simulate_checkpointing_latency"      description:"If enabled, then kernels will simulate the latency of performing checkpointing after executing code (write) and after a migration (read)."`
 	DisablePrometheusMetricsPublishing bool   `name:"disable_prometheus_metrics_publishing" json:"disable_prometheus_metrics_publishing"    yaml:"disable_prometheus_metrics_publishing" description:"If passed as true, then the goroutine that publishes Prometheus metrics on an interval will not be created."`
-	ElectionTimeoutSeconds             int    `name:"election_timeout_seconds" json:"election_timeout_seconds" yaml:"election_timeout_seconds" description: "How long kernel leader elections wait to receive all proposals before electing a leader"`
+	ElectionTimeoutSeconds             int    `name:"election_timeout_seconds" json:"election_timeout_seconds" yaml:"election_timeout_seconds" description:"How long kernel leader elections wait to receive all proposals before electing a leader"`
+	UseRealGPUs                        bool   `name:"use_real_gpus" json:"use_real_gpus" yaml:"use_real_gpus"`
 }

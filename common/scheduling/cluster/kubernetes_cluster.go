@@ -59,6 +59,7 @@ func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec,
 
 	kubernetesCluster.scheduler = kubeScheduler
 	baseCluster.instance = kubernetesCluster
+	baseCluster.initRatioUpdater()
 
 	return kubernetesCluster
 }

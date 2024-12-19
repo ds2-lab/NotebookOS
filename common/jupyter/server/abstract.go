@@ -1279,7 +1279,7 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 		// Quit on router closed.
 		case <-s.Ctx.Done():
 			// s.Log.Warn("[gid=%d] Polling is stopping. Router is closed.", goroutineId)
-			s.Log.Warn("[gid=%d] Polling on %s socket %s is stopping. Router is closed.", goroutineId, socket.Type.String(), socket.Name)
+			s.Log.Debug("[gid=%d] Polling on %s socket %s is stopping. Router is closed.", goroutineId, socket.Type.String(), socket.Name)
 			return
 		}
 
