@@ -4,7 +4,9 @@ import os
 import sys
 import traceback
 import types
-from typing import Optional
+from typing import Optional, Callable
+
+from scipy.special import large
 
 from .ast import SyncAST
 from .checkpointing.remote_checkpointer import RemoteCheckpointer
@@ -13,7 +15,7 @@ from .errors import SyncError, DiscardMessageError
 from .log import Checkpointer, SyncLog, SynchronizedValue, KEY_SYNC_END
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
-from .checkpointing.pointer import DatasetPointer, ModelPointer
+from .checkpointing.pointer import DatasetPointer, ModelPointer, SyncPointer
 from ..datasets.base import Dataset
 from ..logs import ColoredLogFormatter
 from ..models.model import DeepLearningModel
@@ -42,6 +44,7 @@ class Synchronizer:
             ns=None,
             opts=0,
             node_id: int = -1,
+            large_object_pointer_committed: Callable[[SyncPointer], Optional[Dataset | DeepLearningModel]] = None,
             remote_checkpointer: RemoteCheckpointer = None,
     ):
         if module is None and ns is not None:
@@ -80,6 +83,7 @@ class Synchronizer:
         self._log.debug("Created SyncReferer")
         self._opts = opts
         self._syncing = False  # Avoid checkpoint in the middle of syncing.
+        self._large_object_pointer_committed: Callable[[SyncPointer], Optional[Dataset | DeepLearningModel]] = large_object_pointer_committed
 
         self._synclog: SyncLog = sync_log
 
@@ -160,40 +164,19 @@ class Synchronizer:
             old_main_modules = sys.modules["__main__"]
             sys.modules["__main__"] = self._module
 
-            self._log.debug(f"Restoring SynchronizedValue with key=\"{val.key}\": {val}")
+            self._log.debug(f"Handling updated/changed SynchronizedValue with key=\"{val.key}\" of type {type(val).__name__}: {val}")
             diff = existed.update(val)
-            self._log.debug("{}:{}".format(val.key, type(diff)))
+            self._log.debug(f"{val.key} of type {type(diff).__name__}: {diff}")
 
             sys.modules["__main__"] = old_main_modules
             # End of switch context
 
             if val.key == KEY_SYNC_AST:
-                assert isinstance(existed, SyncAST)
-                old_exec_count: int = -1
-                if self._ast is not None:
-                    old_exec_count = self._ast.execution_count
-                self._ast = existed
-
-                if self.execution_count != old_exec_count:
-                    self._log.debug(f"Execution count changed from {old_exec_count} to {self.execution_count} after synchronizing AST.")
-
-                # Redeclare modules, classes, and functions.
-                try:
-                    compiled = compile(diff, "sync", "exec")
-                except Exception as ex:
-                    self._log.error(f"Failed to compile. Diff ({type(diff)}): {diff}. Error: {ex}")
-                    raise ex  # Re-raise.
-
-                try:
-                    exec(compiled, self.global_ns, self.global_ns)
-                except Exception as ex:
-                    self._log.error(f"Failed to exec. Compiled ({type(compiled)}): {compiled}. Error: {ex}")
-                    raise ex  # Re-raise.
+                self.ast_changed(existed, diff)
             else:
                 assert isinstance(existed, SyncObjectWrapper)
                 assert val.key is not None
-                self._tags[val.key] = existed
-                self.global_ns[val.key] = existed.object
+                self.variable_changed(val, existed)
 
             if val.should_end_execution:
                 self._syncing = False
@@ -209,6 +192,39 @@ class Synchronizer:
         if local_election is not None and local_election.term_number < self.execution_count:
             self._log.warning(f"Current local election has term number {local_election.term_number}, "
                               f"but we (now) have execution count of {self.execution_count}. We're out-of-sync...")
+
+    def variable_changed(self, val: SynchronizedValue, existed: SyncObjectWrapper):
+        if isinstance(existed.object, SyncPointer):
+            large_object = self._large_object_pointer_committed(existed.object)
+            existed.set_object(large_object)
+            sys.stderr.flush()
+            sys.stdout.flush()
+
+        self._tags[val.key] = existed
+        self.global_ns[val.key] = existed.object
+
+    def ast_changed(self, existed: Optional[SyncObject], diff):
+        assert isinstance(existed, SyncAST)
+        old_exec_count: int = -1
+        if self._ast is not None:
+            old_exec_count = self._ast.execution_count
+        self._ast = existed
+
+        if self.execution_count != old_exec_count:
+            self._log.debug(f"Execution count changed from {old_exec_count} to {self.execution_count} after synchronizing AST.")
+
+        # Redeclare modules, classes, and functions.
+        try:
+            compiled = compile(diff, "sync", "exec")
+        except Exception as ex:
+            self._log.error(f"Failed to compile. Diff ({type(diff)}): {diff}. Error: {ex}")
+            raise ex  # Re-raise.
+
+        try:
+            exec(compiled, self.global_ns, self.global_ns)
+        except Exception as ex:
+            self._log.error(f"Failed to exec. Compiled ({type(compiled)}): {compiled}. Error: {ex}")
+            raise ex  # Re-raise.
 
     async def propose_lead(self, jupyter_message_id: str, term_number: int) -> int:
         """Propose to lead the next execution.
@@ -467,18 +483,17 @@ class Synchronizer:
 
         if isinstance(val, Dataset):
             self._log.debug(f"Synchronizing Dataset \"{val.name}\" (\"{key}\"). "
-                            f"Will convert to pointer before appending to RaftLog.")
+                            f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
             dataset_pointer: DatasetPointer = DatasetPointer(
                 dataset = val,
                 user_namespace_variable_name = key,
                 dataset_remote_storage_path= os.path.join(self._store_path, val.name),
                 proposer_id = self._node_id
             )
-            # self._remote_checkpointer.write_dataset(dataset_pointer)
             val = dataset_pointer
         elif isinstance(val, DeepLearningModel):
             self._log.debug(f"Synchronizing Model \"{val.name}\" (\"{key}\"). "
-                            f"Will convert to pointer before appending to RaftLog.")
+                            f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
             model_pointer: ModelPointer = ModelPointer(
                 deep_learning_model = val,
                 user_namespace_variable_name = key,
@@ -494,7 +509,7 @@ class Synchronizer:
 
             val = model_pointer
         else:
-            self._log.debug(f"Synchronizing {type(val).__name__} \"{key}\".")
+            self._log.debug(f"Synchronizing {type(val).__name__} \"{key}\" [checkpointing={checkpointing}].")
 
         if checkpointing:
             sync_val = existed.dump(meta=meta)

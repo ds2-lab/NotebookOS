@@ -70,7 +70,7 @@ class DatasetPointer(SyncPointer):
     def __getstate__(self):
         d = dict(self.__dict__)
 
-        if self._dataset is not None:
+        if hasattr(self, "_dataset") and self._dataset is not None:
             d['dataset_description'] = self._dataset.description
 
         del d['_dataset']
@@ -87,7 +87,7 @@ class DatasetPointer(SyncPointer):
 
     @property
     def dataset_description(self)->Optional[dict[str, str|int|bool]]:
-        if self._dataset is not None:
+        if hasattr(self, "_dataset") and self._dataset is not None:
             return self._dataset.description
 
         return None

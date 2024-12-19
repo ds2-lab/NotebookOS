@@ -65,7 +65,7 @@ class SyncPickleId:
     return len(self._prmap)
 
   def next_reference(self, obj:Any, prid:SyncPRID=None) -> tuple[SyncPRID, Union[int, SyncRID]]:
-    """Register PRID, generate one if prid is not available, which is usualy because we haven't seen the object during the batch"""
+    """Register PRID, generate one if prid is not available, which is usually because we haven't seen the object during the batch"""
     rid = len(self._prmap)
     if self._rid_provider is not None:
       rid = self._rid_provider(obj, rid)

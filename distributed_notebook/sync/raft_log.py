@@ -75,7 +75,6 @@ class RaftLog(object):
             fast_forward_execution_count_handler: Callable[[], None] = None,
             set_execution_count_handler: Callable[[int], None] = None,
             loaded_serialized_state_callback: Callable[[dict[str, Any]], None] = None,
-            large_object_pointer_committed: Callable[[SyncPointer], None] = None,
             election_timeout_seconds: float = 10,
             remote_checkpointer: RemoteCheckpointer = None,
             deployment_mode: str = "LOCAL",
@@ -123,7 +122,6 @@ class RaftLog(object):
         self._send_notification_func = send_notification_func
         self._deployment_mode = deployment_mode
         self._leader_term_before_migration: int = -1
-        self._large_object_pointer_committed: Callable[[SyncPointer], None] = large_object_pointer_committed
         self._fast_forward_execution_count_handler: Callable[[], None] = fast_forward_execution_count_handler
         self._set_execution_count_handler: Callable[[int], None] = set_execution_count_handler
         self._loaded_serialized_state_callback: Callable[
@@ -1025,6 +1023,9 @@ class RaftLog(object):
         else:
             committedValue: SynchronizedValue = self.__deserialize_go_object(goObject)
 
+        self.logger.debug(f"Value of type {type(committedValue).__name__} and size {value_size} bytes has been "
+                           "committed to the RaftLog. Handling now...")
+
         if self.needs_to_catch_up:
             assert self._catchup_value is not None
             assert self._catchup_future is not None
@@ -1039,11 +1040,6 @@ class RaftLog(object):
             return self.__handle_proposal(committedValue, received_at=received_at)
         elif isinstance(committedValue, ExecutionCompleteNotification):
             return self.__handle_execution_complete_notification(committedValue)
-        elif isinstance(committedValue, SyncPointer):
-            self._large_object_pointer_committed(committedValue)
-            sys.stderr.flush()
-            sys.stdout.flush()
-            return GoNilError()
 
         # Skip state updates from current node.
         if value_id != "":

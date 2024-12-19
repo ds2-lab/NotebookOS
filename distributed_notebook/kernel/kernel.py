@@ -1275,6 +1275,7 @@ class DistributedKernel(IPythonKernel):
             module=self.shell.user_module,
             opts=CHECKPOINT_AUTO,
             node_id=self.smr_node_id,
+            large_object_pointer_committed=self.large_object_pointer_committed,
             remote_checkpointer=self._remote_checkpointer)  # type: ignore
 
         sync_log.set_fast_forward_executions_handler(self.synchronizer.fast_forward_execution_count)
@@ -3503,7 +3504,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                        f"from remote storage in {et - st} seconds.")
         return dataset
 
-    def __dataset_committed(self, pointer: DatasetPointer):
+    def __dataset_committed(self, pointer: DatasetPointer)->Optional[Dataset]:
         """
         Callback to be executed when a pointer to a Dataset object is committed to the RaftLog.
         :param pointer: the pointer to the Dataset object.
@@ -3518,17 +3519,17 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 self.log.debug(f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves "
                                f"while catching up. Saving for later.")
                 self.dataset_pointers_catchup[pointer.user_namespace_variable_name] = pointer
-                return
+                return None
             else:
                 self.log.debug(f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves. "
                                f"Ignoring.")
-                return
+                return None
 
-        dataset: Optional[Dataset] = self.__load_dataset_from_remote_storage(pointer)
-        if dataset is not None:
-            self.shell.user_ns[pointer.user_namespace_variable_name] = dataset
+        return self.__load_dataset_from_remote_storage(pointer)
+        # if dataset is not None:
+        #     self.shell.user_ns[pointer.user_namespace_variable_name] = dataset
 
-    def __model_committed(self, pointer: ModelPointer):
+    def __model_committed(self, pointer: ModelPointer)->Optional[DeepLearningModel]:
         self.log.debug(f"An updated \"{pointer.large_object_name}\" model (stored in variable "
                        f"'{pointer.user_namespace_variable_name}') was committed.")
 
@@ -3539,11 +3540,11 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 self.log.debug(f"Received committed '{pointer.model_name}' Model pointer proposed by ourselves "
                                f"while catching up. Saving for later.")
                 self.model_pointers_catchup[pointer.user_namespace_variable_name] = pointer
-                return
+                return None
             else:
                 self.log.debug(f"Received committed '{pointer.model_name}' Model pointer proposed by ourselves. "
                                f"Ignoring.")
-                return
+                return None
 
         # Warning: this does not acquire the _user_ns_lock; however, I don't think this code can run concurrently
         # with any of the other code...? Maybe?
@@ -3557,18 +3558,19 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         st: float = time.time()
         model: Optional[DeepLearningModel] = self.__load_model_from_remote_storage(pointer, existing_model = existing_model)
         et: float = time.time()
-        self.shell.user_ns["model"] = model
-        self.log.debug(f"Successfully loaded committed model \"{pointer.large_object_name}\" in {et - st} seconds.")
 
-    def large_object_pointer_committed(self, pointer: SyncPointer):
+        self.log.debug(f"Successfully loaded committed model \"{pointer.large_object_name}\" in {et - st} seconds.")
+        return model
+
+    def large_object_pointer_committed(self, pointer: SyncPointer)->Optional[Dataset|DeepLearningModel]:
         """
         Callback to be executed when a pointer to a large object is committed to the RaftLog.
         :param pointer: the pointer to the large object.
         """
         if isinstance(pointer, DatasetPointer):
-            self.__dataset_committed(pointer)
+            return self.__dataset_committed(pointer)
         elif isinstance(pointer, ModelPointer):
-            self.__model_committed(pointer)
+            return self.__model_committed(pointer)
         else:
             self.log.error(f"SyncPointer of unknown or unsupported type committed: {pointer}")
             raise ValueError(f"SyncPointer of unknown or unsupported type committed: {pointer}")
@@ -3641,7 +3643,6 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                                             deployment_mode=self.deployment_mode,
                                             election_timeout_seconds=self.election_timeout_seconds,
                                             remote_checkpointer=self._remote_checkpointer,
-                                            large_object_pointer_committed=self.large_object_pointer_committed,
                                             loaded_serialized_state_callback=self.loaded_serialized_state_callback)
         except Exception as exc:
             self.log.error("Error while creating RaftLog: %s" % str(exc))

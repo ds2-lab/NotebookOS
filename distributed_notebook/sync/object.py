@@ -97,7 +97,7 @@ class SyncObjectWrapper:
       unpickler = self._unpickler(buff)
       unpickler.persistent_load = self._referer.dereference(buff, val.prmap, unpickler=unpickler)
       diff = unpickler.load()
-      logging.info("Unpickled: {}".format(diff))
+      logging.info(f"Un-pickled object of type {type(diff).__name__}: {diff}")
       # Verify tags
       # _, tag = self.get_hash(diff, val.term)
       # if tag != val.tag:
@@ -157,6 +157,9 @@ class SyncObjectWrapper:
   def object(self):
     return self.raw
 
+  def set_object(self, raw: Any):
+    self.raw = raw
+      
   @property
   def tag(self):
     return self._hash
