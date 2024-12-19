@@ -155,7 +155,7 @@ class RedisCheckpointer(RemoteCheckpointer):
         buffer: io.BytesIO = io.BytesIO(val)
 
         self.log.debug(f"Successfully read state of model \"{model_name}\" to Redis at key \"{redis_key}\" "
-                       f"(model size: {buffer.getbuffer().nbytes} MB) in {et - st} seconds.")
+                       f"(model size: {buffer.getbuffer().nbytes / 1.0e6} MB) in {et - st} seconds.")
 
         try:
             state_dict: Dict[str, Any] = torch.load(buffer)
@@ -192,7 +192,7 @@ class RedisCheckpointer(RemoteCheckpointer):
         buffer: io.BytesIO = io.BytesIO(val)
 
         self.log.debug(f"Successfully read state of model \"{model_name}\" to Redis at key \"{redis_key}\" "
-                       f"(model size: {buffer.getbuffer().nbytes} MB) in {et - st} seconds.")
+                       f"(model size: {buffer.getbuffer().nbytes / 1.0e6} MB) in {et - st} seconds.")
 
         try:
             state_dict: Dict[str, Any] = torch.load(buffer)

@@ -73,7 +73,7 @@ class S3Checkpointer(RemoteCheckpointer, ABC):
             raise ex # re-raise
 
         self.log.debug(f"Successfully read state of model \"{model_name}\" to AWS S3 at bucket/key \"{os.path.join(self._bucket_name, object_name)}\" "
-                       f"(model size: {buffer.getbuffer().nbytes} MB) in {et - st} seconds.")
+                       f"(model size: {buffer.getbuffer().nbytes / 1.0e6} MB) in {et - st} seconds.")
 
         try:
             state_dict: Dict[str, Any] = torch.load(buffer)
