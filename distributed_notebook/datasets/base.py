@@ -4,7 +4,7 @@ import os
 
 from torchvision.datasets.utils import check_integrity
 
-class Dataset(ABC):
+class CustomDataset(ABC):
     def __init__(self, name:str = "", root_dir: str = "", shuffle: bool = True, num_workers: int = 2):
         self._name = name
         self._root_dir = root_dir

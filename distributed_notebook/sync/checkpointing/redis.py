@@ -6,7 +6,7 @@ import time
 
 import torch
 
-from distributed_notebook.datasets.base import Dataset
+from distributed_notebook.datasets.base import CustomDataset
 from distributed_notebook.datasets.loader import load_dataset
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
@@ -87,7 +87,7 @@ class RedisCheckpointer(RemoteCheckpointer):
                 **self._additional_redis_args
             )
 
-    def read_dataset(self, pointer: DatasetPointer)->Dataset:
+    def read_dataset(self, pointer: DatasetPointer)->CustomDataset:
         if pointer is None:
             raise ValueError("cannot read dataset from nil DatasetPointer")
 
@@ -123,7 +123,7 @@ class RedisCheckpointer(RemoteCheckpointer):
                              f"because there was a TypeError while decoding the dataset's description: {ex}")
 
         try:
-            dataset: Dataset = load_dataset(**dataset_description)
+            dataset: CustomDataset = load_dataset(**dataset_description)
             return dataset
         except ValueError as ex:
             self.log.error(f"Failed to load dataset: {ex}")

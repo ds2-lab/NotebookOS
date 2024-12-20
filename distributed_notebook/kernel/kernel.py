@@ -36,7 +36,7 @@ from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
-from ..datasets.base import Dataset
+from ..datasets.base import CustomDataset
 from ..datasets.cifar10 import CIFAR10
 from ..datasets.loader import load_dataset
 from ..gateway import gateway_pb2
@@ -2590,7 +2590,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         latency for the execution request that we're currently processing.
         """
         async with self._user_ns_lock:
-            dataset: Optional[Dataset] = self.shell.user_ns.get("dataset", None)
+            dataset: Optional[CustomDataset] = self.shell.user_ns.get("dataset", None)
 
         if dataset is None:
             self.log.debug("Could not find 'dataset' variable in user namespace.")
@@ -3382,7 +3382,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
             st: float = time.time()
             try:
-                dataset: Dataset = self.__load_dataset_from_remote_storage(dataset_pointer)
+                dataset: CustomDataset = self.__load_dataset_from_remote_storage(dataset_pointer)
             except Exception as exc:
                 self.log.error(f"Failed to load Dataset '{dataset_pointer.model_name}' for variable '{var_name}'")
                 self.report_error(f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
@@ -3465,12 +3465,12 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         return model
 
-    def __load_dataset_from_remote_storage(self, pointer: DatasetPointer) -> Optional[Dataset]:
+    def __load_dataset_from_remote_storage(self, pointer: DatasetPointer) -> Optional[CustomDataset]:
         var_name:str = pointer.user_namespace_variable_name
         existing_variable: Any = self.shell.user_ns.get(var_name, None)
 
         if existing_variable is not None:
-            if isinstance(existing_variable, Dataset):
+            if isinstance(existing_variable, CustomDataset):
                 self.log.debug(f"Found existing dataset \"{var_name}\" in user namespace.")
 
                 # If they match, then we're done here.
@@ -3489,7 +3489,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         try:
             st: float = time.time()
-            dataset: Dataset = load_dataset(pointer.dataset_description)
+            dataset: CustomDataset = load_dataset(pointer.dataset_description)
             et: float = time.time()
         except Exception as exc:
             self.log.error(f"Failed to load committed dataset \"{pointer.large_object_name}\" because: {exc}")
@@ -3506,7 +3506,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                        f"from remote storage in {et - st} seconds.")
         return dataset
 
-    def __dataset_committed(self, pointer: DatasetPointer)->Optional[Dataset]:
+    def __dataset_committed(self, pointer: DatasetPointer)->Optional[CustomDataset]:
         """
         Callback to be executed when a pointer to a Dataset object is committed to the RaftLog.
         :param pointer: the pointer to the Dataset object.
@@ -3564,7 +3564,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         self.log.debug(f"Successfully loaded committed model \"{pointer.large_object_name}\" in {et - st} seconds.")
         return model
 
-    def large_object_pointer_committed(self, pointer: SyncPointer)->Optional[Dataset|DeepLearningModel]:
+    def large_object_pointer_committed(self, pointer: SyncPointer)->Optional[CustomDataset | DeepLearningModel]:
         """
         Callback to be executed when a pointer to a large object is committed to the RaftLog.
         :param pointer: the pointer to the large object.

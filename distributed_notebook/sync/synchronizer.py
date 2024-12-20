@@ -14,7 +14,7 @@ from .log import Checkpointer, SyncLog, SynchronizedValue, KEY_SYNC_END
 from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
 from .referer import SyncReferer
 from .checkpointing.pointer import DatasetPointer, ModelPointer, SyncPointer
-from ..datasets.base import Dataset
+from ..datasets.base import CustomDataset
 from ..logs import ColoredLogFormatter
 from ..models.model import DeepLearningModel
 
@@ -42,7 +42,7 @@ class Synchronizer:
             ns=None,
             opts=0,
             node_id: int = -1,
-            large_object_pointer_committed: Callable[[SyncPointer], Optional[Dataset | DeepLearningModel]] = None,
+            large_object_pointer_committed: Callable[[SyncPointer], Optional[CustomDataset | DeepLearningModel]] = None,
             remote_checkpointer: RemoteCheckpointer = None,
     ):
         if module is None and ns is not None:
@@ -81,7 +81,7 @@ class Synchronizer:
         self._log.debug("Created SyncReferer")
         self._opts = opts
         self._syncing = False  # Avoid checkpoint in the middle of syncing.
-        self._large_object_pointer_committed: Callable[[SyncPointer], Optional[Dataset | DeepLearningModel]] = large_object_pointer_committed
+        self._large_object_pointer_committed: Callable[[SyncPointer], Optional[CustomDataset | DeepLearningModel]] = large_object_pointer_committed
 
         self._synclog: SyncLog = sync_log
 
@@ -479,7 +479,7 @@ class Synchronizer:
         old_main_modules = sys.modules["__main__"]
         sys.modules["__main__"] = self._module
 
-        if isinstance(val, Dataset):
+        if isinstance(val, CustomDataset):
             self._log.debug(f"Synchronizing Dataset \"{val.name}\" (\"{key}\"). "
                             f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
             dataset_pointer: DatasetPointer = DatasetPointer(

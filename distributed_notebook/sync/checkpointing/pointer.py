@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from distributed_notebook.datasets.base import Dataset
+from distributed_notebook.datasets.base import CustomDataset
 from distributed_notebook.models.model import DeepLearningModel
 from distributed_notebook.sync.log import SynchronizedValue
 
@@ -53,7 +53,7 @@ class DatasetPointer(SyncPointer):
     """
     def __init__(
             self,
-            dataset: Dataset = None,
+            dataset: CustomDataset = None,
             dataset_remote_storage_path:str = "",
             user_namespace_variable_name: str = "",
             **kwargs
@@ -65,7 +65,7 @@ class DatasetPointer(SyncPointer):
             **kwargs
         )
 
-        self._dataset: Optional[Dataset] = dataset
+        self._dataset: Optional[CustomDataset] = dataset
         self._dataset_description: dict[str, str|int|bool] = dataset.description
 
     def __getstate__(self):
@@ -80,7 +80,7 @@ class DatasetPointer(SyncPointer):
         return self._large_object_name
 
     @property
-    def dataset(self)->Optional[Dataset]:
+    def dataset(self)->Optional[CustomDataset]:
         return self._dataset
 
     @property

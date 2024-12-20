@@ -1,14 +1,14 @@
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
-from distributed_notebook.datasets.base import Dataset
+from distributed_notebook.datasets.base import CustomDataset
 
 import time
 import os
 
 Cifar10:str = "CIFAR-10"
 
-class CIFAR10(Dataset):
+class CIFAR10(CustomDataset):
     def __init__(self, root_dir:str = 'data', batch_size: int = 256, shuffle: bool = True, num_workers: int = 2, **kwargs):
         super().__init__(name = Cifar10, root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
 
