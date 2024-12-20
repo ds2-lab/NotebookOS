@@ -1,6 +1,7 @@
 from torch import Size
 from torch.nn.parameter import Parameter
 
+from distributed_notebook.datasets.random import RandomCustomDataset
 from distributed_notebook.models.simple_model import SimpleModel, SimpleModule
 
 def test_instantiate():
@@ -104,3 +105,73 @@ def test_set_bias():
     model.set_bias(updated_bias_val)
     for w in simple_module.fc.bias.data:
         assert w == updated_bias_val
+
+def test_requires_checkpointing_after_training():
+    input_size: int = 3
+    out_features: int = 1
+    model: SimpleModel = SimpleModel(
+        input_size = input_size,
+        out_features = out_features,
+        created_for_first_time = False # So that _requires_checkpointing is initially false
+    )
+
+    assert model.requires_checkpointing == False
+
+    dataset: RandomCustomDataset = RandomCustomDataset(
+        input_size,
+        num_training_samples = 64,
+        num_test_samples = 16,
+        batch_size = 8
+    )
+
+    model.train_epochs(dataset.train_dataset, 1)
+
+    assert model.requires_checkpointing == True
+
+def test_training_for_time_updates_weights():
+    input_size: int = 3
+    out_features: int = 1
+    model: SimpleModel = SimpleModel(
+        input_size = input_size,
+        out_features = out_features,
+        created_for_first_time = True
+    )
+
+    initial_weights = model.model.fc.weight.clone()
+
+    dataset: RandomCustomDataset = RandomCustomDataset(
+        input_size,
+        num_training_samples = 64,
+        num_test_samples = 16,
+        batch_size = 8
+    )
+
+    model.train(dataset.train_dataset, 500)
+
+    updated_weights = model.model.fc.weight
+
+    assert initial_weights.equal(updated_weights) == False
+
+def test_training_for_epochs_updates_weights():
+    input_size: int = 3
+    out_features: int = 1
+    model: SimpleModel = SimpleModel(
+        input_size = input_size,
+        out_features = out_features,
+        created_for_first_time = True
+    )
+
+    initial_weights = model.model.fc.weight.clone()
+
+    dataset: RandomCustomDataset = RandomCustomDataset(
+        input_size,
+        num_training_samples = 64,
+        num_test_samples = 16,
+        batch_size = 8
+    )
+
+    model.train_epochs(dataset.train_dataset, 1)
+
+    updated_weights = model.model.fc.weight
+
+    assert initial_weights.equal(updated_weights) == False
