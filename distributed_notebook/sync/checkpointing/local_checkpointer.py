@@ -27,8 +27,15 @@ class LocalCheckpointer(RemoteCheckpointer):
         super().__init__()
 
         self._data: Dict[str, Any] = dict()
-        self._async_lock = asyncio.Lock()
-        self._lock = threading.Lock
+        self._async_lock: asyncio.Lock = asyncio.Lock()
+        self._lock: threading.Lock = threading.Lock()
+
+    @property
+    def size(self)->int:
+        return len(self._data)
+
+    def __len__(self)->int:
+        return self.size
 
     def read_dataset(self, pointer: DatasetPointer)->Dataset:
         if pointer is None:
@@ -83,6 +90,10 @@ class LocalCheckpointer(RemoteCheckpointer):
             st: float = time.time()
             val: str|bytes|memoryview = self._data[key]
             et: float = time.time()
+        except KeyError as ex:
+            self.log.error(f"Failed to read state of model \"{model_name}\" from Local Python Dict at key \"{key}\" "
+                           f"because there is no data stored at key \"{key}\"")
+            raise ValueError(f"there is no data stored at key \"{key}\"")
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from Local Python Dict at key \"{key}\" "
                            f"because: {ex}")
@@ -174,7 +185,7 @@ class LocalCheckpointer(RemoteCheckpointer):
         self.log.debug(f"Writing state dictionary associated with model \"{model_name}\" to Local Python Dict at key \"{key}\". "
                        f"Model size: {size_mb:,} MB.")
 
-        self._data[key] = buffer
+        self._data[key] = buffer.getbuffer()
 
         self.log.debug(f"Successfully wrote state of model \"{model_name}\" to Local Python Dictionary at key \"{key}\" "
                        f"(model size: {size_mb} MB).")
