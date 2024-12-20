@@ -2,6 +2,7 @@ from typing import Optional, Dict, Any
 
 from distributed_notebook.models.model import DeepLearningModel
 from distributed_notebook.models.resnet18 import ResNet18Name, ResNet18
+from distributed_notebook.models.simple_model import SimpleModel
 
 
 def load_model(
@@ -25,6 +26,16 @@ def load_model(
 
     if model_name == ResNet18Name:
         return ResNet18(
+            out_features = out_features,
+            total_training_time_seconds = total_training_time_seconds,
+            total_num_epochs = total_num_epochs,
+            model_state_dict = model_state_dict,
+            optimizer_state_dict = optimizer_state_dict,
+            criterion_state_dict = criterion_state_dict,
+        )
+
+    if model_name == "SimpleModel":
+        return SimpleModel(
             out_features = out_features,
             total_training_time_seconds = total_training_time_seconds,
             total_num_epochs = total_num_epochs,
