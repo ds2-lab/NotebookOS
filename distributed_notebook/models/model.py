@@ -26,6 +26,7 @@ class DeepLearningModel(ABC):
             out_features: int = 10,
             total_training_time_seconds: int = 0,
             total_num_epochs: int = 0,
+            created_for_first_time: bool = False,
     ):
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
@@ -63,7 +64,7 @@ class DeepLearningModel(ABC):
 
         # Flag that is set to True everytime we train and set to False everytime we write the model's parameters or
         # state dictionary to remote storage.
-        self._requires_checkpointing: bool = False
+        self._requires_checkpointing: bool = created_for_first_time
 
         # List of the times, in seconds, spent copying data from the CPU to the GPU.
         # IMPORTANT: These are NOT checkpointed as of right now.

@@ -56,6 +56,7 @@ class SimpleModel(DeepLearningModel):
             criterion: Optional[nn.Module] = None,
             criterion_state_dict: Optional[Dict[str, Any]] = None,
             model_state_dict: Optional[Dict[str, Any]] = None,
+            created_for_first_time: bool = False,
             **kwargs,
     ):
         super().__init__(
@@ -63,6 +64,7 @@ class SimpleModel(DeepLearningModel):
             criterion = criterion,
             criterion_state_dict = criterion_state_dict,
             out_features=out_features,
+            created_for_first_time=created_for_first_time,
             **kwargs,
         )
 
