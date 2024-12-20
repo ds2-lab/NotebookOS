@@ -98,6 +98,8 @@ class ModelPointer(SyncPointer):
             user_namespace_variable_name: str = "",
             **kwargs
     ):
+        assert deep_learning_model is not None
+
         super().__init__(
             large_object_name= deep_learning_model.name,
             key = model_path,
