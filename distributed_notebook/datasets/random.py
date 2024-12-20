@@ -24,7 +24,7 @@ class RandomDataset(Dataset):
         for _ in range(0, self.num_samples):
             X = torch.randn(1, tensor_size)
             # Targets: Linear combination of inputs with some noise
-            true_weights = torch.tensor([0.5, -0.2, 0.3])
+            true_weights = torch.rand(tensor_size)
             true_bias = 0.1
             y = X @ true_weights + true_bias + torch.randn(1) * 0.1
             y = y.unsqueeze(1)  # Make sure y has the right shape
