@@ -4,9 +4,13 @@ from typing import Any
 
 import pytest
 from torch import Tensor
+from torchvision.models import ResNet
 
 from distributed_notebook.datasets.random import RandomCustomDataset
-from distributed_notebook.models.simple_model import SimpleModel
+from distributed_notebook.models.loader import load_model
+from distributed_notebook.models.model import DeepLearningModel
+from distributed_notebook.models.resnet18 import ResNet18
+from distributed_notebook.models.simple_model import SimpleModel, SimpleModule
 from distributed_notebook.sync.checkpointing.local_checkpointer import LocalCheckpointer
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
 
@@ -137,8 +141,32 @@ def test_checkpoint_after_training():
     checkpointer.write_state_dicts(model_pointer)
 
     # Verify that the weights in remote storage match the updated weights.
-    remote_model_state, _, _ = checkpointer.read_state_dicts(model_pointer)
+    remote_model_state, remote_optimizer_state, remote_criterion_state = checkpointer.read_state_dicts(model_pointer)
     local_model_state: dict[str, Any] = model.state_dict
     for remote_val, local_val in zip(remote_model_state.values(), local_model_state.values()):
         if isinstance(remote_val, Tensor) and isinstance(local_val, Tensor):
             assert remote_val.equal(local_val)
+
+    # Load a new instance of the model using the state checkpointed in remote storage.
+    checkpointed_model: DeepLearningModel = load_model(
+        model_name=model_pointer.large_object_name,
+        existing_model=None,
+        out_features=model_pointer.out_features,
+        model_state_dict=remote_model_state,
+        optimizer_state_dict=remote_optimizer_state,
+        criterion_state_dict=remote_criterion_state,
+        input_size=model_pointer.input_size,
+    )
+
+    assert checkpointed_model is not None
+    assert isinstance(checkpointed_model, SimpleModel)
+    assert checkpointed_model.model is not None
+    assert isinstance(checkpointed_model.model, SimpleModule)
+
+    # Compare the state of the model loaded from remote storage with the original, local model.
+    local_model_state: dict[str, Any] = model.state_dict
+    checkpointed_model_state: dict[str, Any] = checkpointed_model.state_dict
+
+    for checkpointed_val, local_val in zip(checkpointed_model_state.values(), local_model_state.values()):
+        if isinstance(checkpointed_val, Tensor) and isinstance(local_val, Tensor):
+            assert checkpointed_val.equal(local_val)

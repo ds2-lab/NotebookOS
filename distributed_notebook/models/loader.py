@@ -14,6 +14,7 @@ def load_model(
         model_state_dict: Optional[Dict[str, Any]] = None,
         optimizer_state_dict: Optional[Dict[str, Any]] = None,
         criterion_state_dict: Optional[Dict[str, Any]] = None,
+        **kwargs,
 )->DeepLearningModel:
     if existing_model is not None and existing_model.name == model_name:
         existing_model.apply_model_state_dict(model_state_dict)
@@ -32,6 +33,7 @@ def load_model(
             model_state_dict = model_state_dict,
             optimizer_state_dict = optimizer_state_dict,
             criterion_state_dict = criterion_state_dict,
+            **kwargs,
         )
 
     if model_name == "SimpleModel":
@@ -42,6 +44,7 @@ def load_model(
             model_state_dict = model_state_dict,
             optimizer_state_dict = optimizer_state_dict,
             criterion_state_dict = criterion_state_dict,
+            **kwargs,
         )
 
     raise ValueError(f"unknown or unsupported deep learning model \"{model_name}\"")

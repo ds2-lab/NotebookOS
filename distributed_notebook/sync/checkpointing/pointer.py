@@ -112,6 +112,9 @@ class ModelPointer(SyncPointer):
         self._total_training_time_seconds: int = deep_learning_model.total_training_time_seconds
         self._total_num_epochs: int = deep_learning_model.total_num_epochs
 
+        if hasattr(deep_learning_model, "input_size"):
+            self._input_size: int = deep_learning_model.input_size
+
     def __getstate__(self):
         d = dict(self.__dict__)
 
@@ -144,6 +147,15 @@ class ModelPointer(SyncPointer):
     @property
     def out_features(self)->int:
         return self._out_features
+
+    @property
+    def input_size(self)->Optional[int]:
+        if self._model is not None and hasattr(self._model, "input_size"):
+            return self._model.input_size
+        elif hasattr(self, "_input_size"):
+            return self._input_size
+
+        return None
 
     @property
     def model(self)->Optional[DeepLearningModel]:

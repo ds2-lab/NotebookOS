@@ -10,10 +10,13 @@ import torch.optim as optim
 from distributed_notebook.models.model import DeepLearningModel
 
 class SimpleModule(nn.Module):
-    def __init__(self, input_size=1, output_size=1):
+    def __init__(self, input_size=1, output_size=1, model_state_dict: Optional[Dict[str, Any]] = None):
         super(SimpleModule, self).__init__()
         # Single linear layer
         self.fc = nn.Linear(in_features = input_size, out_features = output_size)
+
+        if model_state_dict is not None:
+            self.load_state_dict(model_state_dict)
 
     def forward(self, x):
         return self.fc(x)
@@ -68,7 +71,13 @@ class SimpleModel(DeepLearningModel):
             **kwargs,
         )
 
-        self.model = SimpleModule(input_size = input_size, output_size = out_features)
+        self._input_size: int = input_size
+
+        self.model = SimpleModule(
+            input_size = input_size,
+            output_size = out_features,
+            model_state_dict = model_state_dict
+        )
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)
@@ -88,6 +97,10 @@ class SimpleModel(DeepLearningModel):
         if initial_bias is not None:
             assert isinstance(initial_bias, float) or isinstance(initial_bias, int)
             self.model.set_bias(initial_bias)
+
+    @property
+    def input_size(self)->int:
+        return self._input_size
 
     def set_weights(self, val: float):
         """
