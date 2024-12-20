@@ -2177,7 +2177,7 @@ class DistributedKernel(IPythonKernel):
 
         if self.model is None:
             self.log.debug("Creating ResNet-18 model.")
-            self.model = ResNet18()
+            self.model = ResNet18(created_for_first_time = True)
             self.log.debug("Creating CIFAR-10 dataset.")
             self.dataset = CIFAR10()
 
@@ -2224,7 +2224,7 @@ if 'model' not in locals() and 'model' not in globals():
     # Create the model.
     # For now, we've hard-coded the ResNet-18 model, but in the future, we will use whatever 
     # model has been assigned to the associated session by the workload driver.
-    model = ResNet18()
+    model = ResNet18(created_for_first_time = True)
     
     # Create the dataset. This will download the dataset if it is not present locally.
     dataset = CIFAR10()
