@@ -1,4 +1,5 @@
 import torch
+from torch import Tensor
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Dataset
 
@@ -8,7 +9,7 @@ import time
 import os
 
 class RandomDataset(Dataset):
-    def __init__(self, tensor_size, num_samples: int = 100):
+    def __init__(self, tensor_size: int, num_samples: int = 100):
         """
         Args:
             num_samples (int): Number of samples to generate.
@@ -17,15 +18,27 @@ class RandomDataset(Dataset):
         self.num_samples = num_samples
         self.tensor_size = tensor_size
 
+        self.data: list[Tensor] = []
+        self.targets: list[Tensor] = []
+
+        for _ in range(0, self.num_samples):
+            X = torch.randn(1, tensor_size)
+            # Targets: Linear combination of inputs with some noise
+            true_weights = torch.tensor([0.5, -0.2, 0.3])
+            true_bias = 0.1
+            y = X @ true_weights + true_bias + torch.randn(1) * 0.1
+            y = y.unsqueeze(1)  # Make sure y has the right shape
+
+            self.data.append(X)
+            self.targets.append(y)
+
     def __len__(self):
         """Return the total number of samples."""
         return self.num_samples
 
     def __getitem__(self, idx):
         """Return a randomly generated tensor."""
-        # Generate a random tensor of the specified size
-        random_tensor = torch.rand(self.tensor_size)
-        return random_tensor
+        return self.data[idx], self.targets[idx]
 
 class RandomCustomDataset(CustomDataset):
     """
@@ -33,7 +46,7 @@ class RandomCustomDataset(CustomDataset):
     """
     def __init__(
             self,
-            tensor_size,
+            input_size: int,
             num_training_samples: int = 512,
             num_test_samples: int = 64,
             root_dir:str = 'data',
@@ -49,26 +62,16 @@ class RandomCustomDataset(CustomDataset):
             transforms.ToTensor(),
         ])
 
-        self._tensor_size = tensor_size
+        self._tensor_size = input_size
         self._num_training_samples: int = num_training_samples
         self._num_test_samples: int = num_test_samples
         self._dataset_already_downloaded: bool = True
 
-        self._train_dataset: RandomDataset = RandomDataset(tensor_size, num_samples = num_training_samples)
-        self._test_dataset: RandomDataset = RandomDataset(tensor_size, num_samples = num_test_samples)
+        self._train_dataset: RandomDataset = RandomDataset(self._tensor_size, num_samples = num_training_samples)
+        self._test_dataset: RandomDataset = RandomDataset(self._tensor_size, num_samples = num_test_samples)
 
         self._train_loader = DataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
         self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-
-    def __len__(self)->int:
-        """Return the total number of samples."""
-        return self._num_training_samples
-
-    def __getitem__(self, idx):
-        """Return a randomly generated tensor."""
-        # Generate a random tensor of the specified size
-        random_tensor = torch.rand(self._tensor_size)
-        return random_tensor
 
     @property
     def download_duration_sec(self)->float:
