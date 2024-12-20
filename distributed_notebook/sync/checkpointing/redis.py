@@ -8,7 +8,6 @@ import torch
 
 from distributed_notebook.datasets.base import Dataset
 from distributed_notebook.datasets.loader import load_dataset
-from distributed_notebook.models.model import DeepLearningModel
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
 
