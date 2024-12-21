@@ -42,7 +42,7 @@ class SyncObjectMeta:
     self.batch: Optional[str] = batch
 
 class SyncObjectWrapper:
-  """A simple object wrapper that implemented SyncObject, which returns a view of whole object as the difference."""
+  """A simple object wrapper that implements SyncObject, which returns a view of whole object as the difference."""
   
   def __init__(self, referer:SyncReferer, raw:Any=None, tag:Any=None):
     self.raw: Any = raw

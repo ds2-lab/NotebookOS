@@ -4,7 +4,7 @@ import os
 import sys
 import traceback
 import types
-from typing import Optional, Callable
+from typing import Optional, Callable, Any
 
 from .ast import SyncAST
 from .checkpointing.remote_checkpointer import RemoteCheckpointer
@@ -163,6 +163,7 @@ class Synchronizer:
             sys.modules["__main__"] = self._module
 
             self._log.debug(f"Handling updated/changed SynchronizedValue with key=\"{val.key}\" of type {type(val).__name__}: {val}")
+
             diff = existed.update(val)
             self._log.debug(f"{val.key} of type {type(diff).__name__}: {diff}")
 
@@ -193,13 +194,21 @@ class Synchronizer:
 
     def variable_changed(self, val: SynchronizedValue, existed: SyncObjectWrapper):
         if isinstance(existed.object, SyncPointer):
+            pointer: SyncPointer = existed.object
+            self._log.debug(f"Large object pointer variable \"{pointer.user_namespace_variable_name}\" of type {type(pointer).__name__} changed.")
             large_object = self._large_object_pointer_committed(existed.object)
-            existed.set_object(large_object)
+            self._log.debug(f"Assigning large object of type {type(large_object).__name__} to variable \"{val.key}\".")
+
+            # We want to put the large object in the global namespace, rather than the pointer.
+            variable_value: Any = large_object
             sys.stderr.flush()
             sys.stdout.flush()
+        else:
+            self._log.debug(f"Variable \"{val.key}\" of type {type(existed.object).__name__} changed.")
+            variable_value: Any = existed.object
 
         self._tags[val.key] = existed
-        self.global_ns[val.key] = existed.object
+        self.global_ns[val.key] = variable_value
 
     def ast_changed(self, existed: Optional[SyncObject], diff):
         assert isinstance(existed, SyncAST)
@@ -442,9 +451,12 @@ class Synchronizer:
             for key in keys:
                 synced = synced + 1
                 self._log.debug("Syncing key \"%s\" now." % key)
-                await self.sync_key(sync_log, key, self.global_ns[key],
+                await self.sync_key(sync_log,
+                                    key,
+                                    self.global_ns[key],
                                     end_execution=synced == expected,
-                                    checkpointing=checkpointing, meta=meta)
+                                    checkpointing=checkpointing,
+                                    meta=meta)
                 self._log.debug("Successfully synchronized key \"%s\"." % key)
 
             if checkpointing:
@@ -465,6 +477,7 @@ class Synchronizer:
     async def sync_key(self, sync_log, key, val, end_execution=False, checkpointing=False, meta=None):
         if key in self._tags:
             existed = self._tags[key]
+            self._log.debug(f"SyncObjectWrapper already exists for variable \"{key}\" of type {type(existed.object).__name__}")
         else:
             if checkpointing:
                 self._log.error(f"Key {key} is not in self._tags ({self._tags}). Checkpointing should be False...")
@@ -472,6 +485,7 @@ class Synchronizer:
             # TODO: Add support to SyncObject factory
             existed = SyncObjectWrapper(self._referer)
             self._tags[key] = existed
+            self._log.debug(f"Creating new SyncObjectWrapper for variable \"{key}\" of type {type(existed.object).__name__}")
 
         # self._log.debug("Syncing {}...".format(key))
 
@@ -489,9 +503,6 @@ class Synchronizer:
                 proposer_id = self._node_id
             )
             val = dataset_pointer
-            if existed is not None and isinstance(existed, CustomDataset):
-                # The existing variable is a CustomDataset. Change it to the DatasetPointer.
-                existed = dataset_pointer
         elif isinstance(val, DeepLearningModel):
             self._log.debug(f"Synchronizing Model \"{val.name}\" (\"{key}\"). "
                             f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
@@ -508,10 +519,8 @@ class Synchronizer:
                                   f"DeepLearningModel for variable \"{model_pointer.user_namespace_variable_name}\" "
                                   f"(\"{key}\"): {value_error}")
 
+            self._log.debug(f"Finished writing state dictionaries of model \"{val.name}\" variable \"{key}\" to remote storage.")
             val = model_pointer
-            if existed is not None and isinstance(existed, DeepLearningModel):
-                # The existing variable is a DeepLearningModel. Change it to the ModelPointer.
-                existed = model_pointer
         else:
             self._log.debug(f"Synchronizing {type(val).__name__} \"{key}\" [checkpointing={checkpointing}].")
 
