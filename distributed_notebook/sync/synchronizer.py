@@ -456,7 +456,7 @@ class Synchronizer:
             return False
         except Exception as e:
             tb = traceback.format_exc()
-            self._log.error("Exception Encountered: %s" % str(e))
+            self._log.error(f"Exception Encountered: {e}")
             self._log.error(tb)
             return False
 
@@ -489,6 +489,9 @@ class Synchronizer:
                 proposer_id = self._node_id
             )
             val = dataset_pointer
+            if existed is not None and isinstance(existed, CustomDataset):
+                # The existing variable is a CustomDataset. Change it to the DatasetPointer.
+                existed = dataset_pointer
         elif isinstance(val, DeepLearningModel):
             self._log.debug(f"Synchronizing Model \"{val.name}\" (\"{key}\"). "
                             f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
@@ -500,12 +503,15 @@ class Synchronizer:
             )
             try:
                 await self._remote_checkpointer.write_state_dicts_async(model_pointer)
-            except ValueError as vexc:
+            except ValueError as value_error:
                 self._log.warning(f"ValueError encountered while synchronizing '{model_pointer.model_name}' "
                                   f"DeepLearningModel for variable \"{model_pointer.user_namespace_variable_name}\" "
-                                  f"(\"{key}\"): {vexc}")
+                                  f"(\"{key}\"): {value_error}")
 
             val = model_pointer
+            if existed is not None and isinstance(existed, DeepLearningModel):
+                # The existing variable is a DeepLearningModel. Change it to the ModelPointer.
+                existed = model_pointer
         else:
             self._log.debug(f"Synchronizing {type(val).__name__} \"{key}\" [checkpointing={checkpointing}].")
 
