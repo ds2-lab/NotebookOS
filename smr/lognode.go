@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/scusemua/distributed-notebook/smr/storage"
 	"io"
 	"log"
 	"net/http"
@@ -35,6 +34,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/scusemua/distributed-notebook/smr/storage"
 
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -63,6 +64,7 @@ const (
 
 	hdfsRemoteStorage  string = "hdfs"
 	redisRemoteStorage string = "redis"
+	localStorage       string = "local"
 )
 
 var (
@@ -342,6 +344,8 @@ func NewLogNode(storePath string, id int, remoteStorageHostname string, remoteSt
 		node.storageProvider = storage.NewHdfsProvider(remoteStorageHostname, deploymentMode, node.id, &node.atom)
 	} else if remoteStorage == redisRemoteStorage {
 		node.storageProvider = storage.NewRedisProvider(remoteStorageHostname, deploymentMode, node.id, &node.atom)
+	} else if remoteStorage == localStorage {
+		node.storageProvider = storage.NewLocalProvider(deploymentMode, node.id, &node.atom)
 	} else {
 		_, _ = fmt.Fprintf(os.Stderr, "[ERROR] Invalid remote storage specified: \"%s\". Must be \"hdfs\" or \"redis\".",
 			remoteStorage)
