@@ -1,5 +1,6 @@
 import types
 from typing import Any, Optional
+import uuid
 from distributed_notebook.datasets.base import CustomDataset
 from distributed_notebook.models.model import DeepLearningModel
 from distributed_notebook.sync import Synchronizer
@@ -7,6 +8,10 @@ import builtins as builtin_mod
 
 from distributed_notebook.sync.checkpointing.local_checkpointer import LocalCheckpointer
 from distributed_notebook.sync.checkpointing.pointer import SyncPointer
+from distributed_notebook.sync.checkpointing.remote_checkpointer import (
+    RemoteCheckpointer,
+)
+from distributed_notebook.sync.raft_log import RaftLog
 from distributed_notebook.sync.synchronizer import CHECKPOINT_AUTO
 
 
@@ -29,7 +34,7 @@ def send_notifcation(title: str, msg: str, notification_type: int):
 
 
 def prepare_user_module():
-    user_module = types.ModuleType(
+    user_module: types.ModuleType = types.ModuleType(
         "__main__",
         doc="Automatically created module for IPython interactive environment",
     )
@@ -44,16 +49,25 @@ def prepare_user_module():
     return user_module, user_ns
 
 
-def test_synchronizer_init():
-    remote_checkpointer: LocalCheckpointer = LocalCheckpointer()
-    assert remote_checkpointer is not None
+def __get_raft_log(remote_checkpointer: RemoteCheckpointer) -> RaftLog:
+    raft_log: RaftLog = RaftLog(
+        node_id=1,
+        kernel_id=str(uuid.uuid4()),
+        skip_create_log_node=True,
+        base_path="./store",
+        remote_checkpointer=remote_checkpointer,
+    )
 
-    user_module, user_ns = prepare_user_module()
-    assert user_module is not None
-    assert user_ns is not None
+    return raft_log
 
+
+def __get_synchronizer(
+    raft_log: RaftLog,
+    user_module: types.ModuleType,
+    remote_checkpointer: RemoteCheckpointer,
+) -> Synchronizer:
     synchronizer: Synchronizer = Synchronizer(
-        None,
+        raft_log,
         store_path="./store",
         module=user_module,
         opts=CHECKPOINT_AUTO,
@@ -62,3 +76,35 @@ def test_synchronizer_init():
         remote_checkpointer=remote_checkpointer,
     )
     assert synchronizer is not None
+
+    return synchronizer
+
+
+def test_synchronizer_init():
+    remote_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    assert remote_checkpointer is not None
+
+    raft_log: RaftLog = __get_raft_log(remote_checkpointer)
+
+    user_module, user_ns = prepare_user_module()
+    assert user_module is not None
+    assert user_ns is not None
+
+    synchronizer: Synchronizer = __get_synchronizer(
+        raft_log, user_module, remote_checkpointer
+    )
+
+
+def test_handle_changed_value():
+    remote_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    assert remote_checkpointer is not None
+
+    raft_log: RaftLog = __get_raft_log(remote_checkpointer)
+
+    user_module, user_ns = prepare_user_module()
+    assert user_module is not None
+    assert user_ns is not None
+
+    synchronizer: Synchronizer = __get_synchronizer(
+        raft_log, user_module, remote_checkpointer
+    )
