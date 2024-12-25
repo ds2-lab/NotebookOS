@@ -4,19 +4,19 @@ import os
 import sys
 import traceback
 import types
-from typing import Optional, Callable, Any
+from typing import Any, Callable, Optional
 
-from .ast import SyncAST
-from .checkpointing.remote_checkpointer import RemoteCheckpointer
-from .election import Election
-from .errors import SyncError, DiscardMessageError
-from .log import Checkpointer, SyncLog, SynchronizedValue, KEY_SYNC_END
-from .object import SyncObject, SyncObjectWrapper, SyncObjectMeta
-from .referer import SyncReferer
-from .checkpointing.pointer import DatasetPointer, ModelPointer, SyncPointer
 from ..datasets.base import CustomDataset
 from ..logs import ColoredLogFormatter
 from ..models.model import DeepLearningModel
+from .ast import SyncAST
+from .checkpointing.pointer import DatasetPointer, ModelPointer, SyncPointer
+from .checkpointing.remote_checkpointer import RemoteCheckpointer
+from .election import Election
+from .errors import DiscardMessageError, SyncError
+from .log import KEY_SYNC_END, Checkpointer, SynchronizedValue, SyncLog
+from .object import SyncObject, SyncObjectMeta, SyncObjectWrapper
+from .referer import SyncReferer
 
 KEY_SYNC_AST = "_ast_"
 CHECKPOINT_AUTO = 1
@@ -26,6 +26,7 @@ MIN_CHECKPOINT_LOGS = 10
 
 class SyncModule(object):
     """A dummy module used for Synchronizer for customizing __dict__"""
+
     __spec__ = None
 
 
@@ -35,27 +36,31 @@ class Synchronizer:
     _async_loop: asyncio.AbstractEventLoop
 
     def __init__(
-            self,
-            sync_log: SyncLog,
-            store_path:str = "",
-            module: Optional[types.ModuleType] = None,
-            ns=None,
-            opts=0,
-            node_id: int = -1,
-            large_object_pointer_committed: Callable[[SyncPointer], Optional[CustomDataset | DeepLearningModel]] = None,
-            remote_checkpointer: RemoteCheckpointer = None,
+        self,
+        sync_log: SyncLog,
+        store_path: str = "",
+        module: Optional[types.ModuleType] = None,
+        ns=None,
+        opts=0,
+        node_id: int = -1,
+        large_object_pointer_committed: Callable[
+            [SyncPointer], Optional[CustomDataset | DeepLearningModel]
+        ] = None,
+        remote_checkpointer: RemoteCheckpointer = None,
     ):
         if module is None and ns is not None:
             self._module = SyncModule()  # type: ignore
             ns.setdefault("__name__", "__main__")
             self._module.__dict__ = ns
         elif module is None:
-            self._module = types.ModuleType("__main__", doc="Automatically created module for python environment")
+            self._module = types.ModuleType(
+                "__main__", doc="Automatically created module for python environment"
+            )
         else:
             self._module = module
 
-        self._store_path:str = store_path
-        self._node_id:int = node_id
+        self._store_path: str = store_path
+        self._node_id: int = node_id
 
         # Set callbacks for synclog
         sync_log.set_should_checkpoint_callback(self.should_checkpoint_callback)
@@ -70,7 +75,14 @@ class Synchronizer:
 
         self._log.debug("Finished setting callbacks for Synclog (within Synchronizer).")
 
-        self._async_loop = asyncio.get_running_loop()
+        try:
+            self._async_loop: Optional[asyncio.AbstractEventLoop] = (
+                asyncio.get_running_loop()
+            )
+            self._async_loop.set_debug(True)
+        except RuntimeError:
+            self._log.warning("No asyncio Event Loop running...")
+            self._async_loop: Optional[asyncio.AbstractEventLoop] = None
 
         self._log.debug("Got asyncio io loop")
 
@@ -81,7 +93,9 @@ class Synchronizer:
         self._log.debug("Created SyncReferer")
         self._opts = opts
         self._syncing = False  # Avoid checkpoint in the middle of syncing.
-        self._large_object_pointer_committed: Callable[[SyncPointer], Optional[CustomDataset | DeepLearningModel]] = large_object_pointer_committed
+        self._large_object_pointer_committed: Callable[
+            [SyncPointer], Optional[CustomDataset | DeepLearningModel]
+        ] = large_object_pointer_committed
 
         self._synclog: SyncLog = sync_log
 
@@ -93,7 +107,16 @@ class Synchronizer:
 
     def start(self):
         self._log.debug("Starting Synchronizer")
-        self._async_loop = asyncio.get_running_loop()
+
+        try:
+            self._async_loop: Optional[asyncio.AbstractEventLoop] = (
+                asyncio.get_running_loop()
+            )
+            self._async_loop.set_debug(True)
+        except RuntimeError:
+            self._log.warning("No asyncio Event Loop running...")
+            self._async_loop: Optional[asyncio.AbstractEventLoop] = None
+
         self._synclog.start(self.change_handler)
 
     def close(self):
@@ -115,7 +138,9 @@ class Synchronizer:
         prev_exec_count: int = self._ast.execution_count
         self._ast.fast_forward_executions()
 
-        self._log.debug(f"Fast-forwarded execution count by 1 (from {prev_exec_count} to {self._ast.execution_count}).")
+        self._log.debug(
+            f"Fast-forwarded execution count by 1 (from {prev_exec_count} to {self._ast.execution_count})."
+        )
 
     def set_execution_count(self, execution_count):
         """
@@ -126,10 +151,14 @@ class Synchronizer:
         prev_exec_count: int = self._ast.execution_count
 
         if execution_count < prev_exec_count:
-            raise ValueError(f"cannot set execution count to a lower value (current: {execution_count}, specified: {prev_exec_count})")
+            raise ValueError(
+                f"cannot set execution count to a lower value (current: {execution_count}, specified: {prev_exec_count})"
+            )
 
         self._ast.set_executions(execution_count)
-        self._log.debug(f"Fast-forwarded execution count by {execution_count - prev_exec_count} (from {prev_exec_count} to {self._ast.execution_count}).")
+        self._log.debug(
+            f"Fast-forwarded execution count by {execution_count - prev_exec_count} (from {prev_exec_count} to {self._ast.execution_count})."
+        )
 
     def change_handler(self, val: SynchronizedValue, restoring: bool = False):
         """Change handler"""
@@ -156,13 +185,17 @@ class Synchronizer:
                 if isinstance(val.data, SyncObject):
                     existed = val.data
                 else:
-                    existed = SyncObjectWrapper(self._referer)  # Initialize an empty object wrapper.
+                    existed = SyncObjectWrapper(
+                        self._referer
+                    )  # Initialize an empty object wrapper.
 
             # Switch context
             old_main_modules = sys.modules["__main__"]
             sys.modules["__main__"] = self._module
 
-            self._log.debug(f"Handling updated/changed SynchronizedValue with key=\"{val.key}\" of type {type(val).__name__}: {val}")
+            self._log.debug(
+                f'Handling updated/changed SynchronizedValue with key="{val.key}" of type {type(val).__name__}: {val}'
+            )
 
             diff = existed.update(val)
             self._log.debug(f"{val.key} of type {type(diff).__name__}: {diff}")
@@ -182,29 +215,42 @@ class Synchronizer:
                 self._log.debug("<< exit execution syncing [2]")
         except Exception as e:
             # print_trace(limit = 10)
-            self._log.error("Exception encountered in change handler for synchronizer: %s" % str(e))
+            self._log.error(
+                "Exception encountered in change handler for synchronizer: %s" % str(e)
+            )
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self._log.error(frame)
 
         local_election: Election = self.current_election
-        if local_election is not None and local_election.term_number < self.execution_count:
-            self._log.warning(f"Current local election has term number {local_election.term_number}, "
-                              f"but we (now) have execution count of {self.execution_count}. We're out-of-sync...")
+        if (
+            local_election is not None
+            and local_election.term_number < self.execution_count
+        ):
+            self._log.warning(
+                f"Current local election has term number {local_election.term_number}, "
+                f"but we (now) have execution count of {self.execution_count}. We're out-of-sync..."
+            )
 
     def variable_changed(self, val: SynchronizedValue, existed: SyncObjectWrapper):
         if isinstance(existed.object, SyncPointer):
             pointer: SyncPointer = existed.object
-            self._log.debug(f"Large object pointer variable \"{pointer.user_namespace_variable_name}\" of type {type(pointer).__name__} changed.")
+            self._log.debug(
+                f'Large object pointer variable "{pointer.user_namespace_variable_name}" of type {type(pointer).__name__} changed.'
+            )
             large_object = self._large_object_pointer_committed(existed.object)
-            self._log.debug(f"Assigning large object of type {type(large_object).__name__} to variable \"{val.key}\".")
+            self._log.debug(
+                f'Assigning large object of type {type(large_object).__name__} to variable "{val.key}".'
+            )
 
             # We want to put the large object in the global namespace, rather than the pointer.
             variable_value: Any = large_object
             sys.stderr.flush()
             sys.stdout.flush()
         else:
-            self._log.debug(f"Variable \"{val.key}\" of type {type(existed.object).__name__} changed.")
+            self._log.debug(
+                f'Variable "{val.key}" of type {type(existed.object).__name__} changed.'
+            )
             variable_value: Any = existed.object
 
         self._tags[val.key] = existed
@@ -218,19 +264,25 @@ class Synchronizer:
         self._ast = existed
 
         if self.execution_count != old_exec_count:
-            self._log.debug(f"Execution count changed from {old_exec_count} to {self.execution_count} after synchronizing AST.")
+            self._log.debug(
+                f"Execution count changed from {old_exec_count} to {self.execution_count} after synchronizing AST."
+            )
 
         # Redeclare modules, classes, and functions.
         try:
             compiled = compile(diff, "sync", "exec")
         except Exception as ex:
-            self._log.error(f"Failed to compile. Diff ({type(diff)}): {diff}. Error: {ex}")
+            self._log.error(
+                f"Failed to compile. Diff ({type(diff)}): {diff}. Error: {ex}"
+            )
             raise ex  # Re-raise.
 
         try:
             exec(compiled, self.global_ns, self.global_ns)
         except Exception as ex:
-            self._log.error(f"Failed to exec. Compiled ({type(compiled)}): {compiled}. Error: {ex}")
+            self._log.error(
+                f"Failed to exec. Compiled ({type(compiled)}): {compiled}. Error: {ex}"
+            )
             raise ex  # Re-raise.
 
     async def propose_lead(self, jupyter_message_id: str, term_number: int) -> int:
@@ -257,8 +309,10 @@ class Synchronizer:
             for frame in stack:
                 self._log.error(frame)
         except DiscardMessageError as dme:
-            self._log.warning(f"Received direction to discard Jupyter Message {jupyter_message_id}, "
-                              f"as election for term {term_number} was skipped: {dme}")
+            self._log.warning(
+                f"Received direction to discard Jupyter Message {jupyter_message_id}, "
+                f"as election for term {term_number} was skipped: {dme}"
+            )
             raise dme
         except Exception as e:
             self._log.error("Exception encountered while proposing LEAD: %s" % str(e))
@@ -272,17 +326,19 @@ class Synchronizer:
         # Failed to lead the term
         return 0
 
-    def created_first_election(self)->bool:
+    def created_first_election(self) -> bool:
         """
         :return: return a boolean indicating whether we've created the first election yet.
         """
         if self._synclog is None:
-            raise ValueError("Cannot check if we've created first election, as the SyncLog is None...")
+            raise ValueError(
+                "Cannot check if we've created first election, as the SyncLog is None..."
+            )
 
         return self._synclog.created_first_election
 
     @property
-    def current_election(self)->Election:
+    def current_election(self) -> Election:
         """
         :return: the current election, if one exists.
         """
@@ -291,28 +347,30 @@ class Synchronizer:
 
         return self._synclog.current_election
 
-    def get_known_election_terms(self)->list[int]:
+    def get_known_election_terms(self) -> list[int]:
         """
         :return: a list of term numbers for which we have an associated Election object
         """
         return self._synclog.get_known_election_terms()
 
-    def get_election(self, term_number:int):
+    def get_election(self, term_number: int):
         """
         :return: return the election with the given term number, or None if no such election exists.
         """
         return self._synclog.get_election(term_number)
 
-    def is_election_finished(self, term_number: int)->bool:
+    def is_election_finished(self, term_number: int) -> bool:
         """
         Checks if the election with the specified term number has completed.
 
         Raises a ValueError if there is no election with the specified term number or if the sync log is None.
         """
         if self._synclog is None:
-            raise ValueError(f"Cannot check status of election {term_number}; SynchronizationLog is None.")
+            raise ValueError(
+                f"Cannot check status of election {term_number}; SynchronizationLog is None."
+            )
 
-        election:Election = self.get_election(term_number)
+        election: Election = self.get_election(term_number)
 
         if election is None:
             raise ValueError(f"Could not find election with term number {term_number}")
@@ -332,8 +390,12 @@ class Synchronizer:
         self._log.debug("Synchronizer is proposing to yield term %d" % term_number)
         try:
             if await self._synclog.try_yield_execution(jupyter_message_id, term_number):
-                self._log.error("synclog.yield_exection returned true despite the fact that we're yielding...")
-                raise ValueError("synclog.yield_exection returned true despite the fact that we're yielding")
+                self._log.error(
+                    "synclog.yield_exection returned true despite the fact that we're yielding..."
+                )
+                raise ValueError(
+                    "synclog.yield_exection returned true despite the fact that we're yielding"
+                )
         except SyncError as se:
             self._log.warning("SyncError: {}".format(se))
             # print_trace(limit = 10)
@@ -348,7 +410,10 @@ class Synchronizer:
                 self._log.error(frame)
             raise e
 
-        self._log.debug("Successfully yielded the execution to another replica for term %d" % term_number)
+        self._log.debug(
+            "Successfully yielded the execution to another replica for term %d"
+            % term_number
+        )
         # Failed to lead the term, which is what we want to happen since we're YIELDING.
         return 0
 
@@ -359,8 +424,10 @@ class Synchronizer:
 
         :param term_number: the term number of the election
         """
-        self._log.debug(f"Waiting for leader to finish executing code (or to learn that all replicas yielded) "
-                        f"for election term {term_number}.")
+        self._log.debug(
+            f"Waiting for leader to finish executing code (or to learn that all replicas yielded) "
+            f"for election term {term_number}."
+        )
 
         await self._synclog.wait_for_election_to_end(term_number)
 
@@ -371,7 +438,9 @@ class Synchronizer:
         :param term_number: the term of the election for which we served as leader and executed
         the user-submitted code.
         """
-        self._log.debug(f"Notifying peers that execution of code during election term {term_number} has finished.")
+        self._log.debug(
+            f"Notifying peers that execution of code during election term {term_number} has finished."
+        )
 
         await self._synclog.notify_execution_complete(term_number)
 
@@ -391,15 +460,26 @@ class Synchronizer:
         if lead:
             self._log.debug("Synchronizer::Ready(LEAD): Proposing to lead now.")
             res = await self.propose_lead(jupyter_message_id, term_number)
-            self._log.debug("Synchronizer::Ready(LEAD): Done with proposal protocol for lead. Result: %d" % res)
+            self._log.debug(
+                "Synchronizer::Ready(LEAD): Done with proposal protocol for lead. Result: %d"
+                % res
+            )
             return res
         else:
             self._log.debug("Synchronizer::Ready(YIELD): Proposing to yield now.")
             res = await self.propose_yield(jupyter_message_id, term_number)
-            self._log.debug("Synchronizer::Ready(YIELD): Done with proposal protocol for yield. Result: %d" % res)
+            self._log.debug(
+                "Synchronizer::Ready(YIELD): Done with proposal protocol for yield. Result: %d"
+                % res
+            )
             return res
 
-    async def sync(self, execution_ast, source: Optional[str] = None, checkpointer: Optional[Checkpointer] = None)->bool:
+    async def sync(
+        self,
+        execution_ast,
+        source: Optional[str] = None,
+        checkpointer: Optional[Checkpointer] = None,
+    ) -> bool:
         """
         Note: `execution_ast` may be None if the user's code had a syntax error.
         TODO(Ben): See what happens if there are other errors, such as dividing by zero or array out-of-bounds.
@@ -420,16 +500,25 @@ class Synchronizer:
             # execution_count updated.
             # self._referer.module_id = self._ast.execution_count # TODO: Verify this.
 
-            self._log.debug(f"Syncing execution (checkpointing={checkpointing}). AST: {sync_ast}. Current execution count: {self.execution_count}.")
+            self._log.debug(
+                f"Syncing execution (checkpointing={checkpointing}). AST: {sync_ast}. Current execution count: {self.execution_count}."
+            )
             keys = self._ast.globals
             meta = SyncObjectMeta(
-                batch=(str(sync_ast.election_term) if not checkpointing else "{}c".format(sync_ast.election_term)))
+                batch=(
+                    str(sync_ast.election_term)
+                    if not checkpointing
+                    else "{}c".format(sync_ast.election_term)
+                )
+            )
             # TODO: Recalculate the number of expected synchronizations within the execution.
             expected = len(keys)  # globals + the ast
             synced = 0
 
             self._syncing = True
-            self._log.debug(f"Setting sync_ast.term to term of AST: {self._ast.execution_count}")
+            self._log.debug(
+                f"Setting sync_ast.term to term of AST: {self._ast.execution_count}"
+            )
             sync_ast.set_election_term(self._ast.execution_count)
             sync_ast.set_key(KEY_SYNC_AST)
             if expected == 0:
@@ -445,19 +534,25 @@ class Synchronizer:
             #     sync_ast.set_election_term(current_election.term_number)
             #     sync_ast.set_attempt_number(current_election.current_attempt_number)
 
-            self._log.debug(f"Appending value: {sync_ast}. Checkpointing={checkpointing}.")
+            self._log.debug(
+                f"Appending value: {sync_ast}. Checkpointing={checkpointing}."
+            )
             await sync_log.append(sync_ast)
-            self._log.debug(f"Successfully appended value: {sync_ast}. Checkpointing={checkpointing}.")
+            self._log.debug(
+                f"Successfully appended value: {sync_ast}. Checkpointing={checkpointing}."
+            )
             for key in keys:
                 synced = synced + 1
-                self._log.debug("Syncing key \"%s\" now." % key)
-                await self.sync_key(sync_log,
-                                    key,
-                                    self.global_ns[key],
-                                    end_execution=synced == expected,
-                                    checkpointing=checkpointing,
-                                    meta=meta)
-                self._log.debug("Successfully synchronized key \"%s\"." % key)
+                self._log.debug('Syncing key "%s" now.' % key)
+                await self.sync_key(
+                    sync_log,
+                    key,
+                    self.global_ns[key],
+                    end_execution=synced == expected,
+                    checkpointing=checkpointing,
+                    meta=meta,
+                )
+                self._log.debug('Successfully synchronized key "%s".' % key)
 
             if checkpointing:
                 checkpointer.close()
@@ -474,18 +569,26 @@ class Synchronizer:
 
         return True
 
-    async def sync_key(self, sync_log, key, val, end_execution=False, checkpointing=False, meta=None):
+    async def sync_key(
+        self, sync_log, key, val, end_execution=False, checkpointing=False, meta=None
+    ):
         if key in self._tags:
             existed = self._tags[key]
-            self._log.debug(f"SyncObjectWrapper already exists for variable \"{key}\" of type {type(existed.object).__name__}")
+            self._log.debug(
+                f'SyncObjectWrapper already exists for variable "{key}" of type {type(existed.object).__name__}'
+            )
         else:
             if checkpointing:
-                self._log.error(f"Key {key} is not in self._tags ({self._tags}). Checkpointing should be False...")
+                self._log.error(
+                    f"Key {key} is not in self._tags ({self._tags}). Checkpointing should be False..."
+                )
 
             # TODO: Add support to SyncObject factory
             existed = SyncObjectWrapper(self._referer)
             self._tags[key] = existed
-            self._log.debug(f"Creating new SyncObjectWrapper for variable \"{key}\" of type {type(existed.object).__name__}")
+            self._log.debug(
+                f'Creating new SyncObjectWrapper for variable "{key}" of type {type(existed.object).__name__}'
+            )
 
         # self._log.debug("Syncing {}...".format(key))
 
@@ -494,35 +597,45 @@ class Synchronizer:
         sys.modules["__main__"] = self._module
 
         if isinstance(val, CustomDataset):
-            self._log.debug(f"Synchronizing Dataset \"{val.name}\" (\"{key}\"). "
-                            f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
+            self._log.debug(
+                f'Synchronizing Dataset "{val.name}" ("{key}"). '
+                f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]"
+            )
             dataset_pointer: DatasetPointer = DatasetPointer(
-                dataset = val,
-                user_namespace_variable_name = key,
-                dataset_remote_storage_path= os.path.join(self._store_path, val.name),
-                proposer_id = self._node_id
+                dataset=val,
+                user_namespace_variable_name=key,
+                dataset_remote_storage_path=os.path.join(self._store_path, val.name),
+                proposer_id=self._node_id,
             )
             val = dataset_pointer
         elif isinstance(val, DeepLearningModel):
-            self._log.debug(f"Synchronizing Model \"{val.name}\" (\"{key}\"). "
-                            f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]")
+            self._log.debug(
+                f'Synchronizing Model "{val.name}" ("{key}"). '
+                f"Will convert to pointer before appending to RaftLog. [checkpointing={checkpointing}]"
+            )
             model_pointer: ModelPointer = ModelPointer(
-                deep_learning_model = val,
-                user_namespace_variable_name = key,
-                model_path = os.path.join(self._store_path, val.name),
-                proposer_id = self._node_id,
+                deep_learning_model=val,
+                user_namespace_variable_name=key,
+                model_path=os.path.join(self._store_path, val.name),
+                proposer_id=self._node_id,
             )
             try:
                 await self._remote_checkpointer.write_state_dicts_async(model_pointer)
             except ValueError as value_error:
-                self._log.warning(f"ValueError encountered while synchronizing '{model_pointer.model_name}' "
-                                  f"DeepLearningModel for variable \"{model_pointer.user_namespace_variable_name}\" "
-                                  f"(\"{key}\"): {value_error}")
+                self._log.warning(
+                    f"ValueError encountered while synchronizing '{model_pointer.model_name}' "
+                    f'DeepLearningModel for variable "{model_pointer.user_namespace_variable_name}" '
+                    f'("{key}"): {value_error}'
+                )
 
-            self._log.debug(f"Finished writing state dictionaries of model \"{val.name}\" variable \"{key}\" to remote storage.")
+            self._log.debug(
+                f'Finished writing state dictionaries of model "{val.name}" variable "{key}" to remote storage.'
+            )
             val = model_pointer
         else:
-            self._log.debug(f"Synchronizing {type(val).__name__} \"{key}\" [checkpointing={checkpointing}].")
+            self._log.debug(
+                f'Synchronizing {type(val).__name__} "{key}" [checkpointing={checkpointing}].'
+            )
 
         if checkpointing:
             sync_val = existed.dump(meta=meta)
@@ -550,16 +663,29 @@ class Synchronizer:
         elif end_execution:
             # Synthesize end
             await sync_log.append(
-                SynchronizedValue(None, None, election_term=self._ast.execution_count, should_end_execution=True,
-                                  key=KEY_SYNC_END, proposer_id=self._node_id))
+                SynchronizedValue(
+                    None,
+                    None,
+                    election_term=self._ast.execution_count,
+                    should_end_execution=True,
+                    key=KEY_SYNC_END,
+                    proposer_id=self._node_id,
+                )
+            )
 
     def should_checkpoint_callback(self, sync_log: SyncLog) -> bool:
         cp = False
-        if self.execution_count < 2 or self._syncing or sync_log.num_changes < MIN_CHECKPOINT_LOGS:
+        if (
+            self.execution_count < 2
+            or self._syncing
+            or sync_log.num_changes < MIN_CHECKPOINT_LOGS
+        ):
             pass
         else:
-            cp = (((self._opts & CHECKPOINT_AUTO) > 0 and sync_log.num_changes >= len(self._tags.keys())) or
-                  ((self._opts & CHECKPOINT_ON_CHANGE) > 0 and sync_log.num_changes > 0))
+            cp = (
+                (self._opts & CHECKPOINT_AUTO) > 0
+                and sync_log.num_changes >= len(self._tags.keys())
+            ) or ((self._opts & CHECKPOINT_ON_CHANGE) > 0 and sync_log.num_changes > 0)
         # self._log.debug("in should_checkpoint_callback: {}".format(cp))
         return cp
 
@@ -568,5 +694,7 @@ class Synchronizer:
         checkpointer.lead(self._ast.execution_count)
         # await self.sync(None, source="checkpoint", checkpointer=checkpointer)
         # checkpointer.close()
-        asyncio.run_coroutine_threadsafe(self.sync(None, source="checkpoint", checkpointer=checkpointer),
-                                         self._async_loop)
+        asyncio.run_coroutine_threadsafe(
+            self.sync(None, source="checkpoint", checkpointer=checkpointer),
+            self._async_loop,
+        )
