@@ -115,20 +115,12 @@ def __get_synchronizer(
     return synchronizer
 
 
-def mocked_append(*args):
-    print(f"Mocked RaftLog::append called with arguments: {args}")
-
-
-@mock.patch.object(
-    distributed_notebook.sync.raft_log.RaftLog,
-    "append",
-    mocked_append,
-)
 def test_sync_key():
     remote_checkpointer: LocalCheckpointer = LocalCheckpointer()
     assert remote_checkpointer is not None
 
     raft_log: RaftLog = __get_raft_log(remote_checkpointer)
+    assert raft_log is not None
 
     user_module, user_ns = prepare_user_module()
     assert user_module is not None
@@ -140,16 +132,26 @@ def test_sync_key():
 
     meta = SyncObjectMeta(batch=(str(1)))
 
-    asyncio.get_event_loop().run_until_complete(
-        synchronizer.sync_key(
-            raft_log,
-            "my_var",
-            3,
-            end_execution=True,
-            checkpointing=False,
-            meta=meta,
+    async def mocked_append(*args):
+        print(f"Mocked RaftLog::append called with arguments: {args}")
+
+    with mock.patch.object(
+        distributed_notebook.sync.raft_log.RaftLog, "append", mocked_append
+    ):
+        asyncio.get_event_loop().run_until_complete(
+            synchronizer.sync_key(
+                sync_log=raft_log,
+                key="my_var",
+                val=3,
+                end_execution=True,
+                checkpointing=False,
+                meta=meta,
+            )
         )
-    )
+
+    assert "my_var" in synchronizer.global_ns
+    assert "my_var" in user_ns
+    assert hasattr(user_module, "my_var")
 
 
 def test_restore_int():

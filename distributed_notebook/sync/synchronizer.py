@@ -572,6 +572,8 @@ class Synchronizer:
     async def sync_key(
         self, sync_log, key, val, end_execution=False, checkpointing=False, meta=None
     ):
+        assert sync_log is not None
+
         if key in self._tags:
             existed = self._tags[key]
             self._log.debug(
@@ -659,9 +661,12 @@ class Synchronizer:
             sync_val.set_election_term(self._ast.execution_count)
             sync_val.set_key(key)
             sync_val.set_should_end_execution(end_execution)
+
+            assert sync_log is not None
             await sync_log.append(sync_val)
         elif end_execution:
             # Synthesize end
+            assert sync_log is not None
             await sync_log.append(
                 SynchronizedValue(
                     None,
