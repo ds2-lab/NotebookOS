@@ -425,64 +425,69 @@ def test_sync_and_change_deep_learning_model():
     for b in user_module.model.model.fc.bias.data:
         assert b == initial_bias
 
-    updated_weights: float = 5.0
-    updated_bias: float = 2.125
+    updated_weights: float = initial_weights
+    updated_bias: float = initial_weights
 
-    model.set_weights(updated_weights)
-    model.set_bias(updated_bias)
+    # Do this for 10 iterations.
+    for i in range(0, 10):
+        updated_weights = updated_weights + 1
+        updated_bias = updated_bias + 1
 
-    weight: Parameter = model.model.fc.weight
-    for weight_vector in weight.data:
-        for w in weight_vector:
-            assert w == updated_weights
+        model.set_weights(updated_weights)
+        model.set_bias(updated_bias)
 
-    for b in model.model.fc.bias.data:
-        assert b == updated_bias
+        weight: Parameter = model.model.fc.weight
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
 
-    synchronize_variable(
-        io_loop = io_loop,
-        synchronizer = synchronizer,
-        raft_log = raft_log,
-        val = model,
-        meta = meta,
-        key = "model",
-    )
+        for b in model.model.fc.bias.data:
+            assert b == updated_bias
 
-    print(f"synchronizer.global_ns: {synchronizer.global_ns}")
-    print(f"user_ns: {user_ns}")
-    print(f"user_module: {user_module}")
+        synchronize_variable(
+            io_loop = io_loop,
+            synchronizer = synchronizer,
+            raft_log = raft_log,
+            val = model,
+            meta = meta,
+            key = "model",
+        )
 
-    assert "model" in synchronizer.global_ns
-    assert "model" in user_ns
-    assert hasattr(user_module, "model")
+        print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+        print(f"user_ns: {user_ns}")
+        print(f"user_module: {user_module}")
 
-    assert isinstance(user_ns["model"], SimpleModel)
-    assert isinstance(synchronizer.global_ns["model"], SimpleModel)
-    assert isinstance(user_module.model, SimpleModel)
+        assert "model" in synchronizer.global_ns
+        assert "model" in user_ns
+        assert hasattr(user_module, "model")
 
-    weight: Parameter = user_ns["model"].model.fc.weight
-    for weight_vector in weight.data:
-        for w in weight_vector:
-            assert w == updated_weights
+        assert isinstance(user_ns["model"], SimpleModel)
+        assert isinstance(synchronizer.global_ns["model"], SimpleModel)
+        assert isinstance(user_module.model, SimpleModel)
 
-    for b in user_ns["model"].model.fc.bias.data:
-        assert b == updated_bias
+        weight: Parameter = user_ns["model"].model.fc.weight
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
 
-    weight: Parameter = synchronizer.global_ns["model"].model.fc.weight
-    for weight_vector in weight.data:
-        for w in weight_vector:
-            assert w == updated_weights
+        for b in user_ns["model"].model.fc.bias.data:
+            assert b == updated_bias
 
-    for b in synchronizer.global_ns["model"].model.fc.bias.data:
-        assert b == updated_bias
+        weight: Parameter = synchronizer.global_ns["model"].model.fc.weight
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
 
-    weight: Parameter = user_module.model.model.fc.weight
-    for weight_vector in weight.data:
-        for w in weight_vector:
-            assert w == updated_weights
+        for b in synchronizer.global_ns["model"].model.fc.bias.data:
+            assert b == updated_bias
 
-    for b in user_module.model.model.fc.bias.data:
-        assert b == updated_bias
+        weight: Parameter = user_module.model.model.fc.weight
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+        for b in user_module.model.model.fc.bias.data:
+            assert b == updated_bias
 
 
 def test_sync_and_change_deep_learning_model_new_model_obj():
@@ -575,65 +580,71 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
     for b in user_module.model.model.fc.bias.data:
         assert b == initial_bias
 
-    updated_weights: float = 5.0
-    updated_bias: float = 2.125
-    model = SimpleModel(
-        input_size = input_size,
-        out_features = 1,
-        created_for_first_time = True,
-        initial_weights = updated_weights,
-        initial_bias = updated_bias
-    )
+    updated_weights: float = initial_weights
+    updated_bias: float = initial_weights
 
-    weight: Parameter = model.model.fc.weight
-    for weight_vector in weight.data:
-        for w in weight_vector:
-            assert w == updated_weights
+    # Do this for 10 iterations.
+    for i in range(0, 10):
+        updated_weights = updated_weights + 1
+        updated_bias = updated_bias + 1
 
-    for b in model.model.fc.bias.data:
-        assert b == updated_bias
+        model = SimpleModel(
+            input_size = input_size,
+            out_features = 1,
+            created_for_first_time = True,
+            initial_weights = updated_weights,
+            initial_bias = updated_bias
+        )
 
-    synchronize_variable(
-        io_loop = io_loop,
-        synchronizer = synchronizer,
-        raft_log = raft_log,
-        val = model,
-        meta = meta,
-        key = "model",
-    )
+        weight: Parameter = model.model.fc.weight
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
 
-    print(f"synchronizer.global_ns: {synchronizer.global_ns}")
-    print(f"user_ns: {user_ns}")
-    print(f"user_module: {user_module}")
+        for b in model.model.fc.bias.data:
+            assert b == updated_bias
 
-    assert "model" in synchronizer.global_ns
-    assert "model" in user_ns
-    assert hasattr(user_module, "model")
+        synchronize_variable(
+            io_loop = io_loop,
+            synchronizer = synchronizer,
+            raft_log = raft_log,
+            val = model,
+            meta = meta,
+            key = "model",
+        )
 
-    assert isinstance(user_ns["model"], SimpleModel)
-    assert isinstance(synchronizer.global_ns["model"], SimpleModel)
-    assert isinstance(user_module.model, SimpleModel)
+        print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+        print(f"user_ns: {user_ns}")
+        print(f"user_module: {user_module}")
 
-    weight: Parameter = user_ns["model"].model.fc.weight
-    for weight_vector in weight.data:
-        for w in weight_vector:
-            assert w == updated_weights
+        assert "model" in synchronizer.global_ns
+        assert "model" in user_ns
+        assert hasattr(user_module, "model")
 
-    for b in user_ns["model"].model.fc.bias.data:
-        assert b == updated_bias
+        assert isinstance(user_ns["model"], SimpleModel)
+        assert isinstance(synchronizer.global_ns["model"], SimpleModel)
+        assert isinstance(user_module.model, SimpleModel)
 
-    weight: Parameter = synchronizer.global_ns["model"].model.fc.weight
-    for weight_vector in weight.data:
-        for w in weight_vector:
-            assert w == updated_weights
+        weight: Parameter = user_ns["model"].model.fc.weight
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
 
-    for b in synchronizer.global_ns["model"].model.fc.bias.data:
-        assert b == updated_bias
+        for b in user_ns["model"].model.fc.bias.data:
+            assert b == updated_bias
 
-    weight: Parameter = user_module.model.model.fc.weight
-    for weight_vector in weight.data:
-        for w in weight_vector:
-            assert w == updated_weights
+        weight: Parameter = synchronizer.global_ns["model"].model.fc.weight
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
 
-    for b in user_module.model.model.fc.bias.data:
-        assert b == updated_bias
+        for b in synchronizer.global_ns["model"].model.fc.bias.data:
+            assert b == updated_bias
+
+        weight: Parameter = user_module.model.model.fc.weight
+        for weight_vector in weight.data:
+            for w in weight_vector:
+                assert w == updated_weights
+
+        for b in user_module.model.model.fc.bias.data:
+            assert b == updated_bias
