@@ -115,8 +115,43 @@ def __get_synchronizer(
 
     return synchronizer
 
+def synchronize_variable(
+        append_future: asyncio.Future[SynchronizedValue],
+        io_loop: asyncio.AbstractEventLoop,
+        synchronizer: Synchronizer,
+        raft_log: RaftLog,
+        val: Any,
+        meta: SyncObjectMeta,
+):
+    async def mocked_append(rlog: RaftLog, val: SynchronizedValue):
+        print(f"Mocked RaftLog::append called with RaftLog {rlog} and SynchronizedValue {val}")
+        append_future.set_result(val)
 
-def test_sync_key():
+    with mock.patch.object(
+            distributed_notebook.sync.raft_log.RaftLog, "append", mocked_append
+    ):
+        io_loop.run_until_complete(
+            synchronizer.sync_key(
+                sync_log=raft_log,
+                key="my_var",
+                val=val,
+                end_execution=True,
+                checkpointing=False,
+                meta=meta,
+            )
+        )
+
+    assert append_future.done()
+
+    synchronized_key: SynchronizedValue = append_future.result()
+    print(f"synchronized_key: {synchronized_key}")
+
+    synchronizer.change_handler(synchronized_key, restoring = False)
+
+def test_sync_and_change_int_variable():
+    """
+    Test calling sync_key followed by change_handler for an int variable.
+    """
     remote_checkpointer: LocalCheckpointer = LocalCheckpointer()
     assert remote_checkpointer is not None
 
@@ -135,141 +170,145 @@ def test_sync_key():
 
     io_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
     append_future: asyncio.Future[SynchronizedValue] = io_loop.create_future()
+    val: int = 3
 
-    async def mocked_append(rlog: RaftLog, val: SynchronizedValue):
-        print(f"Mocked RaftLog::append called with RaftLog {rlog} and SynchronizedValue {val}")
-        append_future.set_result(val)
-
-    with mock.patch.object(
-            distributed_notebook.sync.raft_log.RaftLog, "append", mocked_append
-    ):
-        io_loop.run_until_complete(
-            synchronizer.sync_key(
-                sync_log=raft_log,
-                key="my_var",
-                val=3,
-                end_execution=True,
-                checkpointing=False,
-                meta=meta,
-            )
-        )
-
-    assert append_future.done()
-
-    synchronized_key: SynchronizedValue = append_future.result()
-    print(f"synchronized_key: {synchronized_key}")
-
-    synchronizer.change_handler(synchronized_key, restoring = False)
+    synchronize_variable(
+        append_future = append_future,
+        io_loop = io_loop,
+        synchronizer = synchronizer,
+        raft_log = raft_log,
+        val = val,
+        meta = meta,
+    )
 
     assert "my_var" in synchronizer.global_ns
     assert "my_var" in user_ns
     assert hasattr(user_module, "my_var")
 
-    assert user_ns["my_var"] == 3
+    assert user_ns["my_var"] == val
     assert isinstance(user_ns["my_var"], int)
 
-    assert synchronizer.global_ns["my_var"] == 3
+    assert synchronizer.global_ns["my_var"] == val
     assert isinstance(synchronizer.global_ns["my_var"], int)
 
-    assert user_module.my_var == 3
+    assert user_module.my_var == val
     assert isinstance(user_module.my_var, int)
 
-def test_restore_int():
-    sync_object = SyncObjectWrapper(referer=SyncReferer())
-    print("===== Created SyncObjectWrapper =====\n\n")
-    sync_object.config_pickler(profiling=False)
-    print("===== Configured Pickler =====\n\n")
+    val = 5
+    append_future = io_loop.create_future()
 
-    val = sync_object.diff(3)
-    print("===== Called Diff on SyncObjectWrapper =====\n\n")
-    assert val is not None
+    synchronize_variable(
+        append_future = append_future,
+        io_loop = io_loop,
+        synchronizer = synchronizer,
+        raft_log = raft_log,
+        val = val,
+        meta = meta,
+    )
 
-    print("===== Called Update on SyncObjectWrapper =====\n\n")
-    result = sync_object.update(val)
+    assert "my_var" in synchronizer.global_ns
+    assert "my_var" in user_ns
+    assert hasattr(user_module, "my_var")
 
-    # Check that the result is as expected
-    assert result is not None
-    assert isinstance(result, int)
+    assert user_ns["my_var"] == val
+    assert isinstance(user_ns["my_var"], int)
+
+    assert synchronizer.global_ns["my_var"] == val
+    assert isinstance(synchronizer.global_ns["my_var"], int)
+
+    assert user_module.my_var == val
+    assert isinstance(user_module.my_var, int)
 
 
-def test_restore_dummy_object():
-    sync_object = SyncObjectWrapper(referer=SyncReferer())
-    print("===== Created SyncObjectWrapper =====\n\n")
-    sync_object.config_pickler(profiling=False)
-    print("===== Configured Pickler =====\n\n")
+def test_sync_and_change_dummy_object_variable():
+    """
+    Test calling sync_key followed by change_handler for an DummyObject variable.
+    """
+    remote_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    assert remote_checkpointer is not None
 
+    raft_log: RaftLog = __get_raft_log(remote_checkpointer)
+    assert raft_log is not None
+
+    user_module, user_ns = prepare_user_module()
+    assert user_module is not None
+    assert user_ns is not None
+
+    synchronizer: Synchronizer = __get_synchronizer(
+        raft_log, user_module, remote_checkpointer
+    )
+
+    meta = SyncObjectMeta(batch=(str(1)))
+
+    io_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+    append_future: asyncio.Future[SynchronizedValue] = io_loop.create_future()
     dummy_obj: DummyObject = DummyObject(lst=[1, 2, 3, 4])
-    val = sync_object.diff(dummy_obj)
-    print("===== Called Diff on SyncObjectWrapper =====\n\n")
-    assert val is not None
 
-    print("===== Called Update on SyncObjectWrapper =====\n\n")
-    result = sync_object.update(val)
-
-    # Check that the result is as expected
-    assert result is not None
-    assert isinstance(result, pd.DataFrame)
-
-
-def test_restore_dataframe():
-    sync_object = SyncObjectWrapper(referer=SyncReferer())
-    print("===== Created SyncObjectWrapper =====\n\n")
-    sync_object.config_pickler(profiling=False)
-    print("===== Configured Pickler =====\n\n")
-    val = sync_object.diff(pd.DataFrame(example_data))
-    print("===== Called Diff on SyncObjectWrapper =====\n\n")
-    assert val is not None
-
-    print("===== Called Update on SyncObjectWrapper =====\n\n")
-    result = sync_object.update(val)
-
-    # Check that the result is as expected
-    assert result is not None
-    assert isinstance(result, pd.DataFrame)
-
-
-def test_synchronizer_init():
-    remote_checkpointer: LocalCheckpointer = LocalCheckpointer()
-    assert remote_checkpointer is not None
-
-    raft_log: RaftLog = __get_raft_log(remote_checkpointer)
-
-    user_module, user_ns = prepare_user_module()
-    assert user_module is not None
-    assert user_ns is not None
-
-    synchronizer: Synchronizer = __get_synchronizer(
-        raft_log, user_module, remote_checkpointer
+    synchronize_variable(
+        append_future = append_future,
+        io_loop = io_loop,
+        synchronizer = synchronizer,
+        raft_log = raft_log,
+        val = dummy_obj,
+        meta = meta,
     )
 
+    assert "my_var" in synchronizer.global_ns
+    assert "my_var" in user_ns
+    assert hasattr(user_module, "my_var")
 
-def test_handle_changed_value():
-    remote_checkpointer: LocalCheckpointer = LocalCheckpointer()
-    assert remote_checkpointer is not None
+    assert user_ns["my_var"] == dummy_obj
+    assert isinstance(user_ns["my_var"], DummyObject)
 
-    raft_log: RaftLog = __get_raft_log(remote_checkpointer)
+    assert synchronizer.global_ns["my_var"] == dummy_obj
+    assert isinstance(synchronizer.global_ns["my_var"], DummyObject)
 
-    user_module, user_ns = prepare_user_module()
-    assert user_module is not None
-    assert user_ns is not None
+    assert user_module.my_var == dummy_obj
+    assert isinstance(user_module.my_var, DummyObject)
 
-    synchronizer: Synchronizer = __get_synchronizer(
-        raft_log, user_module, remote_checkpointer
+    assert user_ns["my_var"].lst is not None
+    assert len(user_ns["my_var"].lst) == 4
+    assert user_ns["my_var"].lst == [1, 2, 3, 4]
+    assert user_ns["my_var"].lst == dummy_obj.lst
+
+    # Update the variable, then we'll re-sync it.
+    dummy_obj.lst = [5, 6, 7, 8, 9, 10, 11]
+
+    append_future = io_loop.create_future()
+
+    synchronize_variable(
+        append_future = append_future,
+        io_loop = io_loop,
+        synchronizer = synchronizer,
+        raft_log = raft_log,
+        val = dummy_obj,
+        meta = meta,
     )
 
-    sync_obj_wrapper: SyncObjectWrapper = SyncObjectWrapper(
-        referer=SyncReferer(),
-    )
-    sync_obj_wrapper.config_pickler(profiling=True)
+    assert "my_var" in synchronizer.global_ns
+    assert "my_var" in user_ns
+    assert hasattr(user_module, "my_var")
 
-    dummy_val: DummyObject = DummyObject(lst=[1, 2, 3, 4])
-    val = sync_obj_wrapper.diff(dummy_val, SyncObjectMeta(str(1)))
+    assert user_ns["my_var"] == dummy_obj
+    assert isinstance(user_ns["my_var"], DummyObject)
 
-    assert val is not None
-    result = sync_obj_wrapper.update(val)
+    assert synchronizer.global_ns["my_var"] == dummy_obj
+    assert isinstance(synchronizer.global_ns["my_var"], DummyObject)
 
-    # Check that the result is as expected
-    assert result is not None
-    assert isinstance(result, DummyObject)
+    assert user_module.my_var == dummy_obj
+    assert isinstance(user_module.my_var, DummyObject)
 
-    # synchronizer.change_handler(sync_val, restoring=False)
+    assert user_ns["my_var"].lst is not None
+    assert len(user_ns["my_var"].lst) == 7
+    assert user_ns["my_var"].lst == [5, 6, 7, 8, 9, 10, 11]
+    assert user_ns["my_var"].lst == dummy_obj.lst
+
+    assert synchronizer.global_ns["my_var"].lst is not None
+    assert len(synchronizer.global_ns["my_var"].lst) == 7
+    assert synchronizer.global_ns["my_var"].lst == [5, 6, 7, 8, 9, 10, 11]
+    assert synchronizer.global_ns["my_var"].lst == dummy_obj.lst
+
+    assert user_module.my_var.lst is not None
+    assert len(user_module.my_var.lst) == 7
+    assert user_module.my_var.lst == [5, 6, 7, 8, 9, 10, 11]
+    assert user_module.my_var.lst == dummy_obj.lst

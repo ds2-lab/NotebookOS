@@ -87,7 +87,7 @@ class SyncLogReferer(SyncReferer):
       return None, None
 
     identity = id(obj)
-    # print("referencing {}:{}\n".format(t, obj))
+    print("referencing {}:{}\n".format(t, obj))
     if identity not in self.referers:
       first = pickle_id.len() == 0
       # New objects (case 1)

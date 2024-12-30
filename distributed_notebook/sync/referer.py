@@ -1,3 +1,4 @@
+import traceback
 from typing import Any, Optional, Union, Callable, IO
 from types import BuiltinFunctionType, FunctionType
 import pickle
@@ -44,8 +45,10 @@ class _T(tuple):
 
 
 class SyncPickleId:
-    """Instance of this class are used to uniquely identify a pickle dump process.
-    While the instance can be called to register or generate permanent reference id (PRID) for objects."""
+    """
+    Instance of this class are used to uniquely identify a pickle dump process.
+    While the instance can be called to register or generate permanent reference id (PRID) for objects.
+    """
 
     def __init__(
         self,
@@ -76,7 +79,11 @@ class SyncPickleId:
     def next_reference(
         self, obj: Any, prid: SyncPRID = None
     ) -> tuple[SyncPRID, Union[int, SyncRID]]:
-        """Register PRID, generate one if prid is not available, which is usually because we haven't seen the object during the batch"""
+        """
+        Register a PRID, generating one if the PRID is not available (i.e., if the prid parameter is None).
+
+        Typically, if a PRID is unavailable, it is because the object has not yet been seen during the batch.
+        """
         rid = len(self._prmap)
         if self._rid_provider is not None:
             rid = self._rid_provider(obj, rid)
@@ -86,7 +93,7 @@ class SyncPickleId:
         self._prmap.append(
             prid
         )  # By appending, the rid that is used to query prid is the same as the index of prmap.
-        print(f"Adding prid {prid} to _prmap for {type(obj).__name__} object {obj}")
+        print(f"Added prid {prid} (rid={rid}) to _prmap for {type(obj).__name__} object {obj}")
         return prid, rid
 
     def dump(self) -> tuple:
@@ -102,7 +109,7 @@ class SyncPickleId:
         print(f"Polyfilling objects in _prmap: {self._prmap}")
         for i in range(len(self._prmap)):
             print(
-                f"Polyfilling {i} (type={type(self._prmap[i]).__name__}): {self._prmap[i]}"
+                f"\nPolyfilling {i} (type={type(self._prmap[i]).__name__}): {self._prmap[i]}"
             )
             polyfiller(self._prmap[i])
 
@@ -174,11 +181,6 @@ class SyncReferer:
         """Register deserialized obj with permanent reference id. Called on case 5, required for case 6."""
         self.referers[ref_id.__prid__()] = SyncReference(ref_id, obj)
 
-    # def prid(self, obj):
-    #   """Query permanent reference id for first time serialized object. Called after case 1 for sychronizing."""
-    #   _, prid = self._reference(obj)
-    #   return prid
-
     def reference(
         self,
         batch_id: Optional[str],
@@ -207,15 +209,15 @@ class SyncReferer:
             self.pickler = pickler
 
         def persistent_id(obj):
-            # print("pickling {}:{}".format(obj, type(obj)))
+            print(f"Pickling {type(obj).__name__} object: {obj}")
             self.protocol = protocol
             ret, _ = _reference(obj, pickle_id=pickle_id)
-            # if ret is None:
-            #   print("pickle as original")
-            # elif len(ret) == 2:
-            #   print("pickle as {}:{}".format(ret[1], type(ret[1])))
-            # else:
-            #   print("pickle as {}".format(ret))
+            if ret is None:
+                print(f"Pickling {type(obj).__name__} object {obj} as its original type (?)")
+            elif len(ret) == 2:
+                print(f"Pickling {type(obj).__name__} object {obj} as {ret[1]} of type {type(ret[1]).__name__}")
+            else:
+                print(f"Pickling {type(obj).__name__} object {obj} as {ret}")
             return ret
 
         return persistent_id, pickle_id
@@ -293,9 +295,10 @@ class SyncReferer:
             return None, None
 
         identity = id(obj)
-        print("referencing {}:{}\n".format(t, obj))
+        print("referencing {}:{}".format(t, obj))
         if identity not in self.referers:
             # New objects (case 1)
+            print(f"{t.__name__} object {obj} referenced for first time")
             prid, rid = pickle_id.next_reference(obj)
             self.referers[identity] = SyncReference(
                 prid, obj, batch_id=pickle_id.batch_id, pickle_id=pickle_id
@@ -305,9 +308,13 @@ class SyncReferer:
             ]  # Register PRID for later remote referencing.
             return self._persistent_id_impl(rid, obj), prid
         elif id(self.referers[identity]) == id(SKIP_SYNC):
+            print(f"{t.__name__} object {obj} has referencing disabled")
+
             # Referencing is disabled.
             return self._persistent_id_impl(None, obj), None
         elif self.referers[identity].batch_id != pickle_id.batch_id:
+            print(f"{t.__name__} object {obj} is being touched for first time in batch {pickle_id.batch_id}")
+
             # First touch in a batch
             self.referers[identity].batch_id = pickle_id.batch_id
             self.referers[identity].pickle_id = pickle_id
@@ -319,9 +326,13 @@ class SyncReferer:
             )
             return self._persistent_id_impl(rid, obj), prid
         elif self.referers[identity].pickle_id == pickle_id:
+            print(f"{t.__name__} object {obj} is being left to pickle to de-duplicate (within pickle.dump call)")
+
             # Within a pickle.dump call, leave pickle to deduplicate.
             return None, self.referers[identity].id
         else:
+            print(f"{t.__name__} object {obj} is being cross-pickle de-duplicated")
+
             # Cross pickle deduplication
             if pickle_id is not None:
                 print(
@@ -378,10 +389,10 @@ class SyncReferer:
         return pickle_ref_id
 
     def _persistent_id_impl(self, rid, obj) -> Optional[_T]:
-        """persistent_id heler."""
+        """persistent_id helper."""
         ret = self._persistent_id_v2(rid, obj)
         # self._disable(ret)
-        # logging.info("persistent_id {}:{} -> {}\n".format(type(obj), obj, ret))
+        print("persistent_id {}:{} -> {}\n".format(type(obj), obj, ret))
         return ret
 
     def _persistent_load_impl(self, pickle_ref_id):

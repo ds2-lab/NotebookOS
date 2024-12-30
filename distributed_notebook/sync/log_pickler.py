@@ -20,12 +20,9 @@ class SyncLogPickleProfile:
 
     def __str__(self) -> str:
         return f"SyncLogPickleProfile[offset={self.offset}, size={self.size}, type={self.type}]"
-        # return "{}({}) {} bytes, anchor: {}, {}".format(
-        #     self.depth, self.frame_id, self.size, self.anchor, self.type
-        # )
 
     def __repr__(self) -> str:
-        return str(self)
+        return self.__str__()
 
     def polyfill(self, prid: SyncPRID):
         if hasattr(prid, "_offset"):
@@ -50,7 +47,10 @@ class SyncLogPickler(Pickler):
         """A dictionary mapping the id of the object to the size of pickled bytes."""
 
     def dump(self, obj):
-        """Write a pickled representation of obj to the open file. This version overrides the default dump method to embed the PROTO opcode in the frame."""
+        """
+        Write a pickled representation of obj to the open file.
+        This version overrides the default dump method to embed the PROTO opcode in the frame.
+        """
 
         obj_id = id(obj)
         logging.info(
@@ -81,7 +81,7 @@ class SyncLogPickler(Pickler):
         self.save(obj)
         self.write(STOP)
         logging.info(
-            "Dumping object: {} at {}".format(obj_id, self._buffer.getbuffer().nbytes)
+            f"Dumping {type(obj).__name__} object {obj} with ID={obj_id} at offset {self._buffer.getbuffer().nbytes:,} (bytes)"
         )
         # logging.info("memo: {}".format(self.memo))
         self._pickle_profile[id(obj)].offset = self._buffer.getbuffer().nbytes
@@ -90,12 +90,16 @@ class SyncLogPickler(Pickler):
         # update size
         profile.size = self._buffer.getbuffer().nbytes - profile.offset
 
-        logging.info("Dumped object: {}".format(obj_id))
+        logging.info(
+            f"Dumped {type(obj).__name__} object {obj} with ID={obj_id} at offset {self._buffer.getbuffer().nbytes:,} (bytes)"
+        )
 
     def get_polyfiller(
         self, cb: Callable[[SyncPRID], int]
     ) -> Callable[[SyncPRID], None]:
         def polyfiller(prid: SyncPRID):
+            print("Polyfilling")
+
             print(f'Converting prid "{prid}" to key')
 
             _key = cb(prid)
@@ -103,9 +107,10 @@ class SyncLogPickler(Pickler):
             print(f'Converted prid "{prid}" to key "{_key}" using cb {cb}')
 
             if _key not in self._pickle_profile:
-                raise KeyError(
+                print(
                     f'invalid key "{_key}". valid "pickle profile" keys: {self._pickle_profile.keys()}'
                 )
+                return
 
             profile: SyncLogPickleProfile = self._pickle_profile[_key]
 

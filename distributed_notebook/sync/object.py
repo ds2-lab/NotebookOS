@@ -149,7 +149,7 @@ class SyncObjectWrapper:
             pickler.dump(raw)
             pickled = buff.getvalue()
             if hasattr(pickler, "get_polyfiller"):
-                logging.info(f'Polyfilling pickle_id="{pickle_id}"')
+                logging.info(f'\n\n\n\nPolyfilling pickle_id="{pickle_id}"')
                 pickle_id.polyfill(pickler.get_polyfiller(self._referer.id_from_prid))
             else:
                 logging.info("No polyfilling")

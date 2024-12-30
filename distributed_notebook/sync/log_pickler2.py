@@ -116,6 +116,9 @@ class SyncLogPickler(Pickler):
 
         # create profile
         profile = SyncLogPickleProfile(self._buffer.getbuffer().nbytes, type(obj))
+        print(
+            f"Storing profile for {type(obj).__name__} object {obj} in _pickle_profile at key {id(obj)}. Profile: {profile}"
+        )
         self._pickle_profile[id(obj)] = profile
 
         super().dump(obj)
@@ -128,4 +131,26 @@ class SyncLogPickler(Pickler):
     def get_polyfiller(
         self, cb: Callable[[SyncPRID], int]
     ) -> Callable[[SyncPRID], None]:
-        return lambda prid: self._pickle_profile[cb(prid)].polyfill(prid)
+        def polyfiller(prid: SyncPRID):
+            print("Polyfilling")
+
+            print(f'Converting prid "{prid}" to key')
+
+            _key = cb(prid)
+
+            print(f'Converted prid "{prid}" to key "{_key}" using cb {cb}')
+
+            if _key not in self._pickle_profile:
+                raise KeyError(
+                    f'invalid key "{_key}". valid "pickle profile" keys: {self._pickle_profile.keys()}'
+                )
+
+            profile: SyncLogPickleProfile = self._pickle_profile[_key]
+
+            print(f'SyncLogPickleProfile for SyncPRID "{prid}": {profile}')
+
+            profile.polyfill(prid)
+
+        return polyfiller
+
+        # return lambda prid: self._pickle_profile[cb(prid)].polyfill(prid)
