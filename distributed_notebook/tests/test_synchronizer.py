@@ -483,3 +483,157 @@ def test_sync_and_change_deep_learning_model():
 
     for b in user_module.model.model.fc.bias.data:
         assert b == updated_bias
+
+
+def test_sync_and_change_deep_learning_model_new_model_obj():
+    """
+    Test calling sync_key followed by change_handler for a DeepLearningModel variable.
+
+    In this version of the unit test, we create a whole new SimpleModel object with new weights and sync that
+    during the second round, rather than modify the weights of the original object and re-sync it.
+    """
+    local_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    assert local_checkpointer is not None
+
+    raft_log: RaftLog = __get_raft_log(local_checkpointer)
+    assert raft_log is not None
+
+    user_module, user_ns = prepare_user_module()
+    assert user_module is not None
+    assert user_ns is not None
+
+    synchronizer: Synchronizer = __get_synchronizer(
+        raft_log, user_module, local_checkpointer
+    )
+
+    meta = SyncObjectMeta(batch=(str(1)))
+
+    io_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+
+    # Create the model.
+    input_size: int = 4
+    initial_weights: float = 1.5
+    initial_bias: float = 2.5
+    model: SimpleModel = SimpleModel(
+        input_size = input_size,
+        out_features = 1,
+        created_for_first_time = True,
+        initial_weights = initial_weights,
+        initial_bias = initial_bias
+    )
+
+    weight: Parameter = model.model.fc.weight
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    for b in model.model.fc.bias.data:
+        assert b == initial_bias
+
+    synchronize_variable(
+        io_loop = io_loop,
+        synchronizer = synchronizer,
+        raft_log = raft_log,
+        val = model,
+        meta = meta,
+        key = "model",
+    )
+
+    print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+    print(f"user_ns: {user_ns}")
+    print(f"user_module: {user_module}")
+
+    assert "model" in synchronizer.global_ns
+    assert "model" in user_ns
+    assert hasattr(user_module, "model")
+
+    assert isinstance(user_ns["model"], SimpleModel)
+    assert isinstance(synchronizer.global_ns["model"], SimpleModel)
+    assert isinstance(user_module.model, SimpleModel)
+
+    weight: Parameter = user_ns["model"].model.fc.weight
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    for b in user_ns["model"].model.fc.bias.data:
+        assert b == initial_bias
+
+    weight: Parameter = synchronizer.global_ns["model"].model.fc.weight
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    for b in synchronizer.global_ns["model"].model.fc.bias.data:
+        assert b == initial_bias
+
+    weight: Parameter = user_module.model.model.fc.weight
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == initial_weights
+
+    for b in user_module.model.model.fc.bias.data:
+        assert b == initial_bias
+
+    updated_weights: float = 5.0
+    updated_bias: float = 2.125
+    model = SimpleModel(
+        input_size = input_size,
+        out_features = 1,
+        created_for_first_time = True,
+        initial_weights = updated_weights,
+        initial_bias = updated_bias
+    )
+
+    weight: Parameter = model.model.fc.weight
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == updated_weights
+
+    for b in model.model.fc.bias.data:
+        assert b == updated_bias
+
+    synchronize_variable(
+        io_loop = io_loop,
+        synchronizer = synchronizer,
+        raft_log = raft_log,
+        val = model,
+        meta = meta,
+        key = "model",
+    )
+
+    print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+    print(f"user_ns: {user_ns}")
+    print(f"user_module: {user_module}")
+
+    assert "model" in synchronizer.global_ns
+    assert "model" in user_ns
+    assert hasattr(user_module, "model")
+
+    assert isinstance(user_ns["model"], SimpleModel)
+    assert isinstance(synchronizer.global_ns["model"], SimpleModel)
+    assert isinstance(user_module.model, SimpleModel)
+
+    weight: Parameter = user_ns["model"].model.fc.weight
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == updated_weights
+
+    for b in user_ns["model"].model.fc.bias.data:
+        assert b == updated_bias
+
+    weight: Parameter = synchronizer.global_ns["model"].model.fc.weight
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == updated_weights
+
+    for b in synchronizer.global_ns["model"].model.fc.bias.data:
+        assert b == updated_bias
+
+    weight: Parameter = user_module.model.model.fc.weight
+    for weight_vector in weight.data:
+        for w in weight_vector:
+            assert w == updated_weights
+
+    for b in user_module.model.model.fc.bias.data:
+        assert b == updated_bias
