@@ -193,7 +193,7 @@ class SyncReferer:
         protocol: Optional[int] = None,
         rid_provider: Optional[SyncRIDProvider] = None,
         pickler=None,
-    ):
+    )->tuple[Callable[[Any], str | int | _T | None], SyncPickleId]:
         """
         Get pickle compatible persistent_id function.
 

@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 import types
 from typing import Any, Optional
@@ -7,15 +8,18 @@ import uuid
 from unittest import mock
 import distributed_notebook
 from distributed_notebook.datasets.base import CustomDataset
+from distributed_notebook.datasets.loader import load_dataset
+from distributed_notebook.models.loader import load_model
 from distributed_notebook.models.model import DeepLearningModel
+from distributed_notebook.models.simple_model import SimpleModel
 from distributed_notebook.sync import Synchronizer
 import builtins as builtin_mod
 import pandas as pd
 
 import distributed_notebook.sync
 from distributed_notebook.sync.checkpointing.local_checkpointer import LocalCheckpointer
-from distributed_notebook.sync.checkpointing.pointer import SyncPointer
-from distributed_notebook.sync.checkpointing.remote_checkpointer import (
+from distributed_notebook.sync.checkpointing.pointer import SyncPointer, ModelPointer, DatasetPointer
+from distributed_notebook.sync.checkpointing.local_checkpointer import (
     RemoteCheckpointer,
 )
 from distributed_notebook.sync.log import SynchronizedValue
@@ -51,14 +55,40 @@ class DummyObject(object):
         return f"DummyObject[lst={self.lst}]"
 
 
-def loaded_serialized_state_callback(state: dict[str, dict[str, Any]] = dict()):
+def loaded_serialized_state_callback(state=None):
+    if state is None:
+        state = dict()
     pass
-
 
 def large_object_pointer_committed(
         pointer: SyncPointer,
+        checkpointer: RemoteCheckpointer,
+        existing_model: Optional[DeepLearningModel] = None,
 ) -> Optional[CustomDataset | DeepLearningModel]:
-    return None
+    """
+    Callback to be executed when a pointer to a large object is committed to the RaftLog.
+    """
+    if isinstance(pointer, DatasetPointer):
+        return load_dataset(pointer.dataset_description)
+    elif isinstance(pointer, ModelPointer):
+        model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_dict = (
+            checkpointer.read_state_dicts(pointer)
+        )
+
+        return load_model(
+            model_name=pointer.large_object_name,
+            existing_model=existing_model,
+            out_features=pointer.out_features,
+            model_state_dict=model_state_dict,
+            optimizer_state_dict=optimizer_state_dict,
+            criterion_state_dict=criterion_state_dict,
+            **constructor_args_dict,
+        )
+    else:
+        print(f"SyncPointer of unknown or unsupported type committed: {pointer}")
+        raise ValueError(
+            f"SyncPointer of unknown or unsupported type committed: {pointer}"
+        )
 
 
 def report_error(title: str, msg: str):
@@ -85,13 +115,13 @@ def prepare_user_module():
     return user_module, user_ns
 
 
-def __get_raft_log(remote_checkpointer: RemoteCheckpointer) -> RaftLog:
+def __get_raft_log(local_checkpointer: RemoteCheckpointer) -> RaftLog:
     raft_log: RaftLog = RaftLog(
         node_id=1,
         kernel_id=str(uuid.uuid4()),
         skip_create_log_node=True,
         base_path="./store",
-        remote_checkpointer=remote_checkpointer,
+        remote_checkpointer=local_checkpointer,
     )
 
     return raft_log
@@ -100,16 +130,19 @@ def __get_raft_log(remote_checkpointer: RemoteCheckpointer) -> RaftLog:
 def __get_synchronizer(
         raft_log: RaftLog,
         user_module: types.ModuleType,
-        remote_checkpointer: RemoteCheckpointer,
+        checkpointer: RemoteCheckpointer,
 ) -> Synchronizer:
+    def pointer_committed(pointer: SyncPointer):
+        return large_object_pointer_committed(pointer, checkpointer)
+
     synchronizer: Synchronizer = Synchronizer(
         raft_log,
         store_path="./store",
         module=user_module,
         opts=CHECKPOINT_AUTO,
         node_id=1,
-        large_object_pointer_committed=large_object_pointer_committed,
-        remote_checkpointer=remote_checkpointer,
+        large_object_pointer_committed=pointer_committed,
+        remote_checkpointer=checkpointer,
     )
     assert synchronizer is not None
 
@@ -122,6 +155,7 @@ def synchronize_variable(
         raft_log: RaftLog,
         val: Any,
         meta: SyncObjectMeta,
+        key:str = "my_var",
 ):
     async def mocked_append(rlog: RaftLog, val: SynchronizedValue):
         print(f"Mocked RaftLog::append called with RaftLog {rlog} and SynchronizedValue {val}")
@@ -133,7 +167,7 @@ def synchronize_variable(
         io_loop.run_until_complete(
             synchronizer.sync_key(
                 sync_log=raft_log,
-                key="my_var",
+                key=key,
                 val=val,
                 end_execution=True,
                 checkpointing=False,
@@ -152,10 +186,10 @@ def test_sync_and_change_int_variable():
     """
     Test calling sync_key followed by change_handler for an int variable.
     """
-    remote_checkpointer: LocalCheckpointer = LocalCheckpointer()
-    assert remote_checkpointer is not None
+    local_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    assert local_checkpointer is not None
 
-    raft_log: RaftLog = __get_raft_log(remote_checkpointer)
+    raft_log: RaftLog = __get_raft_log(local_checkpointer)
     assert raft_log is not None
 
     user_module, user_ns = prepare_user_module()
@@ -163,7 +197,7 @@ def test_sync_and_change_int_variable():
     assert user_ns is not None
 
     synchronizer: Synchronizer = __get_synchronizer(
-        raft_log, user_module, remote_checkpointer
+        raft_log, user_module, local_checkpointer
     )
 
     meta = SyncObjectMeta(batch=(str(1)))
@@ -224,10 +258,10 @@ def test_sync_and_change_dummy_object_variable():
     """
     Test calling sync_key followed by change_handler for an DummyObject variable.
     """
-    remote_checkpointer: LocalCheckpointer = LocalCheckpointer()
-    assert remote_checkpointer is not None
+    local_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    assert local_checkpointer is not None
 
-    raft_log: RaftLog = __get_raft_log(remote_checkpointer)
+    raft_log: RaftLog = __get_raft_log(local_checkpointer)
     assert raft_log is not None
 
     user_module, user_ns = prepare_user_module()
@@ -235,7 +269,7 @@ def test_sync_and_change_dummy_object_variable():
     assert user_ns is not None
 
     synchronizer: Synchronizer = __get_synchronizer(
-        raft_log, user_module, remote_checkpointer
+        raft_log, user_module, local_checkpointer
     )
 
     meta = SyncObjectMeta(batch=(str(1)))
@@ -312,3 +346,44 @@ def test_sync_and_change_dummy_object_variable():
     assert len(user_module.my_var.lst) == 7
     assert user_module.my_var.lst == [5, 6, 7, 8, 9, 10, 11]
     assert user_module.my_var.lst == dummy_obj.lst
+
+def test_sync_and_change_deep_learning_model():
+    """
+    Test calling sync_key followed by change_handler for a DeepLearningModel variable.
+    """
+    local_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    assert local_checkpointer is not None
+
+    raft_log: RaftLog = __get_raft_log(local_checkpointer)
+    assert raft_log is not None
+
+    user_module, user_ns = prepare_user_module()
+    assert user_module is not None
+    assert user_ns is not None
+
+    synchronizer: Synchronizer = __get_synchronizer(
+        raft_log, user_module, local_checkpointer
+    )
+
+    meta = SyncObjectMeta(batch=(str(1)))
+
+    io_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+    append_future: asyncio.Future[SynchronizedValue] = io_loop.create_future()
+
+    # Create the model.
+    input_size: int = 4
+    model: SimpleModel = SimpleModel(input_size = input_size, out_features = 1, created_for_first_time = True)
+
+    synchronize_variable(
+        append_future = append_future,
+        io_loop = io_loop,
+        synchronizer = synchronizer,
+        raft_log = raft_log,
+        val = model,
+        meta = meta,
+        key = "model",
+    )
+
+    print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+    print(f"user_ns: {user_ns}")
+    print(f"user_module: {user_module}")

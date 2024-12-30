@@ -84,7 +84,7 @@ class S3Checkpointer(RemoteCheckpointer, ABC):
 
         return state_dict
 
-    def read_state_dicts(self, pointer: ModelPointer) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    def read_state_dicts(self, pointer: ModelPointer) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         if pointer is None:
             raise ValueError("cannot read model using nil ModelPointer")
 
@@ -94,6 +94,7 @@ class S3Checkpointer(RemoteCheckpointer, ABC):
         model_object_name: str = os.path.join(base_object_name, "model.pt")
         optimizer_object_name: str = os.path.join(base_object_name, "optimizer.pt")
         criterion_object_name: str = os.path.join(base_object_name, "criterion.pt")
+        constructor_args_key: str = os.path.join(base_object_name, "constructor_args.pt")
 
         try:
             model_state_dict = self.__read_state_dict(model_object_name, model_name)
@@ -113,7 +114,13 @@ class S3Checkpointer(RemoteCheckpointer, ABC):
             self.log.error(f"Failed to read criterion state dictionary from AWS S3: {ex}")
             raise ex  # re-raise
 
-        return model_state_dict, optimizer_state_dict, criterion_state_dict
+        try:
+            constructor_args_dict = self.__read_state_dict(constructor_args_key, model_name)
+        except Exception as ex:
+            self.log.error(f"Failed to read constructor arguments dictionary from Local Python Dict: {ex}")
+            raise ex # re-raise
+
+        return model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_dict
 
     def write_dataset(self, pointer: DatasetPointer):
         self.log.warning("write_dataset called for S3Checkpointer. This function doesn't do anything!")
@@ -165,16 +172,19 @@ class S3Checkpointer(RemoteCheckpointer, ABC):
             raise ValueError(f"ModelPointer for model \"{pointer.large_object_name}\" does not have a valid pointer")
 
         model_name:str = pointer.large_object_name
-        base_redis_key:str = pointer.key
+        base_s3_key:str = pointer.key
 
-        model_object_name: str = os.path.join(base_redis_key, "model.pt")
+        model_object_name: str = os.path.join(base_s3_key, "model.pt")
         self.__write_state_dict(model_object_name, pointer.model.state_dict, model_name)
 
-        optimizer_object_name: str = os.path.join(base_redis_key, "optimizer.pt")
+        optimizer_object_name: str = os.path.join(base_s3_key, "optimizer.pt")
         self.__write_state_dict(optimizer_object_name, pointer.model.optimizer_state_dict, model_name)
 
-        criterion_object_name: str = os.path.join(base_redis_key, "criterion.pt")
+        criterion_object_name: str = os.path.join(base_s3_key, "criterion.pt")
         self.__write_state_dict(criterion_object_name, pointer.model.criterion_state_dict, model_name)
+
+        constructor_state_key: str = os.path.join(base_s3_key, "constructor_args.pt")
+        self.__write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
 
     def storage_name(self) -> str:
         return f"AWS S3"

@@ -46,6 +46,10 @@ class ResNet18(DeepLearningModel):
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
 
+    @property
+    def constructor_args(self)->dict[str, Any]:
+        return {}
+
     def __str__(self)->str:
         return f"{self.name} (ResNet-18) [TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"
 

@@ -23,7 +23,7 @@ class RemoteCheckpointer(ABC):
         pass
 
     @abstractmethod
-    def read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    def read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         """
         Read the state dictionaries of the model, its optimizer, and its criterion from intermediate storage.
 
@@ -33,7 +33,7 @@ class RemoteCheckpointer(ABC):
         pass
 
     @abstractmethod
-    async def read_state_dicts_async(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    async def read_state_dicts_async(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         """
         Asynchronously read the state dictionaries of the model, its optimizer, and its criterion from intermediate storage.
 

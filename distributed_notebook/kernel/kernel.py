@@ -4240,7 +4240,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         """
         try:
             read_st: float = time.time()
-            model_state_dict, optimizer_state_dict, criterion_state_dict = (
+            model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_state = (
                 self._remote_checkpointer.read_state_dicts(pointer)
             )
             read_et: float = time.time()

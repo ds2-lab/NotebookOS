@@ -123,6 +123,11 @@ class DeepLearningModel(ABC):
         self._requires_checkpointing = False
 
     @property
+    @abstractmethod
+    def constructor_args(self)->dict[str, Any]:
+        pass 
+
+    @property
     def requires_checkpointing(self)->bool:
         """
         Return a bool indicating whether this model has updated state that needs to be checkpointed.
