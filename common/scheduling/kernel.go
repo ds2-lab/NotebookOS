@@ -60,6 +60,9 @@ type ExecutionLatencyCallback func(latency time.Duration, workloadId string, ker
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
 type ExecutionFailedCallback func(c Kernel, msg *messaging.JupyterMessage) error
 
+// YieldNotificationHandler is called when a YIELD notification is received.
+type YieldNotificationHandler func(replica KernelReplica, msgErr *messaging.MessageErrorWithYieldReason, msg *messaging.JupyterMessage) error
+
 type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
 type Kernel interface {
@@ -74,6 +77,10 @@ type Kernel interface {
 	IOPubListenPort() int
 	ActiveExecution() *ActiveExecution
 	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*ActiveExecution, bool)
+	// GetActiveExecution returns the *scheduling.ActiveExecution associated with the given "execute_request" message ID.
+	GetActiveExecution(msgId string, replica KernelReplica) *ActiveExecution
+	CurrentActiveExecution() *ActiveExecution
+	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
 	SetActiveExecution(activeExecution *ActiveExecution)
 	ExecutionComplete(msg *messaging.JupyterMessage) (bool, error)

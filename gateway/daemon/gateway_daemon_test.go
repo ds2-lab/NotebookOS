@@ -162,7 +162,8 @@ func (p *MockedDistributedKernelClientProvider) RegisterMockedDistributedKernel(
 func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-	messagingMetricsProvider metrics.MessagingMetricsProvider, statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
+	handleExecuteYieldNotification scheduling.YieldNotificationHandler, messagingMetricsProvider metrics.MessagingMetricsProvider,
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
 	notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 	if kernel, ok := p.expectedKernels[spec.Id]; ok {
@@ -1399,21 +1400,30 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			shellHandlerWaitGroup.Wait()
 
-			err = clusterGateway.forwardResponse(mockedKernelReplica1, messaging.ShellMessage, execReply1)
+			yieldReason := &messaging.MessageErrorWithYieldReason{
+				MessageError: &messaging.MessageError{
+					Status:   messaging.MessageStatusError,
+					ErrName:  messaging.MessageErrYieldExecution,
+					ErrValue: messaging.ErrExecutionYielded.Error(),
+				},
+				YieldReason: "N/A",
+			}
+
+			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica1, yieldReason, execReply1)
 			Expect(err).To(BeNil())
 
 			Expect(activeExecution.NumRolesReceived()).To(Equal(1))
 			Expect(activeExecution.NumYieldReceived()).To(Equal(1))
 			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
 
-			err = clusterGateway.forwardResponse(mockedKernelReplica2, messaging.ShellMessage, execReply2)
+			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica2, yieldReason, execReply2)
 			Expect(err).To(BeNil())
 
 			Expect(activeExecution.NumRolesReceived()).To(Equal(2))
 			Expect(activeExecution.NumYieldReceived()).To(Equal(2))
 			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
 
-			err = clusterGateway.forwardResponse(mockedKernelReplica3, messaging.ShellMessage, execReply3)
+			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica3, yieldReason, execReply3)
 			Expect(err).To(BeNil())
 
 			Expect(activeExecution.NumRolesReceived()).To(Equal(3))
