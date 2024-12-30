@@ -18,6 +18,7 @@ from distributed_notebook.sync.checkpointing.pointer import SyncPointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import (
     RemoteCheckpointer,
 )
+from distributed_notebook.sync.log import SynchronizedValue
 from distributed_notebook.sync.object import SyncObjectMeta, SyncObjectWrapper
 from distributed_notebook.sync.raft_log import RaftLog
 from distributed_notebook.sync.referer import SyncReferer
@@ -55,7 +56,7 @@ def loaded_serialized_state_callback(state: dict[str, dict[str, Any]] = dict()):
 
 
 def large_object_pointer_committed(
-    pointer: SyncPointer,
+        pointer: SyncPointer,
 ) -> Optional[CustomDataset | DeepLearningModel]:
     return None
 
@@ -97,9 +98,9 @@ def __get_raft_log(remote_checkpointer: RemoteCheckpointer) -> RaftLog:
 
 
 def __get_synchronizer(
-    raft_log: RaftLog,
-    user_module: types.ModuleType,
-    remote_checkpointer: RemoteCheckpointer,
+        raft_log: RaftLog,
+        user_module: types.ModuleType,
+        remote_checkpointer: RemoteCheckpointer,
 ) -> Synchronizer:
     synchronizer: Synchronizer = Synchronizer(
         raft_log,
@@ -132,13 +133,17 @@ def test_sync_key():
 
     meta = SyncObjectMeta(batch=(str(1)))
 
-    async def mocked_append(*args):
-        print(f"Mocked RaftLog::append called with arguments: {args}")
+    io_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+    append_future: asyncio.Future[SynchronizedValue] = io_loop.create_future()
+
+    async def mocked_append(rlog: RaftLog, val: SynchronizedValue):
+        print(f"Mocked RaftLog::append called with RaftLog {rlog} and SynchronizedValue {val}")
+        append_future.set_result(val)
 
     with mock.patch.object(
-        distributed_notebook.sync.raft_log.RaftLog, "append", mocked_append
+            distributed_notebook.sync.raft_log.RaftLog, "append", mocked_append
     ):
-        asyncio.get_event_loop().run_until_complete(
+        io_loop.run_until_complete(
             synchronizer.sync_key(
                 sync_log=raft_log,
                 key="my_var",
@@ -149,10 +154,25 @@ def test_sync_key():
             )
         )
 
+    assert append_future.done()
+
+    synchronized_key: SynchronizedValue = append_future.result()
+    print(f"synchronized_key: {synchronized_key}")
+
+    synchronizer.change_handler(synchronized_key, restoring = False)
+
     assert "my_var" in synchronizer.global_ns
     assert "my_var" in user_ns
     assert hasattr(user_module, "my_var")
 
+    assert user_ns["my_var"] == 3
+    assert isinstance(user_ns["my_var"], int)
+
+    assert synchronizer.global_ns["my_var"] == 3
+    assert isinstance(synchronizer.global_ns["my_var"], int)
+
+    assert user_module.my_var == 3
+    assert isinstance(user_module.my_var, int)
 
 def test_restore_int():
     sync_object = SyncObjectWrapper(referer=SyncReferer())
