@@ -1409,6 +1409,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				YieldReason: "N/A",
 			}
 
+			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica1, gomock.Any()).Times(1).Return(nil)
 			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica1, yieldReason, execReply1)
 			Expect(err).To(BeNil())
 
@@ -1416,6 +1417,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(activeExecution.NumYieldReceived()).To(Equal(1))
 			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
 
+			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica2, gomock.Any()).Times(1).Return(nil)
 			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica2, yieldReason, execReply2)
 			Expect(err).To(BeNil())
 
@@ -1423,6 +1425,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(activeExecution.NumYieldReceived()).To(Equal(2))
 			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
 
+			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica3, gomock.Any()).Times(1).Return(nil)
 			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica3, yieldReason, execReply3)
 			Expect(err).To(BeNil())
 
