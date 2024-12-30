@@ -227,27 +227,31 @@ def test_sync_and_change_int_variable():
     assert user_module.my_var == val
     assert isinstance(user_module.my_var, int)
 
-    val = 5
-    synchronize_variable(
-        io_loop = io_loop,
-        synchronizer = synchronizer,
-        raft_log = raft_log,
-        val = val,
-        meta = meta,
-    )
+    # Do this for many iterations.
+    next_val = val
+    for _ in range(0, 10):
+        synchronize_variable(
+            io_loop = io_loop,
+            synchronizer = synchronizer,
+            raft_log = raft_log,
+            val = next_val,
+            meta = meta,
+        )
 
-    assert "my_var" in synchronizer.global_ns
-    assert "my_var" in user_ns
-    assert hasattr(user_module, "my_var")
+        assert "my_var" in synchronizer.global_ns
+        assert "my_var" in user_ns
+        assert hasattr(user_module, "my_var")
 
-    assert user_ns["my_var"] == val
-    assert isinstance(user_ns["my_var"], int)
+        assert user_ns["my_var"] == next_val
+        assert isinstance(user_ns["my_var"], int)
 
-    assert synchronizer.global_ns["my_var"] == val
-    assert isinstance(synchronizer.global_ns["my_var"], int)
+        assert synchronizer.global_ns["my_var"] == next_val
+        assert isinstance(synchronizer.global_ns["my_var"], int)
 
-    assert user_module.my_var == val
-    assert isinstance(user_module.my_var, int)
+        assert user_module.my_var == next_val
+        assert isinstance(user_module.my_var, int)
+
+        next_val = val + 1
 
 
 def test_sync_and_change_dummy_object_variable():
@@ -299,44 +303,54 @@ def test_sync_and_change_dummy_object_variable():
     assert user_ns["my_var"].lst == [1, 2, 3, 4]
     assert user_ns["my_var"].lst == dummy_obj.lst
 
-    # Update the variable, then we'll re-sync it.
-    dummy_obj.lst = [5, 6, 7, 8, 9, 10, 11]
+    # Do this for 10 iterations.
+    for i in range(0, 10):
+        # Update the variable, then we'll re-sync it.
+        lst = []
+        test_lst = []
+        for elem in dummy_obj.lst:
+            new_elem = elem + 1
 
-    synchronize_variable(
-        io_loop = io_loop,
-        synchronizer = synchronizer,
-        raft_log = raft_log,
-        val = dummy_obj,
-        meta = meta,
-    )
+            lst.append(new_elem)
+            test_lst.append(new_elem)
 
-    assert "my_var" in synchronizer.global_ns
-    assert "my_var" in user_ns
-    assert hasattr(user_module, "my_var")
+        dummy_obj.lst = lst
 
-    assert user_ns["my_var"] == dummy_obj
-    assert isinstance(user_ns["my_var"], DummyObject)
+        synchronize_variable(
+            io_loop = io_loop,
+            synchronizer = synchronizer,
+            raft_log = raft_log,
+            val = dummy_obj,
+            meta = meta,
+        )
 
-    assert synchronizer.global_ns["my_var"] == dummy_obj
-    assert isinstance(synchronizer.global_ns["my_var"], DummyObject)
+        assert "my_var" in synchronizer.global_ns
+        assert "my_var" in user_ns
+        assert hasattr(user_module, "my_var")
 
-    assert user_module.my_var == dummy_obj
-    assert isinstance(user_module.my_var, DummyObject)
+        assert user_ns["my_var"] == dummy_obj
+        assert isinstance(user_ns["my_var"], DummyObject)
 
-    assert user_ns["my_var"].lst is not None
-    assert len(user_ns["my_var"].lst) == 7
-    assert user_ns["my_var"].lst == [5, 6, 7, 8, 9, 10, 11]
-    assert user_ns["my_var"].lst == dummy_obj.lst
+        assert synchronizer.global_ns["my_var"] == dummy_obj
+        assert isinstance(synchronizer.global_ns["my_var"], DummyObject)
 
-    assert synchronizer.global_ns["my_var"].lst is not None
-    assert len(synchronizer.global_ns["my_var"].lst) == 7
-    assert synchronizer.global_ns["my_var"].lst == [5, 6, 7, 8, 9, 10, 11]
-    assert synchronizer.global_ns["my_var"].lst == dummy_obj.lst
+        assert user_module.my_var == dummy_obj
+        assert isinstance(user_module.my_var, DummyObject)
 
-    assert user_module.my_var.lst is not None
-    assert len(user_module.my_var.lst) == 7
-    assert user_module.my_var.lst == [5, 6, 7, 8, 9, 10, 11]
-    assert user_module.my_var.lst == dummy_obj.lst
+        assert user_ns["my_var"].lst is not None
+        assert len(user_ns["my_var"].lst) == len(test_lst)
+        assert user_ns["my_var"].lst == test_lst
+        assert user_ns["my_var"].lst == dummy_obj.lst
+
+        assert synchronizer.global_ns["my_var"].lst is not None
+        assert len(synchronizer.global_ns["my_var"].lst) == len(test_lst)
+        assert synchronizer.global_ns["my_var"].lst == test_lst
+        assert synchronizer.global_ns["my_var"].lst == dummy_obj.lst
+
+        assert user_module.my_var.lst is not None
+        assert len(user_module.my_var.lst) == len(test_lst)
+        assert user_module.my_var.lst == test_lst
+        assert user_module.my_var.lst == dummy_obj.lst
 
 def test_sync_and_change_deep_learning_model():
     """
