@@ -38,11 +38,11 @@ const (
 	signatureScheme string = "hmac-sha256"
 
 	kernelId string = "66902bac-9386-432e-b1b9-21ac853fa1c9"
-
-	persistentId string = "a45e4331-8fdc-4143-aac8-00d3e9df54fa"
 )
 
 var (
+	persistentId string = "a45e4331-8fdc-4143-aac8-00d3e9df54fa"
+
 	GatewayOptsAsJsonString = `{
 	"logger_options": {
 		"Debug": true,
@@ -525,6 +525,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
 		})
+
+		It("should respond correctly upon receiving three YIELD notifications", func() {
+
+		})
 	})
 
 	Context("ZMQ Messages", func() {
@@ -878,6 +882,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		var kernelId string
 		var mockedKernelSpec *proto.KernelSpec
 		var mockedKernel *mock_scheduling.MockKernel
+		var mockedKernelReplica1 *mock_scheduling.MockKernelReplica
+		var mockedKernelReplica2 *mock_scheduling.MockKernelReplica
+		var mockedKernelReplica3 *mock_scheduling.MockKernelReplica
 		var resourceSpec *proto.ResourceSpec
 
 		BeforeEach(func() {
@@ -960,6 +967,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			node3Name := "TestNode3"
 			host3Spoofer := distNbTesting.NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
 			host3, localGatewayClient3, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
+
+			mockedHosts := []scheduling.Host{host1, host2, host3}
 
 			By("Correctly registering the first Host")
 
@@ -1211,6 +1220,44 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}
 			}()
 
+			mockedKernelReplica1 = mock_scheduling.NewMockKernelReplica(mockCtrl)
+			mockedKernelReplica2 = mock_scheduling.NewMockKernelReplica(mockCtrl)
+			mockedKernelReplica3 = mock_scheduling.NewMockKernelReplica(mockCtrl)
+
+			prepareReplica := func(replica *mock_scheduling.MockKernelReplica, replicaId int32) {
+				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				container.EXPECT().ReplicaId().AnyTimes().Return(replicaId)
+				container.EXPECT().KernelID().AnyTimes().Return(kernelId)
+				container.EXPECT().ContainerID().AnyTimes().Return(fmt.Sprintf("%s-%d", kernelId, replicaId))
+				container.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				container.EXPECT().String().AnyTimes().Return(fmt.Sprintf("MockedContainer-%d", replicaId))
+				container.EXPECT().Host().AnyTimes().Return(mockedHosts[replicaId-1])
+
+				shellSocket := messaging.NewSocket(zmq4.NewRouter(context.Background()), 0, messaging.ShellMessage, fmt.Sprintf("SpoofedSocket-Kernel-%s-Replica-%d", kernelId, replicaId))
+				replica.EXPECT().Socket(messaging.ShellMessage).AnyTimes().Return(shellSocket)
+				replica.EXPECT().KernelSpec().AnyTimes().Return(mockedKernelSpec)
+				replica.EXPECT().ReplicaID().AnyTimes().Return(replicaId)
+				replica.EXPECT().ID().AnyTimes().Return(kernelId)
+				replica.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				replica.EXPECT().Container().AnyTimes().Return(container)
+				replica.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
+				replica.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
+				replica.EXPECT().KernelReplicaSpec().AnyTimes().Return(&proto.KernelReplicaSpec{
+					Kernel:                    mockedKernelSpec,
+					NumReplicas:               3,
+					Join:                      true,
+					PersistentId:              &persistentId,
+					ReplicaId:                 replicaId,
+					DockerModeKernelDebugPort: -1,
+					WorkloadId:                "MockedWorkloadId",
+					Replicas:                  []string{"10.0.0.1:8000", "10.0.0.3:8000", "10.0.0.2:8000"},
+				})
+			}
+
+			prepareReplica(mockedKernelReplica1, 1)
+			prepareReplica(mockedKernelReplica2, 2)
+			prepareReplica(mockedKernelReplica3, 3)
+
 			mockedKernel.EXPECT().Status().AnyTimes().Return(jupyter.KernelStatusRunning)
 		})
 
@@ -1227,116 +1274,152 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 		})
 
-		//	It("Will correctly migrate a kernel replica when using static scheduling", func() {
-		//		unsignedExecuteRequestFrames := [][]byte{
-		//			[]byte("<IDS|MSG>"),
-		//			[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
-		//			[]byte(""), /* Header */
-		//			[]byte(""), /* Parent executeRequestMessageHeader*/
-		//			[]byte(""), /* Metadata */
-		//			[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
-		//		}
-		//
-		//		executeRequestMessageHeader := &messaging.MessageHeader{
-		//			MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
-		//			Username: "",
-		//			Session:  kernelId,
-		//			Date:     "2024-04-03T22:55:52.605Z",
-		//			MsgType:  "execute_request",
-		//			Version:  "5.2",
-		//		}
-		//
-		//		jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteRequestFrames)
-		//		err := jFrames.EncodeHeader(executeRequestMessageHeader)
-		//		Expect(err).To(BeNil())
-		//		frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
-		//		msg := &zmq4.Msg{
-		//			Frames: frames,
-		//			Type:   zmq4.UsrMsg,
-		//		}
-		//		jMsg := messaging.NewJupyterMessage(msg)
-		//
-		//		loadedKernel, loaded := clusterGateway.kernels.Load(kernelId)
-		//		Expect(loaded).To(BeTrue())
-		//		Expect(loadedKernel).ToNot(BeNil())
-		//		Expect(loadedKernel).To(Equal(mockedKernel))
-		//
-		//		var wg sync.WaitGroup
-		//		wg.Add(1)
-		//
-		//		var activeExecution *scheduling.ActiveExecution
-		//		mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
-		//			Expect(attemptId).To(Equal(1))
-		//			Expect(msg).ToNot(BeNil())
-		//			Expect(msg).To(Equal(jMsg))
-		//
-		//			activeExecution = scheduling.NewActiveExecution(kernelId, attemptId, 3, msg)
-		//			wg.Done()
-		//
-		//			return activeExecution
-		//		}).Times(1)
-		//
-		//		fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
-		//
-		//		var shellHandlerWaitGroup sync.WaitGroup
-		//		shellHandlerWaitGroup.Add(1)
-		//		go func() {
-		//			defer GinkgoRecover()
-		//			fmt.Printf("[DEBUG] Calling shell handler for \"%s\" message now.", jMsg.JupyterParentMessageType())
-		//			err = clusterGateway.ShellHandler(nil, jMsg)
-		//			fmt.Printf("[DEBUG] Successfully called shell handler for \"%s\" message now.", jMsg.JupyterParentMessageType())
-		//			Expect(err).To(BeNil())
-		//			shellHandlerWaitGroup.Done()
-		//		}()
-		//
-		//		wg.Wait()
-		//		Expect(activeExecution).ToNot(BeNil())
-		//
-		//		getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
-		//			unsignedExecuteReplyFrames := [][]byte{
-		//				[]byte("<IDS|MSG>"),
-		//				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
-		//				[]byte(""), /* Header */
-		//				[]byte(""), /* Parent executeReplyMessageHeader*/
-		//				[]byte(""), /* Metadata */
-		//				[]byte("{\"status\": \"error\", \"ename\": \"ExecutionYieldError\", \"evalue\": \"ExecutionYieldError\"}"),
-		//			}
-		//
-		//			executeReplyMessageHeader := &messaging.MessageHeader{
-		//				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a528",
-		//				Username: kernelId,
-		//				Session:  kernelId,
-		//				Date:     "2024-04-03T22:56:52.605Z",
-		//				MsgType:  "execute_reply",
-		//				Version:  "5.2",
-		//			}
-		//
-		//			executeReplyJFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteReplyFrames)
-		//			err := jFrames.EncodeParentHeader(executeRequestMessageHeader)
-		//			Expect(err).To(BeNil())
-		//			err = executeReplyJFrames.EncodeHeader(executeReplyMessageHeader)
-		//			Expect(err).To(BeNil())
-		//			frames, _ := executeReplyJFrames.Sign(signatureScheme, []byte(kernelKey))
-		//			msg := &zmq4.Msg{
-		//				Frames: frames,
-		//				Type:   zmq4.UsrMsg,
-		//			}
-		//			jMsg := messaging.NewJupyterMessage(msg)
-		//
-		//			return jMsg
-		//		}
-		//
-		//		execReply1 := getExecuteReplyMessage(1)
-		//		Expect(execReply1).ToNot(BeNil())
-		//
-		//		execReply2 := getExecuteReplyMessage(2)
-		//		Expect(execReply2).ToNot(BeNil())
-		//
-		//		execReply3 := getExecuteReplyMessage(3)
-		//		Expect(execReply3).ToNot(BeNil())
-		//
-		//		shellHandlerWaitGroup.Wait()
-		//	})
+		It("Will correctly migrate a kernel replica when using static scheduling", func() {
+			unsignedExecuteRequestFrames := [][]byte{
+				[]byte("<IDS|MSG>"),
+				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+				[]byte(""), /* Header */
+				[]byte(""), /* Parent executeRequestMessageHeader*/
+				[]byte(""), /* Metadata */
+				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+			}
+
+			executeRequestJupyterMessageId := "c7074e5b-b90f-44f8-af5d-63201ec3a527"
+
+			executeRequestMessageHeader := &messaging.MessageHeader{
+				MsgID:    executeRequestJupyterMessageId,
+				Username: kernelId,
+				Session:  kernelId,
+				Date:     "2024-04-03T22:55:52.605Z",
+				MsgType:  "execute_request",
+				Version:  "5.2",
+			}
+
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteRequestFrames)
+			err := jFrames.EncodeHeader(executeRequestMessageHeader)
+			Expect(err).To(BeNil())
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
+			msg := &zmq4.Msg{
+				Frames: frames,
+				Type:   zmq4.UsrMsg,
+			}
+			jMsg := messaging.NewJupyterMessage(msg)
+
+			loadedKernel, loaded := clusterGateway.kernels.Load(kernelId)
+			Expect(loaded).To(BeTrue())
+			Expect(loadedKernel).ToNot(BeNil())
+			Expect(loadedKernel).To(Equal(mockedKernel))
+
+			var wg sync.WaitGroup
+			wg.Add(1)
+
+			var activeExecution *scheduling.ActiveExecution
+			mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
+				Expect(attemptId).To(Equal(1))
+				Expect(msg).ToNot(BeNil())
+				Expect(msg).To(Equal(jMsg))
+
+				activeExecution = scheduling.NewActiveExecution(kernelId, attemptId, 3, msg)
+				wg.Done()
+
+				return activeExecution
+			}).Times(1)
+
+			fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
+
+			mockedKernel.EXPECT().ReplicasAreScheduled().AnyTimes().Return(true)
+			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
+
+			var shellHandlerWaitGroup sync.WaitGroup
+			shellHandlerWaitGroup.Add(1)
+			go func() {
+				//defer GinkgoRecover()
+
+				fmt.Printf("[DEBUG] Calling shell handler for \"%s\" message now.", jMsg.JupyterMessageType())
+				err = clusterGateway.ShellHandler(nil, jMsg)
+				fmt.Printf("[DEBUG] Successfully called shell handler for \"%s\" message now.", jMsg.JupyterMessageType())
+				Expect(err).To(BeNil())
+				shellHandlerWaitGroup.Done()
+			}()
+
+			wg.Wait()
+			Expect(activeExecution).ToNot(BeNil())
+
+			mockedKernel.EXPECT().ActiveExecution().MaxTimes(3).Return(activeExecution)
+			mockedKernel.EXPECT().GetActiveExecutionByExecuteRequestMsgId("c7074e5b-b90f-44f8-af5d-63201ec3a528").MaxTimes(3).Return(activeExecution, true)
+
+			getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
+				unsignedExecuteReplyFrames := [][]byte{
+					[]byte("<IDS|MSG>"),
+					[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+					[]byte(""), /* Header */
+					[]byte(""), /* Parent executeReplyMessageHeader*/
+					[]byte(""), /* Metadata */
+					[]byte("{\"status\": \"error\", \"ename\": \"ExecutionYieldError\", \"evalue\": \"kernel replica failed to lead the execution\"}"),
+				}
+
+				executeReplyJupterMessageId := "c7074e5b-b90f-44f8-af5d-63201ec3a528"
+				executeReplyMessageHeader := &messaging.MessageHeader{
+					MsgID:    executeReplyJupterMessageId,
+					Username: kernelId,
+					Session:  kernelId,
+					Date:     "2024-04-03T22:56:52.605Z",
+					MsgType:  "execute_reply",
+					Version:  "5.2",
+				}
+
+				executeReplyJFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteReplyFrames)
+				err := executeReplyJFrames.EncodeParentHeader(executeRequestMessageHeader)
+				Expect(err).To(BeNil())
+				err = executeReplyJFrames.EncodeHeader(executeReplyMessageHeader)
+				Expect(err).To(BeNil())
+				frames, _ := executeReplyJFrames.Sign(signatureScheme, []byte(kernelKey))
+				msg := &zmq4.Msg{
+					Frames: frames,
+					Type:   zmq4.UsrMsg,
+				}
+				jMsg := messaging.NewJupyterMessage(msg)
+
+				GinkgoWriter.Printf("Generated Jupyter \"execute_reply\" message:\n%s\n", jMsg.StringFormatted())
+
+				Expect(jMsg.JupyterParentMessageId()).To(Equal(executeRequestJupyterMessageId))
+				Expect(jMsg.JupyterMessageId()).To(Equal(executeReplyJupterMessageId))
+
+				return jMsg
+			}
+
+			execReply1 := getExecuteReplyMessage(1)
+			Expect(execReply1).ToNot(BeNil())
+
+			execReply2 := getExecuteReplyMessage(2)
+			Expect(execReply2).ToNot(BeNil())
+
+			execReply3 := getExecuteReplyMessage(3)
+			Expect(execReply3).ToNot(BeNil())
+
+			shellHandlerWaitGroup.Wait()
+
+			err = clusterGateway.forwardResponse(mockedKernelReplica1, messaging.ShellMessage, execReply1)
+			Expect(err).To(BeNil())
+
+			Expect(activeExecution.NumRolesReceived()).To(Equal(1))
+			Expect(activeExecution.NumYieldReceived()).To(Equal(1))
+			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
+
+			err = clusterGateway.forwardResponse(mockedKernelReplica2, messaging.ShellMessage, execReply2)
+			Expect(err).To(BeNil())
+
+			Expect(activeExecution.NumRolesReceived()).To(Equal(2))
+			Expect(activeExecution.NumYieldReceived()).To(Equal(2))
+			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
+
+			err = clusterGateway.forwardResponse(mockedKernelReplica3, messaging.ShellMessage, execReply3)
+			Expect(err).To(BeNil())
+
+			Expect(activeExecution.NumRolesReceived()).To(Equal(3))
+			Expect(activeExecution.NumYieldReceived()).To(Equal(3))
+			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
+		})
 	})
 
 	Context("DockerCluster", func() {

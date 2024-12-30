@@ -218,15 +218,15 @@ class SyncReferer:
             self.pickler = pickler
 
         def persistent_id(obj):
-            print(f"Pickling {type(obj).__name__} object: {obj}")
+            # print(f"Pickling {type(obj).__name__} object: {obj}")
             self.protocol = protocol
             ret, _ = _reference(obj, pickle_id=pickle_id)
-            if ret is None:
-                print(f"Pickling {type(obj).__name__} object {obj} as its original type (?)")
-            elif len(ret) == 2:
-                print(f"Pickling {type(obj).__name__} object {obj} as {ret[1]} of type {type(ret[1]).__name__}")
-            else:
-                print(f"Pickling {type(obj).__name__} object {obj} as {ret}")
+            # if ret is None:
+            #     print(f"Pickling {type(obj).__name__} object {obj} as its original type (?)")
+            # elif len(ret) == 2:
+            #     print(f"Pickling {type(obj).__name__} object {obj} as {ret[1]} of type {type(ret[1]).__name__}")
+            # else:
+            #     print(f"Pickling {type(obj).__name__} object {obj} as {ret}")
             return ret
 
         return persistent_id, pickle_id

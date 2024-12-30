@@ -3121,6 +3121,9 @@ func (d *ClusterGatewayImpl) generateArtificialResponse(kernel scheduling.Kernel
 // If they're not, then ensureKernelReplicasAreScheduled will either schedule the replicas, if the given msg is an
 // "execute_request" message, or it will simply return an artificial response, in the case of all other message types.
 func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.Kernel, msg *messaging.JupyterMessage, typ messaging.MessageType) (*messaging.JupyterMessage, error) {
+	d.log.Debug("Verifying that replicas of kernel %s are all scheduled before processing %s \"%s\" request \"%s\"",
+		kernel.ID(), typ.String(), msg.JupyterMessageType(), msg.JupyterMessageId())
+
 	// If the replica(s) are scheduled, then we have nothing to do.
 	if kernel.ReplicasAreScheduled() {
 		d.log.Debug("Replicas of kernel %s are scheduled.", kernel.ID())
@@ -3203,31 +3206,9 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 	return nil
 }
 
-// executeRequestHandler is a specialized version of ShellHandler that is used explicitly/exclusively for
-// "execute_request" messages. It first calls processExecuteRequest before forwarding the "execute_request"
-// to the replicas (well, to the Local Schedulers first).
-func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMsg *messaging.JupyterMessage) error {
-	// TODO: Will this cause problems when using non-static policy, since we don't call to check if all replicas
-	//       are scheduled here?
-	_, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage)
-	if err != nil {
-		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
-			kernel.ID(), jMsg.JupyterMessageType(), err)
-		return err // TODO: Should this be returned? Or should it be sent back to the client?
-	}
-
-	ineligibleReplicas, err := d.processExecuteRequest(jMsg, kernel)
-	if err != nil {
-		// Send a response with the error as the content.
-		return d.sendShellErrorResponse(kernel, jMsg, err)
-	}
-
-	// If all replicas were eligible, then just use the standard path of sending via forwardRequest.
-	if ineligibleReplicas == nil || len(ineligibleReplicas) == 0 {
-		return d.forwardRequest(kernel, messaging.ShellMessage, jMsg)
-	}
-
-	// Broadcast to all replicas.
+// broadcastExecuteRequestToAllReplicas forwards the given "execute_request" message to all eligible replicas of the
+// specified kernel and a converted "yield_request" to all ineligible replicas of the kernel.
+func (d *ClusterGatewayImpl) broadcastExecuteRequestToAllReplicas(jMsg *messaging.JupyterMessage, kernel scheduling.Kernel, ineligibleReplicas map[int32]scheduling.KernelReplica) error {
 	replicas := make([]scheduling.KernelReplica, 0, kernel.Size())
 	for _, replica := range kernel.Replicas() {
 		replicas = append(replicas, replica)
@@ -3237,7 +3218,10 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 
 	jupyterMessages := make([]*messaging.JupyterMessage, 0, kernel.Size())
 	for _, replica := range replicas {
-		var jupyterMessage *messaging.JupyterMessage
+		var (
+			jupyterMessage *messaging.JupyterMessage
+			err            error
+		)
 
 		if _, loaded := ineligibleReplicas[replica.ReplicaID()]; loaded {
 			// Convert the "execute_request" message to a "yield_request" message.
@@ -3270,6 +3254,39 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 	// identical message. That's obviously not what we want to happen here, and so we manually created the different
 	// messages for the different replicas ourselves.
 	return kernel.RequestWithHandlerAndReplicas(context.Background(), messaging.ShellMessage, jupyterMessages, d.kernelResponseForwarder, func() {}, replicas...)
+}
+
+// executeRequestHandler is a specialized version of ShellHandler that is used explicitly/exclusively for
+// "execute_request" messages. It first calls processExecuteRequest before forwarding the "execute_request"
+// to the replicas (well, to the Local Schedulers first).
+func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMsg *messaging.JupyterMessage) error {
+	// TODO: Will this cause problems when using non-static policy, since we don't call to check if all replicas
+	//       are scheduled here?
+	_, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage)
+	if err != nil {
+		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
+			kernel.ID(), jMsg.JupyterMessageType(), err)
+		return err // TODO: Should this be returned? Or should it be sent back to the client?
+	}
+
+	ineligibleReplicas, err := d.processExecuteRequest(jMsg, kernel)
+	if err != nil {
+		// Send a response with the error as the content.
+		return d.sendShellErrorResponse(kernel, jMsg, err)
+	}
+
+	// If all replicas were eligible, then just use the standard path of sending via forwardRequest.
+	if ineligibleReplicas == nil || len(ineligibleReplicas) == 0 {
+		d.log.Debug("All replicas of kernel \"%s\" are eligible to handle 'execute_request' \"%s\"",
+			kernel.ID(), jMsg.JupyterMessageId())
+		return d.forwardRequest(kernel, messaging.ShellMessage, jMsg)
+	}
+
+	d.log.Debug("Only %d/%d replicas of kernel \"%s\" are eligible to handle 'execute_request' \"%s\"",
+		len(ineligibleReplicas), kernel.Size(), kernel.ID(), jMsg.JupyterMessageId())
+
+	// Broadcast an "execute_request" to all eligible replicas and a "yield_request" to all ineligible replicas.
+	return d.broadcastExecuteRequestToAllReplicas(jMsg, kernel, ineligibleReplicas)
 }
 
 // sendShellErrorResponse is used to respond to a shell message immediately, before we've routed it to any local
