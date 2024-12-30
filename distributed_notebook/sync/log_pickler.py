@@ -46,12 +46,25 @@ class SyncLogPickler(Pickler):
         self._pickle_profile: dict[int, SyncLogPickleProfile] = {}
         """A dictionary mapping the id of the object to the size of pickled bytes."""
 
+    def create_sync_log_pickle_profile(self, value: Any)->SyncLogPickleProfile:
+        obj_id: int = id(value)
+
+        if obj_id not in self._pickle_profile:
+            sync_log_pickle_profile: SyncLogPickleProfile = SyncLogPickleProfile(self._buffer.getbuffer().nbytes, type(value))
+            print(
+                f"Storing profile for {type(value).__name__} object {value} in _pickle_profile at key {obj_id}. "
+                f"Profile: {sync_log_pickle_profile}"
+            )
+            self._pickle_profile[obj_id] = sync_log_pickle_profile
+            return sync_log_pickle_profile
+
+        return self._pickle_profile[obj_id]
+
     def dump(self, obj):
         """
         Write a pickled representation of obj to the open file.
         This version overrides the default dump method to embed the PROTO opcode in the frame.
         """
-
         obj_id = id(obj)
         logging.info(
             "Started object: {}, written {}: {}".format(
@@ -59,11 +72,7 @@ class SyncLogPickler(Pickler):
             )
         )
 
-        profile = SyncLogPickleProfile(self._buffer.getbuffer().nbytes, type(obj))
-        print(
-            f"Storing profile for {type(obj).__name__} object {obj} in _pickle_profile at key {id(obj)}. Profile: {profile}"
-        )
-        self._pickle_profile[id(obj)] = profile
+        profile: SyncLogPickleProfile = self.create_sync_log_pickle_profile(obj)
 
         # Check whether Pickler was initialized correctly. This is
         # only needed to mimic the behavior of _pickle.Pickler.dump().
@@ -107,10 +116,9 @@ class SyncLogPickler(Pickler):
             print(f'Converted prid "{prid}" to key "{_key}" using cb {cb}')
 
             if _key not in self._pickle_profile:
-                print(
+                raise KeyError(
                     f'invalid key "{_key}". valid "pickle profile" keys: {self._pickle_profile.keys()}'
                 )
-                return
 
             profile: SyncLogPickleProfile = self._pickle_profile[_key]
 

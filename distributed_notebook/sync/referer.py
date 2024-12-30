@@ -1,9 +1,11 @@
 import traceback
+from pickle import Pickler
 from typing import Any, Optional, Union, Callable, IO
 from types import BuiltinFunctionType, FunctionType
 import pickle
 import inspect
 
+from .log_pickler import SyncLogPickler
 from .protocols import SyncRID, SyncRIDProvider, SyncPRID, SyncPRIDProvider
 
 EMPTY_TUPLE = ()
@@ -71,6 +73,10 @@ class SyncPickleId:
 
         self._rid_provider: Optional[Callable[[Any, int], SyncRID]] = rid_provider
         """A callback function that takes a RID and returns an object represents the RID."""
+
+    def __str__(self):
+        return (f"SyncPickleId[BatchID={self.batch_id}, PickleCount={self.pcnt}, PRMap={self._prmap}, "
+                f"PridProvider={ self._prid_provider}, RidProvider={self._rid_provider}]")
 
     def len(self) -> int:
         """Return the number of objects that have been serialized."""
@@ -172,8 +178,8 @@ class SyncReferer:
         self.protocol: Optional[int] = None
         """Protocol version of the pickle. Used to determine whether the pickle is compatible."""
 
-        self.pickler = None
-        self.unpickler = None
+        self.pickler: Optional[Pickler] = None
+        self.unpickler: Optional[Pickler] = None
 
         self._prid_provider: SyncPRIDProvider = DefaultSyncPRID.wrap
 
@@ -188,8 +194,11 @@ class SyncReferer:
         rid_provider: Optional[SyncRIDProvider] = None,
         pickler=None,
     ):
-        """Get pickle compatible persistent_id function. Corresponding pickle_id is returned,
-        which should be stored together with pickled object."""
+        """
+        Get pickle compatible persistent_id function.
+
+        The corresponding pickle_id is returned, which should be stored together with pickled object.
+        """
 
         # Generate pickle id
         pickle_id = SyncPickleId(
@@ -198,7 +207,7 @@ class SyncReferer:
             self._prid_provider,
             rid_provider=rid_provider,
         )
-        print("start pickling {}...".format(pickle_id))
+        print(f"Referencing object, created SyncPickleId: {pickle_id}.")
         self.last_pickle = pickle_id.pcnt  # Update pickle count
         if protocol is None:
             protocol = pickle.DEFAULT_PROTOCOL
@@ -269,6 +278,9 @@ class SyncReferer:
 
         print(f"Retrieved {type(obj).__name__} object {obj} from PRID {prid}")
 
+        if self.pickler is not None and isinstance(self.pickler, SyncLogPickler):
+            self.pickler.create_sync_log_pickle_profile(obj)
+
         return id(obj)
 
     def _reference(
@@ -295,7 +307,7 @@ class SyncReferer:
             return None, None
 
         identity = id(obj)
-        print("referencing {}:{}".format(t, obj))
+        print(f"Referencing {t.__name__} object {obj}\n")
         if identity not in self.referers:
             # New objects (case 1)
             print(f"{t.__name__} object {obj} referenced for first time")
@@ -306,6 +318,9 @@ class SyncReferer:
             self.referers[prid.__prid__()] = self.referers[
                 identity
             ]  # Register PRID for later remote referencing.
+
+            print(f"self.pickler: {self.pickler} (type={type(self.pickler).__name__})")
+
             return self._persistent_id_impl(rid, obj), prid
         elif id(self.referers[identity]) == id(SKIP_SYNC):
             print(f"{t.__name__} object {obj} has referencing disabled")
