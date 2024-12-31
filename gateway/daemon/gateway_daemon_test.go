@@ -922,7 +922,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			Expect(clusterGateway.cluster).ToNot(BeNil())
 
-			kernelId = uuid.NewString()
+			kernelId = "8247310f-7bb1-47ee-b234-a4529bab1274"
 
 			resourceSpec = &proto.ResourceSpec{
 				Gpu:    2,
@@ -1272,6 +1272,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedKernelReplica3 = mock_scheduling.NewMockKernelReplica(mockCtrl)
 
 			mockedSession = mock_scheduling.NewMockUserSession(mockCtrl)
+			mockedSession.EXPECT().ID().AnyTimes().Return(kernelId)
+			mockedSession.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
 
 			prepareReplica := func(replica *mock_scheduling.MockKernelReplica, replicaId int32) {
 				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
@@ -1296,7 +1298,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				replica.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
 				replica.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
 				replica.EXPECT().Host().AnyTimes().Return(mockedHosts[replicaId-1])
-				replica.EXPECT().GetHost().AnyTimes().Return(mockedHosts[replicaId-1])
 				replica.EXPECT().ReplicaID().AnyTimes().Return(replicaId)
 				replica.EXPECT().PersistentID().AnyTimes().Return(persistentId)
 				replica.EXPECT().KernelReplicaSpec().AnyTimes().Return(&proto.KernelReplicaSpec{
@@ -1333,6 +1334,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		})
 
 		It("Will correctly migrate a kernel replica when using static scheduling", func() {
+			mockedKernelReplicas := []*mock_scheduling.MockKernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3}
+			mockedGatewayClients := []*mock_proto.MockLocalGatewayClient{localGatewayClient1, localGatewayClient2, localGatewayClient3}
+
+			clusterGateway.cluster.AddSession(kernelId, mockedSession)
+
 			unsignedExecuteRequestFrames := [][]byte{
 				[]byte("<IDS|MSG>"),
 				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
@@ -1387,6 +1393,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedKernel.EXPECT().ReplicasAreScheduled().AnyTimes().Return(true)
 			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
+
+			mockedSession.EXPECT().IsTraining().Times(3).Return(false)
+			mockedSession.EXPECT().SetExpectingTraining().Times(3).Return(promise.Resolved(nil))
 
 			var shellHandlerWaitGroup sync.WaitGroup
 			shellHandlerWaitGroup.Add(1)
@@ -1567,6 +1576,38 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			smrNodeIdOfMigratedReplica := <-preparedReplicaIdChan
 			Expect(smrNodeIdOfMigratedReplica >= 1 && smrNodeIdOfMigratedReplica <= 3).To(BeTrue())
+			replicaBeingMigrated := mockedKernelReplicas[smrNodeIdOfMigratedReplica-1]
+
+			mockedSession.EXPECT().AddReplica(gomock.Any()).Times(1).DoAndReturn(func(container scheduling.KernelContainer) error {
+				// Update the container that is returned for the associated mocked kernel replica.
+				replicaBeingMigrated.EXPECT().Container().Return(container).AnyTimes()
+
+				return nil
+			})
+
+			mockedKernel.EXPECT().AddReplica(gomock.Any(), host4).Times(1).DoAndReturn(func(r scheduling.KernelReplica, host scheduling.Host) error {
+				Expect(host).To(Equal(host4))
+				return nil
+			})
+			mockedKernel.EXPECT().GetReadyReplica().Times(1).DoAndReturn(func() scheduling.KernelReplica {
+				// Return a mocked kernel replica that is NOT the one that is being migrated.
+				var i int32
+				for i = 1; i < 4; i++ {
+					if i == smrNodeIdOfMigratedReplica {
+						continue
+					}
+
+					replica := mockedKernelReplicas[i-1]
+					replica.EXPECT().IsReady().Times(1).Return(true)
+
+					mockedGatewayClient := mockedGatewayClients[i-1]
+					mockedGatewayClient.EXPECT().UpdateReplicaAddr(gomock.Any(), gomock.Any()).Times(1).Return(&proto.Void{}, nil)
+
+					return replica
+				}
+
+				panic("Failed to find ready replica of mocked kernel")
+			})
 
 			createSocketAndListen := func(name string, typ messaging.MessageType, smrNodeId int32) *messaging.Socket {
 				socketName := fmt.Sprintf("MigratedKernel-Router-%s[SmrNodeId=%d]", name, smrNodeId)
@@ -1589,7 +1630,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			notifyKernelRegistered := func(replicaId int32, targetHost scheduling.Host) {
 				log.Printf("Notifying Gateway that replica %d has registered.\n", replicaId)
 
-				time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25))
+				time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25) /* 25 - 50 ms */)
 
 				ctx := context.WithValue(context.Background(), SkipValidationKey, "true")
 				resp, err := clusterGateway.NotifyKernelRegistered(ctx, &proto.KernelRegistrationNotification{
@@ -1624,7 +1665,29 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			go notifyKernelRegistered(smrNodeIdOfMigratedReplica, host4)
 
-			notifyKernelRegisteredCalled.Done()
+			notifyKernelRegisteredCalled.Wait()
+
+			var smrReadyCalled sync.WaitGroup
+			smrReadyCalled.Add(1)
+			callSmrReady := func(replicaId int32) {
+				time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25 /* 25 - 50 ms */))
+
+				_, err := clusterGateway.SmrReady(context.Background(), &proto.SmrReadyNotification{
+					KernelId:     kernelId,
+					ReplicaId:    replicaId,
+					PersistentId: persistentId,
+					Address:      "localhost",
+				})
+				Expect(err).To(BeNil())
+
+				smrReadyCalled.Done()
+			}
+
+			go func() {
+				callSmrReady(smrNodeIdOfMigratedReplica)
+			}()
+
+			smrReadyCalled.Wait()
 
 			handledLastYieldNotificationWaitGroup.Wait()
 		})

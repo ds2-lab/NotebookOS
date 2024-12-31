@@ -908,7 +908,7 @@ func (d *ClusterGatewayImpl) GetHostsOfKernel(kernelId string) ([]scheduling.Hos
 
 	hosts := make([]scheduling.Host, 0, len(kernel.Replicas()))
 	for _, replica := range kernel.Replicas() {
-		hosts = append(hosts, replica.GetHost())
+		hosts = append(hosts, replica.Host())
 	}
 
 	return hosts, nil
@@ -1128,7 +1128,8 @@ func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 		panic(fmt.Sprintf("Cannot issue 'Update Replica' request to replica %d, as it is in the process of registering...", nodeId))
 	}
 
-	host := targetReplica.Context().Value(client.CtxKernelHost).(scheduling.Host)
+	// host := targetReplica.Context().Value(client.CtxKernelHost).(scheduling.Host)
+	host := targetReplica.Host()
 	if host == nil {
 		panic(fmt.Sprintf("Target replica %d of kernel %s does not have a host.", targetReplica.ReplicaID(), targetReplica.ID()))
 	}
@@ -1968,12 +1969,6 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		d.notifyDashboardOfError("Failed to Register Container with Session", err.Error())
 		panic(err)
 	}
-
-	// Attempt to load the Docker container ID metadata, which will be attached to the metadata of the add replica
-	// operation if we're running in Docker mode. If we're not in Docker mode, then this will do nothing.
-	//if dockerContainerId, loaded := addReplicaOp.GetMetadata(domain.DockerContainerFullId); loaded {
-	//	container.SetDockerContainerID(dockerContainerId.(string))
-	//}
 
 	d.log.Debug("Adding replica for kernel %s, replica %d on host %s. Resource spec: %v", addReplicaOp.KernelId(), replicaSpec.ReplicaId, host.GetID(), replicaSpec.Kernel.ResourceSpec)
 	err = kernel.AddReplica(replica, host)
