@@ -886,6 +886,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		var mockedKernelReplica1 *mock_scheduling.MockKernelReplica
 		var mockedKernelReplica2 *mock_scheduling.MockKernelReplica
 		var mockedKernelReplica3 *mock_scheduling.MockKernelReplica
+		var mockedSession *mock_scheduling.MockUserSession
 		var resourceSpec *proto.ResourceSpec
 
 		BeforeEach(func() {
@@ -932,6 +933,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Session:         kernelId,
 				SignatureScheme: signatureScheme,
 				Key:             "23d90942-8c3de3a713a5c3611792b7a5",
+				WorkloadId:      "SpoofedWorkloadId",
 				ResourceSpec: &proto.ResourceSpec{
 					Gpu:    2,
 					Cpu:    100,
@@ -969,7 +971,40 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			host3Spoofer := distNbTesting.NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
 			host3, localGatewayClient3, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
 
-			mockedHosts := []scheduling.Host{host1, host2, host3}
+			host4Id := uuid.NewString()
+			node4Name := "TestNode4"
+			host4Spoofer := distNbTesting.NewResourceSpoofer(node4Name, host4Id, clusterGateway.hostSpec)
+			host4, localGatewayClient4, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host4Id, node4Name, host4Spoofer)
+
+			err = cluster.NewHostAddedOrConnected(host1)
+			Expect(err).To(BeNil())
+
+			err = cluster.NewHostAddedOrConnected(host2)
+			Expect(err).To(BeNil())
+
+			err = cluster.NewHostAddedOrConnected(host3)
+			Expect(err).To(BeNil())
+
+			err = cluster.NewHostAddedOrConnected(host4)
+			Expect(err).To(BeNil())
+
+			localGatewayClient1.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any()).MaxTimes(1).Return(&proto.PrepareToMigrateResponse{
+				KernelId: kernelId,
+				Id:       1,
+				DataDir:  "./store",
+			}, nil)
+			localGatewayClient2.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any()).MaxTimes(1).Return(&proto.PrepareToMigrateResponse{
+				KernelId: kernelId,
+				Id:       2,
+				DataDir:  "./store",
+			}, nil)
+			localGatewayClient3.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any()).MaxTimes(1).Return(&proto.PrepareToMigrateResponse{
+				KernelId: kernelId,
+				Id:       3,
+				DataDir:  "./store",
+			}, nil)
+
+			mockedHosts := []scheduling.Host{host1, host2, host3, host4}
 
 			By("Correctly registering the first Host")
 
@@ -1018,9 +1053,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				// defer GinkgoRecover()
 
-				err := host1Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				err := host2Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
-				err = host1Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				err = host2Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 
 				startKernelReplicaCalled.Done()
@@ -1038,9 +1073,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				// defer GinkgoRecover()
 
-				err := host1Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				err := host3Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
-				err = host1Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				err = host3Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 
 				startKernelReplicaCalled.Done()
@@ -1052,6 +1087,26 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				return ret, nil
 			})
+
+			localGatewayClient4.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+				GinkgoWriter.Printf("LocalGateway #4 has called spoofed StartKernelReplica\n")
+
+				// defer GinkgoRecover()
+
+				err := host4Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
+				err = host4Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
+
+				startKernelReplicaCalled.Done()
+
+				GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #4 to be passed via channel.\n")
+				ret := <-startKernelReturnValChan3
+
+				GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #4: %v\n", ret)
+
+				return ret, nil
+			}).MaxTimes(1)
 
 			By("Correctly initiating the creation of a new kernel")
 
@@ -1221,9 +1276,15 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}
 			}()
 
+			mockedKernel.EXPECT().RemoveReplicaByID(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
+				return mockedHosts[id-1], nil
+			})
+
 			mockedKernelReplica1 = mock_scheduling.NewMockKernelReplica(mockCtrl)
 			mockedKernelReplica2 = mock_scheduling.NewMockKernelReplica(mockCtrl)
 			mockedKernelReplica3 = mock_scheduling.NewMockKernelReplica(mockCtrl)
+
+			mockedSession = mock_scheduling.NewMockUserSession(mockCtrl)
 
 			prepareReplica := func(replica *mock_scheduling.MockKernelReplica, replicaId int32) {
 				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
@@ -1233,6 +1294,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				container.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
 				container.EXPECT().String().AnyTimes().Return(fmt.Sprintf("MockedContainer-%d", replicaId))
 				container.EXPECT().Host().AnyTimes().Return(mockedHosts[replicaId-1])
+				container.EXPECT().Session().AnyTimes().Return(mockedSession)
+
+				mockedSession.EXPECT().GetReplicaContainer(replicaId).AnyTimes().Return(container, true)
+				mockedSession.EXPECT().RemoveReplicaById(replicaId).MaxTimes(1).Return(nil)
 
 				shellSocket := messaging.NewSocket(zmq4.NewRouter(context.Background()), 0, messaging.ShellMessage, fmt.Sprintf("SpoofedSocket-Kernel-%s-Replica-%d", kernelId, replicaId))
 				replica.EXPECT().Socket(messaging.ShellMessage).AnyTimes().Return(shellSocket)
@@ -1243,6 +1308,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				replica.EXPECT().Container().AnyTimes().Return(container)
 				replica.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
 				replica.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
+				replica.EXPECT().Host().AnyTimes().Return(mockedHosts[replicaId-1])
+				replica.EXPECT().GetHost().AnyTimes().Return(mockedHosts[replicaId-1])
+				replica.EXPECT().ReplicaID().AnyTimes().Return(replicaId)
 				replica.EXPECT().KernelReplicaSpec().AnyTimes().Return(&proto.KernelReplicaSpec{
 					Kernel:                    mockedKernelSpec,
 					NumReplicas:               3,
@@ -1409,6 +1477,15 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				YieldReason: "N/A",
 			}
 
+			mockedKernel.EXPECT().GetActiveExecution(executeRequestJupyterMessageId).Times(3).Return(activeExecution)
+			mockedKernel.EXPECT().CurrentActiveExecution().Times(3).Return(activeExecution)
+
+			mockedKernel.EXPECT().GetReplicaByID(int32(1)).MaxTimes(1).Return(mockedKernelReplica1, nil)
+			mockedKernel.EXPECT().GetReplicaByID(int32(2)).MaxTimes(1).Return(mockedKernelReplica2, nil)
+			mockedKernel.EXPECT().GetReplicaByID(int32(3)).MaxTimes(1).Return(mockedKernelReplica3, nil)
+			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
+
+			mockedKernelReplica1.EXPECT().ReceivedExecuteReply(execReply1).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica1, gomock.Any()).Times(1).Return(nil)
 			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica1, yieldReason, execReply1)
 			Expect(err).To(BeNil())
@@ -1417,6 +1494,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(activeExecution.NumYieldReceived()).To(Equal(1))
 			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
 
+			mockedKernelReplica2.EXPECT().ReceivedExecuteReply(execReply2).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica2, gomock.Any()).Times(1).Return(nil)
 			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica2, yieldReason, execReply2)
 			Expect(err).To(BeNil())
@@ -1425,6 +1503,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(activeExecution.NumYieldReceived()).To(Equal(2))
 			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
 
+			mockedKernelReplica3.EXPECT().ReceivedExecuteReply(execReply3).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica3, gomock.Any()).Times(1).Return(nil)
 			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica3, yieldReason, execReply3)
 			Expect(err).To(BeNil())

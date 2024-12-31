@@ -1440,7 +1440,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	metadataDict, err := msg.DecodeMetadata()
 	if err != nil {
 		d.log.Warn("Failed to unmarshal metadata frame for \"execute_request\" message \"%s\" (JupyterID=\"%s\"): %v",
-			msg.RequestId, msg.JupyterMessageId())
+			msg.RequestId, msg.JupyterMessageId(), msg)
 
 		// We'll assume the metadata frame was empty, and we'll create a new dictionary to use as the metadata frame.
 		metadataDict = make(map[string]interface{})
@@ -4591,7 +4591,7 @@ func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduli
 
 	// It's possible we received a 'YIELD' proposal for an ActiveExecution different from the current one.
 	// So, retrieve the ActiveExecution associated with the 'YIELD' proposal (using the "execute_request" message IDs).
-	associatedActiveExecution := kernel.GetActiveExecution(targetExecuteRequestId, replica)
+	associatedActiveExecution := kernel.GetActiveExecution(targetExecuteRequestId)
 
 	// If we couldn't find the associated active execution at all, then we should panic. That's bad.
 	if associatedActiveExecution == nil {

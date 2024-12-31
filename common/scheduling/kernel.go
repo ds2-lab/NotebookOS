@@ -78,7 +78,7 @@ type Kernel interface {
 	ActiveExecution() *ActiveExecution
 	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*ActiveExecution, bool)
 	// GetActiveExecution returns the *scheduling.ActiveExecution associated with the given "execute_request" message ID.
-	GetActiveExecution(msgId string, replica KernelReplica) *ActiveExecution
+	GetActiveExecution(msgId string) *ActiveExecution
 	CurrentActiveExecution() *ActiveExecution
 	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback

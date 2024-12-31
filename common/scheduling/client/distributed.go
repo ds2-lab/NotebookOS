@@ -1007,7 +1007,7 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica *KernelReplica
 		return nil, false
 	}
 
-	activeExec := c.GetActiveExecution(msg.JupyterParentMessageId(), replica)
+	activeExec := c.GetActiveExecution(msg.JupyterParentMessageId())
 	if activeExec != nil && c.debugMode { // Replies are only saved if debug mode is enabled.
 		err := activeExec.RegisterReply(replica.ReplicaID(), msg, true)
 		if err != nil {
@@ -1686,10 +1686,9 @@ func (c *DistributedKernelClient) CurrentActiveExecution() *scheduling.ActiveExe
 }
 
 // GetActiveExecution returns the *scheduling.ActiveExecution associated with the given "execute_request" message ID.
-func (c *DistributedKernelClient) GetActiveExecution(msgId string, replica scheduling.KernelReplica) *scheduling.ActiveExecution {
+func (c *DistributedKernelClient) GetActiveExecution(msgId string) *scheduling.ActiveExecution {
 	var associatedActiveExecution *scheduling.ActiveExecution
 	if c.activeExecution == nil {
-		c.log.Warn("Received 'YIELD' proposal from %v, but we have no active execution...", replica)
 		associatedActiveExecution, _ = c.activeExecutionsByExecuteRequestMsgId.Load(msgId)
 	} else if c.activeExecution.GetExecuteRequestMessageId() != msgId {
 		c.log.Warn("Received 'YIELD' proposal for ActiveExecution associated with \"execute_request\" %s; however, current ActiveExecution is associated with \"execute_request\" %s...",

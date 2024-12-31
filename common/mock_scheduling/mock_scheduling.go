@@ -4238,17 +4238,17 @@ func (mr *MockKernelMockRecorder) ExecutionFailedCallback() *gomock.Call {
 }
 
 // GetActiveExecution mocks base method.
-func (m *MockKernel) GetActiveExecution(msgId string, replica scheduling.KernelReplica) *scheduling.ActiveExecution {
+func (m *MockKernel) GetActiveExecution(msgId string) *scheduling.ActiveExecution {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetActiveExecution", msgId, replica)
+	ret := m.ctrl.Call(m, "GetActiveExecution", msgId)
 	ret0, _ := ret[0].(*scheduling.ActiveExecution)
 	return ret0
 }
 
 // GetActiveExecution indicates an expected call of GetActiveExecution.
-func (mr *MockKernelMockRecorder) GetActiveExecution(msgId, replica any) *gomock.Call {
+func (mr *MockKernelMockRecorder) GetActiveExecution(msgId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveExecution", reflect.TypeOf((*MockKernel)(nil).GetActiveExecution), msgId, replica)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveExecution", reflect.TypeOf((*MockKernel)(nil).GetActiveExecution), msgId)
 }
 
 // GetActiveExecutionByExecuteRequestMsgId mocks base method.
