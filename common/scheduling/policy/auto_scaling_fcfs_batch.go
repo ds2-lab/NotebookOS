@@ -45,38 +45,14 @@ func (p *AutoScalingFcfsBatchSchedulingPolicy) SmrEnabled() bool {
 	return false
 }
 
-//////////////////////////////////////////
-// ResourceScalingPolicy implementation //
-//////////////////////////////////////////
+//////////////////////////////////
+// ScalingPolicy implementation //
+//////////////////////////////////
 
-func (p *AutoScalingFcfsBatchSchedulingPolicy) AutoscalingPolicy() scheduling.AutoscalingPolicy {
-	return p
-}
-
-func (p *AutoScalingFcfsBatchSchedulingPolicy) ManualScalingPolicy() scheduling.ManualScalingPolicy {
-	return p
-}
-
-//////////////////////////////////////
-// AutoscalingPolicy implementation //
-//////////////////////////////////////
-
-func (p *AutoScalingFcfsBatchSchedulingPolicy) AutomaticScalingOutEnabled() bool {
+func (p *AutoScalingFcfsBatchSchedulingPolicy) ScalingOutEnabled() bool {
 	return true
 }
 
-func (p *AutoScalingFcfsBatchSchedulingPolicy) AutomaticScalingInEnabled() bool {
-	return true
-}
-
-////////////////////////////////////////
-// ManualScalingPolicy implementation //
-////////////////////////////////////////
-
-func (p *AutoScalingFcfsBatchSchedulingPolicy) ManualScalingOutEnabled() bool {
-	return true
-}
-
-func (p *AutoScalingFcfsBatchSchedulingPolicy) ManualScalingInEnabled() bool {
+func (p *AutoScalingFcfsBatchSchedulingPolicy) ScalingInEnabled() bool {
 	return true
 }

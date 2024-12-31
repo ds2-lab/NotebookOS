@@ -307,7 +307,7 @@ type ClusterGatewayImpl struct {
 
 	// RequestLog is used to track the status/progress of requests when in DebugMode.
 	// TODO: Make this an field of the ClusterGateway and LocalDaemon structs.
-	//		 Update in forwardRequest and kernelResponseForwarder, rather than in here.
+	//		 Update in forwardRequest and kernelReplicaResponseForwarder, rather than in here.
 	RequestLog *metrics.RequestLog
 
 	// The initial size of the cluster.
@@ -2966,7 +2966,7 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 
 	// TODO: This doesn't actually send an error response back to the client/Jupyter server.
 	// This just returns to our underlying server's request handler code.
-	// To send a response to Jupyter, we'd need to use the ClusterGatewayImpl::kernelResponseForwarder method.
+	// To send a response to Jupyter, we'd need to use the ClusterGatewayImpl::kernelReplicaResponseForwarder method.
 	return err // Will be nil if we successfully shut down the kernel.
 }
 
@@ -2987,6 +2987,21 @@ func (d *ClusterGatewayImpl) ControlHandler(_ router.Info, msg *messaging.Jupyte
 
 		// We won't re-try more than once.
 		err = d.forwardRequest(nil, messaging.ControlMessage, msg)
+	}
+
+	// If the error is non-nil and the error is NOT types.ErrKernelNotFound, then we'll send an error response.
+	// We can't send an error reply if the error is types.ErrKernelNotFound, as we won't be able to figure out
+	// which kernel to send the response to.
+	if err != nil && !errors.Is(err, types.ErrKernelNotFound) {
+		kernel, _ /* messageType */, kernelResolveError := d.kernelAndTypeFromMsg(msg)
+		if kernelResolveError != nil {
+			d.log.Error("Could not determine kernel associated with JupyterMessage when attempting to send 'error reply': %s",
+				msg.StringFormatted())
+
+			return err // Return the original error
+		}
+
+		_ = d.sendErrorResponse(kernel, msg, err, messaging.ControlMessage)
 	}
 
 	return err
@@ -3163,9 +3178,15 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterMessage) error {
 	kernel, ok := d.kernels.Load(msg.JupyterSession())
 
+	// Couldn't load the kernel. Let's check if we've registered the kernel under a different ID that
+	// is also encoded within the Jupyter message.
 	if !ok && (msg.JupyterMessageType() == messaging.KernelInfoRequest || msg.JupyterMessageType() == messaging.ShellExecuteRequest) {
 		// Register kernel on KernelInfoRequest
 		if msg.DestinationId == "" {
+			d.log.Error("Shell '%s' message '%s' does not contain a destination ID:\n%s",
+				msg.JupyterMessageType(), msg.JupyterMessageId(), msg.StringFormatted())
+
+			// We don't know which kernel this came from, so we can't really send an error message in response.
 			return ErrKernelIDRequired
 		}
 
@@ -3173,21 +3194,28 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 		if !ok {
 			d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v",
 				msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
+
+			// We don't know which kernel this came from, so we can't really send an error message in response.
 			return types.ErrKernelNotFound
 		}
 
 		kernel.BindSession(msg.JupyterSession())
 		d.kernels.Store(msg.JupyterSession(), kernel)
 	}
+
+	// If the kernel is still nil, then that's a bug.
 	if kernel == nil {
 		d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v",
 			msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
+		// If there's no message ID, then something is really wrong.
+		// We'll print the stack so we can better trace through what happened while handling this message.
 		if len(msg.DestinationId) == 0 {
 			d.log.Error("Extracted empty kernel ID from ZMQ \"%s\" message: %v", msg.JupyterMessageType(), msg)
 			debug.PrintStack()
 		}
 
+		// We don't know which kernel this came from, so we can't really send an error message in response.
 		return types.ErrKernelNotFound
 	}
 
@@ -3198,14 +3226,20 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 	}
 
 	if msg.JupyterMessageType() == messaging.ShellExecuteRequest {
+		// executeRequestHandler handles sending an error response if it encounters an error.
 		return d.executeRequestHandler(kernel, msg)
-	} else {
-		d.log.Debug("Forwarding shell message to kernel %s: %s", msg.DestinationId, msg.StringFormatted())
 	}
 
-	if err := d.forwardRequest(kernel, messaging.ShellMessage, msg); err != nil {
+	d.log.Debug("Forwarding shell message to kernel %s: %s", msg.DestinationId, msg.StringFormatted())
+	err := d.forwardRequest(kernel, messaging.ShellMessage, msg)
+	if err != nil {
 		d.log.Error("Error while handling/forwarding shell \"%s\" message \"%s\" (JupyterID=\"%s\"): %v.",
 			msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), err)
+
+		// We'll send an error message to the associated client here, though it's possible that we were able to
+		// send a reply, and the error came from something that occurred after sending our response (I think?).
+		_ = d.sendErrorResponse(kernel, msg, err, messaging.ShellMessage)
+
 		return err
 	}
 
@@ -3239,6 +3273,9 @@ func (d *ClusterGatewayImpl) broadcastExecuteRequestToAllReplicas(jMsg *messagin
 				d.log.Error("Original \"execute_request\" message that we failed to convert: %v", jMsg)
 				d.notifyDashboardOfError("Failed to Convert Message of Type \"execute_request\" to a \"yield_request\" Message", err.Error())
 				jMsg.IsFailedExecuteRequest = true
+
+				// We'll send an error message to the associated client here.
+				_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
 				return err
 			}
 		} else if kernel.DebugMode() {
@@ -3259,7 +3296,7 @@ func (d *ClusterGatewayImpl) broadcastExecuteRequestToAllReplicas(jMsg *messagin
 	// RequestWithHandlerAndReplicas; however, RequestWithHandler assumes that all replicas are to receive an
 	// identical message. That's obviously not what we want to happen here, and so we manually created the different
 	// messages for the different replicas ourselves.
-	return kernel.RequestWithHandlerAndReplicas(context.Background(), messaging.ShellMessage, jupyterMessages, d.kernelResponseForwarder, func() {}, replicas...)
+	return kernel.RequestWithHandlerAndReplicas(context.Background(), messaging.ShellMessage, jupyterMessages, d.kernelReplicaResponseForwarder, func() {}, replicas...)
 }
 
 // executeRequestHandler is a specialized version of ShellHandler that is used explicitly/exclusively for
@@ -3268,38 +3305,52 @@ func (d *ClusterGatewayImpl) broadcastExecuteRequestToAllReplicas(jMsg *messagin
 func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMsg *messaging.JupyterMessage) error {
 	// TODO: Will this cause problems when using non-static policy, since we don't call to check if all replicas
 	//       are scheduled here?
-	_, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage)
-	if err != nil {
+	if _, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage); err != nil {
 		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
 			kernel.ID(), jMsg.JupyterMessageType(), err)
-		return err // TODO: Should this be returned? Or should it be sent back to the client?
+
+		// We'll send an error message to the associated client here.
+		_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
+		return err
 	}
 
 	ineligibleReplicas, err := d.processExecuteRequest(jMsg, kernel)
 	if err != nil {
 		// Send a response with the error as the content.
-		return d.sendShellErrorResponse(kernel, jMsg, err)
+		_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
+		return err
 	}
 
 	// If all replicas were eligible, then just use the standard path of sending via forwardRequest.
 	if ineligibleReplicas == nil || len(ineligibleReplicas) == 0 {
 		d.log.Debug("All replicas of kernel \"%s\" are eligible to handle 'execute_request' \"%s\"",
 			kernel.ID(), jMsg.JupyterMessageId())
-		return d.forwardRequest(kernel, messaging.ShellMessage, jMsg)
+		err = d.forwardRequest(kernel, messaging.ShellMessage, jMsg)
+
+		if err != nil {
+			_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
+		}
+
+		return err // Will be nil on success.
 	}
 
 	d.log.Debug("Only %d/%d replicas of kernel \"%s\" are eligible to handle 'execute_request' \"%s\"",
 		len(ineligibleReplicas), kernel.Size(), kernel.ID(), jMsg.JupyterMessageId())
 
 	// Broadcast an "execute_request" to all eligible replicas and a "yield_request" to all ineligible replicas.
-	return d.broadcastExecuteRequestToAllReplicas(jMsg, kernel, ineligibleReplicas)
+	err = d.broadcastExecuteRequestToAllReplicas(jMsg, kernel, ineligibleReplicas)
+	if err != nil {
+		_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
+	}
+
+	return err // Will be nil on success.
 }
 
-// sendShellErrorResponse is used to respond to a shell message immediately, before we've routed it to any local
+// sendErrorResponse is used to respond to a shell message immediately, before we've routed it to any local
 // schedulers or kernel replicas, because we encountered an unrecoverable error while (pre)processing the message.
-func (d *ClusterGatewayImpl) sendShellErrorResponse(kernel scheduling.Kernel, request *messaging.JupyterMessage, preprocessingError error) error {
+func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request *messaging.JupyterMessage, errContent error, typ messaging.MessageType) error {
 	d.log.Warn("Sending error response to shell \"%s\" message \"%s\" targeting kernel \"%s\": %v",
-		request.JupyterMessageType(), request.JupyterMessageId(), kernel.ID(), preprocessingError)
+		request.JupyterMessageType(), request.JupyterMessageId(), kernel.ID(), errContent)
 
 	// First, update the header to be a "_reply" message type.
 	header, err := request.GetHeader()
@@ -3343,7 +3394,7 @@ func (d *ClusterGatewayImpl) sendShellErrorResponse(kernel scheduling.Kernel, re
 	errorContent := messaging.MessageError{
 		Status:   messaging.MessageStatusError,
 		ErrName:  fmt.Sprintf("Failed to Handle \"%s\" Message", requestType),
-		ErrValue: preprocessingError.Error(),
+		ErrValue: errContent.Error(),
 	}
 	err = request.JupyterFrames.EncodeContent(&errorContent)
 	if err != nil {
@@ -3362,12 +3413,12 @@ func (d *ClusterGatewayImpl) sendShellErrorResponse(kernel scheduling.Kernel, re
 		}
 	}
 
-	if requestType == messaging.ShellExecuteRequest {
+	if typ == messaging.ShellMessage && requestType == messaging.ShellExecuteRequest {
 		request.IsFailedExecuteRequest = true
 	}
 
 	// Finally, send the message back to the Jupyter client.
-	return d.forwardResponse(kernel, messaging.ShellMessage, request)
+	return d.forwardResponse(kernel, typ, request)
 }
 
 // processExecuteReply handles the scheduling and resource allocation/de-allocation logic required when a
@@ -3864,7 +3915,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 		d.log.Debug("Replying with artificial \"%s\" response for Jupyter %s \"%s\" message \"%s\" (JupyterID=\"%s\") for kernel \"%s\".",
 			resp.JupyterMessageType(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), kernel.ID())
 
-		err = d.kernelResponseForwarder(kernel.TemporaryKernelReplicaClient(), typ, resp)
+		err = d.kernelReplicaResponseForwarder(kernel.TemporaryKernelReplicaClient(), typ, resp)
 		if err != nil {
 			d.log.Error(utils.DarkGreenStyle.Render("Failed to forward %v \"%s\" response \"%s\" (JupyterID=\"%s\") to client of kernel %s: %v"),
 				goroutineId, typ, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), kernel.ID(), resp)
@@ -3885,7 +3936,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 		return nil
 	}
 
-	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelResponseForwarder, func() {})
+	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelReplicaResponseForwarder, func() {})
 }
 
 // sendZmqMessage sends the specified *messaging.JupyterMessage on/using the specified *messaging.Socket.
@@ -4015,7 +4066,7 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 	}
 }
 
-func (d *ClusterGatewayImpl) forwardResponse(from scheduling.KernelInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 	goroutineId := goid.Get()
 	socket := from.Socket(typ)
 	if socket == nil {
@@ -4085,11 +4136,13 @@ func (d *ClusterGatewayImpl) forwardResponse(from scheduling.KernelInfo, typ mes
 	return sendError
 }
 
-// kernelResponseForwarder is used as the response handler for a variety of requests/forwarded messages.
+// kernelReplicaResponseForwarder is used as the response handler for a variety of requests/forwarded messages.
 //
-// kernelResponseForwarder forwards the given messaging.JupyterMessage to the remote entity connected to the
+// kernelReplicaResponseForwarder forwards a response from a particular replica of a kernel.
+//
+// kernelReplicaResponseForwarder forwards the given messaging.JupyterMessage to the remote entity connected to the
 // socket of specified messaging.MessageType belonging to the specified scheduling.KernelReplicaInfo.
-func (d *ClusterGatewayImpl) kernelResponseForwarder(from scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+func (d *ClusterGatewayImpl) kernelReplicaResponseForwarder(from scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 	if msg.RequestTrace != nil {
 		requestTrace := msg.RequestTrace
 		if requestTrace.ReplicaId != -1 && requestTrace.ReplicaId != from.ReplicaID() {

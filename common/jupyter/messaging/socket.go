@@ -219,4 +219,5 @@ type JupyterServerInfo interface {
 	fmt.Stringer
 
 	Socket(MessageType) *Socket
+	ID() string
 }

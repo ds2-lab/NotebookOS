@@ -208,9 +208,16 @@ func (s *BaseScheduler) TryGetCandidateHosts(hosts []scheduling.Host, kernelSpec
 	return hosts
 }
 
-func (s *BaseScheduler) isScalingEnabled() bool {
-	// If we're using FCFS Batch Scheduling, then we cannot scale in or out.
-	return s.PolicyKey() != scheduling.FcfsBatch
+// isScalingOutEnabled returns true if the scheduling.ResourceScalingPolicy of the configured scheduling.Policy permits
+// scaling out.
+func (s *BaseScheduler) isScalingOutEnabled() bool {
+	return s.Policy().ResourceScalingPolicy().ScalingOutEnabled()
+}
+
+// isScalingInEnabled returns true if the scheduling.ResourceScalingPolicy of the configured scheduling.Policy permits
+// scaling in.
+func (s *BaseScheduler) isScalingInEnabled() bool {
+	return s.Policy().ResourceScalingPolicy().ScalingInEnabled()
 }
 
 // GetCandidateHost identifies a single candidate host for a particular kernel replica, reserving resources on hosts
@@ -268,7 +275,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
 				len(hosts), s.schedulingPolicy.NumReplicas(), kernelSpec.Id)
 
-			if !s.isScalingEnabled() {
+			if !s.isScalingOutEnabled() {
 				s.log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
 				break // Give up.
 			}
@@ -592,7 +599,7 @@ func (s *BaseScheduler) findViableHostForReplica(replicaSpec scheduling.KernelRe
 		s.log.Warn("Failed to find viable host for replica %d of kernel %s (forTraining=%v): %v",
 			replicaSpec.ReplicaID(), replicaSpec.ID(), forTraining, failureReason)
 
-		if !s.isScalingEnabled() || !errors.Is(failureReason, scheduling.ErrInsufficientHostsAvailable) {
+		if !s.isScalingOutEnabled() || !errors.Is(failureReason, scheduling.ErrInsufficientHostsAvailable) {
 			return nil, failureReason
 		}
 

@@ -125,6 +125,30 @@ func (mr *MockClusterMockRecorder) DemandGPUs() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DemandGPUs", reflect.TypeOf((*MockCluster)(nil).DemandGPUs))
 }
 
+// DisableScalingOut mocks base method.
+func (m *MockCluster) DisableScalingOut() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "DisableScalingOut")
+}
+
+// DisableScalingOut indicates an expected call of DisableScalingOut.
+func (mr *MockClusterMockRecorder) DisableScalingOut() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DisableScalingOut", reflect.TypeOf((*MockCluster)(nil).DisableScalingOut))
+}
+
+// EnableScalingOut mocks base method.
+func (m *MockCluster) EnableScalingOut() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "EnableScalingOut")
+}
+
+// EnableScalingOut indicates an expected call of EnableScalingOut.
+func (mr *MockClusterMockRecorder) EnableScalingOut() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnableScalingOut", reflect.TypeOf((*MockCluster)(nil).EnableScalingOut))
+}
+
 // GetHost mocks base method.
 func (m *MockCluster) GetHost(hostId string) (scheduling.Host, bool) {
 	m.ctrl.T.Helper()
