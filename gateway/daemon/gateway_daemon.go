@@ -1888,7 +1888,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	if d.DockerMode() {
 		dockerContainerId := in.DockerContainerId
 		if dockerContainerId == "" {
-			d.log.Error("Kernel registration notification did not contain docker container ID: %v", dockerContainerId)
+			d.log.Error("Kernel registration notification did not contain docker container ID: %v", in)
 			go d.notifyDashboardOfError("Missing Docker Container ID in Kernel Registration Notification",
 				fmt.Sprintf("Kernel registration notification for replica %d of kernel \"%s\" did not contain a valid Docker container ID",
 					in.ReplicaId, in.KernelId))
@@ -1956,8 +1956,15 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// Register the Container with the Session.
 	d.log.Debug("Registering/adding scheduling.Container for replica %d of kernel %s with the associated scheduling.Session",
 		replicaSpec.ReplicaId, addReplicaOp.KernelId())
-	if err = session.AddReplica(container); err != nil {
-		d.log.Error("Error while registering container %v with session %v: %v", container, session, err)
+
+	err = session.AddReplica(container)
+	if err != nil {
+		if errors.Is(err, entity.ErrInvalidContainer) {
+			d.log.Error("Error while registering container %v with session %v:\n%v", container, session, err)
+		} else {
+			d.log.Error("Unexpected error while registering container %v with session %v:\n%v", container, session, err)
+		}
+
 		d.notifyDashboardOfError("Failed to Register Container with Session", err.Error())
 		panic(err)
 	}
@@ -2153,8 +2160,12 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		panic(fmt.Sprintf("Expected to find existing Host with ID \"%v\"", hostId)) // TODO(Ben): Handle gracefully.
 	}
 
-	if kernel.NumActiveMigrationOperations() >= 1 {
-		d.log.Debug("There is/are %d active add-replica operation(s) targeting kernel %s. Assuming currently-registering replica is for an add-replica operation.", kernel.NumActiveMigrationOperations(), kernel.ID())
+	numActiveMigrationOperations := kernel.NumActiveMigrationOperations()
+	if numActiveMigrationOperations >= 1 {
+		d.log.Debug("There is/are %d active add-replica operation(s) targeting kernel %s. "+
+			"Assuming currently-registering replica is for an add-replica operation.",
+			numActiveMigrationOperations, kernel.ID())
+
 		// Must be holding the main mutex before calling handleAddedReplicaRegistration.
 		// It will release the lock.
 		result, err := d.handleAddedReplicaRegistration(in, kernel, waitGroup)

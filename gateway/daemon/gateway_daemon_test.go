@@ -21,6 +21,7 @@ import (
 	"github.com/shopspring/decimal"
 	"log"
 	"math/rand"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1468,6 +1469,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedKernel.EXPECT().GetActiveExecution(executeRequestJupyterMessageId).Times(3).Return(activeExecution)
 			mockedKernel.EXPECT().CurrentActiveExecution().Times(3).Return(activeExecution)
 
+			preparedReplicaIdChan := make(chan int32, 1)
+
 			mockedKernel.EXPECT().GetReplicaByID(int32(1)).MaxTimes(1).Return(mockedKernelReplica1, nil)
 			mockedKernel.EXPECT().GetReplicaByID(int32(2)).MaxTimes(1).Return(mockedKernelReplica2, nil)
 			mockedKernel.EXPECT().GetReplicaByID(int32(3)).MaxTimes(1).Return(mockedKernelReplica3, nil)
@@ -1475,6 +1478,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedKernel.EXPECT().AddOperationStarted().Times(1)
 			mockedKernel.EXPECT().AddOperationCompleted().Times(1)
 			mockedKernel.EXPECT().PrepareNewReplica(persistentId, gomock.Any()).MaxTimes(1).DoAndReturn(func(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec {
+				preparedReplicaIdChan <- smrNodeId
+
 				return &proto.KernelReplicaSpec{
 					Kernel:       mockedKernel.KernelSpec(),
 					NumReplicas:  3,
@@ -1526,6 +1531,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedKernelReplica3.EXPECT().ReceivedExecuteReply(execReply3).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica3, gomock.Any()).Times(1).Return(nil)
+			mockedKernel.EXPECT().NumActiveMigrationOperations().Times(1).Return(1)
 
 			var handledLastYieldNotificationWaitGroup sync.WaitGroup
 			handledLastYieldNotificationWaitGroup.Add(1)
@@ -1555,6 +1561,70 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(activeExecution.NumRolesReceived()).To(Equal(3))
 			Expect(activeExecution.NumYieldReceived()).To(Equal(3))
 			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
+
+			var notifyKernelRegisteredCalled sync.WaitGroup
+			notifyKernelRegisteredCalled.Add(1)
+
+			smrNodeIdOfMigratedReplica := <-preparedReplicaIdChan
+			Expect(smrNodeIdOfMigratedReplica >= 1 && smrNodeIdOfMigratedReplica <= 3).To(BeTrue())
+
+			createSocketAndListen := func(name string, typ messaging.MessageType, smrNodeId int32) *messaging.Socket {
+				socketName := fmt.Sprintf("MigratedKernel-Router-%s[SmrNodeId=%d]", name, smrNodeId)
+				zmqSocket := zmq4.NewRouter(context.Background())
+				socket := messaging.NewSocket(zmqSocket, 0, typ, socketName)
+
+				err = socket.Listen(fmt.Sprintf("tcp://:%d", socket.Port))
+				Expect(err).To(BeNil())
+				socket.Port = socket.Addr().(*net.TCPAddr).Port
+
+				return socket
+			}
+
+			// Create sockets and call 'listen' so when Cluster Gateway tries to connect, it succeeds.
+			heartbeatSocket := createSocketAndListen("HB", messaging.HBMessage, smrNodeIdOfMigratedReplica)
+			controlSocket := createSocketAndListen("Ctrl", messaging.ControlMessage, smrNodeIdOfMigratedReplica)
+			shellSocket := createSocketAndListen("Shell", messaging.ShellMessage, smrNodeIdOfMigratedReplica)
+			stdinSocket := createSocketAndListen("Stdin", messaging.StdinMessage, smrNodeIdOfMigratedReplica)
+
+			notifyKernelRegistered := func(replicaId int32, targetHost scheduling.Host) {
+				log.Printf("Notifying Gateway that replica %d has registered.\n", replicaId)
+
+				time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25))
+
+				ctx := context.WithValue(context.Background(), SkipValidationKey, "true")
+				resp, err := clusterGateway.NotifyKernelRegistered(ctx, &proto.KernelRegistrationNotification{
+					ConnectionInfo: &proto.KernelConnectionInfo{
+						Ip:              "localhost",
+						Transport:       "tcp",
+						ControlPort:     int32(controlSocket.Port),
+						ShellPort:       int32(shellSocket.Port),
+						StdinPort:       int32(stdinSocket.Port),
+						HbPort:          int32(heartbeatSocket.Port),
+						IopubPort:       9004,
+						IosubPort:       9005,
+						SignatureScheme: messaging.JupyterSignatureScheme,
+						Key:             kernelKey,
+					},
+					KernelId:           kernelId,
+					SessionId:          "N/A",
+					ReplicaId:          replicaId,
+					HostId:             targetHost.GetID(),
+					KernelIp:           "localhost",
+					PodOrContainerName: fmt.Sprintf("kernel1replica%dcontainer", replicaId),
+					DockerContainerId:  uuid.NewString(),
+					NodeName:           targetHost.GetNodeName(),
+					NotificationId:     uuid.NewString(),
+				})
+				Expect(resp).ToNot(BeNil())
+				Expect(err).To(BeNil())
+				Expect(resp.Id).To(Equal(replicaId))
+
+				notifyKernelRegisteredCalled.Done()
+			}
+
+			go notifyKernelRegistered(smrNodeIdOfMigratedReplica, host4)
+
+			notifyKernelRegisteredCalled.Done()
 
 			handledLastYieldNotificationWaitGroup.Wait()
 		})
