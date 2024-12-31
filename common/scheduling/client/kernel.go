@@ -1251,20 +1251,6 @@ func (c *KernelReplicaClient) Close() error {
 	return err
 }
 
-// GetHost returns the Host on which the replica is hosted.
-func (c *KernelReplicaClient) GetHost() scheduling.Host {
-	return c.host
-}
-
-// SetHost sets the Host of the kernel.
-func (c *KernelReplicaClient) SetHost(host scheduling.Host) {
-	c.host = host
-
-	if host != nil {
-		c.hostId = host.GetID()
-	}
-}
-
 // InitializeIOSub initializes the ZMQ SUB socket for handling IO messages from the Jupyter kernel.
 // If the provided messaging.MessageHandler parameter is nil, then we will use the default handler.
 // (The default handler is KernelReplicaClient::InitializeIOSub.)

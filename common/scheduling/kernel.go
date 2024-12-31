@@ -231,7 +231,5 @@ type KernelReplica interface {
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
 	AddIOHandler(topic string, handler MessageBrokerHandler[KernelReplica, *messaging.JupyterFrames, *messaging.JupyterMessage]) error
 	RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
-	GetHost() Host
-	SetHost(host Host)
 	InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error)
 }

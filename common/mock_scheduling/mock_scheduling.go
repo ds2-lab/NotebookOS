@@ -5137,20 +5137,6 @@ func (mr *MockKernelReplicaMockRecorder) Context() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Context", reflect.TypeOf((*MockKernelReplica)(nil).Context))
 }
 
-// GetHost mocks base method.
-func (m *MockKernelReplica) GetHost() scheduling.Host {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetHost")
-	ret0, _ := ret[0].(scheduling.Host)
-	return ret0
-}
-
-// GetHost indicates an expected call of GetHost.
-func (mr *MockKernelReplicaMockRecorder) GetHost() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHost", reflect.TypeOf((*MockKernelReplica)(nil).GetHost))
-}
-
 // GetPodOrContainerName mocks base method.
 func (m *MockKernelReplica) GetPodOrContainerName() string {
 	m.ctrl.T.Helper()
@@ -5619,18 +5605,6 @@ func (m *MockKernelReplica) SetContext(arg0 context.Context) {
 func (mr *MockKernelReplicaMockRecorder) SetContext(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetContext", reflect.TypeOf((*MockKernelReplica)(nil).SetContext), arg0)
-}
-
-// SetHost mocks base method.
-func (m *MockKernelReplica) SetHost(host scheduling.Host) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetHost", host)
-}
-
-// SetHost indicates an expected call of SetHost.
-func (mr *MockKernelReplicaMockRecorder) SetHost(host any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetHost", reflect.TypeOf((*MockKernelReplica)(nil).SetHost), host)
 }
 
 // SetIOPubSocket mocks base method.
@@ -6302,15 +6276,15 @@ func (mr *MockKernelContainerMockRecorder) SetClient(client any) *gomock.Call {
 }
 
 // SetHost mocks base method.
-func (m *MockKernelContainer) SetHost(arg0 scheduling.Host) {
+func (m *MockKernelContainer) SetHost(host scheduling.Host) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetHost", arg0)
+	m.ctrl.Call(m, "SetHost", host)
 }
 
 // SetHost indicates an expected call of SetHost.
-func (mr *MockKernelContainerMockRecorder) SetHost(arg0 any) *gomock.Call {
+func (mr *MockKernelContainerMockRecorder) SetHost(host any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetHost", reflect.TypeOf((*MockKernelContainer)(nil).SetHost), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetHost", reflect.TypeOf((*MockKernelContainer)(nil).SetHost), host)
 }
 
 // StartedAt mocks base method.

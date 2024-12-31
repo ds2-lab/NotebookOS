@@ -94,6 +94,11 @@ func (c *Container) SetClient(client scheduling.KernelReplica) {
 	c.KernelReplica = client
 }
 
+// SetHost sets the scheduling.Host of the Container.
+func (c *Container) SetHost(host scheduling.Host) {
+	c.host = host
+}
+
 func (c *Container) ContainerStatistics() scheduling.ContainerStatistics {
 	return c
 }

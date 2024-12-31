@@ -54,11 +54,13 @@ type KernelContainer interface {
 	ScaleOutPriority() float64
 	Session() UserSession
 	SetClient(client KernelReplica)
-	SetHost(Host)
 	StartedAt() time.Time
 	String() string
 	ToDockerContainer() *proto.DockerContainer
 	TrainingStartedInContainer() error
+
+	// SetHost sets the scheduling.Host of the Container.
+	SetHost(host Host)
 
 	// NumTrainingEventsProcessed returns the number of training events processed by this particular Container.
 	// This is NOT (necessarily) equal to the total number of training events processed by the UserSession.
