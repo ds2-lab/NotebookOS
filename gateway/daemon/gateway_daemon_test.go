@@ -879,15 +879,21 @@ var _ = Describe("Cluster Gateway Tests", func() {
 	})
 
 	Context("Migrating Kernels", func() {
-		var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
-		var kernelId string
-		var mockedKernelSpec *proto.KernelSpec
-		var mockedKernel *mock_scheduling.MockKernel
-		var mockedKernelReplica1 *mock_scheduling.MockKernelReplica
-		var mockedKernelReplica2 *mock_scheduling.MockKernelReplica
-		var mockedKernelReplica3 *mock_scheduling.MockKernelReplica
-		var mockedSession *mock_scheduling.MockUserSession
-		var resourceSpec *proto.ResourceSpec
+		var (
+			mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
+			kernelId                              string
+			mockedKernelSpec                      *proto.KernelSpec
+			mockedKernel                          *mock_scheduling.MockKernel
+			mockedKernelReplica1                  *mock_scheduling.MockKernelReplica
+			mockedKernelReplica2                  *mock_scheduling.MockKernelReplica
+			mockedKernelReplica3                  *mock_scheduling.MockKernelReplica
+			mockedSession                         *mock_scheduling.MockUserSession
+			resourceSpec                          *proto.ResourceSpec
+			host1, host2, host3, host4            scheduling.Host
+
+			host1Spoofer, host2Spoofer, host3Spoofer, host4Spoofer                             *distNbTesting.ResourceSpoofer
+			localGatewayClient1, localGatewayClient2, localGatewayClient3, localGatewayClient4 *mock_proto.MockLocalGatewayClient
+		)
 
 		BeforeEach(func() {
 			config.LogLevel = logger.LOG_LEVEL_ALL
@@ -958,23 +964,23 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			host1Id := uuid.NewString()
 			node1Name := "TestNode1"
-			host1Spoofer := distNbTesting.NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
-			host1, localGatewayClient1, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
+			host1Spoofer = distNbTesting.NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
+			host1, localGatewayClient1, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
 
 			host2Id := uuid.NewString()
 			node2Name := "TestNode2"
-			host2Spoofer := distNbTesting.NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
-			host2, localGatewayClient2, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
+			host2Spoofer = distNbTesting.NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
+			host2, localGatewayClient2, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
 
 			host3Id := uuid.NewString()
 			node3Name := "TestNode3"
-			host3Spoofer := distNbTesting.NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
-			host3, localGatewayClient3, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
+			host3Spoofer = distNbTesting.NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
+			host3, localGatewayClient3, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
 
 			host4Id := uuid.NewString()
 			node4Name := "TestNode4"
-			host4Spoofer := distNbTesting.NewResourceSpoofer(node4Name, host4Id, clusterGateway.hostSpec)
-			host4, localGatewayClient4, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host4Id, node4Name, host4Spoofer)
+			host4Spoofer = distNbTesting.NewResourceSpoofer(node4Name, host4Id, clusterGateway.hostSpec)
+			host4, localGatewayClient4, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host4Id, node4Name, host4Spoofer)
 
 			err = cluster.NewHostAddedOrConnected(host1)
 			Expect(err).To(BeNil())
@@ -1088,26 +1094,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				return ret, nil
 			})
 
-			localGatewayClient4.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
-				GinkgoWriter.Printf("LocalGateway #4 has called spoofed StartKernelReplica\n")
-
-				// defer GinkgoRecover()
-
-				err := host4Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
-				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
-				err = host4Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
-				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
-
-				startKernelReplicaCalled.Done()
-
-				GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #4 to be passed via channel.\n")
-				ret := <-startKernelReturnValChan3
-
-				GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #4: %v\n", ret)
-
-				return ret, nil
-			}).MaxTimes(1)
-
 			By("Correctly initiating the creation of a new kernel")
 
 			startKernelReturnValChan := make(chan *proto.KernelConnectionInfo)
@@ -1138,7 +1124,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			By("Correctly handling the KernelConnectionInfo")
 
 			startKernelReturnValChan1 <- &proto.KernelConnectionInfo{
-				Ip:              "0.0.0.0",
+				Ip:              "10.0.0.1",
 				Transport:       "tcp",
 				ControlPort:     9000,
 				ShellPort:       9001,
@@ -1150,7 +1136,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Key:             kernelKey,
 			}
 			startKernelReturnValChan2 <- &proto.KernelConnectionInfo{
-				Ip:              "0.0.0.0",
+				Ip:              "10.0.0.2",
 				Transport:       "tcp",
 				ControlPort:     9000,
 				ShellPort:       9001,
@@ -1162,7 +1148,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Key:             kernelKey,
 			}
 			startKernelReturnValChan3 <- &proto.KernelConnectionInfo{
-				Ip:              "0.0.0.0",
+				Ip:              "10.0.0.3",
 				Transport:       "tcp",
 				ControlPort:     9000,
 				ShellPort:       9001,
@@ -1193,7 +1179,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				ctx := context.WithValue(context.Background(), SkipValidationKey, "true")
 				_, _ = clusterGateway.NotifyKernelRegistered(ctx, &proto.KernelRegistrationNotification{
 					ConnectionInfo: &proto.KernelConnectionInfo{
-						Ip:              "0.0.0.0",
+						Ip:              "10.0.0.1",
 						Transport:       "tcp",
 						ControlPort:     9000,
 						ShellPort:       9001,
@@ -1208,7 +1194,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					SessionId:          "N/A",
 					ReplicaId:          replicaId,
 					HostId:             targetHost.GetID(),
-					KernelIp:           "0.0.0.0",
+					KernelIp:           "10.0.0.1",
 					PodOrContainerName: "kernel1pod",
 					NodeName:           targetHost.GetNodeName(),
 					NotificationId:     uuid.NewString(),
@@ -1241,7 +1227,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					KernelId:     kernelId,
 					ReplicaId:    replicaId,
 					PersistentId: persistentId,
-					Address:      "0.0.0.0",
+					Address:      "10.0.0.1",
 				})
 
 				smrReadyCalled.Done()
@@ -1311,6 +1297,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				replica.EXPECT().Host().AnyTimes().Return(mockedHosts[replicaId-1])
 				replica.EXPECT().GetHost().AnyTimes().Return(mockedHosts[replicaId-1])
 				replica.EXPECT().ReplicaID().AnyTimes().Return(replicaId)
+				replica.EXPECT().PersistentID().AnyTimes().Return(persistentId)
 				replica.EXPECT().KernelReplicaSpec().AnyTimes().Return(&proto.KernelReplicaSpec{
 					Kernel:                    mockedKernelSpec,
 					NumReplicas:               3,
@@ -1328,6 +1315,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			prepareReplica(mockedKernelReplica3, 3)
 
 			mockedKernel.EXPECT().Status().AnyTimes().Return(jupyter.KernelStatusRunning)
+			mockedKernel.EXPECT().PersistentID().AnyTimes().Return(persistentId)
 		})
 
 		AfterEach(func() {
@@ -1484,6 +1472,39 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedKernel.EXPECT().GetReplicaByID(int32(2)).MaxTimes(1).Return(mockedKernelReplica2, nil)
 			mockedKernel.EXPECT().GetReplicaByID(int32(3)).MaxTimes(1).Return(mockedKernelReplica3, nil)
 			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
+			mockedKernel.EXPECT().AddOperationStarted().Times(1)
+			mockedKernel.EXPECT().AddOperationCompleted().Times(1)
+			mockedKernel.EXPECT().PrepareNewReplica(persistentId, gomock.Any()).MaxTimes(1).DoAndReturn(func(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec {
+				return &proto.KernelReplicaSpec{
+					Kernel:       mockedKernel.KernelSpec(),
+					NumReplicas:  3,
+					Join:         true,
+					PersistentId: &persistentId,
+					ReplicaId:    smrNodeId,
+				}
+			}).Times(1)
+
+			var replicaStartedOnHost4WaitGroup sync.WaitGroup
+			replicaStartedOnHost4WaitGroup.Add(1)
+
+			startKernelReturnValChan4 := make(chan *proto.KernelConnectionInfo)
+			localGatewayClient4.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+				GinkgoWriter.Printf("LocalGateway #4 has called spoofed StartKernelReplica\n")
+
+				err := host4Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
+				err = host4Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
+
+				GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #4 to be passed via channel.\n")
+				ret := <-startKernelReturnValChan4
+
+				GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #4: %v\n", ret)
+
+				replicaStartedOnHost4WaitGroup.Done()
+
+				return ret, nil
+			}).Times(1)
 
 			mockedKernelReplica1.EXPECT().ReceivedExecuteReply(execReply1).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica1, gomock.Any()).Times(1).Return(nil)
@@ -1505,12 +1526,37 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedKernelReplica3.EXPECT().ReceivedExecuteReply(execReply3).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica3, gomock.Any()).Times(1).Return(nil)
-			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica3, yieldReason, execReply3)
-			Expect(err).To(BeNil())
+
+			var handledLastYieldNotificationWaitGroup sync.WaitGroup
+			handledLastYieldNotificationWaitGroup.Add(1)
+
+			go func(wg *sync.WaitGroup) {
+				err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica3, yieldReason, execReply3)
+				Expect(err).To(BeNil())
+
+				handledLastYieldNotificationWaitGroup.Done()
+			}(&handledLastYieldNotificationWaitGroup)
+
+			startKernelReturnValChan4 <- &proto.KernelConnectionInfo{
+				Ip:              "0.0.0.0",
+				Transport:       "tcp",
+				ControlPort:     9000,
+				ShellPort:       9001,
+				StdinPort:       9002,
+				HbPort:          9003,
+				IopubPort:       9004,
+				IosubPort:       9005,
+				SignatureScheme: messaging.JupyterSignatureScheme,
+				Key:             kernelKey,
+			}
+
+			replicaStartedOnHost4WaitGroup.Wait()
 
 			Expect(activeExecution.NumRolesReceived()).To(Equal(3))
 			Expect(activeExecution.NumYieldReceived()).To(Equal(3))
 			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
+
+			handledLastYieldNotificationWaitGroup.Wait()
 		})
 	})
 
@@ -1909,7 +1955,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly handling the KernelConnectionInfo")
 
 				startKernelReturnValChan1 <- &proto.KernelConnectionInfo{
-					Ip:              "0.0.0.0",
+					Ip:              "10.0.0.1",
 					Transport:       "tcp",
 					ControlPort:     9000,
 					ShellPort:       9001,
@@ -1921,7 +1967,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Key:             kernelKey,
 				}
 				startKernelReturnValChan2 <- &proto.KernelConnectionInfo{
-					Ip:              "0.0.0.0",
+					Ip:              "10.0.0.2",
 					Transport:       "tcp",
 					ControlPort:     9000,
 					ShellPort:       9001,
@@ -1933,7 +1979,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Key:             kernelKey,
 				}
 				startKernelReturnValChan3 <- &proto.KernelConnectionInfo{
-					Ip:              "0.0.0.0",
+					Ip:              "10.0.0.3",
 					Transport:       "tcp",
 					ControlPort:     9000,
 					ShellPort:       9001,

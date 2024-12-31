@@ -668,21 +668,6 @@ func (c *DistributedKernelClient) PrepareNewReplica(persistentId string, smrNode
 		ReplicaId:    smrNodeId,
 	}
 
-	// Find the first empty slot.
-	// for i := 0; i < len(c.replicas); i++ {
-	// 	if c.replicas[i] == nil {
-	// 		spec.ReplicaID = int32(i + 1)
-	// 		break
-	// 	}
-	// }
-	// if spec.ReplicaID == 0 {
-	// 	spec.ReplicaID = int32(len(c.replicas) + 1)
-	// }
-
-	// If we follows add one and remove one rule, replicas are expected to have no holes in
-	// replica list (i.e. no nil in the list) at this point. So we spec.Replicas is leaved
-	// empty, and leave invokers to deterministically fill the list.
-
 	return spec
 }
 
