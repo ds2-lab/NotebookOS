@@ -1394,8 +1394,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedKernel.EXPECT().ReplicasAreScheduled().AnyTimes().Return(true)
 			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
 
-			mockedSession.EXPECT().IsTraining().Times(3).Return(false)
-			mockedSession.EXPECT().SetExpectingTraining().Times(3).Return(promise.Resolved(nil))
+			mockedSession.EXPECT().IsTraining().Times(1).Return(false)
+			mockedSession.EXPECT().SetExpectingTraining().Times(1).Return(promise.Resolved(nil))
 
 			var shellHandlerWaitGroup sync.WaitGroup
 			shellHandlerWaitGroup.Add(1)
@@ -1585,8 +1585,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				return nil
 			})
 
+			migratedReplicaChan := make(chan scheduling.KernelReplica, 1)
 			mockedKernel.EXPECT().AddReplica(gomock.Any(), host4).Times(1).DoAndReturn(func(r scheduling.KernelReplica, host scheduling.Host) error {
 				Expect(host).To(Equal(host4))
+				migratedReplicaChan <- r
 				return nil
 			})
 			mockedKernel.EXPECT().GetReadyReplica().Times(1).DoAndReturn(func() scheduling.KernelReplica {
@@ -1666,6 +1668,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			go notifyKernelRegistered(smrNodeIdOfMigratedReplica, host4)
 
 			notifyKernelRegisteredCalled.Wait()
+
+			migratedKernelReplica := <-migratedReplicaChan
+			mockedKernel.EXPECT().GetReplicaByID(smrNodeIdOfMigratedReplica).Times(1).Return(migratedKernelReplica, nil)
 
 			var smrReadyCalled sync.WaitGroup
 			smrReadyCalled.Add(1)
