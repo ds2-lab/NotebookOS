@@ -5,6 +5,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
+	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -231,5 +232,7 @@ type KernelReplica interface {
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
 	AddIOHandler(topic string, handler MessageBrokerHandler[KernelReplica, *messaging.JupyterFrames, *messaging.JupyterMessage]) error
 	RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
+	RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error
 	InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error)
+	HandleIOKernelStatus(kernelReplica KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error
 }

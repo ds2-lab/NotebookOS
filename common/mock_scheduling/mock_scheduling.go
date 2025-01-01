@@ -19,6 +19,7 @@ import (
 	prometheus "github.com/prometheus/client_golang/prometheus"
 	jupyter "github.com/scusemua/distributed-notebook/common/jupyter"
 	messaging "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	server "github.com/scusemua/distributed-notebook/common/jupyter/server"
 	metrics "github.com/scusemua/distributed-notebook/common/metrics"
 	proto "github.com/scusemua/distributed-notebook/common/proto"
 	scheduling "github.com/scusemua/distributed-notebook/common/scheduling"
@@ -5189,6 +5190,20 @@ func (mr *MockKernelReplicaMockRecorder) GetSocketPort(typ any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSocketPort", reflect.TypeOf((*MockKernelReplica)(nil).GetSocketPort), typ)
 }
 
+// HandleIOKernelStatus mocks base method.
+func (m *MockKernelReplica) HandleIOKernelStatus(kernelReplica scheduling.KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HandleIOKernelStatus", kernelReplica, frames, msg)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// HandleIOKernelStatus indicates an expected call of HandleIOKernelStatus.
+func (mr *MockKernelReplicaMockRecorder) HandleIOKernelStatus(kernelReplica, frames, msg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleIOKernelStatus", reflect.TypeOf((*MockKernelReplica)(nil).HandleIOKernelStatus), kernelReplica, frames, msg)
+}
+
 // Host mocks base method.
 func (m *MockKernelReplica) Host() scheduling.Host {
 	m.ctrl.T.Helper()
@@ -5539,6 +5554,20 @@ func (m *MockKernelReplica) RequestWithHandler(ctx context.Context, arg1 string,
 func (mr *MockKernelReplicaMockRecorder) RequestWithHandler(ctx, arg1, typ, msg, handler, done any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestWithHandler", reflect.TypeOf((*MockKernelReplica)(nil).RequestWithHandler), ctx, arg1, typ, msg, handler, done)
+}
+
+// RequestWithHandlerAndWaitOptionGetter mocks base method.
+func (m *MockKernelReplica) RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequestWithHandlerAndWaitOptionGetter", parentContext, typ, msg, handler, getOption, done)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RequestWithHandlerAndWaitOptionGetter indicates an expected call of RequestWithHandlerAndWaitOptionGetter.
+func (mr *MockKernelReplicaMockRecorder) RequestWithHandlerAndWaitOptionGetter(parentContext, typ, msg, handler, getOption, done any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestWithHandlerAndWaitOptionGetter", reflect.TypeOf((*MockKernelReplica)(nil).RequestWithHandlerAndWaitOptionGetter), parentContext, typ, msg, handler, getOption, done)
 }
 
 // ResourceSpec mocks base method.

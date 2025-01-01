@@ -1066,9 +1066,9 @@ func (c *KernelReplicaClient) InitializeIOForwarder() (*messaging.Socket, error)
 	}
 
 	c.iopub = iopub
-	c.iobroker = NewMessageBroker[scheduling.KernelReplica](c.extractIOTopicFrame)
+	c.iobroker = NewMessageBroker[scheduling.KernelReplica](ExtractIOTopicFrame)
 	c.iobroker.Subscribe(MessageBrokerAllTopics, c.forwardIOMessage) // Default to forward all messages.
-	c.iobroker.Subscribe(messaging.IOTopicStatus, c.handleIOKernelStatus)
+	c.iobroker.Subscribe(messaging.IOTopicStatus, c.HandleIOKernelStatus)
 	c.iobroker.Subscribe(messaging.IOTopicSMRReady, c.handleIOKernelSMRReady)
 	c.iobroker.Subscribe(messaging.IOTopicSMRNodeAdded, c.handleIOKernelSMRNodeAdded)
 	return iopub, nil
@@ -1086,11 +1086,10 @@ func (c *KernelReplicaClient) AddIOHandler(topic string, handler scheduling.Mess
 
 // RequestWithHandler sends a request and handles the response.
 func (c *KernelReplicaClient) RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
-	// c.log.Debug("%s %v request(%p): %v", prompt, typ, msg, msg)
-	return c.requestWithHandler(ctx, typ, msg, handler, c.getWaitResponseOption, done)
+	return c.RequestWithHandlerAndWaitOptionGetter(ctx, typ, msg, handler, c.getWaitResponseOption, done)
 }
 
-func (c *KernelReplicaClient) requestWithHandler(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
+func (c *KernelReplicaClient) RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
 	if c.status < jupyter.KernelStatusRunning {
 		return jupyter.ErrKernelNotReady
 	}
@@ -1343,25 +1342,11 @@ func (c *KernelReplicaClient) getWaitResponseOption(key string) interface{} {
 	return nil
 }
 
-func (c *KernelReplicaClient) extractIOTopicFrame(msg *messaging.JupyterMessage) (string, *messaging.JupyterFrames) {
-	if msg.Offset() == 0 {
-		return "", nil
-	}
-
-	rawTopic := msg.JupyterFrames.Frames[ /*jOffset*/ msg.Offset()-1]
-	matches := messaging.IOTopicStatusRecognizer.FindSubmatch(rawTopic)
-	if len(matches) > 0 {
-		return string(matches[2]), msg.JupyterFrames
-	}
-
-	return string(rawTopic), msg.JupyterFrames
-}
-
 func (c *KernelReplicaClient) forwardIOMessage(kernel scheduling.KernelReplica, _ *messaging.JupyterFrames, msg *messaging.JupyterMessage) error {
 	return kernel.Socket(messaging.IOMessage).Send(*msg.GetZmqMsg())
 }
 
-func (c *KernelReplicaClient) handleIOKernelStatus(_ scheduling.KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error {
+func (c *KernelReplicaClient) HandleIOKernelStatus(_ scheduling.KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error {
 	var status messaging.MessageKernelStatus
 	if err := frames.Validate(); err != nil {
 		c.log.Error("Failed to validate message frames while handling IO kernel status: %v", err)
