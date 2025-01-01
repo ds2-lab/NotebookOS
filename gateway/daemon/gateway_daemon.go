@@ -3959,23 +3959,26 @@ func (d *ClusterGatewayImpl) sendZmqMessage(msg *messaging.JupyterMessage, socke
 			socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), senderId, sendDuration)
 	}
 
-	if metricError := d.gatewayPrometheusManager.SentMessage(d.id, sendDuration, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
-		d.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
-	}
+	if d.gatewayPrometheusManager != nil {
+		if metricError := d.gatewayPrometheusManager.SentMessage(d.id, sendDuration, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
+			d.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+		}
 
-	if metricError := d.gatewayPrometheusManager.SentMessageUnique(d.id, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
-		d.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+		if metricError := d.gatewayPrometheusManager.SentMessageUnique(d.id, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
+			d.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+		}
 	}
 
 	if err != nil {
 		d.log.Error(utils.RedStyle.Render("[gid=%d] Error while forwarding %v \"%s\" response %s (JupyterID=\"%s\") from kernel %s via %s: %s"),
 			goid.Get(), socket.Type, msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), senderId, socket.Name, err.Error())
-	} else {
-		d.log.Debug("Successfully forwarded %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\"): %v",
-			socket.Type, msg.JupyterMessageType(), senderId, msg.JupyterMessageId(), messaging.FramesToString(zmqMsg.Frames))
+
+		return err
 	}
 
-	return err // Will be nil on success.
+	d.log.Debug("Successfully forwarded %v \"%s\" message from kernel \"%s\" (JupyterID=\"%s\") in %v: %v",
+		socket.Type, msg.JupyterMessageType(), senderId, msg.JupyterMessageId(), sendDuration, messaging.FramesToString(zmqMsg.Frames))
+	return nil
 }
 
 func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.RequestTrace) {
@@ -4070,6 +4073,8 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 	goroutineId := goid.Get()
 	socket := from.Socket(typ)
 	if socket == nil {
+		d.log.Debug("Using router's %s socket to forward Jupyter \"%s\" response message \"%s\"",
+			typ.String(), msg.JupyterMessageType(), msg.JupyterMessageId())
 		socket = d.router.Socket(typ)
 	}
 	if socket == nil {
