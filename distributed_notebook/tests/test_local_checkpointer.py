@@ -112,7 +112,7 @@ def test_checkpoint_after_training():
     previous_weights: Tensor = initial_weights
     for i in range(0, num_training_loops):
         # Train for a while.
-        model.train_epochs(dataset.train_dataset, num_epochs)
+        model.train_epochs(dataset.train_loader, num_epochs)
 
         # Establish that the model's weights have changed.
         updated_weights = model.model.fc.weight
@@ -209,7 +209,7 @@ def test_checkpoint_after_training_using_checkpointed_model():
     previous_weights: Tensor = initial_weights
     for i in range(0, num_training_loops):
         # Train for a while.
-        model.train_epochs(dataset.train_dataset, num_epochs)
+        model.train_epochs(dataset.train_loader, num_epochs)
 
         # Establish that the model's weights have changed.
         updated_weights = model.model.fc.weight

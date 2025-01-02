@@ -34,9 +34,9 @@ class CIFAR10(CustomDataset):
         self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
         if self._dataset_already_downloaded:
-            print(f"CIFAR-10 dataset was already downloaded. Root directory: \"{root_dir}\"")
+            print(f"The {Cifar10} dataset was already downloaded. Root directory: \"{root_dir}\"")
         else:
-            print(f"CIFAR-10 was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+            print(f"The {Cifar10} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
 
     @property
     def download_duration_sec(self)->float:

@@ -1,7 +1,6 @@
 from torchtext import datasets
 from torchtext.data.utils import get_tokenizer
 from torchtext.vocab import build_vocab_from_iterator
-from torch.utils.data import DataLoader
 
 from distributed_notebook.datasets.base import CustomDataset
 
@@ -25,7 +24,7 @@ class CoLA(CustomDataset):
         self._train_dataset = datasets.CoLA(root=root_dir, train=True, download=True)
 
         # Load the dataset
-        train_iter, valid_iter, test_iter = CoLA()
+        train_iter, valid_iter, test_iter = datasets.CoLA()
 
         # Tokenize the text
         self.tokenizer = get_tokenizer('basic_english')
@@ -42,8 +41,8 @@ class CoLA(CustomDataset):
         self._download_duration_sec = self._download_end - self._download_start
 
         # Prepare the data loaders
-        self._train_loader = CoLA(split='train', text_transform=self.text_pipeline, label_transform=label_pipeline)
-        self._test_loader = CoLA(split='test', text_transform=self.text_pipeline, label_transform=label_pipeline)
+        self._train_loader = datasets.CoLA(split='train', text_transform=self.text_pipeline, label_transform=label_pipeline)
+        self._test_loader = datasets.CoLA(split='test', text_transform=self.text_pipeline, label_transform=label_pipeline)
 
         if self._dataset_already_downloaded:
             print(f"{CoLAName} dataset was already downloaded. Root directory: \"{root_dir}\"")

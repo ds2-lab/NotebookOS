@@ -124,7 +124,7 @@ def test_requires_checkpointing_after_training():
         batch_size = 8
     )
 
-    model.train_epochs(dataset.train_dataset, 1)
+    model.train_epochs(dataset.train_loader, 1)
 
     assert model.requires_checkpointing == True
 
@@ -146,7 +146,7 @@ def test_training_for_time_updates_weights():
         batch_size = 8
     )
 
-    model.train(dataset.train_dataset, 500)
+    model.train(dataset.train_loader, 500)
 
     updated_weights = model.model.fc.weight
 
@@ -170,7 +170,7 @@ def test_training_for_epochs_updates_weights():
         batch_size = 8
     )
 
-    model.train_epochs(dataset.train_dataset, 1)
+    model.train_epochs(dataset.train_loader, 1)
 
     updated_weights = model.model.fc.weight
 
