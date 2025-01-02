@@ -40,7 +40,8 @@ dependencies = [
     "python-Levenshtein",
     "wget",
     "sox",
-    "librosa"
+    "librosa",
+    "torchtext"
 ]
 
 readme = "README.md"
