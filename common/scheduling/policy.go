@@ -145,11 +145,21 @@ type IdleSessionReclamationPolicy interface {
 // ResourceScalingPolicy defines the configuration of resource scaling (i.e., adding and/or removing Host instances ),
 // as well as the configuration parameters that tune the scaling behavior.
 type ResourceScalingPolicy interface {
-	// AutoscalingPolicy returns the AutoscalingPolicy of the target scheduling Policy.
-	AutoscalingPolicy() AutoscalingPolicy
+	// ScalingOutEnabled returns a bool indicating whether the Cluster can add additional Host instances if
+	// manually/explicitly instructed to do so.
+	ScalingOutEnabled() bool
 
-	// ManualScalingPolicy returns the ManualScalingPolicy of the target scheduling Policy.
-	ManualScalingPolicy() ManualScalingPolicy
+	// ScalingInEnabled returns a bool indicating whether the Cluster can remove Host instances if manually/explicitly
+	// instructed to do so.
+	ScalingInEnabled() bool
+
+	// DisableScalingOut modifies the scaling policy to disallow scaling-out, even if the policy isn't
+	// supposed to support scaling out. This is only intended to be used for unit tests.
+	DisableScalingOut()
+
+	// EnableScalingOut modifies the scaling policy to enable scaling-out, even if the policy isn't
+	// supposed to support scaling out. This is only intended to be used for unit tests.
+	EnableScalingOut()
 }
 
 // ScalingConfiguration encapsulates the various parameters related to auto-scaling.
@@ -198,28 +208,6 @@ func NewScalingConfiguration(opts *SchedulerOptions) *ScalingConfiguration {
 		MinimumCapacity:              int32(opts.MinimumNumNodes),
 		MaximumCapacity:              int32(opts.MaximumNumNodes),
 	}
-}
-
-// AutoscalingPolicy defines the auto-scaling configuration (i.e., automatically adding or removing Host instances
-// to/from the Cluster).
-type AutoscalingPolicy interface {
-	// AutomaticScalingOutEnabled returns a bool indicating whether the Cluster can automatically add additional Host instances.
-	AutomaticScalingOutEnabled() bool
-
-	// AutomaticScalingInEnabled returns a flag indicating whether the Cluster can automatically remove Host instances.
-	AutomaticScalingInEnabled() bool
-}
-
-// ManualScalingPolicy defines the configuration of manually-triggered scaling (i.e., manually adding or removing
-// Host instances to/from the Cluster).
-type ManualScalingPolicy interface {
-	// ManualScalingOutEnabled returns a bool indicating whether the Cluster can add additional Host instances if
-	// manually/explicitly instructed to do so.
-	ManualScalingOutEnabled() bool
-
-	// ManualScalingInEnabled returns a bool indicating whether the Cluster can reove Host instances if manually/explicitly
-	// instructed to do so.
-	ManualScalingInEnabled() bool
 }
 
 // PostExecutionStatePolicy defines the behavior of a kernel after completing an execution of user code.

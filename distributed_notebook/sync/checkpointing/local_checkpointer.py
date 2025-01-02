@@ -122,7 +122,7 @@ class LocalCheckpointer(RemoteCheckpointer):
     def storage_name(self)->str:
         return f"LocalInMemoryStorage"
 
-    def __read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    def __read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         if pointer is None:
             raise ValueError("cannot read model using nil ModelPointer")
 
@@ -132,6 +132,7 @@ class LocalCheckpointer(RemoteCheckpointer):
         model_key: str = os.path.join(base_key, "model.pt")
         optimizer_key: str = os.path.join(base_key, "optimizer.pt")
         criterion_key: str = os.path.join(base_key, "criterion.pt")
+        constructor_args_key: str = os.path.join(base_key, "constructor_args.pt")
 
         try:
             model_state_dict = self.__read_state_dict(model_key, model_name)
@@ -151,13 +152,19 @@ class LocalCheckpointer(RemoteCheckpointer):
             self.log.error(f"Failed to read criterion state dictionary from Local Python Dict: {ex}")
             raise ex # re-raise
 
-        return model_state_dict, optimizer_state_dict, criterion_state_dict
+        try:
+            constructor_args_dict = self.__read_state_dict(constructor_args_key, model_name)
+        except Exception as ex:
+            self.log.error(f"Failed to read constructor arguments dictionary from Local Python Dict: {ex}")
+            raise ex # re-raise
 
-    def read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        return model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_dict
+
+    def read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         with self._lock:
             return self.__read_state_dicts(pointer)
 
-    async def read_state_dicts_async(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    async def read_state_dicts_async(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         async with self._async_lock:
             return self.__read_state_dicts(pointer)
 
@@ -209,6 +216,9 @@ class LocalCheckpointer(RemoteCheckpointer):
 
         criterion_key: str = os.path.join(base_key, "criterion.pt")
         self.__write_state_dict(criterion_key, pointer.model.criterion_state_dict, model_name)
+
+        constructor_state_key: str = os.path.join(base_key, "constructor_args.pt")
+        self.__write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
 
         pointer.wrote_model_state()
 

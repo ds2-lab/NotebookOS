@@ -51,6 +51,10 @@ func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMa
 	return dockerCluster
 }
 
+func (c *DockerSwarmCluster) String() string {
+	return fmt.Sprintf("DockerComposeCluster[Size=%d,NumSessions=%d]", c.Len(), c.sessions.Len())
+}
+
 // NodeType returns the type of node provisioned within the Cluster.
 func (c *DockerSwarmCluster) NodeType() string {
 	return types.DockerNode

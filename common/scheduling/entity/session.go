@@ -299,7 +299,7 @@ func (s *Session) KernelSpec() *proto.KernelSpec {
 }
 
 func (s *Session) String() string {
-	return fmt.Sprintf("Session[ID=%s]", s.id)
+	return fmt.Sprintf("Session[ID=%s,ResourceRequest=%v,NumReplicas=%d]", s.id, s.resourceSpec, len(s.containers))
 }
 
 // SetExpectingTraining attempts to transition the Session to the SessionStateExpectingTraining state.

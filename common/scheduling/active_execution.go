@@ -341,6 +341,16 @@ func (e *ActiveExecution) NumRolesReceived() int {
 	return e.numLeadRoles + e.numYieldRoles
 }
 
+// NumLeadReceived returns the number of 'lead' notifications received.
+func (e *ActiveExecution) NumLeadReceived() int {
+	return e.numLeadRoles
+}
+
+// NumYieldReceived returns the number of 'yield' notifications received.
+func (e *ActiveExecution) NumYieldReceived() int {
+	return e.numYieldRoles
+}
+
 func (e *ActiveExecution) RangeRoles(rangeFunc func(int32, ElectionProposal) bool) {
 	for smrNodeId, role := range e.roles {
 		shouldContinue := rangeFunc(smrNodeId, role)

@@ -41,15 +41,17 @@ def test_read_after_write():
     assert checkpointer.size == 3
     assert len(checkpointer) == 3
 
-    model_state, optimizer_state, criterion_state = checkpointer.read_state_dicts(model_pointer)
+    model_state, optimizer_state, criterion_state, constructor_args_state = checkpointer.read_state_dicts(model_pointer)
 
     assert model_state is not None
     assert optimizer_state is not None
     assert criterion_state is not None
+    assert constructor_args_state is not None
 
     assert isinstance(model_state, dict)
     assert isinstance(optimizer_state, dict)
     assert isinstance(criterion_state, dict)
+    assert isinstance(constructor_args_state, dict)
 
 def test_write_model_that_does_not_require_checkpointing():
     """
@@ -121,14 +123,16 @@ def test_checkpoint_after_training():
 
         # Before re-writing the updated model's weights, verify that the weights in remote storage
         # match the initial weights and no longer match the model's weights.
-        old_model_state, old_optimizer_state, old_criterion_state = checkpointer.read_state_dicts(model_pointer)
+        old_model_state, old_optimizer_state, old_criterion_state, old_constructor_args_state = checkpointer.read_state_dicts(model_pointer)
 
         assert old_model_state is not None
         assert old_optimizer_state is not None
         assert old_criterion_state is not None
+        assert old_constructor_args_state is not None
         assert isinstance(old_model_state, dict)
         assert isinstance(old_optimizer_state, dict)
         assert isinstance(old_criterion_state, dict)
+        assert isinstance(old_constructor_args_state, dict)
 
         current_model_state: dict[str, Any] = model.state_dict
 
@@ -146,7 +150,7 @@ def test_checkpoint_after_training():
         checkpointer.write_state_dicts(model_pointer)
 
         # Verify that the weights in remote storage match the updated weights.
-        remote_model_state, remote_optimizer_state, remote_criterion_state = checkpointer.read_state_dicts(model_pointer)
+        remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(model_pointer)
         local_model_state: dict[str, Any] = model.state_dict
         for remote_val, local_val in zip(remote_model_state.values(), local_model_state.values()):
             if isinstance(remote_val, Tensor) and isinstance(local_val, Tensor):
@@ -216,14 +220,16 @@ def test_checkpoint_after_training_using_checkpointed_model():
 
         # Before re-writing the updated model's weights, verify that the weights in remote storage
         # match the initial weights and no longer match the model's weights.
-        old_model_state, old_optimizer_state, old_criterion_state = checkpointer.read_state_dicts(model_pointer)
+        old_model_state, old_optimizer_state, old_criterion_state, old_constructor_state = checkpointer.read_state_dicts(model_pointer)
 
         assert old_model_state is not None
         assert old_optimizer_state is not None
         assert old_criterion_state is not None
+        assert old_constructor_state is not None
         assert isinstance(old_model_state, dict)
         assert isinstance(old_optimizer_state, dict)
         assert isinstance(old_criterion_state, dict)
+        assert isinstance(old_constructor_state, dict)
 
         current_model_state: dict[str, Any] = model.state_dict
 
@@ -241,7 +247,7 @@ def test_checkpoint_after_training_using_checkpointed_model():
         checkpointer.write_state_dicts(model_pointer)
 
         # Verify that the weights in remote storage match the updated weights.
-        remote_model_state, remote_optimizer_state, remote_criterion_state = checkpointer.read_state_dicts(model_pointer)
+        remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(model_pointer)
         local_model_state: dict[str, Any] = model.state_dict
         for remote_val, local_val in zip(remote_model_state.values(), local_model_state.values()):
             if isinstance(remote_val, Tensor) and isinstance(local_val, Tensor):

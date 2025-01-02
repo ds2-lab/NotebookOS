@@ -205,7 +205,7 @@ class RedisCheckpointer(RemoteCheckpointer):
     def storage_name(self)->str:
         return f"Redis({self._redis_host}:{self._redis_port},db={self._redis_db})"
 
-    def read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    def read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         if pointer is None:
             raise ValueError("cannot read model using nil ModelPointer")
 
@@ -217,6 +217,7 @@ class RedisCheckpointer(RemoteCheckpointer):
         model_redis_key: str = os.path.join(base_redis_key, "model.pt")
         optimizer_redis_key: str = os.path.join(base_redis_key, "optimizer.pt")
         criterion_redis_key: str = os.path.join(base_redis_key, "criterion.pt")
+        constructor_args_key: str = os.path.join(base_redis_key, "constructor_args.pt")
 
         try:
             model_state_dict = self.__read_state_dict(model_redis_key, model_name)
@@ -236,9 +237,15 @@ class RedisCheckpointer(RemoteCheckpointer):
             self.log.error(f"Failed to read criterion state dictionary from Redis: {ex}")
             raise ex # re-raise
 
-        return model_state_dict, optimizer_state_dict, criterion_state_dict
+        try:
+            constructor_args_dict = self.__read_state_dict(constructor_args_key, model_name)
+        except Exception as ex:
+            self.log.error(f"Failed to read constructor arguments dictionary from Local Python Dict: {ex}")
+            raise ex # re-raise
 
-    async def read_state_dicts_async(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        return model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_dict
+
+    async def read_state_dicts_async(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         async with self._lock:
             if pointer is None:
                 raise ValueError("cannot read model using nil ModelPointer")
@@ -251,6 +258,7 @@ class RedisCheckpointer(RemoteCheckpointer):
             model_redis_key: str = os.path.join(base_redis_key, "model.pt")
             optimizer_redis_key: str = os.path.join(base_redis_key, "optimizer.pt")
             criterion_redis_key: str = os.path.join(base_redis_key, "criterion.pt")
+            constructor_args_key: str = os.path.join(base_redis_key, "constructor_args.pt")
 
             try:
                 model_state_dict = await self.__read_state_dict_async(model_redis_key, model_name)
@@ -270,7 +278,13 @@ class RedisCheckpointer(RemoteCheckpointer):
                 self.log.error(f"Failed to read criterion state dictionary from Redis: {ex}")
                 raise ex # re-raise
 
-            return model_state_dict, optimizer_state_dict, criterion_state_dict
+            try:
+                constructor_args_dict = self.__read_state_dict(constructor_args_key, model_name)
+            except Exception as ex:
+                self.log.error(f"Failed to read constructor arguments dictionary from Local Python Dict: {ex}")
+                raise ex # re-raise
+
+            return model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_dict
 
 
     def __write_state_dict(self, redis_key: str, state_dict: Dict[str, Any], model_name: str = ""):
@@ -368,6 +382,9 @@ class RedisCheckpointer(RemoteCheckpointer):
             criterion_redis_key: str = os.path.join(base_redis_key, "criterion.pt")
             await self.__async_write_state_dict(criterion_redis_key, pointer.model.criterion_state_dict, model_name)
 
+            constructor_state_key: str = os.path.join(base_redis_key, "constructor_args.pt")
+            await self.__async_write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
+
             pointer.wrote_model_state()
 
     def write_state_dicts(self, pointer: ModelPointer):
@@ -389,5 +406,8 @@ class RedisCheckpointer(RemoteCheckpointer):
 
         criterion_redis_key: str = os.path.join(base_redis_key, "criterion.pt")
         self.__write_state_dict(criterion_redis_key, pointer.model.criterion_state_dict, model_name)
+
+        constructor_state_key: str = os.path.join(base_redis_key, "constructor_args.pt")
+        self.__write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
 
         pointer.wrote_model_state()

@@ -98,13 +98,13 @@ def test_set_bias():
         initial_bias = initial_bias,
     )
     simple_module: SimpleModule = model.model
-    for w in simple_module.fc.bias.data:
-        assert w == initial_bias
+    for b in simple_module.fc.bias.data:
+        assert b == initial_bias
 
     updated_bias_val: float = 123.456
     model.set_bias(updated_bias_val)
-    for w in simple_module.fc.bias.data:
-        assert w == updated_bias_val
+    for b in simple_module.fc.bias.data:
+        assert b == updated_bias_val
 
 def test_requires_checkpointing_after_training():
     input_size: int = 3

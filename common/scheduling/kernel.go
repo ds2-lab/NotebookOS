@@ -5,6 +5,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
+	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -60,6 +61,9 @@ type ExecutionLatencyCallback func(latency time.Duration, workloadId string, ker
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
 type ExecutionFailedCallback func(c Kernel, msg *messaging.JupyterMessage) error
 
+// YieldNotificationHandler is called when a YIELD notification is received.
+type YieldNotificationHandler func(replica KernelReplica, msgErr *messaging.MessageErrorWithYieldReason, msg *messaging.JupyterMessage) error
+
 type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
 type Kernel interface {
@@ -74,6 +78,10 @@ type Kernel interface {
 	IOPubListenPort() int
 	ActiveExecution() *ActiveExecution
 	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*ActiveExecution, bool)
+	// GetActiveExecution returns the *scheduling.ActiveExecution associated with the given "execute_request" message ID.
+	GetActiveExecution(msgId string) *ActiveExecution
+	CurrentActiveExecution() *ActiveExecution
+	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
 	SetActiveExecution(activeExecution *ActiveExecution)
 	ExecutionComplete(msg *messaging.JupyterMessage) (bool, error)
@@ -224,7 +232,7 @@ type KernelReplica interface {
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
 	AddIOHandler(topic string, handler MessageBrokerHandler[KernelReplica, *messaging.JupyterFrames, *messaging.JupyterMessage]) error
 	RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
-	GetHost() Host
-	SetHost(host Host)
+	RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error
 	InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error)
+	HandleIOKernelStatus(kernelReplica KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -21,6 +22,7 @@ import (
 	"github.com/shopspring/decimal"
 	"log"
 	"math/rand"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -38,11 +40,11 @@ const (
 	signatureScheme string = "hmac-sha256"
 
 	kernelId string = "66902bac-9386-432e-b1b9-21ac853fa1c9"
-
-	persistentId string = "a45e4331-8fdc-4143-aac8-00d3e9df54fa"
 )
 
 var (
+	persistentId string = "a45e4331-8fdc-4143-aac8-00d3e9df54fa"
+
 	GatewayOptsAsJsonString = `{
 	"logger_options": {
 		"Debug": true,
@@ -162,7 +164,8 @@ func (p *MockedDistributedKernelClientProvider) RegisterMockedDistributedKernel(
 func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-	messagingMetricsProvider metrics.MessagingMetricsProvider, statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
+	handleExecuteYieldNotification scheduling.YieldNotificationHandler, messagingMetricsProvider metrics.MessagingMetricsProvider,
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
 	notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 	if kernel, ok := p.expectedKernels[spec.Id]; ok {
@@ -274,6 +277,213 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 	AfterEach(func() {
 		mockCtrl.Finish()
+	})
+
+	Context("ZMQ4 Socket Connectivity Tests", func() {
+		It("Zmq4 Router Server, Dealer Client", func() {
+			serverCtx, serverCancel := context.WithCancel(context.Background())
+			defer serverCancel()
+
+			serverPortChan := make(chan int, 1)
+
+			serverFunc := func() {
+				// Create a ROUTER socket
+				server := zmq4.NewRouter(serverCtx, zmq4.WithID(zmq4.SocketIdentity("router")))
+				defer server.Close()
+
+				// Bind the server to an address
+				address := "tcp://localhost:0"
+				err := server.Listen(address)
+				Expect(err).To(BeNil())
+
+				serverPort := server.Addr().(*net.TCPAddr).Port
+				fmt.Printf("Server started on port %d, waiting for messages...\n", serverPort)
+
+				serverPortChan <- serverPort
+
+				for {
+					// Receive a message
+					msg, err := server.Recv()
+					if err != nil {
+						fmt.Printf("[ERROR] Failed to receive message from client: %v\n", err)
+					}
+
+					Expect(err).To(BeNil())
+
+					identity := msg.Frames[0]
+					content := msg.Frames[1]
+					fmt.Printf("Server received: [%s] %s\n", identity, content)
+
+					// Send a response back to the client
+					response := zmq4.NewMsgFrom([][]byte{
+						identity,                           // Identity frame
+						[]byte("Echo: " + string(content)), // Content frame
+					}...)
+
+					err = server.Send(response)
+					if err != nil {
+						fmt.Printf("[ERROR] Failed to send message back to client: %v\n", err)
+					}
+
+					Expect(err).To(BeNil())
+				}
+			}
+
+			go serverFunc()
+
+			// Create a ROUTER socket
+			client := zmq4.NewDealer(context.Background(), zmq4.WithID(zmq4.SocketIdentity("dealer")))
+			defer client.Close()
+
+			serverPort := <-serverPortChan
+
+			fmt.Printf("Received server port: %d\n", serverPort)
+
+			// Connect to the server
+			serverAddress := fmt.Sprintf("tcp://localhost:%d", serverPort)
+			err := client.Dial(serverAddress)
+
+			if err != nil {
+				fmt.Printf("[ERROR] Failed to connect to the server: %v\n", err)
+			}
+			Expect(err).To(BeNil())
+
+			fmt.Println("Client connected to server.")
+
+			for i := 0; i < 5; i++ {
+				// Send a message to the server
+				message := zmq4.NewMsgFrom([][]byte{
+					[]byte(fmt.Sprintf("Hello %d", i)), // Content frame
+				}...)
+				fmt.Printf("Client sending: %s\n", message.Frames[0])
+
+				err := client.Send(message)
+				if err != nil {
+					fmt.Printf("[ERROR] Failed to send message to server: %v\n", err)
+				}
+
+				Expect(err).To(BeNil())
+
+				fmt.Printf("Client sent: %s\n", message.Frames[0])
+
+				// Receive a response from the server
+				reply, err := client.Recv()
+				if err != nil {
+					fmt.Printf("[ERROR] Failed to receive reply from server: %v\n", err)
+				}
+
+				Expect(err).To(BeNil())
+				Expect(reply).ToNot(BeNil())
+
+				fmt.Printf("Client received: %s\n", reply.Frames[0])
+				time.Sleep(250 * time.Millisecond)
+			}
+		})
+
+		It("Zmq4 Router Server, Router Client", func() {
+			serverCtx, serverCancel := context.WithCancel(context.Background())
+			defer serverCancel()
+
+			serverPortChan := make(chan int, 1)
+
+			serverFunc := func() {
+				// Create a ROUTER socket
+				server := zmq4.NewRouter(serverCtx, zmq4.WithID(zmq4.SocketIdentity("server")))
+				defer server.Close()
+
+				// Bind the server to an address
+				address := "tcp://localhost:0"
+				err := server.Listen(address)
+				Expect(err).To(BeNil())
+
+				serverPort := server.Addr().(*net.TCPAddr).Port
+				fmt.Printf("Server started on port %d, waiting for messages...\n", serverPort)
+
+				serverPortChan <- serverPort
+
+				numReceived := 0
+
+				for numReceived < 5 {
+					// Receive a message
+					msg, err := server.Recv()
+					if err != nil {
+						fmt.Printf("[ERROR] Failed to receive message from client: %v\n", err)
+					}
+
+					Expect(err).To(BeNil())
+
+					identity := msg.Frames[0]
+					content := msg.Frames[1]
+					fmt.Printf("Server received: [%s] %s\n", identity, content)
+
+					// Send a response back to the client
+					response := zmq4.NewMsgFrom([][]byte{
+						identity,                           // Identity frame
+						[]byte("Echo: " + string(content)), // Content frame
+					}...)
+
+					err = server.Send(response)
+					if err != nil {
+						fmt.Printf("[ERROR] Failed to send message back to client: %v\n", err)
+					}
+
+					Expect(err).To(BeNil())
+
+					numReceived += 1
+				}
+			}
+
+			go serverFunc()
+
+			// Create a ROUTER socket
+			client := zmq4.NewRouter(context.Background(), zmq4.WithID(zmq4.SocketIdentity("client")))
+			defer client.Close()
+
+			serverPort := <-serverPortChan
+
+			fmt.Printf("Received server port: %d\n", serverPort)
+
+			// Connect to the server
+			serverAddress := fmt.Sprintf("tcp://localhost:%d", serverPort)
+			err := client.Dial(serverAddress)
+
+			if err != nil {
+				fmt.Printf("[ERROR] Failed to connect to the server: %v\n", err)
+			}
+			Expect(err).To(BeNil())
+
+			fmt.Println("Client connected to server.")
+
+			for i := 0; i < 5; i++ {
+				// Send a message to the server
+				message := zmq4.NewMsgFrom([][]byte{
+					[]byte("server"),                   // Identity frame
+					[]byte(fmt.Sprintf("Hello %d", i)), // Content frame
+				}...)
+				fmt.Printf("Client sending: %s\n", message.Frames[1])
+
+				err := client.Send(message)
+				if err != nil {
+					fmt.Printf("[ERROR] Failed to send message to server: %v\n", err)
+				}
+
+				Expect(err).To(BeNil())
+
+				fmt.Printf("Client sent: %s\n", message.Frames[1])
+
+				// Receive a response from the server
+				reply, err := client.Recv()
+				if err != nil {
+					fmt.Printf("[ERROR] Failed to receive reply from server: %v\n", err)
+				}
+
+				Expect(err).To(BeNil())
+				Expect(reply).ToNot(BeNil())
+
+				fmt.Printf("Client received: %s\n", reply.Frames[0])
+				time.Sleep(250 * time.Millisecond)
+			}
+		})
 	})
 
 	Context("Processing 'execute_request' messages", func() {
@@ -525,9 +735,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
 		})
+
+		It("should respond correctly upon receiving three YIELD notifications", func() {
+
+		})
 	})
 
-	Context("ZMQ Messages", func() {
+	Context("Processing general ZMQ Messages", func() {
 		var (
 			kernel  *mock_scheduling.MockKernel
 			header  *messaging.MessageHeader
@@ -874,11 +1088,21 @@ var _ = Describe("Cluster Gateway Tests", func() {
 	})
 
 	Context("Migrating Kernels", func() {
-		var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
-		var kernelId string
-		var mockedKernelSpec *proto.KernelSpec
-		var mockedKernel *mock_scheduling.MockKernel
-		var resourceSpec *proto.ResourceSpec
+		var (
+			mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
+			kernelId                              string
+			mockedKernelSpec                      *proto.KernelSpec
+			mockedKernel                          *mock_scheduling.MockKernel
+			mockedKernelReplica1                  *mock_scheduling.MockKernelReplica
+			mockedKernelReplica2                  *mock_scheduling.MockKernelReplica
+			mockedKernelReplica3                  *mock_scheduling.MockKernelReplica
+			mockedSession                         *mock_scheduling.MockUserSession
+			resourceSpec                          *proto.ResourceSpec
+			host1, host2, host3, host4            scheduling.Host
+
+			host1Spoofer, host2Spoofer, host3Spoofer, host4Spoofer                             *distNbTesting.ResourceSpoofer
+			localGatewayClient1, localGatewayClient2, localGatewayClient3, localGatewayClient4 *mock_proto.MockLocalGatewayClient
+		)
 
 		BeforeEach(func() {
 			config.LogLevel = logger.LOG_LEVEL_ALL
@@ -906,7 +1130,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			Expect(clusterGateway.cluster).ToNot(BeNil())
 
-			kernelId = uuid.NewString()
+			kernelId = "8247310f-7bb1-47ee-b234-a4529bab1274"
 
 			resourceSpec = &proto.ResourceSpec{
 				Gpu:    2,
@@ -924,6 +1148,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Session:         kernelId,
 				SignatureScheme: signatureScheme,
 				Key:             "23d90942-8c3de3a713a5c3611792b7a5",
+				WorkloadId:      "SpoofedWorkloadId",
 				ResourceSpec: &proto.ResourceSpec{
 					Gpu:    2,
 					Cpu:    100,
@@ -948,18 +1173,45 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			host1Id := uuid.NewString()
 			node1Name := "TestNode1"
-			host1Spoofer := distNbTesting.NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
-			host1, localGatewayClient1, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
+			host1Spoofer = distNbTesting.NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
+			host1, localGatewayClient1, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
 
 			host2Id := uuid.NewString()
 			node2Name := "TestNode2"
-			host2Spoofer := distNbTesting.NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
-			host2, localGatewayClient2, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
+			host2Spoofer = distNbTesting.NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
+			host2, localGatewayClient2, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
 
 			host3Id := uuid.NewString()
 			node3Name := "TestNode3"
-			host3Spoofer := distNbTesting.NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
-			host3, localGatewayClient3, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
+			host3Spoofer = distNbTesting.NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
+			host3, localGatewayClient3, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
+
+			err = cluster.NewHostAddedOrConnected(host1)
+			Expect(err).To(BeNil())
+
+			err = cluster.NewHostAddedOrConnected(host2)
+			Expect(err).To(BeNil())
+
+			err = cluster.NewHostAddedOrConnected(host3)
+			Expect(err).To(BeNil())
+
+			localGatewayClient1.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any()).MaxTimes(1).Return(&proto.PrepareToMigrateResponse{
+				KernelId: kernelId,
+				Id:       1,
+				DataDir:  "./store",
+			}, nil)
+			localGatewayClient2.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any()).MaxTimes(1).Return(&proto.PrepareToMigrateResponse{
+				KernelId: kernelId,
+				Id:       2,
+				DataDir:  "./store",
+			}, nil)
+			localGatewayClient3.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any()).MaxTimes(1).Return(&proto.PrepareToMigrateResponse{
+				KernelId: kernelId,
+				Id:       3,
+				DataDir:  "./store",
+			}, nil)
+
+			hosts := []scheduling.Host{host1, host2, host3}
 
 			By("Correctly registering the first Host")
 
@@ -1008,9 +1260,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				// defer GinkgoRecover()
 
-				err := host1Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				err := host2Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
-				err = host1Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				err = host2Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 
 				startKernelReplicaCalled.Done()
@@ -1028,9 +1280,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				// defer GinkgoRecover()
 
-				err := host1Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				err := host3Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
-				err = host1Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				err = host3Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 
 				startKernelReplicaCalled.Done()
@@ -1073,7 +1325,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			By("Correctly handling the KernelConnectionInfo")
 
 			startKernelReturnValChan1 <- &proto.KernelConnectionInfo{
-				Ip:              "0.0.0.0",
+				Ip:              "10.0.0.1",
 				Transport:       "tcp",
 				ControlPort:     9000,
 				ShellPort:       9001,
@@ -1085,7 +1337,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Key:             kernelKey,
 			}
 			startKernelReturnValChan2 <- &proto.KernelConnectionInfo{
-				Ip:              "0.0.0.0",
+				Ip:              "10.0.0.2",
 				Transport:       "tcp",
 				ControlPort:     9000,
 				ShellPort:       9001,
@@ -1097,7 +1349,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Key:             kernelKey,
 			}
 			startKernelReturnValChan3 <- &proto.KernelConnectionInfo{
-				Ip:              "0.0.0.0",
+				Ip:              "10.0.0.3",
 				Transport:       "tcp",
 				ControlPort:     9000,
 				ShellPort:       9001,
@@ -1128,7 +1380,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				ctx := context.WithValue(context.Background(), SkipValidationKey, "true")
 				_, _ = clusterGateway.NotifyKernelRegistered(ctx, &proto.KernelRegistrationNotification{
 					ConnectionInfo: &proto.KernelConnectionInfo{
-						Ip:              "0.0.0.0",
+						Ip:              "10.0.0.1",
 						Transport:       "tcp",
 						ControlPort:     9000,
 						ShellPort:       9001,
@@ -1143,7 +1395,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					SessionId:          "N/A",
 					ReplicaId:          replicaId,
 					HostId:             targetHost.GetID(),
-					KernelIp:           "0.0.0.0",
+					KernelIp:           "10.0.0.1",
 					PodOrContainerName: "kernel1pod",
 					NodeName:           targetHost.GetNodeName(),
 					NotificationId:     uuid.NewString(),
@@ -1176,7 +1428,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					KernelId:     kernelId,
 					ReplicaId:    replicaId,
 					PersistentId: persistentId,
-					Address:      "0.0.0.0",
+					Address:      "10.0.0.1",
 				})
 
 				smrReadyCalled.Done()
@@ -1211,7 +1463,57 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}
 			}()
 
+			mockedKernelReplica1 = mock_scheduling.NewMockKernelReplica(mockCtrl)
+			mockedKernelReplica2 = mock_scheduling.NewMockKernelReplica(mockCtrl)
+			mockedKernelReplica3 = mock_scheduling.NewMockKernelReplica(mockCtrl)
+
+			mockedSession = mock_scheduling.NewMockUserSession(mockCtrl)
+			mockedSession.EXPECT().ID().AnyTimes().Return(kernelId)
+			mockedSession.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+
+			prepareReplica := func(replica *mock_scheduling.MockKernelReplica, replicaId int32) {
+				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				container.EXPECT().ReplicaId().AnyTimes().Return(replicaId)
+				container.EXPECT().KernelID().AnyTimes().Return(kernelId)
+				container.EXPECT().ContainerID().AnyTimes().Return(fmt.Sprintf("%s-%d", kernelId, replicaId))
+				container.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				container.EXPECT().String().AnyTimes().Return(fmt.Sprintf("MockedContainer-%d", replicaId))
+				container.EXPECT().Host().AnyTimes().Return(hosts[replicaId-1])
+				container.EXPECT().Session().AnyTimes().Return(mockedSession)
+
+				mockedSession.EXPECT().GetReplicaContainer(replicaId).AnyTimes().Return(container, true)
+				mockedSession.EXPECT().RemoveReplicaById(replicaId).MaxTimes(1).Return(nil)
+
+				shellSocket := messaging.NewSocket(zmq4.NewRouter(context.Background()), 0, messaging.ShellMessage, fmt.Sprintf("SpoofedSocket-Kernel-%s-Replica-%d", kernelId, replicaId))
+				replica.EXPECT().Socket(messaging.ShellMessage).AnyTimes().Return(shellSocket)
+				replica.EXPECT().KernelSpec().AnyTimes().Return(mockedKernelSpec)
+				replica.EXPECT().ReplicaID().AnyTimes().Return(replicaId)
+				replica.EXPECT().ID().AnyTimes().Return(kernelId)
+				replica.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				replica.EXPECT().Container().AnyTimes().Return(container)
+				replica.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
+				replica.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
+				replica.EXPECT().Host().AnyTimes().Return(hosts[replicaId-1])
+				replica.EXPECT().ReplicaID().AnyTimes().Return(replicaId)
+				replica.EXPECT().PersistentID().AnyTimes().Return(persistentId)
+				replica.EXPECT().KernelReplicaSpec().AnyTimes().Return(&proto.KernelReplicaSpec{
+					Kernel:                    mockedKernelSpec,
+					NumReplicas:               3,
+					Join:                      true,
+					PersistentId:              &persistentId,
+					ReplicaId:                 replicaId,
+					DockerModeKernelDebugPort: -1,
+					WorkloadId:                "MockedWorkloadId",
+					Replicas:                  []string{"10.0.0.1:8000", "10.0.0.3:8000", "10.0.0.2:8000"},
+				})
+			}
+
+			prepareReplica(mockedKernelReplica1, 1)
+			prepareReplica(mockedKernelReplica2, 2)
+			prepareReplica(mockedKernelReplica3, 3)
+
 			mockedKernel.EXPECT().Status().AnyTimes().Return(jupyter.KernelStatusRunning)
+			mockedKernel.EXPECT().PersistentID().AnyTimes().Return(persistentId)
 		})
 
 		AfterEach(func() {
@@ -1227,116 +1529,588 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 		})
 
-		//	It("Will correctly migrate a kernel replica when using static scheduling", func() {
-		//		unsignedExecuteRequestFrames := [][]byte{
-		//			[]byte("<IDS|MSG>"),
-		//			[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
-		//			[]byte(""), /* Header */
-		//			[]byte(""), /* Parent executeRequestMessageHeader*/
-		//			[]byte(""), /* Metadata */
-		//			[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
-		//		}
-		//
-		//		executeRequestMessageHeader := &messaging.MessageHeader{
-		//			MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
-		//			Username: "",
-		//			Session:  kernelId,
-		//			Date:     "2024-04-03T22:55:52.605Z",
-		//			MsgType:  "execute_request",
-		//			Version:  "5.2",
-		//		}
-		//
-		//		jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteRequestFrames)
-		//		err := jFrames.EncodeHeader(executeRequestMessageHeader)
-		//		Expect(err).To(BeNil())
-		//		frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
-		//		msg := &zmq4.Msg{
-		//			Frames: frames,
-		//			Type:   zmq4.UsrMsg,
-		//		}
-		//		jMsg := messaging.NewJupyterMessage(msg)
-		//
-		//		loadedKernel, loaded := clusterGateway.kernels.Load(kernelId)
-		//		Expect(loaded).To(BeTrue())
-		//		Expect(loadedKernel).ToNot(BeNil())
-		//		Expect(loadedKernel).To(Equal(mockedKernel))
-		//
-		//		var wg sync.WaitGroup
-		//		wg.Add(1)
-		//
-		//		var activeExecution *scheduling.ActiveExecution
-		//		mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
-		//			Expect(attemptId).To(Equal(1))
-		//			Expect(msg).ToNot(BeNil())
-		//			Expect(msg).To(Equal(jMsg))
-		//
-		//			activeExecution = scheduling.NewActiveExecution(kernelId, attemptId, 3, msg)
-		//			wg.Done()
-		//
-		//			return activeExecution
-		//		}).Times(1)
-		//
-		//		fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
-		//
-		//		var shellHandlerWaitGroup sync.WaitGroup
-		//		shellHandlerWaitGroup.Add(1)
-		//		go func() {
-		//			defer GinkgoRecover()
-		//			fmt.Printf("[DEBUG] Calling shell handler for \"%s\" message now.", jMsg.JupyterParentMessageType())
-		//			err = clusterGateway.ShellHandler(nil, jMsg)
-		//			fmt.Printf("[DEBUG] Successfully called shell handler for \"%s\" message now.", jMsg.JupyterParentMessageType())
-		//			Expect(err).To(BeNil())
-		//			shellHandlerWaitGroup.Done()
-		//		}()
-		//
-		//		wg.Wait()
-		//		Expect(activeExecution).ToNot(BeNil())
-		//
-		//		getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
-		//			unsignedExecuteReplyFrames := [][]byte{
-		//				[]byte("<IDS|MSG>"),
-		//				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
-		//				[]byte(""), /* Header */
-		//				[]byte(""), /* Parent executeReplyMessageHeader*/
-		//				[]byte(""), /* Metadata */
-		//				[]byte("{\"status\": \"error\", \"ename\": \"ExecutionYieldError\", \"evalue\": \"ExecutionYieldError\"}"),
-		//			}
-		//
-		//			executeReplyMessageHeader := &messaging.MessageHeader{
-		//				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a528",
-		//				Username: kernelId,
-		//				Session:  kernelId,
-		//				Date:     "2024-04-03T22:56:52.605Z",
-		//				MsgType:  "execute_reply",
-		//				Version:  "5.2",
-		//			}
-		//
-		//			executeReplyJFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteReplyFrames)
-		//			err := jFrames.EncodeParentHeader(executeRequestMessageHeader)
-		//			Expect(err).To(BeNil())
-		//			err = executeReplyJFrames.EncodeHeader(executeReplyMessageHeader)
-		//			Expect(err).To(BeNil())
-		//			frames, _ := executeReplyJFrames.Sign(signatureScheme, []byte(kernelKey))
-		//			msg := &zmq4.Msg{
-		//				Frames: frames,
-		//				Type:   zmq4.UsrMsg,
-		//			}
-		//			jMsg := messaging.NewJupyterMessage(msg)
-		//
-		//			return jMsg
-		//		}
-		//
-		//		execReply1 := getExecuteReplyMessage(1)
-		//		Expect(execReply1).ToNot(BeNil())
-		//
-		//		execReply2 := getExecuteReplyMessage(2)
-		//		Expect(execReply2).ToNot(BeNil())
-		//
-		//		execReply3 := getExecuteReplyMessage(3)
-		//		Expect(execReply3).ToNot(BeNil())
-		//
-		//		shellHandlerWaitGroup.Wait()
-		//	})
+		It("Will correctly return an error to the client when a migration fails and an 'execute_request' cannot be handled", func() {
+			clusterGateway.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
+			kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(), mockedKernelSpec, 3, clusterGateway.id,
+				clusterGateway.connectionOptions, uuid.NewString(), clusterGateway.DebugMode, clusterGateway.executionFailed, clusterGateway.executionLatencyCallback,
+				clusterGateway.handleExecutionYieldedNotification, clusterGateway.gatewayPrometheusManager, clusterGateway.updateClusterStatistics, clusterGateway.notifyDashboard)
+
+			shellSocket, err := kernel.InitializeShellForwarder(clusterGateway.kernelShellHandler)
+			Expect(err).To(BeNil())
+			Expect(shellSocket).ToNot(BeNil())
+
+			// Overwrite the mocked kernel entry.
+			clusterGateway.kernels.Store(kernelId, kernel)
+
+			var (
+				mockedKernelReplica1Context context.Context
+				mockedKernelReplica2Context context.Context
+				mockedKernelReplica3Context context.Context
+			)
+
+			// Initially, the replica's context is just a context.Background().
+			// But when adding replica to distributed kernel client, a new context will be assigned.
+			mockedKernelReplica1ContextCall1 := mockedKernelReplica1.EXPECT().Context().Times(1).Return(context.Background())
+			mockedKernelReplica2ContextCall1 := mockedKernelReplica2.EXPECT().Context().Times(1).Return(context.Background())
+			mockedKernelReplica3ContextCall1 := mockedKernelReplica3.EXPECT().Context().Times(1).Return(context.Background())
+
+			mockedKernelReplica1.EXPECT().SetContext(gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context) {
+				mockedKernelReplica1Context = ctx
+			})
+			mockedKernelReplica2.EXPECT().SetContext(gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context) {
+				mockedKernelReplica2Context = ctx
+			})
+			mockedKernelReplica3.EXPECT().SetContext(gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context) {
+				mockedKernelReplica3Context = ctx
+			})
+
+			mockedKernelReplica1.EXPECT().Context().AnyTimes().DoAndReturn(func() context.Context {
+				return mockedKernelReplica1Context
+			}).AnyTimes().After(mockedKernelReplica1ContextCall1)
+			mockedKernelReplica2.EXPECT().Context().AnyTimes().DoAndReturn(func() context.Context {
+				return mockedKernelReplica2Context
+			}).AnyTimes().After(mockedKernelReplica2ContextCall1)
+			mockedKernelReplica3.EXPECT().Context().AnyTimes().DoAndReturn(func() context.Context {
+				return mockedKernelReplica3Context
+			}).AnyTimes().After(mockedKernelReplica3ContextCall1)
+
+			mockedKernelReplica1.EXPECT().InitializeIOSub(gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error) {
+				// Handler is set, so server routing will be started on dialing.
+				socket := messaging.NewSocketWithHandler(zmq4.NewSub(mockedKernelReplica1Context), 0, messaging.IOMessage, fmt.Sprintf("K-Sub-IOSub[%s-%d]", kernelId, 1), handler)
+				err := socket.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
+				Expect(err).To(BeNil())
+
+				return socket, nil
+			}).Times(1)
+			err = kernel.AddReplica(mockedKernelReplica1, host1)
+			Expect(err).To(BeNil())
+
+			mockedKernelReplica2.EXPECT().InitializeIOSub(gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error) {
+				// Handler is set, so server routing will be started on dialing.
+				socket := messaging.NewSocketWithHandler(zmq4.NewSub(mockedKernelReplica2Context), 0, messaging.IOMessage, fmt.Sprintf("K-Sub-IOSub[%s-%d]", kernelId, 2), handler)
+				err := socket.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
+				Expect(err).To(BeNil())
+
+				return socket, nil
+			}).Times(1)
+			err = kernel.AddReplica(mockedKernelReplica2, host2)
+			Expect(err).To(BeNil())
+
+			mockedKernelReplica3.EXPECT().InitializeIOSub(gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error) {
+				// Handler is set, so server routing will be started on dialing.
+				socket := messaging.NewSocketWithHandler(zmq4.NewSub(mockedKernelReplica3Context), 0, messaging.IOMessage, fmt.Sprintf("K-Sub-IOSub[%s-%d]", kernelId, 3), handler)
+				err := socket.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
+				Expect(err).To(BeNil())
+
+				return socket, nil
+			}).Times(1)
+			err = kernel.AddReplica(mockedKernelReplica3, host3)
+			Expect(err).To(BeNil())
+
+			clusterGateway.cluster.AddSession(kernelId, mockedSession)
+
+			clusterGateway.cluster.DisableScalingOut()
+
+			mockedSession.EXPECT().IsIdle().AnyTimes().Return(true)
+			mockedSession.EXPECT().IsTraining().AnyTimes().Return(false)
+
+			mockedSession.EXPECT().SetExpectingTraining().Times(1).Return(promise.Resolved(nil))
+
+			clientShellSocket := messaging.NewSocket(zmq4.NewDealer(context.Background()), 0, messaging.ShellMessage, "ClientShellSocket")
+
+			addressWithPort := fmt.Sprintf("tcp://localhost:%d", shellSocket.Port)
+			fmt.Printf("Dialing kernel shell socket at address \"%s\"\n", addressWithPort)
+			err = clientShellSocket.Socket.Dial(addressWithPort)
+			Expect(err).To(BeNil())
+
+			err = clientShellSocket.Listen("tcp://localhost:0")
+			Expect(err).To(BeNil())
+			clientShellSocket.Port = clientShellSocket.Addr().(*net.TCPAddr).Port
+
+			unsignedExecuteRequestFrames := [][]byte{
+				[]byte("<IDS|MSG>"),
+				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+				[]byte(""), /* Header */
+				[]byte(""), /* Parent executeRequestMessageHeader*/
+				[]byte(""), /* Metadata */
+				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+			}
+
+			executeRequestJupyterMessageId := "c7074e5b-b90f-44f8-af5d-63201ec3a527"
+
+			executeRequestMessageHeader := &messaging.MessageHeader{
+				MsgID:    executeRequestJupyterMessageId,
+				Username: kernelId,
+				Session:  kernelId,
+				Date:     "2024-04-03T22:55:52.605Z",
+				MsgType:  "execute_request",
+				Version:  "5.2",
+			}
+
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteRequestFrames)
+			err = jFrames.EncodeHeader(executeRequestMessageHeader)
+			Expect(err).To(BeNil())
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
+			msg := &zmq4.Msg{
+				Frames: frames,
+				Type:   zmq4.UsrMsg,
+			}
+			jMsg := messaging.NewJupyterMessage(msg)
+
+			loadedKernel, loaded := clusterGateway.kernels.Load(kernelId)
+			Expect(loaded).To(BeTrue())
+			Expect(loadedKernel).ToNot(BeNil())
+			Expect(loadedKernel).To(Equal(kernel))
+
+			mockedKernelReplica1.EXPECT().SentExecuteRequest(gomock.Any()).MaxTimes(1)
+			mockedKernelReplica2.EXPECT().SentExecuteRequest(gomock.Any()).MaxTimes(1)
+			mockedKernelReplica3.EXPECT().SentExecuteRequest(gomock.Any()).MaxTimes(1)
+
+			mockedKernelReplica1.EXPECT().RequestWithHandlerAndWaitOptionGetter(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(1).Return(nil)
+			mockedKernelReplica2.EXPECT().RequestWithHandlerAndWaitOptionGetter(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(1).Return(nil)
+			mockedKernelReplica3.EXPECT().RequestWithHandlerAndWaitOptionGetter(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(1).Return(nil)
+
+			err = host1.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
+			Expect(err).To(BeNil())
+			err = host2.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
+			Expect(err).To(BeNil())
+			err = host3.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
+			Expect(err).To(BeNil())
+
+			fmt.Printf("[DEBUG] Sending 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
+			err = clientShellSocket.Send(*jMsg.GetZmqMsg())
+			Expect(err).To(BeNil())
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+			defer cancel()
+
+			respChan := make(chan interface{}, 1)
+
+			go func() {
+				zmqMsg, err := clientShellSocket.Recv()
+				if err != nil {
+					respChan <- err
+					return
+				}
+
+				respChan <- zmqMsg
+			}()
+
+			select {
+			case v := <-respChan:
+				{
+					switch v.(type) {
+					case error:
+						{
+							err = v.(error)
+							Fail(err.Error())
+						}
+					case zmq4.Msg:
+						{
+							zmqMsg, ok := v.(zmq4.Msg)
+							Expect(ok).To(BeTrue())
+							Expect(zmqMsg).ToNot(BeNil())
+
+							jMsg := messaging.NewJupyterMessage(&zmqMsg)
+
+							fmt.Printf("Received response to 'execute_request' message:\n%s\n", jMsg.StringFormatted())
+
+							Expect(jMsg.JupyterParentMessageType()).To(Equal(messaging.ShellExecuteRequest))
+							Expect(jMsg.JupyterMessageType()).To(Equal(messaging.ShellExecuteReply))
+						}
+					}
+				}
+			case <-ctx.Done():
+				{
+					Fail("Did not receive 'execute_reply' message in time")
+				}
+			}
+		})
+
+		It("Will correctly migrate a kernel replica when using static scheduling", func() {
+			hosts := []scheduling.Host{host1, host2, host3}
+
+			mockedKernel.EXPECT().RemoveReplicaByID(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
+				return hosts[id-1], nil
+			})
+
+			host4Id := uuid.NewString()
+			node4Name := "TestNode4"
+			host4Spoofer = distNbTesting.NewResourceSpoofer(node4Name, host4Id, clusterGateway.hostSpec)
+			host4, localGatewayClient4, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, clusterGateway.cluster, host4Id, node4Name, host4Spoofer)
+
+			err := clusterGateway.cluster.NewHostAddedOrConnected(host4)
+			Expect(err).To(BeNil())
+
+			mockedKernelReplicas := []*mock_scheduling.MockKernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3}
+			mockedGatewayClients := []*mock_proto.MockLocalGatewayClient{localGatewayClient1, localGatewayClient2, localGatewayClient3}
+
+			clusterGateway.cluster.AddSession(kernelId, mockedSession)
+
+			unsignedExecuteRequestFrames := [][]byte{
+				[]byte("<IDS|MSG>"),
+				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+				[]byte(""), /* Header */
+				[]byte(""), /* Parent executeRequestMessageHeader*/
+				[]byte(""), /* Metadata */
+				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+			}
+
+			executeRequestJupyterMessageId := "c7074e5b-b90f-44f8-af5d-63201ec3a527"
+
+			executeRequestMessageHeader := &messaging.MessageHeader{
+				MsgID:    executeRequestJupyterMessageId,
+				Username: kernelId,
+				Session:  kernelId,
+				Date:     "2024-04-03T22:55:52.605Z",
+				MsgType:  "execute_request",
+				Version:  "5.2",
+			}
+
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteRequestFrames)
+			err = jFrames.EncodeHeader(executeRequestMessageHeader)
+			Expect(err).To(BeNil())
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
+			msg := &zmq4.Msg{
+				Frames: frames,
+				Type:   zmq4.UsrMsg,
+			}
+			jMsg := messaging.NewJupyterMessage(msg)
+
+			loadedKernel, loaded := clusterGateway.kernels.Load(kernelId)
+			Expect(loaded).To(BeTrue())
+			Expect(loadedKernel).ToNot(BeNil())
+			Expect(loadedKernel).To(Equal(mockedKernel))
+
+			var wg sync.WaitGroup
+			wg.Add(1)
+
+			var activeExecution *scheduling.ActiveExecution
+			mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
+				Expect(attemptId).To(Equal(1))
+				Expect(msg).ToNot(BeNil())
+				Expect(msg).To(Equal(jMsg))
+
+				activeExecution = scheduling.NewActiveExecution(kernelId, attemptId, 3, msg)
+				wg.Done()
+
+				return activeExecution
+			}).Times(1)
+
+			fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
+
+			mockedKernel.EXPECT().ReplicasAreScheduled().AnyTimes().Return(true)
+			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
+
+			mockedSession.EXPECT().IsTraining().Times(1).Return(false)
+			mockedSession.EXPECT().SetExpectingTraining().Times(1).Return(promise.Resolved(nil))
+
+			var shellHandlerWaitGroup sync.WaitGroup
+			shellHandlerWaitGroup.Add(1)
+			go func() {
+				//defer GinkgoRecover()
+
+				fmt.Printf("[DEBUG] Calling shell handler for \"%s\" message now.", jMsg.JupyterMessageType())
+				err = clusterGateway.ShellHandler(nil, jMsg)
+				fmt.Printf("[DEBUG] Successfully called shell handler for \"%s\" message now.", jMsg.JupyterMessageType())
+				Expect(err).To(BeNil())
+				shellHandlerWaitGroup.Done()
+			}()
+
+			wg.Wait()
+			Expect(activeExecution).ToNot(BeNil())
+
+			mockedKernel.EXPECT().ActiveExecution().MaxTimes(3).Return(activeExecution)
+			mockedKernel.EXPECT().GetActiveExecutionByExecuteRequestMsgId("c7074e5b-b90f-44f8-af5d-63201ec3a528").MaxTimes(3).Return(activeExecution, true)
+
+			getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
+				unsignedExecuteReplyFrames := [][]byte{
+					[]byte("<IDS|MSG>"),
+					[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+					[]byte(""), /* Header */
+					[]byte(""), /* Parent executeReplyMessageHeader*/
+					[]byte(""), /* Metadata */
+					[]byte("{\"status\": \"error\", \"ename\": \"ExecutionYieldError\", \"evalue\": \"kernel replica failed to lead the execution\"}"),
+				}
+
+				executeReplyJupterMessageId := "c7074e5b-b90f-44f8-af5d-63201ec3a528"
+				executeReplyMessageHeader := &messaging.MessageHeader{
+					MsgID:    executeReplyJupterMessageId,
+					Username: kernelId,
+					Session:  kernelId,
+					Date:     "2024-04-03T22:56:52.605Z",
+					MsgType:  "execute_reply",
+					Version:  "5.2",
+				}
+
+				executeReplyJFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteReplyFrames)
+				err := executeReplyJFrames.EncodeParentHeader(executeRequestMessageHeader)
+				Expect(err).To(BeNil())
+				err = executeReplyJFrames.EncodeHeader(executeReplyMessageHeader)
+				Expect(err).To(BeNil())
+				frames, _ := executeReplyJFrames.Sign(signatureScheme, []byte(kernelKey))
+				msg := &zmq4.Msg{
+					Frames: frames,
+					Type:   zmq4.UsrMsg,
+				}
+				jMsg := messaging.NewJupyterMessage(msg)
+
+				GinkgoWriter.Printf("Generated Jupyter \"execute_reply\" message:\n%s\n", jMsg.StringFormatted())
+
+				Expect(jMsg.JupyterParentMessageId()).To(Equal(executeRequestJupyterMessageId))
+				Expect(jMsg.JupyterMessageId()).To(Equal(executeReplyJupterMessageId))
+
+				return jMsg
+			}
+
+			execReply1 := getExecuteReplyMessage(1)
+			Expect(execReply1).ToNot(BeNil())
+
+			execReply2 := getExecuteReplyMessage(2)
+			Expect(execReply2).ToNot(BeNil())
+
+			execReply3 := getExecuteReplyMessage(3)
+			Expect(execReply3).ToNot(BeNil())
+
+			shellHandlerWaitGroup.Wait()
+
+			yieldReason := &messaging.MessageErrorWithYieldReason{
+				MessageError: &messaging.MessageError{
+					Status:   messaging.MessageStatusError,
+					ErrName:  messaging.MessageErrYieldExecution,
+					ErrValue: messaging.ErrExecutionYielded.Error(),
+				},
+				YieldReason: "N/A",
+			}
+
+			mockedKernel.EXPECT().GetActiveExecution(executeRequestJupyterMessageId).Times(3).Return(activeExecution)
+			mockedKernel.EXPECT().CurrentActiveExecution().Times(3).Return(activeExecution)
+
+			preparedReplicaIdChan := make(chan int32, 1)
+
+			mockedKernel.EXPECT().GetReplicaByID(int32(1)).MaxTimes(1).Return(mockedKernelReplica1, nil)
+			mockedKernel.EXPECT().GetReplicaByID(int32(2)).MaxTimes(1).Return(mockedKernelReplica2, nil)
+			mockedKernel.EXPECT().GetReplicaByID(int32(3)).MaxTimes(1).Return(mockedKernelReplica3, nil)
+			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
+			mockedKernel.EXPECT().AddOperationStarted().Times(1)
+			mockedKernel.EXPECT().AddOperationCompleted().Times(1)
+			mockedKernel.EXPECT().PrepareNewReplica(persistentId, gomock.Any()).MaxTimes(1).DoAndReturn(func(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec {
+				preparedReplicaIdChan <- smrNodeId
+
+				return &proto.KernelReplicaSpec{
+					Kernel:       mockedKernel.KernelSpec(),
+					NumReplicas:  3,
+					Join:         true,
+					PersistentId: &persistentId,
+					ReplicaId:    smrNodeId,
+				}
+			}).Times(1)
+
+			var replicaStartedOnHost4WaitGroup sync.WaitGroup
+			replicaStartedOnHost4WaitGroup.Add(1)
+
+			startKernelReturnValChan4 := make(chan *proto.KernelConnectionInfo)
+			localGatewayClient4.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+				GinkgoWriter.Printf("LocalGateway #4 has called spoofed StartKernelReplica\n")
+
+				err := host4Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
+				err = host4Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
+
+				GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #4 to be passed via channel.\n")
+				ret := <-startKernelReturnValChan4
+
+				GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #4: %v\n", ret)
+
+				replicaStartedOnHost4WaitGroup.Done()
+
+				return ret, nil
+			}).Times(1)
+
+			mockedKernelReplica1.EXPECT().ReceivedExecuteReply(execReply1).Times(1)
+			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica1, gomock.Any()).Times(1).Return(nil)
+			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica1, yieldReason, execReply1)
+			Expect(err).To(BeNil())
+
+			Expect(activeExecution.NumRolesReceived()).To(Equal(1))
+			Expect(activeExecution.NumYieldReceived()).To(Equal(1))
+			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
+
+			mockedKernelReplica2.EXPECT().ReceivedExecuteReply(execReply2).Times(1)
+			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica2, gomock.Any()).Times(1).Return(nil)
+			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica2, yieldReason, execReply2)
+			Expect(err).To(BeNil())
+
+			Expect(activeExecution.NumRolesReceived()).To(Equal(2))
+			Expect(activeExecution.NumYieldReceived()).To(Equal(2))
+			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
+
+			mockedKernelReplica3.EXPECT().ReceivedExecuteReply(execReply3).Times(1)
+			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica3, gomock.Any()).Times(1).Return(nil)
+			mockedKernel.EXPECT().NumActiveMigrationOperations().Times(1).Return(1)
+
+			var handledLastYieldNotificationWaitGroup sync.WaitGroup
+			handledLastYieldNotificationWaitGroup.Add(1)
+
+			go func(wg *sync.WaitGroup) {
+				err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica3, yieldReason, execReply3)
+				Expect(err).To(BeNil())
+
+				handledLastYieldNotificationWaitGroup.Done()
+			}(&handledLastYieldNotificationWaitGroup)
+
+			startKernelReturnValChan4 <- &proto.KernelConnectionInfo{
+				Ip:              "0.0.0.0",
+				Transport:       "tcp",
+				ControlPort:     9000,
+				ShellPort:       9001,
+				StdinPort:       9002,
+				HbPort:          9003,
+				IopubPort:       9004,
+				IosubPort:       9005,
+				SignatureScheme: messaging.JupyterSignatureScheme,
+				Key:             kernelKey,
+			}
+
+			replicaStartedOnHost4WaitGroup.Wait()
+
+			Expect(activeExecution.NumRolesReceived()).To(Equal(3))
+			Expect(activeExecution.NumYieldReceived()).To(Equal(3))
+			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
+
+			var notifyKernelRegisteredCalled sync.WaitGroup
+			notifyKernelRegisteredCalled.Add(1)
+
+			smrNodeIdOfMigratedReplica := <-preparedReplicaIdChan
+			Expect(smrNodeIdOfMigratedReplica >= 1 && smrNodeIdOfMigratedReplica <= 3).To(BeTrue())
+			replicaBeingMigrated := mockedKernelReplicas[smrNodeIdOfMigratedReplica-1]
+
+			mockedSession.EXPECT().AddReplica(gomock.Any()).Times(1).DoAndReturn(func(container scheduling.KernelContainer) error {
+				// Update the container that is returned for the associated mocked kernel replica.
+				replicaBeingMigrated.EXPECT().Container().Return(container).AnyTimes()
+
+				return nil
+			})
+
+			migratedReplicaChan := make(chan scheduling.KernelReplica, 1)
+			mockedKernel.EXPECT().AddReplica(gomock.Any(), host4).Times(1).DoAndReturn(func(r scheduling.KernelReplica, host scheduling.Host) error {
+				Expect(host).To(Equal(host4))
+				migratedReplicaChan <- r
+				return nil
+			})
+			mockedKernel.EXPECT().GetReadyReplica().Times(1).DoAndReturn(func() scheduling.KernelReplica {
+				// Return a mocked kernel replica that is NOT the one that is being migrated.
+				var i int32
+				for i = 1; i < 4; i++ {
+					if i == smrNodeIdOfMigratedReplica {
+						continue
+					}
+
+					replica := mockedKernelReplicas[i-1]
+					replica.EXPECT().IsReady().Times(1).Return(true)
+
+					mockedGatewayClient := mockedGatewayClients[i-1]
+					mockedGatewayClient.EXPECT().UpdateReplicaAddr(gomock.Any(), gomock.Any()).Times(1).Return(&proto.Void{}, nil)
+
+					return replica
+				}
+
+				panic("Failed to find ready replica of mocked kernel")
+			})
+
+			createSocketAndListen := func(name string, typ messaging.MessageType, smrNodeId int32) *messaging.Socket {
+				socketName := fmt.Sprintf("MigratedKernel-Router-%s[SmrNodeId=%d]", name, smrNodeId)
+				zmqSocket := zmq4.NewRouter(context.Background())
+				socket := messaging.NewSocket(zmqSocket, 0, typ, socketName)
+
+				err = socket.Listen(fmt.Sprintf("tcp://:%d", socket.Port))
+				Expect(err).To(BeNil())
+				socket.Port = socket.Addr().(*net.TCPAddr).Port
+
+				return socket
+			}
+
+			// Create sockets and call 'listen' so when Cluster Gateway tries to connect, it succeeds.
+			heartbeatSocket := createSocketAndListen("HB", messaging.HBMessage, smrNodeIdOfMigratedReplica)
+			controlSocket := createSocketAndListen("Ctrl", messaging.ControlMessage, smrNodeIdOfMigratedReplica)
+			shellSocket := createSocketAndListen("Shell", messaging.ShellMessage, smrNodeIdOfMigratedReplica)
+			stdinSocket := createSocketAndListen("Stdin", messaging.StdinMessage, smrNodeIdOfMigratedReplica)
+
+			notifyKernelRegistered := func(replicaId int32, targetHost scheduling.Host) {
+				log.Printf("Notifying Gateway that replica %d has registered.\n", replicaId)
+
+				time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25) /* 25 - 50 ms */)
+
+				ctx := context.WithValue(context.Background(), SkipValidationKey, "true")
+				resp, err := clusterGateway.NotifyKernelRegistered(ctx, &proto.KernelRegistrationNotification{
+					ConnectionInfo: &proto.KernelConnectionInfo{
+						Ip:              "localhost",
+						Transport:       "tcp",
+						ControlPort:     int32(controlSocket.Port),
+						ShellPort:       int32(shellSocket.Port),
+						StdinPort:       int32(stdinSocket.Port),
+						HbPort:          int32(heartbeatSocket.Port),
+						IopubPort:       9004,
+						IosubPort:       9005,
+						SignatureScheme: messaging.JupyterSignatureScheme,
+						Key:             kernelKey,
+					},
+					KernelId:           kernelId,
+					SessionId:          "N/A",
+					ReplicaId:          replicaId,
+					HostId:             targetHost.GetID(),
+					KernelIp:           "localhost",
+					PodOrContainerName: fmt.Sprintf("kernel1replica%dcontainer", replicaId),
+					DockerContainerId:  uuid.NewString(),
+					NodeName:           targetHost.GetNodeName(),
+					NotificationId:     uuid.NewString(),
+				})
+				Expect(resp).ToNot(BeNil())
+				Expect(err).To(BeNil())
+				Expect(resp.Id).To(Equal(replicaId))
+
+				notifyKernelRegisteredCalled.Done()
+			}
+
+			go notifyKernelRegistered(smrNodeIdOfMigratedReplica, host4)
+
+			notifyKernelRegisteredCalled.Wait()
+
+			migratedKernelReplica := <-migratedReplicaChan
+			mockedKernel.EXPECT().GetReplicaByID(smrNodeIdOfMigratedReplica).Times(1).Return(migratedKernelReplica, nil)
+
+			var smrReadyCalled sync.WaitGroup
+			smrReadyCalled.Add(1)
+			callSmrReady := func(replicaId int32) {
+				time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25 /* 25 - 50 ms */))
+
+				_, err := clusterGateway.SmrReady(context.Background(), &proto.SmrReadyNotification{
+					KernelId:     kernelId,
+					ReplicaId:    replicaId,
+					PersistentId: persistentId,
+					Address:      "localhost",
+				})
+				Expect(err).To(BeNil())
+
+				smrReadyCalled.Done()
+			}
+
+			go func() {
+				callSmrReady(smrNodeIdOfMigratedReplica)
+			}()
+
+			smrReadyCalled.Wait()
+
+			handledLastYieldNotificationWaitGroup.Wait()
+
+			Expect(host4.NumContainers()).To(Equal(1))
+
+			_ = heartbeatSocket.Close()
+			_ = controlSocket.Close()
+			_ = shellSocket.Close()
+			_ = stdinSocket.Close()
+		})
 	})
 
 	Context("DockerCluster", func() {
@@ -1734,7 +2508,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly handling the KernelConnectionInfo")
 
 				startKernelReturnValChan1 <- &proto.KernelConnectionInfo{
-					Ip:              "0.0.0.0",
+					Ip:              "10.0.0.1",
 					Transport:       "tcp",
 					ControlPort:     9000,
 					ShellPort:       9001,
@@ -1746,7 +2520,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Key:             kernelKey,
 				}
 				startKernelReturnValChan2 <- &proto.KernelConnectionInfo{
-					Ip:              "0.0.0.0",
+					Ip:              "10.0.0.2",
 					Transport:       "tcp",
 					ControlPort:     9000,
 					ShellPort:       9001,
@@ -1758,7 +2532,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Key:             kernelKey,
 				}
 				startKernelReturnValChan3 <- &proto.KernelConnectionInfo{
-					Ip:              "0.0.0.0",
+					Ip:              "10.0.0.3",
 					Transport:       "tcp",
 					ControlPort:     9000,
 					ShellPort:       9001,

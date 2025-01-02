@@ -64,6 +64,10 @@ func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec,
 	return kubernetesCluster
 }
 
+func (c *KubernetesCluster) String() string {
+	return fmt.Sprintf("DockerComposeCluster[Size=%d,NumSessions=%d]", c.Len(), c.sessions.Len())
+}
+
 // NodeType returns the type of node provisioned within the Cluster.
 func (c *KubernetesCluster) NodeType() string {
 	return types.KubernetesNode

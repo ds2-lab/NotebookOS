@@ -16,7 +16,7 @@ type ReservationPolicy struct {
 }
 
 func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true)
 	if err != nil {
 		return nil, err
 	}
@@ -69,44 +69,20 @@ func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvi
 	return placer.NewRandomPlacer(metricsProvider, p.NumReplicas(), p)
 }
 
-////////////////////////////////////////
-// ManualScalingPolicy implementation //
-////////////////////////////////////////
+//////////////////////////////////
+// ScalingPolicy implementation //
+//////////////////////////////////
 
-func (p *ReservationPolicy) ManualScalingOutEnabled() bool {
-	return true
+func (p *ReservationPolicy) ScalingOutEnabled() bool {
+	return p.scalingOutEnabled
 }
 
-func (p *ReservationPolicy) ManualScalingInEnabled() bool {
-	return true
-}
-
-//////////////////////////////////////
-// AutoscalingPolicy implementation //
-//////////////////////////////////////
-
-func (p *ReservationPolicy) AutomaticScalingOutEnabled() bool {
-	return true
-}
-
-func (p *ReservationPolicy) AutomaticScalingInEnabled() bool {
+func (p *ReservationPolicy) ScalingInEnabled() bool {
 	return true
 }
 
 func (p *ReservationPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	return p.scalingConfiguration
-}
-
-//////////////////////////////////////////
-// ResourceScalingPolicy implementation //
-//////////////////////////////////////////
-
-func (p *ReservationPolicy) AutoscalingPolicy() scheduling.AutoscalingPolicy {
-	return p
-}
-
-func (p *ReservationPolicy) ManualScalingPolicy() scheduling.ManualScalingPolicy {
-	return p
 }
 
 /////////////////////////////////////////////
