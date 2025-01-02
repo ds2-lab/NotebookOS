@@ -997,6 +997,18 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	return promise.Resolved(result)
 }
 
+// DisableScalingOut modifies the scaling policy to disallow scaling-out, even if the policy isn't
+// supposed to support scaling out. This is only intended to be used for unit tests.
+func (c *BaseCluster) DisableScalingOut() {
+	c.scheduler.Policy().ResourceScalingPolicy().DisableScalingOut()
+}
+
+// EnableScalingOut modifies the scaling policy to enable scaling-out, even if the policy isn't
+// supposed to support scaling out. This is only intended to be used for unit tests.
+func (c *BaseCluster) EnableScalingOut() {
+	c.scheduler.Policy().ResourceScalingPolicy().EnableScalingOut()
+}
+
 // ScaleToSize scales the Cluster to the specified number of Host instances.
 //
 // If n <= NUM_REPLICAS, then ScaleToSize returns with an error.
@@ -1018,7 +1030,7 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 
 	// Scale out (i.e., add hosts)?
 	if targetNumNodes > currentNumNodes {
-		if !c.scheduler.Policy().ResourceScalingPolicy().ManualScalingPolicy().ManualScalingOutEnabled() {
+		if !c.scheduler.Policy().ResourceScalingPolicy().ScalingOutEnabled() {
 			return promise.Resolved(nil, scheduling.ErrScalingProhibitedBySchedulingPolicy)
 		}
 
@@ -1026,7 +1038,7 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 		return c.RequestHosts(ctx, targetNumNodes-currentNumNodes)
 	}
 
-	if !c.scheduler.Policy().ResourceScalingPolicy().ManualScalingPolicy().ManualScalingInEnabled() {
+	if !c.scheduler.Policy().ResourceScalingPolicy().ScalingInEnabled() {
 		return promise.Resolved(nil, scheduling.ErrScalingProhibitedBySchedulingPolicy)
 	}
 

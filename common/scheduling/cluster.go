@@ -123,6 +123,14 @@ type ScalingManager interface {
 	// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
 	// it is currently not supported unless there is at least one disabled host already within the cluster.
 	CanPossiblyScaleOut() bool
+
+	// DisableScalingOut modifies the scaling policy to disallow scaling-out, even if the policy isn't
+	// supposed to support scaling out. This is only intended to be used for unit tests.
+	DisableScalingOut()
+
+	// EnableScalingOut modifies the scaling policy to enable scaling-out, even if the policy isn't
+	// supposed to support scaling out. This is only intended to be used for unit tests.
+	EnableScalingOut()
 }
 
 type ScalingMetricsManager interface {

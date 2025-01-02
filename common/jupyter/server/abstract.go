@@ -15,6 +15,7 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"reflect"
 	"runtime/pprof"
 	"sync/atomic"
 	"time"
@@ -225,17 +226,20 @@ func (s *AbstractServer) Listen(socket *messaging.Socket) error {
 		return jupyter.ErrNotSupported
 	}
 
-	s.Log.Debug("%s [%s] socket about to listen. Socket has port %d", socket.Type.String(), socket.Socket.Type(), socket.Port)
+	s.Log.Debug("%s [%s] socket about to listen. Socket has port %d",
+		socket.Type.String(), socket.Socket.Type(), socket.Port)
 
 	err := socket.Listen(fmt.Sprintf("tcp://:%d", socket.Port))
 	if err != nil {
 		return err
 	}
 
-	s.Log.Debug("%s [%s] socket started to listen. Socket has port %d", socket.Type.String(), socket.Socket.Type(), socket.Port)
-
 	// Update the port number if it is 0.
 	socket.Port = socket.Addr().(*net.TCPAddr).Port
+
+	s.Log.Debug("%s [%s] socket started to listen. Socket has port %d",
+		socket.Type.String(), socket.Socket.Type(), socket.Port)
+
 	return nil
 }
 
@@ -438,6 +442,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 		return
 	}
 	defer atomic.StoreInt32(&socket.Serving, 0)
+	defer s.Log.Debug("Serving of %v socket '%s' has stopped.", socket.Type.String(), socket.Name)
 
 	chMsg := make(chan interface{}) // , s.MessageQueueCapacity)
 	var contd chan bool
@@ -459,6 +464,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 			}
 			return
 		case <-s.Ctx.Done():
+			s.Log.Debug("Context is Done. Stopping serving for %v socket [MyName: \"%s\"].", socket.Type, s.Name)
 			if contd != nil {
 				contd <- false
 			}
@@ -681,12 +687,14 @@ func (s *AbstractServer) replyWithError(originalMessage *messaging.JupyterMessag
 	s.NumSends.Add(1)
 	s.NumUniqueSends.Add(1)
 
-	if metricError := s.MessagingMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
-		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
-	}
+	if s.MessagingMetricsProvider != nil && !reflect.ValueOf(s.MessagingMetricsProvider).IsNil() {
+		if metricError := s.MessagingMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
+			s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+		}
 
-	if metricError := s.MessagingMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
-		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+		if metricError := s.MessagingMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
+			s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
+		}
 	}
 
 	return err

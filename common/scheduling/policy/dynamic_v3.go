@@ -10,7 +10,7 @@ type DynamicV3Policy struct {
 }
 
 func NewDynamicV3Policy(opts *scheduling.SchedulerOptions) (*DynamicV3Policy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true)
 	if err != nil {
 		return nil, err
 	}
@@ -63,44 +63,20 @@ func (p *DynamicV3Policy) GetNewPlacer(metricsProvider scheduling.MetricsProvide
 	return placer.NewStaticPlacer(metricsProvider, p.NumReplicas(), p)
 }
 
-//////////////////////////////////////////
-// ResourceScalingPolicy implementation //
-//////////////////////////////////////////
-
-func (p *DynamicV3Policy) AutoscalingPolicy() scheduling.AutoscalingPolicy {
-	return p
-}
-
-func (p *DynamicV3Policy) ManualScalingPolicy() scheduling.ManualScalingPolicy {
-	return p
-}
-
-//////////////////////////////////////
-// AutoscalingPolicy implementation //
-//////////////////////////////////////
-
-func (p *DynamicV3Policy) AutomaticScalingOutEnabled() bool {
-	return true
-}
-
-func (p *DynamicV3Policy) AutomaticScalingInEnabled() bool {
-	return true
-}
-
 func (p *DynamicV3Policy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	return p.scalingConfiguration
 }
 
-////////////////////////////////////////
-// ManualScalingPolicy implementation //
-////////////////////////////////////////
+//////////////////////////////////
+// ScalingPolicy implementation //
+//////////////////////////////////
 
-func (p *DynamicV3Policy) ManualScalingOutEnabled() bool {
-	return true
+func (p *DynamicV3Policy) ScalingOutEnabled() bool {
+	return p.scalingOutEnabled
 }
 
-func (p *DynamicV3Policy) ManualScalingInEnabled() bool {
-	return true
+func (p *DynamicV3Policy) ScalingInEnabled() bool {
+	return p.scalingOutEnabled
 }
 
 /////////////////////////////////////////////

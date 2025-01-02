@@ -36,7 +36,7 @@ from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
-from ..datasets.base import Dataset
+from ..datasets.base import CustomDataset
 from ..datasets.cifar10 import CIFAR10
 from ..datasets.loader import load_dataset
 from ..gateway import gateway_pb2
@@ -51,8 +51,11 @@ from ..sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPoint
 from ..sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 from ..sync.election import Election, ElectionTimestamps
 from ..sync.errors import DiscardMessageError
-from ..sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer, get_estimated_io_time_seconds, \
-    format_size
+from ..sync.simulated_checkpointing.simulated_checkpointer import (
+    SimulatedCheckpointer,
+    get_estimated_io_time_seconds,
+    format_size,
+)
 
 import_torch_start: float = time.time()
 try:
@@ -62,7 +65,7 @@ try:
     print("[INFO] PyTorch is installed.")
 
     cuda_available: bool = torch.cuda.is_available()
-except ImportError as ex:
+except ImportError:
     torch_available: bool = False
     cuda_available: bool = False
     print("[WARNING] PyTorch is not installed (and therefore CUDA is unavailable).")
@@ -71,27 +74,29 @@ import_torch_end: float = time.time()
 import_torch_duration_sec: float = import_torch_end - import_torch_start
 
 if cuda_available:
-    print(f"[INFO] CUDA is available. Imported PyTorch and initialized CUDA in {import_torch_duration_sec} seconds.")
+    print(
+        f"[INFO] CUDA is available. Imported PyTorch and initialized CUDA in {import_torch_duration_sec} seconds."
+    )
 else:
     print("[WARNING] CUDA is unavailable (even though PyTorch is enabled).")
 
 
 def sigabrt_handler(sig, frame):
-    print(f'Received SIGABORT (Python): {sig} {frame}', flush=True)
+    print(f"Received SIGABORT (Python): {sig} {frame}", flush=True)
     sys.stderr.flush()
     sys.stdout.flush()
     sys.exit(0)
 
 
 def sigint_handler(sig, frame):
-    print(f'Received SIGINT (Python): {sig} {frame}', flush=True)
+    print(f"Received SIGINT (Python): {sig} {frame}", flush=True)
     sys.stderr.flush()
     sys.stdout.flush()
     sys.exit(0)
 
 
 def sigterm_handler(sig, frame):
-    print(f'Received SIGINT (Python): {sig} {frame}', flush=True)
+    print(f"Received SIGINT (Python): {sig} {frame}", flush=True)
     sys.stderr.flush()
     sys.stdout.flush()
     sys.exit(0)
@@ -129,20 +134,19 @@ V100_StdDevBandwidth_GbSec_DeviceToHost: float = 0.018405739270544
 SMR_LEAD_TASK: str = "smr_lead_task"
 
 # This is added to reply_content for replicas that actually executed the user-submitted code.
-LEADER_KEY:str = "__LEADER__"
+LEADER_KEY: str = "__LEADER__"
 
 storage_base_default = os.path.dirname(os.path.realpath(__file__))
 smr_port_default = 10000
-err_wait_persistent_store = RuntimeError(
-    "Persistent store not ready, try again later.")
-err_failed_to_lead_execution = ExecutionYieldError(
-    "Failed to lead the execution.")
+err_wait_persistent_store = RuntimeError("Persistent store not ready, try again later.")
+err_failed_to_lead_execution = ExecutionYieldError("Failed to lead the execution.")
 err_invalid_request = RuntimeError("Invalid request.")
 key_persistent_id = "persistent_id"
 enable_storage = True
 
 # Used as the value for an environment variable that was not set.
 UNAVAILABLE: str = "N/A"
+
 
 def tracefunc(frame, event, arg, indent: list[int] = [0]):
     if event == "call":
@@ -155,114 +159,150 @@ def tracefunc(frame, event, arg, indent: list[int] = [0]):
 
 
 def gen_error_response(err):
-    return {'status': 'error',
-            'ename': str(type(err).__name__),
-            'evalue': str(err),
-            'traceback': [],
-            'msg_created_at_unix_milliseconds': time.time_ns() // 1_000_000,
-            }
+    return {
+        "status": "error",
+        "ename": str(type(err).__name__),
+        "evalue": str(err),
+        "traceback": [],
+        "msg_created_at_unix_milliseconds": time.time_ns() // 1_000_000,
+    }
 
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
-    storage_base: Union[str, Unicode] = Unicode(storage_base_default,  # type: ignore
-                                                help="""Base directory for storage"""
-                                                ).tag(config=True)
+    storage_base: Union[str, Unicode] = Unicode(
+        storage_base_default,  # type: ignore
+        help="""Base directory for storage""",
+    ).tag(config=True)
 
-    smr_port = Integer(smr_port_default,  # type: ignore
-                       help="""Port for SMR"""
-                       ).tag(config=True)
+    smr_port = Integer(
+        smr_port_default,  # type: ignore
+        help="""Port for SMR""",
+    ).tag(config=True)
 
-    smr_node_id = Integer(1,  # type: ignore
-                          help="""Node id for SMR"""
-                          ).tag(config=True)
+    smr_node_id = Integer(
+        1,  # type: ignore
+        help="""Node id for SMR""",
+    ).tag(config=True)
 
-    smr_nodes = List([],
-                     help="""Initial SMR nodes in the SMR cluster"""
-                     ).tag(config=True)
+    smr_nodes = List([], help="""Initial SMR nodes in the SMR cluster""").tag(
+        config=True
+    )
 
-    smr_join = Bool(False,  # type: ignore
-                    help="""Join the SMR cluster"""
-                    ).tag(config=True)
+    smr_join = Bool(
+        False,  # type: ignore
+        help="""Join the SMR cluster""",
+    ).tag(config=True)
 
-    should_register_with_local_daemon = Bool(True,
-                                             help="""Explicitly register with the local daemon?"""
-                                             ).tag(config=True)
+    should_register_with_local_daemon = Bool(
+        True, help="""Explicitly register with the local daemon?"""
+    ).tag(config=True)
 
     local_daemon_addr: Union[str, Unicode] = Unicode(
-        help="""Hostname of the local daemon to register with (when using Docker mode)""").tag(config=True)
+        help="""Hostname of the local daemon to register with (when using Docker mode)"""
+    ).tag(config=True)
 
-    local_tcp_server_port = Integer(5555, help="Port for local TCP server.").tag(config=True)
+    local_tcp_server_port = Integer(5555, help="Port for local TCP server.").tag(
+        config=True
+    )
 
-    persistent_id: Union[str, Unicode] = Unicode(help="""Persistent id for storage""", allow_none=True).tag(config=True)
+    persistent_id: Union[str, Unicode] = Unicode(
+        help="""Persistent id for storage""", allow_none=True
+    ).tag(config=True)
 
     remote_storage_hostname: Union[str, Unicode] = Unicode(
-        help="""Hostname of the remotestorage. The SyncLog's RemoteStorage client will connect to this.""").tag(
-        config=True)
+        help="""Hostname of the remotestorage. The SyncLog's RemoteStorage client will connect to this."""
+    ).tag(config=True)
 
     remote_storage: Union[str, Unicode] = Unicode(
         help="The type of remote storage we're using. Valid options, as of right now, are 'hdfs' and 'redis'.",
-        default_value='redis').tag(config=True)
+        default_value="redis",
+    ).tag(config=True)
 
-    prometheus_port: Integer = Integer(8089, help="Port of the Prometheus Server").tag(config=True)
+    prometheus_port: Integer = Integer(8089, help="Port of the Prometheus Server").tag(
+        config=True
+    )
 
-    spec_cpus: Float = Float(0, help="Amount of vCPU used by the kernel").tag(config=True)
+    spec_cpus: Float = Float(0, help="Amount of vCPU used by the kernel").tag(
+        config=True
+    )
 
-    spec_gpus: Integer = Integer(0, help="Number of GPUs used by the kernel").tag(config=True)
+    spec_gpus: Integer = Integer(0, help="Number of GPUs used by the kernel").tag(
+        config=True
+    )
 
-    spec_mem_mb: Float = Float(0, help="Amount of memory in MB used by the kernel").tag(config=True)
+    spec_mem_mb: Float = Float(0, help="Amount of memory in MB used by the kernel").tag(
+        config=True
+    )
 
-    spec_vram_gb: Float = Float(0, help="Amount of VRAM in GB used by the kernel").tag(config=True)
+    spec_vram_gb: Float = Float(0, help="Amount of VRAM in GB used by the kernel").tag(
+        config=True
+    )
 
-    gpu_memory_bandwidth_bytes_sec: Float = Float(900_000_000_000, help="Memory bandwidth of the GPU in bytes/sec").tag(
-        config=True)
+    gpu_memory_bandwidth_bytes_sec: Float = Float(
+        900_000_000_000, help="Memory bandwidth of the GPU in bytes/sec"
+    ).tag(config=True)
 
-    simulate_checkpointing_latency: Bool = Bool(True, help="Simulate network I/O").tag(config=True)
+    simulate_checkpointing_latency: Bool = Bool(True, help="Simulate network I/O").tag(
+        config=True
+    )
 
-    deployment_mode: Union[str, Unicode] = Unicode(default_value='docker-swarm',
-                                                   help="The deployment mode of the cluster").tag(config=True)
+    deployment_mode: Union[str, Unicode] = Unicode(
+        default_value="docker-swarm", help="The deployment mode of the cluster"
+    ).tag(config=True)
 
-    workload_id: Union[str, Unicode] = Unicode(default_value='N/A',
-                                               help="The ID of the workload in which the kernel is execution.").tag(
-        config=True)
+    workload_id: Union[str, Unicode] = Unicode(
+        default_value="N/A",
+        help="The ID of the workload in which the kernel is execution.",
+    ).tag(config=True)
 
-    election_timeout_seconds: Float = Float(10.0,
-                                            help="""How long to wait to receive other proposals before making a decision 
-                                            (if we can, like if we have at least received one LEAD proposal). """).tag(
-        config=True)
+    election_timeout_seconds: Float = Float(
+        10.0,
+        help="""How long to wait to receive other proposals before making a decision 
+                                            (if we can, like if we have at least received one LEAD proposal). """,
+    ).tag(config=True)
 
-    simulate_write_after_execute: Bool = Bool(True, help="Simulate network write after executing code?").tag(
-        config=True)
+    simulate_write_after_execute: Bool = Bool(
+        True, help="Simulate network write after executing code?"
+    ).tag(config=True)
 
-    simulate_write_after_execute_on_critical_path: Bool = Bool(True,
-                                                               help="Should the simulated network write after executing code be on the critical path?").tag(
-        config=True)
+    simulate_write_after_execute_on_critical_path: Bool = Bool(
+        True,
+        help="Should the simulated network write after executing code be on the critical path?",
+    ).tag(config=True)
 
     pod_name: Union[str, Unicode] = Unicode(
-        help="""Kubernetes name of the Pod encapsulating this distributed kernel replica""").tag(config=False)
+        help="""Kubernetes name of the Pod encapsulating this distributed kernel replica"""
+    ).tag(config=False)
 
-    node_name: Union[str, Unicode] = Unicode(help="""Kubernetes name of the Node on which the Pod is running""").tag(
-        config=False)
+    node_name: Union[str, Unicode] = Unicode(
+        help="""Kubernetes name of the Node on which the Pod is running"""
+    ).tag(config=False)
 
     hostname: Union[str, Unicode] = Unicode(
-        help="""Hostname of the Pod encapsulating this distributed kernel replica""").tag(config=False)
+        help="""Hostname of the Pod encapsulating this distributed kernel replica"""
+    ).tag(config=False)
 
-    kernel_id: Union[str, Unicode] = Unicode(help="""The ID of the kernel.""").tag(config=False)
+    kernel_id: Union[str, Unicode] = Unicode(help="""The ID of the kernel.""").tag(
+        config=False
+    )
 
-    debug_port: Integer = Integer(8464, help="""Port of debug HTTP server.""").tag(config=False)
+    debug_port: Integer = Integer(8464, help="""Port of debug HTTP server.""").tag(
+        config=False
+    )
 
     smr_enabled: Bool = Bool(default_value=True).tag(config=True)
 
     use_real_gpus: Bool = Bool(default_value=False).tag(config=True)
 
-    implementation = 'Distributed Python 3'
-    implementation_version = '0.2'
-    language = 'no-op'
-    language_version = '0.2'
+    implementation = "Distributed Python 3"
+    implementation_version = "0.2"
+    language = "no-op"
+    language_version = "0.2"
     language_info = {
-        'name': 'Any text',
-        'mimetype': 'text/plain',
-        'file_extension': '.txt',
+        "name": "Any text",
+        "mimetype": "text/plain",
+        "file_extension": ".txt",
     }
     # banner = "Distributed kernel - as useful as a parrot"
 
@@ -280,7 +320,7 @@ class DistributedKernel(IPythonKernel):
         faulthandler.enable()
         if super().log is not None:
             super().log.setLevel(logging.DEBUG)
-        print(f' Kwargs: {kwargs}')
+        print(f" Kwargs: {kwargs}")
 
         self.control_msg_types = [
             *self.control_msg_types,
@@ -365,7 +405,7 @@ class DistributedKernel(IPythonKernel):
         self.model_pointers_catchup: Dict[str, ModelPointer] = {}
 
         if "use_real_gpus" in kwargs:
-            self.use_real_gpus = kwargs['use_real_gpus']
+            self.use_real_gpus = kwargs["use_real_gpus"]
 
         self.model = None
         self.dataset = None
@@ -402,8 +442,9 @@ class DistributedKernel(IPythonKernel):
         # _user_ns_lock ensures atomic operations when accessing self.shell.user_ns from coroutines.
         self._user_ns_lock: asyncio.Lock = asyncio.Lock()
 
-        self._remote_checkpointer: RemoteCheckpointer = get_remote_checkpointer(self.remote_storage,
-                                                                                self.remote_storage_hostname)
+        self._remote_checkpointer: RemoteCheckpointer = get_remote_checkpointer(
+            self.remote_storage, self.remote_storage_hostname
+        )
 
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
         self.remote_storages: Dict[str, SimulatedCheckpointer] = {
@@ -414,24 +455,32 @@ class DistributedKernel(IPythonKernel):
                 download_variance_percent=0.05,
                 upload_variance_percent=0.05,
                 read_failure_chance_percentage=0.0,
-                write_failure_chance_percentage=0.0
+                write_failure_chance_percentage=0.0,
             )
         }
 
-        self.current_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = {
+        self.current_resource_request: Optional[
+            Dict[str, float | int | List[float] | List[int]]
+        ] = {
             "cpus": self.spec_cpus,
             "gpus": self.spec_gpus,
             "memory": self.spec_mem_mb,
-            "vram": self.spec_vram_gb
+            "vram": self.spec_vram_gb,
         }
-        self.resource_requests: list[Dict[str, Number | List[Number]]] = [self.current_resource_request]
+        self.resource_requests: list[Dict[str, Number | List[Number]]] = [
+            self.current_resource_request
+        ]
 
         self.log.debug(f"Initial resource request: {self.current_resource_request}")
-        self.log.debug(f"GPU memory bandwidth: {self.gpu_memory_bandwidth_bytes_sec / 1.0e9} bytes/sec")
+        self.log.debug(
+            f"GPU memory bandwidth: {self.gpu_memory_bandwidth_bytes_sec / 1.0e9} bytes/sec"
+        )
 
         if "local_tcp_server_port" in kwargs:
-            self.log.warning(f"Overriding default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
-                             f"value from keyword arguments: {kwargs['local_tcp_server_port']}")
+            self.log.warning(
+                f"Overriding default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
+                f"value from keyword arguments: {kwargs['local_tcp_server_port']}"
+            )
             self.local_tcp_server_port = kwargs["local_tcp_server_port"]
 
         self.prometheus_enabled: bool = True
@@ -441,21 +490,28 @@ class DistributedKernel(IPythonKernel):
             self.prometheus_port: int = int(prometheus_port_str)
         except ValueError as ex:
             self.log.error(
-                f"Failed to parse \"PROMETHEUS_METRICS_PORT\" environment variable value \"{prometheus_port_str}\": {ex}")
+                f'Failed to parse "PROMETHEUS_METRICS_PORT" environment variable value "{prometheus_port_str}": {ex}'
+            )
             self.log.error("Will use default prometheus metrics port of 8089.")
             self.prometheus_port: int = 8089
 
         if self.prometheus_port > 0:
-            self.log.debug(f"Starting Prometheus HTTP server on port {self.prometheus_port}.")
+            self.log.debug(
+                f"Starting Prometheus HTTP server on port {self.prometheus_port}."
+            )
             try:
-                self.prometheus_server, self.prometheus_thread = start_http_server(self.prometheus_port)
+                self.prometheus_server, self.prometheus_thread = start_http_server(
+                    self.prometheus_port
+                )
             except OSError as exc:
                 self.log.error(f"Failed to start Prometheus Server because: {exc}")
                 self.log.error("Disabling Prometheus.")
                 self.prometheus_enabled = False
         else:
-            self.log.warning(f"Prometheus Port is configured as {self.prometheus_port}. "
-                             f"Skipping creation of Prometheus HTTP server.")
+            self.log.warning(
+                f"Prometheus Port is configured as {self.prometheus_port}. "
+                f"Skipping creation of Prometheus HTTP server."
+            )
             self.prometheus_enabled = False
 
         if self.prometheus_enabled:
@@ -464,12 +520,14 @@ class DistributedKernel(IPythonKernel):
                 namespace="distributed_cluster",
                 subsystem="jupyter",
                 name="kernel_yield_proposals_total",
-                documentation="Total number of 'YIELD' proposals.")
+                documentation="Total number of 'YIELD' proposals.",
+            )
             self.num_lead_proposals: Counter = Counter(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
                 name="kernel_lead_proposals_total",
-                documentation="Total number of 'LEAD' proposals.")
+                documentation="Total number of 'LEAD' proposals.",
+            )
             self.remote_storage_read_latency_milliseconds: Histogram = Histogram(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
@@ -477,7 +535,24 @@ class DistributedKernel(IPythonKernel):
                 documentation="The amount of time the kernel spent reading data from RemoteStorage.",
                 unit="milliseconds",
                 labelnames=["session_id", "workload_id"],
-                buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+                buckets=[
+                    1,
+                    10,
+                    30,
+                    75,
+                    150,
+                    250,
+                    500,
+                    1000,
+                    2000,
+                    5000,
+                    10e3,
+                    20e3,
+                    45e3,
+                    90e3,
+                    300e3,
+                ],
+            )
             self.remote_storage_write_latency_milliseconds: Histogram = Histogram(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
@@ -485,31 +560,85 @@ class DistributedKernel(IPythonKernel):
                 documentation="The amount of time the kernel spent writing data to RemoteStorage.",
                 unit="milliseconds",
                 labelnames=["session_id", "workload_id"],
-                buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+                buckets=[
+                    1,
+                    10,
+                    30,
+                    75,
+                    150,
+                    250,
+                    500,
+                    1000,
+                    2000,
+                    5000,
+                    10e3,
+                    20e3,
+                    45e3,
+                    90e3,
+                    300e3,
+                ],
+            )
             self.registration_time_milliseconds: Histogram = Histogram(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
                 name="kernel_registration_latency_milliseconds",
                 documentation="The latency of a new kernel replica registering with its Local Daemon.",
                 unit="milliseconds",
-                buckets=[1, 10, 30, 75, 150, 250, 500, 1000, 2000, 5000, 10e3, 20e3, 45e3, 90e3, 300e3])
+                buckets=[
+                    1,
+                    10,
+                    30,
+                    75,
+                    150,
+                    250,
+                    500,
+                    1000,
+                    2000,
+                    5000,
+                    10e3,
+                    20e3,
+                    45e3,
+                    90e3,
+                    300e3,
+                ],
+            )
             self.execute_request_latency: Histogram = Histogram(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
                 name="kernel_execute_request_latency_milliseconds",
                 documentation="Execution time of the kernels' execute_request method in milliseconds.",
                 unit="milliseconds",
-                buckets=[10, 100, 250, 500, 1e3, 5e3, 10e3, 20e3, 30e3, 60e3, 300e3, 600e3, 1.0e6, 3.6e6, 7.2e6, 6e7,
-                         6e8,
-                         6e9])
+                buckets=[
+                    10,
+                    100,
+                    250,
+                    500,
+                    1e3,
+                    5e3,
+                    10e3,
+                    20e3,
+                    30e3,
+                    60e3,
+                    300e3,
+                    600e3,
+                    1.0e6,
+                    3.6e6,
+                    7.2e6,
+                    6e7,
+                    6e8,
+                    6e9,
+                ],
+            )
             self.delay_milliseconds: Counter = Counter(
                 namespace="distributed_cluster",
                 subsystem="jupyter",
                 name="delay_milliseconds",
                 documentation="Delay incurred by a particular Session.",
-                labelnames=["session_id", "workload_id"])
+                labelnames=["session_id", "workload_id"],
+            )
 
         from ipykernel.debugger import _is_debugpy_available
+
         if _is_debugpy_available:
             self.log.info("The Debugger IS available/enabled.")
 
@@ -564,7 +693,9 @@ class DistributedKernel(IPythonKernel):
         connection_file_path = os.environ.get("CONNECTION_FILE_PATH", "")
         config_file_path = os.environ.get("IPYTHON_CONFIG_PATH", "")
 
-        self.deployment_mode: str = os.environ.get("DEPLOYMENT_MODE", DeploymentMode_Local)
+        self.deployment_mode: str = os.environ.get(
+            "DEPLOYMENT_MODE", DeploymentMode_Local
+        )
         if len(self.deployment_mode) == 0:
             raise ValueError("Could not determine deployment mode.")
         else:
@@ -577,7 +708,10 @@ class DistributedKernel(IPythonKernel):
             self.pod_name = os.environ.get("POD_NAME", default=UNAVAILABLE)
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
             self.docker_container_id: str = "N/A"
-        elif self.deployment_mode == DeploymentMode_DockerSwarm or self.deployment_mode == DeploymentMode_DockerCompose:
+        elif (
+            self.deployment_mode == DeploymentMode_DockerSwarm
+            or self.deployment_mode == DeploymentMode_DockerCompose
+        ):
             self.docker_container_id: str = socket.gethostname()
             self.pod_name = os.environ.get("POD_NAME", default=self.docker_container_id)
             self.node_name = os.environ.get("NODE_NAME", default="DockerNode")
@@ -586,22 +720,25 @@ class DistributedKernel(IPythonKernel):
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
             self.docker_container_id: str = "N/A"
 
-        self.log.info("Connection file path: \"%s\"" % connection_file_path)
-        self.log.info("IPython config file path: \"%s\"" % config_file_path)
-        self.log.info("Session ID: \"%s\"" % session_id)
-        self.log.info("Kernel ID: \"%s\"" % self.kernel_id)
-        self.log.info("Pod name: \"%s\"" % self.pod_name)
-        self.log.info("RemoteStorage hostname: \"%s\"" %
-                      self.remote_storage_hostname)
+        self.log.info('Connection file path: "%s"' % connection_file_path)
+        self.log.info('IPython config file path: "%s"' % config_file_path)
+        self.log.info('Session ID: "%s"' % session_id)
+        self.log.info('Kernel ID: "%s"' % self.kernel_id)
+        self.log.info('Pod name: "%s"' % self.pod_name)
+        self.log.info('RemoteStorage hostname: "%s"' % self.remote_storage_hostname)
 
         if self.remote_storage_hostname == "":
-            self.remote_storage_hostname = kwargs.get('remote_storage_hostname', '')
+            self.remote_storage_hostname = kwargs.get("remote_storage_hostname", "")
 
         if self.remote_storage_hostname == "":
-            raise ValueError("The RemoteStorage hostname is empty. Was it specified in the configuration file?")
+            raise ValueError(
+                "The RemoteStorage hostname is empty. Was it specified in the configuration file?"
+            )
 
-        self.log.info("CPU: %.2f, Memory: %.2f, GPUs: %d, VRAM: %.2f." %
-                      (self.spec_cpus, self.spec_mem_mb, self.spec_gpus, self.spec_vram_gb))
+        self.log.info(
+            "CPU: %.2f, Memory: %.2f, GPUs: %d, VRAM: %.2f."
+            % (self.spec_cpus, self.spec_mem_mb, self.spec_gpus, self.spec_vram_gb)
+        )
 
         # This should only be accessed from the control IO loop (rather than the main/shell IO loop).
         self.persistent_store_cv = asyncio.Condition()
@@ -617,16 +754,20 @@ class DistributedKernel(IPythonKernel):
         connection_info: dict[str, Any] = {}
         try:
             if len(connection_file_path) > 0:
-                with open(connection_file_path, 'r') as connection_file:
+                with open(connection_file_path, "r") as connection_file:
                     connection_info = json.load(connection_file)
         except Exception as ex:
             self.log.error(
-                "Failed to obtain connection info from file \"%s\" because: %s" % (connection_file_path, str(ex)))
+                'Failed to obtain connection info from file "%s" because: %s'
+                % (connection_file_path, str(ex))
+            )
 
         self.log.info("Connection info: %s" % str(connection_info))
 
-        # Allow setting env variable to prevent registration altogether. 
-        skip_registration_override: bool = (os.environ.get("SKIP_REGISTRATION", "false").lower() == "true")
+        # Allow setting env variable to prevent registration altogether.
+        skip_registration_override: bool = (
+            os.environ.get("SKIP_REGISTRATION", "false").lower() == "true"
+        )
 
         if self.should_register_with_local_daemon and not skip_registration_override:
             registration_start: float = time.time()
@@ -655,28 +796,37 @@ class DistributedKernel(IPythonKernel):
 
     def __init_tcp_server(self):
         if self.local_tcp_server_port < 0:
-            self.log.warning(f"Local TCP server port set to {self.local_tcp_server_port}. Returning immediately.")
+            self.log.warning(
+                f"Local TCP server port set to {self.local_tcp_server_port}. Returning immediately."
+            )
             return
 
         self.local_tcp_server_queue: Queue = Queue()
-        self.local_tcp_server_process: Process = Process(target=self.server_process,
-                                                         args=(self.local_tcp_server_queue,))
+        self.local_tcp_server_process: Process = Process(
+            target=self.server_process, args=(self.local_tcp_server_queue,)
+        )
         self.local_tcp_server_process.daemon = True
         self.local_tcp_server_process.start()
-        self.log.info(f"Local TCP server process has PID={self.local_tcp_server_process.pid}")
+        self.log.info(
+            f"Local TCP server process has PID={self.local_tcp_server_process.pid}"
+        )
 
-    # TODO(Ben): Is the existence of this process slowing down the termination process? 
+    # TODO(Ben): Is the existence of this process slowing down the termination process?
     # TODO(Ben): Is this actually being used right now?
     def server_process(self, queue: Queue):
         faulthandler.enable()
 
         if self.local_tcp_server_port < 0:
-            self.log.warning(f"[Local TCP Server] Port set to {self.local_tcp_server_port}. Returning immediately.")
+            self.log.warning(
+                f"[Local TCP Server] Port set to {self.local_tcp_server_port}. Returning immediately."
+            )
             return
 
-        self.log.info(f"[Local TCP Server] Starting. Port: {self.local_tcp_server_port}")
+        self.log.info(
+            f"[Local TCP Server] Starting. Port: {self.local_tcp_server_port}"
+        )
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind(('127.0.0.1', self.local_tcp_server_port))
+        sock.bind(("127.0.0.1", self.local_tcp_server_port))
         sock.listen(5)
         self.log.info(f"[Local TCP Server] Started. Port: {self.local_tcp_server_port}")
 
@@ -684,15 +834,20 @@ class DistributedKernel(IPythonKernel):
             conn, addr = sock.accept()
 
             self.log.info(
-                f"[Local TCP Server] Received incoming connection (addr={addr}). Training should have started.")
+                f"[Local TCP Server] Received incoming connection (addr={addr}). Training should have started."
+            )
 
             queue.get(block=True, timeout=None)
 
-            self.log.info("[Local TCP Server] Received 'STOP' instruction from Cluster.")
+            self.log.info(
+                "[Local TCP Server] Received 'STOP' instruction from Cluster."
+            )
 
             conn.send(b"stop")
 
-            self.log.info("[Local TCP Server] Sent 'STOP' instruction to shell thread via TCP.")
+            self.log.info(
+                "[Local TCP Server] Sent 'STOP' instruction to shell thread via TCP."
+            )
 
             conn.close()
 
@@ -701,23 +856,34 @@ class DistributedKernel(IPythonKernel):
     def register_with_local_daemon(self, connection_info: dict, session_id: str):
         self.log.info("Registering with local daemon now.")
 
-        local_daemon_service_name = os.environ.get("LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr)
+        local_daemon_service_name = os.environ.get(
+            "LOCAL_DAEMON_SERVICE_NAME", default=self.local_daemon_addr
+        )
         server_port = os.environ.get("LOCAL_DAEMON_SERVICE_PORT", default=8075)
         try:
             server_port = int(server_port)
         except ValueError:
             server_port = 8075
 
-        self.log.info("Local Daemon network address: \"%s:%d\"" % (local_daemon_service_name, server_port))
+        self.log.info(
+            'Local Daemon network address: "%s:%d"'
+            % (local_daemon_service_name, server_port)
+        )
 
         self.daemon_registration_socket = socket.socket(
-            socket.AF_INET, socket.SOCK_STREAM)
+            socket.AF_INET, socket.SOCK_STREAM
+        )
 
         start_time: float = time.time()
         try:
-            self.daemon_registration_socket.connect((local_daemon_service_name, server_port))
+            self.daemon_registration_socket.connect(
+                (local_daemon_service_name, server_port)
+            )
         except Exception as ex:
-            self.log.error("Failed to connect to LocalDaemon at %s:%d" % (local_daemon_service_name, server_port))
+            self.log.error(
+                "Failed to connect to LocalDaemon at %s:%d"
+                % (local_daemon_service_name, server_port)
+            )
             self.log.error("Reason: %s" % str(ex))
             raise ex
 
@@ -737,23 +903,34 @@ class DistributedKernel(IPythonKernel):
                 "session": session_id,
                 "signature_scheme": connection_info["signature_scheme"],
                 "key": connection_info["key"],
-            }
+            },
         }
 
-        self.log.info("Sending registration payload to local daemon: %s" % str(registration_payload))
+        self.log.info(
+            "Sending registration payload to local daemon: %s"
+            % str(registration_payload)
+        )
 
-        bytes_sent: int = self.daemon_registration_socket.send(json.dumps(registration_payload).encode())
+        bytes_sent: int = self.daemon_registration_socket.send(
+            json.dumps(registration_payload).encode()
+        )
 
         self.log.info("Sent %d byte(s) to local daemon." % bytes_sent)
 
         response: bytes = self.daemon_registration_socket.recv(1024)
 
         if len(response) == 0:
-            self.log.error("Received empty (i.e., 0 bytes in length) response from local daemon during registration...")
-            raise ValueError("received empty response from local daemon during registration procedure")
+            self.log.error(
+                "Received empty (i.e., 0 bytes in length) response from local daemon during registration..."
+            )
+            raise ValueError(
+                "received empty response from local daemon during registration procedure"
+            )
 
-        self.log.info(f"Received {len(response)} byte(s) in response from LocalDaemon after "
-                      f"{time.time() - start_time} seconds. Response payload: {str(response)}")
+        self.log.info(
+            f"Received {len(response)} byte(s) in response from LocalDaemon after "
+            f"{time.time() - start_time} seconds. Response payload: {str(response)}"
+        )
 
         response_dict = json.loads(response)
         self.smr_node_id: int = response_dict["smr_node_id"]
@@ -762,11 +939,15 @@ class DistributedKernel(IPythonKernel):
         # self.smr_nodes = [hostname + ":" + str(self.smr_port) for hostname in response_dict["replicas"]]
 
         if "replicas" not in response_dict:
-            self.log.error("No replicas contained in registration response from local daemon.")
+            self.log.error(
+                "No replicas contained in registration response from local daemon."
+            )
             self.log.error("Registration response:")
             for k, v in response_dict.items():
                 self.log.error(f"\t{k}: {v}")
-            raise ValueError("registration response from local daemon did not contained a \"replicas\" entry")
+            raise ValueError(
+                'registration response from local daemon did not contained a "replicas" entry'
+            )
 
         # Note: we expect the keys to be integers; however, they will have been converted to strings.
         # See https://stackoverflow.com/a/1451857 for details.
@@ -775,24 +956,35 @@ class DistributedKernel(IPythonKernel):
         # We also append ":<SMR_PORT>" to each address before storing it in the map.
         replicas: Optional[dict[int, str]] = response_dict["replicas"]
         if replicas is None or len(replicas) == 0:
-            self.log.error("No replicas contained in registration response from local daemon.")
+            self.log.error(
+                "No replicas contained in registration response from local daemon."
+            )
             self.log.error("Registration response:")
             for k, v in response_dict.items():
                 self.log.error(f"\t{k}: {v}")
-            raise ValueError("registration response from local daemon did not contained a \"replicas\" entry")
+            raise ValueError(
+                'registration response from local daemon did not contained a "replicas" entry'
+            )
 
         self.num_replicas: int = len(replicas)
-        self.smr_nodes_map = {int(node_id_str): (node_addr + ":" + str(self.smr_port))
-                              for node_id_str, node_addr in replicas.items()}
+        self.smr_nodes_map = {
+            int(node_id_str): (node_addr + ":" + str(self.smr_port))
+            for node_id_str, node_addr in replicas.items()
+        }
 
         # If we're part of a migration operation, then we should receive both a persistent ID AND an RemoteStorage Data Directory.
         # If we're not part of a migration operation, then we'll JUST receive the persistent ID.
         if "persistent_id" in response_dict:
-            self.log.info("Received persistent ID from registration: \"%s\"" % response_dict["persistent_id"])
+            self.log.info(
+                'Received persistent ID from registration: "%s"'
+                % response_dict["persistent_id"]
+            )
             self.persistent_id = response_dict["persistent_id"]
 
         # We'll also use this as an indicator of whether we should simulate additional checkpointing overhead.
-        self.should_read_data_from_remote_storage = response_dict.get("should_read_data_from_remote_storage", False)
+        self.should_read_data_from_remote_storage = response_dict.get(
+            "should_read_data_from_remote_storage", False
+        )
 
         if self.should_read_data_from_remote_storage:
             self.log.debug("We SHOULD read data from RemoteStorage.")
@@ -803,24 +995,34 @@ class DistributedKernel(IPythonKernel):
             self.debug_port: int = int(response_dict["debug_port"])
             self.log.info(f"Assigned debug port to {self.debug_port}")
         else:
-            self.log.warning("No \"debug_port\" entry found in response from local daemon.")
+            self.log.warning(
+                'No "debug_port" entry found in response from local daemon.'
+            )
             self.debug_port: int = -1
 
         if "message_acknowledgements_enabled" in response_dict:
-            self.message_acknowledgements_enabled = bool(response_dict["message_acknowledgements_enabled"])
+            self.message_acknowledgements_enabled = bool(
+                response_dict["message_acknowledgements_enabled"]
+            )
 
             if self.message_acknowledgements_enabled:
                 self.log.debug("Message acknowledgements are enabled.")
             else:
                 self.log.debug("Message acknowledgements are disabled.")
         else:
-            self.log.warning("No \"message_acknowledgements_enabled\" entry in response from local daemon.")
+            self.log.warning(
+                'No "message_acknowledgements_enabled" entry in response from local daemon.'
+            )
 
-        self.log.info("Received SMR Node ID after registering with local daemon: %d" % self.smr_node_id)
+        self.log.info(
+            "Received SMR Node ID after registering with local daemon: %d"
+            % self.smr_node_id
+        )
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
 
-        assert (self.smr_nodes_map[self.smr_node_id] == (
-                self.hostname + ":" + str(self.smr_port)))
+        assert self.smr_nodes_map[self.smr_node_id] == (
+            self.hostname + ":" + str(self.smr_port)
+        )
 
         grpc_port: int = response_dict.get("grpc_port", -1)
         if grpc_port == -1:
@@ -828,14 +1030,20 @@ class DistributedKernel(IPythonKernel):
             exit(1)
 
         # Establish gRPC connection with Local Daemon so that we can send notifications if/when errors occur.
-        self.kernel_notification_service_channel = grpc.insecure_channel(f"{local_daemon_service_name}:{grpc_port}")
-        self.kernel_notification_service_stub = KernelErrorReporterStub(self.kernel_notification_service_channel)
+        self.kernel_notification_service_channel = grpc.insecure_channel(
+            f"{local_daemon_service_name}:{grpc_port}"
+        )
+        self.kernel_notification_service_stub = KernelErrorReporterStub(
+            self.kernel_notification_service_channel
+        )
 
         self.daemon_registration_socket.close()
 
     def init_debugpy(self):
         if not self.debugpy_enabled or self.debug_port < 0:
-            self.log.debug("debugpy server is disabled or server port is set to a negative number.")
+            self.log.debug(
+                "debugpy server is disabled or server port is set to a negative number."
+            )
             return
 
         debugpy_port: int = self.debug_port + 1000
@@ -850,13 +1058,19 @@ class DistributedKernel(IPythonKernel):
             self.log.debug("Should have broken on the previous line!")
 
     def start(self):
-        self.log.info("DistributedKernel is starting. Persistent ID = \"%s\"" % self.persistent_id)
+        self.log.info(
+            'DistributedKernel is starting. Persistent ID = "%s"' % self.persistent_id
+        )
 
         super().start()
 
         self.init_debugpy()
 
-        if self.persistent_id != Undefined and self.persistent_id != "" and self.persistent_id is not None:
+        if (
+            self.persistent_id != Undefined
+            and self.persistent_id != ""
+            and self.persistent_id is not None
+        ):
             assert isinstance(self.persistent_id, str)
 
             def init_persistent_store_done_callback(f: futures.Future):
@@ -864,27 +1078,44 @@ class DistributedKernel(IPythonKernel):
                 Simple callback to print a message when the initialization of the persistent store completes.
                 """
                 if f.cancelled():
-                    self.log.error("Initialization of Persistent Store on-start has been cancelled...")
+                    self.log.error(
+                        "Initialization of Persistent Store on-start has been cancelled..."
+                    )
 
                     try:
                         self.log.error(
-                            f"Initialization of Persistent Store apparently raised an exception: {f.exception()}")
+                            f"Initialization of Persistent Store apparently raised an exception: {f.exception()}"
+                        )
                     except:  # noqa
-                        self.log.error(f"No exception associated with cancelled initialization of Persistent Store.")
+                        self.log.error(
+                            "No exception associated with cancelled initialization of Persistent Store."
+                        )
                 elif f.done():
-                    self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
+                    self.log.debug(
+                        "Initialization of Persistent Store has completed on the Control Thread's IO loop."
+                    )
 
             self.log.debug(
-                f"Scheduling creation of init_persistent_store_on_start_future. Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}")
-            self.init_persistent_store_on_start_future: futures.Future = asyncio.run_coroutine_threadsafe(
-                self.init_persistent_store_on_start(self.persistent_id), self.control_thread.io_loop.asyncio_loop)
-            self.init_persistent_store_on_start_future.add_done_callback(init_persistent_store_done_callback)
+                f"Scheduling creation of init_persistent_store_on_start_future. Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}"
+            )
+            self.init_persistent_store_on_start_future: futures.Future = (
+                asyncio.run_coroutine_threadsafe(
+                    self.init_persistent_store_on_start(self.persistent_id),
+                    self.control_thread.io_loop.asyncio_loop,
+                )
+            )
+            self.init_persistent_store_on_start_future.add_done_callback(
+                init_persistent_store_done_callback
+            )
         else:
             self.log.warning(
-                "Will NOT be initializing Persistent Store on start, as persistent ID is not yet available.")
+                "Will NOT be initializing Persistent Store on start, as persistent ID is not yet available."
+            )
 
     async def init_persistent_store_on_start(self, persistent_id: str):
-        self.log.info(f"Initializing Persistent Store on start, as persistent ID is available: \"{persistent_id}\"")
+        self.log.info(
+            f'Initializing Persistent Store on start, as persistent ID is available: "{persistent_id}"'
+        )
         # Create future to avoid duplicate initialization
         future = asyncio.Future(loop=asyncio.get_running_loop())
         self.store = future
@@ -902,10 +1133,14 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell or process_control.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent, -1
+        )
 
-        msg = self.session.send(stream, "kernel_info_reply", content, parent, ident, buffers=buffers)
-        self.log.debug(f"Sent \"kernel_info_reply\" message: {msg}")
+        msg = self.session.send(
+            stream, "kernel_info_reply", content, parent, ident, buffers=buffers
+        )
+        self.log.debug(f'Sent "kernel_info_reply" message: {msg}')
 
     async def dispatch_shell(self, msg):
         """
@@ -916,7 +1151,7 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: float = time.time() * 1.0e3
 
         if not self.session:
-            self.log.error(f"Received SHELL message, but our Session is None...")
+            self.log.error("Received SHELL message, but our Session is None...")
             self.log.error(f"Will be discarding SHELL message: {msg}")
             return
 
@@ -950,20 +1185,26 @@ class DistributedKernel(IPythonKernel):
                     check = self.session.sign(msg_list[1:5])
                     if not compare_digest(signature, check):
                         self.log.error(
-                            "Shell \"{msg_type}\" message with ID=\"{msg_id}\" is invalid due to an incorrect signature.")
+                            'Shell "{msg_type}" message with ID="{msg_id}" is invalid due to an incorrect signature.'
+                        )
                         self.log.error(
                             "Signature generated from signing frames 1 through 5 of message does not produce "
-                            "the signature included within the message.")
-                        self.log.error(f"Signature included in message: \"{signature}\". "
-                                       f"Signature produced during verification process: \"{check}\".")
-                        self.log.error(f"Frames 1 through 5:")
+                            "the signature included within the message."
+                        )
+                        self.log.error(
+                            f'Signature included in message: "{signature}". '
+                            f'Signature produced during verification process: "{check}".'
+                        )
+                        self.log.error("Frames 1 through 5:")
                         for i in range(1, 5, 1):
                             self.log.error(f"Frame #{i}: {msg_list[i]}")
                         self.log.error("All frames of message:")
                         for i, frame in enumerate(msg_list):
                             self.log.error(f"Frame #{i}: {frame}")
             else:
-                self.log.error(f"Invalid shell message \"{msg_id}\" of type \"{msg_type}\": {msg_list}\n\n")
+                self.log.error(
+                    f'Invalid shell message "{msg_id}" of type "{msg_type}": {msg_list}\n\n'
+                )
 
             message["msg_id"] = header["msg_id"]
             message["msg_type"] = header["msg_type"]
@@ -971,11 +1212,18 @@ class DistributedKernel(IPythonKernel):
             message["metadata"] = self.session.unpack(msg_list[3])
 
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
-            self.send_ack(self.shell_stream, msg_type, msg_id, idents, message, stream_name="shell")  # Send an ACK.
+            self.send_ack(
+                self.shell_stream,
+                msg_type,
+                msg_id,
+                idents,
+                message,
+                stream_name="shell",
+            )  # Send an ACK.
 
             self.report_error(
                 error_title="Kernel Replica Received an Invalid Shell Message",
-                error_message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid shell message: {ex}."
+                error_message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid shell message: {ex}.",
             )
 
             return
@@ -987,17 +1235,24 @@ class DistributedKernel(IPythonKernel):
         # self.log.info(f"Received SHELL message: {str(msg_deserialized)}")
         msg_id: str = msg["header"]["msg_id"]
         msg_type: str = msg["header"]["msg_type"]
-        self.log.debug("==============================================================================================")
-        self.log.debug(f"Received SHELL message {msg_id} of type \"{msg_type}\": {msg}")
-        self.log.debug("==============================================================================================")
+        self.log.debug(
+            "=============================================================================================="
+        )
+        self.log.debug(f'Received SHELL message {msg_id} of type "{msg_type}": {msg}')
+        self.log.debug(
+            "=============================================================================================="
+        )
         sys.stderr.flush()
         sys.stdout.flush()
-        self.send_ack(self.shell_stream, msg_type, msg_id, idents, msg,
-                      stream_name="shell")  # Send an ACK.
+        self.send_ack(
+            self.shell_stream, msg_type, msg_id, idents, msg, stream_name="shell"
+        )  # Send an ACK.
 
         # Only abort execute requests
         if self._aborting and msg_type == "execute_request":
-            self.log.warning("We're aborting, and message is an \"execute_request\". Won't be processing it...")
+            self.log.warning(
+                "We're aborting, and message is an \"execute_request\". Won't be processing it..."
+            )
             self._send_abort_reply(self.shell_stream, msg, idents)
             self._publish_status("idle", "shell")
             # flush to ensure reply is sent before
@@ -1007,37 +1262,45 @@ class DistributedKernel(IPythonKernel):
             return
 
         if not self.should_handle(self.shell_stream, msg, idents):
-            self.log.warning(f"We should not handle shell \"{msg_type}\" message \"{msg_id}\". Returning.")
+            self.log.warning(
+                f'We should not handle shell "{msg_type}" message "{msg_id}". Returning.'
+            )
             return
 
         # The first time we call 'extract_and_process_request_trace' for this request.
         # The second time will be in the handler itself.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(msg, self.shell_received_at)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            msg, self.shell_received_at
+        )
 
         handler = self.shell_handlers.get(msg_type, None)
         if handler is None:
-            self.log.warning("Unknown shell message type: \"%r\"", msg_type)
+            self.log.warning('Unknown shell message type: "%r"', msg_type)
         else:
             try:
                 self.pre_handler_hook()
             except Exception as ex:
                 self.log.debug("Unable to signal in pre_handler_hook:", exc_info=True)
                 self.report_error(
-                    error_title=f"Kernel \"{self.kernel_id}\" Encountered {type(ex).__name__} Exception "
-                                f"While Signaling in pre_handler_hook for Shell Request \"{msg_id}\" of "
-                                f"type \"{msg_type}\"",
-                    error_message=str(ex))
+                    error_title=f'Kernel "{self.kernel_id}" Encountered {type(ex).__name__} Exception '
+                    f'While Signaling in pre_handler_hook for Shell Request "{msg_id}" of '
+                    f'type "{msg_type}"',
+                    error_message=str(ex),
+                )
             try:
                 result = handler(self.shell_stream, idents, msg)
                 if inspect.isawaitable(result):
                     await result
             except Exception as ex:
-                self.log.error(f"Exception in shell message handler for \"{msg_type}\" message \"{msg_id}\": {ex}",
-                               exc_info=True)  # noqa: G201
+                self.log.error(
+                    f'Exception in shell message handler for "{msg_type}" message "{msg_id}": {ex}',
+                    exc_info=True,
+                )  # noqa: G201
                 self.report_error(
-                    error_title=f"Kernel \"{self.kernel_id}\" Encountered {type(ex).__name__} Exception "
-                                f"While Executing Handler for Shell Request \"{msg_id}\" of type \"{msg_type}\"",
-                    error_message=str(ex))
+                    error_title=f'Kernel "{self.kernel_id}" Encountered {type(ex).__name__} Exception '
+                    f'While Executing Handler for Shell Request "{msg_id}" of type "{msg_type}"',
+                    error_message=str(ex),
+                )
             except KeyboardInterrupt:
                 # Ctrl-c shouldn't crash the kernel here.
                 self.log.error("KeyboardInterrupt caught in kernel.")
@@ -1045,14 +1308,19 @@ class DistributedKernel(IPythonKernel):
                 try:
                     self.post_handler_hook()
                 except Exception as ex:
-                    self.log.debug("Unable to signal in post_handler_hook:", exc_info=True)
+                    self.log.debug(
+                        "Unable to signal in post_handler_hook:", exc_info=True
+                    )
                     self.report_error(
-                        error_title=f"Kernel \"{self.kernel_id}\" Encountered {type(ex).__name__} Exception "
-                                    f"While Signaling in post_handler_hook for Shell Request \"{msg_id}\" of "
-                                    f"type \"{msg_type}\"",
-                        error_message=str(ex))
+                        error_title=f'Kernel "{self.kernel_id}" Encountered {type(ex).__name__} Exception '
+                        f'While Signaling in post_handler_hook for Shell Request "{msg_id}" of '
+                        f'type "{msg_type}"',
+                        error_message=str(ex),
+                    )
 
-        self.log.debug(f"Finished processing shell message {msg_id} of type \"{msg_type}\"")
+        self.log.debug(
+            f'Finished processing shell message {msg_id} of type "{msg_type}"'
+        )
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1073,12 +1341,15 @@ class DistributedKernel(IPythonKernel):
             if "force_reprocess" in metadata:
                 force_reprocess: bool = metadata["force_reprocess"]
                 self.log.warning(
-                    f"Received duplicate \"{msg_id}\" message with ID={msg_type} and \"force_reprocess\" equal to {force_reprocess}.")
+                    f'Received duplicate "{msg_id}" message with ID={msg_type} and "force_reprocess" equal to {force_reprocess}.'
+                )
                 # Presumably this will be True, but if it isn't True, then we definitely shouldn't reprocess the message.
                 return force_reprocess
             else:
-                self.log.warning(f"Received duplicate \"{msg_id}\" message with ID={msg_type} and no "
-                                 f"\"force_reprocess\" entry in the request's metadata...")
+                self.log.warning(
+                    f'Received duplicate "{msg_id}" message with ID={msg_type} and no '
+                    f'"force_reprocess" entry in the request\'s metadata...'
+                )
 
             return False
         else:
@@ -1088,9 +1359,9 @@ class DistributedKernel(IPythonKernel):
     async def process_control(self, msg):
         """
         Override of `process_control`.
-        
+
         This method is used to dispatch control requests.
-        
+
         We overrode it so that we can send ACKs.
         """
         received_at: float = time.time() * 1.0e3
@@ -1104,13 +1375,15 @@ class DistributedKernel(IPythonKernel):
             msg = self.session.deserialize(msg, content=True, copy=False)
         except Exception as ex:
             self.log.error(f"Received invalid CONTROL message: {ex}")  # noqa: G201
-            self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-                title="Kernel Replica Received an Invalid Control Message",
-                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid control message: {ex}.",
-                notificationType=ErrorNotification,
-                kernelId=self.kernel_id,
-                replicaId=self.smr_node_id,
-            ))
+            self.kernel_notification_service_stub.Notify(
+                gateway_pb2.KernelNotification(
+                    title="Kernel Replica Received an Invalid Control Message",
+                    message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid control message: {ex}.",
+                    notificationType=ErrorNotification,
+                    kernelId=self.kernel_id,
+                    replicaId=self.smr_node_id,
+                )
+            )
 
             minlen = 5
             msg_list = t.cast(t.List[zmq.Message], msg)
@@ -1132,7 +1405,14 @@ class DistributedKernel(IPythonKernel):
             message["metadata"] = self.session.unpack(msg_list[3])
 
             # Try to ACK anyway; we'll just have to use incomplete information. But we should be able to get the job done via the identities...
-            self.send_ack(self.control_stream, msg_type, msg_id, idents, message, stream_name="control")  # Send an ACK.
+            self.send_ack(
+                self.control_stream,
+                msg_type,
+                msg_id,
+                idents,
+                message,
+                stream_name="control",
+            )  # Send an ACK.
             if self.control_stream:
                 self.control_stream.flush(zmq.POLLOUT)
 
@@ -1142,9 +1422,13 @@ class DistributedKernel(IPythonKernel):
         msg_type: str = header["msg_type"]
         msg_id: str = header["msg_id"]
 
-        self.log.debug("==============================================================================================")
-        self.log.debug(f"Received control message {msg_id} of type \"{msg_type}\"")
-        self.log.debug("==============================================================================================")
+        self.log.debug(
+            "=============================================================================================="
+        )
+        self.log.debug(f'Received control message {msg_id} of type "{msg_type}"')
+        self.log.debug(
+            "=============================================================================================="
+        )
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1155,7 +1439,9 @@ class DistributedKernel(IPythonKernel):
         self.set_parent(idents, msg, channel="control")
         self._publish_status("busy", "control")
 
-        self.send_ack(self.control_stream, msg_type, msg_id, idents, msg, stream_name="control")  # Send an ACK.
+        self.send_ack(
+            self.control_stream, msg_type, msg_id, idents, msg, stream_name="control"
+        )  # Send an ACK.
         if self.control_stream:
             self.control_stream.flush(zmq.POLLOUT)
 
@@ -1184,7 +1470,9 @@ class DistributedKernel(IPythonKernel):
         if self.control_stream:
             self.control_stream.flush(zmq.POLLOUT)
 
-        self.log.debug(f"Finished processing control message {msg_id} of type \"{msg_type}\"")
+        self.log.debug(
+            f'Finished processing control message {msg_id} of type "{msg_type}"'
+        )
         sys.stderr.flush()
         sys.stdout.flush()
 
@@ -1193,7 +1481,8 @@ class DistributedKernel(IPythonKernel):
             return self.gen_simple_response()
 
         self.log.info(
-            "Initializing persistent datastore now using code \"%s\"" % str(code))
+            'Initializing persistent datastore now using code "%s"' % str(code)
+        )
 
         # By executing code, we can get persistent id later.
         # The execution_count should not be counted and will reset later.
@@ -1206,9 +1495,10 @@ class DistributedKernel(IPythonKernel):
             self.store = future
 
             # Execute code to get persistent id
-            await asyncio.ensure_future(super().do_execute(code, True, store_history=False))
-            self.log.info(
-                "Successfully executed initialization code: \"%s\"" % str(code))
+            await asyncio.ensure_future(
+                super().do_execute(code, True, store_history=False)
+            )
+            self.log.info('Successfully executed initialization code: "%s"' % str(code))
             # Reset execution_count
             self.shell.execution_count = execution_count  # type: ignore
 
@@ -1216,9 +1506,11 @@ class DistributedKernel(IPythonKernel):
             async with self._user_ns_lock:
                 self.persistent_id = self.shell.user_ns[key_persistent_id]
 
-            self.log.info("Persistent ID set: \"%s\"" % self.persistent_id)
+            self.log.info('Persistent ID set: "%s"' % self.persistent_id)
             # Initialize persistent store
-            self.store = await self.init_persistent_store_with_persistent_id(self.persistent_id)
+            self.store = await self.init_persistent_store_with_persistent_id(
+                self.persistent_id
+            )
 
             # Resolve future
             rsp = self.gen_simple_response()
@@ -1227,8 +1519,7 @@ class DistributedKernel(IPythonKernel):
 
             return rsp
         except Exception as e:
-            self.log.error(
-                "Exception encountered during code execution: %s" % str(e))
+            self.log.error("Exception encountered during code execution: %s" % str(e))
 
             self.shell.execution_count = execution_count  # type: ignore
             err_rsp = gen_error_response(e)
@@ -1244,8 +1535,9 @@ class DistributedKernel(IPythonKernel):
         self.store_path: str = os.path.join(self.storage_base, "store", persistent_id)
 
         self.log.info(
-            "Initializing the Persistent Store with Persistent ID: \"%s\"" % persistent_id)
-        self.log.debug("Full path of Persistent Store: \"%s\"" % self.store_path)
+            'Initializing the Persistent Store with Persistent ID: "%s"' % persistent_id
+        )
+        self.log.debug('Full path of Persistent Store: "%s"' % self.store_path)
         self.log.debug("Disabling `outstream` now.")
 
         sys.stderr.flush()
@@ -1275,9 +1567,13 @@ class DistributedKernel(IPythonKernel):
             module=self.shell.user_module,
             opts=CHECKPOINT_AUTO,
             node_id=self.smr_node_id,
-            remote_checkpointer=self._remote_checkpointer)  # type: ignore
+            large_object_pointer_committed=self.large_object_pointer_committed,
+            remote_checkpointer=self._remote_checkpointer,
+        )  # type: ignore
 
-        sync_log.set_fast_forward_executions_handler(self.synchronizer.fast_forward_execution_count)
+        sync_log.set_fast_forward_executions_handler(
+            self.synchronizer.fast_forward_execution_count
+        )
         sync_log.set_set_execution_count_handler(self.synchronizer.set_execution_count)
 
         self.init_synchronizer_event.set()
@@ -1291,37 +1587,46 @@ class DistributedKernel(IPythonKernel):
 
         # If we're not using real GPUs, then we can simulate downloading the model and training data here.
         if not self.use_real_gpus:
-            download_model_duration, download_training_data_duration = await self.simulate_download_model_and_training_data()
+            (
+                download_model_duration,
+                download_training_data_duration,
+            ) = await self.simulate_download_model_and_training_data()
 
             if download_model_duration > 0 and self.prometheus_enabled:
                 self.remote_storage_read_latency_milliseconds.labels(
-                    session_id=self.kernel_id,
-                    workload_id=self.workload_id).observe(download_model_duration * 1e3)
+                    session_id=self.kernel_id, workload_id=self.workload_id
+                ).observe(download_model_duration * 1e3)
                 self.delay_milliseconds.labels(
-                    session_id=self.kernel_id,
-                    workload_id=self.workload_id).inc(download_model_duration * 1e3)
+                    session_id=self.kernel_id, workload_id=self.workload_id
+                ).inc(download_model_duration * 1e3)
 
                 if self.current_execution_stats is not None:
-                    self.current_execution_stats.download_model_microseconds = download_model_duration * 1.0e6
+                    self.current_execution_stats.download_model_microseconds = (
+                        download_model_duration * 1.0e6
+                    )
 
             if download_training_data_duration > 0 and self.prometheus_enabled:
                 self.remote_storage_read_latency_milliseconds.labels(
-                    session_id=self.kernel_id,
-                    workload_id=self.workload_id).observe(download_training_data_duration * 1e3)
+                    session_id=self.kernel_id, workload_id=self.workload_id
+                ).observe(download_training_data_duration * 1e3)
                 self.delay_milliseconds.labels(
-                    session_id=self.kernel_id,
-                    workload_id=self.workload_id).inc(download_training_data_duration * 1e3)
+                    session_id=self.kernel_id, workload_id=self.workload_id
+                ).inc(download_training_data_duration * 1e3)
 
                 if self.current_execution_stats is not None:
-                    self.current_execution_stats.download_training_data_microseconds = download_training_data_duration * 1.0e6
+                    self.current_execution_stats.download_training_data_microseconds = (
+                        download_training_data_duration * 1.0e6
+                    )
 
         # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be
         # started before we attempt to catch-up. The catch-up process involves appending a new value and waiting until
         # it gets committed. This cannot be done until the RaftLog has started. And the RaftLog is started by the
         # Synchronizer, within Synchronizer::start.
         if self.synclog.needs_to_catch_up:
-            self.log.debug("RaftLog will need to propose a \"catch up\" value "
-                           "so that it can tell when it has caught up with its peers.")
+            self.log.debug(
+                'RaftLog will need to propose a "catch up" value '
+                "so that it can tell when it has caught up with its peers."
+            )
 
             await self.synclog.catchup_with_peers()
 
@@ -1339,7 +1644,9 @@ class DistributedKernel(IPythonKernel):
         # TODO(Ben): Should this go before the "smr_ready" send?
         # It probably shouldn't matter -- or if it does, then more synchronization is required.
         async with self.persistent_store_cv:
-            self.log.debug("Calling `notify_all` on the Persistent Store condition variable.")
+            self.log.debug(
+                "Calling `notify_all` on the Persistent Store condition variable."
+            )
             self.persistent_store_cv.notify_all()
 
         return self.store_path
@@ -1353,7 +1660,7 @@ class DistributedKernel(IPythonKernel):
         if self.remote_storages is None or len(self.remote_storages) == 0:
             return None
 
-        last_io_timestamp: float = float('-inf')
+        last_io_timestamp: float = float("-inf")
         most_recently_used_checkpointer: Optional[SimulatedCheckpointer] = None
         for name, checkpointer in self.remote_storages.items():
             if checkpointer.last_io_timestamp > last_io_timestamp:
@@ -1367,7 +1674,10 @@ class DistributedKernel(IPythonKernel):
         # to -1, whereas our local last_io_timestamp variable is initialized to negative infinity, so we should've
         # selected the first SimulatedCheckpointer we encountered if it is the case that no registered
         # SimulatedCheckpointer objects have ever been used.
-        assert most_recently_used_checkpointer is not None or len(self.remote_storages) == 0
+        assert (
+            most_recently_used_checkpointer is not None
+            or len(self.remote_storages) == 0
+        )
 
         return most_recently_used_checkpointer
 
@@ -1382,7 +1692,9 @@ class DistributedKernel(IPythonKernel):
         else:
             return True
 
-    def send_ack(self, stream, msg_type: str, msg_id: str, ident, parent, stream_name: str = ""):
+    def send_ack(
+        self, stream, msg_type: str, msg_id: str, ident, parent, stream_name: str = ""
+    ):
         # If message acknowledgements are disabled, then just return immediately.
         if not self.message_acknowledgements_enabled:
             return
@@ -1390,40 +1702,48 @@ class DistributedKernel(IPythonKernel):
         ack_msg = self.session.send(  # type:ignore[assignment]
             stream,
             "ACK",
-            {
-                "type": msg_type,
-                "msg_id": msg_id,
-                "source": "PYTHON KERNEL"
-            },
+            {"type": msg_type, "msg_id": msg_id, "source": "PYTHON KERNEL"},
             parent,
             ident=ident,
         )
-        self.log.debug(f"Sent 'ACK' for {stream_name} {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}")
+        self.log.debug(
+            f"Sent 'ACK' for {stream_name} {msg_type} message \"{msg_id}\": {ack_msg}. Idents: {ident}"
+        )
 
-    def register_remote_storage_definition_from_dict(self, remote_storage_definition: Dict[str, Any]) -> Optional[str]:
+    def register_remote_storage_definition_from_dict(
+        self, remote_storage_definition: Dict[str, Any]
+    ) -> Optional[str]:
         if len(remote_storage_definition) == 0:
             return
 
         remote_storage_name: str = remote_storage_definition.get("name", "")
 
         if remote_storage_name == "":
-            self.log.warning(f"Received non-empty remote storage definition with no name: {remote_storage_definition}")
+            self.log.warning(
+                f"Received non-empty remote storage definition with no name: {remote_storage_definition}"
+            )
             return None
 
         if remote_storage_name in self.remote_storages:
-            self.log.debug(f"Remote storage \"{remote_storage_name}\" is already registered.")
+            self.log.debug(
+                f'Remote storage "{remote_storage_name}" is already registered.'
+            )
             return remote_storage_name
 
-        remote_storage: SimulatedCheckpointer = SimulatedCheckpointer(**remote_storage_definition)
+        remote_storage: SimulatedCheckpointer = SimulatedCheckpointer(
+            **remote_storage_definition
+        )
         self.remote_storages[remote_storage.name] = remote_storage
 
         self.log.debug(
-            f"Successfully registered new remote storage from dictionary definition: \"{remote_storage_name}\".")
+            f'Successfully registered new remote storage from dictionary definition: "{remote_storage_name}".'
+        )
 
         return remote_storage_name
 
-    def register_remote_storage_definition(self, remote_storage_definition: Dict[str, Any] | SimulatedCheckpointer) -> \
-            Optional[str]:
+    def register_remote_storage_definition(
+        self, remote_storage_definition: Dict[str, Any] | SimulatedCheckpointer
+    ) -> Optional[str]:
         """
         Convert the remote storage definition that was extracted from the metadata of an "execute_request" or
         "yield_request" message to a SimulatedCheckpointer object and store the new SimulatedCheckpointer object
@@ -1434,50 +1754,70 @@ class DistributedKernel(IPythonKernel):
             the name is returned regardless of whether the remote storage had already been registered or not.
         """
         if isinstance(remote_storage_definition, dict):
-            return self.register_remote_storage_definition_from_dict(remote_storage_definition)
+            return self.register_remote_storage_definition_from_dict(
+                remote_storage_definition
+            )
 
         remote_storage_name: str = remote_storage_definition.name
         if remote_storage_name in self.remote_storages:
-            self.log.debug(f"Remote storage \"{remote_storage_name}\" is already registered.")
+            self.log.debug(
+                f'Remote storage "{remote_storage_name}" is already registered.'
+            )
             return remote_storage_name
 
         self.remote_storages[remote_storage_name] = remote_storage_definition
 
-        self.log.debug(f"Successfully registered new remote storage: \"{remote_storage_name}\".")
+        self.log.debug(
+            f'Successfully registered new remote storage: "{remote_storage_name}".'
+        )
 
         return remote_storage_name
 
-    async def process_execute_request_metadata(self, msg_id: str, msg_type: str, metadata: Dict[str, Any]) -> tuple[Optional[str], list[int]]:
+    async def process_execute_request_metadata(
+        self, msg_id: str, msg_type: str, metadata: Dict[str, Any]
+    ) -> tuple[Optional[str], list[int]]:
         """
         Process the metadata included in a shell "execute_request" or "yield_request" message.
 
         :return: a tuple where the first element is the remote storage name and the second is a list of GPU device IDs.
         """
-        self.log.debug(f"Processing metadata of \"{msg_type}\" request \"{msg_id}\": {metadata}")
+        self.log.debug(
+            f'Processing metadata of "{msg_type}" request "{msg_id}": {metadata}'
+        )
 
         if metadata is None:
             return None, []
 
         resource_request: Dict[str, Any] = metadata.get("resource_request", {})
 
-        remote_storage_definition: Dict[str, Any] = metadata.get("remote_storage_definition", {})
+        remote_storage_definition: Dict[str, Any] = metadata.get(
+            "remote_storage_definition", {}
+        )
 
         workload_id: str = metadata.get("workload_id", "")
 
         if len(resource_request) > 0:
-            self.log.debug(f"Extracted ResourceRequest from \"{msg_type}\" metadata: {resource_request}")
+            self.log.debug(
+                f'Extracted ResourceRequest from "{msg_type}" metadata: {resource_request}'
+            )
 
             self.resource_requests.append(resource_request)
             self.current_resource_request = resource_request
 
         remote_storage_name: Optional[str] = None
         if len(remote_storage_definition) > 0:
-            self.log.debug(f"Extracted ResourceRequest from \"{msg_type}\" metadata: {remote_storage_definition}")
+            self.log.debug(
+                f'Extracted ResourceRequest from "{msg_type}" metadata: {remote_storage_definition}'
+            )
 
-            remote_storage_name = self.register_remote_storage_definition(remote_storage_definition)
+            remote_storage_name = self.register_remote_storage_definition(
+                remote_storage_definition
+            )
 
         if len(workload_id) > 0:
-            self.log.debug(f"Extracted workload ID from \"{msg_type}\" metadata: {workload_id}")
+            self.log.debug(
+                f'Extracted workload ID from "{msg_type}" metadata: {workload_id}'
+            )
 
         gpu_device_ids: list[int] = metadata.get("gpu_device_ids", [])
 
@@ -1496,38 +1836,50 @@ class DistributedKernel(IPythonKernel):
             model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
 
         if model is None:
-            self.log.debug("Did not find any objects of type DeepLearningModel in the user namespace.")
+            self.log.debug(
+                "Did not find any objects of type DeepLearningModel in the user namespace."
+            )
             return
 
         if model.requires_checkpointing:
-            self.log.debug(f"Found model '{model.name}' in user namespace; however, model does not require checkpointing.")
+            self.log.debug(
+                f"Found model '{model.name}' in user namespace; however, model does not require checkpointing."
+            )
             return
 
         model_pointer: ModelPointer = ModelPointer(
-            deep_learning_model = model,
-            user_namespace_variable_name = "model",
-            model_path = os.path.join(self.store_path, model.name),
-            proposer_id = self.smr_node_id,
+            deep_learning_model=model,
+            user_namespace_variable_name="model",
+            model_path=os.path.join(self.store_path, model.name),
+            proposer_id=self.smr_node_id,
         )
 
-        self.log.debug(f"Checkpointing updated state of model '{model.name}' (on critical path)")
+        self.log.debug(
+            f"Checkpointing updated state of model '{model.name}' (on critical path)"
+        )
 
         st: float = time.time()
         await self._remote_checkpointer.write_state_dicts_async(model_pointer)
         et: float = time.time()
         duration_ms: float = (et - st) * 1.0e3
 
-        if self.prometheus_enabled and getattr(self, 'remote_storage_write_latency_milliseconds') is not None:
+        if (
+            self.prometheus_enabled
+            and getattr(self, "remote_storage_write_latency_milliseconds") is not None
+        ):
             self.remote_storage_write_latency_milliseconds.labels(
-                session_id=self.kernel_id,
-                workload_id=self.workload_id
+                session_id=self.kernel_id, workload_id=self.workload_id
             ).observe(duration_ms * 1e3)
 
-        self.current_execution_stats.upload_model_and_training_data_microseconds += (duration_ms * 1.0e3)
+        self.current_execution_stats.upload_model_and_training_data_microseconds += (
+            duration_ms * 1.0e3
+        )
         self.current_execution_stats.upload_model_start_unix_millis = st
         self.current_execution_stats.upload_model_end_unix_millis = et
 
-        self.log.debug(f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path).")
+        self.log.debug(
+            f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path)."
+        )
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -1540,7 +1892,8 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug(
             f"execute_request called for message with msg_id=\"{parent_header['msg_id']}\". "
-            f"identity frame(s): {str(ident)}")
+            f"identity frame(s): {str(ident)}"
+        )
 
         self.next_execute_request_msg_id: str = parent_header["msg_id"]
 
@@ -1562,24 +1915,29 @@ class DistributedKernel(IPythonKernel):
         except Exception as ex:
             self.log.error("Got bad msg: ")
             self.log.error("%s", parent)
-            self.report_error("Got Bad \"execute_request\" Message", f"Error: {ex}. Message: {parent}")
+            self.report_error(
+                'Got Bad "execute_request" Message', f"Error: {ex}. Message: {parent}"
+            )
             return
 
         stop_on_error = content.get("stop_on_error", True)
 
         metadata = self.init_metadata(parent)
-        metadata.update(parent['metadata'])
+        metadata.update(parent["metadata"])
 
         # Process the metadata included in the request.
         # If we get back a remote storage name, then we'll use it to simulate I/O after we finish the execution.
-        remote_storage_name, gpu_device_ids = await self.process_execute_request_metadata(parent_header["msg_id"],
-                                                                                         parent_header["msg_type"],
-                                                                                         metadata)
+        (
+            remote_storage_name,
+            gpu_device_ids,
+        ) = await self.process_execute_request_metadata(
+            parent_header["msg_id"], parent_header["msg_type"], metadata
+        )
 
         training_duration_millis: float = -1
         if "training_duration_millis" in metadata:
             try:
-                training_duration_millis = float(metadata['training_duration_millis'])
+                training_duration_millis = float(metadata["training_duration_millis"])
             except ValueError:
                 pass
 
@@ -1612,9 +1970,11 @@ class DistributedKernel(IPythonKernel):
             was_primary_replica = True
             del reply_content[LEADER_KEY]
 
-            performed_gpu_training: bool = reply_content.pop('performed_gpu_training', False)
-            term_number: int = reply_content.pop('term_number', -1)
-            code: str = reply_content.pop('code', None)
+            performed_gpu_training: bool = reply_content.pop(
+                "performed_gpu_training", False
+            )
+            term_number: int = reply_content.pop("term_number", -1)
+            code: str = reply_content.pop("code", None)
 
             assert term_number >= 0
             assert code is not None
@@ -1652,9 +2012,7 @@ class DistributedKernel(IPythonKernel):
 
         # Send the reply now.
         buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent,
-            -1,
-            execution_stats=self.current_execution_stats
+            parent, -1, execution_stats=self.current_execution_stats
         )
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
@@ -1666,7 +2024,7 @@ class DistributedKernel(IPythonKernel):
             buffers=buffers,
         )
 
-        self.log.debug(f"Sent \"execute_reply\" message: {reply_msg}")
+        self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
 
         if self.smr_enabled and was_primary_replica:
             # Synchronize.
@@ -1679,7 +2037,8 @@ class DistributedKernel(IPythonKernel):
         await_election_end_task: Optional[asyncio.Task] = None
         if self.smr_enabled and not was_primary_replica:
             await_election_end_task = asyncio.create_task(
-                self.synchronizer.wait_for_election_to_end(term_number))
+                self.synchronizer.wait_for_election_to_end(term_number)
+            )
 
             # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
             # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
@@ -1695,24 +2054,33 @@ class DistributedKernel(IPythonKernel):
             # TODO: Might there still be race conditions where one replica starts processing a future "execute_request"
             #       message before the others, and possibly starts a new election and proposes something before the
             #       others do?
-            self.log.debug(f"Waiting for election {term_number} "
-                           "to be totally finished before returning from execute_request function.")
+            self.log.debug(
+                f"Waiting for election {term_number} "
+                "to be totally finished before returning from execute_request function."
+            )
 
         # If we're supposed to write-after-execute, but the write operation is not supposed to be on the critical path,
         # then we'll perform the write now, as we already sent the "execute_reply" back to the Local Daemon. That will
         # allow the Local Daemon to release our GPU resources, and we can now perform the write operation off of the
         # critical path. The write operation will still block future executions from running if they arrive during the
         # write operation, but that's correct.
-        if not self.use_real_gpus and remote_storage_name is not None and self.simulate_write_after_execute and not self.simulate_write_after_execute_on_critical_path:
+        if (
+            not self.use_real_gpus
+            and remote_storage_name is not None
+            and self.simulate_write_after_execute
+            and not self.simulate_write_after_execute_on_critical_path
+        ):
             self.log.debug(
-                f"Performing post-execution simulated network write operation to '{remote_storage_name}' off of critical path.")
-            duration: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
+                f"Performing post-execution simulated network write operation to '{remote_storage_name}' off of critical path."
+            )
+            duration: float = await self.simulate_remote_checkpointing(
+                remote_storage_name, io_type="upload"
+            )
 
             # TODO: What if we receive next message before this completes?
             if duration > 0 and self.prometheus_enabled:
                 self.remote_storage_write_latency_milliseconds.labels(
-                    session_id=self.kernel_id,
-                    workload_id=self.workload_id
+                    session_id=self.kernel_id, workload_id=self.workload_id
                 ).observe(duration * 1e3)
 
         if self.smr_enabled and not was_primary_replica:
@@ -1726,12 +2094,14 @@ class DistributedKernel(IPythonKernel):
             self.execute_request_latency.observe(duration_ms)
 
     async def ping_kernel_ctrl_request(self, stream, ident, parent):
-        """ Respond to a 'ping kernel' Control request. """
+        """Respond to a 'ping kernel' Control request."""
         self.log.debug("Ping-Kernel (CONTROL) received.")
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in process_control.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent, -1
+        )
         self.log.debug(f"Embedding the following buffers in ping_reply: {buffers}")
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
@@ -1745,7 +2115,9 @@ class DistributedKernel(IPythonKernel):
         faulthandler.dump_traceback(file=sys.stderr)
 
         cond: bool = asyncio.get_running_loop() == self.io_loop.asyncio_loop  # type: ignore
-        cond2: bool = asyncio.get_running_loop() == self.control_thread.io_loop.asyncio_loop
+        cond2: bool = (
+            asyncio.get_running_loop() == self.control_thread.io_loop.asyncio_loop
+        )
 
         self.log.debug(f"Running event loop is self.io_loop: {cond}")
         self.log.debug(f"Running event loop is self.control_thread.io_loop: {cond2}")
@@ -1763,12 +2135,14 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(f"Sent ping_reply (control): {str(reply_msg)}")
 
     async def ping_kernel_shell_request(self, stream, ident, parent):
-        """ Respond to a 'ping kernel' Shell request. """
+        """Respond to a 'ping kernel' Shell request."""
         self.log.debug("Ping-Kernel (SHELL) received.")
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent, -1
+        )
 
         self.log.debug(f"Embedding the following buffers in ping_reply: {buffers}")
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
@@ -1798,50 +2172,64 @@ class DistributedKernel(IPythonKernel):
             first_election: Election = self.synchronizer.get_election(1)
 
             if first_election is None:
-                self.log.error("We've supposedly created the first election, "
-                               "but cannot find election with term number equal to 1.")
+                self.log.error(
+                    "We've supposedly created the first election, "
+                    "but cannot find election with term number equal to 1."
+                )
                 self.report_error(
                     "Cannot Find First Election",
                     f"Replica {self.smr_node_id} of kernel {self.kernel_id} thinks it created the first "
-                    "election, but it cannot find any record of that election..."
+                    "election, but it cannot find any record of that election...",
                 )
-                raise ValueError("We've supposedly created the first election, "
-                                 "but cannot find election with term number equal to 1.")
+                raise ValueError(
+                    "We've supposedly created the first election, "
+                    "but cannot find election with term number equal to 1."
+                )
 
             if not first_election.is_in_failed_state:
-                self.log.error(f"Current term number is 0, and we've created the first election, "
-                               f"but the election is not in failed state. Instead, it is in state "
-                               f"{first_election.election_state.get_name()}.")
+                self.log.error(
+                    f"Current term number is 0, and we've created the first election, "
+                    f"but the election is not in failed state. Instead, it is in state "
+                    f"{first_election.election_state.get_name()}."
+                )
                 self.report_error(
                     "Election State Error",
                     f"Replica {self.smr_node_id} of kernel {self.kernel_id} has current term number of 0, "
                     f"and it has created the first election, but the election is not in failed state. "
-                    f"Instead, it is in state {first_election.election_state.get_name()}."
+                    f"Instead, it is in state {first_election.election_state.get_name()}.",
                 )
-                raise ValueError(f"Current term number is 0, and we've created the first election, "
-                                 f"but the election is not in failed state. Instead, it is in state "
-                                 f"{first_election.election_state.get_name()}.")
+                raise ValueError(
+                    f"Current term number is 0, and we've created the first election, "
+                    f"but the election is not in failed state. Instead, it is in state "
+                    f"{first_election.election_state.get_name()}."
+                )
 
             term_number = 1
 
         try:
             if not self.synchronizer.is_election_finished(term_number):
-                self.log.warning(f"Previous election (term {term_number}) has not finished yet. "
-                                 f"Waiting for that election to finish before proceeding.")
+                self.log.warning(
+                    f"Previous election (term {term_number}) has not finished yet. "
+                    f"Waiting for that election to finish before proceeding."
+                )
 
                 # Wait for the last election to end.
                 await self.synchronizer.wait_for_election_to_end(term_number)
         except ValueError as ex:
-            self.log.warning(f"Encountered ValueError while checking status of previous election: {ex}")
+            self.log.warning(
+                f"Encountered ValueError while checking status of previous election: {ex}"
+            )
             self.report_error(
                 error_title=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Encountered a ValueError While Checking Status of Election {term_number}",
-                error_message=f"Error: {ex}. Kernel knows only about the following election terms: {self.synchronizer.get_known_election_terms()}"
+                error_message=f"Error: {ex}. Kernel knows only about the following election terms: {self.synchronizer.get_known_election_terms()}",
             )
         except Exception as ex:
-            self.log.error(f"Error encountered while checking status of previous election: {ex}")
+            self.log.error(
+                f"Error encountered while checking status of previous election: {ex}"
+            )
             self.report_error(
                 error_title=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} Encountered Unexpected {type(ex).__name__} While Checking Status of Election {term_number}",
-                error_message=f"Error: {ex}. Kernel knows only about the following election terms: {self.synchronizer.get_known_election_terms()}"
+                error_message=f"Error: {ex}. Kernel knows only about the following election terms: {self.synchronizer.get_known_election_terms()}",
             )
 
     async def yield_request(self, stream, ident, parent):
@@ -1866,7 +2254,8 @@ class DistributedKernel(IPythonKernel):
         self._associate_new_top_level_threads_with(parent_header)
         self.next_execute_request_msg_id: str = parent_header["msg_id"]
         self.log.debug(
-            f"yield_request with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel.")
+            f"yield_request with msg_id=\"{parent_header['msg_id']}\" called within the Distributed Python Kernel."
+        )
         self.log.debug("Parent: %s" % str(parent))
 
         if not self.session:
@@ -1878,20 +2267,24 @@ class DistributedKernel(IPythonKernel):
             silent = content.get("silent", False)
         except Exception as ex:
             self.log.error(f"Got bad msg: {parent}. Exception: {ex}")
-            self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-                title="Kernel Replica Received an Invalid \"yield_request\" Message",
-                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid \"yield_request\" message: {ex}.",
-                notificationType=ErrorNotification,
-                kernelId=self.kernel_id,
-                replicaId=self.smr_node_id,
-            ))
+            self.kernel_notification_service_stub.Notify(
+                gateway_pb2.KernelNotification(
+                    title='Kernel Replica Received an Invalid "yield_request" Message',
+                    message=f'Replica {self.smr_node_id} of Kernel {self.kernel_id} has received an invalid "yield_request" message: {ex}.',
+                    notificationType=ErrorNotification,
+                    kernelId=self.kernel_id,
+                    replicaId=self.smr_node_id,
+                )
+            )
             return
 
         stop_on_error = content.get("stop_on_error", True)
 
         metadata = self.init_metadata(parent)
 
-        await self.process_execute_request_metadata(parent_header["msg_id"], parent_header["msg_type"], metadata)
+        await self.process_execute_request_metadata(
+            parent_header["msg_id"], parent_header["msg_type"], metadata
+        )
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -1909,7 +2302,9 @@ class DistributedKernel(IPythonKernel):
                 raise err_wait_persistent_store
 
             current_term_number = self.synchronizer.execution_count + 1
-            self.log.info(f"Calling synchronizer.ready({current_term_number}) now with YIELD proposal.")
+            self.log.info(
+                f"Calling synchronizer.ready({current_term_number}) now with YIELD proposal."
+            )
 
             # Pass 'True' for the 'lead' parameter to propose LEAD.
             # Pass 'False' for the 'lead' parameter to propose YIELD.
@@ -1918,28 +2313,40 @@ class DistributedKernel(IPythonKernel):
             # Pass value > 0 to lead a specific execution.
             # In either case, the execution will wait until states are synchronized.
             # type: ignore
-            self.shell.execution_count = await self.synchronizer.ready(parent_header["msg_id"], current_term_number,
-                                                                       False)
+            self.shell.execution_count = await self.synchronizer.ready(
+                parent_header["msg_id"], current_term_number, False
+            )
 
-            self.log.info(f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
-                          f"shell.execution_count: {self.shell.execution_count}")
+            self.log.info(
+                f"Completed call to synchronizer.ready({current_term_number}) with YIELD proposal. "
+                f"shell.execution_count: {self.shell.execution_count}"
+            )
 
             if self.prometheus_enabled:
                 self.num_yield_proposals.inc()
 
             if self.shell.execution_count == 0:  # type: ignore
                 self.log.debug("I will NOT leading this execution.")
-                reply_content: dict[str, Any] = gen_error_response(err_failed_to_lead_execution)
+                reply_content: dict[str, Any] = gen_error_response(
+                    err_failed_to_lead_execution
+                )
                 # reply_content['yield-reason'] = TODO(Ben): Add this once I figure out how to extract it from the message payloads.
             else:
                 self.log.error(
-                    f"I've been selected to lead this execution ({self.shell.execution_count}), but I'm supposed to yield!")
+                    f"I've been selected to lead this execution ({self.shell.execution_count}), but I'm supposed to yield!"
+                )
 
                 # Notify the client that we will lead the execution (which is bad, in this case, as we were supposed to yield.)
-                self.session.send(self.iopub_socket, "smr_lead_after_yield",
-                                  {"term": self.synchronizer.execution_count + 1}, ident=self._topic(SMR_LEAD_TASK))
+                self.session.send(
+                    self.iopub_socket,
+                    "smr_lead_after_yield",
+                    {"term": self.synchronizer.execution_count + 1},
+                    ident=self._topic(SMR_LEAD_TASK),
+                )
         except Exception as e:
-            self.log.error(f"Error while yielding execution for term {current_term_number}: {e}")
+            self.log.error(
+                f"Error while yielding execution for term {current_term_number}: {e}"
+            )
             reply_content = gen_error_response(e)
             error_occurred = True
 
@@ -1975,7 +2382,9 @@ class DistributedKernel(IPythonKernel):
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent, -1
+        )
         reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
             stream,
             "execute_reply",
@@ -1988,7 +2397,9 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Sent the following reply after yield_request: %s" % reply_msg)
 
-        if not silent and error_occurred and stop_on_error:  # reply_msg["content"]["status"] == "error"
+        if (
+            not silent and error_occurred and stop_on_error
+        ):  # reply_msg["content"]["status"] == "error"
             self._abort_queues()
 
         # Commented-out:
@@ -2001,12 +2412,16 @@ class DistributedKernel(IPythonKernel):
         # in which case we can just return, as the code will presumably be resubmitted shortly.
         current_election: Election = self.synchronizer.current_election
         term_number: int = current_election.term_number
-        self.log.debug(f"Waiting for election {term_number} "
-                       "to be totally finished before returning from yield_request function.")
+        self.log.debug(
+            f"Waiting for election {term_number} "
+            "to be totally finished before returning from yield_request function."
+        )
         await self.synchronizer.wait_for_election_to_end(term_number)
         self.log.debug(f"Done with yield_request for term {term_number}.")
 
-    def copy_data_from_gpu_to_cpu(self, size_gb: float = 0, force: bool = False) -> None:
+    def copy_data_from_gpu_to_cpu(
+        self, size_gb: float = 0, force: bool = False
+    ) -> None:
         if size_gb == 0:
             return
 
@@ -2015,20 +2430,27 @@ class DistributedKernel(IPythonKernel):
             return
 
         if size_gb < 0:
-            self.log.error(f"Cannot copy data of negative size from GPU to CPU: {size_gb} GB")
+            self.log.error(
+                f"Cannot copy data of negative size from GPU to CPU: {size_gb} GB"
+            )
             return
 
-        bandwidth_gb_sec: float = np.random.normal(V100_AvgBandwidth_GbSec_DeviceToHost,
-                                                   V100_StdDevBandwidth_GbSec_DeviceToHost)
+        bandwidth_gb_sec: float = np.random.normal(
+            V100_AvgBandwidth_GbSec_DeviceToHost,
+            V100_StdDevBandwidth_GbSec_DeviceToHost,
+        )
         self.log.debug(
-            f"Copying {size_gb} GB of data from the GPU to main memory with bandwidth of {bandwidth_gb_sec} GB/s.")
+            f"Copying {size_gb} GB of data from the GPU to main memory with bandwidth of {bandwidth_gb_sec} GB/s."
+        )
 
         latency_sec: float = size_gb / bandwidth_gb_sec
         time.sleep(latency_sec)
 
         self.data_on_gpu = False
 
-    def copy_data_from_cpu_to_gpu(self, size_gb: float = 0, force: bool = False) -> None:
+    def copy_data_from_cpu_to_gpu(
+        self, size_gb: float = 0, force: bool = False
+    ) -> None:
         if size_gb == 0:
             return
 
@@ -2037,13 +2459,18 @@ class DistributedKernel(IPythonKernel):
             return
 
         if size_gb < 0:
-            self.log.error(f"Cannot copy data of negative size from CPU to GPU: {size_gb} GB")
+            self.log.error(
+                f"Cannot copy data of negative size from CPU to GPU: {size_gb} GB"
+            )
             return
 
-        bandwidth_gb_sec: float = np.random.normal(V100_AvgBandwidth_GbSec_HostToDevice,
-                                                   V100_StdDevBandwidth_GbSec_HostToDevice)
+        bandwidth_gb_sec: float = np.random.normal(
+            V100_AvgBandwidth_GbSec_HostToDevice,
+            V100_StdDevBandwidth_GbSec_HostToDevice,
+        )
         self.log.debug(
-            f"Copying {size_gb} GB of data from main memory to the GPU with bandwidth of {bandwidth_gb_sec} GB/s.")
+            f"Copying {size_gb} GB of data from main memory to the GPU with bandwidth of {bandwidth_gb_sec} GB/s."
+        )
 
         latency_sec: float = size_gb / bandwidth_gb_sec
         time.sleep(latency_sec)
@@ -2057,59 +2484,81 @@ class DistributedKernel(IPythonKernel):
 
         self.log.debug("Initializing CUDA runtime.")
 
-        cuda_init_latency_sec = np.random.normal(AverageCudaInitTimeSec, StandardDeviationCudaInitTimeSec)
+        cuda_init_latency_sec = np.random.normal(
+            AverageCudaInitTimeSec, StandardDeviationCudaInitTimeSec
+        )
         time.sleep(cuda_init_latency_sec)
 
         self.cuda_initialized = True
 
-    async def simulate_download_model_and_training_data(self, force: bool = False) -> tuple[float, float]:
+    async def simulate_download_model_and_training_data(
+        self, force: bool = False
+    ) -> tuple[float, float]:
         self.log.debug("Simulating the downloading of model and training data...")
 
         # If the model and training data are already downloaded, then just return (unless force is True).
         if self.model_and_training_data_downloaded and not force:
-            self.log.debug("Model and training data are already downloaded (simulated). Returning immediately.")
+            self.log.debug(
+                "Model and training data are already downloaded (simulated). Returning immediately."
+            )
             return 0.0, 0.0
 
         if self.use_real_gpus:
-            self.log.debug("We're using real GPUs. No need to simulate the downloading of model and training data.")
+            self.log.debug(
+                "We're using real GPUs. No need to simulate the downloading of model and training data."
+            )
             return 0.0, 0.0
 
         if self.current_resource_request is None:
-            self.log.warning("Current resource request is None; cannot simulate downloading model/training data...")
-            self.report_error('No Current Resource Request',
-                              f'Kernel {self.kernel_id} does not have a resource request, so it cannot '
-                              f'simulate network I/O...')
+            self.log.warning(
+                "Current resource request is None; cannot simulate downloading model/training data..."
+            )
+            self.report_error(
+                "No Current Resource Request",
+                f"Kernel {self.kernel_id} does not have a resource request, so it cannot "
+                f"simulate network I/O...",
+            )
             return 0.0, 0.0
 
         if self.current_resource_request.get("vram", 0) == 0:
-            self.log.debug("Latest resource request specifies 0GB for VRAM. Nothing to download.")
+            self.log.debug(
+                "Latest resource request specifies 0GB for VRAM. Nothing to download."
+            )
             return 0.0, 0.0
 
         vram_gb: float | int = self.current_resource_request.get("vram", -1)
 
         if vram_gb == -1:
-            self.report_error('Current Resource Request Does Not Specify VRAM',
-                              f'The current resource request for {self.kernel_id} does not have a VRAM entry, '
-                              f'so the kernel cannot simulate downloading model/training data...')
+            self.report_error(
+                "Current Resource Request Does Not Specify VRAM",
+                f"The current resource request for {self.kernel_id} does not have a VRAM entry, "
+                f"so the kernel cannot simulate downloading model/training data...",
+            )
             return 0.0, 0.0
 
         vram_mb: float = vram_gb * 1.0e3
         vram_bytes: int = int(vram_mb * 1e6)
 
-        self.log.debug(f"Downloading model and training data. Combined size: {vram_mb:,} MB.")
+        self.log.debug(
+            f"Downloading model and training data. Combined size: {vram_mb:,} MB."
+        )
         download_model_duration: float = await self.simulate_remote_checkpointing(
-            None, io_type="download", vram_bytes = vram_bytes // 2)
-        download_training_data_duration: float = await self.simulate_remote_checkpointing(
-            None, io_type="download", vram_bytes = vram_bytes // 2)
+            None, io_type="download", vram_bytes=vram_bytes // 2
+        )
+        download_training_data_duration: float = (
+            await self.simulate_remote_checkpointing(
+                None, io_type="download", vram_bytes=vram_bytes // 2
+            )
+        )
 
         return download_model_duration, download_training_data_duration
 
     def download_runtime_dependencies(
-            self,
-            n: int = 5,
-            avg_latency: float = 5.0,
-            std_dev_latency: float = 1.0,
-            force: bool = False,
+        self,
+        n: int = 5,
+        avg_latency: float = 5.0,
+        std_dev_latency: float = 1.0,
+        force: bool = False,
     ) -> None:
         """
         Simulate the downloading of runtime dependencies.
@@ -2123,12 +2572,33 @@ class DistributedKernel(IPythonKernel):
         if self.runtime_dependencies_downloaded and not force:
             return
 
-        self.log.debug("Downloading runtime dependencies (e.g., PyTorch, TensorFlow, etc.).")
+        self.log.debug(
+            "Downloading runtime dependencies (e.g., PyTorch, TensorFlow, etc.)."
+        )
 
         # We're just going to randomly select ~5 dependencies to pretend to download.
-        dependencies = ["TensorFlow", "PyTorch", "scikit-learn", "XGBoost", "LightGBM", "Hugging Face Transformers",
-                        "NumPy", "SciPy", "Pandas", "Matplotlib", "Seaborn", "Plotly", "TensorBoard", "Dask", "Ray",
-                        "Horovod", "OpenCV", "Pillow (PIL)", "NLTK/SpaCy", "Fastai"]
+        dependencies = [
+            "TensorFlow",
+            "PyTorch",
+            "scikit-learn",
+            "XGBoost",
+            "LightGBM",
+            "Hugging Face Transformers",
+            "NumPy",
+            "SciPy",
+            "Pandas",
+            "Matplotlib",
+            "Seaborn",
+            "Plotly",
+            "TensorBoard",
+            "Dask",
+            "Ray",
+            "Horovod",
+            "OpenCV",
+            "Pillow (PIL)",
+            "NLTK/SpaCy",
+            "Fastai",
+        ]
         dependencies_subset = random.sample(dependencies, n)
 
         latency: float = np.random.normal(avg_latency, std_dev_latency)
@@ -2153,19 +2623,25 @@ class DistributedKernel(IPythonKernel):
             self.initialize_cuda_runtime()
             init_cuda_ms: float = (time.time() - init_cuda_start) * 1.0e3
             self.log.debug(f"Initialized CUDA runtime in {init_cuda_ms} ms.")
-            self.current_execution_stats.cuda_init_microseconds = init_cuda_ms * 1.0e3  # it's already in milliseconds
+            self.current_execution_stats.cuda_init_microseconds = (
+                init_cuda_ms * 1.0e3
+            )  # it's already in milliseconds
 
         if not self.data_on_gpu:
             copy_data_to_gpu_start: float = time.time()
             self.copy_data_from_cpu_to_gpu(size_gb=vram_size_gb)
             copy_data_to_gpu_ms: float = (time.time() - copy_data_to_gpu_start) * 1.0e3
-            self.log.debug(f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms.")
-            self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = copy_data_to_gpu_ms * 1.0e3  # it's already in milliseconds
+            self.log.debug(
+                f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms."
+            )
+            self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = (
+                copy_data_to_gpu_ms * 1.0e3
+            )  # it's already in milliseconds
 
     async def get_custom_training_code(
-            self,
-            training_duration_millis: float,
-            gpu_device_ids: list[int] = None,
+        self,
+        training_duration_millis: float,
+        gpu_device_ids: list[int] = None,
     ) -> str:
         if not self.use_real_gpus:
             return f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
@@ -2176,32 +2652,40 @@ class DistributedKernel(IPythonKernel):
 
         if self.model is None:
             self.log.debug("Creating ResNet-18 model.")
-            self.model = ResNet18()
+            self.model = ResNet18(created_for_first_time=True)
             self.log.debug("Creating CIFAR-10 dataset.")
             self.dataset = CIFAR10()
 
-        download_code:str = ""
+        download_code: str = ""
         if not self.smr_enabled or self.num_replicas <= 1:
             async with self._user_ns_lock:
-                existing_model: Optional[DeepLearningModel | Any] = self.shell.user_ns.get("model", None)
+                existing_model: Optional[DeepLearningModel | Any] = (
+                    self.shell.user_ns.get("model", None)
+                )
 
-                if existing_model is not None and not isinstance(existing_model, DeepLearningModel):
-                    self.log.warning(f"Found existing variable 'model' in shell user namespace of type "
-                                     f"'{type(existing_model).__name__}'. Variable will be overwritten with "
-                                     f"DeepLearningModel 'ResNet-18'.")
-                    existing_model = None # So that we pass None for the existing_model argument below.
+                if existing_model is not None and not isinstance(
+                    existing_model, DeepLearningModel
+                ):
+                    self.log.warning(
+                        f"Found existing variable 'model' in shell user namespace of type "
+                        f"'{type(existing_model).__name__}'. Variable will be overwritten with "
+                        f"DeepLearningModel 'ResNet-18'."
+                    )
+                    existing_model = None  # So that we pass None for the existing_model argument below.
 
                 if existing_model is not None:
                     self.shell.user_ns["__existing_model__"] = existing_model
-                    existing_model_code:str = "__existing_model__"
+                    existing_model_code: str = "__existing_model__"
                 else:
-                    existing_model_code:str = "None"
+                    existing_model_code: str = "None"
 
-                self.shell.user_ns["__download_func__"] = self.__load_model_from_remote_storage
+                self.shell.user_ns["__download_func__"] = (
+                    self.__load_model_from_remote_storage
+                )
                 self.shell.user_ns["__model_pointer__"] = ModelPointer(
-                    deep_learning_model = self.model,
-                    user_namespace_variable_name = "model", # __model_pointer__ is temporary; the actual variable we want to use is the 'model' variable.
-                    model_path = os.path.join(self.store_path, self.model.name)
+                    deep_learning_model=self.model,
+                    user_namespace_variable_name="model",  # __model_pointer__ is temporary; the actual variable we want to use is the 'model' variable.
+                    model_path=os.path.join(self.store_path, self.model.name),
                 )
                 download_code: str = f"""
 
@@ -2223,7 +2707,7 @@ if 'model' not in locals() and 'model' not in globals():
     # Create the model.
     # For now, we've hard-coded the ResNet-18 model, but in the future, we will use whatever 
     # model has been assigned to the associated session by the workload driver.
-    model = ResNet18()
+    model = ResNet18(created_for_first_time = True)
     
     # Create the dataset. This will download the dataset if it is not present locally.
     dataset = CIFAR10()
@@ -2242,10 +2726,10 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 """
 
     async def primary_replica_protocol(
-            self,
-            term_number: int = -1,
-            election_start: float = time.time(),
-            jupyter_message_id: str = "",
+        self,
+        term_number: int = -1,
+        election_start: float = time.time(),
+        jupyter_message_id: str = "",
     ):
         assert term_number >= 0
 
@@ -2260,15 +2744,17 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         # In either case, the execution will wait until states are synchronized.
         # type: ignore
         self.shell.execution_count = await self.synchronizer.ready(
-            jupyter_message_id,
-            term_number,
-            True
+            jupyter_message_id, term_number, True
         )
 
-        self.current_execution_stats.leader_election_microseconds = int((time.time() - election_start) * 1.0e6)
+        self.current_execution_stats.leader_election_microseconds = int(
+            (time.time() - election_start) * 1.0e6
+        )
 
-        self.log.info(f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
-                      f"shell.execution_count: {self.shell.execution_count}")
+        self.log.info(
+            f"Completed call to synchronizer.ready({term_number}) with LEAD proposal. "
+            f"shell.execution_count: {self.shell.execution_count}"
+        )
 
         if self.prometheus_enabled:
             self.num_lead_proposals.inc()
@@ -2280,18 +2766,18 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         return True
 
     async def do_execute(
-            self,
-            code: str,
-            silent: bool,
-            store_history: bool = True,
-            user_expressions: dict = None,
-            allow_stdin: bool = False,
-            remote_storage_name: Optional[str] = None,
-            training_duration_millis: float = -1,
-            gpu_device_ids: list[int] = None,
-            *,
-            cell_meta=None,
-            cell_id=None
+        self,
+        code: str,
+        silent: bool,
+        store_history: bool = True,
+        user_expressions: dict = None,
+        allow_stdin: bool = False,
+        remote_storage_name: Optional[str] = None,
+        training_duration_millis: float = -1,
+        gpu_device_ids: list[int] = None,
+        *,
+        cell_meta=None,
+        cell_id=None,
     ):
         """
         Execute user code. This is part of the official Jupyter kernel API.
@@ -2318,34 +2804,41 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             https://jupyter-client.readthedocs.io/en/latest/messaging.html#execution-results
         """
         if len(code) > 0:
-            self.log.info("DistributedKernel is preparing to execute some code: %s\n\n", code)
+            self.log.info(
+                "DistributedKernel is preparing to execute some code: %s\n\n", code
+            )
         else:
-            self.log.warning("DistributedKernel is preparing to execute empty codeblock...\n\n")
+            self.log.warning(
+                "DistributedKernel is preparing to execute empty codeblock...\n\n"
+            )
 
         # Make sure we have some GPU device IDs if we're using real GPUs.
         if self.use_real_gpus and (gpu_device_ids is None or len(gpu_device_ids) == 0):
-            self.log.error("We're using real GPUs, but we've not been assigned any GPU device IDs...")
+            self.log.error(
+                "We're using real GPUs, but we've not been assigned any GPU device IDs..."
+            )
             self.report_error(
                 f"Replica {self.smr_node_id} of Kernel '{self.kernel_id}' Was Not Assigned Any GPU Device IDs",
                 f"Replica {self.smr_node_id} of kernel '{self.kernel_id}' was not assigned any GPU device "
-                f"IDs for 'execute_request' message '{self.next_execute_request_msg_id}'"
+                f"IDs for 'execute_request' message '{self.next_execute_request_msg_id}'",
             )
-            gpu_device_ids = [0] # Default to this for now.
+            gpu_device_ids = [0]  # Default to this for now.
 
         # Special code to initialize persistent store
-        if code[:len(key_persistent_id)] == key_persistent_id:
+        if code[: len(key_persistent_id)] == key_persistent_id:
             self.log.debug(
-                "Using special code to initialize persistent store: \"%s\"" % code)
+                'Using special code to initialize persistent store: "%s"' % code
+            )
             return await asyncio.ensure_future(self.init_persistent_store(code))
 
         # Ensure persistent store is ready
         if not await self.check_persistent_store():
             async with self._user_ns_lock:
-                persistent_id = self.shell.user_ns.get('persistent_id', None)
+                persistent_id = self.shell.user_ns.get("persistent_id", None)
 
             if persistent_id is not None:
                 self.persistent_id = persistent_id
-                code = "persistent_id = \"%s\"" % self.persistent_id
+                code = 'persistent_id = "%s"' % self.persistent_id
                 await asyncio.ensure_future(self.init_persistent_store(code))
 
         # Check the status of the last election before proceeding.
@@ -2360,23 +2853,27 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 raise err_wait_persistent_store
 
             term_number = self.synchronizer.execution_count + 1
-            self.log.info(f"Calling synchronizer.ready({term_number}) now with LEAD proposal.")
+            self.log.info(
+                f"Calling synchronizer.ready({term_number}) now with LEAD proposal."
+            )
 
             election_start: float = time.time()
             is_primary_replica: bool = await self.primary_replica_protocol(
-                term_number = term_number,
-                election_start = election_start,
-                jupyter_message_id = self.next_execute_request_msg_id,
+                term_number=term_number,
+                election_start=election_start,
+                jupyter_message_id=self.next_execute_request_msg_id,
             )
 
             if not is_primary_replica:
                 raise err_failed_to_lead_execution
 
-            self.log.debug(f"I WILL lead this execution ({self.shell.execution_count}).")
+            self.log.debug(
+                f"I WILL lead this execution ({self.shell.execution_count})."
+            )
             self.current_execution_stats.won_election = True
 
             if not self.use_real_gpus:
-                vram_size_gb = self.current_resource_request.get('vram', 0)
+                vram_size_gb = self.current_resource_request.get("vram", 0)
                 self.perform_initializations(vram_size_gb=vram_size_gb)
 
             # Notify the client that we will lead the execution.
@@ -2385,11 +2882,15 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             content: dict[str, str | float | bool] = {
                 "gpu": True,
                 "msg_created_at_unix_milliseconds": time.time_ns() // 1_000_000,
-                "execute_request_msg_id": self.next_execute_request_msg_id
+                "execute_request_msg_id": self.next_execute_request_msg_id,
             }
 
-            self.session.send(self.iopub_socket, SMR_LEAD_TASK, content,
-                              ident=self._topic(SMR_LEAD_TASK))  # type: ignore
+            self.session.send(
+                self.iopub_socket,
+                SMR_LEAD_TASK,
+                content,
+                ident=self._topic(SMR_LEAD_TASK),
+            )  # type: ignore
 
             reply_content, performed_gpu_training, code = await self.execute_user_code(
                 training_duration_millis=training_duration_millis,
@@ -2401,21 +2902,23 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             self.toggle_outstream(override=True, enable=True)
 
             reply_content[LEADER_KEY] = True
-            reply_content['term_number'] = term_number
-            reply_content['performed_gpu_training'] = performed_gpu_training
-            reply_content['code'] = code
+            reply_content["term_number"] = term_number
+            reply_content["performed_gpu_training"] = performed_gpu_training
+            reply_content["code"] = code
         except ExecutionYieldError as eye:
             self.log.info("Execution yielded: {}".format(eye))
 
             reply_content = gen_error_response(eye)
         except DiscardMessageError as dme:
-            self.log.warning(f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
-                             f"as election for term {term_number} was skipped: {dme}")
+            self.log.warning(
+                f"Received direction to discard Jupyter Message {self.next_execute_request_msg_id}, "
+                f"as election for term {term_number} was skipped: {dme}"
+            )
 
             self.send_notification(
                 notification_title=f"Election {term_number} Skipped by Replica {self.smr_node_id} of Kernel {self.kernel_id}",
-                notification_body=f"\"execute_request\" message {self.next_execute_request_msg_id} was dropped by replica "
-                                  f"{self.smr_node_id} of kernel {self.kernel_id}, as associated election (term={term_number}) was skipped.",
+                notification_body=f'"execute_request" message {self.next_execute_request_msg_id} was dropped by replica '
+                f"{self.smr_node_id} of kernel {self.kernel_id}, as associated election (term={term_number}) was skipped.",
                 notification_type=WarningNotification,
             )
 
@@ -2430,14 +2933,14 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         return reply_content
 
     async def execute_user_code(
-            self,
-            training_duration_millis: float = 0,
-            code: str = "",
-            silent: bool = False,
-            store_history: bool = True,
-            user_expressions: dict = None,
-            allow_stdin: bool = False,
-            gpu_device_ids: list[int] = None,
+        self,
+        training_duration_millis: float = 0,
+        code: str = "",
+        silent: bool = False,
+        store_history: bool = True,
+        user_expressions: dict = None,
+        allow_stdin: bool = False,
+        gpu_device_ids: list[int] = None,
     ) -> tuple[Dict[str, Any], bool, str]:
         """
         Execute the user-submitted code.
@@ -2452,8 +2955,10 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         performed_gpu_training: bool = False
         if training_duration_millis > 0:
-            self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
-                           f"Discarding specified code. Will use custom training code instead.")
+            self.log.debug(
+                f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
+                f"Discarding specified code. Will use custom training code instead."
+            )
             code = await self.get_custom_training_code(
                 training_duration_millis=training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
@@ -2461,8 +2966,10 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             performed_gpu_training = True
         elif "training_duration_millis = " in code:
             training_duration_millis = int(float(code[27:]))
-            self.log.debug(f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
-                           f"Discarding specified code. Will use custom training code instead.")
+            self.log.debug(
+                f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
+                f"Discarding specified code. Will use custom training code instead."
+            )
             code = await self.get_custom_training_code(
                 training_duration_millis=training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
@@ -2477,19 +2984,34 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         # Execute code
         reply_routing = super().do_execute(
-            code, silent, store_history=store_history,
-            user_expressions=user_expressions, allow_stdin=allow_stdin)
+            code,
+            silent,
+            store_history=store_history,
+            user_expressions=user_expressions,
+            allow_stdin=allow_stdin,
+        )
 
         # Wait for the settlement of variables.
         reply_content = await reply_routing
         self.current_execution_stats.execution_end_unix_millis = time.time() * 1.0e3
-        exec_duration_millis: float = self.current_execution_stats.execution_end_unix_millis - self.current_execution_stats.execution_start_unix_millis
-        self.current_execution_stats.execution_time_microseconds = exec_duration_millis * 1.0e3
-        reply_content['execution_start_unix_millis'] = self.current_execution_stats.execution_start_unix_millis
-        reply_content['execution_finished_unix_millis'] = self.current_execution_stats.execution_end_unix_millis
+        exec_duration_millis: float = (
+            self.current_execution_stats.execution_end_unix_millis
+            - self.current_execution_stats.execution_start_unix_millis
+        )
+        self.current_execution_stats.execution_time_microseconds = (
+            exec_duration_millis * 1.0e3
+        )
+        reply_content["execution_start_unix_millis"] = (
+            self.current_execution_stats.execution_start_unix_millis
+        )
+        reply_content["execution_finished_unix_millis"] = (
+            self.current_execution_stats.execution_end_unix_millis
+        )
 
-        self.log.info(f"Finished executing user-submitted code in {exec_duration_millis} ms. "
-                      f"Returning the following content: {reply_content}")
+        self.log.info(
+            f"Finished executing user-submitted code in {exec_duration_millis} ms. "
+            f"Returning the following content: {reply_content}"
+        )
 
         return reply_content, performed_gpu_training, code
 
@@ -2504,11 +3026,15 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         :param term_number: the term for which we're performing the state synchronization.
         """
         if not self.smr_enabled:
-            self.log.debug("SMR is not enabled. Skipping updated state synchronization.")
+            self.log.debug(
+                "SMR is not enabled. Skipping updated state synchronization."
+            )
             return
 
         if self.execution_ast is None:
-            self.log.warning("Execution AST is None. Synchronization will likely fail...")
+            self.log.warning(
+                "Execution AST is None. Synchronization will likely fail..."
+            )
         else:
             self.log.debug("Synchronizing now. Execution AST is NOT None.")
 
@@ -2521,19 +3047,23 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         except Exception as exc:
             self.log.error(f"Synchronization failed: {exc}")
             synchronized_successfully = False
-            self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-                title="Synchronization Error",
-                message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has experienced a synchronization error: {exc}.",
-                notificationType=ErrorNotification,
-                kernelId=self.kernel_id,
-                replicaId=self.smr_node_id,
-            ))
+            self.kernel_notification_service_stub.Notify(
+                gateway_pb2.KernelNotification(
+                    title="Synchronization Error",
+                    message=f"Replica {self.smr_node_id} of Kernel {self.kernel_id} has experienced a synchronization error: {exc}.",
+                    notificationType=ErrorNotification,
+                    kernelId=self.kernel_id,
+                    replicaId=self.smr_node_id,
+                )
+            )
         sync_end_time: float = time.time() * 1.0e3
         sync_duration_millis: float = sync_end_time - sync_start_time
 
         if synchronized_successfully:
-            self.log.debug(f"Successfully synchronized updated state from term {term_number} "
-                           f"with peers in {sync_duration_millis} ms.")
+            self.log.debug(
+                f"Successfully synchronized updated state from term {term_number} "
+                f"with peers in {sync_duration_millis} ms."
+            )
             self.current_execution_stats.sync_start_unix_millis = sync_start_time
             self.current_execution_stats.sync_end_unix_millis = sync_end_time
             self.current_execution_stats.sync_duration_millis = sync_duration_millis
@@ -2544,8 +3074,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         assert self.execution_count is not None
 
     async def extract_mem_copy_times(
-            self,
-            code: str = "",
+        self,
+        code: str = "",
     ):
         """
         Extract the latencies of copying memory from the CPU to the GPU and from the GPU to the CPU from the model
@@ -2560,8 +3090,10 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             return
 
         if "model" not in code:
-            self.log.debug("Found 'model' variable in user namespace; "
-                           "however, 'model' was not referenced in last executed user-submitted code.")
+            self.log.debug(
+                "Found 'model' variable in user namespace; "
+                "however, 'model' was not referenced in last executed user-submitted code."
+            )
             return
 
         assert len(model.gpu_to_cpu_times) > 0
@@ -2572,32 +3104,40 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         gpu2cpu_micros: float = model.cpu_to_gpu_times[-1]
 
         # Store the most recent copy times for both directions in the current ExecutionStats.
-        self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = cpu2gpu_micros
-        self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = gpu2cpu_micros
+        self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = (
+            cpu2gpu_micros
+        )
+        self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = (
+            gpu2cpu_micros
+        )
 
         self.log.debug(
-            f"Retrieved most recent CPU to GPU time from model in shell user namespace: {cpu2gpu_micros} µs")
+            f"Retrieved most recent CPU to GPU time from model in shell user namespace: {cpu2gpu_micros} µs"
+        )
         self.log.debug(
-            f"Retrieved most recent GPU to CPU time from model in shell user namespace: {gpu2cpu_micros} µs")
+            f"Retrieved most recent GPU to CPU time from model in shell user namespace: {gpu2cpu_micros} µs"
+        )
 
     async def extract_dataset_download_latency(
-            self,
-            code: str = "",
+        self,
+        code: str = "",
     ):
         """
         Inspect the 'dataset' variable from the user namespace and determine if we need to record its download
         latency for the execution request that we're currently processing.
         """
         async with self._user_ns_lock:
-            dataset: Optional[Dataset] = self.shell.user_ns.get("dataset", None)
+            dataset: Optional[CustomDataset] = self.shell.user_ns.get("dataset", None)
 
         if dataset is None:
             self.log.debug("Could not find 'dataset' variable in user namespace.")
             return
 
         if "dataset" not in code:
-            self.log.debug("Found 'dataset' variable in user namespace; "
-                           "however, 'dataset' was not referenced in the last executed user-submitted code.")
+            self.log.debug(
+                "Found 'dataset' variable in user namespace; "
+                "however, 'dataset' was not referenced in the last executed user-submitted code."
+            )
             return
 
         dataset_already_downloaded: bool = dataset.dataset_already_downloaded
@@ -2607,52 +3147,71 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         # If the dataset was not already downloaded, then record the time
         # it took to download the dataset in the current execution stats.
-        self.log.debug("Dataset was NOT already downloaded. Extracting download times now.")
-        self.current_execution_stats.download_training_data_microseconds = dataset.download_duration_sec * 1.0e6
+        self.log.debug(
+            "Dataset was NOT already downloaded. Extracting download times now."
+        )
+        self.current_execution_stats.download_training_data_microseconds = (
+            dataset.download_duration_sec * 1.0e6
+        )
 
-        self.current_execution_stats.download_training_data_start_unix_millis = dataset.download_start
-        self.current_execution_stats.download_training_data_end_unix_millis = dataset.download_end
+        self.current_execution_stats.download_training_data_start_unix_millis = (
+            dataset.download_start
+        )
+        self.current_execution_stats.download_training_data_end_unix_millis = (
+            dataset.download_end
+        )
 
     async def handle_post_execution_overheads(
-            self,
-            remote_storage_name: Optional[str] = None,
-            performing_gpu_training: bool = False,
-            code: str = "",
+        self,
+        remote_storage_name: Optional[str] = None,
+        performing_gpu_training: bool = False,
+        code: str = "",
     ):
         if not self.use_real_gpus and self.data_on_gpu:
-            vram_size_gb = self.current_resource_request.get('vram', 0)
+            vram_size_gb = self.current_resource_request.get("vram", 0)
             copy_data_to_cpu_start: float = time.time()
             self.copy_data_from_gpu_to_cpu(size_gb=vram_size_gb)
             copy_data_to_cpu_ms: float = (time.time() - copy_data_to_cpu_start) * 1.0e3
             self.log.debug(
-                f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms.")
-            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = copy_data_to_cpu_ms * 1.0e3  # it's already in milliseconds
+                f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms."
+            )
+            self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = (
+                copy_data_to_cpu_ms * 1.0e3
+            )  # it's already in milliseconds
 
-            if remote_storage_name is not None and self.simulate_write_after_execute and self.simulate_write_after_execute_on_critical_path:
+            if (
+                remote_storage_name is not None
+                and self.simulate_write_after_execute
+                and self.simulate_write_after_execute_on_critical_path
+            ):
                 self.log.debug(
-                    f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path.")
-                duration_sec: float = await self.simulate_remote_checkpointing(remote_storage_name, io_type="upload")
+                    f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path."
+                )
+                duration_sec: float = await self.simulate_remote_checkpointing(
+                    remote_storage_name, io_type="upload"
+                )
 
                 if duration_sec > 0 and self.prometheus_enabled:
                     self.remote_storage_write_latency_milliseconds.labels(
-                        session_id=self.kernel_id,
-                        workload_id=self.workload_id
+                        session_id=self.kernel_id, workload_id=self.workload_id
                     ).observe(duration_sec * 1e3)
 
                     self.delay_milliseconds.labels(
-                        session_id=self.kernel_id,
-                        workload_id=self.workload_id).inc(duration_sec * 1e3)
+                        session_id=self.kernel_id, workload_id=self.workload_id
+                    ).inc(duration_sec * 1e3)
 
-                self.current_execution_stats.upload_runtime_dependencies_microseconds = duration_sec * 1.0e6
+                self.current_execution_stats.upload_runtime_dependencies_microseconds = (
+                    duration_sec * 1.0e6
+                )
         elif self.use_real_gpus and performing_gpu_training:
-            await self.extract_mem_copy_times(code = code)
-            await self.extract_dataset_download_latency(code = code)
+            await self.extract_mem_copy_times(code=code)
+            await self.extract_dataset_download_latency(code=code)
 
     async def simulate_remote_checkpointing(
-            self,
-            remote_storage_name: Optional[str],
-            io_type: Optional[str] = None,
-            vram_bytes: float = -1,
+        self,
+        remote_storage_name: Optional[str],
+        io_type: Optional[str] = None,
+        vram_bytes: float = -1,
     ) -> float:
         """
         Simulate checkpointing using the current resource request and the specified remote storage name.
@@ -2663,66 +3222,93 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         io_type must be "read", "write", "upload", or "download" (case-insensitive).
         """
         if not self.simulate_checkpointing_latency:
-            self.log.debug(f"Checkpointing is disabled. Skipping simulation of network {io_type} "
-                           f"targeting remote storage {remote_storage_name}.")
+            self.log.debug(
+                f"Checkpointing is disabled. Skipping simulation of network {io_type} "
+                f"targeting remote storage {remote_storage_name}."
+            )
             return 0
 
         if io_type is None:
             raise ValueError("must specify an IO type")
 
         io_type = io_type.lower()
-        if io_type != "read" and io_type != "write" and io_type != "upload" and io_type != "download":
-            raise ValueError(f"unknown/unsupported IO type specified: \"{io_type}\"")
+        if (
+            io_type != "read"
+            and io_type != "write"
+            and io_type != "upload"
+            and io_type != "download"
+        ):
+            raise ValueError(f'unknown/unsupported IO type specified: "{io_type}"')
 
         if self.current_resource_request is None:
-            self.log.error("Current resource request is None; cannot simulate checkpointing...")
-            self.report_error('No Current Resource Request',
-                              f'Kernel {self.kernel_id} does not have a resource request, so it cannot '
-                              f'simulate checkpointing with specified remote storage "{remote_storage_name}"...')
+            self.log.error(
+                "Current resource request is None; cannot simulate checkpointing..."
+            )
+            self.report_error(
+                "No Current Resource Request",
+                f"Kernel {self.kernel_id} does not have a resource request, so it cannot "
+                f'simulate checkpointing with specified remote storage "{remote_storage_name}"...',
+            )
             return 0
 
         if self.current_resource_request.get("vram", 0) == 0:
-            self.log.debug("Latest resource request specifies 0GB for VRAM. Nothing to checkpoint.")
+            self.log.debug(
+                "Latest resource request specifies 0GB for VRAM. Nothing to checkpoint."
+            )
             return 0
 
         if self.remote_storages is None or len(self.remote_storages) == 0:
-            self.log.warning("No remote storages registered; cannot simulate checkpointing...")
-            self.report_error(f'Unknown Remote Storage "{remote_storage_name}"',
-                              f'Could not find requested remote storage "{remote_storage_name}" to simulate '
-                              f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"')
+            self.log.warning(
+                "No remote storages registered; cannot simulate checkpointing..."
+            )
+            self.report_error(
+                f'Unknown Remote Storage "{remote_storage_name}"',
+                f'Could not find requested remote storage "{remote_storage_name}" to simulate '
+                f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"',
+            )
             return 0
 
         if remote_storage_name is None or remote_storage_name == "":
-            self.log.info("No remote storage specified. Will select most-recently-used remote storage.")
+            self.log.info(
+                "No remote storage specified. Will select most-recently-used remote storage."
+            )
             # If we have more than one remote storage registered, then we'll just use whatever remote storage was
             # used most recently.
-            simulated_checkpointer: Optional[SimulatedCheckpointer] = self.get_most_recently_used_remote_storage()
+            simulated_checkpointer: Optional[SimulatedCheckpointer] = (
+                self.get_most_recently_used_remote_storage()
+            )
             if simulated_checkpointer is None:
                 assert self.remote_storages is None or len(self.remote_storages) == 0
                 self.log.warning("No simulated check-pointers identified.")
 
             remote_storage_name = simulated_checkpointer.name
             self.log.debug(
-                f"Identified remote storage \"{simulated_checkpointer.name}\" as most-recently-used checkpointer.")
+                f'Identified remote storage "{simulated_checkpointer.name}" as most-recently-used checkpointer.'
+            )
         else:
-            simulated_checkpointer: Optional[SimulatedCheckpointer] = self.remote_storages.get(remote_storage_name,
-                                                                                               None)
+            simulated_checkpointer: Optional[SimulatedCheckpointer] = (
+                self.remote_storages.get(remote_storage_name, None)
+            )
 
         # Verify that the requested SimulatedCheckpointer has been registered, as we cannot perform the
         # simulated checkpointing if it has not been registered.
         if simulated_checkpointer is None:
-            self.report_error(f'Unknown Remote Storage "{remote_storage_name}"',
-                              f'Could not find requested remote storage "{remote_storage_name}" to simulate '
-                              f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"')
+            self.report_error(
+                f'Unknown Remote Storage "{remote_storage_name}"',
+                f'Could not find requested remote storage "{remote_storage_name}" to simulate '
+                f'checkpointing after processing "execute_request" "{self.next_execute_request_msg_id}"',
+            )
             return 0
 
         if vram_bytes < 0:
             vram_gb: float | int = self.current_resource_request.get("vram", -1)
 
             if vram_gb == -1:
-                self.report_error('Current Resource Request Does Not Specify VRAM',
-                                  f'The current resource request for {self.kernel_id} does not have a VRAM entry, '
-                                  f'so the kernel cannot simulate checkpointing with specified remote storage "{remote_storage_name}"...')
+                self.report_error(
+                    "Current Resource Request Does Not Specify VRAM",
+                    f"The current resource request for {self.kernel_id} does not have a VRAM entry, "
+                    f'so the kernel cannot simulate checkpointing with specified remote storage "{remote_storage_name}"...',
+                )
                 return 0
 
             vram_bytes: int = int(vram_gb * 1e9)
@@ -2738,23 +3324,31 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         start_time: float = time.time()
         try:
-            self.log.debug(f"Simulating remote {io_type} of size {format_size(vram_bytes)} "
-                           f"bytes targeting remote storage {simulated_checkpointer.name}. "
-                           f"I/O rate: {rate_formatted}. "
-                           f"Expected time to complete I/O operation: {get_estimated_io_time_seconds(size_bytes=vram_bytes, rate=rate)} seconds.")
-            await simulation_func(size_bytes = int(vram_bytes))
+            self.log.debug(
+                f"Simulating remote {io_type} of size {format_size(vram_bytes)} "
+                f"bytes targeting remote storage {simulated_checkpointer.name}. "
+                f"I/O rate: {rate_formatted}. "
+                f"Expected time to complete I/O operation: {get_estimated_io_time_seconds(size_bytes=vram_bytes, rate=rate)} seconds."
+            )
+            await simulation_func(size_bytes=int(vram_bytes))
         except Exception as exc:
             traceback.print_exc()
-            self.log.error(f"{type(exc).__name__} while simulating checkpointing with remote storage "
-                           f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {exc}")
-            self.report_error(f'Kernel "{self.kernel_id}" Failed to Simulate Checkpointing',
-                              f"{type(exc).__name__} while simulating checkpointing with remote storage "
-                              f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {exc}")
-            raise exc # re-raise
+            self.log.error(
+                f"{type(exc).__name__} while simulating checkpointing with remote storage "
+                f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {exc}"
+            )
+            self.report_error(
+                f'Kernel "{self.kernel_id}" Failed to Simulate Checkpointing',
+                f"{type(exc).__name__} while simulating checkpointing with remote storage "
+                f"{remote_storage_name} and data of size {format_size(vram_bytes)} bytes: {exc}",
+            )
+            raise exc  # re-raise
 
         duration: float = time.time() - start_time
-        self.log.debug(f"Finished simulated checkpointing of {format_size(vram_bytes)} bytes to remote storage "
-                       f"{remote_storage_name} in {duration} seconds.")
+        self.log.debug(
+            f"Finished simulated checkpointing of {format_size(vram_bytes)} bytes to remote storage "
+            f"{remote_storage_name} in {duration} seconds."
+        )
 
         return duration
 
@@ -2766,7 +3360,9 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         # Add task to the set. This creates a strong reference.
         # We don't await this here so that we can go ahead and send the shell response back.
         # We'll notify our peer replicas in time.
-        task: asyncio.Task = asyncio.create_task(self.synchronizer.notify_execution_complete(term_number))
+        task: asyncio.Task = asyncio.create_task(
+            self.synchronizer.notify_execution_complete(term_number)
+        )
 
         # We need to save a reference to this task to prevent it from being garbage collected mid-execution.
         # See the docs for details: https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
@@ -2777,8 +3373,11 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         task.add_done_callback(self.background_tasks.discard)
 
     async def do_shutdown(self, restart):
-        self.log.info("Replica %d of kernel %s is shutting down.",
-                      self.smr_node_id, self.kernel_id)
+        self.log.info(
+            "Replica %d of kernel %s is shutting down.",
+            self.smr_node_id,
+            self.kernel_id,
+        )
 
         if self.synchronizer:
             self.log.info("Closing the Synchronizer.")
@@ -2788,32 +3387,46 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         # The value of self.synclog_stopped will be True if `prepare_to_migrate` was already called.
         if self.synclog and self.remove_on_shutdown:
             self.log.info(
-                "Removing node %d (that's me) from the SMR cluster.", self.smr_node_id)
+                "Removing node %d (that's me) from the SMR cluster.", self.smr_node_id
+            )
             try:
                 await self.synclog.remove_node(self.smr_node_id)
                 self.log.info(
-                    "Successfully removed node %d (that's me) from the SMR cluster.", self.smr_node_id)
+                    "Successfully removed node %d (that's me) from the SMR cluster.",
+                    self.smr_node_id,
+                )
             except TimeoutError:
                 self.log.error(
-                    "Removing self (node %d) from the SMR cluster timed-out. Continuing onwards.", self.smr_node_id)
+                    "Removing self (node %d) from the SMR cluster timed-out. Continuing onwards.",
+                    self.smr_node_id,
+                )
             except Exception as ex:
                 self.log.error(
-                    "Failed to remove replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
+                    "Failed to remove replica %d of kernel %s.",
+                    self.smr_node_id,
+                    self.kernel_id,
+                )
                 return gen_error_response(ex), False
 
             if not self.synclog_stopped:
                 self.log.info(
-                    "Closing the SyncLog (and therefore the etcd-Raft process) now.")
+                    "Closing the SyncLog (and therefore the etcd-Raft process) now."
+                )
                 try:
                     self.synclog.close()
                     self.log.info(
-                        "SyncLog closed successfully. Writing etcd-Raft data directory to RemoteStorage now.")
+                        "SyncLog closed successfully. Writing etcd-Raft data directory to RemoteStorage now."
+                    )
                 except Exception:
                     self.log.error(
-                        "Failed to close the SyncLog for replica %d of kernel %s.", self.smr_node_id, self.kernel_id)
+                        "Failed to close the SyncLog for replica %d of kernel %s.",
+                        self.smr_node_id,
+                        self.kernel_id,
+                    )
             else:
                 self.log.info(
-                    "I've already removed myself from the SMR cluster and closed my sync-log.")
+                    "I've already removed myself from the SMR cluster and closed my sync-log."
+                )
         else:
             self.log.info("Not stopping/removing node from etcd/raft cluster.")
 
@@ -2831,8 +3444,11 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         return super().do_shutdown(restart)
 
     async def prepare_to_migrate(self) -> tuple[dict, bool]:
-        self.log.info("Preparing for migration of replica %d of kernel %s.",
-                      self.smr_node_id, self.kernel_id)
+        self.log.info(
+            "Preparing for migration of replica %d of kernel %s.",
+            self.smr_node_id,
+            self.kernel_id,
+        )
 
         # We don't want to remove this node from the SMR raft cluster when we shut down the kernel,
         # as we're migrating the replica and want to reuse the ID when the raft process resumes
@@ -2840,33 +3456,43 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         self.remove_on_shutdown = False
 
         if not self.synclog:
-            self.log.warning("We do not have a SyncLog. Nothing to do in order to prepare to migrate...")
-            return {'status': 'ok', "id": self.smr_node_id,
-                    "kernel_id": self.kernel_id}, True  # Didn't fail, we just have nothing to migrate.
+            self.log.warning(
+                "We do not have a SyncLog. Nothing to do in order to prepare to migrate..."
+            )
+            return {
+                "status": "ok",
+                "id": self.smr_node_id,
+                "kernel_id": self.kernel_id,
+            }, True  # Didn't fail, we just have nothing to migrate.
         #
         # Reference: https://etcd.io/docs/v2.3/admin_guide/#member-migration
         #
         # According to the official documentation, we must first stop the Raft node before copying the data directory.
 
         # Step 1: stop the raft node
-        self.log.info(
-            "Closing the SyncLog (and therefore the etcd-Raft process) now.")
+        self.log.info("Closing the SyncLog (and therefore the etcd-Raft process) now.")
         try:
             self.synclog.close()
 
             self.synclog_stopped = True
             self.log.info(
-                "SyncLog closed successfully. Writing etcd-Raft data directory to RemoteStorage now.")
+                "SyncLog closed successfully. Writing etcd-Raft data directory to RemoteStorage now."
+            )
         except Exception as e:
-            self.log.error("Failed to close the SyncLog for replica %d of kernel %s.",
-                           self.smr_node_id, self.kernel_id)
+            self.log.error(
+                "Failed to close the SyncLog for replica %d of kernel %s.",
+                self.smr_node_id,
+                self.kernel_id,
+            )
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self.log.error(frame)
 
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
-            self.report_error(f"Failed to Close SyncLog for Replica {self.smr_node_id} of Kernel {self.kernel_id}",
-                              error_message=str(e))
+            self.report_error(
+                f"Failed to Close SyncLog for Replica {self.smr_node_id} of Kernel {self.kernel_id}",
+                error_message=str(e),
+            )
 
             # Attempt to close the RemoteStorage client.
             self.synclog.close_remote_storage_client()
@@ -2877,32 +3503,41 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         try:
             write_start: float = time.time()
 
-            self.log.debug("Preparing to write state to remote storage. "
-                           f"Current resource request: {self.current_resource_request}. "
-                           f"Remote storages ({len(self.remote_storages)}): {self.remote_storages}.")
+            self.log.debug(
+                "Preparing to write state to remote storage. "
+                f"Current resource request: {self.current_resource_request}. "
+                f"Remote storages ({len(self.remote_storages)}): {self.remote_storages}."
+            )
 
             waldir_path: str = await self.synclog.write_data_dir_to_remote_storage(
                 last_resource_request=self.current_resource_request,
-                remote_storage_definitions=self.remote_storages
+                remote_storage_definitions=self.remote_storages,
             )
 
             write_duration_ms: float = (time.time() - write_start) * 1.0e3
             if self.prometheus_enabled:
                 self.remote_storage_write_latency_milliseconds.labels(
-                    session_id=self.kernel_id,
-                    workload_id=self.workload_id
+                    session_id=self.kernel_id, workload_id=self.workload_id
                 ).observe(write_duration_ms)
             self.log.info(
-                "Wrote etcd-Raft data directory to RemoteStorage. Path: \"%s\"" % waldir_path)
+                'Wrote etcd-Raft data directory to RemoteStorage. Path: "%s"'
+                % waldir_path
+            )
         except Exception as e:
-            self.log.error("Failed to write the data directory of replica %d of kernel %s to RemoteStorage: %s",
-                           self.smr_node_id, self.kernel_id, str(e))
+            self.log.error(
+                "Failed to write the data directory of replica %d of kernel %s to RemoteStorage: %s",
+                self.smr_node_id,
+                self.kernel_id,
+                str(e),
+            )
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self.log.error(frame)
 
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
-            self.report_error("Failed to Write remote_storage Data Directory", error_message=str(e))
+            self.report_error(
+                "Failed to Write remote_storage Data Directory", error_message=str(e)
+            )
 
             # Attempt to close the RemoteStorage client.
             self.synclog.close_remote_storage_client()
@@ -2912,7 +3547,9 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         try:
             self.synclog.close_remote_storage_client()
         except Exception as e:
-            self.log.error("Failed to close the RemoteStorage client within the LogNode.")
+            self.log.error(
+                "Failed to close the RemoteStorage client within the LogNode."
+            )
             tb: list[str] = traceback.format_exception(e)
             for frame in tb:
                 self.log.error(frame)
@@ -2920,12 +3557,16 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             # Report the error to the cluster dashboard (through the Local Daemon and Cluster Gateway).
             self.report_error(
                 f"Failed to Close RemoteStorage Client within LogNode of Kernel {self.kernel_id}-{self.smr_node_id}",
-                error_message=str(e))
+                error_message=str(e),
+            )
 
             # We don't return an error here, though.
 
-        return {'status': 'ok', "id": self.smr_node_id,
-                "kernel_id": self.kernel_id}, True  # "data_directory": waldir_path,
+        return {
+            "status": "ok",
+            "id": self.smr_node_id,
+            "kernel_id": self.kernel_id,
+        }, True  # "data_directory": waldir_path,
 
     async def stop_running_training_code_request(self, stream, ident, parent):
         """
@@ -2936,14 +3577,16 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         self.log.info("Sent 'stop training' instruction to local TCP server.")
 
         content: dict = {
-            'status': 'ok',
+            "status": "ok",
             # The base class increments the execution count
-            'execution_count': self.execution_count,
-            'payload': [],
-            'user_expressions': {},
+            "execution_count": self.execution_count,
+            "payload": [],
+            "user_expressions": {},
         }
 
-        self.session.send(stream, "stop_running_training_code_reply", content, parent, ident=ident)
+        self.session.send(
+            stream, "stop_running_training_code_reply", content, parent, ident=ident
+        )
 
     async def prepare_to_migrate_request(self, stream, ident, parent):
         """
@@ -2960,7 +3603,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             # TODO(Ben): Do I need to use 'while', or can I just use 'if'?
             if not await self.check_persistent_store():
                 self.log.debug(
-                    "Persistent store is not ready yet. Waiting to handle 'add-replica' request.")
+                    "Persistent store is not ready yet. Waiting to handle 'add-replica' request."
+                )
                 await self.persistent_store_cv.wait()
 
         content, success = await self.prepare_to_migrate()
@@ -2972,11 +3616,21 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
-        sent_message = self.session.send(stream, "prepare_to_migrate_reply", content, parent, ident=ident,
-                                         buffers=buffers)
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent, -1
+        )
+        sent_message = self.session.send(
+            stream,
+            "prepare_to_migrate_reply",
+            content,
+            parent,
+            ident=ident,
+            buffers=buffers,
+        )
 
-        self.log.debug("Sent 'prepare_to_migrate_reply' message: %s" % str(sent_message))
+        self.log.debug(
+            "Sent 'prepare_to_migrate_reply' message: %s" % str(sent_message)
+        )
 
     async def do_add_replica(self, replicaId, addr) -> tuple[dict, bool]:
         """Add a replica to the SMR cluster"""
@@ -2989,17 +3643,15 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         try:
             await self.synclog.add_node(replicaId, "http://{}".format(addr))
             self.log.info(
-                "Replica {} at {} has joined the SMR cluster.".format(replicaId, addr))
-            return {'status': 'ok'}, True
+                "Replica {} at {} has joined the SMR cluster.".format(replicaId, addr)
+            )
+            return {"status": "ok"}, True
         except Exception as e:
             self.log.error("A replica fails to join: {}...".format(e))
             return gen_error_response(e), False
 
     def decode_request_trace_from_buffers(
-            self,
-            buffers,
-            msg_id: str = "N/A",
-            msg_type: str = "N/A"
+        self, buffers, msg_id: str = "N/A", msg_type: str = "N/A"
     ) -> dict[str, Any]:
         """
         Attempt to decode a RequestTrace from the first buffers frame.
@@ -3023,9 +3675,9 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         if isinstance(first_buffers_frame, memoryview):
             first_buffers_frame: bytes = first_buffers_frame.tobytes()
-            first_buffers_frame: str = first_buffers_frame.decode('utf-8')
+            first_buffers_frame: str = first_buffers_frame.decode("utf-8")
         elif isinstance(first_buffers_frame, bytes):
-            first_buffers_frame: str = first_buffers_frame.decode('utf-8')
+            first_buffers_frame: str = first_buffers_frame.decode("utf-8")
         else:
             first_buffers_frame: str = str(first_buffers_frame)
 
@@ -3036,16 +3688,19 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             return buffers_decoded
         except json.decoder.JSONDecodeError as ex:
             self.log.warning(
-                f"Failed to decode buffers of \"{msg_type}\" message \"{msg_id}\" using JSON because: {ex}")
-            self.log.debug(f"Returning empty dictionary for buffers from \"{msg_type}\" "
-                           f"message \"{msg_id}\" (type={type(first_buffers_frame).__name__}): {first_buffers_frame}")
+                f'Failed to decode buffers of "{msg_type}" message "{msg_id}" using JSON because: {ex}'
+            )
+            self.log.debug(
+                f'Returning empty dictionary for buffers from "{msg_type}" '
+                f'message "{msg_id}" (type={type(first_buffers_frame).__name__}): {first_buffers_frame}'
+            )
             return {}
 
     def extract_and_process_request_trace(
-            self,
-            msg: dict[str, Any],
-            received_at: float,
-            execution_stats: Optional[ExecutionStats] = None
+        self,
+        msg: dict[str, Any],
+        received_at: float,
+        execution_stats: Optional[ExecutionStats] = None,
     ) -> Optional[list[bytes]]:
         """
         Attempt to extract the RequestTrace dictionary from the (first) buffers frame of the request.
@@ -3065,9 +3720,9 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
             Otherwise, this returns None.
         """
-        msg_header: dict[str, Any] = msg.get('header', {})
-        msg_type: str = msg_header.get('msg_type', "N/A")
-        msg_id: str = msg_header.get('msg_id', "N/A")
+        msg_header: dict[str, Any] = msg.get("header", {})
+        msg_type: str = msg_header.get("msg_type", "N/A")
+        msg_id: str = msg_header.get("msg_id", "N/A")
         # self.log.debug(f"Extracting buffers from \"{msg_type}\" message \"{msg_id}\" with {len(msg)} frames now...")
 
         if "buffers" in msg:
@@ -3079,9 +3734,13 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             #                  f"Message only has the following frames: {frame_names}")
             buffers = []
 
-        request_trace_frame: dict[str, Any] = self.decode_request_trace_from_buffers(buffers, msg_id=msg_id,
-                                                                                     msg_type=msg_type)
-        if isinstance(request_trace_frame, dict) and "request_trace" in request_trace_frame:
+        request_trace_frame: dict[str, Any] = self.decode_request_trace_from_buffers(
+            buffers, msg_id=msg_id, msg_type=msg_type
+        )
+        if (
+            isinstance(request_trace_frame, dict)
+            and "request_trace" in request_trace_frame
+        ):
             request_trace: dict[str, Any] = request_trace_frame["request_trace"]
 
             if received_at > 0:
@@ -3090,7 +3749,9 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 #                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value {received_at} now.")
                 request_trace["requestReceivedByKernelReplica"] = received_at
             else:
-                reply_sent_by_kernel_replica: int = int(math.floor((time.time() * 1.0e3)))
+                reply_sent_by_kernel_replica: int = int(
+                    math.floor((time.time() * 1.0e3))
+                )
                 # self.log.debug(f"Updating \"replySentByKernelReplica\" field in RequestTrace found in "
                 #                f"buffers of \"{msg_type}\" message \"{msg_id}\" with value "
                 #                f"{reply_sent_by_kernel_replica} now.")
@@ -3100,35 +3761,57 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
             # If the execution_stats parameter is non-null, then embed the included statistics/metrics.
             if execution_stats is not None:
-                request_trace["cudaInitMicroseconds"] = int(execution_stats.cuda_init_microseconds)
-                request_trace[
-                    "downloadModelMicroseconds"] = int(
-                    execution_stats.download_model_microseconds)
-                request_trace[
-                    "downloadDatasetMicroseconds"] = int(
-                    execution_stats.download_training_data_microseconds)
-                request_trace[
-                    "downloadDatasetStartUnixMillis"] = int(
-                    execution_stats.download_training_data_start_unix_millis)
-                request_trace[
-                    "downloadDatasetEndUnixMillis"] = int(
-                    execution_stats.download_training_data_end_unix_millis)
-                request_trace[
-                    "uploadModelAndTrainingDataMicroseconds"] = int(
-                    execution_stats.upload_model_and_training_data_microseconds)
-                request_trace["executionTimeMicroseconds"] = int(execution_stats.execution_time_microseconds)
-                request_trace["executionStartUnixMillis"] = int(execution_stats.execution_start_unix_millis)
-                request_trace["executionEndUnixMillis"] = int(execution_stats.execution_end_unix_millis)
-                request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
-                request_trace["replayTimeMicroseconds"] = int(execution_stats.replay_time_microseconds)
+                request_trace["cudaInitMicroseconds"] = int(
+                    execution_stats.cuda_init_microseconds
+                )
+                request_trace["downloadModelMicroseconds"] = int(
+                    execution_stats.download_model_microseconds
+                )
+                request_trace["downloadDatasetMicroseconds"] = int(
+                    execution_stats.download_training_data_microseconds
+                )
+                request_trace["downloadDatasetStartUnixMillis"] = int(
+                    execution_stats.download_training_data_start_unix_millis
+                )
+                request_trace["downloadDatasetEndUnixMillis"] = int(
+                    execution_stats.download_training_data_end_unix_millis
+                )
+                request_trace["uploadModelAndTrainingDataMicroseconds"] = int(
+                    execution_stats.upload_model_and_training_data_microseconds
+                )
+                request_trace["executionTimeMicroseconds"] = int(
+                    execution_stats.execution_time_microseconds
+                )
+                request_trace["executionStartUnixMillis"] = int(
+                    execution_stats.execution_start_unix_millis
+                )
+                request_trace["executionEndUnixMillis"] = int(
+                    execution_stats.execution_end_unix_millis
+                )
+                request_trace["replayTimeMicroseconds"] = int(
+                    execution_stats.replay_time_microseconds
+                )
+                request_trace["replayTimeMicroseconds"] = int(
+                    execution_stats.replay_time_microseconds
+                )
                 request_trace["copyFromCpuToGpuMicroseconds"] = int(
-                    execution_stats.copy_data_from_cpu_to_gpu_microseconds)
+                    execution_stats.copy_data_from_cpu_to_gpu_microseconds
+                )
                 request_trace["copyFromGpuToCpuMicroseconds"] = int(
-                    execution_stats.copy_data_from_gpu_to_cpu_microseconds)
-                request_trace["leaderElectionTimeMicroseconds"] = int(execution_stats.leader_election_microseconds)
-                request_trace["syncStartUnixMillis"] = execution_stats.sync_start_unix_millis
-                request_trace["syncEndUnixMillis"] = execution_stats.sync_end_unix_millis
-                request_trace["syncDurationMillis"] = execution_stats.sync_duration_millis
+                    execution_stats.copy_data_from_gpu_to_cpu_microseconds
+                )
+                request_trace["leaderElectionTimeMicroseconds"] = int(
+                    execution_stats.leader_election_microseconds
+                )
+                request_trace["syncStartUnixMillis"] = (
+                    execution_stats.sync_start_unix_millis
+                )
+                request_trace["syncEndUnixMillis"] = (
+                    execution_stats.sync_end_unix_millis
+                )
+                request_trace["syncDurationMillis"] = (
+                    execution_stats.sync_duration_millis
+                )
 
                 # We only want to embed election statistics if this request trace is being embedded in an
                 # "execute_request" or "yield_request" message (i.e., a code submission).
@@ -3139,28 +3822,36 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                     if current_election is not None:
                         # 'current_election_timestamps' is a property. Need to capture its value and use that in a separate
                         # if-statement to ensure that it is a valid, non-null reference.
-                        current_election_timestamps: Optional[
-                            ElectionTimestamps] = current_election.current_election_timestamps
+                        current_election_timestamps: Optional[ElectionTimestamps] = (
+                            current_election.current_election_timestamps
+                        )
                         if current_election_timestamps is not None:
-                            request_trace["electionCreationTime"] = int(current_election_timestamps.creation_time)
-                            request_trace[
-                                "electionProposalPhaseStartTime"] = int(
-                                current_election_timestamps.proposal_phase_start_time)
-                            request_trace[
-                                "electionExecutionPhaseStartTime"] = int(
-                                current_election_timestamps.execution_phase_start_time)
-                            request_trace["electionEndTime"] = int(current_election_timestamps.end_time)
+                            request_trace["electionCreationTime"] = int(
+                                current_election_timestamps.creation_time
+                            )
+                            request_trace["electionProposalPhaseStartTime"] = int(
+                                current_election_timestamps.proposal_phase_start_time
+                            )
+                            request_trace["electionExecutionPhaseStartTime"] = int(
+                                current_election_timestamps.execution_phase_start_time
+                            )
+                            request_trace["electionEndTime"] = int(
+                                current_election_timestamps.end_time
+                            )
                         else:
                             self.log.warning(
-                                f"Current Election's timestamp data is None while embedding request trace in '{msg_type}' request '{msg_id}'")
+                                f"Current Election's timestamp data is None while embedding request trace in '{msg_type}' request '{msg_id}'"
+                            )
                     else:
                         self.log.warning(
-                            f"Current Election is None while embedding request trace in '{msg_type}' request '{msg_id}'")
+                            f"Current Election is None while embedding request trace in '{msg_type}' request '{msg_id}'"
+                        )
 
                 self.log.debug(
-                    f"Embedding the following RequestTrace in response to '{msg_type}' message:\n{json.dumps(request_trace, indent=2)}")
+                    f"Embedding the following RequestTrace in response to '{msg_type}' message:\n{json.dumps(request_trace, indent=2)}"
+                )
 
-            buffers[0] = json.dumps(request_trace_frame).encode('utf-8')
+            buffers[0] = json.dumps(request_trace_frame).encode("utf-8")
             # self.log.debug(f"Contents of \"buffers\" frame(s) after processing: {str(buffers)}")
             msg["buffers"] = buffers
             return buffers
@@ -3172,45 +3863,77 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
     # customized control message handlers
     async def add_replica_request(self, stream, ident, parent):
         """Add a replica to the SMR cluster"""
-        params = parent['content']
-        self.log.info("Received 'add-replica' request for replica with id %d, addr %s" %
-                      (params['id'], params['addr']))
+        params = parent["content"]
+        self.log.info(
+            "Received 'add-replica' request for replica with id %d, addr %s"
+            % (params["id"], params["addr"])
+        )
 
         async with self.persistent_store_cv:
             # TODO(Ben): Do I need to use 'while', or can I just use 'if'?
             if not await self.check_persistent_store():
                 self.log.debug(
-                    "Persistent store is not ready yet. Waiting to handle 'add-replica' request.")
+                    "Persistent store is not ready yet. Waiting to handle 'add-replica' request."
+                )
                 await self.persistent_store_cv.wait()
 
-        if 'id' not in params or 'addr' not in params:
+        if "id" not in params or "addr" not in params:
             err_content: dict = gen_error_response(err_invalid_request)
 
             # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
             # The first was in dispatch_shell.
-            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
-            self.session.send(stream, "add_replica_reply", err_content, parent, ident=ident, buffers=buffers)
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+                parent, -1
+            )
+            self.session.send(
+                stream,
+                "add_replica_reply",
+                err_content,
+                parent,
+                ident=ident,
+                buffers=buffers,
+            )
             return
 
-        content, success = await self.do_add_replica(params['id'], params['addr'])
+        content, success = await self.do_add_replica(params["id"], params["addr"])
 
         if success:
             self.log.debug("Notifying session that SMR node was added.")
-            self.session.send(self.iopub_socket, "smr_node_added",
-                              {"success": True, "persistent_id": self.persistent_id, "id": params[
-                                  'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
-                              ident=self._topic("smr_node_added"))  # type: ignore
+            self.session.send(
+                self.iopub_socket,
+                "smr_node_added",
+                {
+                    "success": True,
+                    "persistent_id": self.persistent_id,
+                    "id": params["id"],
+                    "addr": params["addr"],
+                    "kernel_id": self.kernel_id,
+                },
+                ident=self._topic("smr_node_added"),
+            )  # type: ignore
         else:
             self.log.debug("Notifying session that SMR node addition failed.")
-            self.session.send(self.iopub_socket, "smr_node_added",
-                              {"success": False, "persistent_id": self.persistent_id, "id": params[
-                                  'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
-                              ident=self._topic("smr_node_added"))  # type: ignore
+            self.session.send(
+                self.iopub_socket,
+                "smr_node_added",
+                {
+                    "success": False,
+                    "persistent_id": self.persistent_id,
+                    "id": params["id"],
+                    "addr": params["addr"],
+                    "kernel_id": self.kernel_id,
+                },
+                ident=self._topic("smr_node_added"),
+            )  # type: ignore
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
-        self.session.send(stream, "add_replica_reply", content, parent, ident=ident, buffers=buffers)  # type: ignore
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent, -1
+        )
+        self.session.send(
+            stream, "add_replica_reply", content, parent, ident=ident, buffers=buffers
+        )  # type: ignore
 
     async def do_update_replica(self, replicaId, addr) -> tuple:
         """
@@ -3227,30 +3950,32 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         # We didn't check if synclog is ready
         try:
             await self.synclog.update_node(replicaId, "http://{}".format(addr))
-            self.log.info(
-                "Replica {} at {} has been updated.".format(replicaId, addr))
-            return {'status': 'ok'}, True
+            self.log.info("Replica {} at {} has been updated.".format(replicaId, addr))
+            return {"status": "ok"}, True
         except Exception as e:
             self.log.error("Failed to update replica: {}...".format(e))
             return gen_error_response(e), False
 
     async def update_replica_request(self, stream, ident, parent):
         """Update a replica to have a new address"""
-        params = parent['content']
-        self.log.info("Received 'update-replica' request for replica with id %d, addr %s" %
-                      (params['id'], params['addr']))
+        params = parent["content"]
+        self.log.info(
+            "Received 'update-replica' request for replica with id %d, addr %s"
+            % (params["id"], params["addr"])
+        )
 
         async with self.persistent_store_cv:
             # TODO(Ben): Do I need to use 'while', or can I just use 'if'?
             if not await self.check_persistent_store():
                 self.log.debug(
-                    "Persistent store is not ready yet. Waiting to handle 'update-replica' request.")
+                    "Persistent store is not ready yet. Waiting to handle 'update-replica' request."
+                )
                 await self.persistent_store_cv.wait()
 
-        if 'id' not in params or 'addr' not in params:
+        if "id" not in params or "addr" not in params:
             return gen_error_response(err_invalid_request)
 
-        val = self.do_update_replica(params['id'], params['addr'])
+        val = self.do_update_replica(params["id"], params["addr"])
         if inspect.isawaitable(val):
             content, success = await val
         else:
@@ -3259,23 +3984,47 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         if success:
             self.log.debug("Notifying session that SMR node was updated.")
 
-            self.session.send(self.iopub_socket, "smr_node_updated",
-                              {"success": True, "persistent_id": self.persistent_id, "id": params[
-                                  'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
-                              ident=self._topic("smr_node_updated"))  # type: ignore
+            self.session.send(
+                self.iopub_socket,
+                "smr_node_updated",
+                {
+                    "success": True,
+                    "persistent_id": self.persistent_id,
+                    "id": params["id"],
+                    "addr": params["addr"],
+                    "kernel_id": self.kernel_id,
+                },
+                ident=self._topic("smr_node_updated"),
+            )  # type: ignore
         else:
             self.log.debug("Notifying session that SMR node update failed.")
 
-            self.session.send(self.iopub_socket, "smr_node_updated",
-                              {"success": False, "persistent_id": self.persistent_id, "id": params[
-                                  'id'], "addr": params['addr'], "kernel_id": self.kernel_id},
-                              ident=self._topic("smr_node_updated"))  # type: ignore
+            self.session.send(
+                self.iopub_socket,
+                "smr_node_updated",
+                {
+                    "success": False,
+                    "persistent_id": self.persistent_id,
+                    "id": params["id"],
+                    "addr": params["addr"],
+                    "kernel_id": self.kernel_id,
+                },
+                ident=self._topic("smr_node_updated"),
+            )  # type: ignore
 
         # This is the SECOND time we're calling 'extract_and_process_request_trace' for this request.
         # The first was in dispatch_shell.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(parent, -1)
-        self.session.send(stream, "update_replica_reply",
-                          content, parent, ident=ident, buffers=buffers)  # type: ignore
+        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+            parent, -1
+        )
+        self.session.send(
+            stream,
+            "update_replica_reply",
+            content,
+            parent,
+            ident=ident,
+            buffers=buffers,
+        )  # type: ignore
 
     def report_error(self, error_title: str = "", error_message: str = ""):
         """
@@ -3283,87 +4032,126 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         """
         if self.kernel_notification_service_stub is None:
             self.log.warning(
-                f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup.")
+                f"Cannot send 'error_report' for error \"{error_title}\" as our gRPC connection was never setup."
+            )
             return
 
         self.log.debug(
-            f"Sending 'error_report' message for error \"{error_title}\" now. Error message: {error_message}")
-        self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-            title=error_title,
-            message=error_message,
-            notificationType=ErrorNotification,
-            kernelId=self.kernel_id,
-            replicaId=self.smr_node_id,
-        ))
+            f"Sending 'error_report' message for error \"{error_title}\" now. Error message: {error_message}"
+        )
+        self.kernel_notification_service_stub.Notify(
+            gateway_pb2.KernelNotification(
+                title=error_title,
+                message=error_message,
+                notificationType=ErrorNotification,
+                kernelId=self.kernel_id,
+                replicaId=self.smr_node_id,
+            )
+        )
 
-    def send_notification(self, notification_title: str = "", notification_body: str = "", notification_type: int = 2):
+    def send_notification(
+        self,
+        notification_title: str = "",
+        notification_body: str = "",
+        notification_type: int = 2,
+    ):
         if notification_type < 0 or notification_type > 3:
-            raise ValueError(f"Invalid notification type specified: \"%d\"", notification_type)
+            raise ValueError(
+                'Invalid notification type specified: "%d"', notification_type
+            )
 
         if self.kernel_notification_service_stub is None:
             self.log.warning(
-                f"Cannot send '{notification_type}' notification '{notification_title}' as our gRPC connection was never setup.")
+                f"Cannot send '{notification_type}' notification '{notification_title}' as our gRPC connection was never setup."
+            )
             return
 
-        self.log.debug(f"Sending \"{notification_title}\" notification of type {notification_type} now...")
-        self.kernel_notification_service_stub.Notify(gateway_pb2.KernelNotification(
-            title=notification_title,
-            message=notification_body,
-            notificationType=notification_type,
-            kernelId=self.kernel_id,
-            replicaId=self.smr_node_id,
-        ))
+        self.log.debug(
+            f'Sending "{notification_title}" notification of type {notification_type} now...'
+        )
+        self.kernel_notification_service_stub.Notify(
+            gateway_pb2.KernelNotification(
+                title=notification_title,
+                message=notification_body,
+                notificationType=notification_type,
+                kernelId=self.kernel_id,
+                replicaId=self.smr_node_id,
+            )
+        )
 
     def gen_simple_response(self, execution_count=0):
-        return {'status': 'ok',
-                # The base class increments the execution count
-                'execution_count': self.execution_count,
-                'payload': [],
-                'user_expressions': {},
-                }
+        return {
+            "status": "ok",
+            # The base class increments the execution count
+            "execution_count": self.execution_count,
+            "payload": [],
+            "user_expressions": {},
+        }
 
     async def __download_model_pointers_committed_while_catching_up(self):
         """
         Download any Model pointers that were committed while we were catching up.
         """
         if len(self.model_pointers_catchup) == 0:
-            self.log.debug("There were no ModelPointer objects committed while we were catching up.")
+            self.log.debug(
+                "There were no ModelPointer objects committed while we were catching up."
+            )
             return
 
-        self.log.debug(f"Retrieving {len(self.model_pointers_catchup)} DeepLearningModels committed during catch-up phase.")
+        self.log.debug(
+            f"Retrieving {len(self.model_pointers_catchup)} DeepLearningModels committed during catch-up phase."
+        )
         _st: float = time.time()
         for var_name, model_pointer in self.model_pointers_catchup.items():
-            self.log.debug(f"Loading DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}'")
+            self.log.debug(
+                f"Loading DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}'"
+            )
 
             async with self._user_ns_lock:
-                existing_model: Optional[DeepLearningModel] = self.shell.user_ns.get(var_name, None)
+                existing_model: Optional[DeepLearningModel] = self.shell.user_ns.get(
+                    var_name, None
+                )
 
-                if existing_model is not None and not isinstance(existing_model, DeepLearningModel):
-                    self.log.warning(f"Found existing variable '{var_name}' in shell user namespace of type "
-                                     f"'{type(existing_model).__name__}'. Variable will be overwritten with "
-                                     f"DeepLearningModel '{model_pointer.model_name}'.")
-                    existing_model = None # So that we pass None for the existing_model argument below.
+                if existing_model is not None and not isinstance(
+                    existing_model, DeepLearningModel
+                ):
+                    self.log.warning(
+                        f"Found existing variable '{var_name}' in shell user namespace of type "
+                        f"'{type(existing_model).__name__}'. Variable will be overwritten with "
+                        f"DeepLearningModel '{model_pointer.model_name}'."
+                    )
+                    existing_model = None  # So that we pass None for the existing_model argument below.
 
             st: float = time.time()
             try:
-                model: DeepLearningModel = self.__load_model_from_remote_storage(model_pointer, existing_model = existing_model.model)
+                model: DeepLearningModel = self.__load_model_from_remote_storage(
+                    model_pointer, existing_model=existing_model.model
+                )
             except Exception as exc:
-                self.log.error(f"Failed to load DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}'")
-                self.report_error(f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
-                                  f"DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}' "
-                                  f"while catching-up",
-                                  str(exc))
+                self.log.error(
+                    f"Failed to load DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}'"
+                )
+                self.report_error(
+                    f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
+                    f"DeepLearningModel '{model_pointer.model_name}' for variable '{var_name}' "
+                    f"while catching-up",
+                    str(exc),
+                )
                 continue
 
             et: float = time.time()
-            self.log.debug(f"Successfully retrieved DeepLearningModel '{model_pointer.model_name}' for variable "
-                           f"'{var_name}' from remote storage in {et - st} seconds.")
+            self.log.debug(
+                f"Successfully retrieved DeepLearningModel '{model_pointer.model_name}' for variable "
+                f"'{var_name}' from remote storage in {et - st} seconds."
+            )
 
             async with self._user_ns_lock:
                 self.shell.user_ns[var_name] = model
 
         _et: float = time.time()
-        self.log.debug(f"Retrieved {len(self.model_pointers_catchup)} models(s) in {_et - _st} seconds.")
+        self.log.debug(
+            f"Retrieved {len(self.model_pointers_catchup)} models(s) in {_et - _st} seconds."
+        )
         self.model_pointers_catchup.clear()
 
     async def __download_dataset_pointers_committed_while_catching_up(self):
@@ -3371,80 +4159,118 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         Download any Dataset pointers that were committed while we were catching up.
         """
         if len(self.dataset_pointers_catchup) == 0:
-            self.log.debug("There were no DatasetPointer objects committed while we were catching up.")
+            self.log.debug(
+                "There were no DatasetPointer objects committed while we were catching up."
+            )
             return
 
-        self.log.debug(f"Retrieving {len(self.model_pointers_catchup)} Datasets committed during catch-up phase.")
+        self.log.debug(
+            f"Retrieving {len(self.model_pointers_catchup)} Datasets committed during catch-up phase."
+        )
         _st: float = time.time()
         for var_name, dataset_pointer in self.dataset_pointers_catchup.items():
-            self.log.debug(f"Loading Dataset '{dataset_pointer.dataset_name}' for variable '{var_name}'")
+            self.log.debug(
+                f"Loading Dataset '{dataset_pointer.dataset_name}' for variable '{var_name}'"
+            )
 
             st: float = time.time()
             try:
-                dataset: Dataset = self.__load_dataset_from_remote_storage(dataset_pointer)
+                dataset: CustomDataset = self.__load_dataset_from_remote_storage(
+                    dataset_pointer
+                )
             except Exception as exc:
-                self.log.error(f"Failed to load Dataset '{dataset_pointer.model_name}' for variable '{var_name}'")
-                self.report_error(f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
-                                  f"Dataset '{dataset_pointer.model_name}' for variable '{var_name}' "
-                                  f"while catching-up",
-                                  str(exc))
+                self.log.error(
+                    f"Failed to load Dataset '{dataset_pointer.model_name}' for variable '{var_name}'"
+                )
+                self.report_error(
+                    f"Replica {self.smr_node_id} of kernel {self.kernel_id} failed to load "
+                    f"Dataset '{dataset_pointer.model_name}' for variable '{var_name}' "
+                    f"while catching-up",
+                    str(exc),
+                )
                 continue
 
             et: float = time.time()
-            self.log.debug(f"Successfully retrieved Dataset '{dataset_pointer.model_name}' for variable "
-                           f"'{var_name}' from remote storage in {et - st} seconds.")
+            self.log.debug(
+                f"Successfully retrieved Dataset '{dataset_pointer.model_name}' for variable "
+                f"'{var_name}' from remote storage in {et - st} seconds."
+            )
 
             async with self._user_ns_lock:
                 self.shell.user_ns[var_name] = dataset
 
         _et: float = time.time()
-        self.log.debug(f"Retrieved {len(self.dataset_pointers_catchup)} dataset(s) in {_et - _st} seconds.")
+        self.log.debug(
+            f"Retrieved {len(self.dataset_pointers_catchup)} dataset(s) in {_et - _st} seconds."
+        )
         self.dataset_pointers_catchup.clear()
 
     async def __download_pointers_committed_while_catching_up(self):
         """
         Download any Dataset and Model pointers that were committed while we were catching up.
         """
-        if len(self.model_pointers_catchup) == 0 and len(self.dataset_pointers_catchup) == 0:
-            self.log.debug("There were no models or datasets committed during catch-up phase.")
+        if (
+            len(self.model_pointers_catchup) == 0
+            and len(self.dataset_pointers_catchup) == 0
+        ):
+            self.log.debug(
+                "There were no models or datasets committed during catch-up phase."
+            )
             return
 
-        self.log.debug("Downloading any models and datasets that were committed during catch-up phase...")
-        await asyncio.gather(self.__download_model_pointers_committed_while_catching_up(),
-                             self.__download_dataset_pointers_committed_while_catching_up())
-        self.log.debug("Finished downloading the models and datasets that were committed during catch-up phase.")
+        self.log.debug(
+            "Downloading any models and datasets that were committed during catch-up phase..."
+        )
+        await asyncio.gather(
+            self.__download_model_pointers_committed_while_catching_up(),
+            self.__download_dataset_pointers_committed_while_catching_up(),
+        )
+        self.log.debug(
+            "Finished downloading the models and datasets that were committed during catch-up phase."
+        )
 
     def __load_model_from_remote_storage(
-            self,
-            pointer: ModelPointer,
-            existing_model: Optional[DeepLearningModel] = None,
-    )->Optional[DeepLearningModel]:
+        self,
+        pointer: ModelPointer,
+        existing_model: Optional[DeepLearningModel] = None,
+    ) -> Optional[DeepLearningModel]:
         """
         Callback to be executed when a pointer to a DeepLearningModel object is committed to the RaftLog.
         :param pointer: the pointer to the DeepLearningModel object.
         """
         try:
             read_st: float = time.time()
-            model_state_dict, optimizer_state_dict, criterion_state_dict = self._remote_checkpointer.read_state_dicts(
-                pointer)
+            model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_state = (
+                self._remote_checkpointer.read_state_dicts(pointer)
+            )
             read_et: float = time.time()
 
-            self.log.debug(f"Read updated model state from remote storage '{self._remote_checkpointer.storage_name}' "
-                           f"in {read_et - read_st} seconds.")
+            self.log.debug(
+                f"Read updated model state from remote storage '{self._remote_checkpointer.storage_name}' "
+                f"in {read_et - read_st} seconds."
+            )
 
             if self.prometheus_enabled:
                 self.remote_storage_read_latency_milliseconds.labels(
-                    session_id=self.kernel_id,
-                    workload_id=self.workload_id).observe((read_et - read_st) * 1.0e3)
+                    session_id=self.kernel_id, workload_id=self.workload_id
+                ).observe((read_et - read_st) * 1.0e3)
 
             if not self.smr_enabled or self.num_replicas <= 1:
                 assert self.current_execution_stats is not None
-                self.current_execution_stats.download_model_microseconds += (read_et - read_st) * 1.0e6
-                self.current_execution_stats.download_model_start_unix_millis += (read_st * 1.0e3)
-                self.current_execution_stats.download_model_end_unix_millis += (read_et * 1.0e3)
+                self.current_execution_stats.download_model_microseconds += (
+                    read_et - read_st
+                ) * 1.0e6
+                self.current_execution_stats.download_model_start_unix_millis += (
+                    read_st * 1.0e3
+                )
+                self.current_execution_stats.download_model_end_unix_millis += (
+                    read_et * 1.0e3
+                )
         except Exception as exc:
-            self.log.error(f"Failed to read state dictionaries for model \"{pointer.large_object_name}\" "
-                           f"from remote storage \"{self._remote_checkpointer.storage_name}\" because: {exc}")
+            self.log.error(
+                f'Failed to read state dictionaries for model "{pointer.large_object_name}" '
+                f'from remote storage "{self._remote_checkpointer.storage_name}" because: {exc}'
+            )
             raise exc  # re-raise
 
         try:
@@ -3454,124 +4280,183 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 out_features=pointer.out_features,
                 model_state_dict=model_state_dict,
                 optimizer_state_dict=optimizer_state_dict,
-                criterion_state_dict=criterion_state_dict
+                criterion_state_dict=criterion_state_dict,
             )
         except Exception as exc:
-            self.log.error(f"Failed to load committed dataset \"{pointer.model_name}\" because: {exc}")
-            self.report_error("Failed to Load Committed Dataset \"{pointer.name}\"", str(exc))
+            self.log.error(
+                f'Failed to load committed dataset "{pointer.model_name}" because: {exc}'
+            )
+            self.report_error(
+                'Failed to Load Committed Dataset "{pointer.name}"', str(exc)
+            )
+            traceback.print_exc()
             return None
 
         return model
 
-    def __load_dataset_from_remote_storage(self, pointer: DatasetPointer) -> Optional[Dataset]:
-        var_name:str = pointer.user_namespace_variable_name
+    def __load_dataset_from_remote_storage(
+        self, pointer: DatasetPointer
+    ) -> Optional[CustomDataset]:
+        var_name: str = pointer.user_namespace_variable_name
         existing_variable: Any = self.shell.user_ns.get(var_name, None)
 
         if existing_variable is not None:
-            if isinstance(existing_variable, Dataset):
-                self.log.debug(f"Found existing dataset \"{var_name}\" in user namespace.")
+            if isinstance(existing_variable, CustomDataset):
+                self.log.debug(
+                    f'Found existing dataset "{var_name}" in user namespace.'
+                )
 
                 # If they match, then we're done here.
                 # It is necessarily already downloaded by virtue of being one of our Dataset objects.
                 if existing_variable.name == pointer.dataset_name:
                     return None
 
-                self.log.warning(f"Existing dataset \"{var_name}\" does not match freshly-committed "
-                                 f"dataset \"{pointer.dataset_name}\".")
-                self.log.warning(f"Will overwrite existing {existing_variable.name} dataset "
-                                 f"\"{var_name}\" with '{pointer.dataset_name}' dataset.")
+                self.log.warning(
+                    f'Existing dataset "{var_name}" does not match freshly-committed '
+                    f'dataset "{pointer.dataset_name}".'
+                )
+                self.log.warning(
+                    f"Will overwrite existing {existing_variable.name} dataset "
+                    f"\"{var_name}\" with '{pointer.dataset_name}' dataset."
+                )
             else:
-                self.log.warning(f"Found existing variable \"{var_name}\" of type {type(existing_variable).__name__}...")
-                self.log.warning(f"Will overwrite existing {type(existing_variable).__name__} variable "
-                                 f"\"{var_name}\" with '{pointer.dataset_name}' dataset.")
+                self.log.warning(
+                    f'Found existing variable "{var_name}" of type {type(existing_variable).__name__}...'
+                )
+                self.log.warning(
+                    f"Will overwrite existing {type(existing_variable).__name__} variable "
+                    f"\"{var_name}\" with '{pointer.dataset_name}' dataset."
+                )
 
         try:
             st: float = time.time()
-            dataset: Dataset = load_dataset(pointer.dataset_description)
+            dataset: CustomDataset = load_dataset(pointer.dataset_description)
             et: float = time.time()
         except Exception as exc:
-            self.log.error(f"Failed to load committed dataset \"{pointer.large_object_name}\" because: {exc}")
-            self.report_error("Failed to Load Committed Dataset \"{pointer.name}\"", str(exc))
+            self.log.error(
+                f'Failed to load committed dataset "{pointer.large_object_name}" because: {exc}'
+            )
+            self.report_error(
+                'Failed to Load Committed Dataset "{pointer.name}"', str(exc)
+            )
+            traceback.print_exc()
             return None
 
         if self.prometheus_enabled:
             self.remote_storage_read_latency_milliseconds.labels(
-                session_id=self.kernel_id,
-                workload_id=self.workload_id).observe(dataset.download_duration_sec * 1.0e3)
+                session_id=self.kernel_id, workload_id=self.workload_id
+            ).observe(dataset.download_duration_sec * 1.0e3)
 
-        self.log.debug(f"Successfully loaded committed dataset \"{pointer.large_object_name}\" (varname='{var_name}') "
-                       f"from remote storage in {et - st} seconds.")
+        self.log.debug(
+            f"Successfully loaded committed dataset \"{pointer.large_object_name}\" (varname='{var_name}') "
+            f"from remote storage in {et - st} seconds."
+        )
         return dataset
 
-    def __dataset_committed(self, pointer: DatasetPointer):
+    def __dataset_committed(self, pointer: DatasetPointer) -> Optional[CustomDataset]:
         """
         Callback to be executed when a pointer to a Dataset object is committed to the RaftLog.
         :param pointer: the pointer to the Dataset object.
         """
-        self.log.debug(f"The \"{pointer.large_object_name}\" dataset (stored in variable "
-                       f"'{pointer.user_namespace_variable_name}') was committed.")
+        self.log.debug(
+            f'The "{pointer.large_object_name}" dataset (stored in variable '
+            f"'{pointer.user_namespace_variable_name}') was committed."
+        )
 
         # If we're catching up, then we'll save a reference to this to be processed later, once
         # we're done catching up so that we have the most up-to-date version of the variable.
         if pointer.proposer_id == self.smr_node_id:
             if self.synclog.needs_to_catch_up:
-                self.log.debug(f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves "
-                               f"while catching up. Saving for later.")
-                self.dataset_pointers_catchup[pointer.user_namespace_variable_name] = pointer
-                return
+                self.log.debug(
+                    f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves "
+                    f"while catching up. Saving for later."
+                )
+                self.dataset_pointers_catchup[pointer.user_namespace_variable_name] = (
+                    pointer
+                )
+                return None
             else:
-                self.log.debug(f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves. "
-                               f"Ignoring.")
-                return
+                self.log.debug(
+                    f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves. "
+                    f"Ignoring."
+                )
+                return None
 
-        dataset: Optional[Dataset] = self.__load_dataset_from_remote_storage(pointer)
-        if dataset is not None:
-            self.shell.user_ns[pointer.user_namespace_variable_name] = dataset
+        return self.__load_dataset_from_remote_storage(pointer)
+        # if dataset is not None:
+        #     self.shell.user_ns[pointer.user_namespace_variable_name] = dataset
 
-    def __model_committed(self, pointer: ModelPointer):
-        self.log.debug(f"An updated \"{pointer.large_object_name}\" model (stored in variable "
-                       f"'{pointer.user_namespace_variable_name}') was committed.")
+    def __model_committed(self, pointer: ModelPointer) -> Optional[DeepLearningModel]:
+        self.log.debug(
+            f'An updated "{pointer.large_object_name}" model (stored in variable '
+            f"'{pointer.user_namespace_variable_name}') was committed."
+        )
 
         # If we're catching up, then we'll save a reference to this to be processed later, once
         # we're done catching up so that we have the most up-to-date version of the variable.
         if pointer.proposer_id == self.smr_node_id:
             if self.synclog.needs_to_catch_up:
-                self.log.debug(f"Received committed '{pointer.model_name}' Model pointer proposed by ourselves "
-                               f"while catching up. Saving for later.")
-                self.model_pointers_catchup[pointer.user_namespace_variable_name] = pointer
-                return
+                self.log.debug(
+                    f"Received committed '{pointer.model_name}' Model pointer proposed by ourselves "
+                    f"while catching up. Saving for later."
+                )
+                self.model_pointers_catchup[pointer.user_namespace_variable_name] = (
+                    pointer
+                )
+                return None
             else:
-                self.log.debug(f"Received committed '{pointer.model_name}' Model pointer proposed by ourselves. "
-                               f"Ignoring.")
-                return
+                self.log.debug(
+                    f"Received committed '{pointer.model_name}' Model pointer proposed by ourselves. "
+                    f"Ignoring."
+                )
+                return None
 
         # Warning: this does not acquire the _user_ns_lock; however, I don't think this code can run concurrently
         # with any of the other code...? Maybe?
-        existing_model: Optional[DeepLearningModel | Any] = self.shell.user_ns.get("model", None)
-        if existing_model is not None and not isinstance(existing_model, DeepLearningModel):
-            self.log.warning(f"Found existing variable 'model' in shell user namespace of type "
-                             f"'{type(existing_model).__name__}'. Variable will be overwritten with "
-                             f"DeepLearningModel 'ResNet-18'.")
-            existing_model = None # So that we pass None for the existing_model argument below.
+        existing_model: Optional[DeepLearningModel | Any] = self.shell.user_ns.get(
+            "model", None
+        )
+        if existing_model is not None and not isinstance(
+            existing_model, DeepLearningModel
+        ):
+            self.log.warning(
+                f"Found existing variable 'model' in shell user namespace of type "
+                f"'{type(existing_model).__name__}'. Variable will be overwritten with "
+                f"DeepLearningModel 'ResNet-18'."
+            )
+            existing_model = (
+                None  # So that we pass None for the existing_model argument below.
+            )
 
         st: float = time.time()
-        model: Optional[DeepLearningModel] = self.__load_model_from_remote_storage(pointer, existing_model = existing_model)
+        model: Optional[DeepLearningModel] = self.__load_model_from_remote_storage(
+            pointer, existing_model=existing_model
+        )
         et: float = time.time()
-        self.shell.user_ns["model"] = model
-        self.log.debug(f"Successfully loaded committed model \"{pointer.large_object_name}\" in {et - st} seconds.")
 
-    def large_object_pointer_committed(self, pointer: SyncPointer):
+        self.log.debug(
+            f'Successfully loaded committed model "{pointer.large_object_name}" in {et - st} seconds.'
+        )
+        return model
+
+    def large_object_pointer_committed(
+        self, pointer: SyncPointer
+    ) -> Optional[CustomDataset | DeepLearningModel]:
         """
         Callback to be executed when a pointer to a large object is committed to the RaftLog.
         :param pointer: the pointer to the large object.
         """
         if isinstance(pointer, DatasetPointer):
-            self.__dataset_committed(pointer)
+            return self.__dataset_committed(pointer)
         elif isinstance(pointer, ModelPointer):
-            self.__model_committed(pointer)
+            return self.__model_committed(pointer)
         else:
-            self.log.error(f"SyncPointer of unknown or unsupported type committed: {pointer}")
-            raise ValueError(f"SyncPointer of unknown or unsupported type committed: {pointer}")
+            self.log.error(
+                f"SyncPointer of unknown or unsupported type committed: {pointer}"
+            )
+            raise ValueError(
+                f"SyncPointer of unknown or unsupported type committed: {pointer}"
+            )
 
     async def override_shell(self):
         """Override IPython Core"""
@@ -3586,14 +4471,22 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         If we've been started following a migration, then this should only be called once we're fully caught-up.
         """
         # Notify the client that the SMR is ready.
-        self.log.info(f"Sending \"smr_ready\" notification to Local Daemon. Time elapsed since I was created: "
-                      f"{time.time() - self.created_at} seconds.")
+        self.log.info(
+            f'Sending "smr_ready" notification to Local Daemon. Time elapsed since I was created: '
+            f"{time.time() - self.created_at} seconds."
+        )
 
-        self.session.send(self.iopub_socket, "smr_ready", {
-            "persistent_id": self.persistent_id}, ident=self._topic("smr_ready"))  # type: ignore
+        self.session.send(
+            self.iopub_socket,
+            "smr_ready",
+            {"persistent_id": self.persistent_id},
+            ident=self._topic("smr_ready"),
+        )  # type: ignore
 
-        self.log.info(f"Notified local daemon that SMR is ready. Time elapsed since I was created: "
-                      f"{time.time() - self.created_at} seconds.")
+        self.log.info(
+            f"Notified local daemon that SMR is ready. Time elapsed since I was created: "
+            f"{time.time() - self.created_at} seconds."
+        )
 
     async def get_synclog(self, store_path) -> RaftLog:
         assert isinstance(self.smr_nodes, list)
@@ -3602,8 +4495,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         assert isinstance(self.smr_join, bool)
 
         # self.log.info("Confirmed node {}".format(self.smr_nodes[self.smr_node_id-1]))
-        self.log.info("Confirmed node {}".format(
-            self.smr_nodes_map[self.smr_node_id]))
+        self.log.info("Confirmed node {}".format(self.smr_nodes_map[self.smr_node_id]))
 
         peer_addresses = []
         ids = []
@@ -3614,7 +4506,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         # Implement dynamic later
         # peer_addresses = map(lambda x: "http://{}".format(x), self.smr_nodes)
         self.log.debug(
-            "Passing the following addresses to RaftLog: %s" % str(peer_addresses))
+            "Passing the following addresses to RaftLog: %s" % str(peer_addresses)
+        )
         store = ""
         if enable_storage:
             store = store_path
@@ -3624,25 +4517,26 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         self.log.debug("Creating RaftLog now.")
         try:
-            self.synclog: RaftLog = RaftLog(self.smr_node_id,
-                                            base_path=store,
-                                            kernel_id=self.kernel_id,
-                                            num_replicas=self.num_replicas,
-                                            remote_storage_hostname=self.remote_storage_hostname,
-                                            remote_storage=self.remote_storage,
-                                            should_read_data=self.should_read_data_from_remote_storage,
-                                            peer_addresses=peer_addresses,
-                                            peer_ids=ids,
-                                            join=self.smr_join,
-                                            debug_port=self.debug_port,
-                                            report_error_callback=self.report_error,
-                                            send_notification_func=self.send_notification,
-                                            remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
-                                            deployment_mode=self.deployment_mode,
-                                            election_timeout_seconds=self.election_timeout_seconds,
-                                            remote_checkpointer=self._remote_checkpointer,
-                                            large_object_pointer_committed=self.large_object_pointer_committed,
-                                            loaded_serialized_state_callback=self.loaded_serialized_state_callback)
+            self.synclog: RaftLog = RaftLog(
+                self.smr_node_id,
+                base_path=store,
+                kernel_id=self.kernel_id,
+                num_replicas=self.num_replicas,
+                remote_storage_hostname=self.remote_storage_hostname,
+                remote_storage=self.remote_storage,
+                should_read_data=self.should_read_data_from_remote_storage,
+                peer_addresses=peer_addresses,
+                peer_ids=ids,
+                join=self.smr_join,
+                debug_port=self.debug_port,
+                report_error_callback=self.report_error,
+                send_notification_func=self.send_notification,
+                remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
+                deployment_mode=self.deployment_mode,
+                election_timeout_seconds=self.election_timeout_seconds,
+                remote_checkpointer=self._remote_checkpointer,
+                loaded_serialized_state_callback=self.loaded_serialized_state_callback,
+            )
         except Exception as exc:
             self.log.error("Error while creating RaftLog: %s" % str(exc))
 
@@ -3651,7 +4545,9 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             for stack_entry in stack:
                 self.log.error(stack_entry)
 
-            self.report_error(error_title="Failed to Create RaftLog", error_message=str(exc))
+            self.report_error(
+                error_title="Failed to Create RaftLog", error_message=str(exc)
+            )
 
             # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting.
             await asyncio.sleep(10)
@@ -3665,7 +4561,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         return self.synclog
 
-    def loaded_serialized_state_callback(self, state: Optional[dict[str, dict[str, Any]]] = None):
+    def loaded_serialized_state_callback(self, state: dict[str, dict[str, Any]] = None):
         """
         This is a callback passed to the RaftLog.
 
@@ -3676,23 +4572,38 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         The RaftLog will pass us that data via this callback.
         """
-        self.log.debug("'loaded serialized state' callback is executing within the DistributedKernel.")
+        assert state is not None
 
-        last_resource_request: Optional[Dict[str, float | int | List[float] | List[int]]] = state.get(
-            "last_resource_request", None)
+        self.log.debug(
+            "'loaded serialized state' callback is executing within the DistributedKernel."
+        )
+
+        last_resource_request: Optional[
+            Dict[str, float | int | List[float] | List[int]]
+        ] = state.get("last_resource_request", None)
         if last_resource_request is not None:
             self.log.debug(
-                f"Recovered last resource request (before migration) from serialized state: {last_resource_request}")
+                f"Recovered last resource request (before migration) from serialized state: {last_resource_request}"
+            )
 
             self.resource_requests.append(last_resource_request)
             self.current_resource_request = last_resource_request
 
-        remote_storage_definitions: Optional[Dict[str, Any]] = state.get("remote_storage_definitions", None)
+        remote_storage_definitions: Optional[Dict[str, Any]] = state.get(
+            "remote_storage_definitions", None
+        )
         if remote_storage_definitions is not None:
-            self.log.debug(f"Recovered remote storage definitions from serialized state: {remote_storage_definitions}")
+            self.log.debug(
+                f"Recovered remote storage definitions from serialized state: {remote_storage_definitions}"
+            )
 
-            for remote_storage_name, remote_storage_definition in remote_storage_definitions.items():
-                self.log.debug(f"Registering remote storage loaded from serialized state: \"{remote_storage_name}\"")
+            for (
+                remote_storage_name,
+                remote_storage_definition,
+            ) in remote_storage_definitions.items():
+                self.log.debug(
+                    f'Registering remote storage loaded from serialized state: "{remote_storage_name}"'
+                )
                 self.register_remote_storage_definition(remote_storage_definition)
 
         self.loaded_serialized_state = True
@@ -3708,15 +4619,27 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         if self.prometheus_enabled:
             self.remote_storage_read_latency_milliseconds.labels(
-                session_id=self.kernel_id,
-                workload_id=self.workload_id).observe(latency_ms)
+                session_id=self.kernel_id, workload_id=self.workload_id
+            ).observe(latency_ms)
 
-    def run_cell(self, raw_cell, store_history=False, silent=False, shell_futures=True, cell_id=None):
+    def run_cell(
+        self,
+        raw_cell,
+        store_history=False,
+        silent=False,
+        shell_futures=True,
+        cell_id=None,
+    ):
         self.log.debug("Running cell: %s" % str(raw_cell))
         self.source = raw_cell
         self.toggle_outstream(override=True, enable=True)
-        result = self.old_run_cell(raw_cell, store_history=store_history,
-                                   silent=silent, shell_futures=shell_futures, cell_id=cell_id)
+        result = self.old_run_cell(
+            raw_cell,
+            store_history=store_history,
+            silent=silent,
+            shell_futures=shell_futures,
+            cell_id=cell_id,
+        )
         self.toggle_outstream(override=True, enable=False)
         self.log.debug("Ran cell %s: %s" % (str(raw_cell), str(result)))
         return result
@@ -3728,7 +4651,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
     def toggle_outstream(self, override=False, enable=True):
         # Is sys.stdout has attribute 'disable'?
-        if not hasattr(sys.stdout, 'disable'):
+        if not hasattr(sys.stdout, "disable"):
             # self.log.warning("sys.stdout didn't initialize with kernel.OutStream.")
             return
 

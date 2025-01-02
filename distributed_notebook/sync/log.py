@@ -408,23 +408,23 @@ class SyncLog(Protocol):
         """Current term."""
 
     @property
-    def current_election(self):
+    def current_election(self)->Any:
         """
         :return: the current election, if one exists
         """
 
     @property
-    def created_first_election(self):
+    def created_first_election(self)->bool:
         """
         :return: return a boolean indicating whether we've created the first election yet.
         """
 
-    def get_election(self, term_number: int):
+    def get_election(self, term_number: int)->Any:
         """
         :return: the current election with the specified term number, if one exists.
         """
 
-    def get_known_election_terms(self)->list[int]:
+    def get_known_election_terms(self)->Optional[list[int]]:
         """
         :return: a list of term numbers for which we have an associated Election object
         """

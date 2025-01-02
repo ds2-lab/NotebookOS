@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from distributed_notebook.datasets.base import Dataset
+from distributed_notebook.datasets.base import CustomDataset
 from distributed_notebook.models.model import DeepLearningModel
 from distributed_notebook.sync.log import SynchronizedValue
 
@@ -53,7 +53,7 @@ class DatasetPointer(SyncPointer):
     """
     def __init__(
             self,
-            dataset: Dataset = None,
+            dataset: CustomDataset = None,
             dataset_remote_storage_path:str = "",
             user_namespace_variable_name: str = "",
             **kwargs
@@ -65,13 +65,11 @@ class DatasetPointer(SyncPointer):
             **kwargs
         )
 
-        self._dataset: Optional[Dataset] = dataset
+        self._dataset: Optional[CustomDataset] = dataset
+        self._dataset_description: dict[str, str|int|bool] = dataset.description
 
     def __getstate__(self):
         d = dict(self.__dict__)
-
-        if self._dataset is not None:
-            d['dataset_description'] = self._dataset.description
 
         del d['_dataset']
 
@@ -82,15 +80,12 @@ class DatasetPointer(SyncPointer):
         return self._large_object_name
 
     @property
-    def dataset(self)->Optional[Dataset]:
+    def dataset(self)->Optional[CustomDataset]:
         return self._dataset
 
     @property
     def dataset_description(self)->Optional[dict[str, str|int|bool]]:
-        if self._dataset is not None:
-            return self._dataset.description
-
-        return None
+        return self._dataset_description
 
 class ModelPointer(SyncPointer):
     """
@@ -103,6 +98,8 @@ class ModelPointer(SyncPointer):
             user_namespace_variable_name: str = "",
             **kwargs
     ):
+        assert deep_learning_model is not None
+
         super().__init__(
             large_object_name= deep_learning_model.name,
             key = model_path,
@@ -114,6 +111,9 @@ class ModelPointer(SyncPointer):
         self._out_features: int = deep_learning_model.out_features
         self._total_training_time_seconds: int = deep_learning_model.total_training_time_seconds
         self._total_num_epochs: int = deep_learning_model.total_num_epochs
+
+        if hasattr(deep_learning_model, "input_size"):
+            self._input_size: int = deep_learning_model.input_size
 
     def __getstate__(self):
         d = dict(self.__dict__)
@@ -147,6 +147,15 @@ class ModelPointer(SyncPointer):
     @property
     def out_features(self)->int:
         return self._out_features
+
+    @property
+    def input_size(self)->Optional[int]:
+        if self._model is not None and hasattr(self._model, "input_size"):
+            return self._model.input_size
+        elif hasattr(self, "_input_size"):
+            return self._input_size
+
+        return None
 
     @property
     def model(self)->Optional[DeepLearningModel]:

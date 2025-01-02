@@ -56,6 +56,10 @@ func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, host
 	return dockerCluster
 }
 
+func (c *DockerComposeCluster) String() string {
+	return fmt.Sprintf("DockerComposeCluster[Size=%d,NumSessions=%d]", c.Len(), c.sessions.Len())
+}
+
 // CanPossiblyScaleOut returns true if the Cluster could possibly scale-out.
 // This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
 // it is currently not supported unless there is at least one disabled host already within the cluster.

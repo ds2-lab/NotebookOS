@@ -18,7 +18,7 @@ type FcfsBatchSchedulingPolicy struct {
 }
 
 func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatchSchedulingPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true)
 	if err != nil {
 		return nil, err
 	}
@@ -77,44 +77,20 @@ func (p *FcfsBatchSchedulingPolicy) GetNewPlacer(metricsProvider scheduling.Metr
 	return placer.NewRandomPlacer(metricsProvider, p.NumReplicas(), p)
 }
 
-//////////////////////////////////////////
-// ResourceScalingPolicy implementation //
-//////////////////////////////////////////
-
-func (p *FcfsBatchSchedulingPolicy) AutoscalingPolicy() scheduling.AutoscalingPolicy {
-	return p
-}
-
-func (p *FcfsBatchSchedulingPolicy) ManualScalingPolicy() scheduling.ManualScalingPolicy {
-	return p
-}
-
-//////////////////////////////////////
-// AutoscalingPolicy implementation //
-//////////////////////////////////////
-
-func (p *FcfsBatchSchedulingPolicy) AutomaticScalingOutEnabled() bool {
-	return false
-}
-
-func (p *FcfsBatchSchedulingPolicy) AutomaticScalingInEnabled() bool {
-	return false
-}
-
 func (p *FcfsBatchSchedulingPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	return p.scalingConfiguration
 }
 
-////////////////////////////////////////
-// ManualScalingPolicy implementation //
-////////////////////////////////////////
+//////////////////////////////////
+// ScalingPolicy implementation //
+//////////////////////////////////
 
-func (p *FcfsBatchSchedulingPolicy) ManualScalingOutEnabled() bool {
-	return false
+func (p *FcfsBatchSchedulingPolicy) ScalingOutEnabled() bool {
+	return p.scalingOutEnabled
 }
 
-func (p *FcfsBatchSchedulingPolicy) ManualScalingInEnabled() bool {
-	return false
+func (p *FcfsBatchSchedulingPolicy) ScalingInEnabled() bool {
+	return true
 }
 
 /////////////////////////////////////////////

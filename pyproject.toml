@@ -72,3 +72,8 @@ py-modules = [
 
 [project.entry-points."jupyter_client.kernel_provisioners"]
 gateway-provisioner = "distributed_notebook.provisioner.gateway_provisioner:GatewayProvisioner"
+
+[tool.pytest.ini_options]
+asyncio_mode="auto"
+asyncio_default_fixture_loop_scope="function"
+testpaths=[ "distributed_notebook/tests", "distributed_notebook/model/tests" ]

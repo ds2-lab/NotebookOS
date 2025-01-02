@@ -9,6 +9,33 @@
     "gopls": {
         "ui.semanticTokens": true
     },
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit"
+        }
+    },
+    "python.analysis.autoImportCompletions": true,
     "python.analysis.typeCheckingMode": "basic",
-    "makefile.configureOnOpen": false
+    "makefile.configureOnOpen": false,
+    // Controls whether the minimap is hidden automatically.
+    "editor.minimap.autohide": false,
+    // Controls whether the minimap is shown.
+    "editor.minimap.enabled": true,
+    // Limit the width of the minimap to render at most a certain number of columns.
+    "editor.minimap.maxColumn": 120,
+    // Render the actual characters on a line as opposed to color blocks.
+    "editor.minimap.renderCharacters": true,
+    // Scale of content drawn in the minimap: 1, 2 or 3.
+    "editor.minimap.scale": 1,
+    // Controls when the minimap slider is shown.
+    "editor.minimap.showSlider": "mouseover",
+    // Controls the side where to render the minimap.
+    "editor.minimap.side": "right",
+    // Controls the size of the minimap.
+    //  - proportional: The minimap has the same size as the editor contents (and might scroll).
+    //  - fill: The minimap will stretch or shrink as necessary to fill the height of the editor (no scrolling).
+    //  - fit: The minimap will shrink as necessary to never be larger than the editor (no scrolling).
+    "editor.minimap.size": "proportional",
 }

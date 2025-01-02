@@ -10,7 +10,7 @@ type StaticPolicy struct {
 }
 
 func NewStaticPolicy(opts *scheduling.SchedulerOptions) (*StaticPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true)
 	if err != nil {
 		return nil, err
 	}
@@ -67,39 +67,19 @@ func (p *StaticPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) 
 // ResourceScalingPolicy implementation //
 //////////////////////////////////////////
 
-func (p *StaticPolicy) AutoscalingPolicy() scheduling.AutoscalingPolicy {
-	return p
-}
-
-func (p *StaticPolicy) ManualScalingPolicy() scheduling.ManualScalingPolicy {
-	return p
-}
-
 func (p *StaticPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	return p.scalingConfiguration
 }
 
-//////////////////////////////////////
-// AutoscalingPolicy implementation //
-//////////////////////////////////////
+//////////////////////////////////
+// ScalingPolicy implementation //
+//////////////////////////////////
 
-func (p *StaticPolicy) AutomaticScalingOutEnabled() bool {
-	return true
+func (p *StaticPolicy) ScalingOutEnabled() bool {
+	return p.scalingOutEnabled
 }
 
-func (p *StaticPolicy) AutomaticScalingInEnabled() bool {
-	return true
-}
-
-////////////////////////////////////////
-// ManualScalingPolicy implementation //
-////////////////////////////////////////
-
-func (p *StaticPolicy) ManualScalingOutEnabled() bool {
-	return true
-}
-
-func (p *StaticPolicy) ManualScalingInEnabled() bool {
+func (p *StaticPolicy) ScalingInEnabled() bool {
 	return true
 }
 
