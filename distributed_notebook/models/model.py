@@ -125,7 +125,9 @@ class DeepLearningModel(ABC):
     @property
     @abstractmethod
     def constructor_args(self)->dict[str, Any]:
-        pass 
+        return {
+            "out_features": self.out_features
+        }
 
     @property
     def requires_checkpointing(self)->bool:

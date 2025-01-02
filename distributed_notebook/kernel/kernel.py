@@ -37,14 +37,14 @@ from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
 from ..datasets.base import CustomDataset
-from ..datasets.cifar10 import CIFAR10
+from distributed_notebook.datasets.cv.cifar10 import CIFAR10
 from ..datasets.loader import load_dataset
 from ..gateway import gateway_pb2
 from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
 from ..logs import ColoredLogFormatter
 from ..models.loader import load_model
 from ..models.model import DeepLearningModel
-from ..models.resnet18 import ResNet18
+from distributed_notebook.models.cv.resnet18 import ResNet18
 from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from ..sync.checkpointing.factory import get_remote_checkpointer
 from ..sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPointer

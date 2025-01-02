@@ -48,10 +48,13 @@ class ResNet18(DeepLearningModel):
 
     @property
     def constructor_args(self)->dict[str, Any]:
-        return {}
+        base_args: dict[str, Any] = super(ResNet18).constructor_args
+        args: dict[str, Any] = {}
+        base_args.update(args)
+        return base_args
 
     def __str__(self)->str:
-        return f"{self.name} (ResNet-18) [TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"
+        return f"{self.name}[TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"
 
     def __repr__(self)->str:
-        return f"{self.name} (ResNet-18) [TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"
+        return f"{self.name}[TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"

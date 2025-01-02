@@ -34,7 +34,13 @@ dependencies = [
     "jsondiff",
     "numpy",
     "redis",
-    "boto3"
+    "boto3",
+    "omegaconf",
+    "torchmetrics",
+    "python-Levenshtein",
+    "wget",
+    "sox",
+    "librosa"
 ]
 
 readme = "README.md"
