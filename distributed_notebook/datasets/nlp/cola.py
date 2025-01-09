@@ -1,18 +1,19 @@
 import os.path
 
-from datasets import load_dataset, DownloadMode
-
-from distributed_notebook.datasets.custom_dataset import CustomDataset
+from datasets import load_dataset, DownloadMode, load_from_disk
 
 import time
 
+from distributed_notebook.datasets.nlp.base import NLPDataset
 from distributed_notebook.datasets.nlp.util import get_tokenizer
 
 CoLAName:str = "Corpus of Linguistic Acceptability (CoLA)"
 
-class CoLA(CustomDataset):
-    def __init__(self, batch_size: int = 256, shuffle: bool = True, num_workers: int = 2, model_name:str = "", **kwargs):
+class CoLA(NLPDataset):
+    def __init__(self, shuffle: bool = True, num_workers: int = 2, model_name:str = "", **kwargs):
         assert model_name is not None and model_name != ""
+
+        self._model_name: str = model_name
 
         super().__init__(
             name = CoLAName,
@@ -21,8 +22,10 @@ class CoLA(CustomDataset):
             num_workers = num_workers
         )
 
+        dataset_dict_path: str = "~/tokenized_datasets/cola/model_name"
+
         self._dataset_already_downloaded: bool = os.path.exists("~/.cache/huggingface/datasets/stanfordnlp___imdb")
-        self._dataset_already_tokenized: bool = False
+        self._dataset_already_tokenized: bool = os.path.exists(dataset_dict_path)
 
         # Download the dataset, or load it from the cache.
         self._download_start: float = time.time()
@@ -53,18 +56,35 @@ class CoLA(CustomDataset):
             tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
             tokenized_datasets.set_format("torch")
 
+            os.makedirs(dataset_dict_path, 0o750, exist_ok=True)
+
+            print(f'Finished tokenizing the {CoLAName} dataset in {time.time() - self._tokenize_start} seconds. '
+                  f'Writing tokenized dataset to directory "{dataset_dict_path}".')
+
+            write_start: float = time.time()
+
+            tokenized_datasets.save_to_disk(dataset_dict_path = dataset_dict_path)
+
             self._tokenize_end: float = time.time()
             self._tokenize_duration: float = self._tokenize_end - self._tokenize_start
 
-            print(f'The {CoLAName} dataset was tokenized and cached in directory "TBD" in '
-                  f'{self._tokenize_duration} seconds.')
-
-            # Prepare the data loaders
-            self._train_loader = tokenized_datasets["train"]
-            self._test_loader = tokenized_datasets["validation"]
+            print(f'Wrote the tokenized {CoLAName} dataset to directory "{dataset_dict_path}" in '
+                  f'{time.time() - write_start} seconds. '
+                  f'Total time elapsed: {self._tokenize_duration} seconds.')
         else:
             # TODO: Read the cached tokenized dataset.
-            print(f"The {CoLAName} dataset was already tokenized.")
+            print(f'The {CoLAName} dataset was already tokenized. '
+                  f'Loading cached, tokenized {CoLAName} dataset from directory "{dataset_dict_path}" now...')
+
+            _read_start: float = time.time()
+            tokenized_datasets = load_from_disk(dataset_dict_path)
+
+            print(f'Read cached, tokenized {CoLAName} dataset from directory "{dataset_dict_path}" '
+                  f'in {time.time() - _read_start} seconds.')
+
+        # Prepare the data loaders
+        self._train_loader = tokenized_datasets["train"]
+        self._test_loader = tokenized_datasets["validation"]
 
     @property
     def download_duration_sec(self)->float:
@@ -113,6 +133,7 @@ class CoLA(CustomDataset):
             "root_dir": self._root_dir,
             "shuffle": self._shuffle,
             "num_workers": self._num_workers,
+            "model_name": self._model_name,
         }
 
     @property
