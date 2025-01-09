@@ -36,7 +36,7 @@ from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
-from ..datasets.base import CustomDataset
+from ..datasets.custom_dataset import CustomDataset
 from distributed_notebook.datasets.cv.cifar10 import CIFAR10
 from ..datasets.loader import load_dataset
 from ..gateway import gateway_pb2

@@ -14,7 +14,7 @@ import wget
 from torch.utils.data import Dataset
 from torchvision.datasets.utils import check_integrity
 
-from distributed_notebook.datasets.base import CustomDataset
+from distributed_notebook.datasets.custom_dataset import CustomDataset
 from distributed_notebook.datasets.speech.loader import AudioDataLoader
 from distributed_notebook.datasets.speech.parser import SpectrogramParser
 from distributed_notebook.models.speech.deepspeech2.config import SpectConfig, AugmentationConfig

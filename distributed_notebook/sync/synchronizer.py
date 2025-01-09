@@ -6,7 +6,7 @@ import traceback
 import types
 from typing import Any, Callable, Optional
 
-from ..datasets.base import CustomDataset
+from ..datasets.custom_dataset import CustomDataset
 from ..logs import ColoredLogFormatter
 from ..models.model import DeepLearningModel
 from .ast import SyncAST

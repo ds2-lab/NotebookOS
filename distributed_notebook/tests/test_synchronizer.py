@@ -10,7 +10,7 @@ from unittest import mock
 from torch.nn import Parameter
 
 import distributed_notebook
-from distributed_notebook.datasets.base import CustomDataset
+from distributed_notebook.datasets.custom_dataset import CustomDataset
 from distributed_notebook.datasets.loader import load_dataset
 from distributed_notebook.models.loader import load_model
 from distributed_notebook.models.model import DeepLearningModel
