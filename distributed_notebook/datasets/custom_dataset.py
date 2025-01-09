@@ -91,17 +91,7 @@ class CustomDataset(ABC):
 
     @property
     @abstractmethod
-    def train_dataset(self):
-        pass
-
-    @property
-    @abstractmethod
     def train_loader(self):
-        pass
-
-    @property
-    @abstractmethod
-    def test_dataset(self):
         pass
 
     @property

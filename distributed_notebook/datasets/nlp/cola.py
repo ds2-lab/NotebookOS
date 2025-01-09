@@ -1,130 +1,43 @@
-import os.path
-
-from datasets import load_dataset, DownloadMode, load_from_disk
-
-import time
-
 from distributed_notebook.datasets.nlp.base import NLPDataset
-from distributed_notebook.datasets.nlp.util import get_tokenizer
 
 CoLAName:str = "Corpus of Linguistic Acceptability (CoLA)"
 
+def cola_postprocess_tokenized_dataset(tokenized_datasets):
+    tokenized_datasets = tokenized_datasets.remove_columns(["sentence", "idx"])
+    tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
+
+    return tokenized_datasets
+
 class CoLA(NLPDataset):
-    def __init__(self, shuffle: bool = True, num_workers: int = 2, model_name:str = "", **kwargs):
+    root_directory: str = "~/.cache/huggingface/datasets/cola"
+
+    # https://huggingface.co/datasets/nyu-mll/glue
+    hugging_face_dataset_name: str = "glue"
+
+    text_feature_column_name: str = "sentence"
+
+    def __init__(
+            self,
+            shuffle: bool = True,
+            num_workers: int = 2,
+            model_name:str = "",
+            max_token_length: int = 128,
+            **kwargs
+    ):
         assert model_name is not None and model_name != ""
 
-        self._model_name: str = model_name
+        self._model_name: str = model_name.lower()
 
         super().__init__(
             name = CoLAName,
-            root_dir = "~/.cache/huggingface/datasets/stanfordnlp___imdb",
+            root_dir = CoLA.root_directory,
             shuffle = shuffle,
-            num_workers = num_workers
+            num_workers = num_workers,
+            hugging_face_dataset_name = CoLA.hugging_face_dataset_name,
+            text_feature_column_name = CoLA.text_feature_column_name,
+            postprocess_tokenized_dataset = cola_postprocess_tokenized_dataset,
+            max_token_length = max_token_length,
         )
-
-        dataset_dict_path: str = "~/tokenized_datasets/cola/model_name"
-
-        self._dataset_already_downloaded: bool = os.path.exists("~/.cache/huggingface/datasets/stanfordnlp___imdb")
-        self._dataset_already_tokenized: bool = os.path.exists(dataset_dict_path)
-
-        # Download the dataset, or load it from the cache.
-        self._download_start: float = time.time()
-        self._dataset = load_dataset(
-            path = "cola",
-            download_mode = DownloadMode.REUSE_DATASET_IF_EXISTS,
-        )
-        self._download_end: float = time.time()
-
-        if not self._dataset_already_downloaded:
-            self._download_duration_sec: float = self._download_end - self._download_start
-            print(f"The {CoLAName} dataset was downloaded to root directory \"{self._root_dir}\" in "
-                  f"{self._download_duration_sec} seconds.")
-        else:
-            print(f"The {CoLAName} dataset was already downloaded. Root directory: \"{self._root_dir}\"")
-
-        if not self._dataset_already_tokenized:
-            self._tokenize_start: float = time.time()
-
-            self.tokenizer = get_tokenizer(model_name)
-
-            # Tokenization
-            def tokenize_function(example):
-                return self.tokenizer(example["sentence"], truncation=True, padding="max_length", max_length=128)
-
-            tokenized_datasets = self._dataset.map(tokenize_function, batched=True)
-            tokenized_datasets = tokenized_datasets.remove_columns(["sentence", "idx"])
-            tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
-            tokenized_datasets.set_format("torch")
-
-            os.makedirs(dataset_dict_path, 0o750, exist_ok=True)
-
-            print(f'Finished tokenizing the {CoLAName} dataset in {time.time() - self._tokenize_start} seconds. '
-                  f'Writing tokenized dataset to directory "{dataset_dict_path}".')
-
-            write_start: float = time.time()
-
-            tokenized_datasets.save_to_disk(dataset_dict_path = dataset_dict_path)
-
-            self._tokenize_end: float = time.time()
-            self._tokenize_duration: float = self._tokenize_end - self._tokenize_start
-
-            print(f'Wrote the tokenized {CoLAName} dataset to directory "{dataset_dict_path}" in '
-                  f'{time.time() - write_start} seconds. '
-                  f'Total time elapsed: {self._tokenize_duration} seconds.')
-        else:
-            # TODO: Read the cached tokenized dataset.
-            print(f'The {CoLAName} dataset was already tokenized. '
-                  f'Loading cached, tokenized {CoLAName} dataset from directory "{dataset_dict_path}" now...')
-
-            _read_start: float = time.time()
-            tokenized_datasets = load_from_disk(dataset_dict_path)
-
-            print(f'Read cached, tokenized {CoLAName} dataset from directory "{dataset_dict_path}" '
-                  f'in {time.time() - _read_start} seconds.')
-
-        # Prepare the data loaders
-        self._train_loader = tokenized_datasets["train"]
-        self._test_loader = tokenized_datasets["validation"]
-
-    @property
-    def download_duration_sec(self)->float:
-        return self._download_duration_sec
-
-    @property
-    def dataset_already_downloaded(self)->bool:
-        return self._dataset_already_downloaded
-
-    @property
-    def download_start_time(self)->float:
-        return self._download_start
-
-    @property
-    def download_end_time(self)->float:
-        return self._download_end
-
-    @property
-    def download_duration(self)->float:
-        return self._download_duration_sec
-
-    @property
-    def download_start(self)->float:
-        return self._download_start
-
-    @property
-    def download_end(self)->float:
-        return self._download_end
-
-    @property
-    def tokenization_start(self)->float:
-        return self._tokenize_start
-
-    @property
-    def tokenization_end(self)->float:
-        return self._tokenize_end
-
-    @property
-    def tokenization_duration_sec(self)->float:
-        return self._tokenize_duration
 
     @property
     def description(self)->dict[str, str|int|bool]:
@@ -134,20 +47,5 @@ class CoLA(NLPDataset):
             "shuffle": self._shuffle,
             "num_workers": self._num_workers,
             "model_name": self._model_name,
+            "hugging_face_dataset_name": "glue",
         }
-
-    @property
-    def train_dataset(self):
-        return self._train_dataset
-
-    @property
-    def train_loader(self):
-        return self._train_loader
-
-    @property
-    def test_dataset(self):
-        return self._test_dataset
-
-    @property
-    def test_loader(self):
-        return self._test_loader
