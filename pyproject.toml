@@ -41,8 +41,9 @@ dependencies = [
     "wget",
     "sox",
     "librosa",
-    "torchtext",
-    "torchdata"
+    "torchdata",
+    "transformers",
+    "datasets"
 ]
 
 readme = "README.md"

@@ -11,9 +11,8 @@ from typing import Optional, Dict, List, Union
 
 import sox
 import wget
-from torch.utils.data import DataLoader, Dataset
-from torchvision import datasets
-from torchvision.datasets.utils import check_integrity, download_and_extract_archive
+from torch.utils.data import Dataset
+from torchvision.datasets.utils import check_integrity
 
 from distributed_notebook.datasets.base import CustomDataset
 from distributed_notebook.datasets.speech.loader import AudioDataLoader
@@ -32,37 +31,37 @@ LIBRI_SPEECH_URLS: Dict[str, List[str]] = {
 }
 
 LIBRI_SPEECH_MD5_CHECKSUMS: Dict[str, str] = {
-    "about.html":"c989c596e76fe53fabca29d30805bfb4",
-    "dev-clean.tar.gz":"42e2234ba48799c1f50f24a7926300a1",
-    "dev-other.tar.gz":"c8d0bcc9cca99d4f8b62fcc847357931",
-    "info.txt":"951cbdf929053c642e0be46c84b728b6",
-    "intro-disclaimers.tar.gz":"92ba57a9611a70fd7d34b73249ae48cf",
-    "md5sum.txt":"5311866a1582672ac30785e61cdb0af7",
-    "original-books.tar.gz":"9da96b465573c8d1ee1d5ad3d01c08e3",
-    "original-mp3.tar.gz":"7e14b6df14f1c04a852a50ba5f7be915",
-    "raw-metadata.tar.gz":"25eced105e10f4081585af89b8d27cd2",
-    "test-clean.tar.gz":"32fa31d27d2e1cad72775fee3f4849a9",
-    "test-other.tar.gz":"fb5a50374b501bb3bac4815ee91d3135",
-    "train-clean-100.tar.gz":"2a93770f6d5c6c964bc36631d331a522",
-    "train-clean-360.tar.gz":"c0e676e450a7ff2f54aeade5171606fa",
-    "train-other-500.tar.gz":"d1a0fd59409feb2c614ce4d30c387708",
+    "about.html": "c989c596e76fe53fabca29d30805bfb4",
+    "dev-clean.tar.gz": "42e2234ba48799c1f50f24a7926300a1",
+    "dev-other.tar.gz": "c8d0bcc9cca99d4f8b62fcc847357931",
+    "info.txt": "951cbdf929053c642e0be46c84b728b6",
+    "intro-disclaimers.tar.gz": "92ba57a9611a70fd7d34b73249ae48cf",
+    "md5sum.txt": "5311866a1582672ac30785e61cdb0af7",
+    "original-books.tar.gz": "9da96b465573c8d1ee1d5ad3d01c08e3",
+    "original-mp3.tar.gz": "7e14b6df14f1c04a852a50ba5f7be915",
+    "raw-metadata.tar.gz": "25eced105e10f4081585af89b8d27cd2",
+    "test-clean.tar.gz": "32fa31d27d2e1cad72775fee3f4849a9",
+    "test-other.tar.gz": "fb5a50374b501bb3bac4815ee91d3135",
+    "train-clean-100.tar.gz": "2a93770f6d5c6c964bc36631d331a522",
+    "train-clean-360.tar.gz": "c0e676e450a7ff2f54aeade5171606fa",
+    "train-other-500.tar.gz": "d1a0fd59409feb2c614ce4d30c387708",
 }
 
 LIBRI_SPEECH_MD5_SUMS: Dict[str, str] = {
-    "about.html":"c989c596e76fe53fabca29d30805bfb4",
-    "dev-clean.tar.gz":"42e2234ba48799c1f50f24a7926300a1",
-    "dev-other.tar.gz":"c8d0bcc9cca99d4f8b62fcc847357931",
-    "info.txt":"951cbdf929053c642e0be46c84b728b6",
-    "intro-disclaimers.tar.gz":"92ba57a9611a70fd7d34b73249ae48cf",
-    "md5sum.txt":"5311866a1582672ac30785e61cdb0af7",
-    "original-books.tar.gz":"9da96b465573c8d1ee1d5ad3d01c08e3",
-    "original-mp3.tar.gz":"7e14b6df14f1c04a852a50ba5f7be915",
-    "raw-metadata.tar.gz":"25eced105e10f4081585af89b8d27cd2",
-    "test-clean.tar.gz":"32fa31d27d2e1cad72775fee3f4849a9",
-    "test-other.tar.gz":"fb5a50374b501bb3bac4815ee91d3135",
-    "train-clean-100.tar.gz":"2a93770f6d5c6c964bc36631d331a522",
-    "train-clean-360.tar.gz":"c0e676e450a7ff2f54aeade5171606fa",
-    "train-other-500.tar.gz":"d1a0fd59409feb2c614ce4d30c387708",
+    "about.html": "c989c596e76fe53fabca29d30805bfb4",
+    "dev-clean.tar.gz": "42e2234ba48799c1f50f24a7926300a1",
+    "dev-other.tar.gz": "c8d0bcc9cca99d4f8b62fcc847357931",
+    "info.txt": "951cbdf929053c642e0be46c84b728b6",
+    "intro-disclaimers.tar.gz": "92ba57a9611a70fd7d34b73249ae48cf",
+    "md5sum.txt": "5311866a1582672ac30785e61cdb0af7",
+    "original-books.tar.gz": "9da96b465573c8d1ee1d5ad3d01c08e3",
+    "original-mp3.tar.gz": "7e14b6df14f1c04a852a50ba5f7be915",
+    "raw-metadata.tar.gz": "25eced105e10f4081585af89b8d27cd2",
+    "test-clean.tar.gz": "32fa31d27d2e1cad72775fee3f4849a9",
+    "test-other.tar.gz": "fb5a50374b501bb3bac4815ee91d3135",
+    "train-clean-100.tar.gz": "2a93770f6d5c6c964bc36631d331a522",
+    "train-clean-360.tar.gz": "c0e676e450a7ff2f54aeade5171606fa",
+    "train-other-500.tar.gz": "d1a0fd59409feb2c614ce4d30c387708",
 }
 
 
@@ -207,7 +206,7 @@ def download_libri(
                                       txt_dir=split_txt_dir,
                                       base_filename=f,
                                       root_dir=root,
-                                      sample_rate = sample_rate)
+                                      sample_rate=sample_rate)
 
             print(f"Finished downloading and processing files from URL '{url}'")
             shutil.rmtree(extracted_dir)
@@ -269,10 +268,14 @@ class LibriSpeechDataset(Dataset, SpectrogramParser):
         ["test_batch", "test-clean"]
     ]
 
+    default_labels: List[str] = ["_", "'", "A", "B", "C", "D", "E", "F", "G", "H",
+                                 "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R",
+                                 "S", "T", "U", "V", "W", "X", "Y", "Z", " "]
+
     def __init__(self,
                  audio_conf: SpectConfig,
                  input_path: str,
-                 labels: list,
+                 labels: Optional[List[str]] = None,
                  normalize: bool = False,
                  max_duration: int = 15,
                  min_duration: int = 1,
@@ -291,18 +294,22 @@ class LibriSpeechDataset(Dataset, SpectrogramParser):
         :param normalize: Apply standard mean and deviation normalization to audio tensor
         :param augmentation_conf(Optional): Config containing the augmentation parameters
         """
+        if labels is None:
+            labels = LibriSpeechDataset.default_labels
+
         self.input_path: str = input_path
-        self.ids = parse_input(input_path)
-        self.size = len(self.ids)
-        self.labels_map = dict([(labels[i], i) for i in range(len(labels))])
         super(Dataset, self).__init__(audio_conf, normalize, aug_cfg)
 
         self.download(
-            sample_rate = audio_conf.sample_rate,
-            max_duration = max_duration,
-            min_duration = min_duration,
-            num_workers = num_workers,
+            sample_rate=audio_conf.sample_rate,
+            max_duration=max_duration,
+            min_duration=min_duration,
+            num_workers=num_workers,
         )
+
+        self.ids = parse_input(input_path)
+        self.size = len(self.ids)
+        self.labels_map = dict([(labels[i], i) for i in range(len(labels))])
 
         if not self._check_integrity():
             raise RuntimeError("LibriSpeech dataset not found or is corrupted.")
@@ -329,15 +336,13 @@ class LibriSpeechDataset(Dataset, SpectrogramParser):
             return
 
         download_libri(
-            root_directory = self.input_path,
-            manifest_directory = os.path.join(self.input_path, "manifest"),
-            sample_rate = sample_rate,
-            max_duration = max_duration,
-            min_duration = min_duration,
-            num_workers = num_workers,
+            root_directory=self.input_path,
+            manifest_directory=os.path.join(self.input_path, "manifest"),
+            sample_rate=sample_rate,
+            max_duration=max_duration,
+            min_duration=min_duration,
+            num_workers=num_workers,
         )
-
-
 
     def __getitem__(self, index):
         sample = self.ids[index]
@@ -352,6 +357,21 @@ class LibriSpeechDataset(Dataset, SpectrogramParser):
         transcript = list(filter(None, [self.labels_map.get(x) for x in list(transcript)]))
         return transcript
 
+    @property
+    def requires_tokenization(self)->bool:
+        return False
+
+    @property
+    def tokenization_start(self)->float:
+        return -1.0
+
+    @property
+    def tokenization_end(self)->float:
+        return -1.0
+
+    @property
+    def tokenization_duration_sec(self)->float:
+        return -1.0
 
 class LibriSpeech(CustomDataset, ABC):
     def __init__(
@@ -375,12 +395,28 @@ class LibriSpeech(CustomDataset, ABC):
         self._download_duration_sec = self._download_end - self._download_start
 
         self._train_loader = AudioDataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle,
-                                        num_workers=num_workers)
+                                             num_workers=num_workers)
         self._test_loader = AudioDataLoader(self._test_dataset, batch_size=batch_size, shuffle=shuffle,
-                                       num_workers=num_workers)
+                                            num_workers=num_workers)
 
         if self._dataset_already_downloaded:
             print(f"LibriSpeech dataset was already downloaded. Root directory: \"{root_dir}\"")
         else:
             print(
                 f"LibriSpeech was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+
+    @property
+    def requires_tokenization(self)->bool:
+        return False
+
+    @property
+    def tokenization_start(self)->float:
+        return -1.0
+
+    @property
+    def tokenization_end(self)->float:
+        return -1.0
+
+    @property
+    def tokenization_duration_sec(self)->float:
+        return -1.0

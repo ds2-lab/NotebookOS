@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import Dataset, Sampler, DistributedSampler, DataLoader
 import torchaudio
 
-from distributed_notebook.models.speech.deepspeech2.config import SpectConfig
+from distributed_notebook.models.speech.deepspeech2.config import SpectConfig, AugmentationConfig
 
 torchaudio.set_audio_backend("sox_io")
 

@@ -48,7 +48,7 @@ class DeepSpeech(DeepLearningModel):
 
     @property
     def constructor_args(self)->dict[str, Any]:
-        base_args: dict[str, Any] = super(ResNet18).constructor_args
+        base_args: dict[str, Any] = super(DeepSpeechName).constructor_args
         args: dict[str, Any] = {}
         base_args.update(args)
         return base_args

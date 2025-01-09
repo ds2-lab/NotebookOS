@@ -246,8 +246,10 @@ class DeepSpeech2Model(nn.Module):
         inputs, targets, input_percentages, target_sizes = batch
         input_sizes = input_percentages.mul_(int(inputs.size(3))).int()
         inputs = inputs.to(self.device)
+
         with autocast(enabled=self.precision == 16):
             out, output_sizes, hs = self(inputs, input_sizes)
+
         decoded_output, _ = self.evaluation_decoder.decode(out, output_sizes)
         self.wer(
             preds=out,
@@ -288,6 +290,9 @@ class DeepSpeech2(DeepLearningModel):
             model_state_dict: Optional[Dict[str, Any]] = None,
             created_for_first_time: bool = False,
             scheduler_state_dict: Dict[str, Any] = None,
+            precision: int = 16,
+            bidirectional: bool = True,
+            labels: list[str] = None,
             **kwargs,
     ):
         super().__init__(
@@ -299,7 +304,7 @@ class DeepSpeech2(DeepLearningModel):
             **kwargs,
         )
 
-        self.model = DeepSpeech2Model()
+        self.model = DeepSpeech2Model(labels = labels, precision = precision, bidirectional = bidirectional)
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)
@@ -333,7 +338,10 @@ class DeepSpeech2(DeepLearningModel):
     def constructor_args(self)->dict[str, Any]:
         base_args: dict[str, Any] = super(DeepSpeech2).constructor_args
         args: dict[str, Any] = {
-            "scheduler_state_dict": self._scheduler.state_dict()
+            "scheduler_state_dict": self._scheduler.state_dict(),
+            "bidirectional": self.model.bidirectional,
+            "precision": self.model.precision,
+            "labels": self.model.labels,
         }
         base_args.update(args)
         return base_args

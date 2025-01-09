@@ -1,56 +1,70 @@
-from torchtext import datasets
-from torchtext.data.utils import get_tokenizer
-from torchtext.vocab import build_vocab_from_iterator
+import os.path
 
-from distributed_notebook.datasets.base import CustomDataset
+from datasets import load_dataset, DownloadMode
+
+from distributed_notebook.datasets.custom_dataset import CustomDataset
 
 import time
 
+from distributed_notebook.datasets.nlp.util import get_tokenizer
+
 CoLAName:str = "Corpus of Linguistic Acceptability (CoLA)"
 
-def label_pipeline(x):
-    return int(x)
-
 class CoLA(CustomDataset):
-    def __init__(self, root_dir:str = 'data', batch_size: int = 256, shuffle: bool = True, num_workers: int = 2, **kwargs):
-        super().__init__(name = CoLAName, root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
+    def __init__(self, batch_size: int = 256, shuffle: bool = True, num_workers: int = 2, model_name:str = "", **kwargs):
+        assert model_name is not None and model_name != ""
 
-        self._dataset_already_downloaded: bool = self._check_if_downloaded(
-            filenames = datasets.CoLA.train_list + datasets.CIFAR10.test_list,
-            base_folder = datasets.CIFAR10.base_folder
+        super().__init__(
+            name = CoLAName,
+            root_dir = "~/.cache/huggingface/datasets/stanfordnlp___imdb",
+            shuffle = shuffle,
+            num_workers = num_workers
         )
 
-        self._download_start = time.time()
-        self._train_dataset = datasets.CoLA(root=root_dir, train=True, download=True)
+        self._dataset_already_downloaded: bool = os.path.exists("~/.cache/huggingface/datasets/stanfordnlp___imdb")
+        self._dataset_already_tokenized: bool = False
 
-        # Load the dataset
-        train_iter, valid_iter, test_iter = datasets.CoLA()
+        # Download the dataset, or load it from the cache.
+        self._download_start: float = time.time()
+        self._dataset = load_dataset(
+            path = "cola",
+            download_mode = DownloadMode.REUSE_DATASET_IF_EXISTS,
+        )
+        self._download_end: float = time.time()
 
-        # Tokenize the text
-        self.tokenizer = get_tokenizer('basic_english')
-
-        # Build the vocabulary
-        def yield_tokens(data_iter):
-            for _, label, text in data_iter:
-                yield self.tokenizer(text)
-
-        self.vocab = build_vocab_from_iterator(yield_tokens(train_iter), specials=["<unk>"])
-        self.vocab.set_default_index(self.vocab["<unk>"])
-
-        self._download_end = time.time()
-        self._download_duration_sec = self._download_end - self._download_start
-
-        # Prepare the data loaders
-        self._train_loader = datasets.CoLA(split='train', text_transform=self.text_pipeline, label_transform=label_pipeline)
-        self._test_loader = datasets.CoLA(split='test', text_transform=self.text_pipeline, label_transform=label_pipeline)
-
-        if self._dataset_already_downloaded:
-            print(f"{CoLAName} dataset was already downloaded. Root directory: \"{root_dir}\"")
+        if not self._dataset_already_downloaded:
+            self._download_duration_sec: float = self._download_end - self._download_start
+            print(f"The {CoLAName} dataset was downloaded to root directory \"{self._root_dir}\" in "
+                  f"{self._download_duration_sec} seconds.")
         else:
-            print(f"{CoLAName} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+            print(f"The {CoLAName} dataset was already downloaded. Root directory: \"{self._root_dir}\"")
 
-    def text_pipeline(self, x):
-        return self.vocab(self.tokenizer(x))
+        if not self._dataset_already_tokenized:
+            self._tokenize_start: float = time.time()
+
+            self.tokenizer = get_tokenizer(model_name)
+
+            # Tokenization
+            def tokenize_function(example):
+                return self.tokenizer(example["sentence"], truncation=True, padding="max_length", max_length=128)
+
+            tokenized_datasets = self._dataset.map(tokenize_function, batched=True)
+            tokenized_datasets = tokenized_datasets.remove_columns(["sentence", "idx"])
+            tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
+            tokenized_datasets.set_format("torch")
+
+            self._tokenize_end: float = time.time()
+            self._tokenize_duration: float = self._tokenize_end - self._tokenize_start
+
+            print(f'The {CoLAName} dataset was tokenized and cached in directory "TBD" in '
+                  f'{self._tokenize_duration} seconds.')
+
+            # Prepare the data loaders
+            self._train_loader = tokenized_datasets["train"]
+            self._test_loader = tokenized_datasets["validation"]
+        else:
+            # TODO: Read the cached tokenized dataset.
+            print(f"The {CoLAName} dataset was already tokenized.")
 
     @property
     def download_duration_sec(self)->float:
@@ -79,6 +93,18 @@ class CoLA(CustomDataset):
     @property
     def download_end(self)->float:
         return self._download_end
+
+    @property
+    def tokenization_start(self)->float:
+        return self._tokenize_start
+
+    @property
+    def tokenization_end(self)->float:
+        return self._tokenize_end
+
+    @property
+    def tokenization_duration_sec(self)->float:
+        return self._tokenize_duration
 
     @property
     def description(self)->dict[str, str|int|bool]:

@@ -45,6 +45,26 @@ class CustomDataset(ABC):
 
     @property
     @abstractmethod
+    def tokenization_start(self)->float:
+        return -1.0
+
+    @property
+    @abstractmethod
+    def tokenization_end(self)->float:
+        return -1.0
+
+    @property
+    @abstractmethod
+    def tokenization_duration_sec(self)->float:
+        return -1.0
+
+    @property
+    @abstractmethod
+    def requires_tokenization(self)->bool:
+        return False
+
+    @property
+    @abstractmethod
     def description(self)->dict[str, str|int|bool]:
         return {
             "name": self._name,

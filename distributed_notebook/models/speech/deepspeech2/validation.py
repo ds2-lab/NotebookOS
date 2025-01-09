@@ -6,7 +6,7 @@ from torch.cuda.amp import autocast
 from torchmetrics import Metric
 from tqdm import tqdm
 
-from decoder import Decoder, GreedyDecoder
+from .decoder import Decoder, GreedyDecoder
 
 
 class ErrorRate(Metric, ABC):
