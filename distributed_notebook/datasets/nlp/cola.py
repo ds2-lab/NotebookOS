@@ -1,3 +1,5 @@
+from typing import Dict, Union
+
 from distributed_notebook.datasets.nlp.base import NLPDataset
 
 CoLAName:str = "Corpus of Linguistic Acceptability (CoLA)"
@@ -40,12 +42,7 @@ class CoLA(NLPDataset):
         )
 
     @property
-    def description(self)->dict[str, str|int|bool]:
-        return {
-            "name": self._name,
-            "root_dir": self._root_dir,
-            "shuffle": self._shuffle,
-            "num_workers": self._num_workers,
-            "model_name": self._model_name,
-            "hugging_face_dataset_name": "glue",
-        }
+    def description(self)->Dict[str, Union[str, int, bool]]:
+        desc: Dict[str, Union[str, int, bool]] = super().description
+        desc["hugging_face_dataset_name"] = CoLA.hugging_face_dataset_name
+        return desc

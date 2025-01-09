@@ -1,6 +1,6 @@
 from abc import ABC
 import os
-from typing import Callable
+from typing import Callable, Dict, Union
 
 from datasets import load_dataset, DownloadMode, load_from_disk
 
@@ -165,3 +165,13 @@ class NLPDataset(CustomDataset, ABC):
     @property
     def test_loader(self):
         return self._test_loader
+
+    @property
+    def description(self)->Dict[str, Union[str, int, bool]]:
+        return {
+            "name": self._name,
+            "root_dir": self._root_dir,
+            "shuffle": self._shuffle,
+            "num_workers": self._num_workers,
+            "model_name": self._model_name,
+        }

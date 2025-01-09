@@ -1,3 +1,5 @@
+from typing import Dict, Union
+
 from distributed_notebook.datasets.nlp.base import NLPDataset
 
 IMDbName:str = "IMDb Large Movie Review Dataset"
@@ -37,10 +39,7 @@ class IMDbLargeMovieReview(NLPDataset):
         )
 
     @property
-    def description(self)->dict[str, str|int|bool]:
-        return {
-            "name": self._name,
-            "root_dir": self._root_dir,
-            "shuffle": self._shuffle,
-            "num_workers": self._num_workers,
-        }
+    def description(self)->Dict[str, str|int|bool]:
+        desc: Dict[str, Union[str, int, bool]] = super().description
+        desc["hugging_face_dataset_name"] = IMDbLargeMovieReview.hugging_face_dataset_name
+        return desc
