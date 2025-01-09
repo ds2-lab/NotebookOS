@@ -25,14 +25,14 @@ class IMDbLargeMovieReview(NLPDataset):
             num_workers: int = 2,
             model_name:str = "", **kwargs
     ):
-        assert model_name is not None and model_name != ""
-
         super().__init__(
             dataset_name = IMDbName,
             root_dir = IMDbLargeMovieReview.root_directory,
+            model_name = model_name,
             shuffle = shuffle,
             num_workers = num_workers,
             hugging_face_dataset_name = IMDbLargeMovieReview.hugging_face_dataset_name,
+            hugging_face_dataset_config_name = None,
             text_feature_column_name = IMDbLargeMovieReview.text_feature_column_name,
             postprocess_tokenized_dataset = imdb_postprocess_tokenized_dataset,
             max_token_length = max_token_length,

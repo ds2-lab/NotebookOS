@@ -1,6 +1,6 @@
 from abc import ABC
 import os
-from typing import Callable, Dict, Union
+from typing import Callable, Dict, Union, Optional
 
 from datasets import load_dataset, DownloadMode, load_from_disk
 
@@ -18,6 +18,7 @@ class NLPDataset(CustomDataset, ABC):
             shuffle: bool = True,
             num_workers: int = 2,
             hugging_face_dataset_name: str = "",
+            hugging_face_dataset_config_name: Optional[str] = None,
             text_feature_column_name: str = "text",
             postprocess_tokenized_dataset: Callable = None,
             max_token_length: int = 128,
@@ -32,6 +33,11 @@ class NLPDataset(CustomDataset, ABC):
         assert text_feature_column_name is not None and text_feature_column_name != ""
         assert postprocess_tokenized_dataset is not None
 
+        model_name = model_name.lower()
+        assert model_name == "bert" or model_name == "gpt-2" or model_name == "gpt2"
+
+        self._model_name: str = model_name
+
         super().__init__(
             name = name,
             root_dir = root_dir,
@@ -39,15 +45,19 @@ class NLPDataset(CustomDataset, ABC):
             num_workers = num_workers,
         )
 
-        self._model_name: str = model_name
-        self._dataset_dict_path: str = f"~/tokenized_datasets/cola/{self._model_name}"
+        self._hugging_face_dataset_name: str = hugging_face_dataset_name
+        self._dataset_dict_path: str = f"~/tokenized_datasets/{self._hugging_face_dataset_name}/{self._model_name}"
 
         self._dataset_already_downloaded: bool = os.path.exists(root_dir)
         self._dataset_already_tokenized: bool = os.path.exists(self._dataset_dict_path)
 
         # Download the dataset, or load it from the cache.
         self._download_start: float = time.time()
-        self._dataset = load_dataset(path = hugging_face_dataset_name, download_mode = DownloadMode.REUSE_DATASET_IF_EXISTS)
+        self._dataset = load_dataset(
+            path = self._hugging_face_dataset_name,
+            name = hugging_face_dataset_config_name,
+            download_mode = DownloadMode.REUSE_DATASET_IF_EXISTS
+        )
         self._download_end: float = time.time()
 
         if not self._dataset_already_downloaded:

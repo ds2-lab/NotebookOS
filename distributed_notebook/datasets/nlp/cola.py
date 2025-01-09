@@ -22,20 +22,18 @@ class CoLA(NLPDataset):
             self,
             shuffle: bool = True,
             num_workers: int = 2,
-            model_name:str = "",
+            model_name:str = None,
             max_token_length: int = 128,
             **kwargs
     ):
-        assert model_name is not None and model_name != ""
-
-        self._model_name: str = model_name.lower()
-
         super().__init__(
             name = CoLAName,
             root_dir = CoLA.root_directory,
+            model_name = model_name,
             shuffle = shuffle,
             num_workers = num_workers,
             hugging_face_dataset_name = CoLA.hugging_face_dataset_name,
+            hugging_face_dataset_config_name = "cola",
             text_feature_column_name = CoLA.text_feature_column_name,
             postprocess_tokenized_dataset = cola_postprocess_tokenized_dataset,
             max_token_length = max_token_length,
