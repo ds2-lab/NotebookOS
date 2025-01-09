@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, Union, Optional
 
 from distributed_notebook.datasets.nlp.base import NLPDataset
 
@@ -22,9 +22,9 @@ class CoLA(NLPDataset):
             self,
             shuffle: bool = True,
             num_workers: int = 2,
-            model_name:str = None,
+            model_name: Optional[str] = None,
             max_token_length: int = 128,
-            **kwargs
+            **kwargs,
     ):
         super().__init__(
             name = CoLAName,

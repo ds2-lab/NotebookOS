@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, Union, Optional
 
 from distributed_notebook.datasets.nlp.base import NLPDataset
 
@@ -23,7 +23,8 @@ class IMDbLargeMovieReview(NLPDataset):
             max_token_length: int = 256,
             shuffle: bool = True,
             num_workers: int = 2,
-            model_name:str = "", **kwargs
+            model_name:Optional[str] = None,
+            **kwargs,
     ):
         super().__init__(
             dataset_name = IMDbName,

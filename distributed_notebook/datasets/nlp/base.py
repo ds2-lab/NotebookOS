@@ -149,6 +149,10 @@ class NLPDataset(CustomDataset, ABC):
         return self._dataset_already_downloaded
 
     @property
+    def dataset_already_tokenized(self)->bool:
+        return self._dataset_already_tokenized
+
+    @property
     def download_start_time(self)->float:
         return self._download_start
 
