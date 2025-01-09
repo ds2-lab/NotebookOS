@@ -17,7 +17,7 @@ class IMDbLargeMovieReview(NLPDataset):
     # https://huggingface.co/datasets/stanfordnlp/imdb
     hugging_face_dataset_name: str = "stanfordnlp/imdb"
 
-    text_feature_column_name: str = "sentence"
+    text_feature_column_name: str = "text"
 
     def __init__(
             self,
@@ -28,7 +28,7 @@ class IMDbLargeMovieReview(NLPDataset):
             **kwargs,
     ):
         super().__init__(
-            dataset_name = IMDbName,
+            name = IMDbName,
             root_dir = IMDbLargeMovieReview.root_directory,
             model_name = model_name,
             shuffle = shuffle,
