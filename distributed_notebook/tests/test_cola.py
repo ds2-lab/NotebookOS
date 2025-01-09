@@ -138,7 +138,7 @@ def test_create_cola_already_downloaded_and_tokenized_gpt2():
     assert not cola_dataset.dataset_already_downloaded
     assert not cola_dataset.dataset_already_tokenized
 
-    assert os.path.isdir(f"/home/{get_username()}/.cache/huggingface/datasets/gpt-2")
+    assert os.path.isdir(f"/home/{get_username()}/.cache/huggingface/datasets/glue")
     assert os.path.isdir(f"/home/{get_username()}/tokenized_datasets/glue/gpt-2")
 
     cola_dataset = CoLA(model_name = "gpt-2")
