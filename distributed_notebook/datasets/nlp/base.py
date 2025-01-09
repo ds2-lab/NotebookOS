@@ -6,7 +6,7 @@ from datasets import load_dataset, DownloadMode, load_from_disk
 
 import time
 
-from distributed_notebook.datasets.nlp.util import get_tokenizer
+from distributed_notebook.datasets.nlp.util import get_tokenizer, get_username
 from distributed_notebook.datasets.custom_dataset import CustomDataset
 
 class NLPDataset(CustomDataset, ABC):
@@ -46,7 +46,7 @@ class NLPDataset(CustomDataset, ABC):
         )
 
         self._hugging_face_dataset_name: str = hugging_face_dataset_name
-        self._dataset_dict_path: str = f"~/tokenized_datasets/{self._hugging_face_dataset_name}/{self._model_name}"
+        self._dataset_dict_path: str = f"/home/{get_username()}/tokenized_datasets/{self._hugging_face_dataset_name}/{self._model_name}"
 
         self._dataset_already_downloaded: bool = os.path.exists(root_dir)
         self._dataset_already_tokenized: bool = os.path.exists(self._dataset_dict_path)
@@ -68,6 +68,7 @@ class NLPDataset(CustomDataset, ABC):
             print(f"The {name} dataset was already downloaded. Root directory: \"{self._root_dir}\"")
 
         if not self._dataset_already_tokenized:
+            print(f'Tokenizing the {name} dataset now. Will cache tokenized data in directory "{self._root_dir}"')
             self._tokenize_start: float = time.time()
 
             self.tokenizer = get_tokenizer(model_name)

@@ -1,3 +1,5 @@
+import os
+
 from typing import Union
 
 from transformers import GPT2Tokenizer, BertTokenizer
@@ -13,3 +15,24 @@ def get_tokenizer(model_name: str = "")->Union[BertTokenizer, GPT2Tokenizer]:
         return BertTokenizer.from_pretrained("bert-base-uncased")
     else:
         raise ValueError(f'Unknown or unsupported model name: "{model_name}"')
+
+def get_username():
+    """
+    Get and return the username of the current user.
+
+    This should work on both Windows and Linux systems (with WSL/WSL2 treated as Linux).
+
+    :return: the username of the current user.
+    """
+    if os.name == 'nt':
+        try:
+            return os.environ['USERNAME']
+        except KeyError:
+            return os.getlogin()
+    else:
+        try:
+            return os.environ['USER']
+        except KeyError:
+            import pwd
+
+            return pwd.getpwuid(os.getuid())[0]

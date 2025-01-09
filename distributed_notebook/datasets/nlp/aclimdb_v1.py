@@ -1,6 +1,7 @@
 from typing import Dict, Union, Optional
 
 from distributed_notebook.datasets.nlp.base import NLPDataset
+from distributed_notebook.datasets.nlp.util import get_username
 
 IMDbName:str = "IMDb Large Movie Review Dataset"
 
@@ -11,7 +12,7 @@ def imdb_postprocess_tokenized_dataset(tokenized_datasets):
     return tokenized_datasets
 
 class IMDbLargeMovieReview(NLPDataset):
-    root_directory: str = "~/.cache/huggingface/datasets/stanfordnlp___imdb"
+    root_directory: str = f"/home/{get_username()}/.cache/huggingface/datasets/stanfordnlp___imdb"
 
     # https://huggingface.co/datasets/stanfordnlp/imdb
     hugging_face_dataset_name: str = "stanfordnlp/imdb"

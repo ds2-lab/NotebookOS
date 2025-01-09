@@ -1,6 +1,7 @@
 from typing import Dict, Union, Optional
 
 from distributed_notebook.datasets.nlp.base import NLPDataset
+from distributed_notebook.datasets.nlp.util import get_username
 
 CoLAName:str = "Corpus of Linguistic Acceptability (CoLA)"
 
@@ -11,7 +12,7 @@ def cola_postprocess_tokenized_dataset(tokenized_datasets):
     return tokenized_datasets
 
 class CoLA(NLPDataset):
-    root_directory: str = "~/.cache/huggingface/datasets/cola"
+    root_directory: str = f"/home/{get_username()}/.cache/huggingface/datasets/glue/cola"
 
     # https://huggingface.co/datasets/nyu-mll/glue
     hugging_face_dataset_name: str = "glue"
