@@ -19,6 +19,8 @@ class CoLA(NLPDataset):
 
     text_feature_column_name: str = "sentence"
 
+    hugging_face_dataset_config_name: Optional[str] = "cola"
+
     def __init__(
             self,
             shuffle: bool = True,
@@ -34,11 +36,16 @@ class CoLA(NLPDataset):
             shuffle = shuffle,
             num_workers = num_workers,
             hugging_face_dataset_name = CoLA.hugging_face_dataset_name,
-            hugging_face_dataset_config_name = "cola",
+            hugging_face_dataset_config_name = CoLA.hugging_face_dataset_config_name,
             text_feature_column_name = CoLA.text_feature_column_name,
             postprocess_tokenized_dataset = cola_postprocess_tokenized_dataset,
             max_token_length = max_token_length,
+            tokenized_dataset_directory = CoLA.get_tokenized_dataset_directory(model_name),
         )
+
+    @staticmethod
+    def get_tokenized_dataset_directory(model_name: str)->str:
+        return f'/home/{get_username()}/tokenized_datasets/glue/{model_name}'
 
     @property
     def description(self)->Dict[str, Union[str, int, bool]]:

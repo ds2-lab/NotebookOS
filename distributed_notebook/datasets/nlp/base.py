@@ -24,6 +24,7 @@ class NLPDataset(CustomDataset, ABC):
             max_token_length: int = 128,
             token_truncation: bool = True,
             token_padding: str = "max_length",
+            tokenized_dataset_directory: str = "",
             **kwargs
     ):
         assert name is not None and name != ""
@@ -31,6 +32,7 @@ class NLPDataset(CustomDataset, ABC):
         assert root_dir is not None and root_dir != ""
         assert hugging_face_dataset_name is not None and hugging_face_dataset_name != ""
         assert text_feature_column_name is not None and text_feature_column_name != ""
+        assert tokenized_dataset_directory is not None and tokenized_dataset_directory != ""
         assert postprocess_tokenized_dataset is not None
 
         model_name = model_name.lower()
@@ -46,7 +48,7 @@ class NLPDataset(CustomDataset, ABC):
         )
 
         self._hugging_face_dataset_name: str = hugging_face_dataset_name
-        self._dataset_dict_path: str = f"/home/{get_username()}/tokenized_datasets/{self._hugging_face_dataset_name}/{self._model_name}"
+        self._dataset_dict_path: str = tokenized_dataset_directory
 
         self._dataset_already_downloaded: bool = os.path.exists(root_dir)
         self._dataset_already_tokenized: bool = os.path.exists(self._dataset_dict_path)

@@ -19,6 +19,8 @@ class IMDbLargeMovieReview(NLPDataset):
 
     text_feature_column_name: str = "text"
 
+    hugging_face_dataset_config_name: Optional[str] = None
+
     def __init__(
             self,
             max_token_length: int = 256,
@@ -34,11 +36,16 @@ class IMDbLargeMovieReview(NLPDataset):
             shuffle = shuffle,
             num_workers = num_workers,
             hugging_face_dataset_name = IMDbLargeMovieReview.hugging_face_dataset_name,
-            hugging_face_dataset_config_name = None,
+            hugging_face_dataset_config_name = IMDbLargeMovieReview.hugging_face_dataset_config_name,
             text_feature_column_name = IMDbLargeMovieReview.text_feature_column_name,
             postprocess_tokenized_dataset = imdb_postprocess_tokenized_dataset,
             max_token_length = max_token_length,
+            tokenized_dataset_directory = IMDbLargeMovieReview.get_tokenized_dataset_directory(model_name),
         )
+
+    @staticmethod
+    def get_tokenized_dataset_directory(model_name: str)->str:
+        return f'/home/{get_username()}/tokenized_datasets/stanfordnlp___imdb/{model_name}'
 
     @property
     def description(self)->Dict[str, str|int|bool]:
