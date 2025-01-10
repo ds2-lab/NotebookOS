@@ -6,10 +6,15 @@ from datasets import load_dataset, DownloadMode, load_from_disk
 
 import time
 
-from distributed_notebook.datasets.nlp.util import get_tokenizer, get_username
-from distributed_notebook.datasets.custom_dataset import CustomDataset
+from distributed_notebook.datasets.hugging_face import HuggingFaceDataset
+from distributed_notebook.datasets.nlp.util import get_tokenizer
 
-class NLPDataset(CustomDataset, ABC):
+class NLPDataset(HuggingFaceDataset, ABC):
+    """
+    NLPDataset is a particular type of HuggingFaceDataset in which the data is tokenized after being downloaded.
+
+    The tokenized data is cached locally (on disk).
+    """
     def __init__(
             self,
             name:str = "",
@@ -38,36 +43,23 @@ class NLPDataset(CustomDataset, ABC):
         model_name = model_name.lower()
         assert model_name == "bert" or model_name == "gpt-2" or model_name == "gpt2"
 
-        self._model_name: str = model_name
-
         super().__init__(
             name = name,
             root_dir = root_dir,
             shuffle = shuffle,
             num_workers = num_workers,
+            hugging_face_dataset_name = hugging_face_dataset_name,
+            hugging_face_dataset_config_name = hugging_face_dataset_config_name,
+            text_feature_column_name = text_feature_column_name,
+            postprocess_tokenized_dataset = postprocess_tokenized_dataset,
+            max_token_length = max_token_length,
+            tokenized_dataset_directory = tokenized_dataset_directory,
+            model_name = model_name,
+            **kwargs,
         )
 
-        self._hugging_face_dataset_name: str = hugging_face_dataset_name
         self._dataset_dict_path: str = tokenized_dataset_directory
-
-        self._dataset_already_downloaded: bool = os.path.exists(root_dir)
         self._dataset_already_tokenized: bool = os.path.exists(self._dataset_dict_path)
-
-        # Download the dataset, or load it from the cache.
-        self._download_start: float = time.time()
-        self._dataset = load_dataset(
-            path = self._hugging_face_dataset_name,
-            name = hugging_face_dataset_config_name,
-            download_mode = DownloadMode.REUSE_DATASET_IF_EXISTS
-        )
-        self._download_end: float = time.time()
-
-        if not self._dataset_already_downloaded:
-            self._download_duration_sec: float = self._download_end - self._download_start
-            print(f"The {name} dataset was downloaded to root directory \"{self._root_dir}\" in "
-                  f"{self._download_duration_sec} seconds.")
-        else:
-            print(f"The {name} dataset was already downloaded. Root directory: \"{self._root_dir}\"")
 
         if not self._dataset_already_tokenized:
             print(f'Tokenizing the {name} dataset now. Will cache tokenized data in directory "{self._root_dir}"')
