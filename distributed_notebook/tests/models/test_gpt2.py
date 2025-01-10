@@ -3,6 +3,7 @@ from distributed_notebook.models.nlp.gpt2 import GPT2
 
 def test_train_gpt2_on_cola():
     """
+
     Train the GPT-2 model on the CoLA dataset. Validate that the weights are updated correctly.
     """
     dataset: CoLA = CoLA(model_name = "gpt2")
@@ -11,7 +12,7 @@ def test_train_gpt2_on_cola():
     training_duration_ms: int = 1000
 
     # Access the classification head (last layer)
-    classifier = model.model.classifier
+    classifier = model.model.score
 
     # Extract weights and biases
     prev_weights = classifier.weight.detach().cpu()
@@ -35,7 +36,7 @@ def test_train_gpt2_on_imdb():
     training_duration_ms: int = 1000
 
     # Access the classification head (last layer)
-    classifier = model.model.classifier
+    classifier = model.model.score
 
     # Extract weights and biases
     prev_weights = classifier.weight.detach().cpu()
