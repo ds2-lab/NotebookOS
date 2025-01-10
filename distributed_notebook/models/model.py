@@ -251,17 +251,33 @@ class DeepLearningModel(ABC):
         num_samples_processed:int = 0
         for epoch in range(0, num_epochs):
             self.log.debug(f"Training -- Epoch #{epoch+1}/{num_epochs}")
-            for samples, labels in loader:
+            for elem in loader:
+                if len(elem) == 2:
+                    samples, labels = elem
+                    attention_mask = None
+                elif len(elem) == 3:
+                    samples, attention_mask, labels = elem
+                else:
+                    raise ValueError(f"Unexpectedly received {len(elem)} item(s) from DataLoader: {elem}")
+
                 if self.gpu_available:
                     samples, labels = samples.to(self.gpu_device), labels.to(self.gpu_device)
+
+                    if attention_mask is not None:
+                        attention_mask = attention_mask.to(self.gpu_device)
+
                     torch.cuda.synchronize()
 
                 # Zero the parameter gradients
                 self._optimizer.zero_grad()
 
                 # Forward pass
-                outputs = self.model(samples)
-                loss = self._criterion(outputs, labels)
+                if attention_mask is not None:
+                    outputs = self.model(samples, attention_mask = attention_mask, labels = labels)
+                    loss = outputs.loss
+                else:
+                    outputs = self.model(samples)
+                    loss = self._criterion(outputs, labels)
 
                 # Backward pass and optimization
                 loss.backward()
@@ -280,6 +296,10 @@ class DeepLearningModel(ABC):
                     del labels
                     del loss
                     del outputs
+
+                    if attention_mask is not None:
+                        del attention_mask
+
                     torch.cuda.synchronize()
 
             self.total_num_epochs += 1
@@ -338,17 +358,33 @@ class DeepLearningModel(ABC):
         num_minibatches_processed: int = 0
         num_samples_processed:int = 0
         while ((time.time() - start_time) * 1.0e3) < training_duration_millis:
-            for samples, labels in loader:
+            for elem in loader:
+                if len(elem) == 2:
+                    samples, labels = elem
+                    attention_mask = None
+                elif len(elem) == 3:
+                    samples, attention_mask, labels = elem
+                else:
+                    raise ValueError(f"Unexpectedly received {len(elem)} item(s) from DataLoader: {elem}")
+
                 if self.gpu_available:
                     samples, labels = samples.to(self.gpu_device), labels.to(self.gpu_device)
+
+                    if attention_mask is not None:
+                        attention_mask = attention_mask.to(self.gpu_device)
+
                     torch.cuda.synchronize()
 
                 # Zero the parameter gradients
                 self._optimizer.zero_grad()
 
                 # Forward pass
-                outputs = self.model(samples)
-                loss = self._criterion(outputs, labels)
+                if attention_mask is not None:
+                    outputs = self.model(samples, attention_mask = attention_mask, labels = labels)
+                    loss = outputs.loss
+                else:
+                    outputs = self.model(samples)
+                    loss = self._criterion(outputs, labels)
 
                 # Backward pass and optimization
                 loss.backward()
@@ -367,6 +403,10 @@ class DeepLearningModel(ABC):
                     del labels
                     del loss
                     del outputs
+
+                    if attention_mask is not None:
+                        del attention_mask
+
                     torch.cuda.synchronize()
 
                 if ((time.time() - start_time) * 1.0e3) > training_duration_millis:

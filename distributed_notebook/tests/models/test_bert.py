@@ -24,3 +24,6 @@ from distributed_notebook.models.nlp.bert import Bert
 
 from distributed_notebook.datasets import CoLA
 dataset: CoLA = CoLA(model_name = "bert")
+model: Bert = Bert(out_features = 2)
+
+model.train(dataset.train_loader, 500)
