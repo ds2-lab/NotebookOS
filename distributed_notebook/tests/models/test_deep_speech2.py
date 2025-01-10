@@ -2,7 +2,7 @@ import os
 import torch
 
 from distributed_notebook.datasets import LibriSpeech
-from distributed_notebook.models import DeepSpeech
+from distributed_notebook.models import DeepSpeech2
 
 
 def test_train_deep_speech():
@@ -15,7 +15,7 @@ def test_train_deep_speech():
         test_split=None,
         batch_size=20,
     )
-    model: DeepSpeech = DeepSpeech(out_features=2)
+    model: DeepSpeech2 = DeepSpeech2()
     output_layer: torch.nn.Linear = model.model.out
 
     training_duration_ms: int = 1000

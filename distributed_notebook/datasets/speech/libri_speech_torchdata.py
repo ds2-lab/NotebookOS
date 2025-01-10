@@ -60,6 +60,9 @@ class TextTransform:
         int_sequence = []
         for c in text:
             if c == ' ':
+                # I don't know if this part here is right. The example had:
+                # ch = self.char_map['']
+                # And that wasn't working (KeyError).
                 ch = self.char_map["'"]
             else:
                 ch = self.char_map[c]
@@ -73,14 +76,15 @@ class TextTransform:
             string.append(self.index_map[i])
         return ''.join(string).replace('', ' ')
 
+valid_audio_transforms = torchaudio.transforms.MelSpectrogram()
+text_transform = TextTransform()
+train_audio_transforms = nn.Sequential(
+    torchaudio.transforms.MelSpectrogram(sample_rate=16000, n_mels=128),
+    torchaudio.transforms.FrequencyMasking(freq_mask_param=15),
+    torchaudio.transforms.TimeMasking(time_mask_param=35)
+)
+
 def data_processing(data, data_type="train"):
-    valid_audio_transforms = torchaudio.transforms.MelSpectrogram()
-    text_transform = TextTransform()
-    train_audio_transforms = nn.Sequential(
-        torchaudio.transforms.MelSpectrogram(sample_rate=16000, n_mels=128),
-        torchaudio.transforms.FrequencyMasking(freq_mask_param=15),
-        torchaudio.transforms.TimeMasking(time_mask_param=35)
-    )
     spectrograms = []
     labels = []
     input_lengths = []
