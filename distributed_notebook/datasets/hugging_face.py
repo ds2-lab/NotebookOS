@@ -16,21 +16,20 @@ class HuggingFaceDataset(CustomDataset, ABC):
     def __init__(
             self,
             root_dir: str = "",
-            model_name: str = "",
+            model_name: Optional[str] = "",
             shuffle: bool = True,
             num_workers: int = 2,
             hugging_face_dataset_name: str = "",
             hugging_face_dataset_config_name: Optional[str] = None,
             **kwargs
     ):
-        assert model_name is not None and model_name != ""
         assert root_dir is not None and root_dir != ""
         assert hugging_face_dataset_name is not None and hugging_face_dataset_name != ""
 
-        model_name = model_name.lower()
-        assert model_name == "bert" or model_name == "gpt-2" or model_name == "gpt2"
+        if model_name is not None:
+            model_name = model_name.lower()
 
-        self._model_name: str = model_name
+        self._model_name: Optional[str] = model_name
 
         super().__init__(
             root_dir = root_dir,

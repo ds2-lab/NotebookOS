@@ -136,8 +136,6 @@ class Lookahead(nn.Module):
             + 'n_features=' + str(self.n_features) \
             + ', context=' + str(self.context) + ')'
 
-DeepSpeech2Name = "Deep Speech 2"
-
 class DeepSpeech2Model(nn.Module):
     def __init__(self, labels: List, precision: int, bidirectional: bool = True):
         super().__init__()
@@ -296,7 +294,6 @@ class DeepSpeech2(DeepLearningModel):
             **kwargs,
     ):
         super().__init__(
-            name=DeepSpeech2Name,
             criterion = criterion,
             criterion_state_dict = criterion_state_dict,
             out_features=out_features,
@@ -345,6 +342,10 @@ class DeepSpeech2(DeepLearningModel):
         }
         base_args.update(args)
         return base_args
+
+    @property
+    def name(self) ->str:
+        return "Deep Speech 2"
 
     def __str__(self)->str:
         return f"{self.name}[TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"

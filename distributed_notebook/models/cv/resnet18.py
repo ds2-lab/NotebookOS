@@ -9,8 +9,6 @@ from torchvision import models
 
 from distributed_notebook.models.model import DeepLearningModel
 
-ResNet18Name = "ResNet-18"
-
 class ResNet18(DeepLearningModel):
     def __init__(
             self,
@@ -24,7 +22,6 @@ class ResNet18(DeepLearningModel):
             **kwargs,
     ):
         super().__init__(
-            name=ResNet18Name,
             criterion = criterion,
             criterion_state_dict = criterion_state_dict,
             out_features=out_features,
@@ -45,6 +42,10 @@ class ResNet18(DeepLearningModel):
 
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
+
+    @property
+    def name(self) -> str:
+        return "ResNet-18"
 
     @property
     def constructor_args(self)->dict[str, Any]:

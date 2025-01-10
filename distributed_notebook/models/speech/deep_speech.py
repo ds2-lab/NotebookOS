@@ -9,8 +9,6 @@ from torchaudio import models
 
 from distributed_notebook.models.model import DeepLearningModel
 
-DeepSpeechName = "Deep Speech"
-
 class DeepSpeech(DeepLearningModel):
     def __init__(
             self,
@@ -24,7 +22,6 @@ class DeepSpeech(DeepLearningModel):
             **kwargs,
     ):
         super().__init__(
-            name=DeepSpeechName,
             criterion = criterion,
             criterion_state_dict = criterion_state_dict,
             out_features=out_features,
@@ -47,8 +44,12 @@ class DeepSpeech(DeepLearningModel):
             self._optimizer.load_state_dict(optimizer_state_dict)
 
     @property
+    def name(self) -> str:
+        return "Deep Speech"
+
+    @property
     def constructor_args(self)->dict[str, Any]:
-        base_args: dict[str, Any] = super(DeepSpeechName).constructor_args
+        base_args: dict[str, Any] = super("Deep Speech v1").constructor_args
         args: dict[str, Any] = {}
         base_args.update(args)
         return base_args

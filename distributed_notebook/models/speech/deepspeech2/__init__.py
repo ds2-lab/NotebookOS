@@ -1,1 +1,1 @@
-from distributed_notebook.models.speech.deepspeech2.deep_speech2 import DeepSpeech2, DeepSpeech2Name
+from distributed_notebook.models.speech.deepspeech2.deep_speech2 import DeepSpeech2

@@ -25,6 +25,7 @@ class CoLA(NLPDataset):
             num_workers: int = 2,
             model_name: Optional[str] = None,
             max_token_length: int = 128,
+            batch_size = 16,
     ):
         super().__init__(
             root_dir = CoLA.root_directory,
@@ -37,6 +38,7 @@ class CoLA(NLPDataset):
             postprocess_tokenized_dataset = cola_postprocess_tokenized_dataset,
             max_token_length = max_token_length,
             tokenized_dataset_directory = CoLA.get_tokenized_dataset_directory(model_name),
+            batch_size = batch_size,
         )
 
     @staticmethod
@@ -47,6 +49,7 @@ class CoLA(NLPDataset):
     def description(self)->Dict[str, Union[str, int, bool]]:
         desc: Dict[str, Union[str, int, bool]] = super().description
         desc["hugging_face_dataset_name"] = CoLA.hugging_face_dataset_name
+        desc["max_token_length"] = self._max_token_length
         return desc
 
     @property

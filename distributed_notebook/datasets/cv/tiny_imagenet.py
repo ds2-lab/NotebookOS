@@ -1,43 +1,46 @@
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
+from typing import Dict, Union, Optional
+
 import time
 
-from distributed_notebook.datasets.custom_dataset import CustomDataset
+from distributed_notebook.datasets.hugging_face import HuggingFaceDataset
+from distributed_notebook.datasets.nlp.util import get_username
 
-class CIFAR10(CustomDataset):
-    def __init__(self, root_dir:str = 'data', batch_size: int = 256, shuffle: bool = True, num_workers: int = 2):
-        super().__init__(root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
+
+class TinyImageNet(HuggingFaceDataset):
+    root_directory: str = f"/home/{get_username()}/.cache/huggingface/datasets/zh-plus___tiny-imagenet"
+
+    # https://huggingface.co/datasets/zh-plus/tiny-imagenet
+    hugging_face_dataset_name: str = "zh-plus/tiny-imagenet"
+
+    text_feature_column_name: str = "text"
+
+    hugging_face_dataset_config_name: Optional[str] = None
+
+    def __init__(self, shuffle: bool = True, num_workers: int = 2):
+        super().__init__(
+            root_dir = TinyImageNet.root_directory,
+            shuffle = shuffle,
+            num_workers = num_workers,
+            hugging_face_dataset_name = TinyImageNet.hugging_face_dataset_name,
+            hugging_face_dataset_config_name = TinyImageNet.hugging_face_dataset_config_name,
+        )
 
         self.transform = transforms.Compose([
             transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(32, padding=4),
             transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))  # CIFAR-10 mean and std
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-        self._dataset_already_downloaded: bool = self._check_if_downloaded(
-            filenames = datasets.CIFAR10.train_list + datasets.CIFAR10.test_list,
-            base_folder = datasets.CIFAR10.base_folder
-        )
-
-        self._download_start = time.time()
-        self._train_dataset = datasets.CIFAR10(root=root_dir, train=True, download=True, transform=self.transform)
-        self._test_dataset = datasets.CIFAR10(root=root_dir, train=False, download=True, transform=self.transform)
-        self._download_end = time.time()
-        self._download_duration_sec = self._download_end - self._download_start
-
-        self._train_loader = DataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-        self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-
-        if self._dataset_already_downloaded:
-            print(f"The {self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
-        else:
-            print(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+        # Prepare the data loaders
+        self._train_loader = self._dataset["train"]
+        self._test_loader = self._dataset["valid"]
 
     @property
     def name(self)->str:
-        return "CIFAR-10"
+        return "Tiny ImageNet"
 
     @property
     def download_duration_sec(self)->float:

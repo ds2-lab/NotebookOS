@@ -1,13 +1,27 @@
-from abc import ABC
 import os
+import time
+from abc import ABC
 from typing import Callable, Dict, Union, Optional
 
-from datasets import load_dataset, DownloadMode, load_from_disk
+import torch.utils.data
+from datasets import load_from_disk
+from sklearn.model_selection import train_test_split
 
-import time
+from torch.utils.data import DataLoader, Dataset, TensorDataset, SequentialSampler, RandomSampler
 
 from distributed_notebook.datasets.hugging_face import HuggingFaceDataset
 from distributed_notebook.datasets.nlp.util import get_tokenizer
+
+
+class TextDataset(Dataset):
+    def __init__(self, encodings):
+        self.encodings = encodings
+
+    def __getitem__(self, idx):
+        return {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
+
+    def __len__(self):
+        return len(self.encodings)
 
 class NLPDataset(HuggingFaceDataset, ABC):
     """
@@ -15,6 +29,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
 
     The tokenized data is cached locally (on disk).
     """
+
     def __init__(
             self,
             root_dir: str = "",
@@ -29,6 +44,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             token_truncation: bool = True,
             token_padding: str = "max_length",
             tokenized_dataset_directory: str = "",
+            batch_size = 16,
             **kwargs
     ):
         assert model_name is not None and model_name != ""
@@ -42,19 +58,17 @@ class NLPDataset(HuggingFaceDataset, ABC):
         assert model_name == "bert" or model_name == "gpt-2" or model_name == "gpt2"
 
         super().__init__(
-            root_dir = root_dir,
-            shuffle = shuffle,
-            num_workers = num_workers,
-            hugging_face_dataset_name = hugging_face_dataset_name,
-            hugging_face_dataset_config_name = hugging_face_dataset_config_name,
-            text_feature_column_name = text_feature_column_name,
-            postprocess_tokenized_dataset = postprocess_tokenized_dataset,
-            max_token_length = max_token_length,
-            tokenized_dataset_directory = tokenized_dataset_directory,
-            model_name = model_name,
+            root_dir=root_dir,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            batch_size = batch_size,
+            hugging_face_dataset_name=hugging_face_dataset_name,
+            hugging_face_dataset_config_name=hugging_face_dataset_config_name,
+            model_name=model_name,
             **kwargs,
         )
 
+        self._max_token_length: int = max_token_length
         self._dataset_dict_path: str = tokenized_dataset_directory
         self._dataset_already_tokenized: bool = os.path.exists(self._dataset_dict_path)
 
@@ -68,6 +82,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             def tokenize_function(example):
                 return self.tokenizer(
                     example[text_feature_column_name],
+                    add_special_tokens=True,
                     truncation=token_truncation,
                     padding=token_padding,
                     max_length=max_token_length
@@ -84,7 +99,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
 
             write_start: float = time.time()
 
-            self._tokenized_datasets.save_to_disk(dataset_dict_path = self._dataset_dict_path)
+            self._tokenized_datasets.save_to_disk(dataset_dict_path=self._dataset_dict_path)
 
             self._tokenize_end: float = time.time()
             self._tokenize_duration: float = self._tokenize_end - self._tokenize_start
@@ -103,65 +118,86 @@ class NLPDataset(HuggingFaceDataset, ABC):
             print(f'Read cached, tokenized {self.name} dataset from directory "{self._dataset_dict_path}" '
                   f'in {time.time() - _read_start} seconds.')
 
+        # Create the DataLoader for our training set
+        train_data = TensorDataset(
+            self._tokenized_datasets['train']['input_ids'],
+            self._tokenized_datasets['train']['attention_mask'],
+            self._tokenized_datasets['train']['labels']
+        )
+        train_sampler = RandomSampler(train_data)
+        self._train_loader = DataLoader(train_data, sampler=train_sampler, batch_size=32)
+
+        # Create the DataLoader for our validation set
+        validation_data = TensorDataset(
+            self._tokenized_datasets['validation']['input_ids'],
+            self._tokenized_datasets['validation']['attention_mask'],
+            self._tokenized_datasets['validation']['labels']
+        )
+        validation_sampler = SequentialSampler(validation_data)
+        self._test_loader = DataLoader(validation_data, sampler=validation_sampler, batch_size=32)
+
         # Prepare the data loaders
-        self._train_loader = self._tokenized_datasets["train"]
-        self._test_loader = self._tokenized_datasets["validation"]
+        # self._train_dataset = TextDataset(self._tokenized_datasets["train"])
+        # self._test_dataset = TextDataset(self._tokenized_datasets["validation"])
+        #
+        # self._train_loader = DataLoader(self._train_dataset, batch_size = batch_size)
+        # self._test_loader = DataLoader(self._test_dataset, batch_size = batch_size)
 
     @property
-    def tokenization_start(self)->float:
+    def tokenization_start(self) -> float:
         if hasattr(self, "_tokenize_start"):
             return self._tokenize_start
 
         return -1
 
     @property
-    def tokenization_end(self)->float:
+    def tokenization_end(self) -> float:
         if hasattr(self, "_tokenize_end"):
             return self._tokenize_end
 
         return -1
 
     @property
-    def tokenization_duration_sec(self)->float:
+    def tokenization_duration_sec(self) -> float:
         if hasattr(self, "_tokenize_duration"):
             return self._tokenize_duration
 
         return -1
 
     @property
-    def requires_tokenization(self)->bool:
+    def requires_tokenization(self) -> bool:
         return True
 
     @property
-    def download_duration_sec(self)->float:
+    def download_duration_sec(self) -> float:
         return self._download_duration_sec
 
     @property
-    def dataset_already_downloaded(self)->bool:
+    def dataset_already_downloaded(self) -> bool:
         return self._dataset_already_downloaded
 
     @property
-    def dataset_already_tokenized(self)->bool:
+    def dataset_already_tokenized(self) -> bool:
         return self._dataset_already_tokenized
 
     @property
-    def download_start_time(self)->float:
+    def download_start_time(self) -> float:
         return self._download_start
 
     @property
-    def download_end_time(self)->float:
+    def download_end_time(self) -> float:
         return self._download_end
 
     @property
-    def download_duration(self)->float:
+    def download_duration(self) -> float:
         return self._download_duration_sec
 
     @property
-    def download_start(self)->float:
+    def download_start(self) -> float:
         return self._download_start
 
     @property
-    def download_end(self)->float:
+    def download_end(self) -> float:
         return self._download_end
 
     @property
@@ -173,7 +209,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
         return self._test_loader
 
     @property
-    def description(self)->Dict[str, Union[str, int, bool]]:
+    def description(self) -> Dict[str, Union[str, int, bool]]:
         desc: Dict[str, Union[str, int, bool]] = super().description
         desc["model_name"] = self._model_name
 

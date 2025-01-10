@@ -25,6 +25,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             shuffle: bool = True,
             num_workers: int = 2,
             model_name:Optional[str] = None,
+            batch_size = 32,
     ):
         super().__init__(
             root_dir = IMDbLargeMovieReviewTruncated.root_directory,
@@ -37,6 +38,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             postprocess_tokenized_dataset = imdb_truncated_postprocess_tokenized_dataset,
             max_token_length = max_token_length,
             tokenized_dataset_directory = IMDbLargeMovieReviewTruncated.get_tokenized_dataset_directory(model_name),
+            batch_size = batch_size,
         )
 
     @staticmethod
@@ -47,6 +49,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
     def description(self)->Dict[str, str|int|bool]:
         desc: Dict[str, Union[str, int, bool]] = super().description
         desc["hugging_face_dataset_name"] = IMDbLargeMovieReviewTruncated.hugging_face_dataset_name
+        desc["max_token_length"] = self._max_token_length
         return desc
 
     @property

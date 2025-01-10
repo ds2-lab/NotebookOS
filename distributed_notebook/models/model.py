@@ -20,7 +20,6 @@ from abc import ABC, abstractmethod
 class DeepLearningModel(ABC):
     def __init__(
             self,
-            name:str = "",
             criterion: Module = None,
             criterion_state_dict: Optional[Dict[str, Any]] = None,
             out_features: int = 10,
@@ -58,7 +57,6 @@ class DeepLearningModel(ABC):
         self.total_num_epochs: int = total_num_epochs
         self.model: Optional[Module] = None
         self._optimizer: Optional[Module] = None
-        self._name:str = name
         self._out_features: int = out_features
         self._device_ids: list[int] = []
 
@@ -188,12 +186,12 @@ class DeepLearningModel(ABC):
         total = 0
         test_loss = 0.0
         with torch.no_grad():
-            for images, labels in loader:
+            for samples, labels in loader:
                 if self.gpu_available:
-                    images, labels = images.to(self.gpu_device), labels.to(self.gpu_device)
+                    samples, labels = samples.to(self.gpu_device), labels.to(self.gpu_device)
                 torch.cuda.synchronize()
 
-                outputs = self.model(images)
+                outputs = self.model(samples)
                 loss = self._criterion(outputs, labels)
                 test_loss += loss.item()
 
@@ -203,7 +201,7 @@ class DeepLearningModel(ABC):
                 correct += (predicted == labels).sum().item()
 
                 if self.gpu_available:
-                    del images
+                    del samples
                     del labels
                     del loss
                     del outputs
@@ -250,19 +248,19 @@ class DeepLearningModel(ABC):
 
         running_loss = 0.0
         num_minibatches_processed: int = 0
-        num_images_processed:int = 0
+        num_samples_processed:int = 0
         for epoch in range(0, num_epochs):
             self.log.debug(f"Training -- Epoch #{epoch+1}/{num_epochs}")
-            for images, labels in loader:
+            for samples, labels in loader:
                 if self.gpu_available:
-                    images, labels = images.to(self.gpu_device), labels.to(self.gpu_device)
+                    samples, labels = samples.to(self.gpu_device), labels.to(self.gpu_device)
                     torch.cuda.synchronize()
 
                 # Zero the parameter gradients
                 self._optimizer.zero_grad()
 
                 # Forward pass
-                outputs = self.model(images)
+                outputs = self.model(samples)
                 loss = self._criterion(outputs, labels)
 
                 # Backward pass and optimization
@@ -275,10 +273,10 @@ class DeepLearningModel(ABC):
                 running_loss += loss.item()
 
                 num_minibatches_processed += 1
-                num_images_processed += len(images)
+                num_samples_processed += len(samples)
 
                 if self.gpu_available:
-                    del images
+                    del samples
                     del labels
                     del loss
                     del outputs
@@ -292,7 +290,7 @@ class DeepLearningModel(ABC):
         training_time_millis: float = time_spent_training_sec * 1.0e3
         self.log.debug(f"Training completed. Number of epochs: {num_epochs}. "
                        f"Time elapsed: {training_time_millis} ms. "
-                       f"Processed {num_minibatches_processed} mini-batches ({num_images_processed} individual samples).")
+                       f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} individual samples).")
 
         if self.gpu_available:
             self.log.debug("Copying model from GPU to CPU.")
@@ -338,18 +336,18 @@ class DeepLearningModel(ABC):
 
         running_loss = 0.0
         num_minibatches_processed: int = 0
-        num_images_processed:int = 0
+        num_samples_processed:int = 0
         while ((time.time() - start_time) * 1.0e3) < training_duration_millis:
-            for images, labels in loader:
+            for samples, labels in loader:
                 if self.gpu_available:
-                    images, labels = images.to(self.gpu_device), labels.to(self.gpu_device)
+                    samples, labels = samples.to(self.gpu_device), labels.to(self.gpu_device)
                     torch.cuda.synchronize()
 
                 # Zero the parameter gradients
                 self._optimizer.zero_grad()
 
                 # Forward pass
-                outputs = self.model(images)
+                outputs = self.model(samples)
                 loss = self._criterion(outputs, labels)
 
                 # Backward pass and optimization
@@ -362,10 +360,10 @@ class DeepLearningModel(ABC):
                 running_loss += loss.item()
 
                 num_minibatches_processed += 1
-                num_images_processed += len(images)
+                num_samples_processed += len(samples)
 
                 if self.gpu_available:
-                    del images
+                    del samples
                     del labels
                     del loss
                     del outputs
@@ -382,7 +380,7 @@ class DeepLearningModel(ABC):
         training_time_millis: float = time_spent_training_sec * 1.0e3
         self.log.debug(f"Training completed. Target time: {training_duration_millis} ms. "
                        f"Time elapsed: {training_time_millis} ms. "
-                       f"Processed {num_minibatches_processed} mini-batches ({num_images_processed} individual samples).")
+                       f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} individual samples).")
 
         if self.gpu_available:
             self.log.debug("Copying model from GPU to CPU.")
@@ -427,8 +425,9 @@ class DeepLearningModel(ABC):
         return self._criterion.state_dict()
 
     @property
+    @abstractmethod
     def name(self)->str:
-        return self._name
+        pass
 
     @property
     def size_bytes(self)->int:

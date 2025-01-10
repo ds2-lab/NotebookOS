@@ -53,6 +53,7 @@ class SimpleModel(DeepLearningModel):
 
     It is only intended to be used in unit tests.
     """
+
     def __init__(
             self,
             input_size: int = 10,
@@ -68,7 +69,6 @@ class SimpleModel(DeepLearningModel):
             **kwargs,
     ):
         super().__init__(
-            name="SimpleModel",
             criterion = criterion,
             criterion_state_dict = criterion_state_dict,
             out_features=out_features,
@@ -102,6 +102,10 @@ class SimpleModel(DeepLearningModel):
         if initial_bias is not None:
             assert isinstance(initial_bias, float) or isinstance(initial_bias, int)
             self.model.set_bias(initial_bias)
+
+    @property
+    def name(self) -> str:
+        return "Simple Model"
 
     @property
     def input_size(self)->int:

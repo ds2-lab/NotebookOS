@@ -1,7 +1,7 @@
 from typing import Optional, Dict, Any
 
 from distributed_notebook.models.model import DeepLearningModel
-from distributed_notebook.models.cv.resnet18 import ResNet18Name, ResNet18
+from distributed_notebook.models.cv.resnet18 import ResNet18
 from distributed_notebook.models.simple_model import SimpleModel
 
 
@@ -25,7 +25,7 @@ def load_model(
 
         return existing_model
 
-    if model_name == ResNet18Name:
+    if model_name == "ResNet-18":
         return ResNet18(
             out_features = out_features,
             total_training_time_seconds = total_training_time_seconds,

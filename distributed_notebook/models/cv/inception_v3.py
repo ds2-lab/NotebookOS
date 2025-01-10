@@ -10,8 +10,6 @@ from torchvision.transforms import transforms
 
 from distributed_notebook.models.model import DeepLearningModel
 
-InceptionV3Name = "ResNet-18"
-
 class InceptionV3(DeepLearningModel):
     def __init__(
             self,
@@ -25,7 +23,6 @@ class InceptionV3(DeepLearningModel):
             **kwargs,
     ):
         super().__init__(
-            name=InceptionV3Name,
             criterion = criterion,
             criterion_state_dict = criterion_state_dict,
             out_features=out_features,
@@ -53,6 +50,10 @@ class InceptionV3(DeepLearningModel):
 
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
+
+    @property
+    def name(self) -> str:
+        return "Inception v3"
 
     @property
     def constructor_args(self)->dict[str, Any]:
