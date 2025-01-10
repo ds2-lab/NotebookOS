@@ -5,8 +5,7 @@ import os
 from torchvision.datasets.utils import check_integrity
 
 class CustomDataset(ABC):
-    def __init__(self, name:str = "", root_dir: str = "", shuffle: bool = True, num_workers: int = 2):
-        self._name = name
+    def __init__(self, root_dir: str = "", shuffle: bool = True, num_workers: int = 2):
         self._root_dir = root_dir
         self._shuffle = shuffle
         self._num_workers = num_workers
@@ -67,7 +66,7 @@ class CustomDataset(ABC):
     @abstractmethod
     def description(self)->dict[str, str|int|bool]:
         return {
-            "name": self._name,
+            "name": self.name,
             "root_dir": self._root_dir,
             "shuffle": self._shuffle,
             "num_workers": self._num_workers
@@ -82,8 +81,9 @@ class CustomDataset(ABC):
         return self._shuffle
 
     @property
+    @abstractmethod
     def name(self)->str:
-        return self._name
+        pass 
 
     @property
     def root_directory(self)->str:

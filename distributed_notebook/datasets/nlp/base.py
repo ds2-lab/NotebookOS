@@ -17,7 +17,6 @@ class NLPDataset(HuggingFaceDataset, ABC):
     """
     def __init__(
             self,
-            name:str = "",
             root_dir: str = "",
             model_name: str = "",
             shuffle: bool = True,
@@ -32,7 +31,6 @@ class NLPDataset(HuggingFaceDataset, ABC):
             tokenized_dataset_directory: str = "",
             **kwargs
     ):
-        assert name is not None and name != ""
         assert model_name is not None and model_name != ""
         assert root_dir is not None and root_dir != ""
         assert hugging_face_dataset_name is not None and hugging_face_dataset_name != ""
@@ -44,7 +42,6 @@ class NLPDataset(HuggingFaceDataset, ABC):
         assert model_name == "bert" or model_name == "gpt-2" or model_name == "gpt2"
 
         super().__init__(
-            name = name,
             root_dir = root_dir,
             shuffle = shuffle,
             num_workers = num_workers,
@@ -62,7 +59,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
         self._dataset_already_tokenized: bool = os.path.exists(self._dataset_dict_path)
 
         if not self._dataset_already_tokenized:
-            print(f'Tokenizing the {name} dataset now. Will cache tokenized data in directory "{self._root_dir}"')
+            print(f'Tokenizing the {self.name} dataset now. Will cache tokenized data in directory "{self._root_dir}"')
             self._tokenize_start: float = time.time()
 
             self.tokenizer = get_tokenizer(model_name)
@@ -82,7 +79,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
 
             os.makedirs(self._dataset_dict_path, 0o750, exist_ok=True)
 
-            print(f'Finished tokenizing the {name} dataset in {time.time() - self._tokenize_start} seconds. '
+            print(f'Finished tokenizing the {self.name} dataset in {time.time() - self._tokenize_start} seconds. '
                   f'Writing tokenized dataset to directory "{self._dataset_dict_path}".')
 
             write_start: float = time.time()
@@ -92,18 +89,18 @@ class NLPDataset(HuggingFaceDataset, ABC):
             self._tokenize_end: float = time.time()
             self._tokenize_duration: float = self._tokenize_end - self._tokenize_start
 
-            print(f'Wrote the tokenized {name} dataset to directory "{self._dataset_dict_path}" in '
+            print(f'Wrote the tokenized {self.name} dataset to directory "{self._dataset_dict_path}" in '
                   f'{time.time() - write_start} seconds. '
                   f'Total time elapsed: {self._tokenize_duration} seconds.')
         else:
             # TODO: Read the cached tokenized dataset.
-            print(f'The {name} dataset was already tokenized. '
-                  f'Loading cached, tokenized {name} dataset from directory "{self._dataset_dict_path}" now...')
+            print(f'The {self.name} dataset was already tokenized. '
+                  f'Loading cached, tokenized {self.name} dataset from directory "{self._dataset_dict_path}" now...')
 
             _read_start: float = time.time()
             self._tokenized_datasets = load_from_disk(self._dataset_dict_path)
 
-            print(f'Read cached, tokenized {name} dataset from directory "{self._dataset_dict_path}" '
+            print(f'Read cached, tokenized {self.name} dataset from directory "{self._dataset_dict_path}" '
                   f'in {time.time() - _read_start} seconds.')
 
         # Prepare the data loaders
@@ -177,10 +174,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
 
     @property
     def description(self)->Dict[str, Union[str, int, bool]]:
-        return {
-            "name": self._name,
-            "root_dir": self._root_dir,
-            "shuffle": self._shuffle,
-            "num_workers": self._num_workers,
-            "model_name": self._model_name,
-        }
+        desc: Dict[str, Union[str, int, bool]] = super().description
+        desc["model_name"] = self._model_name
+
+        return desc

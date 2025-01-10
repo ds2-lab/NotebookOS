@@ -15,7 +15,6 @@ class HuggingFaceDataset(CustomDataset, ABC):
     """
     def __init__(
             self,
-            name:str = "",
             root_dir: str = "",
             model_name: str = "",
             shuffle: bool = True,
@@ -24,7 +23,6 @@ class HuggingFaceDataset(CustomDataset, ABC):
             hugging_face_dataset_config_name: Optional[str] = None,
             **kwargs
     ):
-        assert name is not None and name != ""
         assert model_name is not None and model_name != ""
         assert root_dir is not None and root_dir != ""
         assert hugging_face_dataset_name is not None and hugging_face_dataset_name != ""
@@ -32,8 +30,9 @@ class HuggingFaceDataset(CustomDataset, ABC):
         model_name = model_name.lower()
         assert model_name == "bert" or model_name == "gpt-2" or model_name == "gpt2"
 
+        self._model_name: str = model_name
+
         super().__init__(
-            name = name,
             root_dir = root_dir,
             shuffle = shuffle,
             num_workers = num_workers,
@@ -53,10 +52,10 @@ class HuggingFaceDataset(CustomDataset, ABC):
 
         if not self._dataset_already_downloaded:
             self._download_duration_sec: float = self._download_end - self._download_start
-            print(f"The {name} dataset was downloaded to root directory \"{self._root_dir}\" in "
+            print(f"The {self.name} dataset was downloaded to root directory \"{self._root_dir}\" in "
                   f"{self._download_duration_sec} seconds.")
         else:
-            print(f"The {name} dataset was already downloaded. Root directory: \"{self._root_dir}\"")
+            print(f"The {self.name} dataset was already downloaded. Root directory: \"{self._root_dir}\"")
 
     @property
     def tokenization_start(self)->float:
@@ -92,10 +91,6 @@ class HuggingFaceDataset(CustomDataset, ABC):
         return self._dataset_already_downloaded
 
     @property
-    def dataset_already_tokenized(self)->bool:
-        return self._dataset_already_tokenized
-
-    @property
     def download_start_time(self)->float:
         return self._download_start
 
@@ -117,10 +112,7 @@ class HuggingFaceDataset(CustomDataset, ABC):
 
     @property
     def description(self)->Dict[str, Union[str, int, bool]]:
-        return {
-            "name": self._name,
-            "root_dir": self._root_dir,
-            "shuffle": self._shuffle,
-            "num_workers": self._num_workers,
-            "model_name": self._model_name,
-        }
+        desc: Dict[str, Union[str, int, bool]] = super().description
+        desc["model_name"] = self._model_name
+
+        return desc

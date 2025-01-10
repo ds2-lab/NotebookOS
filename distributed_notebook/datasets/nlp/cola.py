@@ -28,7 +28,6 @@ class CoLA(NLPDataset):
             **kwargs,
     ):
         super().__init__(
-            name = "Corpus of Linguistic Acceptability (CoLA)",
             root_dir = CoLA.root_directory,
             model_name = model_name,
             shuffle = shuffle,
@@ -50,3 +49,7 @@ class CoLA(NLPDataset):
         desc: Dict[str, Union[str, int, bool]] = super().description
         desc["hugging_face_dataset_name"] = CoLA.hugging_face_dataset_name
         return desc
+
+    @property
+    def name(self)->str:
+        return "Corpus of Linguistic Acceptability (CoLA)"

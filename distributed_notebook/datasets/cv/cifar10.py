@@ -1,16 +1,13 @@
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
-from distributed_notebook.datasets.custom_dataset import CustomDataset
-
 import time
-import os
 
 from distributed_notebook.datasets.cv.base import CVDataset
 
 class CIFAR10(CVDataset):
     def __init__(self, root_dir:str = 'data', batch_size: int = 256, shuffle: bool = True, num_workers: int = 2, **kwargs):
-        super().__init__(name = "CIFAR-10", root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
+        super().__init__(root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
 
         self.transform = transforms.Compose([
             transforms.RandomHorizontalFlip(),
@@ -34,9 +31,13 @@ class CIFAR10(CVDataset):
         self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
         if self._dataset_already_downloaded:
-            print(f"The {self._name} dataset was already downloaded. Root directory: \"{root_dir}\"")
+            print(f"The {self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
         else:
-            print(f"The {self._name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+            print(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+
+    @property
+    def name(self)->str:
+        return "CIFAR-10"
 
     @property
     def download_duration_sec(self)->float:
@@ -68,12 +69,7 @@ class CIFAR10(CVDataset):
 
     @property
     def description(self)->dict[str, str|int|bool]:
-        return {
-            "name": self._name,
-            "root_dir": self._root_dir,
-            "shuffle": self._shuffle,
-            "num_workers": self._num_workers,
-        }
+        return super().description
 
     @property
     def train_dataset(self):

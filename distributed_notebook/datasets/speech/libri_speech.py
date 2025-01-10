@@ -19,8 +19,6 @@ from distributed_notebook.datasets.speech.loader import AudioDataLoader
 from distributed_notebook.datasets.speech.parser import SpectrogramParser
 from distributed_notebook.models.speech.deepspeech2.config import SpectConfig, AugmentationConfig
 
-LibriSpeechName: str = "CIFAR-10"
-
 LIBRI_SPEECH_URLS: Dict[str, List[str]] = {
     "train": ["https://www.openslr.org/resources/12/train-clean-100.tar.gz"],
 
@@ -358,20 +356,21 @@ class LibriSpeechDataset(Dataset, SpectrogramParser):
         return transcript
 
     @property
-    def requires_tokenization(self)->bool:
+    def requires_tokenization(self) -> bool:
         return False
 
     @property
-    def tokenization_start(self)->float:
+    def tokenization_start(self) -> float:
         return -1.0
 
     @property
-    def tokenization_end(self)->float:
+    def tokenization_end(self) -> float:
         return -1.0
 
     @property
-    def tokenization_duration_sec(self)->float:
+    def tokenization_duration_sec(self) -> float:
         return -1.0
+
 
 class LibriSpeech(CustomDataset, ABC):
     def __init__(
@@ -381,7 +380,7 @@ class LibriSpeech(CustomDataset, ABC):
             shuffle: bool = True,
             num_workers: int = 2,
             **kwargs):
-        super().__init__(name=LibriSpeechName, root_dir=root_dir, shuffle=shuffle, num_workers=num_workers)
+        super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers)
 
         self._dataset_already_downloaded: bool = self._check_if_downloaded(
             filenames=LibriSpeechDataset.train_list + LibriSpeechDataset.test_list,
@@ -400,23 +399,27 @@ class LibriSpeech(CustomDataset, ABC):
                                             num_workers=num_workers)
 
         if self._dataset_already_downloaded:
-            print(f"LibriSpeech dataset was already downloaded. Root directory: \"{root_dir}\"")
+            print(f"{self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
         else:
             print(
                 f"LibriSpeech was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
 
     @property
-    def requires_tokenization(self)->bool:
+    def requires_tokenization(self) -> bool:
         return False
 
     @property
-    def tokenization_start(self)->float:
+    def tokenization_start(self) -> float:
         return -1.0
 
     @property
-    def tokenization_end(self)->float:
+    def tokenization_end(self) -> float:
         return -1.0
 
     @property
-    def tokenization_duration_sec(self)->float:
+    def tokenization_duration_sec(self) -> float:
         return -1.0
+
+    @property
+    def name(self) -> str:
+        return "LibriSpeech"

@@ -28,7 +28,6 @@ class IMDbLargeMovieReview(NLPDataset):
             **kwargs,
     ):
         super().__init__(
-            name = "IMDb Large Movie Review Dataset",
             root_dir = IMDbLargeMovieReview.root_directory,
             model_name = model_name,
             shuffle = shuffle,
@@ -50,3 +49,7 @@ class IMDbLargeMovieReview(NLPDataset):
         desc: Dict[str, Union[str, int, bool]] = super().description
         desc["hugging_face_dataset_name"] = IMDbLargeMovieReview.hugging_face_dataset_name
         return desc
+
+    @property
+    def name(self)->str:
+        return "IMDb Large Movie Review Dataset"

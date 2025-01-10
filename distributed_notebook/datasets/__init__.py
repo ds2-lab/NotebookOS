@@ -1,3 +1,3 @@
-from distributed_notebook.datasets.speech import LibriSpeechDataset
-from distributed_notebook.datasets.nlp import CoLA, CoLAName
-from distributed_notebook.datasets.nlp import IMDbLargeMovieReview, IMDbName
+from distributed_notebook.datasets.speech import LibriSpeech
+from distributed_notebook.datasets.nlp import CoLA
+from distributed_notebook.datasets.nlp import IMDbLargeMovieReview

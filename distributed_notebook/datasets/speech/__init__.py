@@ -1,1 +1,1 @@
-from distributed_notebook.datasets.speech.libri_speech import LibriSpeechDataset
+from distributed_notebook.datasets.speech.libri_speech_torchdata import LibriSpeech

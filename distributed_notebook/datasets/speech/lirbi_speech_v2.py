@@ -22,7 +22,6 @@ class LibriSpeech(HuggingFaceDataset):
 
     def __init__(
             self,
-            name:str = "",
             root_dir: str = "",
             model_name: str = "",
             shuffle: bool = True,
@@ -31,7 +30,6 @@ class LibriSpeech(HuggingFaceDataset):
             hugging_face_dataset_config_name: Optional[str] = None,
             **kwargs
     ):
-        assert name is not None and name != ""
         assert model_name is not None and model_name != ""
         assert root_dir is not None and root_dir != ""
         assert hugging_face_dataset_name is not None and hugging_face_dataset_name != ""
@@ -40,7 +38,6 @@ class LibriSpeech(HuggingFaceDataset):
         assert model_name == "bert" or model_name == "gpt-2" or model_name == "gpt2"
 
         super().__init__(
-            name = name,
             root_dir = root_dir,
             shuffle = shuffle,
             num_workers = num_workers,
@@ -121,10 +118,11 @@ class LibriSpeech(HuggingFaceDataset):
 
     @property
     def description(self)->Dict[str, Union[str, int, bool]]:
-        return {
-            "name": self._name,
-            "root_dir": self._root_dir,
-            "shuffle": self._shuffle,
-            "num_workers": self._num_workers,
-            "model_name": self._model_name,
-        }
+        desc: Dict[str, Union[str, int, bool]] = super().description
+        desc["model_name"] = self._model_name
+
+        return desc
+
+    @property
+    def name(self)->str:
+        return "LibriSpeech"
