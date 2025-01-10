@@ -2,7 +2,7 @@ from typing import Optional, Dict, Any
 
 import torch.nn as nn
 import torch.optim as optim
-from transformers import BertTokenizer, BertForSequenceClassification
+from transformers import BertForSequenceClassification
 
 from distributed_notebook.models.model import DeepLearningModel
 
@@ -26,7 +26,6 @@ class Bert(DeepLearningModel):
             **kwargs,
         )
 
-        self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         self.model = BertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=out_features)
 
         if model_state_dict is not None:

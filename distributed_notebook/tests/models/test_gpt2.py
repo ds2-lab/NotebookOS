@@ -1,12 +1,12 @@
 from distributed_notebook.datasets import CoLA, IMDbLargeMovieReview
-from distributed_notebook.models.nlp.bert import Bert
+from distributed_notebook.models.nlp.gpt2 import GPT2
 
-def test_train_bert_on_cola():
+def test_train_gpt2_on_cola():
     """
-    Train the BERT model on the CoLA dataset. Validate that the weights are updated correctly.
+    Train the GPT-2 model on the CoLA dataset. Validate that the weights are updated correctly.
     """
-    dataset: CoLA = CoLA(model_name = "bert")
-    model: Bert = Bert(out_features = 2)
+    dataset: CoLA = CoLA(model_name = "gpt2")
+    model: GPT2 = GPT2(out_features = 2)
 
     training_duration_ms: int = 1000
 
@@ -25,12 +25,12 @@ def test_train_bert_on_cola():
         assert prev_weights.equal(updated_weights) == False
         prev_weights = updated_weights
 
-def test_train_bert_on_imdb():
+def test_train_gpt2_on_imdb():
     """
-    Train the BERT model on the CoLA dataset. Validate that the weights are updated correctly.
+    Train the GPT-2 model on the CoLA dataset. Validate that the weights are updated correctly.
     """
-    dataset: IMDbLargeMovieReview = IMDbLargeMovieReview(model_name = "bert")
-    model: Bert = Bert(out_features = 2)
+    dataset: IMDbLargeMovieReview = IMDbLargeMovieReview(model_name = "gpt2")
+    model: GPT2 = GPT2(out_features = 2)
 
     training_duration_ms: int = 1000
 
