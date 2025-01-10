@@ -1,29 +1,26 @@
 from distributed_notebook.datasets import CoLA
 from distributed_notebook.models.nlp.bert import Bert
-# from transformers import GPT2Tokenizer, GPT2LMHeadModel, Trainer, TrainingArguments
 
-# dataset: CoLA = CoLA(model_name = "bert")
-# model: Bert = Bert(out_features = 2)
-# model.train(dataset.train_loader, 500)
+def test_train_bert_on_cola():
+    """
+    Train the BERT model on the CoLA dataset. Validate that the weights are updated correctly.
+    """
+    dataset: CoLA = CoLA(model_name = "bert")
+    model: Bert = Bert(out_features = 2)
 
-# def test_train_bert_on_cola():
-#     """
-#     Train the BERT model on the CoLA dataset.
-#     """
-#     dataset: CoLA = CoLA(model_name = "bert")
-#
-#     model: Bert = Bert(out_features = 2)
-#
-#     # initial_weights = model.model.fc.weight.clone()
-#
-#     model.train(dataset.train_loader, 500)
-#
-#     # updated_weights = model.model.fc.weight
-#
-#     # assert initial_weights.equal(updated_weights) == False
+    training_duration_ms: int = 1000
 
-from distributed_notebook.datasets import CoLA
-dataset: CoLA = CoLA(model_name = "bert")
-model: Bert = Bert(out_features = 2)
+    # Access the classification head (last layer)
+    classifier = model.model.classifier
 
-model.train(dataset.train_loader, 500)
+    # Extract weights and biases
+    prev_weights = classifier.weight.detach().cpu()
+    for _ in range(0, 3):
+        print(f"Initial weights: {prev_weights}")
+        model.train(dataset.train_loader, training_duration_ms)
+
+        updated_weights = classifier.weight.detach().cpu()
+        print(f"Updated weights: {updated_weights}")
+
+        assert prev_weights.equal(updated_weights) == False
+        prev_weights = updated_weights
