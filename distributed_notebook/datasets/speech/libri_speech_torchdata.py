@@ -1,13 +1,122 @@
 import time
-
+import torch
 import os
 
 from typing import List, Optional, Dict, Union
+
+import torchaudio
+import torch.nn as nn
 
 from torch.utils.data import DataLoader
 from torchaudio import datasets
 
 from distributed_notebook.datasets.custom_dataset import CustomDataset
+
+char_map_str: str = """
+ ' 0
+ <SPACE> 1
+ a 2
+ b 3
+ c 4
+ d 5
+ e 6
+ f 7
+ g 8
+ h 9
+ i 10
+ j 11
+ k 12
+ l 13
+ m 14
+ n 15
+ o 16
+ p 17
+ q 18
+ r 19
+ s 20
+ t 21
+ u 22
+ v 23
+ w 24
+ x 25
+ y 26
+ z 27
+ """
+
+class TextTransform:
+    """Maps characters to integers and vice versa"""
+    def __init__(self):
+        _char_map_str: str = char_map_str
+        self.char_map = {}
+        self.index_map = {}
+        for line in _char_map_str.strip().split('\n'):
+            ch, index = line.split()
+            self.char_map[ch] = int(index)
+            self.index_map[int(index)] = ch
+        self.index_map[1] = ' '
+
+    def text_to_int(self, text):
+        """ Use a character map and convert text to an integer sequence """
+        int_sequence = []
+        for c in text:
+            if c == ' ':
+                ch = self.char_map["'"]
+            else:
+                ch = self.char_map[c]
+            int_sequence.append(ch)
+        return int_sequence
+
+    def int_to_text(self, labels):
+        """ Use a character map and convert integer labels to a text sequence """
+        string = []
+        for i in labels:
+            string.append(self.index_map[i])
+        return ''.join(string).replace('', ' ')
+
+def data_processing(data, data_type="train"):
+    valid_audio_transforms = torchaudio.transforms.MelSpectrogram()
+    text_transform = TextTransform()
+    train_audio_transforms = nn.Sequential(
+        torchaudio.transforms.MelSpectrogram(sample_rate=16000, n_mels=128),
+        torchaudio.transforms.FrequencyMasking(freq_mask_param=15),
+        torchaudio.transforms.TimeMasking(time_mask_param=35)
+    )
+    spectrograms = []
+    labels = []
+    input_lengths = []
+    label_lengths = []
+    for (waveform, _, utterance, _, _, _) in data:
+        if data_type == 'train':
+            spec = train_audio_transforms(waveform).squeeze(0).transpose(0, 1)
+        else:
+            spec = valid_audio_transforms(waveform).squeeze(0).transpose(0, 1)
+        spectrograms.append(spec)
+        label = torch.Tensor(text_transform.text_to_int(utterance.lower()))
+        labels.append(label)
+        input_lengths.append(spec.shape[0]//2)
+        label_lengths.append(len(label))
+
+    spectrograms = nn.utils.rnn.pad_sequence(spectrograms, batch_first=True).unsqueeze(1).transpose(2, 3)
+    labels = nn.utils.rnn.pad_sequence(labels, batch_first=True)
+
+    return spectrograms, labels, input_lengths, label_lengths
+
+# Data preprocessing function.
+# This is written specifically for use with the Deep Speech v1 model.
+def collate_fn(batch):
+    """
+    Data preprocessing function.
+    This is written specifically for use with the Deep Speech v1 model.
+    """
+    waveforms, labels, input_lengths, label_lengths = [], [], [], []
+    for waveform, _, label, *_ in batch:
+        waveforms.append(waveform)
+        labels.append(label)
+        input_lengths.append(waveform.shape[1])
+        label_lengths.append(len(label))
+    waveforms = torch.nn.utils.rnn.pad_sequence(waveforms, batch_first=True).squeeze(1)
+    labels = torch.cat(labels)
+    return waveforms, labels, torch.tensor(input_lengths), torch.tensor(label_lengths)
 
 class LibriSpeech(CustomDataset):
     train_clean_100:str = "train-clean-100"
@@ -37,11 +146,11 @@ class LibriSpeech(CustomDataset):
     ):
         assert folder_in_archive is not None
 
-        if train_split is not None:
-            assert train_split in LibriSpeech._train_splits[0]
+        if train_split is not None and train_split not in LibriSpeech._train_splits[0]:
+            print(f'[WARNING] Specified training split "{train_split}" is technically NOT a training split.')
 
-        if test_split is not None:
-            assert test_split in LibriSpeech._test_splits[0]
+        if test_split is not None and test_split not in LibriSpeech._test_splits[0]:
+            print(f'[WARNING] Specified test/validation split "{test_split}" is technically NOT a test/validation split.')
 
         if train_split is None and test_split is None:
             raise ValueError("At least one of the training split and test split should be non-null.")
@@ -96,12 +205,24 @@ class LibriSpeech(CustomDataset):
             print(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
 
         if self._train_dataset is not None:
-            self._train_loader: Optional[DataLoader] = DataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+            self._train_loader: Optional[DataLoader] = DataLoader(
+                self._train_dataset,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                num_workers=num_workers,
+                collate_fn=lambda x: data_processing(x, 'train'),
+            )
         else:
             self._train_loader: Optional[DataLoader] = None
 
         if self._test_dataset is not None:
-            self._test_loader: Optional[DataLoader] = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+            self._test_loader: Optional[DataLoader] = DataLoader(
+                self._test_dataset,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                num_workers=num_workers,
+                collate_fn=lambda x: data_processing(x, 'valid'),
+            )
         else:
             self._test_loader: Optional[DataLoader] = None
 
