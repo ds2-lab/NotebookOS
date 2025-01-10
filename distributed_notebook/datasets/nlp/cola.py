@@ -3,8 +3,6 @@ from typing import Dict, Union, Optional
 from distributed_notebook.datasets.nlp.base import NLPDataset
 from distributed_notebook.datasets.nlp.util import get_username
 
-CoLAName:str = "Corpus of Linguistic Acceptability (CoLA)"
-
 def cola_postprocess_tokenized_dataset(tokenized_datasets):
     tokenized_datasets = tokenized_datasets.remove_columns(["sentence", "idx"])
     tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
@@ -30,7 +28,7 @@ class CoLA(NLPDataset):
             **kwargs,
     ):
         super().__init__(
-            name = CoLAName,
+            name = "Corpus of Linguistic Acceptability (CoLA)",
             root_dir = CoLA.root_directory,
             model_name = model_name,
             shuffle = shuffle,

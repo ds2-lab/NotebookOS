@@ -3,8 +3,6 @@ from typing import Dict, Union, Optional
 from distributed_notebook.datasets.nlp.base import NLPDataset
 from distributed_notebook.datasets.nlp.util import get_username
 
-IMDbName:str = "IMDb Large Movie Review Dataset Truncated"
-
 def imdb_truncated_postprocess_tokenized_dataset(tokenized_datasets):
     tokenized_datasets = tokenized_datasets.remove_columns(["text"])
     tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
@@ -30,7 +28,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             **kwargs,
     ):
         super().__init__(
-            name = IMDbName,
+            name = "IMDb Large Movie Review Dataset (Truncated)",
             root_dir = IMDbLargeMovieReviewTruncated.root_directory,
             model_name = model_name,
             shuffle = shuffle,

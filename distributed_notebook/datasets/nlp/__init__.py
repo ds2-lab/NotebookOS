@@ -1,3 +1,3 @@
-from .cola import CoLA, CoLAName
-from .imdb import IMDbLargeMovieReview, IMDbName
+from .cola import CoLA
+from .imdb import IMDbLargeMovieReview
 from .imdb_truncated import IMDbLargeMovieReviewTruncated

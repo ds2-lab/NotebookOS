@@ -11,6 +11,15 @@ from distributed_notebook.datasets.nlp.util import get_tokenizer, get_username
 from distributed_notebook.datasets.custom_dataset import CustomDataset
 
 class LibriSpeech(HuggingFaceDataset):
+    root_directory: str = f"/home/{get_username()}/.cache/huggingface/datasets/glue/cola"
+
+    # https://huggingface.co/datasets/nyu-mll/glue
+    hugging_face_dataset_name: str = "glue"
+
+    text_feature_column_name: str = "sentence"
+
+    hugging_face_dataset_config_name: Optional[str] = "cola"
+
     def __init__(
             self,
             name:str = "",

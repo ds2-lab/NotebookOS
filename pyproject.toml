@@ -41,9 +41,10 @@ dependencies = [
     "wget",
     "sox",
     "librosa",
-    "torchdata",
+    "torchdata==0.9.0",
     "transformers",
-    "datasets"
+    "datasets",
+    "portalocker>=2.0.0"
 ]
 
 readme = "README.md"

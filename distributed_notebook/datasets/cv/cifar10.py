@@ -8,11 +8,9 @@ import os
 
 from distributed_notebook.datasets.cv.base import CVDataset
 
-Cifar10:str = "CIFAR-10"
-
 class CIFAR10(CVDataset):
     def __init__(self, root_dir:str = 'data', batch_size: int = 256, shuffle: bool = True, num_workers: int = 2, **kwargs):
-        super().__init__(name = Cifar10, root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
+        super().__init__(name = "CIFAR-10", root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
 
         self.transform = transforms.Compose([
             transforms.RandomHorizontalFlip(),
@@ -36,9 +34,9 @@ class CIFAR10(CVDataset):
         self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
         if self._dataset_already_downloaded:
-            print(f"The {Cifar10} dataset was already downloaded. Root directory: \"{root_dir}\"")
+            print(f"The {self._name} dataset was already downloaded. Root directory: \"{root_dir}\"")
         else:
-            print(f"The {Cifar10} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+            print(f"The {self._name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
 
     @property
     def download_duration_sec(self)->float:
