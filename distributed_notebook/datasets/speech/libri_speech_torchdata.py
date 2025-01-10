@@ -33,8 +33,7 @@ class LibriSpeech(CustomDataset):
             shuffle: bool = True,
             num_workers: int = 2,
             train_split: Optional[str] = None,
-            test_split: Optional[str] = None,
-            **kwargs
+            test_split: Optional[str] = None
     ):
         assert folder_in_archive is not None
 

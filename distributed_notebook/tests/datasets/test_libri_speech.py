@@ -21,10 +21,16 @@ def test_libri_speech_test_dataset():
     root_directory: str = os.path.join(pwd, "libri_speech_dataset")
 
     if os.path.isdir(root_directory):
+        print(f'Removing existing root directory "{root_directory}" for LibriSpeech dataset before unit test.')
         shutil.rmtree(root_directory)
+    else:
+        print(f'Root directory "{root_directory}" for LibriSpeech dataset does not yet exist (before unit test).')
+
+    # Create it, since we know it'll be empty.
+    os.makedirs(name = root_directory, mode = 0o750, exist_ok = False)
 
     libri_speech_dataset: LibriSpeech = LibriSpeech(
-        train_split = None, test_split = LibriSpeech.test_clean)
+        root_dir = root_directory, train_split = None, test_split = LibriSpeech.test_clean)
 
     assert libri_speech_dataset is not None
 
@@ -35,3 +41,6 @@ def test_libri_speech_test_dataset():
 
     assert os.path.isdir(downloaded_archive_path)
     assert os.path.isdir(downloaded_dataset_path)
+
+    print(f'Removing existing root directory "{root_directory}" for LibriSpeech dataset after unit test.')
+    shutil.rmtree(root_directory)

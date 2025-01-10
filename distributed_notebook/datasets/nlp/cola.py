@@ -25,7 +25,6 @@ class CoLA(NLPDataset):
             num_workers: int = 2,
             model_name: Optional[str] = None,
             max_token_length: int = 128,
-            **kwargs,
     ):
         super().__init__(
             root_dir = CoLA.root_directory,

@@ -6,7 +6,7 @@ import time
 from distributed_notebook.datasets.cv.base import CVDataset
 
 class CIFAR10(CVDataset):
-    def __init__(self, root_dir:str = 'data', batch_size: int = 256, shuffle: bool = True, num_workers: int = 2, **kwargs):
+    def __init__(self, root_dir:str = 'data', batch_size: int = 256, shuffle: bool = True, num_workers: int = 2):
         super().__init__(root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
 
         self.transform = transforms.Compose([

@@ -25,7 +25,6 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             shuffle: bool = True,
             num_workers: int = 2,
             model_name:Optional[str] = None,
-            **kwargs,
     ):
         super().__init__(
             root_dir = IMDbLargeMovieReviewTruncated.root_directory,
