@@ -1,4 +1,5 @@
 from distributed_notebook.datasets import CoLA, IMDbLargeMovieReview
+from distributed_notebook.datasets.nlp import IMDbLargeMovieReviewTruncated
 from distributed_notebook.models.nlp.bert import Bert
 
 def test_train_bert_on_cola():
@@ -25,11 +26,11 @@ def test_train_bert_on_cola():
         assert prev_weights.equal(updated_weights) == False
         prev_weights = updated_weights
 
-def test_train_bert_on_imdb():
+def test_train_bert_on_truncated_imdb():
     """
-    Train the BERT model on the CoLA dataset. Validate that the weights are updated correctly.
+    Train the BERT model on the Truncated IMDb dataset. Validate that the weights are updated correctly.
     """
-    dataset: IMDbLargeMovieReview = IMDbLargeMovieReview(model_name = "bert")
+    dataset: IMDbLargeMovieReviewTruncated = IMDbLargeMovieReviewTruncated(model_name = "bert")
     model: Bert = Bert(out_features = 2)
 
     training_duration_ms: int = 1000

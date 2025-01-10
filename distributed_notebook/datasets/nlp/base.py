@@ -1,11 +1,10 @@
 import os
 import time
 from abc import ABC
-from typing import Callable, Dict, Union, Optional
+from typing import Callable, Dict, Union, Optional, Any
 
 import torch.utils.data
 from datasets import load_from_disk
-from sklearn.model_selection import train_test_split
 
 from torch.utils.data import DataLoader, Dataset, TensorDataset, SequentialSampler, RandomSampler
 
@@ -39,7 +38,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             hugging_face_dataset_name: str = "",
             hugging_face_dataset_config_name: Optional[str] = None,
             text_feature_column_name: str = "text",
-            postprocess_tokenized_dataset: Callable = None,
+            postprocess_tokenized_dataset: Callable[[Any, str], Any] = None,
             max_token_length: int = 128,
             token_truncation: bool = True,
             token_padding: str = "max_length",
@@ -73,7 +72,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
         self._dataset_already_tokenized: bool = os.path.exists(self._dataset_dict_path)
 
         if not self._dataset_already_tokenized:
-            print(f'Tokenizing the {self.name} dataset now. Will cache tokenized data in directory "{self._root_dir}"')
+            print(f'Tokenizing the {self.name} dataset now. Will cache tokenized data in directory "{self._dataset_dict_path}"')
             self._tokenize_start: float = time.time()
 
             self.tokenizer = get_tokenizer(model_name)
@@ -89,7 +88,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
                 )
 
             self._tokenized_datasets = self._dataset.map(tokenize_function, batched=True)
-            self._tokenized_datasets = postprocess_tokenized_dataset(self._tokenized_datasets)
+            self._tokenized_datasets = postprocess_tokenized_dataset(self._tokenized_datasets, text_feature_column_name)
             self._tokenized_datasets.set_format("torch")
 
             os.makedirs(self._dataset_dict_path, 0o750, exist_ok=True)
@@ -125,7 +124,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             self._tokenized_datasets['train']['labels']
         )
         train_sampler = RandomSampler(train_data)
-        self._train_loader = DataLoader(train_data, sampler=train_sampler, batch_size=32)
+        self._train_loader = DataLoader(train_data, sampler=train_sampler, batch_size=batch_size)
 
         # Create the DataLoader for our validation set
         validation_data = TensorDataset(
@@ -134,14 +133,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
             self._tokenized_datasets['validation']['labels']
         )
         validation_sampler = SequentialSampler(validation_data)
-        self._test_loader = DataLoader(validation_data, sampler=validation_sampler, batch_size=32)
-
-        # Prepare the data loaders
-        # self._train_dataset = TextDataset(self._tokenized_datasets["train"])
-        # self._test_dataset = TextDataset(self._tokenized_datasets["validation"])
-        #
-        # self._train_loader = DataLoader(self._train_dataset, batch_size = batch_size)
-        # self._test_loader = DataLoader(self._test_dataset, batch_size = batch_size)
+        self._test_loader = DataLoader(validation_data, sampler=validation_sampler, batch_size=batch_size)
 
     @property
     def tokenization_start(self) -> float:

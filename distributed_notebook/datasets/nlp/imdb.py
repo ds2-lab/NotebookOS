@@ -3,8 +3,8 @@ from typing import Dict, Union, Optional
 from distributed_notebook.datasets.nlp.base import NLPDataset
 from distributed_notebook.datasets.nlp.util import get_username
 
-def imdb_postprocess_tokenized_dataset(tokenized_datasets):
-    tokenized_datasets = tokenized_datasets.remove_columns(["sentence", "idx"])
+def imdb_postprocess_tokenized_dataset(tokenized_datasets, text_feature_column_name: str):
+    tokenized_datasets = tokenized_datasets.remove_columns([text_feature_column_name, "idx"])
     tokenized_datasets = tokenized_datasets.rename_column("label", "labels")
 
     return tokenized_datasets

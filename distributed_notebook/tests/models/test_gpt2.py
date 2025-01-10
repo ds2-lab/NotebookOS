@@ -1,4 +1,4 @@
-from distributed_notebook.datasets import CoLA, IMDbLargeMovieReview
+from distributed_notebook.datasets import CoLA, IMDbLargeMovieReviewTruncated
 from distributed_notebook.models.nlp.gpt2 import GPT2
 
 def test_train_gpt2_on_cola():
@@ -27,9 +27,9 @@ def test_train_gpt2_on_cola():
 
 def test_train_gpt2_on_imdb():
     """
-    Train the GPT-2 model on the CoLA dataset. Validate that the weights are updated correctly.
+    Train the GPT-2 model on the Truncated IMDb dataset. Validate that the weights are updated correctly.
     """
-    dataset: IMDbLargeMovieReview = IMDbLargeMovieReview(model_name = "gpt2")
+    dataset: IMDbLargeMovieReviewTruncated = IMDbLargeMovieReviewTruncated(model_name = "gpt2")
     model: GPT2 = GPT2(out_features = 2)
 
     training_duration_ms: int = 1000
