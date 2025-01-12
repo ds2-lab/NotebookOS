@@ -2643,6 +2643,24 @@ class DistributedKernel(IPythonKernel):
                     copy_data_to_gpu_ms * 1.0e3
             )  # it's already in milliseconds
 
+    def assign_model(self, deep_learning_model_name: str = "ResNet-18"):
+        if deep_learning_model_name is None or deep_learning_model_name == "":
+            self.log.debug("No deep learning model specified. Using default model (ResNet-18).")
+            deep_learning_model_name = "ResNet-18"
+
+        self.log.debug(f"Creating and assigning {deep_learning_model_name} model to this kernel.")
+
+        if deep_learning_model_name not in ModelClassesByName:
+            raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
+
+        cls: Type = ModelClassesByName[deep_learning_model_name]
+
+        self.model = cls(created_for_first_time=True)
+
+    def assign_dataset(self, dataset_name: Optional[str] = None):
+        if dataset_name is None or dataset_name == "":
+            self.log.debug("No dataset specified.")
+
     def assign_model_and_dataset(
             self,
             deep_learning_model_name: Optional[str] = None,
@@ -2654,55 +2672,14 @@ class DistributedKernel(IPythonKernel):
         If deep_learning_model_name is a valid model name, then assign the specified model.
         Otherwise, assign the default model (ResNet-18).
 
+        :param dataset_name: name of dataset to assign
         :param deep_learning_model_name: name of model to assign.
         """
         if self.model is None:
-            if deep_learning_model_name is None or deep_learning_model_name == "":
-                self.log.debug("No deep learning model specified. Using default model (ResNet-18).")
-                deep_learning_model_name = "ResNet-18"
-
-            self.log.debug(f"Creating and assigning {deep_learning_model_name} model to this kernel.")
-
-            if deep_learning_model_name not in ModelClassesByName:
-                raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
-
-            cls: Type = ModelClassesByName[deep_learning_model_name]
-
-            self.model = cls(created_for_first_time=True)
-        else:
-            self.log.warning("Deep learning model is already assigned.")
+            self.assign_model(deep_learning_model_name = deep_learning_model_name)
 
         if self.dataset is not None:
-            if dataset_name is None or dataset_name == "":
-                self.log.debug("No dataset specified.")
-
-
-        else:
-            self.log.warning("Dataset is already assigned.")
-
-    def assign_dataset(
-            self,
-    ):
-        """
-        Assign a dataset to this kernel.
-
-        PRECONDITION: a deep learning model must have already been assigned to the kernel.
-
-        If dataset_name is a valid model name, then assign the specified dataset.
-        Otherwise, assign the default dataset
-
-        :param dataset_name: name of model to assign.
-        """
-        if self.model is None:
-            raise ValueError("You must first assign a deep learning model to the kernel "
-                             "before assigning a dataset to the kernel.")
-
-        if dataset_name is None or dataset_name == "":
-            self.log.debug("No dataset specified.")
-
-            self.log.debug(f"Creating and assigning {dataset_name} dataset to this kernel.")
-            self.dataset = CIFAR10()
-            pass
+            self.assign_dataset(dataset_name = dataset_name)
 
     async def get_custom_training_code(
             self,
@@ -2732,14 +2709,8 @@ class DistributedKernel(IPythonKernel):
 
         if self.model is None:
             self.log.debug("No deep learning model assigned yet. Assigning one now.")
-            self.assign_model()
-
+            self.assign_model_and_dataset()
             assert self.model is not None
-
-        if self.dataset is None:
-            self.log.debug("No dataset assigned yet. Assigning one now.")
-            self.assign_dataset()
-
             assert self.dataset is not None
 
         download_code: str = ""
