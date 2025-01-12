@@ -2,12 +2,12 @@ from typing import Optional, Dict, Any
 
 import torch.nn as nn
 import torch.optim as optim
-from transformers import BertForSequenceClassification, BertLMHeadModel
+from torchvision import models
 
-from distributed_notebook.models.model import DeepLearningModel
-from .tasks import ClassificationTask, NLPTasks, LanguageModeling
+from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
-class Bert(DeepLearningModel):
+
+class ResNet18(DeepLearningModel):
     def __init__(
             self,
             out_features: int = 10,
@@ -17,7 +17,6 @@ class Bert(DeepLearningModel):
             criterion_state_dict: Optional[Dict[str, Any]] = None,
             model_state_dict: Optional[Dict[str, Any]] = None,
             created_for_first_time: bool = False,
-            task: Optional[str] = ClassificationTask,
             **kwargs,
     ):
         super().__init__(
@@ -28,15 +27,9 @@ class Bert(DeepLearningModel):
             **kwargs,
         )
 
-        assert task in NLPTasks
-        self._task: str = task
-
-        if self._task == ClassificationTask:
-            self.model = BertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=out_features)
-        elif self._task == LanguageModeling:
-            self.model = BertLMHeadModel.from_pretrained("bert-base-uncased")
-        else:
-            raise ValueError(f'Unknown or unsupported task specified for GPT-2 model: "{self._task}"')
+        self.model = models.resnet18(pretrained=False)
+        self.model.fc = nn.Linear(self.model.fc.in_features,
+                                  out_features)  # Modify the fully connected layer for 10 classes
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)
@@ -49,22 +42,20 @@ class Bert(DeepLearningModel):
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
 
-    @property
-    def task(self) -> str:
-        return self._task
-
-    @property
-    def constructor_args(self) -> dict[str, Any]:
-        base_args: dict[str, Any] = super(Bert).constructor_args
-        args: dict[str, Any] = {
-            "task": self.task
-        }
-        base_args.update(args)
-        return base_args
+    @staticmethod
+    def model_name() -> str:
+        return "ResNet-18"
 
     @property
     def name(self) -> str:
-        return "BERT"
+        return ResNet18.model_name()
+
+    @property
+    def constructor_args(self) -> dict[str, Any]:
+        base_args: dict[str, Any] = super(ResNet18).constructor_args
+        args: dict[str, Any] = {}
+        base_args.update(args)
+        return base_args
 
     def __str__(self) -> str:
         return f"{self.name}[TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"

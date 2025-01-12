@@ -1,8 +1,8 @@
 import os
 import torch
 
-from distributed_notebook.datasets import LibriSpeech
-from distributed_notebook.models import DeepSpeech2
+from distributed_notebook.deep_learning.datasets import LibriSpeech
+from distributed_notebook.deep_learning.models import DeepSpeech2
 
 
 def test_train_deep_speech():

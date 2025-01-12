@@ -313,4 +313,8 @@ class LibriSpeech(CustomDataset):
 
     @property
     def name(self)->str:
+        return LibriSpeech.dataset_name()
+
+    @staticmethod
+    def dataset_name()->str:
         return "LibriSpeech"

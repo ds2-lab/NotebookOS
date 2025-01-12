@@ -52,6 +52,10 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
         desc["max_token_length"] = self._max_token_length
         return desc
 
+    @staticmethod
+    def dataset_name()->str:
+        return "IMDb Large Movie Review Dataset (Truncated)"
+
     @property
     def name(self)->str:
-        return "IMDb Large Movie Review Dataset (Truncated)"
+        return IMDbLargeMovieReviewTruncated.dataset_name()

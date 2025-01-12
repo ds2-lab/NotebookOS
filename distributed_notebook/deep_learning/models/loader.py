@@ -1,8 +1,8 @@
 from typing import Optional, Dict, Any
 
-from distributed_notebook.models.model import DeepLearningModel
-from distributed_notebook.models.cv.resnet18 import ResNet18
-from distributed_notebook.models.simple_model import SimpleModel
+from distributed_notebook.deep_learning.models.model import DeepLearningModel
+from distributed_notebook.deep_learning.models.cv.resnet18 import ResNet18
+from distributed_notebook.deep_learning.models.simple_model import SimpleModel
 
 
 def load_model(

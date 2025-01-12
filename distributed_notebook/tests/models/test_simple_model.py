@@ -1,8 +1,8 @@
 from torch import Size
 from torch.nn.parameter import Parameter
 
-from distributed_notebook.datasets.random import RandomCustomDataset
-from distributed_notebook.models.simple_model import SimpleModel, SimpleModule
+from distributed_notebook.deep_learning.datasets.random import RandomCustomDataset
+from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
 
 def test_instantiate():
     input_size: int = 3

@@ -52,6 +52,10 @@ class CoLA(NLPDataset):
         desc["max_token_length"] = self._max_token_length
         return desc
 
+    @staticmethod
+    def dataset_name()->str:
+        return "Corpus of Linguistic Acceptability (CoLA)"
+
     @property
     def name(self)->str:
-        return "Corpus of Linguistic Acceptability (CoLA)"
+        return CoLA.dataset_name()

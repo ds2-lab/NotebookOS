@@ -20,7 +20,7 @@ from hmac import compare_digest
 from multiprocessing import Process, Queue
 from numbers import Number
 from threading import Lock
-from typing import Union, Optional, Dict, Any
+from typing import Union, Optional, Dict, Any, Type
 
 import debugpy
 import grpc
@@ -33,29 +33,29 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
-from .execution_yield_error import ExecutionYieldError
-from .stats import ExecutionStats
-from .util import extract_header
-from ..datasets.custom_dataset import CustomDataset
-from distributed_notebook.datasets.cv.cifar10 import CIFAR10
-from ..datasets.loader import load_dataset
-from ..gateway import gateway_pb2
-from ..gateway.gateway_pb2_grpc import KernelErrorReporterStub
-from ..logs import ColoredLogFormatter
-from ..models.loader import load_model
-from ..models.model import DeepLearningModel
-from distributed_notebook.models.cv.resnet18 import ResNet18
-from ..sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
-from ..sync.checkpointing.factory import get_remote_checkpointer
-from ..sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPointer
-from ..sync.checkpointing.remote_checkpointer import RemoteCheckpointer
-from ..sync.election import Election, ElectionTimestamps
-from ..sync.errors import DiscardMessageError
-from ..sync.simulated_checkpointing.simulated_checkpointer import (
+from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.datasets.cv.cifar10 import CIFAR10
+from distributed_notebook.deep_learning.datasets.loader import load_dataset
+from distributed_notebook.deep_learning.models import ModelClassesByName
+from distributed_notebook.deep_learning.models.loader import load_model
+from distributed_notebook.deep_learning.models.model import DeepLearningModel
+from distributed_notebook.gateway import gateway_pb2
+from distributed_notebook.gateway.gateway_pb2_grpc import KernelErrorReporterStub
+from distributed_notebook.logs import ColoredLogFormatter
+from distributed_notebook.sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
+from distributed_notebook.sync.checkpointing.factory import get_remote_checkpointer
+from distributed_notebook.sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPointer
+from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+from distributed_notebook.sync.election import Election, ElectionTimestamps
+from distributed_notebook.sync.errors import DiscardMessageError
+from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer import (
     SimulatedCheckpointer,
     get_estimated_io_time_seconds,
     format_size,
 )
+from .execution_yield_error import ExecutionYieldError
+from .stats import ExecutionStats
+from .util import extract_header
 
 import_torch_start: float = time.time()
 try:
@@ -709,8 +709,8 @@ class DistributedKernel(IPythonKernel):
             self.node_name = os.environ.get("NODE_NAME", default=UNAVAILABLE)
             self.docker_container_id: str = "N/A"
         elif (
-            self.deployment_mode == DeploymentMode_DockerSwarm
-            or self.deployment_mode == DeploymentMode_DockerCompose
+                self.deployment_mode == DeploymentMode_DockerSwarm
+                or self.deployment_mode == DeploymentMode_DockerCompose
         ):
             self.docker_container_id: str = socket.gethostname()
             self.pod_name = os.environ.get("POD_NAME", default=self.docker_container_id)
@@ -766,7 +766,7 @@ class DistributedKernel(IPythonKernel):
 
         # Allow setting env variable to prevent registration altogether.
         skip_registration_override: bool = (
-            os.environ.get("SKIP_REGISTRATION", "false").lower() == "true"
+                os.environ.get("SKIP_REGISTRATION", "false").lower() == "true"
         )
 
         if self.should_register_with_local_daemon and not skip_registration_override:
@@ -1021,7 +1021,7 @@ class DistributedKernel(IPythonKernel):
         self.log.info("Replica hostnames: %s" % str(self.smr_nodes_map))
 
         assert self.smr_nodes_map[self.smr_node_id] == (
-            self.hostname + ":" + str(self.smr_port)
+                self.hostname + ":" + str(self.smr_port)
         )
 
         grpc_port: int = response_dict.get("grpc_port", -1)
@@ -1067,9 +1067,9 @@ class DistributedKernel(IPythonKernel):
         self.init_debugpy()
 
         if (
-            self.persistent_id != Undefined
-            and self.persistent_id != ""
-            and self.persistent_id is not None
+                self.persistent_id != Undefined
+                and self.persistent_id != ""
+                and self.persistent_id is not None
         ):
             assert isinstance(self.persistent_id, str)
 
@@ -1283,8 +1283,8 @@ class DistributedKernel(IPythonKernel):
                 self.log.debug("Unable to signal in pre_handler_hook:", exc_info=True)
                 self.report_error(
                     error_title=f'Kernel "{self.kernel_id}" Encountered {type(ex).__name__} Exception '
-                    f'While Signaling in pre_handler_hook for Shell Request "{msg_id}" of '
-                    f'type "{msg_type}"',
+                                f'While Signaling in pre_handler_hook for Shell Request "{msg_id}" of '
+                                f'type "{msg_type}"',
                     error_message=str(ex),
                 )
             try:
@@ -1298,7 +1298,7 @@ class DistributedKernel(IPythonKernel):
                 )  # noqa: G201
                 self.report_error(
                     error_title=f'Kernel "{self.kernel_id}" Encountered {type(ex).__name__} Exception '
-                    f'While Executing Handler for Shell Request "{msg_id}" of type "{msg_type}"',
+                                f'While Executing Handler for Shell Request "{msg_id}" of type "{msg_type}"',
                     error_message=str(ex),
                 )
             except KeyboardInterrupt:
@@ -1313,8 +1313,8 @@ class DistributedKernel(IPythonKernel):
                     )
                     self.report_error(
                         error_title=f'Kernel "{self.kernel_id}" Encountered {type(ex).__name__} Exception '
-                        f'While Signaling in post_handler_hook for Shell Request "{msg_id}" of '
-                        f'type "{msg_type}"',
+                                    f'While Signaling in post_handler_hook for Shell Request "{msg_id}" of '
+                                    f'type "{msg_type}"',
                         error_message=str(ex),
                     )
 
@@ -1602,7 +1602,7 @@ class DistributedKernel(IPythonKernel):
 
                 if self.current_execution_stats is not None:
                     self.current_execution_stats.download_model_microseconds = (
-                        download_model_duration * 1.0e6
+                            download_model_duration * 1.0e6
                     )
 
             if download_training_data_duration > 0 and self.prometheus_enabled:
@@ -1615,7 +1615,7 @@ class DistributedKernel(IPythonKernel):
 
                 if self.current_execution_stats is not None:
                     self.current_execution_stats.download_training_data_microseconds = (
-                        download_training_data_duration * 1.0e6
+                            download_training_data_duration * 1.0e6
                     )
 
         # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be
@@ -1675,8 +1675,8 @@ class DistributedKernel(IPythonKernel):
         # selected the first SimulatedCheckpointer we encountered if it is the case that no registered
         # SimulatedCheckpointer objects have ever been used.
         assert (
-            most_recently_used_checkpointer is not None
-            or len(self.remote_storages) == 0
+                most_recently_used_checkpointer is not None
+                or len(self.remote_storages) == 0
         )
 
         return most_recently_used_checkpointer
@@ -1693,7 +1693,7 @@ class DistributedKernel(IPythonKernel):
             return True
 
     def send_ack(
-        self, stream, msg_type: str, msg_id: str, ident, parent, stream_name: str = ""
+            self, stream, msg_type: str, msg_id: str, ident, parent, stream_name: str = ""
     ):
         # If message acknowledgements are disabled, then just return immediately.
         if not self.message_acknowledgements_enabled:
@@ -1711,7 +1711,7 @@ class DistributedKernel(IPythonKernel):
         )
 
     def register_remote_storage_definition_from_dict(
-        self, remote_storage_definition: Dict[str, Any]
+            self, remote_storage_definition: Dict[str, Any]
     ) -> Optional[str]:
         if len(remote_storage_definition) == 0:
             return
@@ -1742,7 +1742,7 @@ class DistributedKernel(IPythonKernel):
         return remote_storage_name
 
     def register_remote_storage_definition(
-        self, remote_storage_definition: Dict[str, Any] | SimulatedCheckpointer
+            self, remote_storage_definition: Dict[str, Any] | SimulatedCheckpointer
     ) -> Optional[str]:
         """
         Convert the remote storage definition that was extracted from the metadata of an "execute_request" or
@@ -1774,7 +1774,7 @@ class DistributedKernel(IPythonKernel):
         return remote_storage_name
 
     async def process_execute_request_metadata(
-        self, msg_id: str, msg_type: str, metadata: Dict[str, Any]
+            self, msg_id: str, msg_type: str, metadata: Dict[str, Any]
     ) -> tuple[Optional[str], list[int]]:
         """
         Process the metadata included in a shell "execute_request" or "yield_request" message.
@@ -1864,15 +1864,15 @@ class DistributedKernel(IPythonKernel):
         duration_ms: float = (et - st) * 1.0e3
 
         if (
-            self.prometheus_enabled
-            and getattr(self, "remote_storage_write_latency_milliseconds") is not None
+                self.prometheus_enabled
+                and getattr(self, "remote_storage_write_latency_milliseconds") is not None
         ):
             self.remote_storage_write_latency_milliseconds.labels(
                 session_id=self.kernel_id, workload_id=self.workload_id
             ).observe(duration_ms * 1e3)
 
         self.current_execution_stats.upload_model_and_training_data_microseconds += (
-            duration_ms * 1.0e3
+                duration_ms * 1.0e3
         )
         self.current_execution_stats.upload_model_start_unix_millis = st
         self.current_execution_stats.upload_model_end_unix_millis = et
@@ -1941,6 +1941,9 @@ class DistributedKernel(IPythonKernel):
             except ValueError:
                 pass
 
+        target_model: Optional[str] = metadata.get("model", None)
+        target_dataset: Optional[str] = metadata.get("dataset", None)
+
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
         if not silent:
@@ -1959,6 +1962,8 @@ class DistributedKernel(IPythonKernel):
             cell_id=cell_id,
             training_duration_millis=training_duration_millis,
             gpu_device_ids=gpu_device_ids,
+            deep_learning_model_name=target_model,
+            dataset=target_dataset,
         )
 
         if inspect.isawaitable(reply_content):
@@ -2065,10 +2070,10 @@ class DistributedKernel(IPythonKernel):
         # critical path. The write operation will still block future executions from running if they arrive during the
         # write operation, but that's correct.
         if (
-            not self.use_real_gpus
-            and remote_storage_name is not None
-            and self.simulate_write_after_execute
-            and not self.simulate_write_after_execute_on_critical_path
+                not self.use_real_gpus
+                and remote_storage_name is not None
+                and self.simulate_write_after_execute
+                and not self.simulate_write_after_execute_on_critical_path
         ):
             self.log.debug(
                 f"Performing post-execution simulated network write operation to '{remote_storage_name}' off of critical path."
@@ -2116,7 +2121,7 @@ class DistributedKernel(IPythonKernel):
 
         cond: bool = asyncio.get_running_loop() == self.io_loop.asyncio_loop  # type: ignore
         cond2: bool = (
-            asyncio.get_running_loop() == self.control_thread.io_loop.asyncio_loop
+                asyncio.get_running_loop() == self.control_thread.io_loop.asyncio_loop
         )
 
         self.log.debug(f"Running event loop is self.io_loop: {cond}")
@@ -2398,7 +2403,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Sent the following reply after yield_request: %s" % reply_msg)
 
         if (
-            not silent and error_occurred and stop_on_error
+                not silent and error_occurred and stop_on_error
         ):  # reply_msg["content"]["status"] == "error"
             self._abort_queues()
 
@@ -2420,7 +2425,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug(f"Done with yield_request for term {term_number}.")
 
     def copy_data_from_gpu_to_cpu(
-        self, size_gb: float = 0, force: bool = False
+            self, size_gb: float = 0, force: bool = False
     ) -> None:
         if size_gb == 0:
             return
@@ -2449,7 +2454,7 @@ class DistributedKernel(IPythonKernel):
         self.data_on_gpu = False
 
     def copy_data_from_cpu_to_gpu(
-        self, size_gb: float = 0, force: bool = False
+            self, size_gb: float = 0, force: bool = False
     ) -> None:
         if size_gb == 0:
             return
@@ -2492,7 +2497,7 @@ class DistributedKernel(IPythonKernel):
         self.cuda_initialized = True
 
     async def simulate_download_model_and_training_data(
-        self, force: bool = False
+            self, force: bool = False
     ) -> tuple[float, float]:
         self.log.debug("Simulating the downloading of model and training data...")
 
@@ -2554,11 +2559,11 @@ class DistributedKernel(IPythonKernel):
         return download_model_duration, download_training_data_duration
 
     def download_runtime_dependencies(
-        self,
-        n: int = 5,
-        avg_latency: float = 5.0,
-        std_dev_latency: float = 1.0,
-        force: bool = False,
+            self,
+            n: int = 5,
+            avg_latency: float = 5.0,
+            std_dev_latency: float = 1.0,
+            force: bool = False,
     ) -> None:
         """
         Simulate the downloading of runtime dependencies.
@@ -2624,7 +2629,7 @@ class DistributedKernel(IPythonKernel):
             init_cuda_ms: float = (time.time() - init_cuda_start) * 1.0e3
             self.log.debug(f"Initialized CUDA runtime in {init_cuda_ms} ms.")
             self.current_execution_stats.cuda_init_microseconds = (
-                init_cuda_ms * 1.0e3
+                    init_cuda_ms * 1.0e3
             )  # it's already in milliseconds
 
         if not self.data_on_gpu:
@@ -2635,14 +2640,89 @@ class DistributedKernel(IPythonKernel):
                 f"Copied {vram_size_gb} GB of data from main memory to the GPU {copy_data_to_gpu_ms} ms."
             )
             self.current_execution_stats.copy_data_from_cpu_to_gpu_microseconds = (
-                copy_data_to_gpu_ms * 1.0e3
+                    copy_data_to_gpu_ms * 1.0e3
             )  # it's already in milliseconds
 
+    def assign_model_and_dataset(
+            self,
+            deep_learning_model_name: Optional[str] = None,
+            dataset_name: Optional[str] = None,
+    ):
+        """
+        Assign a deep learning model to this kernel.
+
+        If deep_learning_model_name is a valid model name, then assign the specified model.
+        Otherwise, assign the default model (ResNet-18).
+
+        :param deep_learning_model_name: name of model to assign.
+        """
+        if self.model is None:
+            if deep_learning_model_name is None or deep_learning_model_name == "":
+                self.log.debug("No deep learning model specified. Using default model (ResNet-18).")
+                deep_learning_model_name = "ResNet-18"
+
+            self.log.debug(f"Creating and assigning {deep_learning_model_name} model to this kernel.")
+
+            if deep_learning_model_name not in ModelClassesByName:
+                raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
+
+            cls: Type = ModelClassesByName[deep_learning_model_name]
+
+            self.model = cls(created_for_first_time=True)
+        else:
+            self.log.warning("Deep learning model is already assigned.")
+
+        if self.dataset is not None:
+            if dataset_name is None or dataset_name == "":
+                self.log.debug("No dataset specified.")
+
+
+        else:
+            self.log.warning("Dataset is already assigned.")
+
+    def assign_dataset(
+            self,
+    ):
+        """
+        Assign a dataset to this kernel.
+
+        PRECONDITION: a deep learning model must have already been assigned to the kernel.
+
+        If dataset_name is a valid model name, then assign the specified dataset.
+        Otherwise, assign the default dataset
+
+        :param dataset_name: name of model to assign.
+        """
+        if self.model is None:
+            raise ValueError("You must first assign a deep learning model to the kernel "
+                             "before assigning a dataset to the kernel.")
+
+        if dataset_name is None or dataset_name == "":
+            self.log.debug("No dataset specified.")
+
+            self.log.debug(f"Creating and assigning {dataset_name} dataset to this kernel.")
+            self.dataset = CIFAR10()
+            pass
+
     async def get_custom_training_code(
-        self,
-        training_duration_millis: float,
-        gpu_device_ids: list[int] = None,
+            self,
+            training_duration_millis: float,
+            gpu_device_ids: list[int] = None,
+            deep_learning_model_name: Optional[str] = None,
+            dataset: Optional[str] = None,
     ) -> str:
+        """
+        Generate the Python code that will be executed by this Juypter kernel.
+
+        This is used specifically to generate some sort of PyTorch GPU-enabled training code.
+
+        :param training_duration_millis: how long the training should last in milliseconds.
+        :param gpu_device_ids: the GPU device IDs assigned to this kernel.
+        :param deep_learning_model_name: the name of the deep learning model to be used during the training.
+        :param dataset: the name of the dataset to be used during the training.
+
+        :return: the generated Python code to be executed by this Juypter kernel.
+        """
         if not self.use_real_gpus:
             return f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
 
@@ -2651,10 +2731,16 @@ class DistributedKernel(IPythonKernel):
             gpu_device_ids = [0]
 
         if self.model is None:
-            self.log.debug("Creating ResNet-18 model.")
-            self.model = ResNet18(created_for_first_time=True)
-            self.log.debug("Creating CIFAR-10 dataset.")
-            self.dataset = CIFAR10()
+            self.log.debug("No deep learning model assigned yet. Assigning one now.")
+            self.assign_model()
+
+            assert self.model is not None
+
+        if self.dataset is None:
+            self.log.debug("No dataset assigned yet. Assigning one now.")
+            self.assign_dataset()
+
+            assert self.dataset is not None
 
         download_code: str = ""
         if not self.smr_enabled or self.num_replicas <= 1:
@@ -2664,7 +2750,7 @@ class DistributedKernel(IPythonKernel):
                 )
 
                 if existing_model is not None and not isinstance(
-                    existing_model, DeepLearningModel
+                        existing_model, DeepLearningModel
                 ):
                     self.log.warning(
                         f"Found existing variable 'model' in shell user namespace of type "
@@ -2684,7 +2770,8 @@ class DistributedKernel(IPythonKernel):
                 )
                 self.shell.user_ns["__model_pointer__"] = ModelPointer(
                     deep_learning_model=self.model,
-                    user_namespace_variable_name="model",  # __model_pointer__ is temporary; the actual variable we want to use is the 'model' variable.
+                    user_namespace_variable_name="model",
+                    # __model_pointer__ is temporary; the actual variable we want to use is the 'model' variable.
                     model_path=os.path.join(self.store_path, self.model.name),
                 )
                 download_code: str = f"""
@@ -2726,10 +2813,10 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 """
 
     async def primary_replica_protocol(
-        self,
-        term_number: int = -1,
-        election_start: float = time.time(),
-        jupyter_message_id: str = "",
+            self,
+            term_number: int = -1,
+            election_start: float = time.time(),
+            jupyter_message_id: str = "",
     ):
         assert term_number >= 0
 
@@ -2766,24 +2853,28 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         return True
 
     async def do_execute(
-        self,
-        code: str,
-        silent: bool,
-        store_history: bool = True,
-        user_expressions: dict = None,
-        allow_stdin: bool = False,
-        remote_storage_name: Optional[str] = None,
-        training_duration_millis: float = -1,
-        gpu_device_ids: list[int] = None,
-        *,
-        cell_meta=None,
-        cell_id=None,
+            self,
+            code: str,
+            silent: bool,
+            store_history: bool = True,
+            user_expressions: dict = None,
+            allow_stdin: bool = False,
+            remote_storage_name: Optional[str] = None,
+            training_duration_millis: float = -1,
+            gpu_device_ids: list[int] = None,
+            deep_learning_model_name: Optional[str] = None,
+            dataset: Optional[str] = None,
+            *,
+            cell_meta=None,
+            cell_id=None,
     ):
         """
         Execute user code. This is part of the official Jupyter kernel API.
         Reference: https://jupyter-client.readthedocs.io/en/latest/wrapperkernels.html#MyKernel.do_execute
 
         Args:
+            :param dataset: the dataset to be used for deep learning training
+            :param deep_learning_model_name: the model to be used for deep learning training
             :param gpu_device_ids: the gpu device IDs that we've been assigned/allocated
             :param remote_storage_name: the name of the remote storage that we should use for (simulated) checkpointing
             :param cell_meta:
@@ -2896,6 +2987,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 training_duration_millis=training_duration_millis,
                 code=code,
                 gpu_device_ids=gpu_device_ids,
+                deep_learning_model_name=deep_learning_model_name,
+                dataset=dataset,
             )
 
             # Re-enable stdout and stderr forwarding.
@@ -2918,7 +3011,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             self.send_notification(
                 notification_title=f"Election {term_number} Skipped by Replica {self.smr_node_id} of Kernel {self.kernel_id}",
                 notification_body=f'"execute_request" message {self.next_execute_request_msg_id} was dropped by replica '
-                f"{self.smr_node_id} of kernel {self.kernel_id}, as associated election (term={term_number}) was skipped.",
+                                  f"{self.smr_node_id} of kernel {self.kernel_id}, as associated election (term={term_number}) was skipped.",
                 notification_type=WarningNotification,
             )
 
@@ -2933,14 +3026,16 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         return reply_content
 
     async def execute_user_code(
-        self,
-        training_duration_millis: float = 0,
-        code: str = "",
-        silent: bool = False,
-        store_history: bool = True,
-        user_expressions: dict = None,
-        allow_stdin: bool = False,
-        gpu_device_ids: list[int] = None,
+            self,
+            training_duration_millis: float = 0,
+            code: str = "",
+            silent: bool = False,
+            store_history: bool = True,
+            user_expressions: dict = None,
+            allow_stdin: bool = False,
+            gpu_device_ids: list[int] = None,
+            deep_learning_model_name: Optional[str] = None,
+            dataset: Optional[str] = None,
     ) -> tuple[Dict[str, Any], bool, str]:
         """
         Execute the user-submitted code.
@@ -2962,6 +3057,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             code = await self.get_custom_training_code(
                 training_duration_millis=training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
+                deep_learning_model_name=deep_learning_model_name,
+                dataset=dataset,
             )
             performed_gpu_training = True
         elif "training_duration_millis = " in code:
@@ -2995,11 +3092,11 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         reply_content = await reply_routing
         self.current_execution_stats.execution_end_unix_millis = time.time() * 1.0e3
         exec_duration_millis: float = (
-            self.current_execution_stats.execution_end_unix_millis
-            - self.current_execution_stats.execution_start_unix_millis
+                self.current_execution_stats.execution_end_unix_millis
+                - self.current_execution_stats.execution_start_unix_millis
         )
         self.current_execution_stats.execution_time_microseconds = (
-            exec_duration_millis * 1.0e3
+                exec_duration_millis * 1.0e3
         )
         reply_content["execution_start_unix_millis"] = (
             self.current_execution_stats.execution_start_unix_millis
@@ -3074,8 +3171,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         assert self.execution_count is not None
 
     async def extract_mem_copy_times(
-        self,
-        code: str = "",
+            self,
+            code: str = "",
     ):
         """
         Extract the latencies of copying memory from the CPU to the GPU and from the GPU to the CPU from the model
@@ -3119,8 +3216,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         )
 
     async def extract_dataset_download_latency(
-        self,
-        code: str = "",
+            self,
+            code: str = "",
     ):
         """
         Inspect the 'dataset' variable from the user namespace and determine if we need to record its download
@@ -3151,7 +3248,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             "Dataset was NOT already downloaded. Extracting download times now."
         )
         self.current_execution_stats.download_training_data_microseconds = (
-            dataset.download_duration_sec * 1.0e6
+                dataset.download_duration_sec * 1.0e6
         )
 
         self.current_execution_stats.download_training_data_start_unix_millis = (
@@ -3162,10 +3259,10 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         )
 
     async def handle_post_execution_overheads(
-        self,
-        remote_storage_name: Optional[str] = None,
-        performing_gpu_training: bool = False,
-        code: str = "",
+            self,
+            remote_storage_name: Optional[str] = None,
+            performing_gpu_training: bool = False,
+            code: str = "",
     ):
         if not self.use_real_gpus and self.data_on_gpu:
             vram_size_gb = self.current_resource_request.get("vram", 0)
@@ -3176,13 +3273,13 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 f"Copied {vram_size_gb} GB of data from the GPU to main memory in {copy_data_to_cpu_ms} ms."
             )
             self.current_execution_stats.copy_data_from_gpu_to_cpu_microseconds = (
-                copy_data_to_cpu_ms * 1.0e3
+                    copy_data_to_cpu_ms * 1.0e3
             )  # it's already in milliseconds
 
             if (
-                remote_storage_name is not None
-                and self.simulate_write_after_execute
-                and self.simulate_write_after_execute_on_critical_path
+                    remote_storage_name is not None
+                    and self.simulate_write_after_execute
+                    and self.simulate_write_after_execute_on_critical_path
             ):
                 self.log.debug(
                     f"Performing post-execution simulated network write operation to '{remote_storage_name}' on critical path."
@@ -3201,17 +3298,17 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                     ).inc(duration_sec * 1e3)
 
                 self.current_execution_stats.upload_runtime_dependencies_microseconds = (
-                    duration_sec * 1.0e6
+                        duration_sec * 1.0e6
                 )
         elif self.use_real_gpus and performing_gpu_training:
             await self.extract_mem_copy_times(code=code)
             await self.extract_dataset_download_latency(code=code)
 
     async def simulate_remote_checkpointing(
-        self,
-        remote_storage_name: Optional[str],
-        io_type: Optional[str] = None,
-        vram_bytes: float = -1,
+            self,
+            remote_storage_name: Optional[str],
+            io_type: Optional[str] = None,
+            vram_bytes: float = -1,
     ) -> float:
         """
         Simulate checkpointing using the current resource request and the specified remote storage name.
@@ -3233,10 +3330,10 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         io_type = io_type.lower()
         if (
-            io_type != "read"
-            and io_type != "write"
-            and io_type != "upload"
-            and io_type != "download"
+                io_type != "read"
+                and io_type != "write"
+                and io_type != "upload"
+                and io_type != "download"
         ):
             raise ValueError(f'unknown/unsupported IO type specified: "{io_type}"')
 
@@ -3651,7 +3748,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             return gen_error_response(e), False
 
     def decode_request_trace_from_buffers(
-        self, buffers, msg_id: str = "N/A", msg_type: str = "N/A"
+            self, buffers, msg_id: str = "N/A", msg_type: str = "N/A"
     ) -> dict[str, Any]:
         """
         Attempt to decode a RequestTrace from the first buffers frame.
@@ -3697,10 +3794,10 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             return {}
 
     def extract_and_process_request_trace(
-        self,
-        msg: dict[str, Any],
-        received_at: float,
-        execution_stats: Optional[ExecutionStats] = None,
+            self,
+            msg: dict[str, Any],
+            received_at: float,
+            execution_stats: Optional[ExecutionStats] = None,
     ) -> Optional[list[bytes]]:
         """
         Attempt to extract the RequestTrace dictionary from the (first) buffers frame of the request.
@@ -3738,8 +3835,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             buffers, msg_id=msg_id, msg_type=msg_type
         )
         if (
-            isinstance(request_trace_frame, dict)
-            and "request_trace" in request_trace_frame
+                isinstance(request_trace_frame, dict)
+                and "request_trace" in request_trace_frame
         ):
             request_trace: dict[str, Any] = request_trace_frame["request_trace"]
 
@@ -4050,10 +4147,10 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         )
 
     def send_notification(
-        self,
-        notification_title: str = "",
-        notification_body: str = "",
-        notification_type: int = 2,
+            self,
+            notification_title: str = "",
+            notification_body: str = "",
+            notification_type: int = 2,
     ):
         if notification_type < 0 or notification_type > 3:
             raise ValueError(
@@ -4113,7 +4210,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 )
 
                 if existing_model is not None and not isinstance(
-                    existing_model, DeepLearningModel
+                        existing_model, DeepLearningModel
                 ):
                     self.log.warning(
                         f"Found existing variable '{var_name}' in shell user namespace of type "
@@ -4210,8 +4307,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         Download any Dataset and Model pointers that were committed while we were catching up.
         """
         if (
-            len(self.model_pointers_catchup) == 0
-            and len(self.dataset_pointers_catchup) == 0
+                len(self.model_pointers_catchup) == 0
+                and len(self.dataset_pointers_catchup) == 0
         ):
             self.log.debug(
                 "There were no models or datasets committed during catch-up phase."
@@ -4230,9 +4327,9 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         )
 
     def __load_model_from_remote_storage(
-        self,
-        pointer: ModelPointer,
-        existing_model: Optional[DeepLearningModel] = None,
+            self,
+            pointer: ModelPointer,
+            existing_model: Optional[DeepLearningModel] = None,
     ) -> Optional[DeepLearningModel]:
         """
         Callback to be executed when a pointer to a DeepLearningModel object is committed to the RaftLog.
@@ -4258,13 +4355,13 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             if not self.smr_enabled or self.num_replicas <= 1:
                 assert self.current_execution_stats is not None
                 self.current_execution_stats.download_model_microseconds += (
-                    read_et - read_st
-                ) * 1.0e6
+                                                                                    read_et - read_st
+                                                                            ) * 1.0e6
                 self.current_execution_stats.download_model_start_unix_millis += (
-                    read_st * 1.0e3
+                        read_st * 1.0e3
                 )
                 self.current_execution_stats.download_model_end_unix_millis += (
-                    read_et * 1.0e3
+                        read_et * 1.0e3
                 )
         except Exception as exc:
             self.log.error(
@@ -4295,7 +4392,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         return model
 
     def __load_dataset_from_remote_storage(
-        self, pointer: DatasetPointer
+            self, pointer: DatasetPointer
     ) -> Optional[CustomDataset]:
         var_name: str = pointer.user_namespace_variable_name
         existing_variable: Any = self.shell.user_ns.get(var_name, None)
@@ -4417,7 +4514,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             "model", None
         )
         if existing_model is not None and not isinstance(
-            existing_model, DeepLearningModel
+                existing_model, DeepLearningModel
         ):
             self.log.warning(
                 f"Found existing variable 'model' in shell user namespace of type "
@@ -4440,7 +4537,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
         return model
 
     def large_object_pointer_committed(
-        self, pointer: SyncPointer
+            self, pointer: SyncPointer
     ) -> Optional[CustomDataset | DeepLearningModel]:
         """
         Callback to be executed when a pointer to a large object is committed to the RaftLog.
@@ -4598,8 +4695,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             )
 
             for (
-                remote_storage_name,
-                remote_storage_definition,
+                    remote_storage_name,
+                    remote_storage_definition,
             ) in remote_storage_definitions.items():
                 self.log.debug(
                     f'Registering remote storage loaded from serialized state: "{remote_storage_name}"'
@@ -4623,12 +4720,12 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             ).observe(latency_ms)
 
     def run_cell(
-        self,
-        raw_cell,
-        store_history=False,
-        silent=False,
-        shell_futures=True,
-        cell_id=None,
+            self,
+            raw_cell,
+            store_history=False,
+            silent=False,
+            shell_futures=True,
+            cell_id=None,
     ):
         self.log.debug("Running cell: %s" % str(raw_cell))
         self.source = raw_cell

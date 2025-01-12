@@ -37,6 +37,10 @@ class CIFAR10(CustomDataset):
 
     @property
     def name(self)->str:
+        return CIFAR10.dataset_name()
+
+    @staticmethod
+    def dataset_name()->str:
         return "CIFAR-10"
 
     @property

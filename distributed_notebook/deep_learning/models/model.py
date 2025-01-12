@@ -1,21 +1,15 @@
+import gc
+import logging
+import time
+from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 
 import torch
-import gc
-import time
 import torch.nn as nn
-import torch.optim as optim
 from torch.nn import Module
-from torch.xpu import device
-from torchvision import datasets, transforms, models
-from torch.utils.data import DataLoader
-
-import logging
-import time
 
 from distributed_notebook.logs import ColoredLogFormatter
 
-from abc import ABC, abstractmethod
 
 class DeepLearningModel(ABC):
     def __init__(
@@ -101,7 +95,7 @@ class DeepLearningModel(ABC):
             self.model = self.model.to(self.gpu_device)
         else:
             self.log.debug(f"Wrapping model from DataParallel. GPU device IDs: {device_ids}.")
-            self.model = torch.nn.DataParallel(self.model, device_ids = device_ids)
+            self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
 
             self.gpu_device = torch.device(f"cuda:{device_ids[0]}")
             self.model = self.model.to(self.gpu_device)
@@ -122,38 +116,38 @@ class DeepLearningModel(ABC):
 
     @property
     @abstractmethod
-    def constructor_args(self)->dict[str, Any]:
+    def constructor_args(self) -> dict[str, Any]:
         return {
             "out_features": self.out_features
         }
 
     @property
-    def requires_checkpointing(self)->bool:
+    def requires_checkpointing(self) -> bool:
         """
         Return a bool indicating whether this model has updated state that needs to be checkpointed.
         """
         return self._requires_checkpointing
 
     @property
-    def cpu_to_gpu_times(self)->list[float]:
+    def cpu_to_gpu_times(self) -> list[float]:
         """
         :return: the list of the times, in seconds, spent copying data from the CPU to the GPU.
         """
         return self._cpu2gpu_times
 
     @property
-    def gpu_to_cpu_times(self)->list[float]:
+    def gpu_to_cpu_times(self) -> list[float]:
         """
         :return: the list of the times, in seconds, spent copying data from the GPU to the CPU.
         """
         return self._gpu2cpu_times
 
     @property
-    def optimizer(self)->Optional[Module]:
+    def optimizer(self) -> Optional[Module]:
         return self._optimizer
 
     @property
-    def criterion(self)->Optional[Module]:
+    def criterion(self) -> Optional[Module]:
         return self._criterion
 
     def apply_model_state_dict(self, model_state_dict: Dict[str, Any]):
@@ -161,21 +155,21 @@ class DeepLearningModel(ABC):
             self.model.load_state_dict(model_state_dict)
         except Exception as ex:
             self.log.error(f"Failed to apply model state dictionary to model because: {ex}")
-            raise ex # re-raise
+            raise ex  # re-raise
 
     def apply_optimizer_state_dict(self, optimizer_state_dict: Dict[str, Any]):
         try:
             self._optimizer.load_state_dict(optimizer_state_dict)
         except Exception as ex:
             self.log.error(f"Failed to apply optimizer state dictionary to model because: {ex}")
-            raise ex # re-raise
+            raise ex  # re-raise
 
     def apply_criterion_state_dict(self, criterion_state_dict: Dict[str, Any]):
         try:
             self._criterion.load_state_dict(criterion_state_dict)
         except Exception as ex:
             self.log.error(f"Failed to apply criterion state dictionary to model because: {ex}")
-            raise ex # re-raise
+            raise ex  # re-raise
 
     def test(self, loader):
         if self.gpu_available:
@@ -227,15 +221,15 @@ class DeepLearningModel(ABC):
         :return: a tuple where the first element is the actual training time, the second is the time copying the model
                  from the CPU to the GPU, and the third is the time spent copying the model from the GPU to the CPU.
         """
-        copy_cpu2gpu_millis:float = 0.0
-        copy_gpu2cpu_millis:float = 0.0
+        copy_cpu2gpu_millis: float = 0.0
+        copy_gpu2cpu_millis: float = 0.0
         training_time_millis: float = 0.0
 
         if self.gpu_available:
             st: float = time.time()
             self.to_gpu()
             et: float = time.time()
-            copy_cpu2gpu_millis:float = (et - st) * 1.0e3
+            copy_cpu2gpu_millis: float = (et - st) * 1.0e3
             self.log.debug(f"Copied model from CPU to GPU in {copy_cpu2gpu_millis} ms.")
 
         if num_epochs <= 0:
@@ -248,9 +242,9 @@ class DeepLearningModel(ABC):
 
         running_loss = 0.0
         num_minibatches_processed: int = 0
-        num_samples_processed:int = 0
+        num_samples_processed: int = 0
         for epoch in range(0, num_epochs):
-            self.log.debug(f"Training -- Epoch #{epoch+1}/{num_epochs}")
+            self.log.debug(f"Training -- Epoch #{epoch + 1}/{num_epochs}")
             for elem in loader:
                 if len(elem) == 2:
                     samples, labels = elem
@@ -273,7 +267,7 @@ class DeepLearningModel(ABC):
 
                 # Forward pass
                 if attention_mask is not None:
-                    outputs = self.model(samples, attention_mask = attention_mask, labels = labels)
+                    outputs = self.model(samples, attention_mask=attention_mask, labels=labels)
                     loss = outputs.loss
                 else:
                     outputs = self.model(samples)
@@ -303,7 +297,8 @@ class DeepLearningModel(ABC):
                     torch.cuda.synchronize()
 
             self.total_num_epochs += 1
-            self.log.debug(f"Epoch {epoch+1}/{num_epochs} finished. Time elapsed: {time.time() - start_time} seconds.")
+            self.log.debug(
+                f"Epoch {epoch + 1}/{num_epochs} finished. Time elapsed: {time.time() - start_time} seconds.")
 
         time_spent_training_sec: float = (time.time() - start_time)
         self.total_training_time_seconds += time_spent_training_sec
@@ -314,14 +309,14 @@ class DeepLearningModel(ABC):
 
         if self.gpu_available:
             self.log.debug("Copying model from GPU to CPU.")
-            copy_start:float = time.time()
+            copy_start: float = time.time()
             self.to_cpu()
 
             gc.collect()
             with torch.no_grad():
                 torch.cuda.empty_cache()
             torch.cuda.synchronize()
-            copy_end:float = time.time()
+            copy_end: float = time.time()
             copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
             self.log.debug(f"Copied model from GPU to CPU in {copy_gpu2cpu_millis} ms.")
 
@@ -329,21 +324,21 @@ class DeepLearningModel(ABC):
 
         return training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
-    def train(self, loader, training_duration_millis: int|float = 0.0)->tuple[float, float, float]:
+    def train(self, loader, training_duration_millis: int | float = 0.0) -> tuple[float, float, float]:
         """
         Train for a target amount of time.
         :return: a tuple where the first element is the actual training time, the second is the time copying the model
                  from the CPU to the GPU, and the third is the time spent copying the model from the GPU to the CPU.
         """
-        copy_cpu2gpu_millis:float = 0.0
-        copy_gpu2cpu_millis:float = 0.0
+        copy_cpu2gpu_millis: float = 0.0
+        copy_gpu2cpu_millis: float = 0.0
         training_time_millis: float = 0.0
 
         if self.gpu_available:
             st: float = time.time()
             self.to_gpu()
             et: float = time.time()
-            copy_cpu2gpu_millis:float = (et - st) * 1.0e3
+            copy_cpu2gpu_millis: float = (et - st) * 1.0e3
             self.log.debug(f"Copied model from CPU to GPU in {copy_cpu2gpu_millis} ms.")
 
         if training_duration_millis <= 0:
@@ -356,7 +351,7 @@ class DeepLearningModel(ABC):
 
         running_loss = 0.0
         num_minibatches_processed: int = 0
-        num_samples_processed:int = 0
+        num_samples_processed: int = 0
         while ((time.time() - start_time) * 1.0e3) < training_duration_millis:
             for elem in loader:
                 if len(elem) == 2:
@@ -380,7 +375,7 @@ class DeepLearningModel(ABC):
 
                 # Forward pass
                 if attention_mask is not None:
-                    outputs = self.model(samples, attention_mask = attention_mask, labels = labels)
+                    outputs = self.model(samples, attention_mask=attention_mask, labels=labels)
                     loss = outputs.loss
                 else:
                     outputs = self.model(samples)
@@ -424,14 +419,14 @@ class DeepLearningModel(ABC):
 
         if self.gpu_available:
             self.log.debug("Copying model from GPU to CPU.")
-            copy_start:float = time.time()
+            copy_start: float = time.time()
             self.to_cpu()
 
             gc.collect()
             with torch.no_grad():
                 torch.cuda.empty_cache()
             torch.cuda.synchronize()
-            copy_end:float = time.time()
+            copy_end: float = time.time()
             copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
             self.log.debug(f"Copied model from GPU to CPU in {copy_gpu2cpu_millis} ms.")
 
@@ -440,7 +435,7 @@ class DeepLearningModel(ABC):
         return training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
     @property
-    def out_features(self)->int:
+    def out_features(self) -> int:
         return self._out_features
 
     @property
@@ -466,16 +461,16 @@ class DeepLearningModel(ABC):
 
     @property
     @abstractmethod
-    def name(self)->str:
+    def name(self) -> str:
         pass
 
     @property
-    def size_bytes(self)->int:
+    def size_bytes(self) -> int:
         size_all_mb = self.size_mb
         return int(size_all_mb * 1.0e6)
 
     @property
-    def size_mb(self)->float:
+    def size_mb(self) -> float:
         param_size = 0
         for param in self.model.parameters():
             param_size += param.nelement() * param.element_size()
@@ -483,10 +478,10 @@ class DeepLearningModel(ABC):
         for buffer in self.model.buffers():
             buffer_size += buffer.nelement() * buffer.element_size()
 
-        size_all_mb = (param_size + buffer_size) / 1024**2
+        size_all_mb = (param_size + buffer_size) / 1024 ** 2
         return size_all_mb
 
-    def to_gpu(self)->float: # Return the total time elapsed in seconds.
+    def to_gpu(self) -> float:  # Return the total time elapsed in seconds.
         if self.gpu_device is None or not self.gpu_available:
             raise ValueError("GPU is unavailable. Cannot move RESNET-18 model, optimizer, and criterion to the GPU.")
 
@@ -520,7 +515,7 @@ class DeepLearningModel(ABC):
 
         return total_time_elapsed
 
-    def to_cpu(self)->float: # Return the total time elapsed in seconds.
+    def to_cpu(self) -> float:  # Return the total time elapsed in seconds.
         size_mb: float = self.size_mb
         self.log.debug(f"Moving RESNET-18 model, optimizer, and criterion to the CPU. Model size: {size_mb} MB.")
 
@@ -544,7 +539,7 @@ class DeepLearningModel(ABC):
         total_time_elapsed: float = et_criterion - st
         self.log.debug(f"Finished moving RESNET-18 model, optimizer, and criterion to CPU. Model size: {size_mb} MB.")
         self.log.debug(f"\tTotal time elapsed: {total_time_elapsed * 1.0e3} ms.")
-        self.log.debug(f"\t\tCopied optimizer in {(et_optimizer - et_model) * 1.0e3} ms.") # μ
+        self.log.debug(f"\t\tCopied optimizer in {(et_optimizer - et_model) * 1.0e3} ms.")  # μ
         self.log.debug(f"\t\tCopied criterion in {(et_criterion - et_optimizer) * 1.0e3} ms.")
 
         self.gpu_to_cpu_times.append(total_time_elapsed)

@@ -2,13 +2,13 @@ from typing import Optional, Dict, Any
 
 import torch.nn as nn
 import torch.optim as optim
-from transformers import GPT2ForSequenceClassification, GPT2LMHeadModel
+from transformers import BertForSequenceClassification, BertLMHeadModel
 
-from distributed_notebook.models.model import DeepLearningModel
+from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from .tasks import ClassificationTask, NLPTasks, LanguageModeling
 
 
-class GPT2(DeepLearningModel):
+class Bert(DeepLearningModel):
     def __init__(
             self,
             out_features: int = 10,
@@ -33,14 +33,11 @@ class GPT2(DeepLearningModel):
         self._task: str = task
 
         if self._task == ClassificationTask:
-            self.model = GPT2ForSequenceClassification.from_pretrained("gpt2", num_labels=out_features)
+            self.model = BertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=out_features)
         elif self._task == LanguageModeling:
-            self.model = GPT2LMHeadModel.from_pretrained("gpt2")
+            self.model = BertLMHeadModel.from_pretrained("bert-base-uncased")
         else:
             raise ValueError(f'Unknown or unsupported task specified for GPT-2 model: "{self._task}"')
-
-        # Set the pad token of the model's configuration.
-        self.model.config.pad_token_id = self.model.config.eos_token_id
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)
@@ -59,7 +56,7 @@ class GPT2(DeepLearningModel):
 
     @property
     def constructor_args(self) -> dict[str, Any]:
-        base_args: dict[str, Any] = super(GPT2).constructor_args
+        base_args: dict[str, Any] = super(Bert).constructor_args
         args: dict[str, Any] = {
             "task": self.task
         }
@@ -68,7 +65,11 @@ class GPT2(DeepLearningModel):
 
     @property
     def name(self) -> str:
-        return "GPT-2"
+        return Bert.model_name()
+
+    @staticmethod
+    def model_name() -> str:
+        return "BERT"
 
     def __str__(self) -> str:
         return f"{self.name}[TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"
