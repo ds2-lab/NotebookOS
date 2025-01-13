@@ -1188,7 +1188,9 @@ func (m *AllocationManager) unsafeAllocatePendingResources(decimalSpec *types.De
 	if err := m.resourcesWrapper.specResources.ValidateWithError(decimalSpec); err != nil {
 		m.log.Warn("Replica %d of kernel \"%s\" is requesting more resources [%v] than host has available [%v]. Specific reason for subscription failure: %v.",
 			replicaId, kernelId, decimalSpec.String(), m.resourcesWrapper.specResources.GetResourceCountsAsString(), err)
-		// return err
+
+		// TODO: Should this return an error? Shouldn't we just prohibit scheduling/allocating more resources than we can possibly provide?
+		return err
 	}
 
 	m.log.Debug("Allocating pending resources. Current resources: %s. Resources to be allocated: %v.",

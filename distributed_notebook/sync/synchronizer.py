@@ -6,9 +6,10 @@ import traceback
 import types
 from typing import Any, Callable, Optional
 
-from ..datasets.custom_dataset import CustomDataset
-from ..logs import ColoredLogFormatter
-from ..models.model import DeepLearningModel
+from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.logs import ColoredLogFormatter
+from distributed_notebook.deep_learning.models.model import DeepLearningModel
+
 from .ast import SyncAST
 from .checkpointing.pointer import DatasetPointer, ModelPointer, SyncPointer
 from .checkpointing.remote_checkpointer import RemoteCheckpointer

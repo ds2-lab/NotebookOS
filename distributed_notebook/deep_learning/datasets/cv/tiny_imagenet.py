@@ -1,10 +1,43 @@
-import os.path
-from typing import Optional
+import os
+from typing import Optional, Dict, Union
 
 from torchvision import transforms
 
 from distributed_notebook.deep_learning.datasets.hugging_face import HuggingFaceDataset
-from distributed_notebook.deep_learning.datasets.nlp.util import get_username
+
+from torch.utils.data import Dataset, DataLoader
+
+class NoneTransform(object):
+    """
+    Does nothing to the image. To be used instead of None
+    """
+
+    def __call__(self, image):
+        return image
+
+class TinyImageNetDataset(Dataset):
+    def __init__(self, hf_dataset, transform=None):
+        self.dataset = hf_dataset
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        # Load data
+        item = self.dataset[idx]
+        image = item['image']  # The key for images in the Hugging Face dataset
+        label = item['label']  # The key for labels
+
+        # Ensure image is RGB
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+
+        # Apply transformations
+        if self.transform:
+            image = self.transform(image)
+
+        return image, label
 
 
 class TinyImageNet(HuggingFaceDataset):
@@ -17,7 +50,17 @@ class TinyImageNet(HuggingFaceDataset):
 
     hugging_face_dataset_config_name: Optional[str] = None
 
-    def __init__(self, root_dir:str = default_root_directory, shuffle: bool = True, num_workers: int = 2):
+    def __init__(
+            self,
+            root_dir: str = default_root_directory,
+            shuffle: bool = True,
+            num_workers: int = 2,
+            batch_size: int = 64,
+            image_size: int = 224, # 224 x 224 for ResNet-18
+    ):
+        assert image_size > 0
+        assert batch_size > 0
+
         super().__init__(
             root_dir=root_dir,
             shuffle=shuffle,
@@ -28,13 +71,20 @@ class TinyImageNet(HuggingFaceDataset):
 
         self.transform = transforms.Compose([
             transforms.RandomHorizontalFlip(),
+            transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         ])
 
+        self._batch_size: int = batch_size
+        self._image_size: int = image_size
+
+        self._train_dataset: TinyImageNetDataset = TinyImageNetDataset(self._dataset["train"], transform = self.transform)
+        self._test_dataset: TinyImageNetDataset = TinyImageNetDataset(self._dataset["valid"], transform = self.transform)
+
         # Prepare the data loaders
-        self._train_loader = self._dataset["train"]
-        self._test_loader = self._dataset["valid"]
+        self._train_loader = DataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle)
+        self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=False)
 
     @property
     def name(self) -> str:
@@ -74,7 +124,10 @@ class TinyImageNet(HuggingFaceDataset):
 
     @property
     def description(self) -> dict[str, str | int | bool]:
-        return super().description
+        desc: Dict[str, Union[str, int, bool]] = super().description
+        desc["batch_size"] = self._batch_size
+        desc["image_size"] = self._image_size
+        return desc
 
     @property
     def train_loader(self):

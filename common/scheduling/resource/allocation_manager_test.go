@@ -364,6 +364,10 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 		Expect(resourceManager.NumAvailableGpuDevices()).To(Equal(8))
 	})
 
+	// Commented-out:
+	//
+	// For now, we allow scheduling replicas with pending requests that are too big.
+	//
 	It("Will fail to allocate pending resources for a request it cannot satisfy", func() {
 		kernel1Spec := types.NewDecimalSpec(4000, 16000, 10, 8)
 

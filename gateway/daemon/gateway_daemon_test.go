@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/Scusemua/go-utils/promise"
@@ -304,6 +305,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				for {
 					// Receive a message
 					msg, err := server.Recv()
+					if errors.Is(err, context.Canceled) {
+						fmt.Printf("Server context cancelled.\n")
+						return
+					}
+
 					if err != nil {
 						fmt.Printf("[ERROR] Failed to receive message from client: %v\n", err)
 					}
