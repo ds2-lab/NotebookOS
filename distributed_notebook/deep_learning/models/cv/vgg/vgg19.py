@@ -4,10 +4,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision import models
 
-from .cv_model import ComputerVisionModel
+from distributed_notebook.deep_learning.models.cv.cv_model import ComputerVisionModel
 
 
-class VGG16(ComputerVisionModel):
+class VGG19(ComputerVisionModel):
     def __init__(
             self,
             out_features: int = 10, # 10 for CIFAR-10, 200 for Tiny ImageNet
@@ -27,7 +27,7 @@ class VGG16(ComputerVisionModel):
             **kwargs,
         )
 
-        self.model = models.vgg16(pretrained=False, num_classes=out_features)
+        self.model = models.vgg19(pretrained=False, num_classes=out_features)
         self._output_layer = self.model.classifier[6]
 
         if model_state_dict is not None:
@@ -43,7 +43,7 @@ class VGG16(ComputerVisionModel):
 
     @staticmethod
     def model_name() -> str:
-        return "VGG-16"
+        return "VGG-19"
 
     @staticmethod
     def expected_image_size() -> int:
@@ -55,7 +55,7 @@ class VGG16(ComputerVisionModel):
 
     @property
     def name(self) -> str:
-        return VGG16.model_name()
+        return VGG19.model_name()
 
     @property
     def output_layer(self) -> nn.Module:
