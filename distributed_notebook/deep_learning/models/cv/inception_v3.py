@@ -63,7 +63,7 @@ class InceptionV3(ComputerVisionModel):
 
     @property
     def constructor_args(self) -> dict[str, Any]:
-        base_args: dict[str, Any] = super(InceptionV3).constructor_args
+        base_args: dict[str, Any] = super().constructor_args
         args: dict[str, Any] = {}
         base_args.update(args)
         return base_args
