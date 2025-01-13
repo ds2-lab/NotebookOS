@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type
 
 import torch.nn as nn
 import torch.optim as optim
@@ -48,6 +48,10 @@ class VGG16(ComputerVisionModel):
     @staticmethod
     def expected_image_size() -> int:
         return 224
+
+    @staticmethod
+    def expected_model_class() -> Type:
+        return models.VGG
 
     @property
     def name(self) -> str:

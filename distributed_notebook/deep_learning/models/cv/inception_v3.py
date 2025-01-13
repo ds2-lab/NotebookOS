@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type
 
 import torch.nn as nn
 import torch.optim as optim
@@ -48,6 +48,10 @@ class InceptionV3(ComputerVisionModel):
     @staticmethod
     def expected_image_size() -> int:
         return 299
+
+    @staticmethod
+    def expected_model_class() -> Type:
+        return models.Inception3
 
     @property
     def name(self) -> str:

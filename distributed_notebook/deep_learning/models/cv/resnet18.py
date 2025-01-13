@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type
 
 import torch.nn as nn
 import torch.optim as optim
@@ -44,6 +44,10 @@ class ResNet18(ComputerVisionModel):
     @staticmethod
     def model_name() -> str:
         return "ResNet-18"
+
+    @staticmethod
+    def expected_model_class() -> Type:
+        return models.ResNet
 
     @staticmethod
     def expected_image_size() -> int:

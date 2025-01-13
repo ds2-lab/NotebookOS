@@ -4,7 +4,7 @@ from torch import nn
 
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
-from typing import Dict, Any
+from typing import Dict, Any, Type
 
 class ComputerVisionModel(DeepLearningModel, ABC):
     def __init__(self, **kwargs):
@@ -27,4 +27,9 @@ class ComputerVisionModel(DeepLearningModel, ABC):
     @staticmethod
     @abstractmethod
     def expected_image_size() -> int:
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def expected_model_class() -> Type:
         pass

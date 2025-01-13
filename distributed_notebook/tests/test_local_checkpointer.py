@@ -360,7 +360,9 @@ def perform_training_for_cv_model(cls: Type, num_training_loops: int = 5, target
         assert checkpointed_model is not None
         assert isinstance(checkpointed_model, cls)
         assert checkpointed_model.model is not None
-        assert isinstance(checkpointed_model.model, cls)
+
+        if checkpointed_model.expected_model_class() is not None:
+            assert isinstance(checkpointed_model.model, checkpointed_model.expected_model_class())
 
         # Compare the state of the model loaded from remote storage with the original, local model.
         local_model_state: dict[str, Any] = model.state_dict
