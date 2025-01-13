@@ -30,6 +30,7 @@ class ResNet18(DeepLearningModel):
         self.model = models.resnet18(pretrained=False)
         self.model.fc = nn.Linear(self.model.fc.in_features,
                                   out_features)  # Modify the fully connected layer for 10 classes
+        self._output_layer = self.model.fc
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)
@@ -49,6 +50,10 @@ class ResNet18(DeepLearningModel):
     @property
     def name(self) -> str:
         return ResNet18.model_name()
+
+    @property
+    def output_layer(self) -> nn.Module:
+        return self._output_layer
 
     @property
     def constructor_args(self) -> dict[str, Any]:

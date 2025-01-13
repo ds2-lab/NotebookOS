@@ -30,6 +30,7 @@ class VGG16(DeepLearningModel):
         self.model = models.vgg16(pretrained=False)
 
         self.model.classifier[6] = nn.Linear(in_features=4096, out_features=out_features)
+        self._output_layer = self.model.classifier[6]
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)
@@ -49,6 +50,10 @@ class VGG16(DeepLearningModel):
     @property
     def name(self) -> str:
         return VGG16.model_name()
+
+    @property
+    def output_layer(self) -> nn.Module:
+        return self._output_layer
 
     @property
     def constructor_args(self) -> dict[str, Any]:

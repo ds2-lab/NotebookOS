@@ -27,16 +27,11 @@ class InceptionV3(DeepLearningModel):
             **kwargs,
         )
 
-        # transform = transforms.Compose([
-        #     transforms.Resize((299, 299)),  # Resize to 299x299 to match Inception v3 input size
-        #     transforms.ToTensor(),
-        #     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalize as required by Inception v3
-        # ])
-
         self.model = models.inception_v3(pretrained=False)
         self.model.aux_logits = False  # Disable auxiliary outputs for simplicity
         self.model.fc = nn.Linear(self.model.fc.in_features,
                                   out_features)  # Modify the fully connected layer for 10 classes
+        self._output_layer: nn.Module = self.model.fc
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)
@@ -49,13 +44,17 @@ class InceptionV3(DeepLearningModel):
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
 
+    @staticmethod
+    def model_name() -> str:
+        return "Inception v3"
+
     @property
     def name(self) -> str:
         return InceptionV3.model_name()
 
-    @staticmethod
-    def model_name() -> str:
-        return "Inception v3"
+    @property
+    def output_layer(self) -> nn.Module:
+        return self._output_layer
 
     @property
     def constructor_args(self) -> dict[str, Any]:
