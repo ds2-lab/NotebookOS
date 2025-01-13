@@ -1,7 +1,8 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type
 
 from distributed_notebook.deep_learning import DeepLearningModel, SimpleModel, \
     VGG16, VGG19, ResNet18, InceptionV3, Bert, GPT2, DeepSpeech2
+from distributed_notebook.deep_learning.models import ALL_MODEL_CLASSES
 
 
 def load_model(
@@ -24,24 +25,35 @@ def load_model(
 
         return existing_model
 
-    if model_name == ResNet18.model_name():
-        cls = ResNet18
-    elif model_name == VGG16.model_name():
-        cls = VGG16
-    elif model_name == VGG19.model_name():
-        cls = VGG19
-    elif model_name == InceptionV3.model_name():
-        cls = InceptionV3
-    elif model_name == GPT2.model_name():
-        cls = GPT2
-    elif model_name == Bert.model_name():
-        cls = Bert
-    elif model_name == DeepSpeech2.model_name():
-        cls = DeepSpeech2
-    elif model_name == SimpleModel.model_name():
-        cls = SimpleModel
-    else:
+    cls: Optional[Type] = None
+    for model_class in ALL_MODEL_CLASSES:
+        assert issubclass(model_class, DeepLearningModel)
+
+        if model_name == model_class.model_name():
+            cls = model_class
+            break
+
+    if cls is None:
         raise ValueError(f"unknown or unsupported deep learning model \"{model_name}\"")
+
+    # if model_name == ResNet18.model_name():
+    #     cls = ResNet18
+    # elif model_name == VGG16.model_name():
+    #     cls = VGG16
+    # elif model_name == VGG19.model_name():
+    #     cls = VGG19
+    # elif model_name == InceptionV3.model_name():
+    #     cls = InceptionV3
+    # elif model_name == GPT2.model_name():
+    #     cls = GPT2
+    # elif model_name == Bert.model_name():
+    #     cls = Bert
+    # elif model_name == DeepSpeech2.model_name():
+    #     cls = DeepSpeech2
+    # elif model_name == SimpleModel.model_name():
+    #     cls = SimpleModel
+    # else:
+    #     raise ValueError(f"unknown or unsupported deep learning model \"{model_name}\"")
 
     assert issubclass(cls, DeepLearningModel)
     return cls(

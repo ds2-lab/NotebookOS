@@ -114,6 +114,11 @@ class DeepLearningModel(ABC):
 
         self._requires_checkpointing = False
 
+    @staticmethod
+    @abstractmethod
+    def model_name() -> str:
+        pass
+
     @property
     @abstractmethod
     def constructor_args(self) -> dict[str, Any]:

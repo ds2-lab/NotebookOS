@@ -6,6 +6,14 @@ from .nlp import Bert, GPT2
 from .model import DeepLearningModel
 from .simple_model import SimpleModel
 
+ALL_MODEL_CLASSES: List[Type] = [
+    ResNet18, InceptionV3, VGG11, VGG13, VGG16, VGG19,
+    Bert, GPT2,
+    DeepSpeech2,
+    SimpleModel
+]
+""" ALL_MODEL_CLASSES is a list containing all "concrete" model classes. """
+
 ComputerVision: str = "Computer Vision (CV)"
 NaturalLanguageProcessing: str = "Natural Language Processing (NLP)"
 Speech: str = "Speech"
