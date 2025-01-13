@@ -4,13 +4,13 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision import models
 
-from distributed_notebook.deep_learning.models.model import DeepLearningModel
+from .cv_model import ComputerVisionModel
 
 
-class ResNet18(DeepLearningModel):
+class ResNet18(ComputerVisionModel):
     def __init__(
             self,
-            out_features: int = 10,
+            out_features: int = 10, # 10 for CIFAR-10, 200 for Tiny ImageNet
             optimizer: Optional[nn.Module] = None,
             optimizer_state_dict: Optional[Dict[str, Any]] = None,
             criterion: Optional[nn.Module] = None,
@@ -27,9 +27,7 @@ class ResNet18(DeepLearningModel):
             **kwargs,
         )
 
-        self.model = models.resnet18(pretrained=False)
-        self.model.fc = nn.Linear(self.model.fc.in_features,
-                                  out_features)  # Modify the fully connected layer for 10 classes
+        self.model = models.resnet18(pretrained=False, num_classes=out_features)
         self._output_layer = self.model.fc
 
         if model_state_dict is not None:
@@ -46,6 +44,10 @@ class ResNet18(DeepLearningModel):
     @staticmethod
     def model_name() -> str:
         return "ResNet-18"
+
+    @staticmethod
+    def expected_image_size() -> int:
+        return 224
 
     @property
     def name(self) -> str:

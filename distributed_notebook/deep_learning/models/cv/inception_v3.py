@@ -4,13 +4,13 @@ import torch.nn as nn
 import torch.optim as optim
 from torchvision import models
 
-from distributed_notebook.deep_learning.models.model import DeepLearningModel
+from .cv_model import ComputerVisionModel
 
 
-class InceptionV3(DeepLearningModel):
+class InceptionV3(ComputerVisionModel):
     def __init__(
             self,
-            out_features: int = 10,
+            out_features: int = 10, # 10 for CIFAR-10, 200 for Tiny ImageNet
             optimizer: Optional[nn.Module] = None,
             optimizer_state_dict: Optional[Dict[str, Any]] = None,
             criterion: Optional[nn.Module] = None,
@@ -27,10 +27,7 @@ class InceptionV3(DeepLearningModel):
             **kwargs,
         )
 
-        self.model = models.inception_v3(pretrained=False)
-        self.model.aux_logits = False  # Disable auxiliary outputs for simplicity
-        self.model.fc = nn.Linear(self.model.fc.in_features,
-                                  out_features)  # Modify the fully connected layer for 10 classes
+        self.model = models.inception_v3(pretrained=False, aux_logits=False, num_classes=out_features)
         self._output_layer: nn.Module = self.model.fc
 
         if model_state_dict is not None:
@@ -47,6 +44,10 @@ class InceptionV3(DeepLearningModel):
     @staticmethod
     def model_name() -> str:
         return "Inception v3"
+
+    @staticmethod
+    def expected_image_size() -> int:
+        return 299
 
     @property
     def name(self) -> str:

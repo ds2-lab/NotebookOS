@@ -1,6 +1,6 @@
 from typing import Type, List, Dict
 
-from .cv import ResNet18, InceptionV3, VGG16
+from .cv import ResNet18, InceptionV3, VGG16, ComputerVisionModel
 from .speech import DeepSpeech2
 from .nlp import Bert, GPT2
 

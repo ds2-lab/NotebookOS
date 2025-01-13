@@ -352,6 +352,8 @@ class DeepLearningModel(ABC):
         running_loss = 0.0
         num_minibatches_processed: int = 0
         num_samples_processed: int = 0
+
+        self.log.debug(f"Model '{self.name}' has started training.")
         while ((time.time() - start_time) * 1.0e3) < training_duration_millis:
             for elem in loader:
                 if len(elem) == 2:
@@ -373,6 +375,7 @@ class DeepLearningModel(ABC):
                 # Zero the parameter gradients
                 self._optimizer.zero_grad()
 
+                forward_pass_start: float = time.time()
                 # Forward pass
                 if attention_mask is not None:
                     outputs = self.model(samples, attention_mask=attention_mask, labels=labels)
@@ -392,6 +395,8 @@ class DeepLearningModel(ABC):
 
                 num_minibatches_processed += 1
                 num_samples_processed += len(samples)
+
+                print(f"Processed {len(samples)} samples in {(time.time() - forward_pass_start) * 1.0e3} milliseconds.")
 
                 if self.gpu_available:
                     del samples
@@ -483,10 +488,10 @@ class DeepLearningModel(ABC):
 
     def to_gpu(self) -> float:  # Return the total time elapsed in seconds.
         if self.gpu_device is None or not self.gpu_available:
-            raise ValueError("GPU is unavailable. Cannot move RESNET-18 model, optimizer, and criterion to the GPU.")
+            raise ValueError("GPU is unavailable. Cannot move {self.name} model, optimizer, and criterion to the GPU.")
 
         size_mb = self.size_mb
-        self.log.debug(f"Moving RESNET-18 model, optimizer, and criterion to the GPU. Model size: {size_mb} MB.")
+        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the GPU. Model size: {size_mb} MB.")
 
         st: float = time.time()
         # Move the model to the GPU.
@@ -506,7 +511,7 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving RESNET-18 model, optimizer, and criterion to GPU. Model size: {size_mb} MB.")
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU. Model size: {size_mb} MB.")
         self.log.debug(f"\tTotal time elapsed: {total_time_elapsed * 1.0e3} ms.")
         self.log.debug(f"\t\tCopied optimizer in {(et_optimizer - et_model) * 1.0e3} ms.")
         self.log.debug(f"\t\tCopied criterion in {(et_criterion - et_optimizer) * 1.0e3} ms.")
@@ -517,7 +522,7 @@ class DeepLearningModel(ABC):
 
     def to_cpu(self) -> float:  # Return the total time elapsed in seconds.
         size_mb: float = self.size_mb
-        self.log.debug(f"Moving RESNET-18 model, optimizer, and criterion to the CPU. Model size: {size_mb} MB.")
+        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the CPU. Model size: {size_mb} MB.")
 
         st: float = time.time()
         # Move the model to the CPU.
@@ -537,7 +542,7 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving RESNET-18 model, optimizer, and criterion to CPU. Model size: {size_mb} MB.")
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU. Model size: {size_mb} MB.")
         self.log.debug(f"\tTotal time elapsed: {total_time_elapsed * 1.0e3} ms.")
         self.log.debug(f"\t\tCopied optimizer in {(et_optimizer - et_model) * 1.0e3} ms.")  # μ
         self.log.debug(f"\t\tCopied criterion in {(et_criterion - et_optimizer) * 1.0e3} ms.")
