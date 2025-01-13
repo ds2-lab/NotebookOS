@@ -304,7 +304,7 @@ class DeepLearningModel(ABC):
         self.total_training_time_seconds += time_spent_training_sec
         training_time_millis: float = time_spent_training_sec * 1.0e3
         self.log.debug(f"Training completed. Number of epochs: {num_epochs}. "
-                       f"Time elapsed: {training_time_millis} ms. "
+                       f"Time elapsed: {training_time_millis:,} ms. "
                        f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} individual samples).")
 
         if self.gpu_available:
@@ -418,8 +418,8 @@ class DeepLearningModel(ABC):
         time_spent_training_sec: float = (time.time() - start_time)
         self.total_training_time_seconds += time_spent_training_sec
         training_time_millis: float = time_spent_training_sec * 1.0e3
-        self.log.debug(f"Training completed. Target time: {training_duration_millis} ms. "
-                       f"Time elapsed: {training_time_millis} ms. "
+        self.log.debug(f"Training completed. Target time: {training_duration_millis:,} ms. "
+                       f"Time elapsed: {training_time_millis:,} ms. "
                        f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} individual samples).")
 
         if self.gpu_available:

@@ -27,7 +27,7 @@ class IMDbLargeMovieReview(NLPDataset):
             shuffle: bool = True,
             num_workers: int = 2,
             model_name:Optional[str] = None,
-            batch_size = 8,
+            batch_size = 4,
     ):
         super().__init__(
             root_dir = root_dir,
