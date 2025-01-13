@@ -31,7 +31,7 @@ def test_train_resnet18_on_tiny_imagenet():
     Train the ResNet-18 model on the Tiny ImageNet dataset. Validate that the weights are updated correctly.
     """
     dataset: TinyImageNet = TinyImageNet()
-    model: ResNet18 = ResNet18(created_for_first_time=True)
+    model: ResNet18 = ResNet18(created_for_first_time=True, out_features = 200)
 
     training_duration_ms: int = 1000
 
