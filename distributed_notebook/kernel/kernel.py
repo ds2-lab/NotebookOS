@@ -2643,49 +2643,6 @@ class DistributedKernel(IPythonKernel):
                     copy_data_to_gpu_ms * 1.0e3
             )  # it's already in milliseconds
 
-    def assign_model(self, deep_learning_model_name: str = "ResNet-18", overwrite: bool = False):
-        if self.model is not None and not overwrite:
-            self.log.warning(f'Deep learning model "{self.model.name}" '
-                             f'has already been assigned to kernel (and overwrite is False).')
-            return
-
-        if deep_learning_model_name is None or deep_learning_model_name == "":
-            self.log.debug("No deep learning model specified. Using default model (ResNet-18).")
-            deep_learning_model_name = "ResNet-18"
-
-        self.log.debug(f"Creating and assigning {deep_learning_model_name} model to this kernel.")
-
-        if deep_learning_model_name not in ModelClassesByName:
-            raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
-
-        cls: Type = ModelClassesByName[deep_learning_model_name]
-
-        self.model = cls(created_for_first_time=True)
-
-    def assign_dataset(self, dataset_name: Optional[str] = None):
-        """
-        Assign a dataset to this kernel.
-
-        PRECONDITION: The kernel's model must be set already (to ensure compatibility).
-        """
-        assert self.model is not None
-
-        if dataset_name is None or dataset_name == "":
-            category: str = ModelNameToModelCategory[self.model.name]
-            self.log.debug(f"No dataset specified. Will randomly select dataset from '{category}' category.")
-
-            datasets: t.List[str] = DatasetNamesByCategory[category]
-            dataset_name: str = random.choice(datasets)
-
-        self.log.debug(f"Creating and assigning {dataset_name} dataset to this kernel.")
-
-        if dataset_name not in DatasetClassesByName:
-            raise ValueError(f'Unknown or unsupported dataset specified: "{dataset_name}"')
-
-        cls: Type = DatasetClassesByName[dataset_name]
-
-        self.dataset = cls()
-
     def assign_model_and_dataset(
             self,
             deep_learning_model_name: Optional[str] = None,
@@ -2700,11 +2657,42 @@ class DistributedKernel(IPythonKernel):
         :param dataset_name: name of dataset to assign
         :param deep_learning_model_name: name of model to assign.
         """
-        if self.model is None:
-            self.assign_model(deep_learning_model_name=deep_learning_model_name)
+        if self.model is not None:
+            self.log.warning(f'Deep learning model "{self.model.name}" has already been assigned to kernel. '
+                             f'Will (potentially) overwrite existing model.')
 
-        if self.dataset is not None:
-            self.assign_dataset(dataset_name=dataset_name)
+        model_arguments: Dict[str, Any] = {}
+        if deep_learning_model_name is None or deep_learning_model_name == "":
+            self.log.debug("No deep learning model specified. Using default model (ResNet-18).")
+            deep_learning_model_name = "ResNet-18"
+
+        self.log.debug(f"Creating and assigning {deep_learning_model_name} model to this kernel.")
+
+        if deep_learning_model_name not in ModelClassesByName:
+            raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
+
+        if dataset_name is None or dataset_name == "":
+            category: str = ModelNameToModelCategory[self.model.name]
+            self.log.debug(f"No dataset specified. Will randomly select dataset from '{category}' category.")
+
+            datasets: t.List[str] = DatasetNamesByCategory[category]
+            dataset_name: str = random.choice(datasets)
+
+        self.log.debug(f"Creating and assigning {dataset_name} dataset to this kernel.")
+
+        if dataset_name not in DatasetClassesByName:
+            raise ValueError(f'Unknown or unsupported dataset specified: "{dataset_name}"')
+
+        dataset_class: Type = DatasetClassesByName[dataset_name]
+        self.dataset = dataset_class()
+
+        # If this particular dataset has a 'model_constructor_args' method, then call it.
+        if hasattr(dataset_class, "model_constructor_args"):
+            model_constructor_args: Dict[str, Any] = dataset_class.model_constructor_args()
+            model_arguments.update(model_constructor_args)
+
+        model_class: Type = ModelClassesByName[deep_learning_model_name]
+        self.model = model_class(created_for_first_time=True, **model_arguments)
 
     async def get_custom_training_code(
             self,
@@ -2734,7 +2722,10 @@ class DistributedKernel(IPythonKernel):
 
         if self.model is None:
             self.log.debug("No deep learning model assigned yet. Assigning one now.")
-            self.assign_model_and_dataset()
+            self.assign_model_and_dataset(
+                deep_learning_model_name = deep_learning_model_name,
+                dataset_name = dataset,
+            )
             assert self.model is not None
             assert self.dataset is not None
 
