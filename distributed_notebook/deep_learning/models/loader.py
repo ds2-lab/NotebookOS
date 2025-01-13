@@ -1,10 +1,11 @@
-from typing import Optional, Dict, Any, Type
+from typing import Optional, Dict, Any
 
-from distributed_notebook.deep_learning import VGG16, InceptionV3, DeepSpeech2, ResNet18, SimpleModel, DeepLearningModel, Bert, GPT2
+from distributed_notebook.deep_learning import DeepLearningModel, SimpleModel, \
+    VGG16, VGG19, ResNet18, InceptionV3, Bert, GPT2, DeepSpeech2
 
 
 def load_model(
-        model_name:str = None,
+        model_name: str = None,
         existing_model: Optional[DeepLearningModel] = None,
         out_features: int = 10,
         total_training_time_seconds: int = 0,
@@ -13,7 +14,7 @@ def load_model(
         optimizer_state_dict: Optional[Dict[str, Any]] = None,
         criterion_state_dict: Optional[Dict[str, Any]] = None,
         **kwargs,
-)->DeepLearningModel:
+) -> DeepLearningModel:
     if existing_model is not None and existing_model.name == model_name:
         existing_model.apply_model_state_dict(model_state_dict)
         existing_model.apply_optimizer_state_dict(optimizer_state_dict)
@@ -27,6 +28,8 @@ def load_model(
         cls = ResNet18
     elif model_name == VGG16.model_name():
         cls = VGG16
+    elif model_name == VGG19.model_name():
+        cls = VGG19
     elif model_name == InceptionV3.model_name():
         cls = InceptionV3
     elif model_name == GPT2.model_name():
@@ -42,11 +45,11 @@ def load_model(
 
     assert issubclass(cls, DeepLearningModel)
     return cls(
-        out_features = out_features,
-        total_training_time_seconds = total_training_time_seconds,
-        total_num_epochs = total_num_epochs,
-        model_state_dict = model_state_dict,
-        optimizer_state_dict = optimizer_state_dict,
-        criterion_state_dict = criterion_state_dict,
+        out_features=out_features,
+        total_training_time_seconds=total_training_time_seconds,
+        total_num_epochs=total_num_epochs,
+        model_state_dict=model_state_dict,
+        optimizer_state_dict=optimizer_state_dict,
+        criterion_state_dict=criterion_state_dict,
         **kwargs,
     )
