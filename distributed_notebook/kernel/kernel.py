@@ -56,6 +56,7 @@ from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer im
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
+from ..deep_learning.datasets import DatasetClassesByName
 
 import_torch_start: float = time.time()
 try:
@@ -2661,6 +2662,15 @@ class DistributedKernel(IPythonKernel):
         if dataset_name is None or dataset_name == "":
             self.log.debug("No dataset specified.")
 
+        self.log.debug(f"Creating and assigning {dataset_name} dataset to this kernel.")
+
+        if dataset_name not in DatasetClassesByName:
+            raise ValueError(f'Unknown or unsupported dataset specified: "{dataset_name}"')
+
+        cls: Type = DatasetClassesByName[dataset_name]
+        
+        self.dataset = cls()
+
     def assign_model_and_dataset(
             self,
             deep_learning_model_name: Optional[str] = None,
@@ -2754,8 +2764,8 @@ model = __download_func__(__model_pointer__, existing_model = {existing_model_co
 """
 
         return f"""
-from distributed_notebook.datasets.cifar10 import CIFAR10
-from distributed_notebook.models.resnet18 import ResNet18, ResNet18Name 
+from distributed_notebook.deep_learning.datasets.cifar10 import CIFAR10
+from distributed_notebook.deep_learning.models.resnet18 import ResNet18, ResNet18Name 
 
 # Check if we have already created the model and dataset variables for the first time.
 # If not, then we'll create them now.

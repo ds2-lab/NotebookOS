@@ -1,12 +1,18 @@
+import os.path
+
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 
 import time
 
-from distributed_notebook.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.tests.util import get_username
+
 
 class CIFAR10(CustomDataset):
-    def __init__(self, root_dir:str = 'data', batch_size: int = 256, shuffle: bool = True, num_workers: int = 2):
+    default_root_directory: str = os.path.expanduser("~/.cache/distributed_notebook/datasets/cifar10")
+
+    def __init__(self, root_dir:str = default_root_directory, batch_size: int = 256, shuffle: bool = True, num_workers: int = 2):
         super().__init__(root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
 
         self.transform = transforms.Compose([

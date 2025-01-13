@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from distributed_notebook.models.model import DeepLearningModel
+from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
 class SimpleModule(nn.Module):
     def __init__(

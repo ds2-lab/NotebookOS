@@ -5,10 +5,10 @@ from typing import Any
 import pytest
 from torch import Tensor
 
-from distributed_notebook.datasets.random import RandomCustomDataset
-from distributed_notebook.models.loader import load_model
-from distributed_notebook.models.model import DeepLearningModel
-from distributed_notebook.models.simple_model import SimpleModel, SimpleModule
+from distributed_notebook.deep_learning.datasets.random import RandomCustomDataset
+from distributed_notebook.deep_learning.models.loader import load_model
+from distributed_notebook.deep_learning.models.model import DeepLearningModel
+from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
 from distributed_notebook.sync.checkpointing.local_checkpointer import LocalCheckpointer
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
 

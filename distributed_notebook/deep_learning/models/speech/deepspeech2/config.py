@@ -3,7 +3,7 @@ from typing import Any, List
 
 from omegaconf import MISSING
 
-from distributed_notebook.models.speech.deepspeech2.enum import SpectrogramWindow, RNNType
+from distributed_notebook.deep_learning.models.speech.deepspeech2.enum import SpectrogramWindow, RNNType
 
 # Source: https://github.dev/SeanNaren/deepspeech.pytorch/tree/master
 

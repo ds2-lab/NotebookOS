@@ -1,7 +1,9 @@
+import os
+
 from typing import Dict, Union, Optional
 
-from distributed_notebook.datasets.nlp.base import NLPDataset
-from distributed_notebook.datasets.nlp.util import get_username
+from distributed_notebook.deep_learning.datasets.nlp.base import NLPDataset
+from distributed_notebook.deep_learning.datasets.nlp.util import get_username
 
 def imdb_truncated_postprocess_tokenized_dataset(tokenized_datasets, text_feature_column_name: str):
     tokenized_datasets = tokenized_datasets.remove_columns([text_feature_column_name])
@@ -10,7 +12,7 @@ def imdb_truncated_postprocess_tokenized_dataset(tokenized_datasets, text_featur
     return tokenized_datasets
 
 class IMDbLargeMovieReviewTruncated(NLPDataset):
-    root_directory: str = f"/home/{get_username()}/.cache/huggingface/datasets/shawhin___imdb-truncated"
+    default_root_directory: str = os.path.expanduser("~/.cache/huggingface/datasets/shawhin___imdb-truncated")
 
     # https://huggingface.co/datasets/shawhin/imdb-truncated
     hugging_face_dataset_name: str = "shawhin/imdb-truncated"
@@ -21,6 +23,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
 
     def __init__(
             self,
+            root_dir: str = default_root_directory,
             max_token_length: int = 256,
             shuffle: bool = True,
             num_workers: int = 2,
@@ -28,7 +31,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
             batch_size = 32,
     ):
         super().__init__(
-            root_dir = IMDbLargeMovieReviewTruncated.root_directory,
+            root_dir = root_dir,
             model_name = model_name,
             shuffle = shuffle,
             num_workers = num_workers,
@@ -43,7 +46,7 @@ class IMDbLargeMovieReviewTruncated(NLPDataset):
 
     @staticmethod
     def get_tokenized_dataset_directory(model_name: str)->str:
-        return f'/home/{get_username()}/tokenized_datasets/shawhin___imdb-truncated/{model_name}'
+        return os.path.expanduser(f"~/.cache/distributed_notebook/tokenized_datasets/shawhin___imdb-truncated/{model_name}")
 
     @property
     def description(self)->Dict[str, str|int|bool]:

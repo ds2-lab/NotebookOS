@@ -6,7 +6,7 @@ from datasets import load_dataset, DownloadMode
 
 import time
 
-from distributed_notebook.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 
 class HuggingFaceDataset(CustomDataset, ABC):
     """

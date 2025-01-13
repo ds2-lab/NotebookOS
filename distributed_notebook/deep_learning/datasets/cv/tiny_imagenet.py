@@ -1,13 +1,14 @@
+import os.path
 from typing import Optional
 
 from torchvision import transforms
 
-from distributed_notebook.datasets.hugging_face import HuggingFaceDataset
-from distributed_notebook.datasets.nlp.util import get_username
+from distributed_notebook.deep_learning.datasets.hugging_face import HuggingFaceDataset
+from distributed_notebook.deep_learning.datasets.nlp.util import get_username
 
 
 class TinyImageNet(HuggingFaceDataset):
-    root_directory: str = f"/home/{get_username()}/.cache/huggingface/datasets/zh-plus___tiny-imagenet"
+    default_root_directory: str = os.path.expanduser("~/.cache/huggingface/datasets/zh-plus___tiny-imagenet")
 
     # https://huggingface.co/datasets/zh-plus/tiny-imagenet
     hugging_face_dataset_name: str = "zh-plus/tiny-imagenet"
@@ -16,9 +17,9 @@ class TinyImageNet(HuggingFaceDataset):
 
     hugging_face_dataset_config_name: Optional[str] = None
 
-    def __init__(self, shuffle: bool = True, num_workers: int = 2):
+    def __init__(self, root_dir:str = default_root_directory, shuffle: bool = True, num_workers: int = 2):
         super().__init__(
-            root_dir=TinyImageNet.root_directory,
+            root_dir=root_dir,
             shuffle=shuffle,
             num_workers=num_workers,
             hugging_face_dataset_name=TinyImageNet.hugging_face_dataset_name,

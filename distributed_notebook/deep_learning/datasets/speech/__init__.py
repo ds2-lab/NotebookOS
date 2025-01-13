@@ -1,1 +1,1 @@
-from .libri_speech_torchdata import LibriSpeech
+from .libri_speech import LibriSpeech

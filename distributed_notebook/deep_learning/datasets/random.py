@@ -3,7 +3,7 @@ from torch import Tensor
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Dataset
 
-from distributed_notebook.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 
 import time
 import os

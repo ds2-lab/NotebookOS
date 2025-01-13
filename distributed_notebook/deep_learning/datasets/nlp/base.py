@@ -8,8 +8,8 @@ from datasets import load_from_disk
 
 from torch.utils.data import DataLoader, Dataset, TensorDataset, SequentialSampler, RandomSampler
 
-from distributed_notebook.datasets.hugging_face import HuggingFaceDataset
-from distributed_notebook.datasets.nlp.util import get_tokenizer
+from distributed_notebook.deep_learning.datasets.hugging_face import HuggingFaceDataset
+from distributed_notebook.deep_learning.datasets.nlp.util import get_tokenizer
 
 
 class TextDataset(Dataset):

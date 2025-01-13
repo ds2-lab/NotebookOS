@@ -1,5 +1,5 @@
-from distributed_notebook.datasets.custom_dataset import CustomDataset
-from distributed_notebook.datasets.cv.cifar10 import CIFAR10
+from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.datasets.cv.cifar10 import CIFAR10
 
 value_error_contents = "cannot load dataset because dataset description does not contain a '%s' key"
 

@@ -4,7 +4,7 @@ import shutil
 
 import torchaudio.datasets
 
-from distributed_notebook.datasets import LibriSpeech
+from distributed_notebook.deep_learning.datasets import LibriSpeech
 
 def test_libri_speech_runtime_error():
     """

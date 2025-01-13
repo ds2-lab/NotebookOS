@@ -6,9 +6,9 @@ from datasets import load_dataset, DownloadMode, load_from_disk
 
 import time
 
-from distributed_notebook.datasets.hugging_face import HuggingFaceDataset
-from distributed_notebook.datasets.nlp.util import get_tokenizer, get_username
-from distributed_notebook.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.datasets.hugging_face import HuggingFaceDataset
+from distributed_notebook.deep_learning.datasets.nlp.util import get_tokenizer, get_username
+from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 
 class LibriSpeech(HuggingFaceDataset):
     root_directory: str = f"/home/{get_username()}/.cache/huggingface/datasets/glue/cola"

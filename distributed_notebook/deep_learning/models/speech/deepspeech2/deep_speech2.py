@@ -8,9 +8,9 @@ import torch.optim as optim
 from torch.cuda.amp import autocast
 from torch.nn import CTCLoss
 
-from distributed_notebook.models.model import DeepLearningModel
-from distributed_notebook.models.speech.deepspeech2.decoder import GreedyDecoder
-from distributed_notebook.models.speech.deepspeech2.validation import WordErrorRate, CharErrorRate
+from distributed_notebook.deep_learning.models.model import DeepLearningModel
+from distributed_notebook.deep_learning.models.speech.deepspeech2.decoder import GreedyDecoder
+from distributed_notebook.deep_learning.models.speech.deepspeech2.validation import WordErrorRate, CharErrorRate
 
 
 #

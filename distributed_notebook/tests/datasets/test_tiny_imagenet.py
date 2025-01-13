@@ -1,14 +1,14 @@
 import os
 import shutil
 
-from distributed_notebook.datasets import TinyImageNet
+from distributed_notebook.deep_learning.datasets import TinyImageNet
 
 
 def test_tiny_imagenet_dataset_fresh():
     """
     Ensure that the LibriSpeech dataset is created correctly -- with just the test split downloaded.
     """
-    root_directory: str = TinyImageNet.root_directory
+    root_directory: str = TinyImageNet.default_root_directory
 
     if os.path.isdir(root_directory):
         print(f'Removing existing root directory "{root_directory}" for Tiny ImageNet dataset before unit test.')
@@ -32,7 +32,7 @@ def test_tiny_imagenet_dataset_already_downloaded():
     """
     Ensure that the LibriSpeech dataset is created correctly -- with just the test split downloaded.
     """
-    root_directory: str = TinyImageNet.root_directory
+    root_directory: str = TinyImageNet.default_root_directory
 
     if os.path.isdir(root_directory):
         print(f'Removing existing root directory "{root_directory}" for Tiny ImageNet dataset before unit test.')

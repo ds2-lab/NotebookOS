@@ -1,12 +1,10 @@
-from abc import ABC, abstractmethod
-
 import logging
+from abc import ABC, abstractmethod
 from typing import Any, Dict
 
-from distributed_notebook.datasets.custom_dataset import CustomDataset
 from distributed_notebook.logs import ColoredLogFormatter
-from distributed_notebook.models.model import DeepLearningModel
-from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
+from distributed_notebook.sync.checkpointing.pointer import ModelPointer
+
 
 class RemoteCheckpointer(ABC):
     def __init__(self):
@@ -19,11 +17,12 @@ class RemoteCheckpointer(ABC):
 
     @property
     @abstractmethod
-    def storage_name(self)->str:
+    def storage_name(self) -> str:
         pass
 
     @abstractmethod
-    def read_state_dicts(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    def read_state_dicts(self, pointer: ModelPointer) -> tuple[
+        Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         """
         Read the state dictionaries of the model, its optimizer, and its criterion from intermediate storage.
 
@@ -33,7 +32,8 @@ class RemoteCheckpointer(ABC):
         pass
 
     @abstractmethod
-    async def read_state_dicts_async(self, pointer: ModelPointer)->tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    async def read_state_dicts_async(self, pointer: ModelPointer) -> tuple[
+        Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         """
         Asynchronously read the state dictionaries of the model, its optimizer, and its criterion from intermediate storage.
 
@@ -43,7 +43,7 @@ class RemoteCheckpointer(ABC):
         pass
 
     @abstractmethod
-    async def write_state_dicts_async(self, pointer: ModelPointer)->None:
+    async def write_state_dicts_async(self, pointer: ModelPointer) -> None:
         """
         Asynchronously write the state dictionaries of the model, its optimizer, and its criterion to intermediate storage.
 
@@ -52,7 +52,7 @@ class RemoteCheckpointer(ABC):
         pass
 
     @abstractmethod
-    def write_state_dicts(self, pointer: ModelPointer)->None:
+    def write_state_dicts(self, pointer: ModelPointer) -> None:
         """
         Write the state dictionaries of the model, its optimizer, and its criterion to intermediate storage.
 

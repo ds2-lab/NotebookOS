@@ -1,7 +1,8 @@
+import os.path
 from typing import Dict, Union, Optional
 
-from distributed_notebook.datasets.nlp.base import NLPDataset
-from distributed_notebook.datasets.nlp.util import get_username
+from distributed_notebook.deep_learning.datasets.nlp.base import NLPDataset
+from distributed_notebook.deep_learning.datasets.nlp.util import get_username
 
 def cola_postprocess_tokenized_dataset(tokenized_datasets, text_feature_column_name: str):
     tokenized_datasets = tokenized_datasets.remove_columns([text_feature_column_name, "idx"])
@@ -10,7 +11,7 @@ def cola_postprocess_tokenized_dataset(tokenized_datasets, text_feature_column_n
     return tokenized_datasets
 
 class CoLA(NLPDataset):
-    root_directory: str = f"/home/{get_username()}/.cache/huggingface/datasets/glue/cola"
+    default_root_directory: str = os.path.expanduser("~/.cache/huggingface/datasets/glue/cola")
 
     # https://huggingface.co/datasets/nyu-mll/glue
     hugging_face_dataset_name: str = "glue"
@@ -21,6 +22,7 @@ class CoLA(NLPDataset):
 
     def __init__(
             self,
+            root_dir: str = default_root_directory,
             shuffle: bool = True,
             num_workers: int = 2,
             model_name: Optional[str] = None,
@@ -28,7 +30,7 @@ class CoLA(NLPDataset):
             batch_size = 16,
     ):
         super().__init__(
-            root_dir = CoLA.root_directory,
+            root_dir = root_dir,
             model_name = model_name,
             shuffle = shuffle,
             num_workers = num_workers,
@@ -43,7 +45,7 @@ class CoLA(NLPDataset):
 
     @staticmethod
     def get_tokenized_dataset_directory(model_name: str)->str:
-        return f'/home/{get_username()}/tokenized_datasets/glue/{model_name}'
+        return f'/home/{get_username()}/.cache/distributed_notebook/tokenized_datasets/glue/{model_name}'
 
     @property
     def description(self)->Dict[str, Union[str, int, bool]]:

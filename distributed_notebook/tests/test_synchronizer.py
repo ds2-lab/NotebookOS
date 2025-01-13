@@ -10,11 +10,11 @@ from unittest import mock
 from torch.nn import Parameter
 
 import distributed_notebook
-from distributed_notebook.datasets.custom_dataset import CustomDataset
-from distributed_notebook.datasets.loader import load_dataset
-from distributed_notebook.models.loader import load_model
-from distributed_notebook.models.model import DeepLearningModel
-from distributed_notebook.models.simple_model import SimpleModel
+from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.datasets.loader import load_dataset
+from distributed_notebook.deep_learning.models.loader import load_model
+from distributed_notebook.deep_learning.models.model import DeepLearningModel
+from distributed_notebook.deep_learning.models.simple_model import SimpleModel
 from distributed_notebook.sync import Synchronizer
 import builtins as builtin_mod
 import pandas as pd
