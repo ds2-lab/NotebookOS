@@ -35,7 +35,7 @@ ModelClassesByName: Dict[str, Type] = {
     DeepSpeech2.model_name(): DeepSpeech2,
 }
 
-ModelNameToModelCategory: Dict[str, Type] = {
+ModelNameToModelCategory: Dict[str, str] = {
     ResNet18.model_name(): ComputerVision,
     VGG16.model_name(): ComputerVision,
     InceptionV3.model_name(): ComputerVision,

@@ -34,9 +34,8 @@ from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
-from distributed_notebook.deep_learning.datasets.cv.cifar10 import CIFAR10
 from distributed_notebook.deep_learning.datasets.loader import load_dataset
-from distributed_notebook.deep_learning.models import ModelClassesByName
+from distributed_notebook.deep_learning.models import ModelClassesByName, ModelNameToModelCategory
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.gateway import gateway_pb2
@@ -56,7 +55,7 @@ from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer im
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
-from ..deep_learning.datasets import DatasetClassesByName
+from ..deep_learning.datasets import DatasetClassesByName, DatasetNamesByCategory
 
 import_torch_start: float = time.time()
 try:
@@ -2644,7 +2643,12 @@ class DistributedKernel(IPythonKernel):
                     copy_data_to_gpu_ms * 1.0e3
             )  # it's already in milliseconds
 
-    def assign_model(self, deep_learning_model_name: str = "ResNet-18"):
+    def assign_model(self, deep_learning_model_name: str = "ResNet-18", overwrite: bool = False):
+        if self.model is not None and not overwrite:
+            self.log.warning(f'Deep learning model "{self.model.name}" '
+                             f'has already been assigned to kernel (and overwrite is False).')
+            return
+
         if deep_learning_model_name is None or deep_learning_model_name == "":
             self.log.debug("No deep learning model specified. Using default model (ResNet-18).")
             deep_learning_model_name = "ResNet-18"
@@ -2659,8 +2663,19 @@ class DistributedKernel(IPythonKernel):
         self.model = cls(created_for_first_time=True)
 
     def assign_dataset(self, dataset_name: Optional[str] = None):
+        """
+        Assign a dataset to this kernel.
+
+        PRECONDITION: The kernel's model must be set already (to ensure compatibility).
+        """
+        assert self.model is not None
+
         if dataset_name is None or dataset_name == "":
-            self.log.debug("No dataset specified.")
+            category: str = ModelNameToModelCategory[self.model.name]
+            self.log.debug(f"No dataset specified. Will randomly select dataset from '{category}' category.")
+
+            datasets: t.List[str] = DatasetNamesByCategory[category]
+            dataset_name: str = random.choice(datasets)
 
         self.log.debug(f"Creating and assigning {dataset_name} dataset to this kernel.")
 
@@ -2668,7 +2683,7 @@ class DistributedKernel(IPythonKernel):
             raise ValueError(f'Unknown or unsupported dataset specified: "{dataset_name}"')
 
         cls: Type = DatasetClassesByName[dataset_name]
-        
+
         self.dataset = cls()
 
     def assign_model_and_dataset(
@@ -2686,10 +2701,10 @@ class DistributedKernel(IPythonKernel):
         :param deep_learning_model_name: name of model to assign.
         """
         if self.model is None:
-            self.assign_model(deep_learning_model_name = deep_learning_model_name)
+            self.assign_model(deep_learning_model_name=deep_learning_model_name)
 
         if self.dataset is not None:
-            self.assign_dataset(dataset_name = dataset_name)
+            self.assign_dataset(dataset_name=dataset_name)
 
     async def get_custom_training_code(
             self,

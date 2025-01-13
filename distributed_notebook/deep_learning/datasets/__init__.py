@@ -26,6 +26,18 @@ DatasetClassesByCategory: Dict[str, List[Type]] = {
     ]
 }
 
+DatasetNamesByCategory: Dict[str, List[str]] = {
+    ComputerVision: [
+        CIFAR10.dataset_name(), TinyImageNet.dataset_name()
+    ],
+    NaturalLanguageProcessing: [
+        CoLA.dataset_name(), IMDbLargeMovieReview.dataset_name(), IMDbLargeMovieReviewTruncated.dataset_name()
+    ],
+    Speech: [
+        LibriSpeech.dataset_name()
+    ]
+}
+
 DatasetClassesByName: Dict[str, Type] = {
     CIFAR10.dataset_name(): CIFAR10,
     TinyImageNet.dataset_name(): TinyImageNet,
