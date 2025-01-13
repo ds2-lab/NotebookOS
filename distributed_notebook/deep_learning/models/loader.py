@@ -1,8 +1,6 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type
 
-from distributed_notebook.deep_learning.models.model import DeepLearningModel
-from distributed_notebook.deep_learning.models.cv.resnet18 import ResNet18
-from distributed_notebook.deep_learning.models.simple_model import SimpleModel
+from distributed_notebook.deep_learning import VGG16, InceptionV3, DeepSpeech2, ResNet18, SimpleModel, DeepLearningModel, Bert, GPT2
 
 
 def load_model(
@@ -25,26 +23,30 @@ def load_model(
 
         return existing_model
 
-    if model_name == "ResNet-18":
-        return ResNet18(
-            out_features = out_features,
-            total_training_time_seconds = total_training_time_seconds,
-            total_num_epochs = total_num_epochs,
-            model_state_dict = model_state_dict,
-            optimizer_state_dict = optimizer_state_dict,
-            criterion_state_dict = criterion_state_dict,
-            **kwargs,
-        )
+    if model_name == ResNet18.model_name():
+        cls = ResNet18
+    elif model_name == VGG16.model_name():
+        cls = VGG16
+    elif model_name == InceptionV3.model_name():
+        cls = InceptionV3
+    elif model_name == GPT2.model_name():
+        cls = GPT2
+    elif model_name == Bert.model_name():
+        cls = Bert
+    elif model_name == DeepSpeech2.model_name():
+        cls = DeepSpeech2
+    elif model_name == SimpleModel.model_name():
+        cls = SimpleModel
+    else:
+        raise ValueError(f"unknown or unsupported deep learning model \"{model_name}\"")
 
-    if model_name == "SimpleModel":
-        return SimpleModel(
-            out_features = out_features,
-            total_training_time_seconds = total_training_time_seconds,
-            total_num_epochs = total_num_epochs,
-            model_state_dict = model_state_dict,
-            optimizer_state_dict = optimizer_state_dict,
-            criterion_state_dict = criterion_state_dict,
-            **kwargs,
-        )
-
-    raise ValueError(f"unknown or unsupported deep learning model \"{model_name}\"")
+    assert issubclass(cls, DeepLearningModel)
+    return cls(
+        out_features = out_features,
+        total_training_time_seconds = total_training_time_seconds,
+        total_num_epochs = total_num_epochs,
+        model_state_dict = model_state_dict,
+        optimizer_state_dict = optimizer_state_dict,
+        criterion_state_dict = criterion_state_dict,
+        **kwargs,
+    )

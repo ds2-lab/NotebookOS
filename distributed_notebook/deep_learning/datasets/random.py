@@ -44,6 +44,7 @@ class RandomCustomDataset(CustomDataset):
     """
     RandomCustomDataset is a simple dataset intended to be used for unit testing.
     """
+
     def __init__(
             self,
             input_size: int,
@@ -54,7 +55,7 @@ class RandomCustomDataset(CustomDataset):
             shuffle: bool = True,
             num_workers: int = 2,
             **kwargs):
-        super().__init__(name = 'RandomDataset', root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
+        super().__init__(root_dir = root_dir, shuffle = shuffle, num_workers = num_workers)
 
         assert batch_size <= num_training_samples
 
@@ -125,3 +126,23 @@ class RandomCustomDataset(CustomDataset):
     @property
     def test_loader(self):
         return self._test_loader
+
+    @property
+    def tokenization_start(self) -> float:
+        return -1
+
+    @property
+    def tokenization_end(self) -> float:
+        return -1
+
+    @property
+    def tokenization_duration_sec(self) -> float:
+        return -1
+
+    @property
+    def requires_tokenization(self) -> bool:
+        return False
+
+    @property
+    def name(self) -> str:
+        return "Random Custom Dataset"

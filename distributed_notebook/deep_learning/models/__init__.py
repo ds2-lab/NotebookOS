@@ -3,6 +3,8 @@ from typing import Type, List, Dict
 from .cv import ResNet18, InceptionV3, VGG16, ComputerVisionModel
 from .speech import DeepSpeech2
 from .nlp import Bert, GPT2
+from .model import DeepLearningModel
+from .simple_model import SimpleModel
 
 ComputerVision: str = "Computer Vision (CV)"
 NaturalLanguageProcessing: str = "Natural Language Processing (NLP)"

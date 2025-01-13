@@ -1,10 +1,12 @@
 import os
 import uuid
-from typing import Any
+from typing import Any, Type
 
 import pytest
+from docutils.nodes import image
 from torch import Tensor
 
+from distributed_notebook.deep_learning import ResNet18, CIFAR10, VGG16, InceptionV3, ComputerVisionModel
 from distributed_notebook.deep_learning.datasets.random import RandomCustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
@@ -178,8 +180,7 @@ def test_checkpoint_after_training():
             if isinstance(checkpointed_val, Tensor) and isinstance(local_val, Tensor):
                 assert checkpointed_val.equal(local_val)
 
-
-def test_checkpoint_after_training_using_checkpointed_model():
+def test_checkpoint_and_train_simple_model():
     checkpointer: LocalCheckpointer = LocalCheckpointer()
 
     # Create the model.
@@ -276,3 +277,106 @@ def test_checkpoint_after_training_using_checkpointed_model():
                 assert checkpointed_val.equal(local_val)
 
         model = checkpointed_model
+
+def perform_training_for_cv_model(cls: Type, num_training_loops: int = 5, target_training_duration_ms: float = 1000.0):
+    """
+    Perform deep learning training on a model of type 'cls', where 'cls' is some subtype of ComputerVisionModel.
+    """
+    assert issubclass(cls, ComputerVisionModel)
+
+    checkpointer: LocalCheckpointer = LocalCheckpointer()
+
+    # Create the model.
+    model = cls(created_for_first_time = True)
+    initial_weights = model.output_layer.weight.clone()
+
+    # Create the dataset.
+    dataset: CIFAR10 = CIFAR10(image_size = cls.expected_image_size())
+
+    # Checkpoint the initial model weights.
+    model_pointer: ModelPointer = ModelPointer(
+        deep_learning_model = model,
+        user_namespace_variable_name = "model",
+        model_path = os.path.join(f"store/{str(uuid.uuid4())}", model.name),
+        proposer_id = 1,
+    )
+    checkpointer.write_state_dicts(model_pointer)
+
+    previous_weights: Tensor = initial_weights
+    for i in range(0, num_training_loops):
+        # Train for a while.
+        model.train(dataset.train_loader, target_training_duration_ms)
+
+        # Establish that the model's weights have changed.
+        updated_weights = model.output_layer.weight
+        assert previous_weights.equal(updated_weights) == False
+        previous_weights = updated_weights.clone()
+
+        # Before re-writing the updated model's weights, verify that the weights in remote storage
+        # match the initial weights and no longer match the model's weights.
+        old_model_state, old_optimizer_state, old_criterion_state, old_constructor_state = checkpointer.read_state_dicts(model_pointer)
+
+        assert old_model_state is not None
+        assert old_optimizer_state is not None
+        assert old_criterion_state is not None
+        assert old_constructor_state is not None
+        assert isinstance(old_model_state, dict)
+        assert isinstance(old_optimizer_state, dict)
+        assert isinstance(old_criterion_state, dict)
+        assert isinstance(old_constructor_state, dict)
+
+        current_model_state: dict[str, Any] = model.state_dict
+
+        for old_val, new_val in zip(old_model_state.values(), current_model_state.values()):
+            if isinstance(old_val, Tensor) and isinstance(new_val, Tensor):
+                assert old_val.equal(new_val) == False
+
+        # Write the updated model state to remote storage.
+        model_pointer = ModelPointer(
+            deep_learning_model = model,
+            user_namespace_variable_name = "model",
+            model_path = os.path.join(f"store/{str(uuid.uuid4())}", model.name),
+            proposer_id = 1,
+        )
+        checkpointer.write_state_dicts(model_pointer)
+
+        # Verify that the weights in remote storage match the updated weights.
+        remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(model_pointer)
+        local_model_state: dict[str, Any] = model.state_dict
+        for remote_val, local_val in zip(remote_model_state.values(), local_model_state.values()):
+            if isinstance(remote_val, Tensor) and isinstance(local_val, Tensor):
+                assert remote_val.equal(local_val)
+
+        # Load a new instance of the model using the state checkpointed in remote storage.
+        checkpointed_model = load_model(
+            model_name=model_pointer.large_object_name,
+            existing_model=None,
+            out_features=model_pointer.out_features,
+            model_state_dict=remote_model_state,
+            optimizer_state_dict=remote_optimizer_state,
+            criterion_state_dict=remote_criterion_state,
+        )
+
+        assert checkpointed_model is not None
+        assert isinstance(checkpointed_model, cls)
+        assert checkpointed_model.model is not None
+        assert isinstance(checkpointed_model.model, cls)
+
+        # Compare the state of the model loaded from remote storage with the original, local model.
+        local_model_state: dict[str, Any] = model.state_dict
+        checkpointed_model_state: dict[str, Any] = checkpointed_model.state_dict
+
+        for checkpointed_val, local_val in zip(checkpointed_model_state.values(), local_model_state.values()):
+            if isinstance(checkpointed_val, Tensor) and isinstance(local_val, Tensor):
+                assert checkpointed_val.equal(local_val)
+
+        model = checkpointed_model
+
+def test_checkpoint_and_train_simple_model_cv_resnet18():
+    perform_training_for_cv_model(ResNet18)
+
+def test_checkpoint_and_train_simple_model_cv_vgg16():
+    perform_training_for_cv_model(VGG16)
+
+def test_checkpoint_and_train_simple_model_cv_inception_v3():
+    perform_training_for_cv_model(InceptionV3)

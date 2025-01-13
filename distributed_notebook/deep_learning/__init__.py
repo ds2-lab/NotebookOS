@@ -1,5 +1,5 @@
 from .datasets import CIFAR10, TinyImageNet, CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated, LibriSpeech
-from .models import ResNet18, VGG16, InceptionV3, Bert, GPT2, DeepSpeech2
+from .models import ResNet18, VGG16, InceptionV3, Bert, GPT2, DeepSpeech2, DeepLearningModel, ComputerVisionModel, SimpleModel
 
 from typing import Type, List, Dict
 

@@ -19,6 +19,7 @@ class SimpleModule(nn.Module):
         super(SimpleModule, self).__init__()
         # Single linear layer
         self.fc = nn.Linear(in_features = input_size, out_features = output_size)
+        self._output_layer = self.fc
 
         if model_state_dict is not None:
             self.load_state_dict(model_state_dict)
@@ -45,6 +46,10 @@ class SimpleModule(nn.Module):
 
     def __repr__(self)->str:
         return self.__str__()
+
+    @property
+    def output_layer(self) -> nn.Module:
+        return self._output_layer
 
 class SimpleModel(DeepLearningModel):
     """
@@ -84,6 +89,8 @@ class SimpleModel(DeepLearningModel):
             model_state_dict = model_state_dict
         )
 
+        self._output_layer = self.model.output_layer
+
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)
 
@@ -103,9 +110,17 @@ class SimpleModel(DeepLearningModel):
             assert isinstance(initial_bias, float) or isinstance(initial_bias, int)
             self.model.set_bias(initial_bias)
 
+    @staticmethod
+    def model_name() -> str:
+        return "Simple Model"
+
     @property
     def name(self) -> str:
-        return "Simple Model"
+        return SimpleModel.model_name()
+
+    @property
+    def output_layer(self) -> nn.Module:
+        return self._output_layer
 
     @property
     def input_size(self)->int:

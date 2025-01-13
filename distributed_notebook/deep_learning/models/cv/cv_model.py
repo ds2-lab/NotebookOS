@@ -4,10 +4,15 @@ from torch import nn
 
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
+from typing import Dict, Any
 
 class ComputerVisionModel(DeepLearningModel, ABC):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
+    @property
+    def constructor_args(self) -> Dict[str, Any]:
+        return super().constructor_args
 
     @property
     @abstractmethod
