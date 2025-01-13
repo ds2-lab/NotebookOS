@@ -1,6 +1,8 @@
 import os.path
 import time
 
+from typing import Dict, Any
+
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
@@ -42,14 +44,19 @@ class CIFAR10(CustomDataset):
         else:
             print(
                 f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
-
-    @property
-    def name(self) -> str:
-        return CIFAR10.dataset_name()
+    @staticmethod
+    def model_constructor_args() -> Dict[str, Any]:
+        return {
+            "out_features": 10,
+        }
 
     @staticmethod
     def dataset_name() -> str:
         return "CIFAR-10"
+
+    @property
+    def name(self) -> str:
+        return CIFAR10.dataset_name()
 
     @property
     def download_duration_sec(self) -> float:

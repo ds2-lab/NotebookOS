@@ -1,11 +1,11 @@
 import os
-from typing import Optional, Dict, Union
+from typing import Optional, Dict, Union, Any
 
+from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
 from distributed_notebook.deep_learning.datasets.hugging_face import HuggingFaceDataset
 
-from torch.utils.data import Dataset, DataLoader
 
 class NoneTransform(object):
     """
@@ -14,6 +14,7 @@ class NoneTransform(object):
 
     def __call__(self, image):
         return image
+
 
 class TinyImageNetDataset(Dataset):
     def __init__(self, hf_dataset, transform=None):
@@ -56,7 +57,7 @@ class TinyImageNet(HuggingFaceDataset):
             shuffle: bool = True,
             num_workers: int = 2,
             batch_size: int = 64,
-            image_size: int = 224, # 224 x 224 for ResNet-18
+            image_size: int = 224,  # 224 x 224 for ResNet-18
     ):
         assert image_size > 0
         assert batch_size > 0
@@ -79,20 +80,26 @@ class TinyImageNet(HuggingFaceDataset):
         self._batch_size: int = batch_size
         self._image_size: int = image_size
 
-        self._train_dataset: TinyImageNetDataset = TinyImageNetDataset(self._dataset["train"], transform = self.transform)
-        self._test_dataset: TinyImageNetDataset = TinyImageNetDataset(self._dataset["valid"], transform = self.transform)
+        self._train_dataset: TinyImageNetDataset = TinyImageNetDataset(self._dataset["train"], transform=self.transform)
+        self._test_dataset: TinyImageNetDataset = TinyImageNetDataset(self._dataset["valid"], transform=self.transform)
 
         # Prepare the data loaders
         self._train_loader = DataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle)
         self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=False)
 
-    @property
-    def name(self) -> str:
-        return TinyImageNet.dataset_name()
+    @staticmethod
+    def model_constructor_args() -> Dict[str, Any]:
+        return {
+            "out_features": 200,
+        }
 
     @staticmethod
     def dataset_name() -> str:
         return "Tiny ImageNet"
+
+    @property
+    def name(self) -> str:
+        return TinyImageNet.dataset_name()
 
     @property
     def download_duration_sec(self) -> float:
