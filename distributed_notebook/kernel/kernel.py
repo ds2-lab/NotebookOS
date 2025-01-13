@@ -35,7 +35,7 @@ from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.datasets.loader import load_dataset
-from distributed_notebook.deep_learning.models import ModelClassesByName, ModelNameToModelCategory
+from distributed_notebook.deep_learning.models import ModelClassesByName, ModelNameToModelCategory, ComputerVisionModel
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.gateway import gateway_pb2
@@ -55,7 +55,7 @@ from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer im
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
-from ..deep_learning.datasets import DatasetClassesByName, DatasetNamesByCategory
+from ..deep_learning.datasets import DatasetClassesByName, DatasetNamesByCategory, ComputerVision
 
 import_torch_start: float = time.time()
 try:
@@ -2662,6 +2662,8 @@ class DistributedKernel(IPythonKernel):
                              f'Will (potentially) overwrite existing model.')
 
         model_arguments: Dict[str, Any] = {}
+        dataset_arguments: Dict[str, Any] = {}
+
         if deep_learning_model_name is None or deep_learning_model_name == "":
             self.log.debug("No deep learning model specified. Using default model (ResNet-18).")
             deep_learning_model_name = "ResNet-18"
@@ -2671,8 +2673,8 @@ class DistributedKernel(IPythonKernel):
         if deep_learning_model_name not in ModelClassesByName:
             raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
 
+        category: str = ModelNameToModelCategory[self.model.name]
         if dataset_name is None or dataset_name == "":
-            category: str = ModelNameToModelCategory[self.model.name]
             self.log.debug(f"No dataset specified. Will randomly select dataset from '{category}' category.")
 
             datasets: t.List[str] = DatasetNamesByCategory[category]
@@ -2684,14 +2686,19 @@ class DistributedKernel(IPythonKernel):
             raise ValueError(f'Unknown or unsupported dataset specified: "{dataset_name}"')
 
         dataset_class: Type = DatasetClassesByName[dataset_name]
-        self.dataset = dataset_class()
+        model_class: Type = ModelClassesByName[deep_learning_model_name]
+
+        if category == ComputerVision:
+            assert issubclass(model_class, ComputerVisionModel)
+            dataset_arguments["image_size"] = model_class.expected_image_size()
+
+        self.dataset = dataset_class(**dataset_arguments)
 
         # If this particular dataset has a 'model_constructor_args' method, then call it.
         if hasattr(dataset_class, "model_constructor_args"):
             model_constructor_args: Dict[str, Any] = dataset_class.model_constructor_args()
             model_arguments.update(model_constructor_args)
 
-        model_class: Type = ModelClassesByName[deep_learning_model_name]
         self.model = model_class(created_for_first_time=True, **model_arguments)
 
     async def get_custom_training_code(

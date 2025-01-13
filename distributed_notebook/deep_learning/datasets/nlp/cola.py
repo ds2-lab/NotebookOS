@@ -27,7 +27,7 @@ class CoLA(NLPDataset):
             num_workers: int = 2,
             model_name: Optional[str] = None,
             max_token_length: int = 128,
-            batch_size = 16,
+            batch_size = 8,
     ):
         super().__init__(
             root_dir = root_dir,

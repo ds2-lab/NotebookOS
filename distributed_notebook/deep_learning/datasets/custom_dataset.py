@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 
 import os
+import logging
+
+from distributed_notebook.logs import ColoredLogFormatter
 
 from torchvision.datasets.utils import check_integrity
 
@@ -9,6 +12,14 @@ class CustomDataset(ABC):
         self._root_dir = root_dir
         self._shuffle = shuffle
         self._num_workers = num_workers
+
+        # Initialize logging
+        self.log = logging.getLogger(__class__.__name__)
+        self.log.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.DEBUG)
+        ch.setFormatter(ColoredLogFormatter())
+        self.log.addHandler(ch)
 
     def _check_if_downloaded(self, filenames: list, base_folder: str) -> bool:
         """
@@ -83,7 +94,7 @@ class CustomDataset(ABC):
     @property
     @abstractmethod
     def name(self)->str:
-        pass 
+        pass
 
     @property
     def root_directory(self)->str:

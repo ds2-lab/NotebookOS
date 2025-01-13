@@ -1,6 +1,7 @@
 import os
 from typing import Optional, Dict, Union, Any
 
+import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
@@ -56,8 +57,8 @@ class TinyImageNet(HuggingFaceDataset):
             root_dir: str = default_root_directory,
             shuffle: bool = True,
             num_workers: int = 2,
-            batch_size: int = 64,
-            image_size: int = 224,  # 224 x 224 for ResNet-18
+            batch_size: int = 4,
+            image_size: int = 224,  # 224 x 224 for ResNet-18, 299 x 299 for Inception v3.
     ):
         assert image_size > 0
         assert batch_size > 0
@@ -70,10 +71,16 @@ class TinyImageNet(HuggingFaceDataset):
             hugging_face_dataset_config_name=TinyImageNet.hugging_face_dataset_config_name,
         )
 
+        self.log.debug(f'Creating Tiny ImageNet dataset with root directory "{root_dir}", batch size = {batch_size}, '
+                       f'shuffle = {shuffle}, number of workers = {num_workers}, '
+                       f'and image size = ({image_size}, {image_size}).')
+
         self.transform = transforms.Compose([
-            transforms.RandomHorizontalFlip(),
             transforms.Resize((image_size, image_size)),
-            transforms.ToTensor(),
+            transforms.CenterCrop((image_size, image_size)),
+            transforms.RandomHorizontalFlip(),
+            transforms.PILToTensor(),
+            transforms.ConvertImageDtype(torch.float),
             transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         ])
 

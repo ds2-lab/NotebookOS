@@ -1,7 +1,7 @@
 import os.path
 import time
 
-from typing import Dict, Any
+from typing import Dict, Any, Union
 
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
@@ -12,13 +12,24 @@ from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDat
 class CIFAR10(CustomDataset):
     default_root_directory: str = os.path.expanduser("~/.cache/distributed_notebook/datasets/cifar10")
 
-    def __init__(self, root_dir: str = default_root_directory, batch_size: int = 256, shuffle: bool = True,
-                 num_workers: int = 2):
+    def __init__(
+            self,
+            root_dir: str = default_root_directory,
+            batch_size: int = 4,
+            shuffle: bool = True,
+            num_workers: int = 2,
+            image_size: int = 224,
+    ):
         super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers)
 
+        self.log.debug(f'Creating CIFAR-10 dataset with root directory "{root_dir}", batch size = {batch_size}, '
+                       f'shuffle = {shuffle}, number of workers = {num_workers}, '
+                       f'and image size = ({image_size}, {image_size}).')
+
         self.transform = transforms.Compose([
+            transforms.Resize((image_size, image_size)),
+            transforms.CenterCrop((image_size, image_size)),
             transforms.RandomHorizontalFlip(),
-            transforms.RandomCrop(32, padding=4),
             transforms.ToTensor(),
             transforms.Normalize(mean = (0.4914, 0.4822, 0.4465), std = (0.2023, 0.1994, 0.2010))  # CIFAR-10 mean and std
         ])
@@ -27,6 +38,8 @@ class CIFAR10(CustomDataset):
             filenames=datasets.CIFAR10.train_list + datasets.CIFAR10.test_list,
             base_folder=datasets.CIFAR10.base_folder
         )
+
+        self._image_size: int = image_size
 
         self._download_start = time.time()
         self._train_dataset = datasets.CIFAR10(root=root_dir, train=True, download=True, transform=self.transform)
@@ -88,7 +101,9 @@ class CIFAR10(CustomDataset):
 
     @property
     def description(self) -> dict[str, str | int | bool]:
-        return super().description
+        desc: Dict[str, Union[str, int, bool]] = super().description
+        desc["image_size"] = self._image_size
+        return desc
 
     @property
     def train_dataset(self):
