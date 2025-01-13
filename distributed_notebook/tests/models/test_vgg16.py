@@ -5,7 +5,7 @@ def test_train_vgg16_on_cifar10():
     """
     Train the VGG-16 model on the CIFAR-10 dataset. Validate that the weights are updated correctly.
     """
-    dataset: CIFAR10 = CIFAR10()
+    dataset: CIFAR10 = CIFAR10(image_size = VGG16.expected_image_size())
     model: VGG16 = VGG16(created_for_first_time=True)
 
     training_duration_ms: int = 1000
@@ -30,7 +30,7 @@ def test_train_vgg16_on_tiny_imagenet():
     """
     Train the VGG-16 model on the Tiny ImageNet dataset. Validate that the weights are updated correctly.
     """
-    dataset: TinyImageNet = TinyImageNet()
+    dataset: TinyImageNet = TinyImageNet(image_size = VGG16.expected_image_size())
     model: VGG16 = VGG16(created_for_first_time=True, out_features = 200)
 
     training_duration_ms: int = 1000
