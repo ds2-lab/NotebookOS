@@ -20,6 +20,7 @@ class DeepLearningModel(ABC):
             total_training_time_seconds: int = 0,
             total_num_epochs: int = 0,
             created_for_first_time: bool = False,
+            **kwargs,
     ):
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
@@ -65,6 +66,9 @@ class DeepLearningModel(ABC):
         # List of the times, in seconds, spent copying data from the GPU to the CPU.
         # IMPORTANT: These are NOT checkpointed as of right now.
         self._gpu2cpu_times: list[float] = []
+
+        for argument in kwargs:
+            self.log.warning(f"Received unexpected key-word argument: '{argument}'")
 
     def set_gpu_device_ids(self, device_ids: list[int] = None):
         """
