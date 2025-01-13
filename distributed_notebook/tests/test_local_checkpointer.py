@@ -6,7 +6,7 @@ import pytest
 from docutils.nodes import image
 from torch import Tensor
 
-from distributed_notebook.deep_learning import ResNet18, CIFAR10, VGG16, InceptionV3, ComputerVisionModel
+from distributed_notebook.deep_learning import ResNet18, CIFAR10, VGG11, VGG13, VGG16, VGG19, InceptionV3, ComputerVisionModel
 from distributed_notebook.deep_learning.datasets.random import RandomCustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
@@ -377,8 +377,17 @@ def perform_training_for_cv_model(cls: Type, num_training_loops: int = 5, target
 def test_checkpoint_and_train_simple_model_cv_resnet18():
     perform_training_for_cv_model(ResNet18)
 
+def test_checkpoint_and_train_simple_model_cv_vgg11():
+    perform_training_for_cv_model(VGG11)
+
+def test_checkpoint_and_train_simple_model_cv_vgg13():
+    perform_training_for_cv_model(VGG13)
+
 def test_checkpoint_and_train_simple_model_cv_vgg16():
     perform_training_for_cv_model(VGG16)
+
+def test_checkpoint_and_train_simple_model_cv_vgg19():
+    perform_training_for_cv_model(VGG19)
 
 def test_checkpoint_and_train_simple_model_cv_inception_v3():
     perform_training_for_cv_model(InceptionV3)
