@@ -11,15 +11,15 @@ def test_train_resnet18_on_cifar10():
     training_duration_ms: int = 1000
 
     # Access the classification head (last layer)
-    fc = model.model.fc
+    output_layer = model.output_layer
 
     # Extract weights and biases
-    prev_weights = fc.weight.detach().cpu()
+    prev_weights = output_layer.weight.detach().cpu()
     for _ in range(0, 3):
         print(f"Initial weights: {prev_weights}")
         model.train(dataset.train_loader, training_duration_ms)
 
-        updated_weights = fc.weight.detach().cpu()
+        updated_weights = output_layer.weight.detach().cpu()
         print(f"Updated weights: {updated_weights}")
 
         assert prev_weights.equal(updated_weights) == False
@@ -36,15 +36,15 @@ def test_train_resnet18_on_tiny_imagenet():
     training_duration_ms: int = 1000
 
     # Access the classification head (last layer)
-    fc = model.model.fc
+    output_layer = model.output_layer
 
     # Extract weights and biases
-    prev_weights = fc.weight.detach().cpu()
+    prev_weights = output_layer.weight.detach().cpu()
     for _ in range(0, 3):
         print(f"Initial weights: {prev_weights}")
         model.train(dataset.train_loader, training_duration_ms)
 
-        updated_weights = fc.weight.detach().cpu()
+        updated_weights = output_layer.weight.detach().cpu()
         print(f"Updated weights: {updated_weights}")
 
         assert prev_weights.equal(updated_weights) == False
