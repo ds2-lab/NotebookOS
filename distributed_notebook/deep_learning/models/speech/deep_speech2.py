@@ -170,7 +170,7 @@ class DeepSpeech2(DeepLearningModel):
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
 
-    def train(self, loader, training_duration_millis: int | float = 0.0) -> tuple[float, float, float]:
+    def train(self, loader, target_training_duration_millis: int | float = 0.0) -> tuple[float, float, float]:
         """
         Train for a target amount of time.
         :return: a tuple where the first element is the actual training time, the second is the time copying the model
@@ -178,7 +178,7 @@ class DeepSpeech2(DeepLearningModel):
         """
         copy_cpu2gpu_millis: float = 0.0
         copy_gpu2cpu_millis: float = 0.0
-        training_time_millis: float = 0.0
+        actual_training_time_millis: float = 0.0
 
         if self.gpu_available:
             st: float = time.time()
@@ -187,10 +187,10 @@ class DeepSpeech2(DeepLearningModel):
             copy_cpu2gpu_millis: float = (et - st) * 1.0e3
             self.log.debug(f"Copied model from CPU to GPU in {copy_cpu2gpu_millis} ms.")
 
-        if training_duration_millis <= 0:
-            return training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
+        if target_training_duration_millis <= 0:
+            return actual_training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
-        self.log.debug(f"Training for {training_duration_millis} milliseconds.")
+        self.log.debug(f"Training for {target_training_duration_millis} milliseconds.")
 
         self.model.train()
         start_time: float = time.time()
@@ -198,7 +198,7 @@ class DeepSpeech2(DeepLearningModel):
         running_loss = 0.0
         num_minibatches_processed: int = 0
         num_samples_processed: int = 0
-        while ((time.time() - start_time) * 1.0e3) < training_duration_millis:
+        while ((time.time() - start_time) * 1.0e3) < target_training_duration_millis:
             for waveforms, labels, input_lengths, label_lengths in loader:
                 if self.gpu_available:
                     waveforms, labels = waveforms.to(self.gpu_device), labels.to(self.gpu_device)
@@ -236,7 +236,7 @@ class DeepSpeech2(DeepLearningModel):
 
                     torch.cuda.synchronize()
 
-                if ((time.time() - start_time) * 1.0e3) > training_duration_millis:
+                if ((time.time() - start_time) * 1.0e3) > target_training_duration_millis:
                     break
 
             self.total_num_epochs += 1
@@ -244,10 +244,17 @@ class DeepSpeech2(DeepLearningModel):
 
         time_spent_training_sec: float = (time.time() - start_time)
         self.total_training_time_seconds += time_spent_training_sec
-        training_time_millis: float = time_spent_training_sec * 1.0e3
-        self.log.debug(f"Training completed. Target time: {training_duration_millis} ms. "
-                       f"Time elapsed: {training_time_millis} ms. "
-                       f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} individual samples).")
+        actual_training_time_millis: float = time_spent_training_sec * 1.0e3
+
+        if actual_training_time_millis > target_training_duration_millis:
+            self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
+                           f"Time elapsed: {actual_training_time_millis:,} ms. Trained for " 
+                           f"{actual_training_time_millis - target_training_duration_millis } ms too long. "
+                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
+        else:
+            self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
+                           f"Time elapsed: {actual_training_time_millis:,} ms. "
+                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
 
         if self.gpu_available:
             self.log.debug("Copying model from GPU to CPU.")
@@ -264,7 +271,7 @@ class DeepSpeech2(DeepLearningModel):
 
         self._requires_checkpointing = True
 
-        return training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
+        return actual_training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
     @property
     def in_features(self) -> int:
