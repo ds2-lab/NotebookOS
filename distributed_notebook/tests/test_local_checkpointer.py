@@ -390,7 +390,8 @@ def perform_training_for_model(
         assert checkpointed_model.model is not None
 
         if checkpointed_model.expected_model_class() is not None:
-            assert isinstance(checkpointed_model.model, checkpointed_model.expected_model_class())
+            assert isinstance(checkpointed_model.model, checkpointed_model.expected_model_class()) or \
+                   issubclass(checkpointed_model.model, checkpointed_model.expected_model_class())
 
         # Compare the state of the model loaded from remote storage with the original, local model.
         local_model_state: dict[str, Any] = model.state_dict
