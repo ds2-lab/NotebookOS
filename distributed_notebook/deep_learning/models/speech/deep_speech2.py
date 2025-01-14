@@ -78,7 +78,9 @@ class SpeechRecognitionModel(nn.Module):
     def __init__(self, n_cnn_layers, n_rnn_layers, rnn_dim, n_class, n_feats, stride=2, dropout=0.1):
         super(SpeechRecognitionModel, self).__init__()
         n_feats = n_feats // 2
-        self.cnn = nn.Conv2d(1, 32, 3, stride=stride, padding=3 // 2)  # cnn for extracting heirachal features
+
+        # cnn for extracting hierarchical features
+        self.cnn = nn.Conv2d(1, 32, 3, stride=stride, padding=3 // 2)
 
         # n residual cnn layers with filter size of 32
         self.rescnn_layers = nn.Sequential(*[
@@ -114,7 +116,7 @@ class SpeechRecognitionModel(nn.Module):
 class DeepSpeech2(DeepLearningModel):
     def __init__(
             self,
-            in_features: int = 128,
+            num_features: int = 128,
             out_features: int = 29,
             optimizer: Optional[nn.Module] = None,
             optimizer_state_dict: Optional[Dict[str, Any]] = None,
@@ -135,9 +137,7 @@ class DeepSpeech2(DeepLearningModel):
             **kwargs,
         )
 
-        self._in_features: int = in_features
-
-        # self.model = models.DeepSpeech(n_feature = in_features, n_class = out_features)
+        self._num_features: int = num_features
 
         learning_rate = 5e-4
         batch_size = 20
@@ -146,8 +146,8 @@ class DeepSpeech2(DeepLearningModel):
             "n_cnn_layers": 3,
             "n_rnn_layers": 5,
             "rnn_dim": 512,
-            "n_class": 29,
-            "n_feats": 128,
+            "n_class": out_features,
+            "n_feats": num_features,
             "stride": 2,
             "dropout": 0.1,
             "learning_rate": learning_rate,
@@ -280,6 +280,10 @@ class DeepSpeech2(DeepLearningModel):
     @property
     def name(self) -> str:
         return DeepSpeech2.model_name()
+
+    @property
+    def output_layer(self) -> nn.Module:
+        return self.model.out
 
     @staticmethod
     def model_name() -> str:

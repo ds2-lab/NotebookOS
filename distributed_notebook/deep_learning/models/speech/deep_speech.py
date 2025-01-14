@@ -11,7 +11,12 @@ import torchaudio.models as models
 
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
+# NOT REALLY WORKING AS OF RIGHT NOW
 class DeepSpeech(DeepLearningModel):
+    """
+    NOT REALLY WORKING AS OF RIGHT NOW
+    """
+
     def __init__(
             self,
             in_features: int = 128,
@@ -38,6 +43,7 @@ class DeepSpeech(DeepLearningModel):
         self._in_features: int = in_features
 
         self.model = models.DeepSpeech(n_feature = in_features, n_class = out_features)
+        self._output_layer = self.model.out
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)
@@ -163,7 +169,12 @@ class DeepSpeech(DeepLearningModel):
 
     @property
     def name(self) -> str:
-        return DeepSpeech2.model_name()
+        return DeepSpeech.model_name()
+
+    @property
+    def output_layer(self) -> nn.Module:
+        return self._output_layer
+
     @property
     def constructor_args(self) -> dict[str, Any]:
         base_args: dict[str, Any] = super("Deep Speech v1").constructor_args

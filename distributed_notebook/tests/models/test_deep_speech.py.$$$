@@ -2,20 +2,20 @@ import os
 import torch
 
 from distributed_notebook.deep_learning.datasets import LibriSpeech
-from distributed_notebook.deep_learning.models import DeepSpeech2
+from distributed_notebook.deep_learning.models import DeepSpeech
 
 
-def test_train_deep_speech2():
+def test_train_deep_speech():
     """
-    Train the Deep Speech 2 model on the LibriSpeech dataset. Validate that the weights are updated correctly.
+    Train the Deep Speech (v1) model on the LibriSpeech dataset. Validate that the weights are updated correctly.
     """
     dataset: LibriSpeech = LibriSpeech(
         root_dir=os.path.expanduser("~/.cache"),
         train_split=LibriSpeech.test_clean, # Use the 'test_clean' split as a training split bc it's (relatively) small.
         test_split=None,
-        batch_size=20,
+        batch_size=8,
     )
-    model: DeepSpeech2 = DeepSpeech2()
+    model: DeepSpeech = DeepSpeech()
     output_layer: torch.nn.Module = model.output_layer
 
     training_duration_ms: int = 1000
