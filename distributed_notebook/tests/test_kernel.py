@@ -3386,53 +3386,53 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
-async def test_train_resnet18_on_cifar10():
+async def test_train_cv_resnet18_on_cifar10():
     await perform_training(ResNet18, CIFAR10)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
-async def test_train_vgg11_on_cifar10():
+async def test_train_cv_vgg11_on_cifar10():
     await perform_training(VGG11, CIFAR10)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
-async def test_train_vgg13_on_cifar10():
+async def test_train_cv_vgg13_on_cifar10():
     await perform_training(VGG13, CIFAR10)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
-async def test_train_vgg16_on_cifar10():
+async def test_train_cv_vgg16_on_cifar10():
     await perform_training(VGG16, CIFAR10)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
-async def test_train_vgg19_on_cifar10():
+async def test_train_cv_vgg19_on_cifar10():
     await perform_training(VGG19, CIFAR10)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
-async def test_train_inception_v3_on_cifar10():
+async def test_train_cv_inception_v3_on_cifar10():
     await perform_training(InceptionV3, CIFAR10)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
-async def test_train_bert_on_truncated_imdb():
+async def test_train_nlp_bert_on_truncated_imdb():
     await perform_training(Bert, IMDbLargeMovieReviewTruncated)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
-async def test_train_gpt2_on_truncated_imdb():
+async def test_train_nlp_gpt2_on_truncated_imdb():
     await perform_training(GPT2, IMDbLargeMovieReviewTruncated)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
-async def test_train_deep_speech2_on_libri_speech():
+async def test_train_speech_deep_speech2_on_libri_speech():
     await perform_training(DeepSpeech2, LibriSpeech)
