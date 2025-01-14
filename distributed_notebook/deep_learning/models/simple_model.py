@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Type
 import gc
 import time
 from typing import Optional, Dict, Any
@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from distributed_notebook.deep_learning.configuration import Testing
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
 class SimpleModule(nn.Module):
@@ -109,6 +110,14 @@ class SimpleModel(DeepLearningModel):
         if initial_bias is not None:
             assert isinstance(initial_bias, float) or isinstance(initial_bias, int)
             self.model.set_bias(initial_bias)
+
+    @staticmethod
+    def expected_model_class() -> Type:
+        return SimpleModule
+
+    @staticmethod
+    def category() -> str:
+        return Testing
 
     @staticmethod
     def model_name() -> str:
