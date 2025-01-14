@@ -63,10 +63,7 @@ class ResNet18(ComputerVisionModel):
 
     @property
     def constructor_args(self) -> dict[str, Any]:
-        base_args: dict[str, Any] = super().constructor_args
-        args: dict[str, Any] = {}
-        base_args.update(args)
-        return base_args
+        return super().constructor_args
 
     def __str__(self) -> str:
         return f"{self.name}[TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"

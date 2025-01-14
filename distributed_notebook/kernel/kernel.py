@@ -4368,10 +4368,13 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             model: DeepLearningModel = load_model(
                 model_name=pointer.large_object_name,
                 existing_model=existing_model,
-                out_features=pointer.out_features,
+                # commented out:
+                # out_features should/will be passed via the constructor_args_state dictionary.
+                # out_features=pointer.out_features,
                 model_state_dict=model_state_dict,
                 optimizer_state_dict=optimizer_state_dict,
                 criterion_state_dict=criterion_state_dict,
+                **constructor_args_state, # out_features should/will be in this dictionary.
             )
         except Exception as exc:
             self.log.error(

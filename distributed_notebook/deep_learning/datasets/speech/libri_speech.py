@@ -146,7 +146,7 @@ class LibriSpeech(CustomDataset):
             self,
             root_dir: str = default_root_directory,
             folder_in_archive: str = datasets.librispeech.FOLDER_IN_ARCHIVE,
-            batch_size: int = 8,
+            batch_size: int = 4,
             shuffle: bool = True,
             num_workers: int = 2,
             train_split: Optional[str] = None,

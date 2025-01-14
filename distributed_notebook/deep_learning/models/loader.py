@@ -37,6 +37,11 @@ def load_model(
         raise ValueError(f"unknown or unsupported deep learning model \"{model_name}\"")
 
     assert issubclass(cls, DeepLearningModel)
+
+    print(f'Passing the following keyword arguments to constructor of model "{model_name}":', flush = True)
+    for k, v in kwargs.items():
+        print(f'\t"{k}": {v}', flush = True)
+
     return cls(
         out_features=out_features,
         total_training_time_seconds=total_training_time_seconds,
