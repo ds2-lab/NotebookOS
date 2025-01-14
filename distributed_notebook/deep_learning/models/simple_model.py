@@ -145,9 +145,12 @@ class SimpleModel(DeepLearningModel):
 
     @property
     def constructor_args(self)->dict[str, Any]:
-        return {
+        base_args: dict[str, Any] = super().constructor_args
+        args: dict[str, Any] = {
             "input_size": self._input_size
         }
+        base_args.update(args)
+        return base_args
 
     def set_bias(self, val: float):
         """

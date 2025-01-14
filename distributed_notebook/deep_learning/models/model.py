@@ -25,6 +25,7 @@ class DeepLearningModel(ABC):
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
         self.log.setLevel(logging.DEBUG)
+        self.log.handlers.clear()
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
