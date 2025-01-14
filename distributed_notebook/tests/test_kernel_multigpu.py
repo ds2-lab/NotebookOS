@@ -1,15 +1,14 @@
 import asyncio
 import logging
 import os
-import shutil
 import sys
 import uuid
 from collections import OrderedDict
-from typing import Optional, Dict, Any, Type
+from typing import Optional, Dict, Any, Type, List
 from unittest import mock
+from itertools import islice
 
 import pytest
-import pytest_asyncio
 import torch
 from ipykernel.control import ControlThread
 
@@ -21,8 +20,7 @@ from distributed_notebook.kernel import DistributedKernel
 from distributed_notebook.sync import Synchronizer, RaftLog, SyncAST
 from distributed_notebook.sync.election import Election, ExecutionCompleted, AllReplicasProposedYield
 from distributed_notebook.sync.log import ElectionProposalKey, LeaderElectionProposal, \
-    LeaderElectionVote, Checkpointer, ExecutionCompleteNotification, SynchronizedValue, KEY_CATCHUP
-from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer import SimulatedCheckpointer
+    LeaderElectionVote, Checkpointer, ExecutionCompleteNotification, SynchronizedValue
 from distributed_notebook.tests.utils.lognode import SpoofedLogNode
 from distributed_notebook.tests.utils.session import SpoofedSession
 from distributed_notebook.tests.utils.stream import SpoofedStream
@@ -346,11 +344,26 @@ def propose_vote(
     assert election.voting_phase_completed_successfully == True
     assert election.winner == expected_winner_id
 
+def moving_window(slice_, window_size):
+    n = len(slice_)
+    if n == 0 or window_size <= 0:
+        raise ValueError("Slice must be non-empty and window size must be positive.")
+
+    idx = 0  # Start index for the window
+    while True:
+        # Create the current window, wrapping around the slice using modulo arithmetic
+        window = tuple(slice_[(idx + i) % n] for i in range(window_size))
+        yield window
+        idx += 1  # Move to the next starting position
+
 async def perform_training(
         model_class: Type,
         dataset_class: Type,
         num_training_loops: int = 3,
-        target_training_duration_ms: float = 1000.0
+        target_training_duration_ms: float = 1000.0,
+        gpu_allocation_mode: str = "moving-window",
+        gpu_allocation_window_size: int = 1,
+        gpu_ids: Optional[List[int]] = None,
 ):
     """
     Helper/utility function to carry out a unit test in which a kernel proposes and leads the execution of
@@ -360,22 +373,27 @@ async def perform_training(
     :param dataset_class: the specified dataset
     :param num_training_loops: how many times to execute
     :param target_training_duration_ms: how long each execution should aim to last
+    :param gpu_allocation_mode: determines how GPUs are allocated. Options include "fixed", "moving-window", or "all".
+                                the "moving-window" allocation mode functions like round-robin when the window size is
+                                set to 1.
+    :param gpu_allocation_window_size: window size when using the "moving-window" GPU allocation mode.
+    :param gpu_ids: gpu device IDs to allocate when gpu_allocation_mode is specified as "fixed".
     :return:
     """
     kernel: DistributedKernel = await create_kernel(
-        remote_storage_hostname = "127.0.0.1:10000",
-        kernel_id = DefaultKernelId,
-        smr_port = 8000,
-        smr_node_id = 1,
-        smr_nodes = None,
-        smr_join = False,
-        should_register_with_local_daemon = False,
-        pod_name = "TestPod",
-        node_name = "TestNode",
-        debug_port = -1,
-        use_real_gpus = True,
-        remote_storage = "local",
-        smr_enabled = True,
+        remote_storage_hostname="127.0.0.1:10000",
+        kernel_id=DefaultKernelId,
+        smr_port=8000,
+        smr_node_id=1,
+        smr_nodes=None,
+        smr_join=False,
+        should_register_with_local_daemon=False,
+        pod_name="TestPod",
+        node_name="TestNode",
+        debug_port=-1,
+        use_real_gpus=True,
+        remote_storage="local",
+        smr_enabled=True,
     )
     assert kernel is not None
 
@@ -385,11 +403,18 @@ async def perform_training(
     assert num_training_loops > 0
     assert target_training_duration_ms > 0
 
+    # Default to device 0
+    if gpu_ids is None:
+        gpu_ids = [0]
+
+    # only used for "moving-window" allocation mode
+    device_ids_gen = moving_window(list(range(0, torch.cuda.device_count())), gpu_allocation_window_size)
+
     weights: Optional[torch.Tensor] = None
     for i in range(1, num_training_loops + 1):
         print(f'\n\n\nTraining Loop {i}/{num_training_loops} for Model "{model_class.model_name()}" on '
               f'Dataset "{dataset_class.dataset_name()}"\n\n')
-        execution_request: Dict[str, Any] = create_execution_request(message_id = str(uuid.uuid4()))
+        execution_request: Dict[str, Any] = create_execution_request(message_id=str(uuid.uuid4()))
         assert execution_request is not None
 
         # Update request metadata.
@@ -397,7 +422,18 @@ async def perform_training(
         assert metadata is not None
         metadata["model"] = model_class.model_name()
         metadata["dataset"] = dataset_class.dataset_name()
-        metadata["gpu_device_ids"] = [0]
+
+        if gpu_allocation_mode.lower().strip() == "fixed":
+            # Allocate a fixed, specified set of GPUs.
+            metadata["gpu_device_ids"] = gpu_ids
+        elif gpu_allocation_mode.lower().strip() == "round-robin":
+            # Cyclic moving window allocations.
+            metadata["gpu_device_ids"] = next(device_ids_gen)
+        elif gpu_allocation_mode.lower().strip() == "all":
+            # Allocate all GPUs.
+            metadata["gpu_device_ids"] = list(range(0, torch.cuda.device_count()))
+        else:
+            raise ValueError(f"Unknown or unsupported GPU allocation mode: '{gpu_allocation_mode}'")
 
         # Update request content (specifically the user-submitted code).
         content: Dict[str, Any] = execution_request["content"]
@@ -499,14 +535,16 @@ async def propose_lead_and_win(
     assert leading_future is not None
     assert leading_future.done() == False
 
-    propose(raftLog, proposedValue, election, execute_request_task, expected_num_values_proposed = expected_num_values_proposed)
+    propose(raftLog, proposedValue, election, execute_request_task,
+            expected_num_values_proposed=expected_num_values_proposed)
 
     # Call "value committed" handler again for the 2nd proposal.
     leadProposalFromNode2: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.LEAD),
                                                                            proposer_id=2,
                                                                            election_term=term_number,
                                                                            attempt_number=1)
-    propose(raftLog, leadProposalFromNode2, election, execute_request_task, expected_num_values_proposed = expected_num_values_proposed)
+    propose(raftLog, leadProposalFromNode2, election, execute_request_task,
+            expected_num_values_proposed=expected_num_values_proposed)
 
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
@@ -536,7 +574,8 @@ async def propose_lead_and_win(
                                                                                proposer_id=3,
                                                                                election_term=term_number,
                                                                                attempt_number=1)
-        propose(raftLog, leadProposalFromNode3, election, execute_request_task, expected_num_values_proposed = expected_num_values_proposed)
+        propose(raftLog, leadProposalFromNode3, election, execute_request_task,
+                expected_num_values_proposed=expected_num_values_proposed)
 
         try:
             proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
@@ -638,6 +677,7 @@ async def propose_lead_and_win(
 
     assert synchronizer.execution_count == term_number
 
+
 ##################################
 # Category: Computer Vision (CV)
 # Dataset: CIFAR-10
@@ -648,42 +688,48 @@ async def propose_lead_and_win(
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_resnet18_on_cifar10():
-    await perform_training(ResNet18, CIFAR10, target_training_duration_ms = 2000.0)
+    await perform_training(ResNet18, CIFAR10, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_vgg11_on_cifar10():
-    await perform_training(VGG11, CIFAR10, target_training_duration_ms = 2000.0)
+    await perform_training(VGG11, CIFAR10, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_vgg13_on_cifar10():
-    await perform_training(VGG13, CIFAR10, target_training_duration_ms = 2000.0)
+    await perform_training(VGG13, CIFAR10, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_vgg16_on_cifar10():
-    await perform_training(VGG16, CIFAR10, target_training_duration_ms = 2000.0)
+    await perform_training(VGG16, CIFAR10, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_vgg19_on_cifar10():
-    await perform_training(VGG19, CIFAR10, target_training_duration_ms = 2000.0)
+    await perform_training(VGG19, CIFAR10, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_inception_v3_on_cifar10():
-    await perform_training(InceptionV3, CIFAR10, target_training_duration_ms = 2000.0)
+    await perform_training(InceptionV3, CIFAR10, target_training_duration_ms=2000.0)
+
 
 ##################################
 # Category: Computer Vision (CV)
@@ -695,42 +741,48 @@ async def test_train_cv_inception_v3_on_cifar10():
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_resnet18_on_tiny_imagenet():
-    await perform_training(ResNet18, TinyImageNet, target_training_duration_ms = 2000.0)
+    await perform_training(ResNet18, TinyImageNet, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_vgg11_on_tiny_imagenet():
-    await perform_training(VGG11, TinyImageNet, target_training_duration_ms = 2000.0)
+    await perform_training(VGG11, TinyImageNet, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_vgg13_on_tiny_imagenet():
-    await perform_training(VGG13, TinyImageNet, target_training_duration_ms = 2000.0)
+    await perform_training(VGG13, TinyImageNet, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_vgg16_on_tiny_imagenet():
-    await perform_training(VGG16, TinyImageNet, target_training_duration_ms = 2000.0)
+    await perform_training(VGG16, TinyImageNet, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_vgg19_on_tiny_imagenet():
-    await perform_training(VGG19, TinyImageNet, target_training_duration_ms = 2000.0)
+    await perform_training(VGG19, TinyImageNet, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_cv_inception_v3_on_tiny_imagenet():
-    await perform_training(InceptionV3, TinyImageNet, target_training_duration_ms = 2000.0)
+    await perform_training(InceptionV3, TinyImageNet, target_training_duration_ms=2000.0)
+
 
 #######################################################
 # Category: Natural Language Processing (NLP)
@@ -742,14 +794,16 @@ async def test_train_cv_inception_v3_on_tiny_imagenet():
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_nlp_bert_on_truncated_imdb():
-    await perform_training(Bert, IMDbLargeMovieReviewTruncated, target_training_duration_ms = 2000.0)
+    await perform_training(Bert, IMDbLargeMovieReviewTruncated, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_nlp_gpt2_on_truncated_imdb():
-    await perform_training(GPT2, IMDbLargeMovieReviewTruncated, target_training_duration_ms = 2000.0)
+    await perform_training(GPT2, IMDbLargeMovieReviewTruncated, target_training_duration_ms=2000.0)
+
 
 #######################################################
 # Category: Natural Language Processing (NLP)
@@ -761,14 +815,16 @@ async def test_train_nlp_gpt2_on_truncated_imdb():
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_nlp_bert_on_cola():
-    await perform_training(Bert, CoLA, target_training_duration_ms = 2000.0)
+    await perform_training(Bert, CoLA, target_training_duration_ms=2000.0)
+
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_nlp_gpt2_on_cola():
-    await perform_training(GPT2, CoLA, target_training_duration_ms = 2000.0)
+    await perform_training(GPT2, CoLA, target_training_duration_ms=2000.0)
+
 
 ###################################################
 # Category: Speech
@@ -780,4 +836,4 @@ async def test_train_nlp_gpt2_on_cola():
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
 @pytest.mark.asyncio
 async def test_train_speech_deep_speech2_on_libri_speech():
-    await perform_training(DeepSpeech2, LibriSpeech, target_training_duration_ms = 2000.0)
+    await perform_training(DeepSpeech2, LibriSpeech, target_training_duration_ms=2000.0)
