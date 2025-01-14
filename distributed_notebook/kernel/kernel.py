@@ -3019,7 +3019,8 @@ class DistributedKernel(IPythonKernel):
         if target_training_duration_millis > 0:
             self.log.debug(
                 f"Explicitly instructed to train for {target_training_duration_millis:,} milliseconds. "
-                f"Discarding specified code. Will use custom training code instead."
+                f"Discarding specified code. Will use custom training code instead generated for model "
+                f"'{deep_learning_model_name}' and dataset '{dataset}'."
             )
             code = await self.get_custom_training_code(
                 target_training_duration_millis=target_training_duration_millis,

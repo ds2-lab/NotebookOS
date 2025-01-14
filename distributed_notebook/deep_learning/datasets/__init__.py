@@ -7,6 +7,12 @@ from distributed_notebook.deep_learning.configuration import ComputerVision, Spe
 
 from typing import Type, List, Dict
 
+ALL_DATASET_CLASSES: List[Type[CustomDataset]] = [
+    CIFAR10, TinyImageNet,
+    CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated,
+    LibriSpeech,
+]
+
 DatasetCategories: List[str] = [
     ComputerVision,
     NaturalLanguageProcessing,
