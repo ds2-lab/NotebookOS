@@ -13,7 +13,7 @@ import pytest_asyncio
 from ipykernel.control import ControlThread
 
 import distributed_notebook.sync.raft_log
-from distributed_notebook.kernel.kernel import DistributedKernel
+from distributed_notebook.kernel import DistributedKernel
 from distributed_notebook.sync import Synchronizer, RaftLog, SyncAST
 from distributed_notebook.sync.election import Election, ExecutionCompleted, AllReplicasProposedYield
 from distributed_notebook.sync.log import ElectionProposalKey, LeaderElectionProposal, \

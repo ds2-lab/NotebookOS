@@ -12,8 +12,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -698,7 +696,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 			c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 		}
 
-		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
+		return promise.Resolved(nil, err) // status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-out from %d nodes to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
@@ -821,7 +819,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 			c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 		}
 
-		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
+		return promise.Resolved(nil, err) // status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-in from %d nodes down to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
@@ -943,7 +941,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 			c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 		}
 
-		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
+		return promise.Resolved(nil, err) // status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-in from %d nodes to %d nodes has succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)

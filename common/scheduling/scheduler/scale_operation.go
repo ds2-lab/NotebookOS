@@ -381,13 +381,14 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 					op.log.Error("Failed to transition to the erred state because: %v", transitionError)
 				}
 
-				return nil, status.Error(codes.Internal, ctxErr.Error())
+				return nil, ctxErr // status.Error(codes.Internal, ctxErr.Error())
 			} else {
 				if transitionError := op.SetOperationErred(fmt.Errorf("operation timed-out"), false); transitionError != nil {
 					op.log.Error("Failed to transition to the erred state because: %v", transitionError)
 				}
 
-				return nil, status.Errorf(codes.Internal, "Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
+				return nil, fmt.Errorf("operation to adjust scale of virtual Docker nodes timed-out after %v", timeoutInterval)
+				// status.Errorf(codes.Internal, "Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
 			}
 		}
 	case notification := <-op.CoreLogicDoneChan: // Wait for the shell command above to finish.
@@ -400,7 +401,7 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 				}
 
 				// If there was an error, then we'll return the error.
-				return nil, status.Errorf(codes.Internal, err.Error())
+				return nil, err // status.Errorf(codes.Internal, err.Error())
 			} else {
 				op.log.Debug("%s %s has finished its core logic.", op.OperationType, op.OperationId)
 				break

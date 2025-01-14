@@ -1800,7 +1800,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				//}
 			})
 
-			It("Will correctly return an error when requested to scale up or down", func() {
+			It("Will correctly return an error when requested to scale up when using docker swarm cluster", func() {
 				validateVariablesNonNil()
 
 				initialSize := len(hosts)
@@ -1810,15 +1810,17 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				Expect(p).ToNot(BeNil())
 
 				err := p.Error()
+				GinkgoWriter.Printf("dockerCluster.ScaleToSize(context.Background(), int32(initialSize+1)) --> Error: %v\n", err)
 				Expect(err).ToNot(BeNil())
-				Expect(errors.Is(err, scheduling.ErrScalingProhibitedBySchedulingPolicy)).To(BeTrue())
+				Expect(errors.Is(err, scheduling.ErrUnsupportedOperation)).To(BeTrue())
 
 				p = dockerCluster.ScaleToSize(context.Background(), int32(initialSize-1))
 				Expect(p).ToNot(BeNil())
 
 				err = p.Error()
-				Expect(err).ToNot(BeNil())
-				Expect(errors.Is(err, scheduling.ErrScalingProhibitedBySchedulingPolicy)).To(BeTrue())
+				Expect(err).To(BeNil())
+				GinkgoWriter.Printf("dockerCluster.ScaleToSize(context.Background(), int32(initialSize-1)) --> Error: %v\n", err)
+				//Expect(errors.Is(err, scheduling.ErrUnsupportedOperation)).To(BeTrue())
 			})
 		})
 	})

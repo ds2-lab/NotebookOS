@@ -1,34 +1,34 @@
 import asyncio
-import os
+import builtins as builtin_mod
 import random
 import types
-from typing import Any, Optional
 import uuid
-
+from typing import Any, Optional, Type
 from unittest import mock
 
+from torch import Tensor
 from torch.nn import Parameter
 
 import distributed_notebook
-from distributed_notebook.datasets.base import CustomDataset
-from distributed_notebook.datasets.loader import load_dataset
-from distributed_notebook.models.loader import load_model
-from distributed_notebook.models.model import DeepLearningModel
-from distributed_notebook.models.simple_model import SimpleModel
-from distributed_notebook.sync import Synchronizer
-import builtins as builtin_mod
-import pandas as pd
-
 import distributed_notebook.sync
+from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
+    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2
+from distributed_notebook.deep_learning.datasets import ComputerVision, NaturalLanguageProcessing, Speech
+from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.datasets.loader import load_dataset
+from distributed_notebook.deep_learning.models.loader import load_model
+from distributed_notebook.deep_learning.models.model import DeepLearningModel
+from distributed_notebook.deep_learning.models.simple_model import SimpleModel
+from distributed_notebook.sync import Synchronizer
 from distributed_notebook.sync.checkpointing.local_checkpointer import LocalCheckpointer
-from distributed_notebook.sync.checkpointing.pointer import SyncPointer, ModelPointer, DatasetPointer
 from distributed_notebook.sync.checkpointing.local_checkpointer import (
     RemoteCheckpointer,
 )
+from distributed_notebook.sync.checkpointing.pointer import ModelPointer
+from distributed_notebook.sync.checkpointing.pointer import SyncPointer, DatasetPointer
 from distributed_notebook.sync.log import SynchronizedValue
-from distributed_notebook.sync.object import SyncObjectMeta, SyncObjectWrapper
+from distributed_notebook.sync.object import SyncObjectMeta
 from distributed_notebook.sync.raft_log import RaftLog
-from distributed_notebook.sync.referer import SyncReferer
 from distributed_notebook.sync.synchronizer import CHECKPOINT_AUTO
 
 example_data: dict[str, Any] = {
@@ -61,6 +61,7 @@ class DummyObject(object):
 def loaded_serialized_state_callback(state=None):
     pass
 
+
 def large_object_pointer_committed(
         pointer: SyncPointer,
         checkpointer: RemoteCheckpointer,
@@ -76,14 +77,21 @@ def large_object_pointer_committed(
             checkpointer.read_state_dicts(pointer)
         )
 
+        print(
+            f'Passing the following keyword arguments to load_model function for model "{pointer.large_object_name}":')
+        for k, v in constructor_args_dict.items():
+            print(f'\t"{k}": {v}', flush=True)
+
         return load_model(
             model_name=pointer.large_object_name,
             existing_model=existing_model,
-            out_features=pointer.out_features,
+            # commented out:
+            # out_features should/will be passed via the constructor_args_state dictionary.
+            # out_features=pointer.out_features,
             model_state_dict=model_state_dict,
             optimizer_state_dict=optimizer_state_dict,
             criterion_state_dict=criterion_state_dict,
-            **constructor_args_dict,
+            **constructor_args_dict,  # out_features should/will be in this dictionary.
         )
     else:
         print(f"SyncPointer of unknown or unsupported type committed: {pointer}")
@@ -149,15 +157,17 @@ def __get_synchronizer(
 
     return synchronizer
 
+
 def synchronize_variable(
         io_loop: asyncio.AbstractEventLoop,
         synchronizer: Synchronizer,
         raft_log: RaftLog,
         val: Any,
         meta: SyncObjectMeta,
-        key:str = "my_var",
+        key: str = "my_var",
 ):
     append_future = io_loop.create_future()
+
     async def mocked_append(rlog: RaftLog, val: SynchronizedValue):
         print(f"Mocked RaftLog::append called with RaftLog {rlog} and SynchronizedValue {val}")
         append_future.set_result(val)
@@ -181,7 +191,8 @@ def synchronize_variable(
     synchronized_key: SynchronizedValue = append_future.result()
     print(f"synchronized_key: {synchronized_key}")
 
-    synchronizer.change_handler(synchronized_key, restoring = False)
+    synchronizer.change_handler(synchronized_key, restoring=False)
+
 
 def test_sync_and_change_int_variable():
     """
@@ -207,11 +218,11 @@ def test_sync_and_change_int_variable():
     val: int = 3
 
     synchronize_variable(
-        io_loop = io_loop,
-        synchronizer = synchronizer,
-        raft_log = raft_log,
-        val = val,
-        meta = meta,
+        io_loop=io_loop,
+        synchronizer=synchronizer,
+        raft_log=raft_log,
+        val=val,
+        meta=meta,
     )
 
     assert "my_var" in synchronizer.global_ns
@@ -231,11 +242,11 @@ def test_sync_and_change_int_variable():
     next_val = val
     for _ in range(0, 10):
         synchronize_variable(
-            io_loop = io_loop,
-            synchronizer = synchronizer,
-            raft_log = raft_log,
-            val = next_val,
-            meta = meta,
+            io_loop=io_loop,
+            synchronizer=synchronizer,
+            raft_log=raft_log,
+            val=next_val,
+            meta=meta,
         )
 
         assert "my_var" in synchronizer.global_ns
@@ -278,11 +289,11 @@ def test_sync_and_change_dummy_object_variable():
     dummy_obj: DummyObject = DummyObject(lst=[1, 2, 3, 4])
 
     synchronize_variable(
-        io_loop = io_loop,
-        synchronizer = synchronizer,
-        raft_log = raft_log,
-        val = dummy_obj,
-        meta = meta,
+        io_loop=io_loop,
+        synchronizer=synchronizer,
+        raft_log=raft_log,
+        val=dummy_obj,
+        meta=meta,
     )
 
     assert "my_var" in synchronizer.global_ns
@@ -317,11 +328,11 @@ def test_sync_and_change_dummy_object_variable():
         dummy_obj.lst = lst
 
         synchronize_variable(
-            io_loop = io_loop,
-            synchronizer = synchronizer,
-            raft_log = raft_log,
-            val = dummy_obj,
-            meta = meta,
+            io_loop=io_loop,
+            synchronizer=synchronizer,
+            raft_log=raft_log,
+            val=dummy_obj,
+            meta=meta,
         )
 
         assert "my_var" in synchronizer.global_ns
@@ -352,6 +363,7 @@ def test_sync_and_change_dummy_object_variable():
         assert user_module.my_var.lst == test_lst
         assert user_module.my_var.lst == dummy_obj.lst
 
+
 def test_sync_and_change_deep_learning_model():
     """
     Test calling sync_key followed by change_handler for a DeepLearningModel variable.
@@ -379,11 +391,11 @@ def test_sync_and_change_deep_learning_model():
     initial_weights: float = 1.5
     initial_bias: float = 2.5
     model: SimpleModel = SimpleModel(
-        input_size = input_size,
-        out_features = 1,
-        created_for_first_time = True,
-        initial_weights = initial_weights,
-        initial_bias = initial_bias
+        input_size=input_size,
+        out_features=1,
+        created_for_first_time=True,
+        initial_weights=initial_weights,
+        initial_bias=initial_bias
     )
 
     weight: Parameter = model.model.fc.weight
@@ -395,12 +407,12 @@ def test_sync_and_change_deep_learning_model():
         assert b == initial_bias
 
     synchronize_variable(
-        io_loop = io_loop,
-        synchronizer = synchronizer,
-        raft_log = raft_log,
-        val = model,
-        meta = meta,
-        key = "model",
+        io_loop=io_loop,
+        synchronizer=synchronizer,
+        raft_log=raft_log,
+        val=model,
+        meta=meta,
+        key="model",
     )
 
     print(f"synchronizer.global_ns: {synchronizer.global_ns}")
@@ -459,12 +471,12 @@ def test_sync_and_change_deep_learning_model():
             assert b == updated_bias
 
         synchronize_variable(
-            io_loop = io_loop,
-            synchronizer = synchronizer,
-            raft_log = raft_log,
-            val = model,
-            meta = meta,
-            key = "model",
+            io_loop=io_loop,
+            synchronizer=synchronizer,
+            raft_log=raft_log,
+            val=model,
+            meta=meta,
+            key="model",
         )
 
         print(f"synchronizer.global_ns: {synchronizer.global_ns}")
@@ -534,11 +546,11 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
     initial_weights: float = 1.5
     initial_bias: float = 2.5
     model: SimpleModel = SimpleModel(
-        input_size = input_size,
-        out_features = 1,
-        created_for_first_time = True,
-        initial_weights = initial_weights,
-        initial_bias = initial_bias
+        input_size=input_size,
+        out_features=1,
+        created_for_first_time=True,
+        initial_weights=initial_weights,
+        initial_bias=initial_bias
     )
 
     weight: Parameter = model.model.fc.weight
@@ -550,12 +562,12 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
         assert b == initial_bias
 
     synchronize_variable(
-        io_loop = io_loop,
-        synchronizer = synchronizer,
-        raft_log = raft_log,
-        val = model,
-        meta = meta,
-        key = "model",
+        io_loop=io_loop,
+        synchronizer=synchronizer,
+        raft_log=raft_log,
+        val=model,
+        meta=meta,
+        key="model",
     )
 
     print(f"synchronizer.global_ns: {synchronizer.global_ns}")
@@ -595,7 +607,7 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
         assert b == initial_bias
 
     updated_weights: float = initial_weights
-    updated_bias: float = initial_weights
+    updated_bias: float = initial_bias
 
     # Do this for 10 iterations.
     for i in range(0, 10):
@@ -603,11 +615,11 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
         updated_bias = updated_bias + 1
 
         model = SimpleModel(
-            input_size = input_size,
-            out_features = 1,
-            created_for_first_time = True,
-            initial_weights = updated_weights,
-            initial_bias = updated_bias
+            input_size=input_size,
+            out_features=1,
+            created_for_first_time=True,
+            initial_weights=updated_weights,
+            initial_bias=updated_bias
         )
 
         weight: Parameter = model.model.fc.weight
@@ -619,12 +631,12 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
             assert b == updated_bias
 
         synchronize_variable(
-            io_loop = io_loop,
-            synchronizer = synchronizer,
-            raft_log = raft_log,
-            val = model,
-            meta = meta,
-            key = "model",
+            io_loop=io_loop,
+            synchronizer=synchronizer,
+            raft_log=raft_log,
+            val=model,
+            meta=meta,
+            key="model",
         )
 
         print(f"synchronizer.global_ns: {synchronizer.global_ns}")
@@ -662,3 +674,152 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
 
         for b in user_module.model.model.fc.bias.data:
             assert b == updated_bias
+
+
+def train_and_sync_model(
+        model_class: Type,
+        dataset_class: Type,
+        num_training_loops: int = 5,
+        target_training_duration_ms: float = 1000.0
+):
+    assert issubclass(model_class, DeepLearningModel)
+    assert issubclass(dataset_class, CustomDataset)
+
+    local_checkpointer: LocalCheckpointer = LocalCheckpointer()
+    assert local_checkpointer is not None
+
+    raft_log: RaftLog = __get_raft_log(local_checkpointer)
+    assert raft_log is not None
+
+    user_module, user_ns = prepare_user_module()
+    assert user_module is not None
+    assert user_ns is not None
+
+    synchronizer: Synchronizer = __get_synchronizer(
+        raft_log, user_module, local_checkpointer
+    )
+
+    meta = SyncObjectMeta(batch=(str(1)))
+
+    io_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
+
+    # Create the model.
+    model = model_class(created_for_first_time=True)
+    initial_weights: Tensor = model.output_layer.weight.clone()
+
+    # Create the dataset.
+    if dataset_class.category() == ComputerVision:
+        assert issubclass(model_class, ComputerVisionModel)
+        dataset = dataset_class(image_size=model_class.expected_image_size())
+    elif dataset_class.category() == NaturalLanguageProcessing:
+        assert issubclass(model_class, Bert) or issubclass(model_class, GPT2)
+        dataset = dataset_class(model_name=model_class.model_name())
+    else:
+        assert dataset_class.category() == Speech
+        dataset = dataset_class(train_split=LibriSpeech.test_clean, test_split=LibriSpeech.test_other)
+
+    synchronize_variable(
+        io_loop=io_loop,
+        synchronizer=synchronizer,
+        raft_log=raft_log,
+        val=model,
+        meta=meta,
+        key="model",
+    )
+
+    print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+    print(f"user_ns: {user_ns}")
+    print(f"user_module: {user_module}")
+
+    assert "model" in synchronizer.global_ns
+    assert "model" in user_ns
+    assert hasattr(user_module, "model")
+
+    assert isinstance(user_ns["model"], model_class)
+    assert isinstance(synchronizer.global_ns["model"], model_class)
+    assert isinstance(user_module.model, model_class)
+
+    weight: Parameter = user_ns["model"].output_layer.weight
+    assert weight.equal(initial_weights)
+
+    weight: Parameter = synchronizer.global_ns["model"].output_layer.weight
+    assert weight.equal(initial_weights)
+
+    weight: Parameter = user_module.model.output_layer.weight
+    assert weight.equal(initial_weights)
+
+    previous_weights: Tensor = initial_weights
+    for i in range(0, num_training_loops):
+        # Train for a while.
+        model.train(dataset.train_loader, target_training_duration_ms)
+
+        # Establish that the model's weights have changed.
+        updated_weights = model.output_layer.weight
+        assert previous_weights.equal(updated_weights) == False
+        previous_weights = updated_weights.clone()
+
+        synchronize_variable(
+            io_loop=io_loop,
+            synchronizer=synchronizer,
+            raft_log=raft_log,
+            val=model,
+            meta=meta,
+            key="model",
+        )
+
+        print(f"synchronizer.global_ns: {synchronizer.global_ns}")
+        print(f"user_ns: {user_ns}")
+        print(f"user_module: {user_module}")
+
+        assert "model" in synchronizer.global_ns
+        assert "model" in user_ns
+        assert hasattr(user_module, "model")
+
+        assert isinstance(user_ns["model"], model_class)
+        assert isinstance(synchronizer.global_ns["model"], model_class)
+        assert isinstance(user_module.model, model_class)
+
+        weight: Parameter = user_ns["model"].output_layer.weight
+        assert weight.equal(updated_weights)
+
+        weight: Parameter = synchronizer.global_ns["model"].output_layer.weight
+        assert weight.equal(updated_weights)
+
+        weight: Parameter = user_module.model.output_layer.weight
+        assert weight.equal(updated_weights)
+
+
+def test_train_and_sync_resnet18_on_cifar10():
+    train_and_sync_model(ResNet18, CIFAR10)
+
+
+def test_train_and_sync_vgg11_on_cifar10():
+    train_and_sync_model(VGG11, CIFAR10)
+
+
+def test_train_and_sync_vgg13_on_cifar10():
+    train_and_sync_model(VGG13, CIFAR10)
+
+
+def test_train_and_sync_vgg16_on_cifar10():
+    train_and_sync_model(VGG16, CIFAR10)
+
+
+def test_train_and_sync_vgg19_on_cifar10():
+    train_and_sync_model(VGG19, CIFAR10)
+
+
+def test_train_and_sync_inception_v3_on_cifar10():
+    train_and_sync_model(InceptionV3, CIFAR10)
+
+
+def test_train_and_sync_bert_on_imdb_truncated():
+    train_and_sync_model(Bert, IMDbLargeMovieReviewTruncated)
+
+
+def test_train_and_sync_gpt2_on_imdb_truncated():
+    train_and_sync_model(GPT2, IMDbLargeMovieReviewTruncated)
+
+
+def test_train_and_sync_deep_speech2_on_libri_speech():
+    train_and_sync_model(DeepSpeech2, LibriSpeech)

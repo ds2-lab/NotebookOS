@@ -34,7 +34,17 @@ dependencies = [
     "jsondiff",
     "numpy",
     "redis",
-    "boto3"
+    "boto3",
+    "omegaconf",
+    "torchmetrics",
+    "python-Levenshtein",
+    "wget",
+    "sox",
+    "librosa",
+    "torchdata==0.9.0",
+    "transformers",
+    "datasets",
+    "portalocker>=2.0.0"
 ]
 
 readme = "README.md"

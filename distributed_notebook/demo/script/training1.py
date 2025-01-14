@@ -1,1 +1,0 @@
-print(val_loader.__iter__().__next__())

@@ -1,5 +1,4 @@
 from distributed_notebook.kernel.train.trainer import Trainer
-from torch.profiler import profile, record_function, ProfilerActivity
 
 import gc
 import torch

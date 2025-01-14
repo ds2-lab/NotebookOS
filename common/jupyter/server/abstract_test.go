@@ -38,6 +38,10 @@ type wrappedServer struct {
 	id        string
 }
 
+func (s *wrappedServer) ID() string {
+	return s.id
+}
+
 // SourceKernelID implements SourceKernel.
 func (s *wrappedServer) SourceKernelID() string {
 	return s.id

@@ -1,0 +1,15 @@
+from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.datasets.cv.cifar10 import CIFAR10
+
+value_error_contents = "cannot load dataset because dataset description does not contain a '%s' key"
+
+def load_dataset(dataset_description: dict[str, str|bool|int])->CustomDataset:
+    if 'name' not in dataset_description:
+        raise ValueError(f"dataset description does not contain a '_name' field: {dataset_description}")
+
+    dataset_name:str = dataset_description['name']
+
+    if dataset_name == CIFAR10:
+        return CIFAR10(**dataset_description)
+
+    raise ValueError(f"unknown or unsupported dataset \"{dataset_name}\"")
