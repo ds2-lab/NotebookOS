@@ -15,7 +15,7 @@ from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VG
     ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2
 from distributed_notebook.deep_learning.datasets import ComputerVision, NaturalLanguageProcessing, Speech
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
-from distributed_notebook.deep_learning.datasets.loader import load_dataset
+from distributed_notebook.deep_learning.datasets import load_dataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel

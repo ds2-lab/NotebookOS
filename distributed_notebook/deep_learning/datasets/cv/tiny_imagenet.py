@@ -6,6 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
 from distributed_notebook.deep_learning.datasets.hugging_face import HuggingFaceDataset
+from distributed_notebook.deep_learning.datasets.loader import WrappedLoader
 
 from distributed_notebook.deep_learning.configuration import ComputerVision
 
@@ -92,8 +93,10 @@ class TinyImageNet(HuggingFaceDataset):
         self._test_dataset: _TinyImageNetDataset = _TinyImageNetDataset(self._dataset["valid"], transform=self.transform)
 
         # Prepare the data loaders
-        self._train_loader = DataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle)
-        self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=False)
+        self._train_loader = WrappedLoader(self._train_dataset, batch_size=batch_size,
+                                           shuffle=shuffle, dataset_name=self.dataset_name())
+        self._test_loader = WrappedLoader(self._test_dataset, batch_size=batch_size,
+                                          shuffle=False, dataset_name=self.dataset_name())
 
     @staticmethod
     def category() -> str:
@@ -149,11 +152,11 @@ class TinyImageNet(HuggingFaceDataset):
         return desc
 
     @property
-    def train_loader(self):
+    def train_loader(self)->Optional[DataLoader]:
         return self._train_loader
 
     @property
-    def test_loader(self):
+    def test_loader(self)->Optional[DataLoader]:
         return self._test_loader
 
     @property

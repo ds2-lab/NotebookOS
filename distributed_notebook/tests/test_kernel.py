@@ -3391,37 +3391,37 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_resnet18_on_cifar10():
-    await perform_training(ResNet18, CIFAR10, target_training_duration_ms = 1500.0)
+    await perform_training(ResNet18, CIFAR10, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_vgg11_on_cifar10():
-    await perform_training(VGG11, CIFAR10, target_training_duration_ms = 1500.0)
+    await perform_training(VGG11, CIFAR10, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_vgg13_on_cifar10():
-    await perform_training(VGG13, CIFAR10, target_training_duration_ms = 1500.0)
+    await perform_training(VGG13, CIFAR10, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_vgg16_on_cifar10():
-    await perform_training(VGG16, CIFAR10, target_training_duration_ms = 1500.0)
+    await perform_training(VGG16, CIFAR10, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_vgg19_on_cifar10():
-    await perform_training(VGG19, CIFAR10, target_training_duration_ms = 1500.0)
+    await perform_training(VGG19, CIFAR10, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_inception_v3_on_cifar10():
-    await perform_training(InceptionV3, CIFAR10, target_training_duration_ms = 1500.0)
+    await perform_training(InceptionV3, CIFAR10, target_training_duration_ms = 2250.0)
 
 ##################################
 # Category: Computer Vision (CV)
@@ -3432,37 +3432,37 @@ async def test_train_cv_inception_v3_on_cifar10():
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_resnet18_on_tiny_imagenet():
-    await perform_training(ResNet18, TinyImageNet, target_training_duration_ms = 1500.0)
+    await perform_training(ResNet18, TinyImageNet, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_vgg11_on_tiny_imagenet():
-    await perform_training(VGG11, TinyImageNet, target_training_duration_ms = 1500.0)
+    await perform_training(VGG11, TinyImageNet, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_vgg13_on_tiny_imagenet():
-    await perform_training(VGG13, TinyImageNet, target_training_duration_ms = 1500.0)
+    await perform_training(VGG13, TinyImageNet, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_vgg16_on_tiny_imagenet():
-    await perform_training(VGG16, TinyImageNet, target_training_duration_ms = 1500.0)
+    await perform_training(VGG16, TinyImageNet, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_vgg19_on_tiny_imagenet():
-    await perform_training(VGG19, TinyImageNet, target_training_duration_ms = 1500.0)
+    await perform_training(VGG19, TinyImageNet, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_cv_inception_v3_on_tiny_imagenet():
-    await perform_training(InceptionV3, TinyImageNet, target_training_duration_ms = 1500.0)
+    await perform_training(InceptionV3, TinyImageNet, target_training_duration_ms = 2250.0)
 
 #######################################################
 # Category: Natural Language Processing (NLP)
@@ -3473,13 +3473,13 @@ async def test_train_cv_inception_v3_on_tiny_imagenet():
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_nlp_bert_on_truncated_imdb():
-    await perform_training(Bert, IMDbLargeMovieReviewTruncated, target_training_duration_ms = 2000.0)
+    await perform_training(Bert, IMDbLargeMovieReviewTruncated, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_nlp_gpt2_on_truncated_imdb():
-    await perform_training(GPT2, IMDbLargeMovieReviewTruncated, target_training_duration_ms = 2000.0)
+    await perform_training(GPT2, IMDbLargeMovieReviewTruncated, target_training_duration_ms = 2250.0)
 
 #######################################################
 # Category: Natural Language Processing (NLP)
@@ -3490,13 +3490,13 @@ async def test_train_nlp_gpt2_on_truncated_imdb():
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_nlp_bert_on_cola():
-    await perform_training(Bert, CoLA, target_training_duration_ms = 2000.0)
+    await perform_training(Bert, CoLA, target_training_duration_ms = 2250.0)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_nlp_gpt2_on_cola():
-    await perform_training(GPT2, CoLA, target_training_duration_ms = 2000.0)
+    await perform_training(GPT2, CoLA, target_training_duration_ms = 2250.0)
 
 ###################################################
 # Category: Speech
@@ -3507,4 +3507,4 @@ async def test_train_nlp_gpt2_on_cola():
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_speech_deep_speech2_on_libri_speech():
-    await perform_training(DeepSpeech2, LibriSpeech, target_training_duration_ms = 2000.0)
+    await perform_training(DeepSpeech2, LibriSpeech, target_training_duration_ms = 2250.0)

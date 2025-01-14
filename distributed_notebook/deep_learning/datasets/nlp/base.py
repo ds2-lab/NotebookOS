@@ -6,10 +6,11 @@ from typing import Callable, Dict, Union, Optional, Any
 import torch.utils.data
 from datasets import load_from_disk
 
-from torch.utils.data import DataLoader, Dataset, TensorDataset, SequentialSampler, RandomSampler
+from torch.utils.data import Dataset, TensorDataset, SequentialSampler, RandomSampler, DataLoader
 
 from distributed_notebook.deep_learning.datasets.hugging_face import HuggingFaceDataset
 from distributed_notebook.deep_learning.datasets.nlp.util import get_tokenizer
+from distributed_notebook.deep_learning.datasets.loader import WrappedLoader
 
 
 class TextDataset(Dataset):
@@ -124,7 +125,8 @@ class NLPDataset(HuggingFaceDataset, ABC):
             self._tokenized_datasets['train']['labels']
         )
         train_sampler = RandomSampler(train_data)
-        self._train_loader = DataLoader(train_data, sampler=train_sampler, batch_size=batch_size)
+        self._train_loader = WrappedLoader(train_data, sampler=train_sampler,
+                                           batch_size=batch_size, dataset_name=self.dataset_name())
 
         # Create the DataLoader for our validation set
         validation_data = TensorDataset(
@@ -133,7 +135,8 @@ class NLPDataset(HuggingFaceDataset, ABC):
             self._tokenized_datasets['validation']['labels']
         )
         validation_sampler = SequentialSampler(validation_data)
-        self._test_loader = DataLoader(validation_data, sampler=validation_sampler, batch_size=batch_size)
+        self._test_loader = WrappedLoader(validation_data, sampler=validation_sampler,
+                                          batch_size=batch_size, dataset_name=self.dataset_name())
 
     @property
     def tokenization_start(self) -> float:
@@ -193,11 +196,11 @@ class NLPDataset(HuggingFaceDataset, ABC):
         return self._download_end
 
     @property
-    def train_loader(self):
+    def train_loader(self)->Optional[DataLoader]:
         return self._train_loader
 
     @property
-    def test_loader(self):
+    def test_loader(self)->Optional[DataLoader]:
         return self._test_loader
 
     @property

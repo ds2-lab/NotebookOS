@@ -9,7 +9,7 @@ from typing import Optional, Any, Dict
 import torch
 
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
-from distributed_notebook.deep_learning.datasets.loader import load_dataset
+from distributed_notebook.deep_learning.datasets import load_dataset
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 

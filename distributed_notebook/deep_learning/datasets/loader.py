@@ -1,31 +1,20 @@
-from typing import Optional, Type
-
-from distributed_notebook.deep_learning.datasets import ALL_DATASET_CLASSES
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from torch.utils.data import DataLoader
 
 value_error_contents = "cannot load dataset because dataset description does not contain a '%s' key"
 
-def load_dataset(dataset_description: dict[str, str|bool|int])->CustomDataset:
-    if 'name' not in dataset_description:
-        raise ValueError(f"dataset description does not contain a '_name' field: {dataset_description}")
 
-    dataset_name:str = dataset_description['name']
+class WrappedLoader(DataLoader):
+    """
+    Wrapper around torch.utils.data.DataLoader that also has a field for the name of the associated dataset.
+    """
+    def __init__(self, *args, **kwargs):
+        if "dataset_name" in kwargs:
+            self._dataset_name: str = kwargs.pop("dataset_name")
+        else:
+            self._dataset_name: str = "N/A"
 
-    cls: Optional[Type] = None
-    for dataset_class in ALL_DATASET_CLASSES:
-        assert issubclass(dataset_class, CustomDataset)
+        super().__init__(*args, **kwargs)
 
-        if dataset_name == dataset_class.dataset_name():
-            cls = dataset_class
-            break
-
-    if cls is None:
-        raise ValueError(f"unknown or unsupported dataset \"{dataset_name}\"")
-
-    assert issubclass(cls, CustomDataset)
-
-    print(f'Passing the following keyword arguments to constructor of dataset "{dataset_name}":', flush = True)
-    for k, v in dataset_description.items():
-        print(f'\t"{k}": {v}', flush = True)
-
-    return cls(**dataset_description)
+    @property
+    def dataset_name(self) -> str:
+        return self._dataset_name

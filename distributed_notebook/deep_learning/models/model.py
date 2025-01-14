@@ -373,7 +373,11 @@ class DeepLearningModel(ABC):
         num_minibatches_processed: int = 0
         num_samples_processed: int = 0
 
-        self.log.debug(f"Model '{self.name}' has started training.")
+        dataset_name: str = "N/A"
+        if hasattr(loader, "dataset_name"):
+            dataset_name = loader.dataset_name
+
+        self.log.debug(f"Model '{self.name}' has started training on dataset '{dataset_name}'.")
         while ((time.time() - start_time) * 1.0e3) < target_training_duration_millis:
             for elem in loader:
                 if len(elem) == 2:
@@ -429,6 +433,11 @@ class DeepLearningModel(ABC):
 
                     if attention_mask is not None:
                         del attention_mask
+
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    with torch.no_grad():
+                        torch.cuda.empty_cache()
 
                     torch.cuda.synchronize()
 

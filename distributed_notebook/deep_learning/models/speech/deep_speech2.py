@@ -249,6 +249,12 @@ class DeepSpeech2(DeepLearningModel):
                     del input_lengths
                     del label_lengths
 
+                    torch.cuda.empty_cache()
+                    with torch.no_grad():
+                        torch.cuda.empty_cache()
+
+                    gc.collect()
+
                     torch.cuda.synchronize()
 
                 if ((time.time() - start_time) * 1.0e3) > target_training_duration_millis:
@@ -277,9 +283,11 @@ class DeepSpeech2(DeepLearningModel):
             copy_start: float = time.time()
             self.to_cpu()
 
-            gc.collect()
+            torch.cuda.empty_cache()
             with torch.no_grad():
                 torch.cuda.empty_cache()
+
+            gc.collect()
             torch.cuda.synchronize()
             copy_end: float = time.time()
             copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
