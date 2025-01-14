@@ -46,6 +46,7 @@ ModelNameToCompatibleDatasetClasses: Dict[str, List[Type]] = {
 def get_model_and_dataset(
         deep_learning_model_name: Optional[str] = None,
         dataset_name: Optional[str] = None,
+        dataset_kwargs: Dict[str, Any] = None,
 ) -> Tuple[DeepLearningModel, CustomDataset]:
     """
     Assign a deep learning model to this kernel.
@@ -92,6 +93,8 @@ def get_model_and_dataset(
         assert issubclass(model_class, Bert) or issubclass(model_class, GPT2)
         dataset_arguments["model_name"] = model_class.model_name()
 
+    if dataset_kwargs is not None:
+        dataset_arguments.update(dataset_kwargs)
     dataset = dataset_class(**dataset_arguments)
 
     # If this particular dataset has a 'model_constructor_args' method, then call it.

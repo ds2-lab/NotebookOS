@@ -175,7 +175,6 @@ model = __download_func__(__model_pointer__, existing_model = {existing_model_co
 print("Downloaded the latest model parameters from remote storage for model of type '{model_name}'.", flush = True)
 """
 
-
 def get_create_model_and_dataset_code(deep_learning_model: str, dataset: str) -> str:
     return f"""# Create both the model and the dataset.
 print(f"Creating model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
