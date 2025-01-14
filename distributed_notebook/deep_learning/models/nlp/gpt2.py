@@ -74,7 +74,7 @@ class GPT2(DeepLearningModel):
 
     @property
     def constructor_args(self) -> dict[str, Any]:
-        base_args: dict[str, Any] = super(GPT2).constructor_args
+        base_args: dict[str, Any] = super().constructor_args
         args: dict[str, Any] = {
             "task": self.task
         }
