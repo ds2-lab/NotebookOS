@@ -2674,7 +2674,8 @@ class DistributedKernel(IPythonKernel):
         if deep_learning_model_name not in ModelClassesByName:
             raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
 
-        category: str = ModelNameToModelCategory[self.model.name]
+        model_class: Type[DeepLearningModel] = ModelClassesByName[deep_learning_model_name]
+        category: str = ModelNameToModelCategory[model_class.model_name()]
         if dataset_name is None or dataset_name == "":
             self.log.debug(f"No dataset specified. Will randomly select dataset from '{category}' category.")
 

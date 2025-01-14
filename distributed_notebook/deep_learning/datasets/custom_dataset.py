@@ -27,6 +27,11 @@ class CustomDataset(ABC):
     def category() -> str:
         pass
 
+    @staticmethod
+    @abstractmethod
+    def dataset_name()->str:
+        pass
+
     def _check_if_downloaded(self, filenames: list, base_folder: str) -> bool:
         """
         Check if the dataset is already downloaded.

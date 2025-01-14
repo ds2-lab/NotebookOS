@@ -1766,7 +1766,7 @@ class RaftLog(object):
 
         return future, resolve
 
-    def _is_leading(self, term) -> Tuple[bool, bool]:
+    def _is_leading(self, term: int) -> Tuple[bool, bool]:
         """Check if the current node is leading, return (wait, is_leading)"""
         if self._leader_term > term:
             return False, False
@@ -1883,7 +1883,7 @@ class RaftLog(object):
         self.log.debug(f'Serializing and appending "catch-up" value: {value}')
         await self._serialize_and_append_value(value)
 
-    async def _append_execution_end_notification(
+    async def append_execution_end_notification(
         self, notification: ExecutionCompleteNotification
     ):
         """
@@ -1892,6 +1892,8 @@ class RaftLog(object):
 
         This function exists so that we can mock proposals of ExecutionCompleteNotification objects specifically,
         rather than mocking the more generic _serialize_and_append_value method.
+
+        :param notification: the notification to be appended to the sync log
         """
         self.log.debug(
             f'Serializing and appending "execution complete" notification: {notification}'
@@ -3011,7 +3013,7 @@ class RaftLog(object):
             f"ExecutionCompleteNotification[Node={self._node_id},Term={term_number},"
             f"ValueID={notification.id}] now."
         )
-        await self._append_execution_end_notification(notification)
+        await self.append_execution_end_notification(notification)
         self.log.debug(
             "Finished serializing and appending "
             f"ExecutionCompleteNotification[Node={self._node_id},Term={term_number},"
