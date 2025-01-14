@@ -686,154 +686,17 @@ async def propose_lead_and_win(
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
+@pytest.mark.parametrize("model_class,dataset_class", [
+    (ResNet18, CIFAR10), (ResNet18, TinyImageNet),
+    (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
+    (VGG11, CIFAR10), (VGG11, TinyImageNet),
+    (VGG13, CIFAR10), (VGG13, TinyImageNet),
+    (VGG16, CIFAR10), (VGG16, TinyImageNet),
+    (VGG19, CIFAR10), (VGG19, TinyImageNet),
+    (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
+    (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
+    (DeepSpeech2, LibriSpeech)
+])
 @pytest.mark.asyncio
-async def test_train_cv_resnet18_on_cifar10():
-    await perform_training(ResNet18, CIFAR10, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_cv_vgg11_on_cifar10():
-    await perform_training(VGG11, CIFAR10, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_cv_vgg13_on_cifar10():
-    await perform_training(VGG13, CIFAR10, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_cv_vgg16_on_cifar10():
-    await perform_training(VGG16, CIFAR10, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_cv_vgg19_on_cifar10():
-    await perform_training(VGG19, CIFAR10, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_cv_inception_v3_on_cifar10():
-    await perform_training(InceptionV3, CIFAR10, target_training_duration_ms=2000.0)
-
-
-##################################
-# Category: Computer Vision (CV)
-# Dataset: Tiny ImageNet
-##################################
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_cv_resnet18_on_tiny_imagenet():
-    await perform_training(ResNet18, TinyImageNet, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_cv_vgg11_on_tiny_imagenet():
-    await perform_training(VGG11, TinyImageNet, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_cv_vgg13_on_tiny_imagenet():
-    await perform_training(VGG13, TinyImageNet, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_cv_vgg16_on_tiny_imagenet():
-    await perform_training(VGG16, TinyImageNet, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_cv_vgg19_on_tiny_imagenet():
-    await perform_training(VGG19, TinyImageNet, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_cv_inception_v3_on_tiny_imagenet():
-    await perform_training(InceptionV3, TinyImageNet, target_training_duration_ms=2000.0)
-
-
-#######################################################
-# Category: Natural Language Processing (NLP)
-# Dataset: IMDb Large Movie Review Dataset (Truncated)
-#######################################################
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_nlp_bert_on_truncated_imdb():
-    await perform_training(Bert, IMDbLargeMovieReviewTruncated, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_nlp_gpt2_on_truncated_imdb():
-    await perform_training(GPT2, IMDbLargeMovieReviewTruncated, target_training_duration_ms=2000.0)
-
-
-#######################################################
-# Category: Natural Language Processing (NLP)
-# Dataset: Corpus of Linguistic Acceptability (CoLA)
-#######################################################
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_nlp_bert_on_cola():
-    await perform_training(Bert, CoLA, target_training_duration_ms=2000.0)
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_nlp_gpt2_on_cola():
-    await perform_training(GPT2, CoLA, target_training_duration_ms=2000.0)
-
-
-###################################################
-# Category: Speech
-# Dataset: LibriSpeech
-###################################################
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., multiple GPUs)")
-@pytest.mark.asyncio
-async def test_train_speech_deep_speech2_on_libri_speech():
-    await perform_training(DeepSpeech2, LibriSpeech, target_training_duration_ms=2000.0)
+async def test_train_model_on_dataset(model_class: Type[DeepLearningModel], dataset_class: Type[CustomDataset]):
+    await perform_training(model_class, dataset_class, target_training_duration_ms=2000.0)
