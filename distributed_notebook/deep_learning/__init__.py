@@ -1,6 +1,5 @@
 import random
-from typing import Optional, Tuple, Any
-from typing import Type, List, Dict
+from typing import Optional, Tuple, Any, Type, List, Dict
 
 from distributed_notebook.deep_learning.configuration import ComputerVision, NaturalLanguageProcessing, Testing, Speech
 
@@ -61,10 +60,10 @@ def get_model_and_dataset(
     dataset_arguments: Dict[str, Any] = {}
 
     if deep_learning_model_name is None or deep_learning_model_name == "":
-        print("No deep learning model specified. Using default model (ResNet-18).")
+        print("No deep learning model specified. Using default model (ResNet-18).", flush = True)
         deep_learning_model_name = "ResNet-18"
-
-    print(f"Creating and assigning {deep_learning_model_name} model to this kernel.")
+    else:
+        print(f"Will be creating instance of '{deep_learning_model_name}' model.", flush = True)
 
     if deep_learning_model_name not in ModelClassesByName:
         raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
@@ -72,14 +71,15 @@ def get_model_and_dataset(
     model_class: Type[DeepLearningModel] = ModelClassesByName[deep_learning_model_name]
     category: str = ModelNameToModelCategory[model_class.model_name()]
     if dataset_name is None or dataset_name == "":
-        print(f"No dataset specified. Will randomly select dataset from '{category}' category.")
+        print(f"No dataset specified. Will randomly select dataset from '{category}' category.", flush = True)
 
-        datasets: List[str] = DatasetNamesByCategory[category]
-        dataset_name: str = random.choice(datasets)
+        dataset_names: List[str] = DatasetNamesByCategory[category]
+        dataset_name: str = random.choice(dataset_names)
 
-    print(f"Creating and assigning {dataset_name} dataset to this kernel.")
+    print(f"Creating and assigning {dataset_name} dataset to this kernel.", flush = True)
 
     if dataset_name not in DatasetClassesByName:
+        print(f'Unknown or unsupported dataset specified: "{dataset_name}"', flush = True)
         raise ValueError(f'Unknown or unsupported dataset specified: "{dataset_name}"')
 
     dataset_class: Type = DatasetClassesByName[dataset_name]
