@@ -55,6 +55,7 @@ from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer im
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
+from ..deep_learning import DatasetClassesByName, ModelClassesByName
 
 import_torch_start: float = time.time()
 try:
@@ -175,8 +176,8 @@ print("Downloaded the latest model parameters from remote storage for model of t
 """
 
 
-def get_creation_code(deep_learning_model: str, dataset: str) -> str:
-    return f"""# Create the model.
+def get_create_model_and_dataset_code(deep_learning_model: str, dataset: str) -> str:
+    return f"""# Create both the model and the dataset.
 print(f"Creating model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
 from distributed_notebook.deep_learning import get_model_and_dataset
 _model, _dataset = get_model_and_dataset(deep_learning_model_name = "{deep_learning_model}", dataset_name = "{dataset}")
@@ -185,6 +186,14 @@ dataset = _dataset
 print(f"Created model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
 """
 
+def get_create_dataset_only_code(existing_model_name: str, dataset: str) -> str:
+    return f"""# Create just the dataset.
+print(f"Creating dataset ('{dataset}') for the first time.", flush = True)
+from distributed_notebook.deep_learning import get_model_and_dataset
+_, _dataset = get_model_and_dataset(deep_learning_model_name = "{existing_model_name}", dataset_name = "{dataset}")
+dataset = _dataset
+print(f"Created dataset ('{dataset}') for the first time.", flush = True)
+"""
 
 def get_skipped_creation_code() -> str:
     return """print(f"Model ('{model.name}') and dataset ('{dataset.name}') already exist.", flush = True)\n"""
@@ -2715,7 +2724,7 @@ class DistributedKernel(IPythonKernel):
             target_training_duration_millis: float,
             gpu_device_ids: list[int] = None,
             deep_learning_model: Optional[str] = None,
-            dataset: Optional[str] = None,
+            dataset_name: Optional[str] = None,
     ) -> str:
         """
         Generate the Python code that will be executed by this Jupyter kernel.
@@ -2725,11 +2734,12 @@ class DistributedKernel(IPythonKernel):
         :param target_training_duration_millis: how long the training should last in milliseconds.
         :param gpu_device_ids: the GPU device IDs assigned to this kernel.
         :param deep_learning_model: the name of the deep learning model to be used during the training.
-        :param dataset: the name of the dataset to be used during the training.
+        :param dataset_name: the name of the dataset to be used during the training.
 
         :return: the generated Python code to be executed by this Jupyter kernel.
         """
         if not self.use_real_gpus:
+            self.log.debug("We're not using real GPUs. Will spoof DL training using time.sleep().")
             return f"import time\ntime.sleep({target_training_duration_millis / 1.0e3})"
 
         if gpu_device_ids is None or len(gpu_device_ids) == 0:
@@ -2744,28 +2754,57 @@ class DistributedKernel(IPythonKernel):
         async with self._user_ns_lock:
             existing_model: Optional[DeepLearningModel | Any] = self.shell.user_ns.get("model", None)
 
+            # Case 1: there is no "model" variable in the user namespace.
+            # In this case, we'll create both the model and the dataset (even if the dataset already exists).
             if existing_model is None:
-                creation_code = get_creation_code(deep_learning_model, dataset)
+                self.log.debug(f'No "model" variable in user namespace. '
+                               f'Will create new "{deep_learning_model}" model variable and '
+                               f'new "{dataset_name}" dataset variable.')
+                creation_code = get_create_model_and_dataset_code(deep_learning_model, dataset_name)
                 self._get_creation_code_called += 1
 
-            # Check if there's already a 'model' variable that is NOT of type DeepLearningModel (or a
-            # subclass of DeepLearningModel). If so, we'll just overwrite the existing model variable.
-            if existing_model is not None and not isinstance(existing_model, DeepLearningModel):
+            # Case 2: there IS an existing model variable, but it's not of the correct type.
+            # In this case, we recreate the model variable so that it is of the correct type.
+            # We also (re)create the dataset variable (even if it already exists).
+            if existing_model is not None and not isinstance(existing_model, ModelClassesByName[deep_learning_model]):
                 self.log.warning(
                     f"Found existing variable 'model' in shell user namespace of type "
                     f"'{type(existing_model).__name__}'. Variable will be overwritten with "
-                    f"DeepLearningModel '{deep_learning_model}'."
+                    f"variable for '{deep_learning_model}' model of type '{ModelClassesByName[deep_learning_model].__name__}'."
                 )
-                existing_model = None  # So that we pass None for the existing_model argument below.
+                existing_model = None
+                creation_code = get_create_model_and_dataset_code(deep_learning_model, dataset_name)
+                self._get_creation_code_called += 1
 
+            # Case 3: there is already an existing "model" variable of the correct type in the user namespace.
+            #
             # If existing_model is non-null at this point, then it is an instance of either
             # DeepLearningModel or a subclass of DeepLearningModel.
-            if existing_model is not None:
+            if existing_model is not None and isinstance(existing_model, ModelClassesByName[deep_learning_model]):
+                self.log.debug(f'"model" variable found in user namespace. '
+                               f'Will reuse existing "{deep_learning_model}" model variable.')
+
                 self.shell.user_ns["__existing_model__"] = existing_model
                 existing_model_code = "__existing_model__"
-                creation_code = get_skipped_creation_code()
 
+                # Case 3a: there was already a "model" variable of the correct type, but no dataset variable.
+                # In this case, we'll JUST create the dataset variable, and we'll re-use the existing model variable.
+                dataset: Optional[CustomDataset] = self.shell.user_ns.get("dataset")
+                if dataset is None or not isinstance(dataset, DatasetClassesByName[dataset_name]):
+                    self.log.debug("Dataset variable either does not exist or is for the wrong type of dataset.")
+                    self.log.debug(f'Will create new "dataset" variable for "{dataset_name}" dataset.')
+                    creation_code = get_create_dataset_only_code(deep_learning_model, dataset_name)
+                else:
+                    # Case 3b: the dataset variable also already existed, so we'll not create any new variables.
+                    creation_code = get_skipped_creation_code()
+
+            # Case 3 continued: if SMR is enabled and there are multiple replicas, then we'll
+            # download the latest model state from remote storage to ensure it is up to date.
+            #
+            # TODO: Will this result in the previous leader unnecessarily downloading the latest state?
             if self.smr_enabled and self.num_replicas > 1 and existing_model is not None:
+                self.log.debug(f'Will retrieve latest state for "{deep_learning_model}" model from remote storage.')
+
                 # Inject the __download_func__ and __model_pointer__ variables into the user namespace.
                 self.shell.user_ns["__download_func__"] = self.__load_model_from_remote_storage
                 self.shell.user_ns["__model_pointer__"] = ModelPointer(
@@ -3026,7 +3065,7 @@ class DistributedKernel(IPythonKernel):
                 target_training_duration_millis=target_training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
                 deep_learning_model=deep_learning_model_name,
-                dataset=dataset,
+                dataset_name=dataset,
             )
             performed_gpu_training = True
         elif "training_duration_millis = " in code:
@@ -3039,7 +3078,7 @@ class DistributedKernel(IPythonKernel):
                 target_training_duration_millis=target_training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
                 deep_learning_model=deep_learning_model_name,
-                dataset=dataset,
+                dataset_name=dataset,
             )
             performed_gpu_training = True
         else:

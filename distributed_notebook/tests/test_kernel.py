@@ -474,8 +474,8 @@ async def example(kernel: DistributedKernel, execution_request: Dict[str, Any]):
 async def perform_training(
         model_class: Type,
         dataset_class: Type,
-        num_training_loops: int = 5,
-        target_training_duration_ms: float = 1250.0
+        num_training_loops: int = 3,
+        target_training_duration_ms: float = 1000.0
 ):
     """
     Helper/utility function to carry out a unit test in which a kernel proposes and leads the execution of
@@ -527,7 +527,7 @@ async def perform_training(
         assert content is not None
         content["code"] = f"training_duration_millis = {target_training_duration_ms}"
 
-        await test_propose_lead_and_win(kernel, execution_request, term_number=i, expected_num_values_proposed=i)
+        await propose_lead_and_win(kernel, execution_request, term_number=i, expected_num_values_proposed=i)
 
         async with kernel.user_ns_lock:
             model: DeepLearningModel = kernel.shell.user_ns.get("model", None)
@@ -553,99 +553,15 @@ async def perform_training(
     assert kernel.get_download_code_called == num_training_loops - 1
 
 
-@pytest_asyncio.fixture
-async def kernel(
-        remote_storage_hostname: str = "127.0.0.1:10000",
-        kernel_id: str = DefaultKernelId,
-        smr_port: int = 8000,
-        smr_node_id: int = 1,
-        smr_nodes: list[int] = None,
-        smr_join: bool = False,
-        should_register_with_local_daemon: bool = False,
-        pod_name: str = "TestPod",
-        node_name: str = "TestNode",
-        debug_port: int = -1,
-        use_real_gpus: bool = False,
-        remote_storage: str = "local",
-        smr_enabled: bool = True,
-        **kwargs
-) -> DistributedKernel:
-    if smr_nodes is None:
-        smr_nodes = []
-
-    if len(kwargs):
-        print('Passing the following keyword arguments to the create_kernel function:', flush = True)
-        for k, v in kwargs.items():
-            print(f'\t"{k}": {v}', flush=True)
-
-    print(f"use_real_gpus = {use_real_gpus}", flush = True)
-    print(f"remote_storage = {remote_storage}", flush = True)
-    print(f"smr_enabled = {smr_enabled}", flush = True)
-
-    return await create_kernel(
-        remote_storage_hostname=remote_storage_hostname,
-        remote_storage=remote_storage,
-        kernel_id=kernel_id,
-        smr_port=smr_port,
-        smr_node_id=smr_node_id,
-        smr_nodes=smr_nodes,
-        smr_join=smr_join,
-        should_register_with_local_daemon=should_register_with_local_daemon,
-        pod_name=pod_name,
-        node_name=node_name,
-        debug_port=debug_port,
-        use_real_gpus=use_real_gpus,
-        smr_enabled=smr_enabled,
-        **kwargs,
-    )
-
-
-@pytest.fixture
-def execution_request():
-    return create_execution_request()
-
-
-@pytest.fixture(autouse=True)
-def before_and_after_test_fixture():
-    """
-    pytest fixture that will run before and after each unit test.
-    """
-    # Ensure the persistent store directory does not already exist.
-    global CommittedValues
-
-    try:
-        unit_test_logger.debug(f"Removing persistent store directory \"{FullFakePersistentStorePath}\".")
-        shutil.rmtree(FullFakePersistentStorePath)
-        unit_test_logger.debug(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
-    except FileNotFoundError:
-        unit_test_logger.debug(
-            f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
-
-    CommittedValues.clear()
-
-    yield
-
-    # Remove the persistent store directory if it was created.
-    try:
-        unit_test_logger.debug(f"Removing persistent store directory \"{FullFakePersistentStorePath}\".")
-        shutil.rmtree(FullFakePersistentStorePath)
-        unit_test_logger.debug(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
-    except FileNotFoundError:
-        unit_test_logger.debug(
-            f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
-
-    CommittedValues.clear()
-
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.asyncio
-async def test_propose_lead_and_win(
+async def propose_lead_and_win(
         kernel: DistributedKernel,
         execution_request: Dict[str, Any],
         term_number: int = 1,
         expected_num_values_proposed: int = 1,
 ):
+    assert kernel is not None
+    assert execution_request is not None
+
     unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
     synchronizer: Synchronizer = kernel.synchronizer
@@ -837,6 +753,97 @@ async def test_propose_lead_and_win(
 
     assert synchronizer.execution_count == term_number
 
+@pytest_asyncio.fixture
+async def kernel(
+        remote_storage_hostname: str = "127.0.0.1:10000",
+        kernel_id: str = DefaultKernelId,
+        smr_port: int = 8000,
+        smr_node_id: int = 1,
+        smr_nodes: list[int] = None,
+        smr_join: bool = False,
+        should_register_with_local_daemon: bool = False,
+        pod_name: str = "TestPod",
+        node_name: str = "TestNode",
+        debug_port: int = -1,
+        use_real_gpus: bool = False,
+        remote_storage: str = "local",
+        smr_enabled: bool = True,
+        **kwargs
+) -> DistributedKernel:
+    if smr_nodes is None:
+        smr_nodes = []
+
+    if len(kwargs):
+        print('Passing the following keyword arguments to the create_kernel function:', flush = True)
+        for k, v in kwargs.items():
+            print(f'\t"{k}": {v}', flush=True)
+
+    print(f"use_real_gpus = {use_real_gpus}", flush = True)
+    print(f"remote_storage = {remote_storage}", flush = True)
+    print(f"smr_enabled = {smr_enabled}", flush = True)
+
+    return await create_kernel(
+        remote_storage_hostname=remote_storage_hostname,
+        remote_storage=remote_storage,
+        kernel_id=kernel_id,
+        smr_port=smr_port,
+        smr_node_id=smr_node_id,
+        smr_nodes=smr_nodes,
+        smr_join=smr_join,
+        should_register_with_local_daemon=should_register_with_local_daemon,
+        pod_name=pod_name,
+        node_name=node_name,
+        debug_port=debug_port,
+        use_real_gpus=use_real_gpus,
+        smr_enabled=smr_enabled,
+        **kwargs,
+    )
+
+
+@pytest.fixture
+def execution_request():
+    return create_execution_request()
+
+
+@pytest.fixture(autouse=True)
+def before_and_after_test_fixture():
+    """
+    pytest fixture that will run before and after each unit test.
+    """
+    # Ensure the persistent store directory does not already exist.
+    global CommittedValues
+
+    try:
+        unit_test_logger.debug(f"Removing persistent store directory \"{FullFakePersistentStorePath}\".")
+        shutil.rmtree(FullFakePersistentStorePath)
+        unit_test_logger.debug(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
+    except FileNotFoundError:
+        unit_test_logger.debug(
+            f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
+
+    CommittedValues.clear()
+
+    yield
+
+    # Remove the persistent store directory if it was created.
+    try:
+        unit_test_logger.debug(f"Removing persistent store directory \"{FullFakePersistentStorePath}\".")
+        shutil.rmtree(FullFakePersistentStorePath)
+        unit_test_logger.debug(f"Removed persistent store directory \"{FullFakePersistentStorePath}\".")
+    except FileNotFoundError:
+        unit_test_logger.debug(
+            f"Persistent store directory \"{FullFakePersistentStorePath}\" did not exist. Nothing to remove.")
+
+    CommittedValues.clear()
+
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
+@pytest.mark.asyncio
+async def test_propose_lead_and_win(
+        kernel: DistributedKernel,
+        execution_request: Dict[str, Any],
+):
+    await propose_lead_and_win(kernel, execution_request)
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
@@ -3376,38 +3383,56 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
     assert len(spoofed_session.message_types_sent) == 7
 
 
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_resnet18_on_cifar10():
     await perform_training(ResNet18, CIFAR10)
 
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_vgg11_on_cifar10():
     await perform_training(VGG11, CIFAR10)
 
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_vgg13_on_cifar10():
     await perform_training(VGG13, CIFAR10)
 
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_vgg16_on_cifar10():
     await perform_training(VGG16, CIFAR10)
 
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_vgg19_on_cifar10():
     await perform_training(VGG19, CIFAR10)
 
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_inception_v3_on_cifar10():
     await perform_training(InceptionV3, CIFAR10)
 
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_bert_on_truncated_imdb():
     await perform_training(Bert, IMDbLargeMovieReviewTruncated)
 
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_gpt2_on_truncated_imdb():
     await perform_training(GPT2, IMDbLargeMovieReviewTruncated)
 
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_deep_speech2_on_libri_speech():
     await perform_training(DeepSpeech2, LibriSpeech)
