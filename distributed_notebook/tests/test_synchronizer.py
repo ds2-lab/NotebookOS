@@ -745,7 +745,7 @@ def train_and_sync_model(
     weight: Parameter = synchronizer.global_ns["model"].output_layer.weight
     assert weight.equal(initial_weights)
 
-    weight: Parameter = user_module.output_layer.weight
+    weight: Parameter = user_module.model.output_layer.weight
     assert weight.equal(initial_weights)
 
     previous_weights: Tensor = initial_weights
