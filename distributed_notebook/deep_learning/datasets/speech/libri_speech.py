@@ -154,16 +154,19 @@ class LibriSpeech(CustomDataset):
     ):
         assert folder_in_archive is not None
 
+        super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers)
+
         if train_split is not None and train_split not in LibriSpeech._train_splits[0]:
-            print(f'[WARNING] Specified training split "{train_split}" is technically NOT a training split.')
+            self.log.debug(f'[WARNING] Specified training split "{train_split}" is technically NOT a training split.')
 
         if test_split is not None and test_split not in LibriSpeech._test_splits[0]:
-            print(f'[WARNING] Specified test/validation split "{test_split}" is technically NOT a test/validation split.')
+            self.log.debug(f'[WARNING] Specified test/validation split "{test_split}" is technically NOT a test/validation split.')
 
         if train_split is None and test_split is None:
             raise ValueError("At least one of the training split and test split should be non-null.")
 
-        super().__init__(root_dir=root_dir, shuffle=shuffle, num_workers=num_workers)
+        self.log.debug(f'Creating root directory for {self.name} dataset (if it does not already exist): "{root_dir}"')
+        os.makedirs(root_dir, 0o750, exist_ok=True)
 
         self._train_split: Optional[str] = train_split
         self._test_split: Optional[str] = test_split
@@ -184,14 +187,14 @@ class LibriSpeech(CustomDataset):
             else:
                 self._test_dataset: Optional[datasets.LIBRISPEECH] = None
 
-            print(f"The {self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
+            self.log.debug(f"The {self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
 
             # No RuntimeError. The dataset must have already been downloaded.
             self._dataset_already_downloaded: bool = True
         except RuntimeError:
             self._dataset_already_downloaded: bool = False
 
-            print(f'Downloading {self.name} dataset to root directory "{root_dir}" now...')
+            self.log.debug(f'Downloading {self.name} dataset to root directory "{root_dir}" now...')
 
             self._download_start = time.time()
 
@@ -210,7 +213,7 @@ class LibriSpeech(CustomDataset):
             self._download_end = time.time()
             self._download_duration_sec = self._download_end - self._download_start
 
-            print(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+            self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
 
         if self._train_dataset is not None:
             self._train_loader: Optional[DataLoader] = DataLoader(

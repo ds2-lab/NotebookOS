@@ -18,7 +18,7 @@ def test_instantiate():
     simple_module: SimpleModule = model.model
     assert simple_module is not None
     assert isinstance(simple_module, SimpleModule)
-    assert simple_module.fc.in_features == input_size
+    assert simple_module.fc.num_features == input_size
     assert simple_module.fc.out_features == out_features
 
     weight: Parameter = simple_module.fc.weight

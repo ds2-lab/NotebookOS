@@ -20,7 +20,7 @@ class DeepSpeech(DeepLearningModel):
 
     def __init__(
             self,
-            in_features: int = 128,
+            num_features: int = 128,
             out_features: int = 29,
             optimizer: Optional[nn.Module] = None,
             optimizer_state_dict: Optional[Dict[str, Any]] = None,
@@ -41,9 +41,9 @@ class DeepSpeech(DeepLearningModel):
             **kwargs,
         )
 
-        self._in_features: int = in_features
+        self._num_features: int = num_features
 
-        self.model = models.DeepSpeech(n_feature = in_features, n_class = out_features)
+        self.model = models.DeepSpeech(n_feature = num_features, n_class = out_features)
         self._output_layer: nn.Module = self.model.out
 
         if model_state_dict is not None:
@@ -173,8 +173,8 @@ class DeepSpeech(DeepLearningModel):
         return actual_training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
     @property
-    def in_features(self) -> int:
-        return self._in_features
+    def num_features(self) -> int:
+        return self._num_features
 
     @property
     def name(self) -> str:
@@ -186,9 +186,9 @@ class DeepSpeech(DeepLearningModel):
 
     @property
     def constructor_args(self) -> dict[str, Any]:
-        base_args: dict[str, Any] = super("Deep Speech v1").constructor_args
+        base_args: dict[str, Any] = super().constructor_args
         args: dict[str, Any] = {
-            "in_features": self.in_features
+            "num_features": self.num_features
         }
         base_args.update(args)
         return base_args

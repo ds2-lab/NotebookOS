@@ -283,8 +283,8 @@ class DeepSpeech2(DeepLearningModel):
         return actual_training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
     @property
-    def in_features(self) -> int:
-        return self._in_features
+    def num_features(self) -> int:
+        return self._num_features
 
     @property
     def name(self) -> str:
@@ -300,9 +300,9 @@ class DeepSpeech2(DeepLearningModel):
 
     @property
     def constructor_args(self) -> dict[str, Any]:
-        base_args: dict[str, Any] = super("Deep Speech v1").constructor_args
+        base_args: dict[str, Any] = super().constructor_args
         args: dict[str, Any] = {
-            "in_features": self.in_features
+            "num_features": self.num_features
         }
         base_args.update(args)
         return base_args
