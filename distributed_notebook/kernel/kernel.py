@@ -179,7 +179,9 @@ def get_creation_code(deep_learning_model: str, dataset: str) -> str:
     return f"""# Create the model.
 print(f"Creating model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
 from distributed_notebook.deep_learning import get_model_and_dataset
-model, dataset = get_model_and_dataset(deep_learning_model_name = "{deep_learning_model}", dataset_name = "{dataset}")
+_model, _dataset = get_model_and_dataset(deep_learning_model_name = "{deep_learning_model}", dataset_name = "{dataset}")
+model = _model
+dataset = _dataset
 print(f"Created model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
 """
 
@@ -411,6 +413,29 @@ class DistributedKernel(IPythonKernel):
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
 
+        # Keep track of how many times we generate the 'download' code when generating custom DL training code.
+        self._get_download_code_called: int = 0
+
+        # Keep track of how many times we generate the 'create model for the first time' code when generating
+        # custom DL training code.
+        self._get_creation_code_called: int = 0
+
+        if "remote_storage" in kwargs:
+            kwarg_remote_storage: str = kwargs["remote_storage"]
+            self.log.warning(f'Overwriting configured remote checkpointer "{self.remote_storage}" '
+                             f'with keyword argument "{kwarg_remote_storage}"')
+            self.remote_storage = kwarg_remote_storage
+        else:
+            self.log.debug(f"Using remote storage '{self.remote_storage}', hostname='{self.remote_storage_hostname}'")
+
+        if "smr_enabled" in kwargs:
+            kwargs_smr_enabled: Bool = kwargs["smr_enabled"]
+            self.log.warning(f'Overwriting configured "smr_enabled" flag ({self.smr_enabled}) '
+                             f'with keyword argument {kwargs_smr_enabled}')
+            self.smr_enabled = kwargs_smr_enabled
+        else:
+            self.log.debug(f"smr_enabled={self.smr_enabled}")
+
         # Committed DatasetPointers that we encounter while catching-up after a migration.
         # Once we're caught-up, we download all of these.
         #
@@ -516,7 +541,7 @@ class DistributedKernel(IPythonKernel):
 
         if "local_tcp_server_port" in kwargs:
             self.log.warning(
-                f"Overriding default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
+                f"Overwriting default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
                 f"value from keyword arguments: {kwargs['local_tcp_server_port']}"
             )
             self.local_tcp_server_port = kwargs["local_tcp_server_port"]
@@ -1874,15 +1899,11 @@ class DistributedKernel(IPythonKernel):
             model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
 
         if model is None:
-            self.log.debug(
-                "Did not find any objects of type DeepLearningModel in the user namespace."
-            )
+            self.log.debug("Did not find any objects of type DeepLearningModel in the user namespace.")
             return
 
         if model.requires_checkpointing:
-            self.log.debug(
-                f"Found model '{model.name}' in user namespace; however, model does not require checkpointing."
-            )
+            self.log.debug(f"Found model '{model.name}' in user namespace; however, model doesn't require checkpointing.")
             return
 
         model_pointer: ModelPointer = ModelPointer(
@@ -1892,19 +1913,14 @@ class DistributedKernel(IPythonKernel):
             proposer_id=self.smr_node_id,
         )
 
-        self.log.debug(
-            f"Checkpointing updated state of model '{model.name}' (on critical path)"
-        )
+        self.log.debug(f"Checkpointing updated state of model '{model.name}' (on critical path)")
 
         st: float = time.time()
         await self._remote_checkpointer.write_state_dicts_async(model_pointer)
         et: float = time.time()
         duration_ms: float = (et - st) * 1.0e3
 
-        if (
-                self.prometheus_enabled
-                and getattr(self, "remote_storage_write_latency_milliseconds") is not None
-        ):
+        if self.prometheus_enabled and getattr(self, "remote_storage_write_latency_milliseconds") is not None:
             self.remote_storage_write_latency_milliseconds.labels(
                 session_id=self.kernel_id, workload_id=self.workload_id
             ).observe(duration_ms * 1e3)
@@ -1915,9 +1931,7 @@ class DistributedKernel(IPythonKernel):
         self.current_execution_stats.upload_model_start_unix_millis = st
         self.current_execution_stats.upload_model_end_unix_millis = et
 
-        self.log.debug(
-            f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path)."
-        )
+        self.log.debug(f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path).")
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -2681,6 +2695,21 @@ class DistributedKernel(IPythonKernel):
                     copy_data_to_gpu_ms * 1.0e3
             )  # it's already in milliseconds
 
+    @property
+    def get_creation_code_called(self) -> int:
+        """
+        :return: how many times we generate the 'create model for the first time' code when generating
+                 custom DL training code.
+        """
+        return self._get_creation_code_called
+
+    @property
+    def get_download_code_called(self) -> int:
+        """
+        :return: how many times we generate the 'download' code when generating custom DL training code.
+        """
+        return self._get_download_code_called
+
     async def get_custom_training_code(
             self,
             target_training_duration_millis: float,
@@ -2689,7 +2718,7 @@ class DistributedKernel(IPythonKernel):
             dataset: Optional[str] = None,
     ) -> str:
         """
-        Generate the Python code that will be executed by this Juypter kernel.
+        Generate the Python code that will be executed by this Jupyter kernel.
 
         This is used specifically to generate some sort of PyTorch GPU-enabled training code.
 
@@ -2698,7 +2727,7 @@ class DistributedKernel(IPythonKernel):
         :param deep_learning_model: the name of the deep learning model to be used during the training.
         :param dataset: the name of the dataset to be used during the training.
 
-        :return: the generated Python code to be executed by this Juypter kernel.
+        :return: the generated Python code to be executed by this Jupyter kernel.
         """
         if not self.use_real_gpus:
             return f"import time\ntime.sleep({target_training_duration_millis / 1.0e3})"
@@ -2709,11 +2738,15 @@ class DistributedKernel(IPythonKernel):
 
         download_code: str = ""
         existing_model_code: str = "None"
-        creation_code: str = get_creation_code(deep_learning_model, dataset)
+        creation_code: str = ""
 
         # Acquire lock. Critical section.
         async with self._user_ns_lock:
             existing_model: Optional[DeepLearningModel | Any] = self.shell.user_ns.get("model", None)
+
+            if existing_model is None:
+                creation_code = get_creation_code(deep_learning_model, dataset)
+                self._get_creation_code_called += 1
 
             # Check if there's already a 'model' variable that is NOT of type DeepLearningModel (or a
             # subclass of DeepLearningModel). If so, we'll just overwrite the existing model variable.
@@ -2741,6 +2774,7 @@ class DistributedKernel(IPythonKernel):
                     # __model_pointer__ is temporary; the actual variable we want to use is the 'model' variable.
                     model_path=os.path.join(self.store_path, existing_model.name),
                 )
+                self._get_download_code_called += 1
                 download_code: str = get_download_code(existing_model_code, deep_learning_model)
 
         return get_training_code(download_code, creation_code, gpu_device_ids, target_training_duration_millis)
@@ -3058,16 +3092,8 @@ class DistributedKernel(IPythonKernel):
 
         :param term_number: the term for which we're performing the state synchronization.
         """
-        if not self.smr_enabled:
-            self.log.debug(
-                "SMR is not enabled. Skipping updated state synchronization."
-            )
-            return
-
         if self.execution_ast is None:
-            self.log.warning(
-                "Execution AST is None. Synchronization will likely fail..."
-            )
+            self.log.warning("Execution AST is None. Synchronization will likely fail...")
         else:
             self.log.debug("Synchronizing now. Execution AST is NOT None.")
 
@@ -4175,7 +4201,7 @@ class DistributedKernel(IPythonKernel):
             et: float = time.time()
             self.log.debug(
                 f"Successfully retrieved DeepLearningModel '{model_pointer.model_name}' for variable "
-                f"'{var_name}' from remote storage in {et - st} seconds."
+                f"'{var_name}' from remote storage '{self.remote_storage}' in {et - st} seconds."
             )
 
             async with self._user_ns_lock:
@@ -4442,7 +4468,7 @@ class DistributedKernel(IPythonKernel):
                 return None
             else:
                 self.log.debug(
-                    f"Received committed '{pointer.model_name}' Model pointer proposed by ourselves. "
+                    f"Received committed '{pointer.model_name}' model pointer proposed by ourselves. "
                     f"Ignoring."
                 )
                 return None
@@ -4683,7 +4709,8 @@ class DistributedKernel(IPythonKernel):
                 tb_str += _tb
             self.log.debug(f"\n{ColoredLogFormatter.LIGHT_RED}{tb_str}{ColoredLogFormatter.reset}\n")
 
-            self.report_error("Error Before Executing Cell", f'Replica {self.smr_node_id} of kernel "{self.kernel_id}" encountered the following exception before executing a cell: {result.error_before_exec}')
+            self.report_error("Error Before Executing Cell",
+                              f'Replica {self.smr_node_id} of kernel "{self.kernel_id}" encountered the following exception before executing a cell: {result.error_before_exec}')
 
         if result.error_in_exec is not None:
             self.log.debug(f"The error that occurred while executing the cell was:\n"
@@ -4694,7 +4721,8 @@ class DistributedKernel(IPythonKernel):
                 tb_str += _tb
             self.log.debug(f"\n{ColoredLogFormatter.LIGHT_RED}{tb_str}{ColoredLogFormatter.reset}\n")
 
-            self.report_error("Error While Executing Cell", f'Replica {self.smr_node_id} of kernel "{self.kernel_id}" encountered the following exception while executing a cell: {result.error_in_exec}')
+            self.report_error("Error While Executing Cell",
+                              f'Replica {self.smr_node_id} of kernel "{self.kernel_id}" encountered the following exception while executing a cell: {result.error_in_exec}')
 
     def run_cell(
             self,
@@ -4754,3 +4782,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.debug("stdout and stderr DISABLED.")
             else:
                 self.log.debug("stdout and stderr ENABLED.")
+
+    @property
+    def user_ns_lock(self):
+        return self._user_ns_lock

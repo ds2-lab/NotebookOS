@@ -10,10 +10,12 @@ from unittest import mock
 
 import pytest
 import pytest_asyncio
+import torch
 from ipykernel.control import ControlThread
 
 import distributed_notebook.sync.raft_log
-from distributed_notebook.deep_learning import ResNet18, CIFAR10, DeepLearningModel, VGG16, InceptionV3
+from distributed_notebook.deep_learning import ResNet18, CIFAR10, DeepLearningModel, VGG16, InceptionV3, VGG19, VGG13, \
+    VGG11, IMDbLargeMovieReviewTruncated, Bert, GPT2, DeepSpeech2, LibriSpeech
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 from distributed_notebook.kernel import DistributedKernel
 from distributed_notebook.sync import Synchronizer, RaftLog, SyncAST
@@ -35,7 +37,7 @@ unit_test_logger.addHandler(ch)
 
 DefaultKernelId: str = "8a275c45-52fc-4390-8a79-9d8e86066a65"
 DefaultDate: str = "2024-11-01T15:32:45.123456789Z"
-FakePersistentStorePath: str = "unit-test-persistent-store"
+FakePersistentStorePath: str = f"unit-test-persistent-store/{str(uuid.uuid4())}"
 
 # The /store/ prefix is automatically added by kernels and whatnot.
 FullFakePersistentStorePath: str = f"./store/{FakePersistentStorePath}"
@@ -131,6 +133,7 @@ async def create_kernel(
         resource_request: Optional[Dict[str, Any]] = None,
         remote_storage_definitions: Optional[Dict[str, Any]] = None,
         use_real_gpus: bool = False,
+        smr_enabled: bool = True,
         **kwargs
 ) -> DistributedKernel:
     global DefaultResourceRequest
@@ -161,6 +164,7 @@ async def create_kernel(
         "persistent_id": persistent_id,
         "simulate_checkpointing_latency": simulate_checkpointing_latency,
         "use_real_gpus": use_real_gpus,
+        "smr_enabled": smr_enabled,
     }
 
     keyword_args.update(kwargs)
@@ -468,28 +472,37 @@ async def example(kernel: DistributedKernel, execution_request: Dict[str, Any]):
 
 
 async def perform_training(
-        kernel: DistributedKernel,
-        execution_request: Dict[str, Any],
         model_class: Type,
         dataset_class: Type,
         num_training_loops: int = 5,
-        target_training_duration_ms: float = 1000.0
+        target_training_duration_ms: float = 1250.0
 ):
     """
     Helper/utility function to carry out a unit test in which a kernel proposes and leads the execution of
     some deep learning training code using a specified model and dataset.
 
-    :param kernel: the kernel created from/by the PyTest fixture.
-    :param execution_request: the execute request created from/by the PyTest fixture (so, it does not contain the
-                              custom code, nor does it specify a model/dataset or GPU device IDs).
     :param model_class: the specified model
     :param dataset_class: the specified dataset
     :param num_training_loops: how many times to execute
     :param target_training_duration_ms: how long each execution should aim to last
     :return:
     """
+    kernel: DistributedKernel = await create_kernel(
+        remote_storage_hostname = "127.0.0.1:10000",
+        kernel_id = DefaultKernelId,
+        smr_port = 8000,
+        smr_node_id = 1,
+        smr_nodes = None,
+        smr_join = False,
+        should_register_with_local_daemon = False,
+        pod_name = "TestPod",
+        node_name = "TestNode",
+        debug_port = -1,
+        use_real_gpus = True,
+        remote_storage = "local",
+        smr_enabled = True,
+    )
     assert kernel is not None
-    assert execution_request is not None
 
     assert issubclass(model_class, DeepLearningModel)
     assert issubclass(dataset_class, CustomDataset)
@@ -497,19 +510,47 @@ async def perform_training(
     assert num_training_loops > 0
     assert target_training_duration_ms > 0
 
-    # Update request metadata.
-    metadata: Dict[str, Any] = execution_request["metadata"]
-    assert metadata is not None
-    metadata["model"] = model_class.model_name()
-    metadata["dataset"] = dataset_class.dataset_name()
-    metadata["gpu_device_ids"] = [0]
+    weights: Optional[torch.Tensor] = None
+    for i in range(1, num_training_loops + 1):
+        execution_request: Dict[str, Any] = create_execution_request(message_id = str(uuid.uuid4()))
+        assert execution_request is not None
 
-    # Update request content (specifically the user-submitted code).
-    content: Dict[str, Any] = execution_request["content"]
-    assert content is not None
-    content["code"] = f"training_duration_millis = {target_training_duration_ms}"
+        # Update request metadata.
+        metadata: Dict[str, Any] = execution_request["metadata"]
+        assert metadata is not None
+        metadata["model"] = model_class.model_name()
+        metadata["dataset"] = dataset_class.dataset_name()
+        metadata["gpu_device_ids"] = [0]
 
-    await test_propose_lead_and_win(kernel, execution_request)
+        # Update request content (specifically the user-submitted code).
+        content: Dict[str, Any] = execution_request["content"]
+        assert content is not None
+        content["code"] = f"training_duration_millis = {target_training_duration_ms}"
+
+        await test_propose_lead_and_win(kernel, execution_request, term_number=i, expected_num_values_proposed=i)
+
+        async with kernel.user_ns_lock:
+            model: DeepLearningModel = kernel.shell.user_ns.get("model", None)
+
+        assert model is not None
+        assert isinstance(model, model_class)
+
+        next_weights: torch.nn.Parameter = model.output_layer.weight.clone()
+        # After the first loop, compare previous weights against current weights to ensure they're changing.
+        if i > 1:
+            assert weights is not None
+            assert not weights.equal(next_weights)
+
+        weights = next_weights
+
+        async with kernel.user_ns_lock:
+            dataset: CustomDataset = kernel.shell.user_ns.get("dataset", None)
+
+        assert dataset is not None
+        assert isinstance(dataset, dataset_class)
+
+    assert kernel.get_creation_code_called == 1
+    assert kernel.get_download_code_called == num_training_loops - 1
 
 
 @pytest_asyncio.fixture
@@ -524,21 +565,26 @@ async def kernel(
         pod_name: str = "TestPod",
         node_name: str = "TestNode",
         debug_port: int = -1,
-        use_real_gpus: bool = True,
+        use_real_gpus: bool = False,
+        remote_storage: str = "local",
+        smr_enabled: bool = True,
         **kwargs
 ) -> DistributedKernel:
     if smr_nodes is None:
         smr_nodes = []
 
     if len(kwargs):
-        print('Passing the following keyword arguments to the create_kernel function:')
+        print('Passing the following keyword arguments to the create_kernel function:', flush = True)
         for k, v in kwargs.items():
             print(f'\t"{k}": {v}', flush=True)
 
-    print(f"use_real_gpus = {use_real_gpus}")
+    print(f"use_real_gpus = {use_real_gpus}", flush = True)
+    print(f"remote_storage = {remote_storage}", flush = True)
+    print(f"smr_enabled = {smr_enabled}", flush = True)
 
     return await create_kernel(
         remote_storage_hostname=remote_storage_hostname,
+        remote_storage=remote_storage,
         kernel_id=kernel_id,
         smr_port=smr_port,
         smr_node_id=smr_node_id,
@@ -549,6 +595,7 @@ async def kernel(
         node_name=node_name,
         debug_port=debug_port,
         use_real_gpus=use_real_gpus,
+        smr_enabled=smr_enabled,
         **kwargs,
     )
 
@@ -597,6 +644,7 @@ async def test_propose_lead_and_win(
         kernel: DistributedKernel,
         execution_request: Dict[str, Any],
         term_number: int = 1,
+        expected_num_values_proposed: int = 1,
 ):
     unit_test_logger.debug(f"Testing execute request with kernel {kernel} and execute request {execution_request}")
 
@@ -627,7 +675,7 @@ async def test_propose_lead_and_win(
     assert (proposedValue.election_term == term_number)
 
     # Check that the kernel created an election, but that no proposals were received yet.
-    election: Election = kernel.synclog.get_election(1)
+    election: Election = kernel.synclog.get_election(term_number)
     assert (election is not None)
     assert (election.term_number == term_number)
     assert (election.num_proposals_received == 0)
@@ -638,7 +686,7 @@ async def test_propose_lead_and_win(
     assert (raftLog._leading_future.done() == False)
 
     # We've proposed it, so the RaftLog knows about it, even though the value hasn't been committed yet.
-    assert (len(raftLog._proposed_values) == 1)
+    assert (len(raftLog._proposed_values) == expected_num_values_proposed)
 
     innerMap: OrderedDict[int, LeaderElectionProposal] = raftLog._proposed_values.get(election.term_number)
     assert (innerMap is not None)
@@ -650,14 +698,14 @@ async def test_propose_lead_and_win(
     assert leading_future is not None
     assert leading_future.done() == False
 
-    propose(raftLog, proposedValue, election, execute_request_task)
+    propose(raftLog, proposedValue, election, execute_request_task, expected_num_values_proposed = expected_num_values_proposed)
 
     # Call "value committed" handler again for the 2nd proposal.
     leadProposalFromNode2: LeaderElectionProposal = LeaderElectionProposal(key=str(ElectionProposalKey.LEAD),
                                                                            proposer_id=2,
                                                                            election_term=term_number,
                                                                            attempt_number=1)
-    propose(raftLog, leadProposalFromNode2, election, execute_request_task)
+    propose(raftLog, leadProposalFromNode2, election, execute_request_task, expected_num_values_proposed = expected_num_values_proposed)
 
     vote_proposal_future: asyncio.Future[LeaderElectionVote] = loop.create_future()
 
@@ -687,7 +735,7 @@ async def test_propose_lead_and_win(
                                                                                proposer_id=3,
                                                                                election_term=term_number,
                                                                                attempt_number=1)
-        propose(raftLog, leadProposalFromNode3, election, execute_request_task)
+        propose(raftLog, leadProposalFromNode3, election, execute_request_task, expected_num_values_proposed = expected_num_values_proposed)
 
         try:
             proposedVote: LeaderElectionVote = await asyncio.wait_for(vote_proposal_future, 5)
@@ -709,7 +757,7 @@ async def test_propose_lead_and_win(
         assert (election.proposals.get(1) == proposedValue)
         assert (election.proposals.get(2) == leadProposalFromNode2)
         assert (election.proposals.get(3) == leadProposalFromNode3)
-        assert (len(raftLog._proposed_values) == 1)
+        assert (len(raftLog._proposed_values) == expected_num_values_proposed)
         assert election.is_active
         assert election.voting_phase_completed_successfully == False
 
@@ -783,8 +831,9 @@ async def test_propose_lead_and_win(
     unit_test_logger.debug(f"spoofed_session.num_send_calls: {spoofed_session.num_send_calls}")
     unit_test_logger.debug(f"spoofed_session.message_types_sent: {spoofed_session.message_types_sent}")
 
-    assert spoofed_session.num_send_calls == 5
-    assert len(spoofed_session.message_types_sent) == 5
+    if term_number == 1:
+        assert spoofed_session.num_send_calls == 5
+        assert len(spoofed_session.message_types_sent) == 5
 
     assert synchronizer.execution_count == term_number
 
@@ -3328,16 +3377,37 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kernel", [dict(ause_real_gpus=True)], indirect=True)
-async def test_train_resnet18_on_cifar10(kernel: DistributedKernel, execution_request: Dict[str, Any]):
-    await perform_training(kernel, execution_request, ResNet18, CIFAR10)
+async def test_train_resnet18_on_cifar10():
+    await perform_training(ResNet18, CIFAR10)
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kernel", [dict(ause_real_gpus=True)], indirect=True)
-async def test_train_vgg16_on_cifar10(kernel: DistributedKernel, execution_request: Dict[str, Any]):
-    await perform_training(kernel, execution_request, VGG16, CIFAR10)
+async def test_train_vgg11_on_cifar10():
+    await perform_training(VGG11, CIFAR10)
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kernel", [dict(ause_real_gpus=True)], indirect=True)
-async def test_train_inception_v3_on_cifar10(kernel: DistributedKernel, execution_request: Dict[str, Any]):
-    await perform_training(kernel, execution_request, InceptionV3, CIFAR10)
+async def test_train_vgg13_on_cifar10():
+    await perform_training(VGG13, CIFAR10)
+
+@pytest.mark.asyncio
+async def test_train_vgg16_on_cifar10():
+    await perform_training(VGG16, CIFAR10)
+
+@pytest.mark.asyncio
+async def test_train_vgg19_on_cifar10():
+    await perform_training(VGG19, CIFAR10)
+
+@pytest.mark.asyncio
+async def test_train_inception_v3_on_cifar10():
+    await perform_training(InceptionV3, CIFAR10)
+
+@pytest.mark.asyncio
+async def test_train_bert_on_truncated_imdb():
+    await perform_training(Bert, IMDbLargeMovieReviewTruncated)
+
+@pytest.mark.asyncio
+async def test_train_gpt2_on_truncated_imdb():
+    await perform_training(GPT2, IMDbLargeMovieReviewTruncated)
+
+@pytest.mark.asyncio
+async def test_train_deep_speech2_on_libri_speech():
+    await perform_training(DeepSpeech2, LibriSpeech)

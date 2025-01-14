@@ -704,7 +704,7 @@ def train_and_sync_model(
     io_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
 
     # Create the model.
-    model = model_class(created_for_first_time=True)
+    model: DeepLearningModel = model_class(created_for_first_time=True)
     initial_weights: Tensor = model.output_layer.weight.clone()
 
     # Create the dataset.

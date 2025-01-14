@@ -1,6 +1,7 @@
 from typing import Any
 
 from distributed_notebook.sync.checkpointing.hdfs import HdfsCheckpointer
+from distributed_notebook.sync.checkpointing.local_checkpointer import LocalCheckpointer
 from distributed_notebook.sync.checkpointing.redis import RedisCheckpointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 from distributed_notebook.sync.checkpointing.s3 import S3Checkpointer
@@ -9,6 +10,7 @@ remote_checkpointer_factory: dict[str, Any] = {
     "redis": RedisCheckpointer,
     "s3": S3Checkpointer,
     "hdfs": HdfsCheckpointer,
+    "local": LocalCheckpointer,
 }
 
 def get_remote_checkpointer(remote_storage: str, host: str)->RemoteCheckpointer:

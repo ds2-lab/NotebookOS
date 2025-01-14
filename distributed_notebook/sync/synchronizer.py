@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import logging
 import os
@@ -241,6 +242,18 @@ class Synchronizer:
                 f'Large object pointer variable "{pointer.user_namespace_variable_name}" of type {type(pointer).__name__} changed.'
             )
             large_object = self._large_object_pointer_committed(existed.object)
+
+            # If the return value is None, then the large object that was committed was originally proposed by us.
+            if large_object is None:
+                return
+                # if isinstance(large_object, ModelPointer):
+                #     assert large_object.model is not None
+                #     variable_value: Any = large_object.model
+                # else:
+                #     assert isinstance(large_object, DatasetPointer)
+                #     assert large_object.dataset is not None
+                #     variable_value: Any = large_object.dataset
+            # else:
             self.log.debug(
                 f'Assigning large object of type {type(large_object).__name__} to variable "{val.key}".'
             )
@@ -478,7 +491,7 @@ class Synchronizer:
 
     async def sync(
         self,
-        execution_ast,
+        execution_ast: ast.Module,
         source: Optional[str] = None,
         checkpointer: Optional[Checkpointer] = None,
     ) -> bool:
@@ -503,7 +516,11 @@ class Synchronizer:
             # self._referer.module_id = self._ast.execution_count # TODO: Verify this.
 
             self.log.debug(
-                f"Syncing execution (checkpointing={checkpointing}). AST: {sync_ast}. Current execution count: {self.execution_count}."
+                f"Syncing execution (checkpointing={checkpointing}). "
+                f"AST: {sync_ast}. "
+                f"Current execution count: {self.execution_count}. "
+                f"Number of globals in self._ast: {len(self._ast.globals)}. "
+                f"execution_ast ({type(execution_ast).__name__}): {execution_ast}."
             )
             keys = self._ast.globals
             meta = SyncObjectMeta(
@@ -543,6 +560,7 @@ class Synchronizer:
             self.log.debug(
                 f"Successfully appended value: {sync_ast}. Checkpointing={checkpointing}."
             )
+            self.log.debug(f"Synchronizing {len(keys)} key(s) now.")
             for key in keys:
                 synced = synced + 1
                 self.log.debug('Syncing key "%s" now.' % key)
