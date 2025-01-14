@@ -527,7 +527,8 @@ class DeepLearningModel(ABC):
             raise ValueError("GPU is unavailable. Cannot move {self.name} model, optimizer, and criterion to the GPU.")
 
         size_mb = self.size_mb
-        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the GPU. Model size: {size_mb} MB.")
+        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the GPU. "
+                       f"Model size: {round(size_mb, 6)} MB.")
 
         st: float = time.time()
         # Move the model to the GPU.
@@ -547,7 +548,8 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU. Model size: {size_mb} MB.")
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU. "
+                       f"Model size: {round(size_mb, 6)} MB.")
         self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied optimizer in {(round(et_optimizer - et_model) * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied criterion in {round((et_criterion - et_optimizer) * 1.0e3, 9)} ms.")
@@ -558,7 +560,8 @@ class DeepLearningModel(ABC):
 
     def to_cpu(self) -> float:  # Return the total time elapsed in seconds.
         size_mb: float = self.size_mb
-        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the CPU. Model size: {size_mb} MB.")
+        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the CPU. "
+                       f"Model size: {round(size_mb, 6)} MB.")
 
         st: float = time.time()
         # Move the model to the CPU.
@@ -578,7 +581,8 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU. Model size: {size_mb} MB.")
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU. "
+                       f"Model size: {round(size_mb, 6)} MB.")
         self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied optimizer in {(round(et_optimizer - et_model) * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied criterion in {round((et_criterion - et_optimizer) * 1.0e3, 9)} ms.")
