@@ -114,9 +114,14 @@ class DeepLearningModel(ABC):
         This should be called whenever the model's state dictionary is written to remote storage.
         """
         if not self._requires_checkpointing:
-            raise ValueError(f"model '{self._name}' does not require checkpointing")
+            raise ValueError(f"model '{self.name}' does not require checkpointing")
 
         self._requires_checkpointing = False
+
+    @staticmethod
+    @abstractmethod
+    def category() -> str:
+        pass
 
     @staticmethod
     @abstractmethod
@@ -483,6 +488,11 @@ class DeepLearningModel(ABC):
     @property
     @abstractmethod
     def name(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def output_layer(self)->nn.Module:
         pass
 
     @property

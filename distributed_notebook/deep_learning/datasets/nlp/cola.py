@@ -3,6 +3,8 @@ from typing import Dict, Union, Optional
 
 from distributed_notebook.deep_learning.datasets.nlp.base import NLPDataset
 from distributed_notebook.deep_learning.datasets.nlp.util import get_username
+from distributed_notebook.deep_learning.configuration import NaturalLanguageProcessing
+
 
 def cola_postprocess_tokenized_dataset(tokenized_datasets, text_feature_column_name: str):
     tokenized_datasets = tokenized_datasets.remove_columns([text_feature_column_name, "idx"])
@@ -42,6 +44,10 @@ class CoLA(NLPDataset):
             tokenized_dataset_directory = CoLA.get_tokenized_dataset_directory(model_name),
             batch_size = batch_size,
         )
+
+    @staticmethod
+    def category() -> str:
+        return NaturalLanguageProcessing
 
     @staticmethod
     def get_tokenized_dataset_directory(model_name: str)->str:

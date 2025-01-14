@@ -28,7 +28,7 @@ class VGG19(ComputerVisionModel):
         )
 
         self.model = models.vgg19(pretrained=False, num_classes=out_features)
-        self._output_layer = self.model.classifier[6]
+        self._output_layer: nn.Module = self.model.classifier[-1]
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)

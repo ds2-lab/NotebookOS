@@ -6,7 +6,6 @@ from torchvision import models
 
 from .cv_model import ComputerVisionModel
 
-
 class InceptionV3(ComputerVisionModel):
     def __init__(
             self,

@@ -5,6 +5,7 @@ import torch.optim as optim
 from transformers import GPT2ForSequenceClassification, GPT2LMHeadModel
 
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
+from distributed_notebook.deep_learning.configuration import NaturalLanguageProcessing
 from .tasks import ClassificationTask, NLPTasks, LanguageModeling
 
 
@@ -33,9 +34,11 @@ class GPT2(DeepLearningModel):
         self._task: str = task
 
         if self._task == ClassificationTask:
-            self.model = GPT2ForSequenceClassification.from_pretrained("gpt2", num_labels=out_features)
+            self.model: GPT2ForSequenceClassification = GPT2ForSequenceClassification.from_pretrained("gpt2", num_labels=out_features)
+            self._output_layer: nn.Module = self.model.score
         elif self._task == LanguageModeling:
-            self.model = GPT2LMHeadModel.from_pretrained("gpt2")
+            self.model: GPT2LMHeadModel = GPT2LMHeadModel.from_pretrained("gpt2")
+            self._output_layer: nn.Module = self.model.lm_head
         else:
             raise ValueError(f'Unknown or unsupported task specified for GPT-2 model: "{self._task}"')
 
@@ -52,6 +55,14 @@ class GPT2(DeepLearningModel):
 
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
+
+    @staticmethod
+    def category() -> str:
+        return NaturalLanguageProcessing
+
+    @property
+    def output_layer(self)->nn.Module:
+        return self._output_layer
 
     @property
     def task(self) -> str:

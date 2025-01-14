@@ -28,7 +28,7 @@ class ResNet18(ComputerVisionModel):
         )
 
         self.model = models.resnet18(pretrained=False, num_classes=out_features)
-        self._output_layer = self.model.fc
+        self._output_layer: nn.Module = self.model.fc
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)

@@ -7,6 +7,7 @@ from torchvision import transforms
 
 from distributed_notebook.deep_learning.datasets.hugging_face import HuggingFaceDataset
 
+from distributed_notebook.deep_learning.configuration import ComputerVision
 
 class NoneTransform(object):
     """
@@ -93,6 +94,10 @@ class TinyImageNet(HuggingFaceDataset):
         # Prepare the data loaders
         self._train_loader = DataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle)
         self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=False)
+
+    @staticmethod
+    def category() -> str:
+        return ComputerVision
 
     @staticmethod
     def model_constructor_args() -> Dict[str, Any]:

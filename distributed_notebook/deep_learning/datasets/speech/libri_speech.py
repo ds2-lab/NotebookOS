@@ -12,6 +12,8 @@ from torchaudio import datasets
 
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 
+from distributed_notebook.deep_learning.configuration import Speech
+
 char_map_str: str = """
  ' 0
  <SPACE> 1
@@ -231,6 +233,10 @@ class LibriSpeech(CustomDataset):
             )
         else:
             self._test_loader: Optional[DataLoader] = None
+
+    @staticmethod
+    def category() -> str:
+        return Speech
 
     @property
     def download_duration_sec(self) -> float:

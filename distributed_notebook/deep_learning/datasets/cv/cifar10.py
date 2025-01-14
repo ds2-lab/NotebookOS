@@ -8,6 +8,7 @@ from torchvision import datasets, transforms
 
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 
+from distributed_notebook.deep_learning.configuration import ComputerVision
 
 class CIFAR10(CustomDataset):
     default_root_directory: str = os.path.expanduser("~/.cache/distributed_notebook/datasets/cifar10")
@@ -57,6 +58,11 @@ class CIFAR10(CustomDataset):
         else:
             print(
                 f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
+
+    @staticmethod
+    def category() -> str:
+        return ComputerVision
+
     @staticmethod
     def model_constructor_args() -> Dict[str, Any]:
         return {

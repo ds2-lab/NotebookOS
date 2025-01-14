@@ -1,5 +1,7 @@
 from typing import Type, List, Dict
 
+from distributed_notebook.deep_learning.configuration import NaturalLanguageProcessing, ComputerVision, Speech
+
 from .cv import ResNet18, InceptionV3, VGG11, VGG13, VGG16, VGG19, ComputerVisionModel
 from .speech import DeepSpeech, DeepSpeech2
 from .nlp import Bert, GPT2
@@ -13,10 +15,6 @@ ALL_MODEL_CLASSES: List[Type] = [
     SimpleModel
 ]
 """ ALL_MODEL_CLASSES is a list containing all "concrete" model classes. """
-
-ComputerVision: str = "Computer Vision (CV)"
-NaturalLanguageProcessing: str = "Natural Language Processing (NLP)"
-Speech: str = "Speech"
 
 ModelCategories: List[str] = [
     ComputerVision,

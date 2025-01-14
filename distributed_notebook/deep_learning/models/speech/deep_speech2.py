@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from distributed_notebook.deep_learning.configuration import Speech
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
 
@@ -169,6 +170,10 @@ class DeepSpeech2(DeepLearningModel):
 
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
+
+    @staticmethod
+    def category() -> str:
+        return Speech
 
     def train(self, loader, target_training_duration_millis: int | float = 0.0) -> tuple[float, float, float]:
         """

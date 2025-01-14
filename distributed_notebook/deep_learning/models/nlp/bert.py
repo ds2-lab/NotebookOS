@@ -5,6 +5,7 @@ import torch.optim as optim
 from transformers import BertForSequenceClassification, BertLMHeadModel
 
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
+from distributed_notebook.deep_learning.configuration import NaturalLanguageProcessing
 from .tasks import ClassificationTask, NLPTasks, LanguageModeling
 
 
@@ -33,9 +34,11 @@ class Bert(DeepLearningModel):
         self._task: str = task
 
         if self._task == ClassificationTask:
-            self.model = BertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=out_features)
+            self.model: BertForSequenceClassification = BertForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=out_features)
+            self._output_layer: nn.Module = self.model.classifier
         elif self._task == LanguageModeling:
-            self.model = BertLMHeadModel.from_pretrained("bert-base-uncased")
+            self.model: BertLMHeadModel = BertLMHeadModel.from_pretrained("bert-base-uncased")
+            self._output_layer: nn.Module = self.model.cls
         else:
             raise ValueError(f'Unknown or unsupported task specified for GPT-2 model: "{self._task}"')
 
@@ -50,13 +53,25 @@ class Bert(DeepLearningModel):
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
 
+    @staticmethod
+    def category() -> str:
+        return NaturalLanguageProcessing
+
+    @staticmethod
+    def model_name() -> str:
+        return "BERT"
+
+    @property
+    def output_layer(self)->nn.Module:
+        return self._output_layer
+
     @property
     def task(self) -> str:
         return self._task
 
     @property
     def constructor_args(self) -> dict[str, Any]:
-        base_args: dict[str, Any] = super(Bert).constructor_args
+        base_args: dict[str, Any] = super().constructor_args
         args: dict[str, Any] = {
             "task": self.task
         }
@@ -66,10 +81,6 @@ class Bert(DeepLearningModel):
     @property
     def name(self) -> str:
         return Bert.model_name()
-
-    @staticmethod
-    def model_name() -> str:
-        return "BERT"
 
     def __str__(self) -> str:
         return f"{self.name}[TotalTrainingTime={self.total_training_time_seconds}sec,TotalNumEpochs={self.total_num_epochs}]"

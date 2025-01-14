@@ -2,11 +2,9 @@ from .speech import LibriSpeech
 from .nlp import CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated
 from .cv import CIFAR10, TinyImageNet
 
-from typing import Type, List, Dict
+from distributed_notebook.deep_learning.configuration import ComputerVision, Speech, NaturalLanguageProcessing
 
-ComputerVision: str = "Computer Vision (CV)"
-NaturalLanguageProcessing: str = "Natural Language Processing (NLP)"
-Speech: str = "Speech"
+from typing import Type, List, Dict
 
 DatasetCategories: List[str] = [
     ComputerVision,

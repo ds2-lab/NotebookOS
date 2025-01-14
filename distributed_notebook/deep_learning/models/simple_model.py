@@ -19,7 +19,7 @@ class SimpleModule(nn.Module):
         super(SimpleModule, self).__init__()
         # Single linear layer
         self.fc = nn.Linear(in_features = input_size, out_features = output_size)
-        self._output_layer = self.fc
+        self._output_layer: nn.Module = self.fc
 
         if model_state_dict is not None:
             self.load_state_dict(model_state_dict)
@@ -89,7 +89,7 @@ class SimpleModel(DeepLearningModel):
             model_state_dict = model_state_dict
         )
 
-        self._output_layer = self.model.output_layer
+        self._output_layer: nn.Module = self.model.output_layer
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)

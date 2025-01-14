@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 
 from torch import nn
 
+from distributed_notebook.deep_learning.configuration import ComputerVision
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
 from typing import Dict, Any, Type
@@ -33,3 +34,7 @@ class ComputerVisionModel(DeepLearningModel, ABC):
     @abstractmethod
     def expected_model_class() -> Type:
         pass
+
+    @staticmethod
+    def category() -> str:
+        return ComputerVision

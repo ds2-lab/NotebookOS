@@ -3,10 +3,12 @@ import uuid
 from typing import Any, Type
 
 import pytest
-from docutils.nodes import image
 from torch import Tensor
 
-from distributed_notebook.deep_learning import ResNet18, CIFAR10, VGG11, VGG13, VGG16, VGG19, InceptionV3, ComputerVisionModel
+from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
+    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2
+from distributed_notebook.deep_learning.datasets import ComputerVision, NaturalLanguageProcessing, Speech
+from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.datasets.random import RandomCustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
@@ -23,15 +25,16 @@ def test_create():
     assert len(checkpointer) == 0
     assert checkpointer.size == 0
 
+
 def test_read_after_write():
     checkpointer: LocalCheckpointer = LocalCheckpointer()
 
-    model: SimpleModel = SimpleModel(input_size = 2, out_features = 4, created_for_first_time = True)
+    model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
-        deep_learning_model = model,
-        user_namespace_variable_name = "model",
-        model_path = os.path.join(f"store/{str(uuid.uuid4())}", model.name),
-        proposer_id = 1,
+        deep_learning_model=model,
+        user_namespace_variable_name="model",
+        model_path=os.path.join(f"store/{str(uuid.uuid4())}", model.name),
+        proposer_id=1,
     )
 
     checkpointer.write_state_dicts(model_pointer)
@@ -53,59 +56,62 @@ def test_read_after_write():
     assert isinstance(criterion_state, dict)
     assert isinstance(constructor_args_state, dict)
 
+
 def test_write_model_that_does_not_require_checkpointing():
     """
     Write a model that does NOT require checkpointing, which should cause a ValueError to be raised.
     """
     checkpointer: LocalCheckpointer = LocalCheckpointer()
 
-    model: SimpleModel = SimpleModel(input_size = 2, out_features = 4, created_for_first_time = False)
+    model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=False)
     model_pointer: ModelPointer = ModelPointer(
-        deep_learning_model = model,
-        user_namespace_variable_name = "model",
-        model_path = os.path.join(f"store/{str(uuid.uuid4())}", model.name),
-        proposer_id = 1,
+        deep_learning_model=model,
+        user_namespace_variable_name="model",
+        model_path=os.path.join(f"store/{str(uuid.uuid4())}", model.name),
+        proposer_id=1,
     )
 
     with pytest.raises(ValueError):
         checkpointer.write_state_dicts(model_pointer)
 
+
 def test_read_empty():
     checkpointer: LocalCheckpointer = LocalCheckpointer()
 
-    model: SimpleModel = SimpleModel(input_size = 2, out_features = 4, created_for_first_time = True)
+    model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
-        deep_learning_model = model,
-        user_namespace_variable_name = "model",
-        model_path = os.path.join(f"store/{str(uuid.uuid4())}", model.name),
-        proposer_id = 1,
+        deep_learning_model=model,
+        user_namespace_variable_name="model",
+        model_path=os.path.join(f"store/{str(uuid.uuid4())}", model.name),
+        proposer_id=1,
     )
 
     with pytest.raises(ValueError):
         checkpointer.read_state_dicts(model_pointer)
+
 
 def test_checkpoint_after_training():
     checkpointer: LocalCheckpointer = LocalCheckpointer()
 
     # Create the model.
     input_size: int = 4
-    model: SimpleModel = SimpleModel(input_size = input_size, out_features = 1, created_for_first_time = True)
+    model: SimpleModel = SimpleModel(input_size=input_size, out_features=1, created_for_first_time=True)
     initial_weights = model.model.fc.weight.clone()
 
     # Create the dataset.
     dataset: RandomCustomDataset = RandomCustomDataset(
         input_size,
-        num_training_samples = 64,
-        num_test_samples = 16,
-        batch_size = 8
+        num_training_samples=64,
+        num_test_samples=16,
+        batch_size=8
     )
 
     # Checkpoint the initial model weights.
     model_pointer: ModelPointer = ModelPointer(
-        deep_learning_model = model,
-        user_namespace_variable_name = "model",
-        model_path = os.path.join(f"store/{str(uuid.uuid4())}", model.name),
-        proposer_id = 1,
+        deep_learning_model=model,
+        user_namespace_variable_name="model",
+        model_path=os.path.join(f"store/{str(uuid.uuid4())}", model.name),
+        proposer_id=1,
     )
     checkpointer.write_state_dicts(model_pointer)
 
@@ -123,7 +129,8 @@ def test_checkpoint_after_training():
 
         # Before re-writing the updated model's weights, verify that the weights in remote storage
         # match the initial weights and no longer match the model's weights.
-        old_model_state, old_optimizer_state, old_criterion_state, old_constructor_args_state = checkpointer.read_state_dicts(model_pointer)
+        old_model_state, old_optimizer_state, old_criterion_state, old_constructor_args_state = checkpointer.read_state_dicts(
+            model_pointer)
 
         assert old_model_state is not None
         assert old_optimizer_state is not None
@@ -142,15 +149,16 @@ def test_checkpoint_after_training():
 
         # Write the updated model state to remote storage.
         model_pointer = ModelPointer(
-            deep_learning_model = model,
-            user_namespace_variable_name = "model",
-            model_path = os.path.join(f"store/{str(uuid.uuid4())}", model.name),
-            proposer_id = 1,
+            deep_learning_model=model,
+            user_namespace_variable_name="model",
+            model_path=os.path.join(f"store/{str(uuid.uuid4())}", model.name),
+            proposer_id=1,
         )
         checkpointer.write_state_dicts(model_pointer)
 
         # Verify that the weights in remote storage match the updated weights.
-        remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(model_pointer)
+        remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(
+            model_pointer)
         local_model_state: dict[str, Any] = model.state_dict
         for remote_val, local_val in zip(remote_model_state.values(), local_model_state.values()):
             if isinstance(remote_val, Tensor) and isinstance(local_val, Tensor):
@@ -180,28 +188,29 @@ def test_checkpoint_after_training():
             if isinstance(checkpointed_val, Tensor) and isinstance(local_val, Tensor):
                 assert checkpointed_val.equal(local_val)
 
+
 def test_checkpoint_and_train_simple_model():
     checkpointer: LocalCheckpointer = LocalCheckpointer()
 
     # Create the model.
     input_size: int = 4
-    model: SimpleModel = SimpleModel(input_size = input_size, out_features = 1, created_for_first_time = True)
+    model: SimpleModel = SimpleModel(input_size=input_size, out_features=1, created_for_first_time=True)
     initial_weights = model.model.fc.weight.clone()
 
     # Create the dataset.
     dataset: RandomCustomDataset = RandomCustomDataset(
         input_size,
-        num_training_samples = 64,
-        num_test_samples = 16,
-        batch_size = 8
+        num_training_samples=64,
+        num_test_samples=16,
+        batch_size=8
     )
 
     # Checkpoint the initial model weights.
     model_pointer: ModelPointer = ModelPointer(
-        deep_learning_model = model,
-        user_namespace_variable_name = "model",
-        model_path = os.path.join(f"store/{str(uuid.uuid4())}", model.name),
-        proposer_id = 1,
+        deep_learning_model=model,
+        user_namespace_variable_name="model",
+        model_path=os.path.join(f"store/{str(uuid.uuid4())}", model.name),
+        proposer_id=1,
     )
     checkpointer.write_state_dicts(model_pointer)
 
@@ -219,7 +228,8 @@ def test_checkpoint_and_train_simple_model():
 
         # Before re-writing the updated model's weights, verify that the weights in remote storage
         # match the initial weights and no longer match the model's weights.
-        old_model_state, old_optimizer_state, old_criterion_state, old_constructor_state = checkpointer.read_state_dicts(model_pointer)
+        old_model_state, old_optimizer_state, old_criterion_state, old_constructor_state = checkpointer.read_state_dicts(
+            model_pointer)
 
         assert old_model_state is not None
         assert old_optimizer_state is not None
@@ -238,15 +248,16 @@ def test_checkpoint_and_train_simple_model():
 
         # Write the updated model state to remote storage.
         model_pointer = ModelPointer(
-            deep_learning_model = model,
-            user_namespace_variable_name = "model",
-            model_path = os.path.join(f"store/{str(uuid.uuid4())}", model.name),
-            proposer_id = 1,
+            deep_learning_model=model,
+            user_namespace_variable_name="model",
+            model_path=os.path.join(f"store/{str(uuid.uuid4())}", model.name),
+            proposer_id=1,
         )
         checkpointer.write_state_dicts(model_pointer)
 
         # Verify that the weights in remote storage match the updated weights.
-        remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(model_pointer)
+        remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(
+            model_pointer)
         local_model_state: dict[str, Any] = model.state_dict
         for remote_val, local_val in zip(remote_model_state.values(), local_model_state.values()):
             if isinstance(remote_val, Tensor) and isinstance(local_val, Tensor):
@@ -278,27 +289,42 @@ def test_checkpoint_and_train_simple_model():
 
         model = checkpointed_model
 
-def perform_training_for_cv_model(cls: Type, num_training_loops: int = 5, target_training_duration_ms: float = 1000.0):
+
+def perform_training_for_model(
+        model_class: Type,
+        dataset_class: Type,
+        num_training_loops: int = 5,
+        target_training_duration_ms: float = 1000.0
+):
     """
     Perform deep learning training on a model of type 'cls', where 'cls' is some subtype of ComputerVisionModel.
     """
-    assert issubclass(cls, ComputerVisionModel)
+    assert issubclass(model_class, DeepLearningModel)
+    assert issubclass(dataset_class, CustomDataset)
 
     checkpointer: LocalCheckpointer = LocalCheckpointer()
 
     # Create the model.
-    model = cls(created_for_first_time = True)
+    model = model_class(created_for_first_time=True)
     initial_weights = model.output_layer.weight.clone()
 
     # Create the dataset.
-    dataset: CIFAR10 = CIFAR10(image_size = cls.expected_image_size())
+    if dataset_class.category() == ComputerVision:
+        assert issubclass(model_class, ComputerVisionModel)
+        dataset = dataset_class(image_size=model_class.expected_image_size())
+    elif dataset_class.category() == NaturalLanguageProcessing:
+        assert issubclass(model_class, Bert) or issubclass(model_class, GPT2)
+        dataset = dataset_class(model_name = model_class.model_name())
+    else:
+        assert dataset_class.category() == Speech
+        dataset = dataset_class(train_split = LibriSpeech.test_clean, test_split = LibriSpeech.test_other)
 
     # Checkpoint the initial model weights.
     model_pointer: ModelPointer = ModelPointer(
-        deep_learning_model = model,
-        user_namespace_variable_name = "model",
-        model_path = os.path.join(f"store/{str(uuid.uuid4())}", model.name),
-        proposer_id = 1,
+        deep_learning_model=model,
+        user_namespace_variable_name="model",
+        model_path=os.path.join(f"store/{str(uuid.uuid4())}", model.name),
+        proposer_id=1,
     )
     checkpointer.write_state_dicts(model_pointer)
 
@@ -314,7 +340,8 @@ def perform_training_for_cv_model(cls: Type, num_training_loops: int = 5, target
 
         # Before re-writing the updated model's weights, verify that the weights in remote storage
         # match the initial weights and no longer match the model's weights.
-        old_model_state, old_optimizer_state, old_criterion_state, old_constructor_state = checkpointer.read_state_dicts(model_pointer)
+        old_model_state, old_optimizer_state, old_criterion_state, old_constructor_state = checkpointer.read_state_dicts(
+            model_pointer)
 
         assert old_model_state is not None
         assert old_optimizer_state is not None
@@ -333,15 +360,16 @@ def perform_training_for_cv_model(cls: Type, num_training_loops: int = 5, target
 
         # Write the updated model state to remote storage.
         model_pointer = ModelPointer(
-            deep_learning_model = model,
-            user_namespace_variable_name = "model",
-            model_path = os.path.join(f"store/{str(uuid.uuid4())}", model.name),
-            proposer_id = 1,
+            deep_learning_model=model,
+            user_namespace_variable_name="model",
+            model_path=os.path.join(f"store/{str(uuid.uuid4())}", model.name),
+            proposer_id=1,
         )
         checkpointer.write_state_dicts(model_pointer)
 
         # Verify that the weights in remote storage match the updated weights.
-        remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(model_pointer)
+        remote_model_state, remote_optimizer_state, remote_criterion_state, remote_constructor_state = checkpointer.read_state_dicts(
+            model_pointer)
         local_model_state: dict[str, Any] = model.state_dict
         for remote_val, local_val in zip(remote_model_state.values(), local_model_state.values()):
             if isinstance(remote_val, Tensor) and isinstance(local_val, Tensor):
@@ -358,7 +386,7 @@ def perform_training_for_cv_model(cls: Type, num_training_loops: int = 5, target
         )
 
         assert checkpointed_model is not None
-        assert isinstance(checkpointed_model, cls)
+        assert isinstance(checkpointed_model, model_class)
         assert checkpointed_model.model is not None
 
         if checkpointed_model.expected_model_class() is not None:
@@ -374,20 +402,38 @@ def perform_training_for_cv_model(cls: Type, num_training_loops: int = 5, target
 
         model = checkpointed_model
 
-def test_checkpoint_and_train_simple_model_cv_resnet18():
-    perform_training_for_cv_model(ResNet18)
 
-def test_checkpoint_and_train_simple_model_cv_vgg11():
-    perform_training_for_cv_model(VGG11)
+def test_checkpoint_and_train_simple_model_on_cifar10():
+    perform_training_for_model(ResNet18, CIFAR10)
 
-def test_checkpoint_and_train_simple_model_cv_vgg13():
-    perform_training_for_cv_model(VGG13)
 
-def test_checkpoint_and_train_simple_model_cv_vgg16():
-    perform_training_for_cv_model(VGG16)
+def test_checkpoint_and_train_vgg11_on_cifar10():
+    perform_training_for_model(VGG11, CIFAR10)
 
-def test_checkpoint_and_train_simple_model_cv_vgg19():
-    perform_training_for_cv_model(VGG19)
 
-def test_checkpoint_and_train_simple_model_cv_inception_v3():
-    perform_training_for_cv_model(InceptionV3)
+def test_checkpoint_and_train_vgg13_on_cifar10():
+    perform_training_for_model(VGG13, CIFAR10)
+
+
+def test_checkpoint_and_train_vgg16_on_cifar10():
+    perform_training_for_model(VGG16, CIFAR10)
+
+
+def test_checkpoint_and_train_vgg19_on_cifar10():
+    perform_training_for_model(VGG19, CIFAR10)
+
+
+def test_checkpoint_and_train_inception_v3_on_cifar10():
+    perform_training_for_model(InceptionV3, CIFAR10)
+
+
+def test_checkpoint_and_train_bert_on_imdb_truncated():
+    perform_training_for_model(Bert, IMDbLargeMovieReviewTruncated)
+
+
+def test_checkpoint_and_train_gpt2_on_imdb_truncated():
+    perform_training_for_model(GPT2, IMDbLargeMovieReviewTruncated)
+
+
+def test_checkpoint_and_train_deep_speech2_on_libri_speech():
+    perform_training_for_model(DeepSpeech2, LibriSpeech)

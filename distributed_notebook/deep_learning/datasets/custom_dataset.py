@@ -21,6 +21,11 @@ class CustomDataset(ABC):
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+    @staticmethod
+    @abstractmethod
+    def category() -> str:
+        pass
+
     def _check_if_downloaded(self, filenames: list, base_folder: str) -> bool:
         """
         Check if the dataset is already downloaded.

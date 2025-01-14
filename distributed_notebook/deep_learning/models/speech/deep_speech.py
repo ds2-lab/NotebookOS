@@ -9,6 +9,7 @@ import torch.optim as optim
 
 import torchaudio.models as models
 
+from distributed_notebook.deep_learning.configuration import Speech
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
 # NOT REALLY WORKING AS OF RIGHT NOW
@@ -43,7 +44,7 @@ class DeepSpeech(DeepLearningModel):
         self._in_features: int = in_features
 
         self.model = models.DeepSpeech(n_feature = in_features, n_class = out_features)
-        self._output_layer = self.model.out
+        self._output_layer: nn.Module = self.model.out
 
         if model_state_dict is not None:
             self.model.load_state_dict(model_state_dict)
@@ -59,6 +60,10 @@ class DeepSpeech(DeepLearningModel):
     @staticmethod
     def model_name() -> str:
         return "Deep Speech"
+
+    @staticmethod
+    def category() -> str:
+        return Speech
 
     def train(self, loader, target_training_duration_millis: int | float = 0.0) -> tuple[float, float, float]:
         """
