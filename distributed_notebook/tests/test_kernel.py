@@ -15,7 +15,7 @@ from ipykernel.control import ControlThread
 
 import distributed_notebook.sync.raft_log
 from distributed_notebook.deep_learning import ResNet18, CIFAR10, DeepLearningModel, VGG16, InceptionV3, VGG19, VGG13, \
-    VGG11, IMDbLargeMovieReviewTruncated, Bert, GPT2, DeepSpeech2, LibriSpeech
+    VGG11, IMDbLargeMovieReviewTruncated, Bert, GPT2, DeepSpeech2, LibriSpeech, TinyImageNet, CoLA
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 from distributed_notebook.kernel import DistributedKernel
 from distributed_notebook.sync import Synchronizer, RaftLog, SyncAST
@@ -3382,6 +3382,10 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
     assert spoofed_session.num_send_calls == 7
     assert len(spoofed_session.message_types_sent) == 7
 
+##################################
+# Category: Computer Vision (CV)
+# Dataset: CIFAR-10
+##################################
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
@@ -3419,6 +3423,52 @@ async def test_train_cv_vgg19_on_cifar10():
 async def test_train_cv_inception_v3_on_cifar10():
     await perform_training(InceptionV3, CIFAR10, target_training_duration_ms = 2000.0)
 
+##################################
+# Category: Computer Vision (CV)
+# Dataset: Tiny ImageNet
+##################################
+
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
+@pytest.mark.asyncio
+async def test_train_cv_resnet18_on_tiny_imagenet():
+    await perform_training(ResNet18, TinyImageNet, target_training_duration_ms = 2000.0)
+
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
+@pytest.mark.asyncio
+async def test_train_cv_vgg11_on_tiny_imagenet():
+    await perform_training(VGG11, TinyImageNet, target_training_duration_ms = 2000.0)
+
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
+@pytest.mark.asyncio
+async def test_train_cv_vgg13_on_tiny_imagenet():
+    await perform_training(VGG13, TinyImageNet, target_training_duration_ms = 2000.0)
+
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
+@pytest.mark.asyncio
+async def test_train_cv_vgg16_on_tiny_imagenet():
+    await perform_training(VGG16, TinyImageNet, target_training_duration_ms = 2000.0)
+
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
+@pytest.mark.asyncio
+async def test_train_cv_vgg19_on_tiny_imagenet():
+    await perform_training(VGG19, TinyImageNet, target_training_duration_ms = 2000.0)
+
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
+@pytest.mark.asyncio
+async def test_train_cv_inception_v3_on_tiny_imagenet():
+    await perform_training(InceptionV3, TinyImageNet, target_training_duration_ms = 2000.0)
+
+#######################################################
+# Category: Natural Language Processing (NLP)
+# Dataset: IMDb Large Movie Review Dataset (Truncated)
+#######################################################
+
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
@@ -3430,6 +3480,28 @@ async def test_train_nlp_bert_on_truncated_imdb():
 @pytest.mark.asyncio
 async def test_train_nlp_gpt2_on_truncated_imdb():
     await perform_training(GPT2, IMDbLargeMovieReviewTruncated, target_training_duration_ms = 2500.0)
+
+#######################################################
+# Category: Natural Language Processing (NLP)
+# Dataset: Corpus of Linguistic Acceptability (CoLA)
+#######################################################
+
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
+@pytest.mark.asyncio
+async def test_train_nlp_bert_on_cola():
+    await perform_training(Bert, CoLA, target_training_duration_ms = 2500.0)
+
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
+@pytest.mark.asyncio
+async def test_train_nlp_gpt2_on_cola():
+    await perform_training(GPT2, CoLA, target_training_duration_ms = 2500.0)
+
+###################################################
+# Category: Speech
+# Dataset: LibriSpeech
+###################################################
 
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)

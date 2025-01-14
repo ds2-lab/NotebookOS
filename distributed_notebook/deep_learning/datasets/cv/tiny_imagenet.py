@@ -18,7 +18,7 @@ class NoneTransform(object):
         return image
 
 
-class TinyImageNetDataset(Dataset):
+class _TinyImageNetDataset(Dataset):
     def __init__(self, hf_dataset, transform=None):
         self.dataset = hf_dataset
         self.transform = transform
@@ -88,8 +88,8 @@ class TinyImageNet(HuggingFaceDataset):
         self._batch_size: int = batch_size
         self._image_size: int = image_size
 
-        self._train_dataset: TinyImageNetDataset = TinyImageNetDataset(self._dataset["train"], transform=self.transform)
-        self._test_dataset: TinyImageNetDataset = TinyImageNetDataset(self._dataset["valid"], transform=self.transform)
+        self._train_dataset: _TinyImageNetDataset = _TinyImageNetDataset(self._dataset["train"], transform=self.transform)
+        self._test_dataset: _TinyImageNetDataset = _TinyImageNetDataset(self._dataset["valid"], transform=self.transform)
 
         # Prepare the data loaders
         self._train_loader = DataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle)
