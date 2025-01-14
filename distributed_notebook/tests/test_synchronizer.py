@@ -748,14 +748,14 @@ def train_and_sync_model(
     weight: Parameter = user_module.model.output_layer.weight
     assert weight.equal(initial_weights)
 
-    previous_weights: Tensor = initial_weights
+    previous_weights: Tensor = initial_weights.clone()
     for i in range(0, num_training_loops):
         # Train for a while.
         model.train(dataset.train_loader, target_training_duration_ms)
 
         # Establish that the model's weights have changed.
-        updated_weights = model.output_layer.weight
-        assert previous_weights.equal(updated_weights) == False
+        updated_weights = model.output_layer.weight.clone()
+        assert not previous_weights.equal(updated_weights)
         previous_weights = updated_weights.clone()
 
         synchronize_variable(

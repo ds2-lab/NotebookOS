@@ -247,7 +247,7 @@ class Election(object):
         del state["_pick_and_propose_winner_future"]
         del state["election_finished_event"]
         del state["election_finished_condition_waiter_loop"]
-        del state["logger"]
+        del state["log"]
 
         self.log.debug(f"Election {self.term_number} returning state dictionary containing {len(state)} entries:")
         for key, val in state.items():
@@ -269,7 +269,7 @@ class Election(object):
             self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
         try:
-            getattr(self, "logger")
+            getattr(self, "log")
         except AttributeError:
             self.log: logging.Logger = logging.getLogger(__class__.__name__ + str(self.term_number))
             self.log.setLevel(logging.DEBUG)
