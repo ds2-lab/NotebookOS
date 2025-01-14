@@ -194,8 +194,10 @@ dataset = _dataset
 print(f"Created dataset ('{dataset}') for the first time.", flush = True)
 """
 
-def get_skipped_creation_code() -> str:
-    return """print(f"Model ('{model.name}') and dataset ('{dataset.name}') already exist.", flush = True)\n"""
+def get_skipped_creation_code(existing_model_name: str, existing_dataset_name: str) -> str:
+    return """# existing model is '%s', existing dataset is '%s'
+print(f"Model ('{model.name}') and dataset ('{dataset.name}') already exist.", flush = True)
+""" % (existing_model_name, existing_dataset_name)
 
 
 def get_training_code(
@@ -2795,7 +2797,7 @@ class DistributedKernel(IPythonKernel):
                     creation_code = get_create_dataset_only_code(deep_learning_model, dataset_name)
                 else:
                     # Case 3b: the dataset variable also already existed, so we'll not create any new variables.
-                    creation_code = get_skipped_creation_code()
+                    creation_code = get_skipped_creation_code(deep_learning_model, dataset_name)
 
             # Case 3 continued: if SMR is enabled and there are multiple replicas, then we'll
             # download the latest model state from remote storage to ensure it is up to date.

@@ -2,7 +2,7 @@ import gc
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, Type
+from typing import Optional, Dict, Any, Type, List
 
 import torch
 import torch.nn as nn
@@ -30,6 +30,9 @@ class DeepLearningModel(ABC):
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
+
+        self._last_gpu_device_ids_used: List[int] = []
+        """ The device IDs that were used by this model before the current device IDs. """
 
         self.gpu_device = None
         self.cpu_device = torch.device('cpu')
@@ -86,6 +89,13 @@ class DeepLearningModel(ABC):
     def model_name() -> str:
         pass
 
+    @property
+    def last_gpu_device_ids_used(self) -> List[int]:
+        """
+        Returns the device IDs that were used by this model before the current device IDs.
+        """
+        return self._last_gpu_device_ids_used
+
     def set_gpu_device_ids(self, device_ids: list[int] = None):
         """
         Change the GPU device IDs used by the model.
@@ -123,6 +133,7 @@ class DeepLearningModel(ABC):
         et: float = time.time()
         self.log.debug(f"Changed GPU device IDs from {old_device_ids} to {device_ids} in {et - st} seconds.")
 
+        self._last_gpu_device_ids_used = self._device_ids.copy()
         self._device_ids = device_ids
 
     def checkpointed(self):
