@@ -26,6 +26,7 @@ import debugpy
 import grpc
 import numpy as np
 import zmq
+from IPython.core.interactiveshell import ExecutionResult
 from ipykernel import jsonutil
 from ipykernel.ipkernel import IPythonKernel
 from jupyter_client.jsonutil import extract_dates
@@ -165,12 +166,14 @@ def gen_error_response(err):
         "msg_created_at_unix_milliseconds": time.time_ns() // 1_000_000,
     }
 
+
 def get_download_code(existing_model_code: str, model_name: str) -> str:
     return f"""# Explicitly download the latest model parameters from remote storage.
 print("Explicitly downloading the latest model parameters from remote storage for model of type '{model_name}'.", flush = True)
 model = __download_func__(__model_pointer__, existing_model = {existing_model_code})
 print("Downloaded the latest model parameters from remote storage for model of type '{model_name}'.", flush = True)
 """
+
 
 def get_creation_code(deep_learning_model: str, dataset: str) -> str:
     return f"""# Create the model.
@@ -180,16 +183,20 @@ model, dataset = get_model_and_dataset(deep_learning_model_name = "{deep_learnin
 print(f"Created model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
 """
 
+
 def get_skipped_creation_code() -> str:
     return """print(f"Model ('{model.name}') and dataset ('{dataset.name}') already exist.", flush = True)\n"""
 
+
 def get_training_code(
-        download_code:str,
+        download_code: str,
         creation_code: str,
         gpu_device_ids: list[int],
         target_training_duration_millis: float,
 ) -> str:
-    return f"""{creation_code}
+    return f"""raise ValueError("This should generate a traceback!")
+
+{creation_code}
 {download_code} 
 # Distribute the model across the GPUs that we've been allocated.
 model.set_gpu_device_ids(device_ids = {gpu_device_ids})
@@ -200,6 +207,7 @@ print("Finished training. Actual training time: %.3f ms." % training_time_millis
 print("Copied model from CPU to GPU in %.3f ms." % copy_cpu2gpu_millis)
 print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 """
+
 
 class DistributedKernel(IPythonKernel):
     # Configurable properties
@@ -1957,7 +1965,7 @@ class DistributedKernel(IPythonKernel):
         metadata.update(parent["metadata"])
 
         self.log.debug(f'"execute_request" metadata entries ({len(metadata)}):')
-        for k,v in metadata.items():
+        for k, v in metadata.items():
             self.log.debug(f'"{k}" (valtype={type(v).__name__}): {v}')
 
         # Process the metadata included in the request.
@@ -4651,19 +4659,57 @@ class DistributedKernel(IPythonKernel):
                 session_id=self.kernel_id, workload_id=self.workload_id
             ).observe(latency_ms)
 
+    def exception_while_running_cell(self, raw_cell: str, result: ExecutionResult):
+        """
+        This is called when there's an exception encountered during the execution of a cell.
+
+        This just prints some information about the execution.
+        """
+        if result.error_before_exec is not None and result.error_in_exec is None:
+            when: str = "before"
+        elif result.error_before_exec is None and result.error_in_exec is not None:
+            when: str = "while"
+        else:
+            when: str = "both before and then while"
+
+        self.log.debug(f"Exception encountered {when} executing of the following cell:\n\n"
+                       f"{ColoredLogFormatter.LIGHT_RED}{ColoredLogFormatter.BOLD}{raw_cell}{ColoredLogFormatter.reset}\n")
+
+        if result.error_before_exec is not None:
+            self.log.debug(f"The error that occurred before executing the cell was:\n"
+                           f"{ColoredLogFormatter.RED}{ColoredLogFormatter.BOLD}{result}{ColoredLogFormatter.reset}\n")
+            tb: t.List[str] = traceback.format_exception(result.error_in_exec)
+            tb_str: str = ""
+            for _tb in tb:
+                tb_str += _tb
+            self.log.debug(f"{ColoredLogFormatter.LIGHT_RED}{tb_str}{ColoredLogFormatter.reset}\n")
+
+            self.report_error("Error Before Executing Cell", f'Replica {self.smr_node_id} of kernel "{self.kernel_id}" encountered the following exception before executing a cell: {result.error_before_exec}')
+
+        if result.error_in_exec is not None:
+            self.log.debug(f"The error that occurred while executing the cell was:\n"
+                           f"{ColoredLogFormatter.RED}{ColoredLogFormatter.BOLD}{result}{ColoredLogFormatter.reset}\n")
+            tb: t.List[str] = traceback.format_exception(result.error_in_exec)
+            tb_str: str = ""
+            for _tb in tb:
+                tb_str += _tb
+            self.log.debug(f"{ColoredLogFormatter.LIGHT_RED}{tb_str}{ColoredLogFormatter.reset}\n")
+
+            self.report_error("Error While Executing Cell", f'Replica {self.smr_node_id} of kernel "{self.kernel_id}" encountered the following exception while executing a cell: {result.error_in_exec}')
+
     def run_cell(
             self,
-            raw_cell,
-            store_history=False,
-            silent=False,
-            shell_futures=True,
-            cell_id=None,
+            raw_cell: str,
+            store_history: bool = False,
+            silent: bool = False,
+            shell_futures: bool = True,
+            cell_id: str = None,
     ):
         self.log.debug(f"Running cell:\n"
                        f"{ColoredLogFormatter.LIGHT_BLUE}{ColoredLogFormatter.BOLD}{raw_cell}{ColoredLogFormatter.reset}\n")
         self.source = raw_cell
         self.toggle_outstream(override=True, enable=True)
-        result = self.old_run_cell(
+        result: ExecutionResult = self.old_run_cell(
             raw_cell,
             store_history=store_history,
             silent=silent,
@@ -4672,17 +4718,13 @@ class DistributedKernel(IPythonKernel):
         )
         self.toggle_outstream(override=True, enable=False)
 
-        self.log.debug(f"Ran cell:\n"
-                       f"{ColoredLogFormatter.LIGHT_GREEN}{ColoredLogFormatter.BOLD}{raw_cell}{ColoredLogFormatter.reset}\n")
-
         if result.success:
-            self.log.debug(f"Result of executing the cell:\n"
-                           f"{ColoredLogFormatter.GREEN}{ColoredLogFormatter.BOLD}{result} "
-                           f"(success={result.success}) {ColoredLogFormatter.reset}\n")
+            self.log.debug(f"Successfully ran cell without any errors:\n"
+                           f"{ColoredLogFormatter.LIGHT_GREEN}{ColoredLogFormatter.BOLD}{raw_cell}{ColoredLogFormatter.reset}\n")
+            self.log.debug(f"Result of successful cell execution:\n"
+                           f"{ColoredLogFormatter.GREEN}{ColoredLogFormatter.BOLD}{result}{ColoredLogFormatter.reset}")
         else:
-            self.log.debug(f"Result of executing the cell:\n"
-                           f"{ColoredLogFormatter.RED}{ColoredLogFormatter.BOLD}{result} "
-                           f"(success={result.success}) {ColoredLogFormatter.reset}\n")
+            self.exception_while_running_cell(raw_cell, result)
 
         return result
 
