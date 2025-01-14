@@ -194,9 +194,8 @@ def get_training_code(
         gpu_device_ids: list[int],
         target_training_duration_millis: float,
 ) -> str:
-    return f"""raise ValueError("This should generate a traceback!")
-
-{creation_code}
+    # raise ValueError("Oops")
+    return f"""{creation_code}
 {download_code} 
 # Distribute the model across the GPUs that we've been allocated.
 model.set_gpu_device_ids(device_ids = {gpu_device_ids})
@@ -4670,7 +4669,7 @@ class DistributedKernel(IPythonKernel):
         elif result.error_before_exec is None and result.error_in_exec is not None:
             when: str = "while"
         else:
-            when: str = "both before and then while"
+            when: str = "both before and while"
 
         self.log.debug(f"Exception encountered {when} executing of the following cell:\n\n"
                        f"{ColoredLogFormatter.LIGHT_RED}{ColoredLogFormatter.BOLD}{raw_cell}{ColoredLogFormatter.reset}\n")
@@ -4682,7 +4681,7 @@ class DistributedKernel(IPythonKernel):
             tb_str: str = ""
             for _tb in tb:
                 tb_str += _tb
-            self.log.debug(f"{ColoredLogFormatter.LIGHT_RED}{tb_str}{ColoredLogFormatter.reset}\n")
+            self.log.debug(f"\n{ColoredLogFormatter.LIGHT_RED}{tb_str}{ColoredLogFormatter.reset}\n")
 
             self.report_error("Error Before Executing Cell", f'Replica {self.smr_node_id} of kernel "{self.kernel_id}" encountered the following exception before executing a cell: {result.error_before_exec}')
 
@@ -4693,7 +4692,7 @@ class DistributedKernel(IPythonKernel):
             tb_str: str = ""
             for _tb in tb:
                 tb_str += _tb
-            self.log.debug(f"{ColoredLogFormatter.LIGHT_RED}{tb_str}{ColoredLogFormatter.reset}\n")
+            self.log.debug(f"\n{ColoredLogFormatter.LIGHT_RED}{tb_str}{ColoredLogFormatter.reset}\n")
 
             self.report_error("Error While Executing Cell", f'Replica {self.smr_node_id} of kernel "{self.kernel_id}" encountered the following exception while executing a cell: {result.error_in_exec}')
 

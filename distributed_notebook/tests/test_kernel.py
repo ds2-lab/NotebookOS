@@ -13,7 +13,7 @@ import pytest_asyncio
 from ipykernel.control import ControlThread
 
 import distributed_notebook.sync.raft_log
-from distributed_notebook.deep_learning import ResNet18, CIFAR10, DeepLearningModel
+from distributed_notebook.deep_learning import ResNet18, CIFAR10, DeepLearningModel, VGG16, InceptionV3
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 from distributed_notebook.kernel import DistributedKernel
 from distributed_notebook.sync import Synchronizer, RaftLog, SyncAST
@@ -3330,20 +3330,14 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kernel", [dict(ause_real_gpus=True)], indirect=True)
 async def test_train_resnet18_on_cifar10(kernel: DistributedKernel, execution_request: Dict[str, Any]):
-    assert execution_request is not None
-
-    # kernel: DistributedKernel = await create_kernel(
-    #     remote_storage_hostname = "127.0.0.1:10000",
-    #     kernel_id = DefaultKernelId,
-    #     smr_port = 8000,
-    #     smr_node_id = 1,
-    #     smr_nodes = [],
-    #     smr_join = False,
-    #     should_register_with_local_daemon = False,
-    #     pod_name = "TestPod",
-    #     node_name = "TestNode",
-    #     debug_port = -1,
-    #     use_real_gpus = True
-    # )
-
     await perform_training(kernel, execution_request, ResNet18, CIFAR10)
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kernel", [dict(ause_real_gpus=True)], indirect=True)
+async def test_train_vgg16_on_cifar10(kernel: DistributedKernel, execution_request: Dict[str, Any]):
+    await perform_training(kernel, execution_request, VGG16, CIFAR10)
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kernel", [dict(ause_real_gpus=True)], indirect=True)
+async def test_train_inception_v3_on_cifar10(kernel: DistributedKernel, execution_request: Dict[str, Any]):
+    await perform_training(kernel, execution_request, InceptionV3, CIFAR10)
