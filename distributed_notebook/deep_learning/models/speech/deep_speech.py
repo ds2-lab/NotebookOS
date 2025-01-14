@@ -145,7 +145,8 @@ class DeepSpeech(DeepLearningModel):
                     break
 
             self.total_num_epochs += 1
-            print(f"Completed iteration through training dataset. Time elapsed: {time.time() - start_time} seconds.")
+            self.log.debug(f"Completed iteration through training dataset. "
+                           f"Time elapsed: {round(time.time() - start_time, 9)} seconds.")
 
         time_spent_training_sec: float = (time.time() - start_time)
         self.total_training_time_seconds += time_spent_training_sec
@@ -153,12 +154,12 @@ class DeepSpeech(DeepLearningModel):
 
         if actual_training_time_millis > target_training_duration_millis:
             self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
-                           f"Time elapsed: {actual_training_time_millis:,} ms. Trained for "
-                           f"{actual_training_time_millis - target_training_duration_millis } ms too long. "
+                           f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. Trained for "
+                           f"{round(actual_training_time_millis - target_training_duration_millis, 9)} ms too long. "
                            f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
         else:
             self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
-                           f"Time elapsed: {actual_training_time_millis:,} ms. "
+                           f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. "
                            f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
 
         if self.gpu_available:
