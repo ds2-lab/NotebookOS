@@ -9,6 +9,7 @@ from distributed_notebook.sync.checkpointing.pointer import ModelPointer
 class RemoteCheckpointer(ABC):
     def __init__(self):
         self.log = logging.getLogger(__class__.__name__)
+        self.log.handlers.clear()
         self.log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)

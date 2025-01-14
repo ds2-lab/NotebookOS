@@ -99,7 +99,7 @@ class SyncPickleId:
         self._prmap.append(
             prid
         )  # By appending, the rid that is used to query prid is the same as the index of prmap.
-        print(f"Added prid {prid} (rid={rid}) to _prmap for {type(obj).__name__} object {obj}")
+        # print(f"Added prid {prid} (rid={rid}) to _prmap for {type(obj).__name__} object {obj}")
         return prid, rid
 
     def dump(self) -> tuple:
@@ -112,11 +112,11 @@ class SyncPickleId:
 
     def polyfill(self, polyfiller: Callable[[SyncPRID], None]):
         """Polyfill the prmap using the polyfiller function."""
-        print(f"Polyfilling objects in _prmap: {self._prmap}")
+        # print(f"Polyfilling objects in _prmap: {self._prmap}")
         for i in range(len(self._prmap)):
-            print(
-                f"\nPolyfilling {i} (type={type(self._prmap[i]).__name__}): {self._prmap[i]}"
-            )
+            # print(
+            #     f"\nPolyfilling {i} (type={type(self._prmap[i]).__name__}): {self._prmap[i]}"
+            # )
             polyfiller(self._prmap[i])
 
 
@@ -207,7 +207,7 @@ class SyncReferer:
             self._prid_provider,
             rid_provider=rid_provider,
         )
-        print(f"Referencing object, created SyncPickleId: {pickle_id}.")
+        # print(f"Referencing object, created SyncPickleId: {pickle_id}.")
         self.last_pickle = pickle_id.pcnt  # Update pickle count
         if protocol is None:
             protocol = pickle.DEFAULT_PROTOCOL
@@ -261,22 +261,22 @@ class SyncReferer:
         return persistent_load
 
     def object_from_prid(self, prid: SyncPRID):
-        print(f'Getting object from PRID "{prid}"')
+        # print(f'Getting object from PRID "{prid}"')
         obj = self._dereference(prid.__prid__(), None, None)
         # _dereference returns prid if the object is not found.
         if (
             isinstance(obj, str) and obj == prid.__prid__()
         ):  # test type first to avoid unnecessary string cast.
-            print("Assignig obj to None...")
+            # print("Assignig obj to None...")
             obj = None
         return obj
 
     def id_from_prid(self, prid: SyncPRID):
-        print(f'Converting PRID "{prid}" to ID...')
+        # print(f'Converting PRID "{prid}" to ID...')
 
         obj = self.object_from_prid(prid)
 
-        print(f"Retrieved {type(obj).__name__} object {obj} from PRID {prid}")
+        # print(f"Retrieved {type(obj).__name__} object {obj} from PRID {prid}")
 
         if self.pickler is not None and isinstance(self.pickler, SyncLogPickler):
             self.pickler.create_sync_log_pickle_profile(obj)
@@ -307,10 +307,10 @@ class SyncReferer:
             return None, None
 
         identity = id(obj)
-        print(f"Referencing {t.__name__} object {obj}\n")
+        # print(f"Referencing {t.__name__} object {obj}\n")
         if identity not in self.referers:
             # New objects (case 1)
-            print(f"{t.__name__} object {obj} referenced for first time")
+            # print(f"{t.__name__} object {obj} referenced for first time")
             prid, rid = pickle_id.next_reference(obj)
             self.referers[identity] = SyncReference(
                 prid, obj, batch_id=pickle_id.batch_id, pickle_id=pickle_id
@@ -319,47 +319,47 @@ class SyncReferer:
                 identity
             ]  # Register PRID for later remote referencing.
 
-            print(f"self.pickler: {self.pickler} (type={type(self.pickler).__name__})")
+            # print(f"self.pickler: {self.pickler} (type={type(self.pickler).__name__})")
 
             return self._persistent_id_impl(rid, obj), prid
         elif id(self.referers[identity]) == id(SKIP_SYNC):
-            print(f"{t.__name__} object {obj} has referencing disabled")
+            # print(f"{t.__name__} object {obj} has referencing disabled")
 
             # Referencing is disabled.
             return self._persistent_id_impl(None, obj), None
         elif self.referers[identity].batch_id != pickle_id.batch_id:
-            print(f"{t.__name__} object {obj} is being touched for first time in batch {pickle_id.batch_id}")
+            # print(f"{t.__name__} object {obj} is being touched for first time in batch {pickle_id.batch_id}")
 
             # First touch in a batch
             self.referers[identity].batch_id = pickle_id.batch_id
             self.referers[identity].pickle_id = pickle_id
             prid, rid = pickle_id.next_reference(obj, prid=self.referers[identity].id)
-            print(
-                "Updated {}:{}, local {}, permanent id: {},{}".format(
-                    type(obj), obj, identity, prid, pickle_id.pcnt
-                )
-            )
+            # print(
+            #     "Updated {}:{}, local {}, permanent id: {},{}".format(
+            #         type(obj), obj, identity, prid, pickle_id.pcnt
+            #     )
+            # )
             return self._persistent_id_impl(rid, obj), prid
         elif self.referers[identity].pickle_id == pickle_id:
-            print(f"{t.__name__} object {obj} is being left to pickle to de-duplicate (within pickle.dump call)")
+            # print(f"{t.__name__} object {obj} is being left to pickle to de-duplicate (within pickle.dump call)")
 
             # Within a pickle.dump call, leave pickle to deduplicate.
             return None, self.referers[identity].id
         else:
-            print(f"{t.__name__} object {obj} is being cross-pickle de-duplicated")
+            # print(f"{t.__name__} object {obj} is being cross-pickle de-duplicated")
 
             # Cross pickle deduplication
-            if pickle_id is not None:
-                print(
-                    "Detected duplicated obj, type: {}, local id: {},{}, permanent id: {},{}".format(
-                        type(obj),
-                        identity,
-                        pickle_id,
-                        self.referers[identity].id,
-                        self.referers[identity].pickle_id,
-                    )
-                )
-            print(obj)
+            # if pickle_id is not None:
+                # print(
+                #     "Detected duplicated obj, type: {}, local id: {},{}, permanent id: {},{}".format(
+                #         type(obj),
+                #         identity,
+                #         pickle_id,
+                #         self.referers[identity].id,
+                #         self.referers[identity].pickle_id,
+                #     )
+                # )
+            # print(obj)
             return self.referers[identity].id, self.referers[identity].id
 
     def _dereference(
@@ -369,9 +369,9 @@ class SyncReferer:
         prmap: Optional[list[SyncPRID]] = None,
     ):
         """persistent_load implementation for Unpickler. Register permanent refReturn obj on case 6."""
-        print("dereferencing {}".format(pickle_ref_id))
+        # print("dereferencing {}".format(pickle_ref_id))
         if isinstance(pickle_ref_id, _T):
-            print(f"{pickle_ref_id} is an instance of {type(_T).__name__}")
+            # print(f"{pickle_ref_id} is an instance of {type(_T).__name__}")
             obj, rid = self._persistent_load_impl(pickle_ref_id)
             if prmap is None:
                 raise ValueError(
@@ -383,31 +383,31 @@ class SyncReferer:
                 prid.__prid__()
             ]  # Register ID for later local referencing.
             identity = id(obj)
-            print(
-                "Restore {}:{}, local {}, permanent id: {}".format(
-                    type(obj), obj, identity, self.referers[identity].id
-                )
-            )
+            # print(
+            #     "Restore {}:{}, local {}, permanent id: {}".format(
+            #         type(obj), obj, identity, self.referers[identity].id
+            #     )
+            # )
             return obj
 
         # reference
         if pickle_ref_id in self.referers:
-            print(
-                f'Returning {type(self.referers[pickle_ref_id].obj).__name__} obj of referer stored at key "{pickle_ref_id}": {self.referers[pickle_ref_id].obj}'
-            )
+            # print(
+            #     f'Returning {type(self.referers[pickle_ref_id].obj).__name__} obj of referer stored at key "{pickle_ref_id}": {self.referers[pickle_ref_id].obj}'
+            # )
             return self.referers[pickle_ref_id].obj
 
         # SyncRID is pickled as a persistent_id, so return directly.
-        print(
-            f'SyncRID is pickled as a persistent_id, so return directly: "{pickle_ref_id}"'
-        )
+        # print(
+        #     f'SyncRID is pickled as a persistent_id, so return directly: "{pickle_ref_id}"'
+        # )
         return pickle_ref_id
 
     def _persistent_id_impl(self, rid, obj) -> Optional[_T]:
         """persistent_id helper."""
         ret = self._persistent_id_v2(rid, obj)
         # self._disable(ret)
-        print("persistent_id {}:{} -> {}\n".format(type(obj), obj, ret))
+        # print("persistent_id {}:{} -> {}\n".format(type(obj), obj, ret))
         return ret
 
     def _persistent_load_impl(self, pickle_ref_id):
@@ -444,10 +444,10 @@ class SyncReferer:
         getstate = getattr(obj, "__getstate__", None)
         if getstate is not None:
             val = getstate()
-            print("persisting state of {}:{}".format(rid, id(val)))
-            print("state:{}".format(val))
+            # print("persisting state of {}:{}".format(rid, id(val)))
+            # print("state:{}".format(val))
         else:
-            print("persisting dict of {}:{}".format(rid, id(val)))
+            # print("persisting dict of {}:{}".format(rid, id(val)))
             pass
 
         # setstate provides customized state recovery implementation and the reuse of state is not guranteed to work.
@@ -461,7 +461,7 @@ class SyncReferer:
 
     def _persistent_load_v2(self, pickle_ref_id):
         """V2 persistent_id decoder supports the reuse of the state decoded from ref_id."""
-        print("before instanciation of {}".format(pickle_ref_id[1]))
+        # print("before instanciation of {}".format(pickle_ref_id[1]))
 
         if len(pickle_ref_id) < 3:
             return pickle_ref_id[0], pickle_ref_id[1]
@@ -471,14 +471,14 @@ class SyncReferer:
         if setstate is not None:
             # Use unpickle dict instead of local dict.
             setstate(pickle_ref_id[1])
-            print(
-                "restore state of {},{}".format(pickle_ref_id[0], id(pickle_ref_id[2]))
-            )
+            # print(
+            #     "restore state of {},{}".format(pickle_ref_id[0], id(pickle_ref_id[2]))
+            # )
         else:
             inst.__dict__ = pickle_ref_id[1]
-            print(
-                "restore dict of {},{}".format(pickle_ref_id[0], id(pickle_ref_id[2]))
-            )
+            # print(
+            #     "restore dict of {},{}".format(pickle_ref_id[0], id(pickle_ref_id[2]))
+            # )
 
         return inst, pickle_ref_id[2]
 

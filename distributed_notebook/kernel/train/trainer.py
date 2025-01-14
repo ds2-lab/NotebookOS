@@ -77,6 +77,7 @@ class Trainer(object):
     def __init__(self, batch_size: int = 64, num_workers: int = 4):
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
+        self.log.handlers.clear()
         self.log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)

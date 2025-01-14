@@ -191,12 +191,13 @@ class Election(object):
         # or because all replicas proposed yield.
         self.completion_reason = "N/A"
 
-        self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(term_number))
-        self.logger.setLevel(logging.DEBUG)
+        self.log: logging.Logger = logging.getLogger(__class__.__name__ + str(term_number))
+        self.log.handlers.clear()
+        self.log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
-        self.logger.addHandler(ch)
+        self.log.addHandler(ch)
 
     def __repr__(self):
         return self.__str__()
@@ -246,11 +247,11 @@ class Election(object):
         del state["_pick_and_propose_winner_future"]
         del state["election_finished_event"]
         del state["election_finished_condition_waiter_loop"]
-        del state["logger"]
+        del state["log"]
 
-        self.logger.debug(f"Election {self.term_number} returning state dictionary containing {len(state)} entries:")
+        self.log.debug(f"Election {self.term_number} returning state dictionary containing {len(state)} entries:")
         for key, val in state.items():
-            self.logger.debug(f"\"{key}\" ({type(val).__name__}): {val}")
+            self.log.debug(f"\"{key}\" ({type(val).__name__}): {val}")
 
         return state
 
@@ -268,14 +269,14 @@ class Election(object):
             self.election_finished_condition_waiter_loop: Optional[asyncio.AbstractEventLoop] = None
 
         try:
-            getattr(self, "logger")
+            getattr(self, "log")
         except AttributeError:
-            self.logger: logging.Logger = logging.getLogger(__class__.__name__ + str(self.term_number))
-            self.logger.setLevel(logging.DEBUG)
+            self.log: logging.Logger = logging.getLogger(__class__.__name__ + str(self.term_number))
+            self.log.setLevel(logging.DEBUG)
             ch = logging.StreamHandler()
             ch.setLevel(logging.DEBUG)
             ch.setFormatter(ColoredLogFormatter())
-            self.logger.addHandler(ch)
+            self.log.addHandler(ch)
 
     @property
     def jupyter_message_id(self) -> str:
@@ -498,10 +499,10 @@ class Election(object):
         # We just have the option to not discard proposals for a particular node if we specify it via the `proposer_id` field.
         # As of right now, I don't think we ever do this. We always discard ALL proposals.
         if proposer_id >= 1:
-            self.logger.debug(
+            self.log.debug(
                 f"Discarding proposals with attempt number < {latest_attempt_number}, excluding proposals from node {proposer_id}.")
         else:
-            self.logger.debug(f"Discarding proposals from ALL nodes with attempt number < {latest_attempt_number}.")
+            self.log.debug(f"Discarding proposals from ALL nodes with attempt number < {latest_attempt_number}.")
 
         num_discarded: int = 0
         # Iterate over all the proposals, checking which (if any) need to be discarded.
@@ -541,7 +542,7 @@ class Election(object):
 
             num_discarded += 1
 
-        self.logger.debug(
+        self.log.debug(
             f"Discarded {num_discarded} proposal(s) with term number < {latest_attempt_number} from the following nodes: {', '.join([str(prop_id) for prop_id in to_remove])}")
         num_votes_discarded: int = 0
 
@@ -571,7 +572,7 @@ class Election(object):
             del self._vote_proposals[prop_id]
             num_votes_discarded += 1
 
-        self.logger.debug(
+        self.log.debug(
             f"Discarded {num_discarded} vote proposal(s) with term number < {latest_attempt_number} from nodes: {', '.join([str(prop_id) for prop_id in to_remove])}")
 
     def set_pick_and_propose_winner_future(self, future: asyncio.Future[Any]) -> None:
@@ -672,7 +673,7 @@ class Election(object):
                 f"election is in invalid state {self._election_state} (and the election did not automatically fail itself).")
 
         if not self._expecting_failure:
-            self.logger.warning(
+            self.log.warning(
                 f"Election failed, but we weren't expecting a failure... NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}, NumDiscarded: {self.num_discarded_proposals}.")
 
         self._election_state = ElectionState.FAILED
@@ -698,7 +699,7 @@ class Election(object):
         else:
             self.election_finished_event.set()
 
-        self.logger.debug(f"Election {self.term_number} has officially failed (in attempt {self.current_attempt_number}.")
+        self.log.debug(f"Election {self.term_number} has officially failed (in attempt {self.current_attempt_number}.")
 
     async def wait_for_election_to_end(self):
         """
@@ -734,7 +735,7 @@ class Election(object):
                              f"(current state: {self._election_state}); cannot transition to execution-complete state")
 
         if fast_forwarding:
-            self.logger.warning(f"Skipping election {self.term_number}.")
+            self.log.warning(f"Skipping election {self.term_number}.")
 
             self._election_state = ElectionState.SKIPPED
             self._winner_id = fast_forwarded_winner_id
@@ -768,9 +769,9 @@ class Election(object):
             self.election_finished_event.set()
 
         if fast_forwarding:
-            self.logger.debug(f"Election {self.term_number} has successfully been skipped.")
+            self.log.debug(f"Election {self.term_number} has successfully been skipped.")
         else:
-            self.logger.debug(f"The code execution phase for election {self.term_number} has completed.")
+            self.log.debug(f"The code execution phase for election {self.term_number} has completed.")
 
     def set_election_vote_completed(self, winner_id: int):
         """
@@ -789,7 +790,7 @@ class Election(object):
         if self._current_election_timestamps is not None:
             self._current_election_timestamps.execution_phase_start_time = time.time() * 1.0e3
 
-        self.logger.debug(f"The voting phase for election {self.term_number} "
+        self.log.debug(f"The voting phase for election {self.term_number} "
                           f"has completed successfully with winner: node {winner_id}.")
 
     def format_accepted_proposals(self) -> str:
@@ -844,19 +845,19 @@ class Election(object):
         current_time: float = time.time()
 
         if self._election_state == ElectionState.INACTIVE:
-            self.logger.warning(f"election for term {self._term_number} "
+            self.log.warning(f"election for term {self._term_number} "
                                 "has not yet been started; cannot identify winner to propose")
             raise RuntimeError(f"election for term {self._term_number} "
                                "has not yet been started; cannot identify winner to propose")
 
         if self._election_state == ElectionState.VOTE_COMPLETE:
-            self.logger.warning(f"election for term {self._term_number} "
+            self.log.warning(f"election for term {self._term_number} "
                               "has already completed successfully; cannot identify winner to propose")
             raise RuntimeError(f"election for term {self._term_number} "
                                "has already completed successfully; cannot identify winner to propose")
 
         if self._winner_selected:
-            self.logger.warning(f"election for term {self._term_number} "
+            self.log.warning(f"election for term {self._term_number} "
                                 f"already selected a node to propose as winner: node {self._proposed_winner}")
             raise RuntimeError(f"election for term {self._term_number} "
                                f"already selected a node to propose as winner: node {self._proposed_winner}")
@@ -877,7 +878,7 @@ class Election(object):
         # If we've not yet received all proposals AND we should keep waiting, then we'll raise a ValueError, indicating that we should not yet select a node to propose as winner.
         # If we have received all proposals, or if we'll be discarding any future proposals that we receive, then we should go ahead and try to decide.
         if (len(self._proposals) + self._num_discarded_proposals < self._num_replicas) and should_wait:
-            self.logger.debug(f"Cannot pick winner for election {self.term_number} yet. "
+            self.log.debug(f"Cannot pick winner for election {self.term_number} yet. "
                               f"Received: {len(self._proposals)} ({self.format_accepted_proposals()}, "
                               f"discarded: {self._num_discarded_proposals} ({self.format_discarded_proposals()}), "
                               f"number of replicas: {self._num_replicas}.")
@@ -897,15 +898,15 @@ class Election(object):
         if last_winner_id > 0 and self._received_proposal_from_node(last_winner_id) and self._proposals[
             last_winner_id].is_lead:
             self._proposed_winner = last_winner_id
-            self.logger.debug(
+            self.log.debug(
                 f"Will propose node {self._proposed_winner}; node {self._proposed_winner} won last time, and they proposed 'LEAD' again during this election (term {self._term_number}).")
         # If we've received at least one 'LEAD' proposal, then return the node ID of whoever proposed 'LEAD' first.
         elif self._first_lead_proposal is not None:
             self._proposed_winner = self._first_lead_proposal.proposer_id
-            self.logger.debug(
+            self.log.debug(
                 f"Will propose node {self._proposed_winner}; first 'LEAD' proposal for election term {self._term_number} came from node {self._proposed_winner}.")
         else:
-            self.logger.warning("We have nobody to propose as the winner of the election. Proposing 'FAILURE'")
+            self.log.warning("We have nobody to propose as the winner of the election. Proposing 'FAILURE'")
 
         # If this future is non-nil, then set its result so that it won't be repeated later.
         self._try_set_pick_and_propose_winner_future_result()
@@ -930,7 +931,7 @@ class Election(object):
             (bool) True if this is the first vote proposal (of whatever attempt number the proposal has) that has been received during this election, otherwise False
         """
         if vote.election_term != self.term_number:
-            self.logger.error(f"Attempting to add VOTE from term {vote.election_term} to election {self.term_number}: {vote}")
+            self.log.error(f"Attempting to add VOTE from term {vote.election_term} to election {self.term_number}: {vote}")
             raise ValueError(f"vote proposal's term {vote.election_term} differs from target election with term {self.term_number}")
 
         proposer_id: int = vote.proposer_id
@@ -938,7 +939,7 @@ class Election(object):
 
         # Update the current attempt number if the newly-received proposal has a greater attempt number than any of the other proposals that we've seen so far.
         if current_attempt_number > self._current_attempt_number:
-            self.logger.debug(f"Election {self._term_number} received vote for node {vote.proposed_node_id} from node "
+            self.log.debug(f"Election {self._term_number} received vote for node {vote.proposed_node_id} from node "
                               f"{vote.proposer_id} with attempt number {vote.attempt_number}. "
                               f"Current attempt number is {self._current_attempt_number}. "
                               f"Setting attempt number to new value of {vote.attempt_number}.")
@@ -960,7 +961,7 @@ class Election(object):
         if 0 < self._discard_after < received_at and len(
                 self._vote_proposals) >= 1:  # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
             self._num_discarded_vote_proposals += 1
-            self.logger.debug(
+            self.log.debug(
                 f"Discarding 'VOTE' proposal from node {vote.proposer_id}, as it was received after deadline. (Deadline: {datetime.datetime.fromtimestamp(self._discard_after).strftime('%Y-%m-%d %H:%M:%S.%f')}, Received at: {datetime.datetime.fromtimestamp(received_at).strftime('%Y-%m-%d %H:%M:%S.%f')})")
             return False
 
@@ -996,12 +997,12 @@ class Election(object):
             error_msg: str = (f"\"{proposal.key}\" proposal from node {proposal.proposer_id} "
                               f"(ts={datetime.datetime.fromtimestamp(proposal.timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')}) "
                               f"is from term {proposal.election_term}, whereas this election is for term {self.term_number}.")
-            self.logger.error(error_msg)
+            self.log.error(error_msg)
             raise ValueError(error_msg)
 
         # Update the current attempt number if the newly-received proposal has a greater attempt number than any of the other proposals that we've seen so far.
         if proposal.attempt_number > self._current_attempt_number:
-            self.logger.debug(f"Election {self._term_number} received \"{proposal.key}\" proposal "
+            self.log.debug(f"Election {self._term_number} received \"{proposal.key}\" proposal "
                               f"from node {proposal.proposer_id} with attempt number {proposal.attempt_number}. "
                               f"Current attempt number is {self._current_attempt_number}. "
                               f"Setting attempt number to new value of {proposal.attempt_number}.")
@@ -1012,7 +1013,7 @@ class Election(object):
             # If we previously failed and just got a new proposal with a new highest attempt number, then restart!
             # We'll purge/discard the old proposals down below.
             if self._election_state == ElectionState.FAILED:
-                self.logger.debug(
+                self.log.debug(
                     f"Election {self.term_number} restarting. "
                     f"Received new highest attempt number ({proposal.attempt_number}; prev: {old_largest}).")
                 self.restart(latest_attempt_number=proposal.attempt_number)
@@ -1021,7 +1022,7 @@ class Election(object):
         # If the new proposal has an attempt number equal to or lower than the last proposal we received from this node, then that's a problem.
         existing_proposal: Optional[LeaderElectionProposal] = self._proposals.get(proposal.proposer_id, None)
         if existing_proposal is not None and existing_proposal.attempt_number >= proposal.attempt_number:
-            self.logger.warning(
+            self.log.warning(
                 f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} "
                 f"because new proposal has attempt number ({proposal.attempt_number}) <= existing proposal "
                 f"from same node's attempt number ({existing_proposal.attempt_number}).")
@@ -1031,7 +1032,7 @@ class Election(object):
         if 0 < self._discard_after < received_at:  # `self._discard_after` is initially equal to -1, so it isn't valid until it is set to a positive value.
             self._num_discarded_proposals += 1
             self._lifetime_num_discarded_proposals += 1
-            self.logger.warning(
+            self.log.warning(
                 f"Discarding proposal from node {proposal.proposer_id} during election term {proposal.election_term} because it was received too late.")
             return None
 
@@ -1041,23 +1042,23 @@ class Election(object):
 
         if proposal.is_lead:
             self._num_lead_proposals_received += 1
-            self.logger.debug(
+            self.log.debug(
                 f"Accepted \"LEAD\" proposal from node {proposal.proposer_id} with attempt number {proposal.attempt_number}. "
                 f"NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
         else:
             self._num_yield_proposals_received += 1
-            self.logger.debug(
+            self.log.debug(
                 f"Accepted \"YIELD\" proposal from node {proposal.proposer_id} with attempt number {proposal.attempt_number}. "
                 f"NumLead: {self._num_lead_proposals_received}; NumYield: {self._num_yield_proposals_received}.")
 
             if self._num_yield_proposals_received >= 3:
                 self._expecting_failure = True
-                self.logger.warning(
+                self.log.warning(
                     "Received third 'YIELD' proposal. Election is doomed to fail! Automatically transitioning to the 'FAILED' state.")
                 self.set_election_failed()
                 self._auto_failed = True
 
-        self.logger.debug(
+        self.log.debug(
             f"Received proposals from node(s): {', '.join([str(k) for k in self._proposals.keys()])}. "
             f"Missing proposals from node(s): {', '.join([str(k) for k in self._missing_proposals])}")
 

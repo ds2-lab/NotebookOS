@@ -165,12 +165,13 @@ class SimulatedCheckpointer(object):
         # The likelihood as a percentage (value between 0 and 1) that an error occurs during any single write operation.
         self.write_failure_chance_percentage: float = write_failure_chance_percentage
 
-        self.logger: logging.Logger = logging.getLogger(f"SimulatedCheckpointer[{self.name}] ")
-        self.logger.setLevel(logging.DEBUG)
-        self.logger.propagate = True
+        self.log: logging.Logger = logging.getLogger(f"SimulatedCheckpointer[{self.name}] ")
+        self.log.handlers.clear()
+        self.log.setLevel(logging.DEBUG)
+        self.log.propagate = True
         ch = logging.StreamHandler()
         ch.setFormatter(ColoredLogFormatter())
-        self.logger.addHandler(ch)
+        self.log.addHandler(ch)
 
         self.total_num_io_ops: int = 0
         self.total_num_read_ops: int = 0
@@ -215,7 +216,7 @@ class SimulatedCheckpointer(object):
 
     def __getstate__(self) -> dict[str, Any]:
         state: dict[str, Any] = self.__dict__.copy()
-        del state["logger"]
+        del state["log"]
 
         return state
 
@@ -223,14 +224,15 @@ class SimulatedCheckpointer(object):
         self.__dict__.update(state)
 
         try:
-            getattr(self, "logger")
+            getattr(self, "log")
         except AttributeError:
-            self.logger: logging.Logger = logging.getLogger(f"SimulatedCheckpointer[{self.name}] ")
-            self.logger.setLevel(logging.DEBUG)
-            self.logger.propagate = False
+            self.log: logging.Logger = logging.getLogger(f"SimulatedCheckpointer[{self.name}] ")
+            self.log.handlers.clear()
+            self.log.setLevel(logging.DEBUG)
+            self.log.propagate = False
             ch = logging.StreamHandler()
             ch.setFormatter(ColoredLogFormatter())
-            self.logger.addHandler(ch)
+            self.log.addHandler(ch)
 
     def get_estimated_write_time_seconds(self, write_size_bytes: float = 0, rate: float = -1) -> float:
         if write_size_bytes < 0:
@@ -283,10 +285,10 @@ class SimulatedCheckpointer(object):
             failure_occurred: bool = roll < failure_percentage_chance
 
             if failure_occurred:
-                self.logger.warning(f"Simulated {operation_name} of 0 bytes failed immediately.")
+                self.log.warning(f"Simulated {operation_name} of 0 bytes failed immediately.")
                 return False, 0 # Size of 0 bytes, so instantaneous.
 
-            self.logger.debug(f"Simulated {operation_name} of 0 bytes succeeded immediately.")
+            self.log.debug(f"Simulated {operation_name} of 0 bytes succeeded immediately.")
             return True, 0 # Size of 0 bytes, so instantaneous.
 
         if size_bytes > 1.0e6:
@@ -298,7 +300,7 @@ class SimulatedCheckpointer(object):
             rate_formatted: float = current_rate
             transfer_units = "bytes"
 
-        self.logger.info(f"Simulated network {operation_name} of size {transfer_size} {transfer_units} "
+        self.log.info(f"Simulated network {operation_name} of size {transfer_size} {transfer_units} "
                           f"targeting {self.name} is estimated to take {round(estimated_time_required_ms, 2)} ms to "
                           f"complete at current data transfer rate of {rate_formatted} {transfer_units}/sec.")
 
@@ -313,7 +315,7 @@ class SimulatedCheckpointer(object):
 
             # Keep sleeping in ~1sec increments until we've transferred everything.
             while bytes_remaining > 0:
-                self.logger.debug("Sleeping for 1 second as remaining data transfer is expected to take longer than that.")
+                self.log.debug("Sleeping for 1 second as remaining data transfer is expected to take longer than that.")
                 await asyncio.sleep(sleep_interval_sec)
 
                 # Since current_rate is bytes/second, and we just simulated I/O for 1 second,
@@ -328,11 +330,11 @@ class SimulatedCheckpointer(object):
 
                 if current_rate > base_rate:
                     rate_difference: float = round((current_rate - base_rate) / 1.0e6, 3)
-                    self.logger.debug(f"Got new {operation_name} rate: "
+                    self.log.debug(f"Got new {operation_name} rate: "
                                       f"{current_rate/1.0e6} MB/sec (+{rate_difference} MB/sec).")
                 else:
                     rate_difference: float = round((base_rate - current_rate) / 1.0e6, 3)
-                    self.logger.debug(f"Got new {operation_name} rate: "
+                    self.log.debug(f"Got new {operation_name} rate: "
                                       f"{current_rate/1.0e6} MB/sec (-{rate_difference} MB/sec).")
 
                 if bytes_remaining > 1.0e6:
@@ -343,7 +345,7 @@ class SimulatedCheckpointer(object):
                     units = "bytes"
 
                 estimated_time_required_sec: float = get_estimated_io_time_seconds(size_bytes = bytes_remaining, rate = current_rate)
-                self.logger.info(f"Remaining data: {remaining_transfer_size} {units}. "
+                self.log.info(f"Remaining data: {remaining_transfer_size} {units}. "
                                   f"Estimated time remaining: {round(estimated_time_required_sec * 1.0e3, 4)} ms.\n")
 
                 # We'll sleep for at most 1 second.
@@ -353,7 +355,7 @@ class SimulatedCheckpointer(object):
                 sys.stdout.flush()
                 sys.stderr.flush()
         else:
-            self.logger.debug(f"Sleeping for {estimated_time_required_ms} ms to simulate network {operation_name} "
+            self.log.debug(f"Sleeping for {estimated_time_required_ms} ms to simulate network {operation_name} "
                               f"of size {size_bytes / 1.0e6:,} MB.")
             await asyncio.sleep(initial_estimated_time_required_seconds)
 
@@ -400,10 +402,10 @@ class SimulatedCheckpointer(object):
 
         difference: float = round(latency_ms - estimated_time_required_ms, 3)
         if difference > 0:
-            self.logger.info(f"Simulated network write of size {transfer_size} {units} targeting {self.name} completed "
+            self.log.info(f"Simulated network write of size {transfer_size} {units} targeting {self.name} completed "
                              f"after {latency_ms} ms. Network write took {abs(difference)} ms longer than expected.")
         else:
-            self.logger.info(f"Simulated network write of size {transfer_size} {units} targeting {self.name} completed "
+            self.log.info(f"Simulated network write of size {transfer_size} {units} targeting {self.name} completed "
                               f"after {latency_ms} ms. Network write took {abs(difference)} ms shorter than expected.")
 
     async def download_data(self, size_bytes: int = 0):
@@ -430,14 +432,14 @@ class SimulatedCheckpointer(object):
         )
 
         if not success:
-            self.logger.warning(f"Simulated read/download of {size_bytes/1.0e6:,} MB failed.")
+            self.log.warning(f"Simulated read/download of {size_bytes / 1.0e6:,} MB failed.")
             # Note: this call will raise a TimeoutError.
             self.__read_operation_failed((time.time() - start_time) * 1.0e3)
             return
 
         latency_ms: float = (time.time() - start_time) * 1.0e3
 
-        self.logger.debug(f"Simulated read/download of {size_bytes/1.0e6:,} MB succeeded.")
+        self.log.debug(f"Simulated read/download of {size_bytes / 1.0e6:,} MB succeeded.")
         self.__read_operation_succeeded(latency_ms)
 
         if size_bytes > 1.0e6:
@@ -449,10 +451,10 @@ class SimulatedCheckpointer(object):
 
         difference: float = round(latency_ms - estimated_time_required_ms, 3)
         if difference > 0:
-            self.logger.info(f"Simulated network read of size {transfer_size} {units} targeting {self.name} completed "
+            self.log.info(f"Simulated network read of size {transfer_size} {units} targeting {self.name} completed "
                              f"after {latency_ms} ms. Network write took {abs(difference)} ms longer than expected.")
         else:
-            self.logger.info(f"Simulated network read of size {transfer_size} {units} targeting {self.name} completed "
+            self.log.info(f"Simulated network read of size {transfer_size} {units} targeting {self.name} completed "
                              f"after {latency_ms} ms. Network write took {abs(difference)} ms shorter than expected.")
 
     def __write_operation_succeeded(self, latency_ms: float):

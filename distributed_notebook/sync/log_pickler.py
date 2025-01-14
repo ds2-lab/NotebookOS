@@ -32,7 +32,7 @@ class SyncLogPickleProfile:
 class SyncLogPickler(Pickler):
     def __init__(self, buffer: IO[bytes], *args, **kwargs):
         super().__init__(buffer, *args, **kwargs)
-        logging.info("Init SyncLogPickler")
+        # logging.info("Init SyncLogPickler")
 
         # Hacking properties
         self.framer = _Framer(buffer.write)
@@ -51,10 +51,10 @@ class SyncLogPickler(Pickler):
 
         if obj_id not in self._pickle_profile:
             sync_log_pickle_profile: SyncLogPickleProfile = SyncLogPickleProfile(self._buffer.getbuffer().nbytes, type(value))
-            print(
-                f"Storing profile for {type(value).__name__} object {value} in _pickle_profile at key {obj_id}. "
-                f"Profile: {sync_log_pickle_profile}"
-            )
+            # print(
+            #     f"Storing profile for {type(value).__name__} object {value} in _pickle_profile at key {obj_id}. "
+            #     f"Profile: {sync_log_pickle_profile}"
+            # )
             self._pickle_profile[obj_id] = sync_log_pickle_profile
             return sync_log_pickle_profile
 
@@ -66,11 +66,11 @@ class SyncLogPickler(Pickler):
         This version overrides the default dump method to embed the PROTO opcode in the frame.
         """
         obj_id = id(obj)
-        logging.info(
-            "Started object: {}, written {}: {}".format(
-                obj_id, self._buffer.getbuffer().nbytes, obj
-            )
-        )
+        # logging.info(
+        #     "Started object: {}, written {}: {}".format(
+        #         obj_id, self._buffer.getbuffer().nbytes, obj
+        #     )
+        # )
 
         profile: SyncLogPickleProfile = self.create_sync_log_pickle_profile(obj)
 
@@ -89,9 +89,9 @@ class SyncLogPickler(Pickler):
         self.write(PROTO + pack("<B", self.proto))
         self.save(obj)
         self.write(STOP)
-        logging.info(
-            f"Dumping {type(obj).__name__} object {obj} with ID={obj_id} at offset {self._buffer.getbuffer().nbytes:,} (bytes)"
-        )
+        # logging.info(
+        #     f"Dumping {type(obj).__name__} object {obj} with ID={obj_id} at offset {self._buffer.getbuffer().nbytes:,} (bytes)"
+        # )
         # logging.info("memo: {}".format(self.memo))
         self._pickle_profile[id(obj)].offset = self._buffer.getbuffer().nbytes
         self.framer.end_framing()
@@ -99,21 +99,21 @@ class SyncLogPickler(Pickler):
         # update size
         profile.size = self._buffer.getbuffer().nbytes - profile.offset
 
-        logging.info(
-            f"Dumped {type(obj).__name__} object {obj} with ID={obj_id} at offset {self._buffer.getbuffer().nbytes:,} (bytes)"
-        )
+        # logging.info(
+        #     f"Dumped {type(obj).__name__} object {obj} with ID={obj_id} at offset {self._buffer.getbuffer().nbytes:,} (bytes)"
+        # )
 
     def get_polyfiller(
         self, cb: Callable[[SyncPRID], int]
     ) -> Callable[[SyncPRID], None]:
         def polyfiller(prid: SyncPRID):
-            print("Polyfilling")
+            # print("Polyfilling")
 
-            print(f'Converting prid "{prid}" to key')
+            # print(f'Converting prid "{prid}" to key')
 
             _key = cb(prid)
 
-            print(f'Converted prid "{prid}" to key "{_key}" using cb {cb}')
+            # print(f'Converted prid "{prid}" to key "{_key}" using cb {cb}')
 
             if _key not in self._pickle_profile:
                 raise KeyError(
@@ -122,7 +122,7 @@ class SyncLogPickler(Pickler):
 
             profile: SyncLogPickleProfile = self._pickle_profile[_key]
 
-            print(f'SyncLogPickleProfile for SyncPRID "{prid}": {profile}')
+            # print(f'SyncLogPickleProfile for SyncPRID "{prid}": {profile}')
 
             profile.polyfill(prid)
 

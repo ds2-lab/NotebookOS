@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Type
 import gc
 import time
 from typing import Optional, Dict, Any
@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+from distributed_notebook.deep_learning.configuration import Testing
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
 class SimpleModule(nn.Module):
@@ -111,6 +112,14 @@ class SimpleModel(DeepLearningModel):
             self.model.set_bias(initial_bias)
 
     @staticmethod
+    def expected_model_class() -> Type:
+        return SimpleModule
+
+    @staticmethod
+    def category() -> str:
+        return Testing
+
+    @staticmethod
     def model_name() -> str:
         return "Simple Model"
 
@@ -136,9 +145,12 @@ class SimpleModel(DeepLearningModel):
 
     @property
     def constructor_args(self)->dict[str, Any]:
-        return {
+        base_args: dict[str, Any] = super().constructor_args
+        args: dict[str, Any] = {
             "input_size": self._input_size
         }
+        base_args.update(args)
+        return base_args
 
     def set_bias(self, val: float):
         """

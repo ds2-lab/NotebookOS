@@ -83,11 +83,11 @@ class SyncObjectWrapper:
     def diff(self, raw, meta=None) -> Optional[SynchronizedValue]:
         """Update the object with new raw object and get the difference view for synchronization"""
         pickled, prmap, hash = self.get_hash(raw, self.batch_from_meta(meta))
-        print(
-            "old {}:{}, new {}:{}, match:{}".format(
-                self.raw, self._hash, raw, hash, hash == self._hash
-            )
-        )
+        # print(
+        #     "old {}:{}, new {}:{}, match:{}".format(
+        #         self.raw, self._hash, raw, hash, hash == self._hash
+        #     )
+        # )
         op = OP_SYNC_ADD
         if hash != self._hash:
             if self._hash is not None:
@@ -110,7 +110,7 @@ class SyncObjectWrapper:
                 buff, val.prmap, unpickler=unpickler
             )
             diff = unpickler.load()
-            logging.info(f"Un-pickled object of type {type(diff).__name__}: {diff}")
+            # logging.info(f"Un-pickled object of type {type(diff).__name__}: {diff}")
             # Verify tags
             # _, tag = self.get_hash(diff, val.term)
             # if tag != val.tag:
@@ -126,7 +126,7 @@ class SyncObjectWrapper:
     def get_hash(
         self, raw, batch: Optional[str], profiling: bool = False
     ) -> Tuple[Any, Optional[list[str]], Any]:
-        print(f"Getting hash for {type(raw).__name__} object [profiling = {profiling}]")
+        # print(f"Getting hash for {type(raw).__name__} object [profiling = {profiling}]")
         t = type(raw)
         if raw is None or t is int or t is float or t is bool or raw is EMPTY_TUPLE:
             return raw, None, raw
@@ -149,14 +149,14 @@ class SyncObjectWrapper:
             pickler.dump(raw)
             pickled = buff.getvalue()
             if hasattr(pickler, "get_polyfiller"):
-                logging.info(f'\n\n\n\nPolyfilling pickle_id="{pickle_id}"')
+                # logging.info(f'\n\n\n\nPolyfilling pickle_id="{pickle_id}"')
                 pickle_id.polyfill(pickler.get_polyfiller(self._referer.id_from_prid))
-            else:
-                logging.info("No polyfilling")
+            # else:
+                # logging.info("No polyfilling")
             prmap = pickle_id.dump()
             if self._profiling:
                 assert isinstance(pickler, PickleProfiler)
-                logging.info("Total bytes {}".format(len(pickled)))
+                # logging.info("Total bytes {}".format(len(pickled)))
                 pickler.print_profile(self._referer.id_from_prid, pickle_id.load(prmap))
 
                 logging.info(pickled)

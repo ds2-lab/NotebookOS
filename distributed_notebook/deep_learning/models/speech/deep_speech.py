@@ -107,6 +107,7 @@ class DeepSpeech(DeepLearningModel):
                 self._optimizer.zero_grad()
 
                 # Forward pass
+                forward_pass_start: float = time.time()
                 outputs = self.model(waveforms)
                 outputs = F.log_softmax(outputs, dim=2)
                 outputs = outputs.transpose(0, 1)  # (time, batch, n_class)
@@ -116,6 +117,7 @@ class DeepSpeech(DeepLearningModel):
                 loss.backward()
 
                 self._optimizer.step()
+                forward_pass_end: float = time.time()
 
                 # Add this line to clear grad tensors
                 self._optimizer.zero_grad(set_to_none=True)
@@ -124,6 +126,10 @@ class DeepSpeech(DeepLearningModel):
 
                 num_minibatches_processed += 1
                 num_samples_processed += len(waveforms)
+
+                self.log.debug(f"Processed {len(waveforms)} samples in "
+                               f"{round((forward_pass_end - forward_pass_start) * 1.0e3, 9):,} milliseconds. "
+                               f"Total time elapsed so far: {round((time.time() - start_time) * 1.0e3, 9):,} milliseconds.")
 
                 if self.gpu_available:
                     del waveforms
@@ -139,7 +145,8 @@ class DeepSpeech(DeepLearningModel):
                     break
 
             self.total_num_epochs += 1
-            print(f"Completed iteration through training dataset. Time elapsed: {time.time() - start_time} seconds.")
+            self.log.debug(f"Completed iteration through training dataset. "
+                           f"Time elapsed: {round(time.time() - start_time, 9)} seconds.")
 
         time_spent_training_sec: float = (time.time() - start_time)
         self.total_training_time_seconds += time_spent_training_sec
@@ -147,12 +154,12 @@ class DeepSpeech(DeepLearningModel):
 
         if actual_training_time_millis > target_training_duration_millis:
             self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
-                           f"Time elapsed: {actual_training_time_millis:,} ms. Trained for "
-                           f"{actual_training_time_millis - target_training_duration_millis } ms too long. "
+                           f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. Trained for "
+                           f"{round(actual_training_time_millis - target_training_duration_millis, 9)} ms too long. "
                            f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
         else:
             self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
-                           f"Time elapsed: {actual_training_time_millis:,} ms. "
+                           f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. "
                            f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
 
         if self.gpu_available:

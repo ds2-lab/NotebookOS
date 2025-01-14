@@ -21,6 +21,7 @@ class readCloser(io.IOBase):
     self.data_size:int = size 
 
     self.logger: logging.Logger = logging.getLogger(__class__.__name__ + "-" + str(uuid.uuid4())[0:5])
+    self.logger.handlers.clear()
 
     self.logger.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()

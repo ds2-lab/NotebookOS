@@ -25,6 +25,7 @@ class DeepLearningModel(ABC):
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
         self.log.setLevel(logging.DEBUG)
+        self.log.handlers.clear()
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
@@ -406,6 +407,7 @@ class DeepLearningModel(ABC):
                 # Backward pass and optimization
                 loss.backward()
                 self._optimizer.step()
+                forward_pass_end: float = time.time()
 
                 # Add this line to clear grad tensors
                 self._optimizer.zero_grad(set_to_none=True)
@@ -415,7 +417,9 @@ class DeepLearningModel(ABC):
                 num_minibatches_processed += 1
                 num_samples_processed += len(samples)
 
-                print(f"Processed {len(samples)} samples in {(time.time() - forward_pass_start) * 1.0e3} milliseconds.")
+                self.log.debug(f"Processed {len(samples)} samples in "
+                               f"{round((forward_pass_end - forward_pass_start) * 1.0e3, 9):,} milliseconds. "
+                               f"Total time elapsed so far: {round((time.time() - start_time) * 1.0e3, 9):,} milliseconds.")
 
                 if self.gpu_available:
                     del samples
@@ -432,7 +436,8 @@ class DeepLearningModel(ABC):
                     break
 
             self.total_num_epochs += 1
-            print(f"Completed iteration through training dataset. Time elapsed: {time.time() - start_time} seconds.")
+            self.log.debug(f"Completed iteration through training dataset. "
+                           f"Time elapsed: {round(time.time() - start_time, 9)} seconds.")
 
         time_spent_training_sec: float = (time.time() - start_time)
         self.total_training_time_seconds += time_spent_training_sec
@@ -440,12 +445,12 @@ class DeepLearningModel(ABC):
 
         if actual_training_time_millis > target_training_duration_millis:
             self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
-                           f"Time elapsed: {actual_training_time_millis:,} ms. Trained for "
-                           f"{actual_training_time_millis - target_training_duration_millis } ms too long. "
+                           f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. Trained for "
+                           f"{round(actual_training_time_millis - target_training_duration_millis, 9)} ms too long. "
                            f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
         else:
             self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
-                       f"Time elapsed: {actual_training_time_millis:,} ms. "
+                       f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. "
                        f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} individual samples).")
 
         if self.gpu_available:
@@ -522,7 +527,8 @@ class DeepLearningModel(ABC):
             raise ValueError("GPU is unavailable. Cannot move {self.name} model, optimizer, and criterion to the GPU.")
 
         size_mb = self.size_mb
-        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the GPU. Model size: {size_mb} MB.")
+        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the GPU. "
+                       f"Model size: {round(size_mb, 6)} MB.")
 
         st: float = time.time()
         # Move the model to the GPU.
@@ -542,10 +548,11 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU. Model size: {size_mb} MB.")
-        self.log.debug(f"\tTotal time elapsed: {total_time_elapsed * 1.0e3} ms.")
-        self.log.debug(f"\t\tCopied optimizer in {(et_optimizer - et_model) * 1.0e3} ms.")
-        self.log.debug(f"\t\tCopied criterion in {(et_criterion - et_optimizer) * 1.0e3} ms.")
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU. "
+                       f"Model size: {round(size_mb, 6)} MB.")
+        self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
+        self.log.debug(f"\t\tCopied optimizer in {(round(et_optimizer - et_model) * 1.0e3, 9)} ms.")
+        self.log.debug(f"\t\tCopied criterion in {round((et_criterion - et_optimizer) * 1.0e3, 9)} ms.")
 
         self.cpu_to_gpu_times.append(total_time_elapsed)
 
@@ -553,7 +560,8 @@ class DeepLearningModel(ABC):
 
     def to_cpu(self) -> float:  # Return the total time elapsed in seconds.
         size_mb: float = self.size_mb
-        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the CPU. Model size: {size_mb} MB.")
+        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the CPU. "
+                       f"Model size: {round(size_mb, 6)} MB.")
 
         st: float = time.time()
         # Move the model to the CPU.
@@ -573,10 +581,11 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU. Model size: {size_mb} MB.")
-        self.log.debug(f"\tTotal time elapsed: {total_time_elapsed * 1.0e3} ms.")
-        self.log.debug(f"\t\tCopied optimizer in {(et_optimizer - et_model) * 1.0e3} ms.")  # μ
-        self.log.debug(f"\t\tCopied criterion in {(et_criterion - et_optimizer) * 1.0e3} ms.")
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU. "
+                       f"Model size: {round(size_mb, 6)} MB.")
+        self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
+        self.log.debug(f"\t\tCopied optimizer in {(round(et_optimizer - et_model) * 1.0e3, 9)} ms.")
+        self.log.debug(f"\t\tCopied criterion in {round((et_criterion - et_optimizer) * 1.0e3, 9)} ms.")
 
         self.gpu_to_cpu_times.append(total_time_elapsed)
 

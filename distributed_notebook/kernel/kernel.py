@@ -20,12 +20,13 @@ from hmac import compare_digest
 from multiprocessing import Process, Queue
 from numbers import Number
 from threading import Lock
-from typing import Union, Optional, Dict, Any, Type
+from typing import Union, Optional, Dict, Any
 
 import debugpy
 import grpc
 import numpy as np
 import zmq
+from IPython.core.interactiveshell import ExecutionResult
 from ipykernel import jsonutil
 from ipykernel.ipkernel import IPythonKernel
 from jupyter_client.jsonutil import extract_dates
@@ -35,7 +36,6 @@ from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.datasets.loader import load_dataset
-from distributed_notebook.deep_learning.models import ModelClassesByName, ModelNameToModelCategory, ComputerVisionModel
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.gateway import gateway_pb2
@@ -55,7 +55,7 @@ from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer im
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
-from ..deep_learning.datasets import DatasetClassesByName, DatasetNamesByCategory, ComputerVision
+from ..deep_learning import DatasetClassesByName, ModelClassesByName
 
 import_torch_start: float = time.time()
 try:
@@ -166,6 +166,56 @@ def gen_error_response(err):
         "traceback": [],
         "msg_created_at_unix_milliseconds": time.time_ns() // 1_000_000,
     }
+
+
+def get_download_code(existing_model_code: str, model_name: str) -> str:
+    return f"""# Explicitly download the latest model parameters from remote storage.
+print("Explicitly downloading the latest model parameters from remote storage for model of type '{model_name}'.", flush = True)
+model = __download_func__(__model_pointer__, existing_model = {existing_model_code})
+print("Downloaded the latest model parameters from remote storage for model of type '{model_name}'.", flush = True)
+"""
+
+def get_create_model_and_dataset_code(deep_learning_model: str, dataset: str) -> str:
+    return f"""# Create both the model and the dataset.
+print(f"Creating model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
+from distributed_notebook.deep_learning import get_model_and_dataset
+_model, _dataset = get_model_and_dataset(deep_learning_model_name = "{deep_learning_model}", dataset_name = "{dataset}")
+model = _model
+dataset = _dataset
+print(f"Created model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
+"""
+
+def get_create_dataset_only_code(existing_model_name: str, dataset: str) -> str:
+    return f"""# Create just the dataset.
+print(f"Creating dataset ('{dataset}') for the first time.", flush = True)
+from distributed_notebook.deep_learning import get_model_and_dataset
+_, _dataset = get_model_and_dataset(deep_learning_model_name = "{existing_model_name}", dataset_name = "{dataset}")
+dataset = _dataset
+print(f"Created dataset ('{dataset}') for the first time.", flush = True)
+"""
+
+def get_skipped_creation_code() -> str:
+    return """print(f"Model ('{model.name}') and dataset ('{dataset.name}') already exist.", flush = True)\n"""
+
+
+def get_training_code(
+        download_code: str,
+        creation_code: str,
+        gpu_device_ids: list[int],
+        target_training_duration_millis: float,
+) -> str:
+    # raise ValueError("Oops")
+    return f"""{creation_code}
+{download_code} 
+# Distribute the model across the GPUs that we've been allocated.
+model.set_gpu_device_ids(device_ids = {gpu_device_ids})
+        
+# Train for the specified amount of time.
+training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis = model.train(dataset.train_loader, target_training_duration_millis = {target_training_duration_millis})
+print("Finished training. Actual training time: %.3f ms." % training_time_millis)
+print("Copied model from CPU to GPU in %.3f ms." % copy_cpu2gpu_millis)
+print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
+"""
 
 
 class DistributedKernel(IPythonKernel):
@@ -341,6 +391,7 @@ class DistributedKernel(IPythonKernel):
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
+        self.log.handlers.clear()
         self.log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
@@ -369,6 +420,29 @@ class DistributedKernel(IPythonKernel):
         self.shell_received_at: Optional[float] = None
         self.init_persistent_store_on_start_future: Optional[futures.Future] = None
         self.store_path: str = ""
+
+        # Keep track of how many times we generate the 'download' code when generating custom DL training code.
+        self._get_download_code_called: int = 0
+
+        # Keep track of how many times we generate the 'create model for the first time' code when generating
+        # custom DL training code.
+        self._get_creation_code_called: int = 0
+
+        if "remote_storage" in kwargs:
+            kwarg_remote_storage: str = kwargs["remote_storage"]
+            self.log.warning(f'Overwriting configured remote checkpointer "{self.remote_storage}" '
+                             f'with keyword argument "{kwarg_remote_storage}"')
+            self.remote_storage = kwarg_remote_storage
+        else:
+            self.log.debug(f"Using remote storage '{self.remote_storage}', hostname='{self.remote_storage_hostname}'")
+
+        if "smr_enabled" in kwargs:
+            kwargs_smr_enabled: Bool = kwargs["smr_enabled"]
+            self.log.warning(f'Overwriting configured "smr_enabled" flag ({self.smr_enabled}) '
+                             f'with keyword argument {kwargs_smr_enabled}')
+            self.smr_enabled = kwargs_smr_enabled
+        else:
+            self.log.debug(f"smr_enabled={self.smr_enabled}")
 
         # Committed DatasetPointers that we encounter while catching-up after a migration.
         # Once we're caught-up, we download all of these.
@@ -406,9 +480,6 @@ class DistributedKernel(IPythonKernel):
 
         if "use_real_gpus" in kwargs:
             self.use_real_gpus = kwargs["use_real_gpus"]
-
-        self.model = None
-        self.dataset = None
 
         ########################
         # Execution/Data State #
@@ -478,7 +549,7 @@ class DistributedKernel(IPythonKernel):
 
         if "local_tcp_server_port" in kwargs:
             self.log.warning(
-                f"Overriding default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
+                f"Overwriting default value of local_tcp_server_port ({self.local_tcp_server_port}) with "
                 f"value from keyword arguments: {kwargs['local_tcp_server_port']}"
             )
             self.local_tcp_server_port = kwargs["local_tcp_server_port"]
@@ -1836,15 +1907,11 @@ class DistributedKernel(IPythonKernel):
             model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
 
         if model is None:
-            self.log.debug(
-                "Did not find any objects of type DeepLearningModel in the user namespace."
-            )
+            self.log.debug("Did not find any objects of type DeepLearningModel in the user namespace.")
             return
 
         if model.requires_checkpointing:
-            self.log.debug(
-                f"Found model '{model.name}' in user namespace; however, model does not require checkpointing."
-            )
+            self.log.debug(f"Found model '{model.name}' in user namespace; however, model doesn't require checkpointing.")
             return
 
         model_pointer: ModelPointer = ModelPointer(
@@ -1854,19 +1921,14 @@ class DistributedKernel(IPythonKernel):
             proposer_id=self.smr_node_id,
         )
 
-        self.log.debug(
-            f"Checkpointing updated state of model '{model.name}' (on critical path)"
-        )
+        self.log.debug(f"Checkpointing updated state of model '{model.name}' (on critical path)")
 
         st: float = time.time()
         await self._remote_checkpointer.write_state_dicts_async(model_pointer)
         et: float = time.time()
         duration_ms: float = (et - st) * 1.0e3
 
-        if (
-                self.prometheus_enabled
-                and getattr(self, "remote_storage_write_latency_milliseconds") is not None
-        ):
+        if self.prometheus_enabled and getattr(self, "remote_storage_write_latency_milliseconds") is not None:
             self.remote_storage_write_latency_milliseconds.labels(
                 session_id=self.kernel_id, workload_id=self.workload_id
             ).observe(duration_ms * 1e3)
@@ -1877,9 +1939,7 @@ class DistributedKernel(IPythonKernel):
         self.current_execution_stats.upload_model_start_unix_millis = st
         self.current_execution_stats.upload_model_end_unix_millis = et
 
-        self.log.debug(
-            f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path)."
-        )
+        self.log.debug(f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path).")
 
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
@@ -1925,14 +1985,14 @@ class DistributedKernel(IPythonKernel):
         metadata = self.init_metadata(parent)
         metadata.update(parent["metadata"])
 
+        self.log.debug(f'"execute_request" metadata entries ({len(metadata)}):')
+        for k, v in metadata.items():
+            self.log.debug(f'"{k}" (valtype={type(v).__name__}): {v}')
+
         # Process the metadata included in the request.
         # If we get back a remote storage name, then we'll use it to simulate I/O after we finish the execution.
-        (
-            remote_storage_name,
-            gpu_device_ids,
-        ) = await self.process_execute_request_metadata(
-            parent_header["msg_id"], parent_header["msg_type"], metadata
-        )
+        remote_storage_name, gpu_device_ids, = await self.process_execute_request_metadata(
+            parent_header["msg_id"], parent_header["msg_type"], metadata)
 
         training_duration_millis: float = -1
         if "training_duration_millis" in metadata:
@@ -2643,168 +2703,119 @@ class DistributedKernel(IPythonKernel):
                     copy_data_to_gpu_ms * 1.0e3
             )  # it's already in milliseconds
 
-    def assign_model_and_dataset(
-            self,
-            deep_learning_model_name: Optional[str] = None,
-            dataset_name: Optional[str] = None,
-    ):
+    @property
+    def get_creation_code_called(self) -> int:
         """
-        Assign a deep learning model to this kernel.
-
-        If deep_learning_model_name is a valid model name, then assign the specified model.
-        Otherwise, assign the default model (ResNet-18).
-
-        :param dataset_name: name of dataset to assign
-        :param deep_learning_model_name: name of model to assign.
+        :return: how many times we generate the 'create model for the first time' code when generating
+                 custom DL training code.
         """
-        if self.model is not None:
-            self.log.warning(f'Deep learning model "{self.model.name}" has already been assigned to kernel. '
-                             f'Will (potentially) overwrite existing model.')
+        return self._get_creation_code_called
 
-        model_arguments: Dict[str, Any] = {}
-        dataset_arguments: Dict[str, Any] = {}
-
-        if deep_learning_model_name is None or deep_learning_model_name == "":
-            self.log.debug("No deep learning model specified. Using default model (ResNet-18).")
-            deep_learning_model_name = "ResNet-18"
-
-        self.log.debug(f"Creating and assigning {deep_learning_model_name} model to this kernel.")
-
-        if deep_learning_model_name not in ModelClassesByName:
-            raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
-
-        category: str = ModelNameToModelCategory[self.model.name]
-        if dataset_name is None or dataset_name == "":
-            self.log.debug(f"No dataset specified. Will randomly select dataset from '{category}' category.")
-
-            datasets: t.List[str] = DatasetNamesByCategory[category]
-            dataset_name: str = random.choice(datasets)
-
-        self.log.debug(f"Creating and assigning {dataset_name} dataset to this kernel.")
-
-        if dataset_name not in DatasetClassesByName:
-            raise ValueError(f'Unknown or unsupported dataset specified: "{dataset_name}"')
-
-        dataset_class: Type = DatasetClassesByName[dataset_name]
-        model_class: Type = ModelClassesByName[deep_learning_model_name]
-
-        if category == ComputerVision:
-            assert issubclass(model_class, ComputerVisionModel)
-            dataset_arguments["image_size"] = model_class.expected_image_size()
-
-        self.dataset = dataset_class(**dataset_arguments)
-
-        # If this particular dataset has a 'model_constructor_args' method, then call it.
-        if hasattr(dataset_class, "model_constructor_args"):
-            model_constructor_args: Dict[str, Any] = dataset_class.model_constructor_args()
-            model_arguments.update(model_constructor_args)
-
-        self.model = model_class(created_for_first_time=True, **model_arguments)
+    @property
+    def get_download_code_called(self) -> int:
+        """
+        :return: how many times we generate the 'download' code when generating custom DL training code.
+        """
+        return self._get_download_code_called
 
     async def get_custom_training_code(
             self,
-            training_duration_millis: float,
+            target_training_duration_millis: float,
             gpu_device_ids: list[int] = None,
-            deep_learning_model_name: Optional[str] = None,
-            dataset: Optional[str] = None,
+            deep_learning_model: Optional[str] = None,
+            dataset_name: Optional[str] = None,
     ) -> str:
         """
-        Generate the Python code that will be executed by this Juypter kernel.
+        Generate the Python code that will be executed by this Jupyter kernel.
 
         This is used specifically to generate some sort of PyTorch GPU-enabled training code.
 
-        :param training_duration_millis: how long the training should last in milliseconds.
+        :param target_training_duration_millis: how long the training should last in milliseconds.
         :param gpu_device_ids: the GPU device IDs assigned to this kernel.
-        :param deep_learning_model_name: the name of the deep learning model to be used during the training.
-        :param dataset: the name of the dataset to be used during the training.
+        :param deep_learning_model: the name of the deep learning model to be used during the training.
+        :param dataset_name: the name of the dataset to be used during the training.
 
-        :return: the generated Python code to be executed by this Juypter kernel.
+        :return: the generated Python code to be executed by this Jupyter kernel.
         """
         if not self.use_real_gpus:
-            return f"import time\ntime.sleep({training_duration_millis / 1.0e3})"
+            self.log.debug("We're not using real GPUs. Will spoof DL training using time.sleep().")
+            return f"import time\ntime.sleep({target_training_duration_millis / 1.0e3})"
 
         if gpu_device_ids is None or len(gpu_device_ids) == 0:
             self.log.warning("No GPU device IDs specified. Defaulting to [0].")
             gpu_device_ids = [0]
 
-        if self.model is None:
-            self.log.debug("No deep learning model assigned yet. Assigning one now.")
-            self.assign_model_and_dataset(
-                deep_learning_model_name = deep_learning_model_name,
-                dataset_name = dataset,
-            )
-            assert self.model is not None
-            assert self.dataset is not None
-
         download_code: str = ""
-        if not self.smr_enabled or self.num_replicas <= 1:
-            async with self._user_ns_lock:
-                existing_model: Optional[DeepLearningModel | Any] = (
-                    self.shell.user_ns.get("model", None)
+        existing_model_code: str = "None"
+        creation_code: str = ""
+
+        # Acquire lock. Critical section.
+        async with self._user_ns_lock:
+            existing_model: Optional[DeepLearningModel | Any] = self.shell.user_ns.get("model", None)
+
+            # Case 1: there is no "model" variable in the user namespace.
+            # In this case, we'll create both the model and the dataset (even if the dataset already exists).
+            if existing_model is None:
+                self.log.debug(f'No "model" variable in user namespace. '
+                               f'Will create new "{deep_learning_model}" model variable and '
+                               f'new "{dataset_name}" dataset variable.')
+                creation_code = get_create_model_and_dataset_code(deep_learning_model, dataset_name)
+                self._get_creation_code_called += 1
+
+            # Case 2: there IS an existing model variable, but it's not of the correct type.
+            # In this case, we recreate the model variable so that it is of the correct type.
+            # We also (re)create the dataset variable (even if it already exists).
+            if existing_model is not None and not isinstance(existing_model, ModelClassesByName[deep_learning_model]):
+                self.log.warning(
+                    f"Found existing variable 'model' in shell user namespace of type "
+                    f"'{type(existing_model).__name__}'. Variable will be overwritten with "
+                    f"variable for '{deep_learning_model}' model of type '{ModelClassesByName[deep_learning_model].__name__}'."
                 )
+                existing_model = None
+                creation_code = get_create_model_and_dataset_code(deep_learning_model, dataset_name)
+                self._get_creation_code_called += 1
 
-                if existing_model is not None and not isinstance(
-                        existing_model, DeepLearningModel
-                ):
-                    self.log.warning(
-                        f"Found existing variable 'model' in shell user namespace of type "
-                        f"'{type(existing_model).__name__}'. Variable will be overwritten with "
-                        f"DeepLearningModel 'ResNet-18'."
-                    )
-                    existing_model = None  # So that we pass None for the existing_model argument below.
+            # Case 3: there is already an existing "model" variable of the correct type in the user namespace.
+            #
+            # If existing_model is non-null at this point, then it is an instance of either
+            # DeepLearningModel or a subclass of DeepLearningModel.
+            if existing_model is not None and isinstance(existing_model, ModelClassesByName[deep_learning_model]):
+                self.log.debug(f'"model" variable found in user namespace. '
+                               f'Will reuse existing "{deep_learning_model}" model variable.')
 
-                if existing_model is not None:
-                    self.shell.user_ns["__existing_model__"] = existing_model
-                    existing_model_code: str = "__existing_model__"
+                self.shell.user_ns["__existing_model__"] = existing_model
+                existing_model_code = "__existing_model__"
+
+                # Case 3a: there was already a "model" variable of the correct type, but no dataset variable.
+                # In this case, we'll JUST create the dataset variable, and we'll re-use the existing model variable.
+                dataset: Optional[CustomDataset] = self.shell.user_ns.get("dataset")
+                if dataset is None or not isinstance(dataset, DatasetClassesByName[dataset_name]):
+                    self.log.debug("Dataset variable either does not exist or is for the wrong type of dataset.")
+                    self.log.debug(f'Will create new "dataset" variable for "{dataset_name}" dataset.')
+                    creation_code = get_create_dataset_only_code(deep_learning_model, dataset_name)
                 else:
-                    existing_model_code: str = "None"
+                    # Case 3b: the dataset variable also already existed, so we'll not create any new variables.
+                    creation_code = get_skipped_creation_code()
 
-                self.shell.user_ns["__download_func__"] = (
-                    self.__load_model_from_remote_storage
-                )
+            # Case 3 continued: if SMR is enabled and there are multiple replicas, then we'll
+            # download the latest model state from remote storage to ensure it is up to date.
+            #
+            # TODO: Will this result in the previous leader unnecessarily downloading the latest state?
+            if self.smr_enabled and self.num_replicas > 1 and existing_model is not None:
+                self.log.debug(f'Will retrieve latest state for "{deep_learning_model}" model from remote storage.')
+
+                # Inject the __download_func__ and __model_pointer__ variables into the user namespace.
+                self.shell.user_ns["__download_func__"] = self.__load_model_from_remote_storage
                 self.shell.user_ns["__model_pointer__"] = ModelPointer(
-                    deep_learning_model=self.model,
+                    deep_learning_model=existing_model,
                     user_namespace_variable_name="model",
                     # __model_pointer__ is temporary; the actual variable we want to use is the 'model' variable.
-                    model_path=os.path.join(self.store_path, self.model.name),
+                    model_path=os.path.join(self.store_path, existing_model.name),
                 )
-                download_code: str = f"""
+                self._get_download_code_called += 1
+                download_code: str = get_download_code(existing_model_code, deep_learning_model)
 
-# Explicitly download the latest model parameters from remote storage.
-print("Explicitly downloading the latest model parameters from remote storage.")
-model = __download_func__(__model_pointer__, existing_model = {existing_model_code})
-
-"""
-
-        return f"""
-from distributed_notebook.deep_learning.datasets.cifar10 import CIFAR10
-from distributed_notebook.deep_learning.models.resnet18 import ResNet18, ResNet18Name 
-
-# Check if we have already created the model and dataset variables for the first time.
-# If not, then we'll create them now.
-if 'model' not in locals() and 'model' not in globals():
-    print("Creating model ('%s') and dataset ('%s') for the first time." % (ResNet18Name, "CIFAR-10"))
-    
-    # Create the model.
-    # For now, we've hard-coded the ResNet-18 model, but in the future, we will use whatever 
-    # model has been assigned to the associated session by the workload driver.
-    model = ResNet18(created_for_first_time = True)
-    
-    # Create the dataset. This will download the dataset if it is not present locally.
-    dataset = CIFAR10()
-else:
-    print("Model ('%s') and dataset ('%s') already exist." % (model.name, dataset.name))
-
-{download_code} 
-# Distribute the model across the GPUs that we've been allocated.
-model.set_gpu_device_ids(device_ids = {gpu_device_ids})
-        
-# Train for the specified amount of time.
-training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis = model.train(dataset.train_loader, training_duration_millis = {training_duration_millis})
-print("Finished training. Actual training time: %.3f ms." % training_time_millis)
-print("Copied model from CPU to GPU in %.3f ms." % copy_cpu2gpu_millis)
-print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
-"""
+        return get_training_code(download_code, creation_code, gpu_device_ids, target_training_duration_millis)
 
     async def primary_replica_protocol(
             self,
@@ -2978,7 +2989,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             )  # type: ignore
 
             reply_content, performed_gpu_training, code = await self.execute_user_code(
-                training_duration_millis=training_duration_millis,
+                target_training_duration_millis=training_duration_millis,
                 code=code,
                 gpu_device_ids=gpu_device_ids,
                 deep_learning_model_name=deep_learning_model_name,
@@ -3021,7 +3032,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
     async def execute_user_code(
             self,
-            training_duration_millis: float = 0,
+            target_training_duration_millis: float = 0,
             code: str = "",
             silent: bool = False,
             store_history: bool = True,
@@ -3043,33 +3054,37 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             assert gpu_device_ids is not None and len(gpu_device_ids) > 0
 
         performed_gpu_training: bool = False
-        if training_duration_millis > 0:
+        if target_training_duration_millis > 0:
             self.log.debug(
-                f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
-                f"Discarding specified code. Will use custom training code instead."
+                f"Explicitly instructed to train for {target_training_duration_millis:,} milliseconds. "
+                f"Discarding specified code. Will use custom training code instead generated for model "
+                f"'{deep_learning_model_name}' and dataset '{dataset}'."
             )
             code = await self.get_custom_training_code(
-                training_duration_millis=training_duration_millis,
+                target_training_duration_millis=target_training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
-                deep_learning_model_name=deep_learning_model_name,
-                dataset=dataset,
+                deep_learning_model=deep_learning_model_name,
+                dataset_name=dataset,
             )
             performed_gpu_training = True
         elif "training_duration_millis = " in code:
-            training_duration_millis = int(float(code[27:]))
+            target_training_duration_millis = int(float(code[27:]))
             self.log.debug(
-                f"Explicitly instructed to train for {training_duration_millis / 1.0e3:,} seconds. "
+                f"Explicitly instructed to train for {target_training_duration_millis / 1.0e3:,} seconds. "
                 f"Discarding specified code. Will use custom training code instead."
             )
             code = await self.get_custom_training_code(
-                training_duration_millis=training_duration_millis,
+                target_training_duration_millis=target_training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
+                deep_learning_model=deep_learning_model_name,
+                dataset_name=dataset,
             )
             performed_gpu_training = True
         else:
             pass
 
-        self.log.debug(f"Executing the following code now:\n{code}\n")
+        self.log.debug(f"Executing the following code now:\n"
+                       f"{ColoredLogFormatter.LIGHT_CYAN}{ColoredLogFormatter.BOLD}{code}{ColoredLogFormatter.reset}\n")
 
         self.current_execution_stats.execution_start_unix_millis = time.time() * 1.0e3
 
@@ -3116,16 +3131,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
 
         :param term_number: the term for which we're performing the state synchronization.
         """
-        if not self.smr_enabled:
-            self.log.debug(
-                "SMR is not enabled. Skipping updated state synchronization."
-            )
-            return
-
         if self.execution_ast is None:
-            self.log.warning(
-                "Execution AST is None. Synchronization will likely fail..."
-            )
+            self.log.warning("Execution AST is None. Synchronization will likely fail...")
         else:
             self.log.debug("Synchronizing now. Execution AST is NOT None.")
 
@@ -4233,7 +4240,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             et: float = time.time()
             self.log.debug(
                 f"Successfully retrieved DeepLearningModel '{model_pointer.model_name}' for variable "
-                f"'{var_name}' from remote storage in {et - st} seconds."
+                f"'{var_name}' from remote storage '{self.remote_storage}' in {et - st} seconds."
             )
 
             async with self._user_ns_lock:
@@ -4374,7 +4381,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 model_state_dict=model_state_dict,
                 optimizer_state_dict=optimizer_state_dict,
                 criterion_state_dict=criterion_state_dict,
-                **constructor_args_state, # out_features should/will be in this dictionary.
+                **constructor_args_state,  # out_features should/will be in this dictionary.
             )
         except Exception as exc:
             self.log.error(
@@ -4500,7 +4507,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 return None
             else:
                 self.log.debug(
-                    f"Received committed '{pointer.model_name}' Model pointer proposed by ourselves. "
+                    f"Received committed '{pointer.model_name}' model pointer proposed by ourselves. "
                     f"Ignoring."
                 )
                 return None
@@ -4716,18 +4723,59 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 session_id=self.kernel_id, workload_id=self.workload_id
             ).observe(latency_ms)
 
+    def exception_while_running_cell(self, raw_cell: str, result: ExecutionResult):
+        """
+        This is called when there's an exception encountered during the execution of a cell.
+
+        This just prints some information about the execution.
+        """
+        if result.error_before_exec is not None and result.error_in_exec is None:
+            when: str = "before"
+        elif result.error_before_exec is None and result.error_in_exec is not None:
+            when: str = "while"
+        else:
+            when: str = "both before and while"
+
+        self.log.debug(f"Exception encountered {when} executing of the following cell:\n\n"
+                       f"{ColoredLogFormatter.LIGHT_RED}{ColoredLogFormatter.BOLD}{raw_cell}{ColoredLogFormatter.reset}\n")
+
+        if result.error_before_exec is not None:
+            self.log.debug(f"The error that occurred before executing the cell was:\n"
+                           f"{ColoredLogFormatter.RED}{ColoredLogFormatter.BOLD}{result}{ColoredLogFormatter.reset}\n")
+            tb: t.List[str] = traceback.format_exception(result.error_in_exec)
+            tb_str: str = ""
+            for _tb in tb:
+                tb_str += _tb
+            self.log.debug(f"\n{ColoredLogFormatter.LIGHT_RED}{tb_str}{ColoredLogFormatter.reset}\n")
+
+            self.report_error("Error Before Executing Cell",
+                              f'Replica {self.smr_node_id} of kernel "{self.kernel_id}" encountered the following exception before executing a cell: {result.error_before_exec}')
+
+        if result.error_in_exec is not None:
+            self.log.debug(f"The error that occurred while executing the cell was:\n"
+                           f"{ColoredLogFormatter.RED}{ColoredLogFormatter.BOLD}{result}{ColoredLogFormatter.reset}\n")
+            tb: t.List[str] = traceback.format_exception(result.error_in_exec)
+            tb_str: str = ""
+            for _tb in tb:
+                tb_str += _tb
+            self.log.debug(f"\n{ColoredLogFormatter.LIGHT_RED}{tb_str}{ColoredLogFormatter.reset}\n")
+
+            self.report_error("Error While Executing Cell",
+                              f'Replica {self.smr_node_id} of kernel "{self.kernel_id}" encountered the following exception while executing a cell: {result.error_in_exec}')
+
     def run_cell(
             self,
-            raw_cell,
-            store_history=False,
-            silent=False,
-            shell_futures=True,
-            cell_id=None,
+            raw_cell: str,
+            store_history: bool = False,
+            silent: bool = False,
+            shell_futures: bool = True,
+            cell_id: str = None,
     ):
-        self.log.debug("Running cell: %s" % str(raw_cell))
+        self.log.debug(f"Running cell:\n"
+                       f"{ColoredLogFormatter.LIGHT_BLUE}{ColoredLogFormatter.BOLD}{raw_cell}{ColoredLogFormatter.reset}\n")
         self.source = raw_cell
         self.toggle_outstream(override=True, enable=True)
-        result = self.old_run_cell(
+        result: ExecutionResult = self.old_run_cell(
             raw_cell,
             store_history=store_history,
             silent=silent,
@@ -4735,7 +4783,15 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             cell_id=cell_id,
         )
         self.toggle_outstream(override=True, enable=False)
-        self.log.debug("Ran cell %s: %s" % (str(raw_cell), str(result)))
+
+        if result.success:
+            self.log.debug(f"Successfully ran cell without any errors:\n"
+                           f"{ColoredLogFormatter.LIGHT_GREEN}{ColoredLogFormatter.BOLD}{raw_cell}{ColoredLogFormatter.reset}\n")
+            self.log.debug(f"Result of successful cell execution:\n"
+                           f"{ColoredLogFormatter.GREEN}{ColoredLogFormatter.BOLD}{result}{ColoredLogFormatter.reset}")
+        else:
+            self.exception_while_running_cell(raw_cell, result)
+
         return result
 
     def transform_ast(self, node):
@@ -4765,3 +4821,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 self.log.debug("stdout and stderr DISABLED.")
             else:
                 self.log.debug("stdout and stderr ENABLED.")
+
+    @property
+    def user_ns_lock(self):
+        return self._user_ns_lock

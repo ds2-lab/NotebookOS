@@ -149,7 +149,8 @@ class LibriSpeech(CustomDataset):
             batch_size: int = 4,
             shuffle: bool = True,
             num_workers: int = 2,
-            train_split: Optional[str] = None,
+            # Default to test_clean, even though it's a test set, because it is small (good for unit tests)
+            train_split: Optional[str] = test_clean,
             test_split: Optional[str] = None
     ):
         assert folder_in_archive is not None

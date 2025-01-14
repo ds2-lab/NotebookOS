@@ -15,6 +15,7 @@ class CustomDataset(ABC):
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
+        self.log.handlers.clear()
         self.log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
@@ -24,6 +25,11 @@ class CustomDataset(ABC):
     @staticmethod
     @abstractmethod
     def category() -> str:
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def dataset_name()->str:
         pass
 
     def _check_if_downloaded(self, filenames: list, base_folder: str) -> bool:

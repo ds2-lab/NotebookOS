@@ -8,7 +8,7 @@ from .nlp import Bert, GPT2
 from .model import DeepLearningModel
 from .simple_model import SimpleModel
 
-ALL_MODEL_CLASSES: List[Type] = [
+ALL_MODEL_CLASSES: List[Type[DeepLearningModel]] = [
     ResNet18, InceptionV3, VGG11, VGG13, VGG16, VGG19,
     Bert, GPT2,
     DeepSpeech, DeepSpeech2,
@@ -22,7 +22,7 @@ ModelCategories: List[str] = [
     Speech
 ]
 
-ModelClassesByCategory: Dict[str, List[Type]] = {
+ModelClassesByCategory: Dict[str, List[Type[DeepLearningModel]]] = {
     ComputerVision: [
         ResNet18, InceptionV3, VGG11, VGG13, VGG16, VGG19
     ],
@@ -34,7 +34,7 @@ ModelClassesByCategory: Dict[str, List[Type]] = {
     ]
 }
 
-ModelClassesByName: Dict[str, Type] = {
+ModelClassesByName: Dict[str, Type[DeepLearningModel]] = {
     ResNet18.model_name(): ResNet18,
     VGG11.model_name(): VGG11,
     VGG13.model_name(): VGG13,

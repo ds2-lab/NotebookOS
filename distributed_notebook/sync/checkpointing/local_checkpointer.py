@@ -23,6 +23,7 @@ class LocalCheckpointer(RemoteCheckpointer):
 
     def __init__(
             self,
+            host: str = "",
             maximum_state_size_bytes: int = -1
     ):
         """
@@ -34,7 +35,7 @@ class LocalCheckpointer(RemoteCheckpointer):
         self._data: Dict[str, Any] = dict()
         self._async_lock: asyncio.Lock = asyncio.Lock()
         self._lock: threading.Lock = threading.Lock()
-        self._maximum_state_size_bytes: int = -1
+        self._maximum_state_size_bytes: int = maximum_state_size_bytes
 
     @property
     def size(self) -> int:

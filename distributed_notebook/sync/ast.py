@@ -28,6 +28,7 @@ class SyncAST(ast.NodeVisitor):
         self._globals = {}
         self._executions = 0
         self._log = logging.getLogger(__class__.__name__)
+        self._log.handlers.clear()
         self._log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)

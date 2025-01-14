@@ -462,6 +462,17 @@ class SyncLog(Protocol):
         :param term_number: the term number of the election
         """
 
+    async def append_execution_end_notification(self, notification: ExecutionCompleteNotification):
+        """
+        Explicitly propose and append (to the synchronized Raft log) a ExecutionCompleteNotification object to
+        signify that we've finished executing code in the current election.
+
+        This function exists so that we can mock proposals of ExecutionCompleteNotification objects specifically,
+        rather than mocking the more generic _serialize_and_append_value method.
+
+        :param notification: the notification to be appended to the sync log
+        """
+
     async def notify_execution_complete(self, term_number: int):
         """
         Notify our peer replicas that we have finished executing the code for the specified election.

@@ -14,6 +14,7 @@ class Future:
         self.future: asyncio.Future[Any] = loop.create_future()
         self.name:str = name 
         self.logger: logging.Logger = logging.getLogger(__class__.__name__ + f"[{self.name}]")
+        self.logger.handlers.clear()
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
         ch.setFormatter(ColoredLogFormatter())
