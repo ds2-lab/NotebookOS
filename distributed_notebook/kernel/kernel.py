@@ -20,7 +20,7 @@ from hmac import compare_digest
 from multiprocessing import Process, Queue
 from numbers import Number
 from threading import Lock
-from typing import Union, Optional, Dict, Any, Type
+from typing import Union, Optional, Dict, Any
 
 import debugpy
 import grpc
@@ -35,7 +35,6 @@ from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.datasets.loader import load_dataset
-from distributed_notebook.deep_learning.models import ModelClassesByName, ModelNameToModelCategory, ComputerVisionModel
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.gateway import gateway_pb2
@@ -55,7 +54,6 @@ from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer im
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
-from ..deep_learning.datasets import DatasetClassesByName, DatasetNamesByCategory, ComputerVision
 
 import_torch_start: float = time.time()
 try:
@@ -1926,14 +1924,14 @@ class DistributedKernel(IPythonKernel):
         metadata = self.init_metadata(parent)
         metadata.update(parent["metadata"])
 
+        self.log.debug(f'"execute_request" metadata entries ({len(metadata)}):')
+        for k,v in metadata.items():
+            self.log.debug(f'"{k}" (valtype={type(v).__name__}): {v}')
+
         # Process the metadata included in the request.
         # If we get back a remote storage name, then we'll use it to simulate I/O after we finish the execution.
-        (
-            remote_storage_name,
-            gpu_device_ids,
-        ) = await self.process_execute_request_metadata(
-            parent_header["msg_id"], parent_header["msg_type"], metadata
-        )
+        remote_storage_name, gpu_device_ids, = await self.process_execute_request_metadata(
+            parent_header["msg_id"], parent_header["msg_type"], metadata)
 
         training_duration_millis: float = -1
         if "training_duration_millis" in metadata:
@@ -2644,70 +2642,11 @@ class DistributedKernel(IPythonKernel):
                     copy_data_to_gpu_ms * 1.0e3
             )  # it's already in milliseconds
 
-    def assign_model_and_dataset(
-            self,
-            deep_learning_model_name: Optional[str] = None,
-            dataset_name: Optional[str] = None,
-    ):
-        """
-        Assign a deep learning model to this kernel.
-
-        If deep_learning_model_name is a valid model name, then assign the specified model.
-        Otherwise, assign the default model (ResNet-18).
-
-        :param dataset_name: name of dataset to assign
-        :param deep_learning_model_name: name of model to assign.
-        """
-        if self.model is not None:
-            self.log.warning(f'Deep learning model "{self.model.name}" has already been assigned to kernel. '
-                             f'Will (potentially) overwrite existing model.')
-
-        model_arguments: Dict[str, Any] = {}
-        dataset_arguments: Dict[str, Any] = {}
-
-        if deep_learning_model_name is None or deep_learning_model_name == "":
-            self.log.debug("No deep learning model specified. Using default model (ResNet-18).")
-            deep_learning_model_name = "ResNet-18"
-
-        self.log.debug(f"Creating and assigning {deep_learning_model_name} model to this kernel.")
-
-        if deep_learning_model_name not in ModelClassesByName:
-            raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
-
-        model_class: Type[DeepLearningModel] = ModelClassesByName[deep_learning_model_name]
-        category: str = ModelNameToModelCategory[model_class.model_name()]
-        if dataset_name is None or dataset_name == "":
-            self.log.debug(f"No dataset specified. Will randomly select dataset from '{category}' category.")
-
-            datasets: t.List[str] = DatasetNamesByCategory[category]
-            dataset_name: str = random.choice(datasets)
-
-        self.log.debug(f"Creating and assigning {dataset_name} dataset to this kernel.")
-
-        if dataset_name not in DatasetClassesByName:
-            raise ValueError(f'Unknown or unsupported dataset specified: "{dataset_name}"')
-
-        dataset_class: Type = DatasetClassesByName[dataset_name]
-        model_class: Type = ModelClassesByName[deep_learning_model_name]
-
-        if category == ComputerVision:
-            assert issubclass(model_class, ComputerVisionModel)
-            dataset_arguments["image_size"] = model_class.expected_image_size()
-
-        self.dataset = dataset_class(**dataset_arguments)
-
-        # If this particular dataset has a 'model_constructor_args' method, then call it.
-        if hasattr(dataset_class, "model_constructor_args"):
-            model_constructor_args: Dict[str, Any] = dataset_class.model_constructor_args()
-            model_arguments.update(model_constructor_args)
-
-        self.model = model_class(created_for_first_time=True, **model_arguments)
-
     async def get_custom_training_code(
             self,
             training_duration_millis: float,
             gpu_device_ids: list[int] = None,
-            deep_learning_model_name: Optional[str] = None,
+            deep_learning_model: Optional[str] = None,
             dataset: Optional[str] = None,
     ) -> str:
         """
@@ -2717,7 +2656,7 @@ class DistributedKernel(IPythonKernel):
 
         :param training_duration_millis: how long the training should last in milliseconds.
         :param gpu_device_ids: the GPU device IDs assigned to this kernel.
-        :param deep_learning_model_name: the name of the deep learning model to be used during the training.
+        :param deep_learning_model: the name of the deep learning model to be used during the training.
         :param dataset: the name of the dataset to be used during the training.
 
         :return: the generated Python code to be executed by this Juypter kernel.
@@ -2729,14 +2668,14 @@ class DistributedKernel(IPythonKernel):
             self.log.warning("No GPU device IDs specified. Defaulting to [0].")
             gpu_device_ids = [0]
 
-        if self.model is None:
-            self.log.debug("No deep learning model assigned yet. Assigning one now.")
-            self.assign_model_and_dataset(
-                deep_learning_model_name = deep_learning_model_name,
-                dataset_name = dataset,
-            )
-            assert self.model is not None
-            assert self.dataset is not None
+        # if self.model is None:
+        #     self.log.debug("No deep learning model assigned yet. Assigning one now.")
+        #     self.assign_model_and_dataset(
+        #         deep_learning_model_name = deep_learning_model_name,
+        #         dataset_name = dataset,
+        #     )
+        #     assert self.model is not None
+        #     assert self.dataset is not None
 
         download_code: str = ""
         if not self.smr_enabled or self.num_replicas <= 1:
@@ -2751,7 +2690,7 @@ class DistributedKernel(IPythonKernel):
                     self.log.warning(
                         f"Found existing variable 'model' in shell user namespace of type "
                         f"'{type(existing_model).__name__}'. Variable will be overwritten with "
-                        f"DeepLearningModel 'ResNet-18'."
+                        f"DeepLearningModel '{deep_learning_model}'."
                     )
                     existing_model = None  # So that we pass None for the existing_model argument below.
 
@@ -2779,21 +2718,15 @@ model = __download_func__(__model_pointer__, existing_model = {existing_model_co
 """
 
         return f"""
-from distributed_notebook.deep_learning.datasets.cifar10 import CIFAR10
-from distributed_notebook.deep_learning.models.resnet18 import ResNet18, ResNet18Name 
+from distributed_notebook.deep_learning import get_model_and_dataset
 
 # Check if we have already created the model and dataset variables for the first time.
 # If not, then we'll create them now.
 if 'model' not in locals() and 'model' not in globals():
-    print("Creating model ('%s') and dataset ('%s') for the first time." % (ResNet18Name, "CIFAR-10"))
+    print("Creating model ('%s') and dataset ('%s') for the first time." % ("{deep_learning_model}", "{dataset}"))
     
     # Create the model.
-    # For now, we've hard-coded the ResNet-18 model, but in the future, we will use whatever 
-    # model has been assigned to the associated session by the workload driver.
-    model = ResNet18(created_for_first_time = True)
-    
-    # Create the dataset. This will download the dataset if it is not present locally.
-    dataset = CIFAR10()
+    model, dataset = get_model_and_dataset(deep_learning_model_name = {deep_learning_model}, dataset_name = {dataset})
 else:
     print("Model ('%s') and dataset ('%s') already exist." % (model.name, dataset.name))
 
@@ -3053,7 +2986,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             code = await self.get_custom_training_code(
                 training_duration_millis=training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
-                deep_learning_model_name=deep_learning_model_name,
+                deep_learning_model=deep_learning_model_name,
                 dataset=dataset,
             )
             performed_gpu_training = True
@@ -3066,6 +2999,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             code = await self.get_custom_training_code(
                 training_duration_millis=training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
+                deep_learning_model=deep_learning_model_name,
+                dataset=dataset,
             )
             performed_gpu_training = True
         else:
@@ -4376,7 +4311,7 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
                 model_state_dict=model_state_dict,
                 optimizer_state_dict=optimizer_state_dict,
                 criterion_state_dict=criterion_state_dict,
-                **constructor_args_state, # out_features should/will be in this dictionary.
+                **constructor_args_state,  # out_features should/will be in this dictionary.
             )
         except Exception as exc:
             self.log.error(
@@ -4737,7 +4672,8 @@ print("Copied model back from GPU to CPU in %.3f ms." % copy_gpu2cpu_millis)
             cell_id=cell_id,
         )
         self.toggle_outstream(override=True, enable=False)
-        self.log.debug("Ran cell %s: %s" % (str(raw_cell), str(result)))
+        self.log.debug(f"Ran cell:\n{raw_cell})")
+        self.log.debug(f"Result of executing the cell:\n{result}")
         return result
 
     def transform_ast(self, node):

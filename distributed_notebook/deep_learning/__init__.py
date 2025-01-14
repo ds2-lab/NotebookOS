@@ -1,8 +1,14 @@
-from .datasets import CIFAR10, TinyImageNet, CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated, LibriSpeech
-from .models import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
-    Bert, GPT2, DeepSpeech, DeepSpeech2, DeepLearningModel, ComputerVisionModel, SimpleModel
-
+import random
+from typing import Optional, Tuple, Any
 from typing import Type, List, Dict
+
+from distributed_notebook.deep_learning.configuration import ComputerVision, NaturalLanguageProcessing, Testing, Speech
+
+from .datasets import CIFAR10, TinyImageNet, CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated, LibriSpeech, \
+    CustomDataset, DatasetNamesByCategory, DatasetClassesByName
+from .models import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
+    Bert, GPT2, DeepSpeech, DeepSpeech2, DeepLearningModel, ComputerVisionModel, SimpleModel, \
+    ModelClassesByName, ModelNameToModelCategory
 
 ModelNameToCompatibleDatasetClasses: Dict[str, List[Type]] = {
     ResNet18.model_name(): [
@@ -36,3 +42,60 @@ ModelNameToCompatibleDatasetClasses: Dict[str, List[Type]] = {
         LibriSpeech
     ],
 }
+
+
+def get_model_and_dataset(
+        deep_learning_model_name: Optional[str] = None,
+        dataset_name: Optional[str] = None,
+) -> Tuple[DeepLearningModel, CustomDataset]:
+    """
+    Assign a deep learning model to this kernel.
+
+    If deep_learning_model_name is a valid model name, then assign the specified model.
+    Otherwise, assign the default model (ResNet-18).
+
+    :param dataset_name: name of dataset to assign
+    :param deep_learning_model_name: name of model to assign.
+    """
+    model_arguments: Dict[str, Any] = {}
+    dataset_arguments: Dict[str, Any] = {}
+
+    if deep_learning_model_name is None or deep_learning_model_name == "":
+        print("No deep learning model specified. Using default model (ResNet-18).")
+        deep_learning_model_name = "ResNet-18"
+
+    print(f"Creating and assigning {deep_learning_model_name} model to this kernel.")
+
+    if deep_learning_model_name not in ModelClassesByName:
+        raise ValueError(f'Unknown or unsupported deep learning model specified: "{deep_learning_model_name}"')
+
+    model_class: Type[DeepLearningModel] = ModelClassesByName[deep_learning_model_name]
+    category: str = ModelNameToModelCategory[model_class.model_name()]
+    if dataset_name is None or dataset_name == "":
+        print(f"No dataset specified. Will randomly select dataset from '{category}' category.")
+
+        datasets: List[str] = DatasetNamesByCategory[category]
+        dataset_name: str = random.choice(datasets)
+
+    print(f"Creating and assigning {dataset_name} dataset to this kernel.")
+
+    if dataset_name not in DatasetClassesByName:
+        raise ValueError(f'Unknown or unsupported dataset specified: "{dataset_name}"')
+
+    dataset_class: Type = DatasetClassesByName[dataset_name]
+    model_class: Type = ModelClassesByName[deep_learning_model_name]
+
+    if category == ComputerVision:
+        assert issubclass(model_class, ComputerVisionModel)
+        dataset_arguments["image_size"] = model_class.expected_image_size()
+
+    dataset = dataset_class(**dataset_arguments)
+
+    # If this particular dataset has a 'model_constructor_args' method, then call it.
+    if hasattr(dataset_class, "model_constructor_args"):
+        model_constructor_args: Dict[str, Any] = dataset_class.model_constructor_args()
+        model_arguments.update(model_constructor_args)
+
+    model = model_class(created_for_first_time=True, **model_arguments)
+
+    return model, dataset

@@ -1,6 +1,7 @@
-import typing as t
+from typing import Dict, Any
 
-def extract_header(msg_or_header: dict[str, t.Any]) -> dict[str, t.Any]:
+
+def extract_header(msg_or_header: Dict[str, Any]) -> Dict[str, Any]:
     """Given a message or header, return the header."""
     if not msg_or_header:
         return {}
