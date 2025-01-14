@@ -166,6 +166,7 @@ class SimulatedCheckpointer(object):
         self.write_failure_chance_percentage: float = write_failure_chance_percentage
 
         self.logger: logging.Logger = logging.getLogger(f"SimulatedCheckpointer[{self.name}] ")
+        self.logger.handlers.clear()
         self.logger.setLevel(logging.DEBUG)
         self.logger.propagate = True
         ch = logging.StreamHandler()
@@ -226,6 +227,7 @@ class SimulatedCheckpointer(object):
             getattr(self, "logger")
         except AttributeError:
             self.logger: logging.Logger = logging.getLogger(f"SimulatedCheckpointer[{self.name}] ")
+            self.logger.handlers.clear()
             self.logger.setLevel(logging.DEBUG)
             self.logger.propagate = False
             ch = logging.StreamHandler()

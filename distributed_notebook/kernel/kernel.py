@@ -341,6 +341,7 @@ class DistributedKernel(IPythonKernel):
 
         # Initialize logging
         self.log = logging.getLogger(__class__.__name__)
+        self.log.handlers.clear()
         self.log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)

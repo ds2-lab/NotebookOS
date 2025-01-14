@@ -20,6 +20,7 @@ class SpoofedStream(ZMQStream):
         super().__init__(socket, **kwargs)
 
         self.log = logging.getLogger(__class__.__name__)
+        self.log.handlers.clear()
         self.log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         fm = logging.Formatter(fmt = "%(asctime)s [%(levelname)s] %(name)s [%(threadName)s (%(thread)d)]: %(message)s ")

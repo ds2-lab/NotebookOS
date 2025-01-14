@@ -21,6 +21,7 @@ class SpoofedSession(Session):
         self.message_types_sent_counts: defaultdict[str, int] = defaultdict(int)
 
         self.log = logging.getLogger(__class__.__name__)
+        self.log.handlers.clear()
         self.log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         fm = logging.Formatter(fmt = "%(asctime)s [%(levelname)s] %(name)s [%(threadName)s (%(thread)d)]: %(message)s ")
