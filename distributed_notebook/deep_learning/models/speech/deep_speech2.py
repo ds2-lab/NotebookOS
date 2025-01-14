@@ -237,7 +237,9 @@ class DeepSpeech2(DeepLearningModel):
                 num_minibatches_processed += 1
                 num_samples_processed += len(waveforms)
 
-                self.log.debug(f"Processed {len(waveforms)} samples in {(forward_pass_end - forward_pass_start) * 1.0e3} milliseconds.")
+                self.log.debug(f"Processed {len(waveforms)} samples in "
+                               f"{round((forward_pass_end - forward_pass_start) * 1.0e3, 9):,} milliseconds. "
+                               f"Total time elapsed so far: {round((time.time() - start_time) * 1.0e3, 9):,} milliseconds.")
 
                 if self.gpu_available:
                     del waveforms
