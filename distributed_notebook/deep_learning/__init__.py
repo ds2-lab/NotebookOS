@@ -88,6 +88,9 @@ def get_model_and_dataset(
     if category == ComputerVision:
         assert issubclass(model_class, ComputerVisionModel)
         dataset_arguments["image_size"] = model_class.expected_image_size()
+    elif category == NaturalLanguageProcessing:
+        assert issubclass(model_class, Bert) or issubclass(model_class, GPT2)
+        dataset_arguments["model_name"] = model_class.model_name()
 
     dataset = dataset_class(**dataset_arguments)
 
