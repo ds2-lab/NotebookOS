@@ -328,6 +328,12 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
+    def __str__(self):
+        return f'RaftLog[KernelId={self._kernel_id},NodeID={self._node_id}]'
+
+    def __repr__(self):
+        return f'RaftLog[KernelId={self._kernel_id},NodeID={self._node_id}]'
+
     def set_fast_forward_executions_handler(
         self, fast_forward_execution_count_handler: Callable[[], None]
     ):
