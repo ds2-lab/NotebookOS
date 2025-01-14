@@ -1,8 +1,8 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type
 
 import torch.nn as nn
 import torch.optim as optim
-from transformers import GPT2ForSequenceClassification, GPT2LMHeadModel
+from transformers import GPT2ForSequenceClassification, GPT2LMHeadModel, GPT2PreTrainedModel
 
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.configuration import NaturalLanguageProcessing
@@ -55,6 +55,10 @@ class GPT2(DeepLearningModel):
 
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
+
+    @staticmethod
+    def expected_model_class() -> Type:
+        return GPT2PreTrainedModel
 
     @staticmethod
     def category() -> str:

@@ -31,10 +31,5 @@ class ComputerVisionModel(DeepLearningModel, ABC):
         pass
 
     @staticmethod
-    @abstractmethod
-    def expected_model_class() -> Type:
-        pass
-
-    @staticmethod
     def category() -> str:
         return ComputerVision

@@ -1,6 +1,6 @@
 import gc
 import time
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type
 
 import torch
 import torch.nn as nn
@@ -64,6 +64,10 @@ class DeepSpeech(DeepLearningModel):
     @staticmethod
     def category() -> str:
         return Speech
+
+    @staticmethod
+    def expected_model_class() -> Type:
+        return models.DeepSpeech
 
     def train(self, loader, target_training_duration_millis: int | float = 0.0) -> tuple[float, float, float]:
         """

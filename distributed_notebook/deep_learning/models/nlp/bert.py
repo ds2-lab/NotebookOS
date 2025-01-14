@@ -1,8 +1,8 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type
 
 import torch.nn as nn
 import torch.optim as optim
-from transformers import BertForSequenceClassification, BertLMHeadModel
+from transformers import BertForSequenceClassification, BertLMHeadModel, BertPreTrainedModel
 
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.configuration import NaturalLanguageProcessing
@@ -52,6 +52,10 @@ class Bert(DeepLearningModel):
 
         if optimizer_state_dict is not None:
             self._optimizer.load_state_dict(optimizer_state_dict)
+
+    @staticmethod
+    def expected_model_class() -> Type:
+        return BertPreTrainedModel
 
     @staticmethod
     def category() -> str:

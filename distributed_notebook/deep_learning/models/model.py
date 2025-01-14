@@ -2,7 +2,7 @@ import gc
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Type
 
 import torch
 import torch.nn as nn
@@ -70,6 +70,21 @@ class DeepLearningModel(ABC):
         for argument in kwargs:
             self.log.warning(f"Received unexpected key-word argument: '{argument}'")
 
+    @staticmethod
+    @abstractmethod
+    def expected_model_class() -> Type:
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def category() -> str:
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def model_name() -> str:
+        pass
+
     def set_gpu_device_ids(self, device_ids: list[int] = None):
         """
         Change the GPU device IDs used by the model.
@@ -117,16 +132,6 @@ class DeepLearningModel(ABC):
             raise ValueError(f"model '{self.name}' does not require checkpointing")
 
         self._requires_checkpointing = False
-
-    @staticmethod
-    @abstractmethod
-    def category() -> str:
-        pass
-
-    @staticmethod
-    @abstractmethod
-    def model_name() -> str:
-        pass
 
     @property
     @abstractmethod
