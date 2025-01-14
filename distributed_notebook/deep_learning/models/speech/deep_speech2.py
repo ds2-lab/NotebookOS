@@ -217,6 +217,7 @@ class DeepSpeech2(DeepLearningModel):
                 self._optimizer.zero_grad()
 
                 # Forward pass
+                forward_pass_start: float = time.time()
                 outputs = self.model(waveforms)
                 outputs = F.log_softmax(outputs, dim=2)
                 outputs = outputs.transpose(0, 1)  # (time, batch, n_class)
@@ -226,6 +227,7 @@ class DeepSpeech2(DeepLearningModel):
                 loss.backward()
 
                 self._optimizer.step()
+                forward_pass_end: float = time.time()
 
                 # Add this line to clear grad tensors
                 self._optimizer.zero_grad(set_to_none=True)
@@ -234,6 +236,8 @@ class DeepSpeech2(DeepLearningModel):
 
                 num_minibatches_processed += 1
                 num_samples_processed += len(waveforms)
+
+                self.log.debug(f"Processed {len(waveforms)} samples in {(forward_pass_end - forward_pass_start) * 1.0e3} milliseconds.")
 
                 if self.gpu_available:
                     del waveforms
@@ -249,7 +253,7 @@ class DeepSpeech2(DeepLearningModel):
                     break
 
             self.total_num_epochs += 1
-            print(f"Completed iteration through training dataset. Time elapsed: {time.time() - start_time} seconds.")
+            self.log.debug(f"Completed iteration through training dataset. Time elapsed: {time.time() - start_time} seconds.")
 
         time_spent_training_sec: float = (time.time() - start_time)
         self.total_training_time_seconds += time_spent_training_sec

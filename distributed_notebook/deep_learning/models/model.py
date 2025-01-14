@@ -407,6 +407,7 @@ class DeepLearningModel(ABC):
                 # Backward pass and optimization
                 loss.backward()
                 self._optimizer.step()
+                forward_pass_end: float = time.time()
 
                 # Add this line to clear grad tensors
                 self._optimizer.zero_grad(set_to_none=True)
@@ -416,7 +417,7 @@ class DeepLearningModel(ABC):
                 num_minibatches_processed += 1
                 num_samples_processed += len(samples)
 
-                print(f"Processed {len(samples)} samples in {(time.time() - forward_pass_start) * 1.0e3} milliseconds.")
+                self.log.debug(f"Processed {len(samples)} samples in {(forward_pass_end - forward_pass_start) * 1.0e3} milliseconds.")
 
                 if self.gpu_available:
                     del samples
@@ -433,7 +434,7 @@ class DeepLearningModel(ABC):
                     break
 
             self.total_num_epochs += 1
-            print(f"Completed iteration through training dataset. Time elapsed: {time.time() - start_time} seconds.")
+            self.log.debug(f"Completed iteration through training dataset. Time elapsed: {time.time() - start_time} seconds.")
 
         time_spent_training_sec: float = (time.time() - start_time)
         self.total_training_time_seconds += time_spent_training_sec

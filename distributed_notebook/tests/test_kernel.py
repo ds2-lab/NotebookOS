@@ -3435,4 +3435,4 @@ async def test_train_nlp_gpt2_on_truncated_imdb():
                    mocked_serialize_and_append_value)
 @pytest.mark.asyncio
 async def test_train_speech_deep_speech2_on_libri_speech():
-    await perform_training(DeepSpeech2, LibriSpeech)
+    await perform_training(DeepSpeech2, LibriSpeech, target_training_duration_ms = 3000.0)
