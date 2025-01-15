@@ -4797,7 +4797,7 @@ class DistributedKernel(IPythonKernel):
         return result
 
     def transform_ast(self, node):
-        self.log.debug("Assigning execution_tree to %s" % str(node))
+        # self.log.debug("Assigning execution_tree to %s" % str(node))
         self.execution_ast = node
         return node
 
