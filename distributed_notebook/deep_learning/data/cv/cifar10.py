@@ -1,12 +1,13 @@
 import os.path
 import time
 
-from typing import Dict, Any, Union
+from typing import Dict, Any, Union, Optional
 
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.loader import WrappedLoader
 
 from distributed_notebook.deep_learning.configuration import ComputerVision
 
@@ -48,10 +49,10 @@ class CIFAR10(CustomDataset):
         self._download_end = time.time()
         self._download_duration_sec = self._download_end - self._download_start
 
-        self._train_loader = DataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle,
-                                        num_workers=num_workers)
-        self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=shuffle,
-                                       num_workers=num_workers)
+        self._train_loader = WrappedLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle,
+                                        num_workers=num_workers, dataset_name=self.dataset_name())
+        self._test_loader = WrappedLoader(self._test_dataset, batch_size=batch_size, shuffle=shuffle,
+                                       num_workers=num_workers, dataset_name=self.dataset_name())
 
         if self._dataset_already_downloaded:
             print(f"The {self.name} dataset was already downloaded. Root directory: \"{root_dir}\"")
@@ -116,7 +117,7 @@ class CIFAR10(CustomDataset):
         return self._train_dataset
 
     @property
-    def train_loader(self):
+    def train_loader(self)->Optional[DataLoader]:
         return self._train_loader
 
     @property
@@ -124,7 +125,7 @@ class CIFAR10(CustomDataset):
         return self._test_dataset
 
     @property
-    def test_loader(self):
+    def test_loader(self)->Optional[DataLoader]:
         return self._test_loader
 
     @property

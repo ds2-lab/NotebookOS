@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any, Type
+from typing import Optional, Dict, Any, Type, List
 
 import torch.nn as nn
 import torch.optim as optim
@@ -17,6 +17,7 @@ class ResNet18(ComputerVisionModel):
             criterion_state_dict: Optional[Dict[str, Any]] = None,
             model_state_dict: Optional[Dict[str, Any]] = None,
             created_for_first_time: bool = False,
+            gpu_device_ids: Optional[List[int]] = None,
             **kwargs,
     ):
         super().__init__(
@@ -24,6 +25,7 @@ class ResNet18(ComputerVisionModel):
             criterion_state_dict=criterion_state_dict,
             out_features=out_features,
             created_for_first_time=created_for_first_time,
+            gpu_device_ids=gpu_device_ids,
             **kwargs,
         )
 

@@ -61,8 +61,8 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vi
 #     && cd ./DistributedKernelFrontendExtension \
 #     && pip install .
 
-# RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
-# RUN chmod -R 777 /home/jovyan/datasets/*
+# RUN mkdir /home/jovyan/data && cd /home/jovyan/data && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
+# RUN chmod -R 777 /home/jovyan/data/*
 
 RUN /home/jovyan/Python-3.11.9/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch
 

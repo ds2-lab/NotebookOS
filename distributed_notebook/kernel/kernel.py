@@ -34,8 +34,8 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
-from distributed_notebook.deep_learning.datasets.loader import load_dataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.gateway import gateway_pb2
@@ -194,8 +194,10 @@ dataset = _dataset
 print(f"Created dataset ('{dataset}') for the first time.", flush = True)
 """
 
-def get_skipped_creation_code() -> str:
-    return """print(f"Model ('{model.name}') and dataset ('{dataset.name}') already exist.", flush = True)\n"""
+def get_skipped_creation_code(existing_model_name: str, existing_dataset_name: str) -> str:
+    return """# existing model is '%s', existing dataset is '%s'
+print(f"Model ('{model.name}') and dataset ('{dataset.name}') already exist.", flush = True)
+""" % (existing_model_name, existing_dataset_name)
 
 
 def get_training_code(
@@ -2795,7 +2797,7 @@ class DistributedKernel(IPythonKernel):
                     creation_code = get_create_dataset_only_code(deep_learning_model, dataset_name)
                 else:
                     # Case 3b: the dataset variable also already existed, so we'll not create any new variables.
-                    creation_code = get_skipped_creation_code()
+                    creation_code = get_skipped_creation_code(deep_learning_model, dataset_name)
 
             # Case 3 continued: if SMR is enabled and there are multiple replicas, then we'll
             # download the latest model state from remote storage to ensure it is up to date.
@@ -4312,19 +4314,19 @@ class DistributedKernel(IPythonKernel):
                 and len(self.dataset_pointers_catchup) == 0
         ):
             self.log.debug(
-                "There were no models or datasets committed during catch-up phase."
+                "There were no models or data committed during catch-up phase."
             )
             return
 
         self.log.debug(
-            "Downloading any models and datasets that were committed during catch-up phase..."
+            "Downloading any models and data that were committed during catch-up phase..."
         )
         await asyncio.gather(
             self.__download_model_pointers_committed_while_catching_up(),
             self.__download_dataset_pointers_committed_while_catching_up(),
         )
         self.log.debug(
-            "Finished downloading the models and datasets that were committed during catch-up phase."
+            "Finished downloading the models and data that were committed during catch-up phase."
         )
 
     def __load_model_from_remote_storage(
@@ -4795,7 +4797,7 @@ class DistributedKernel(IPythonKernel):
         return result
 
     def transform_ast(self, node):
-        self.log.debug("Assigning execution_tree to %s" % str(node))
+        # self.log.debug("Assigning execution_tree to %s" % str(node))
         self.execution_ast = node
         return node
 

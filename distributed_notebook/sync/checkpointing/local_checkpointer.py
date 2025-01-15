@@ -8,8 +8,8 @@ from typing import Optional, Any, Dict
 
 import torch
 
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
-from distributed_notebook.deep_learning.datasets.loader import load_dataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 
@@ -198,7 +198,7 @@ class LocalCheckpointer(RemoteCheckpointer):
             raise ex  # re-raise
 
         size_mb: float = buffer.getbuffer().nbytes / 1.0e6
-        if self.maximum_state_size_bytes > 0 and buffer.getbuffer().nbytes > self.maximum_state_size_bytes:
+        if 0 < self.maximum_state_size_bytes < buffer.getbuffer().nbytes:
             self.log.error(f"Cannot write state of model \"{model_name}\" to Local Python Dict. "
                            f"Model state is larger than maximum size of {self.maximum_state_size_bytes:,} "
                            f"bytes: {size_mb:,} MB.")

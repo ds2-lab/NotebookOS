@@ -7,6 +7,7 @@ from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
 from typing import Dict, Any, Type
 
+
 class ComputerVisionModel(DeepLearningModel, ABC):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

@@ -742,9 +742,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
 		})
 
-		It("should respond correctly upon receiving three YIELD notifications", func() {
-
-		})
+		//It("should respond correctly upon receiving three YIELD notifications", func() {
+		//
+		//})
 	})
 
 	Context("Processing general ZMQ Messages", func() {

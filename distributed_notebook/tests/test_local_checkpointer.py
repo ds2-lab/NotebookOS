@@ -6,10 +6,11 @@ import pytest
 from torch import Tensor
 
 from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
-    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2
-from distributed_notebook.deep_learning.datasets import ComputerVision, NaturalLanguageProcessing, Speech
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
-from distributed_notebook.deep_learning.datasets.random import RandomCustomDataset
+    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
+    CoLA, get_model_and_dataset
+from distributed_notebook.deep_learning.data import ComputerVision, NaturalLanguageProcessing, Speech
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.random import RandomCustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
@@ -41,8 +42,8 @@ def test_read_after_write():
 
     # The size will now be three -- as we wrote the model state, the state of the model's optimizer, and
     # the state of the model's criterion.
-    assert checkpointer.size == 3
-    assert len(checkpointer) == 3
+    assert checkpointer.size == 4
+    assert len(checkpointer) == 4
 
     model_state, optimizer_state, criterion_state, constructor_args_state = checkpointer.read_state_dicts(model_pointer)
 
@@ -304,20 +305,25 @@ def perform_training_for_model(
 
     checkpointer: LocalCheckpointer = LocalCheckpointer()
 
-    # Create the model.
-    model = model_class(created_for_first_time=True)
-    initial_weights = model.output_layer.weight.clone()
+    # # Create the model.
+    # model = model_class(created_for_first_time=True)
+    # initial_weights = model.output_layer.weight.clone()
+    #
+    # # Create the dataset.
+    # if dataset_class.category() == ComputerVision:
+    #     assert issubclass(model_class, ComputerVisionModel)
+    #     dataset = dataset_class(image_size=model_class.expected_image_size())
+    # elif dataset_class.category() == NaturalLanguageProcessing:
+    #     assert issubclass(model_class, Bert) or issubclass(model_class, GPT2)
+    #     dataset = dataset_class(model_name = model_class.model_name())
+    # else:
+    #     assert dataset_class.category() == Speech
+    #     dataset = dataset_class(train_split = LibriSpeech.test_clean, test_split = LibriSpeech.test_other)
 
-    # Create the dataset.
-    if dataset_class.category() == ComputerVision:
-        assert issubclass(model_class, ComputerVisionModel)
-        dataset = dataset_class(image_size=model_class.expected_image_size())
-    elif dataset_class.category() == NaturalLanguageProcessing:
-        assert issubclass(model_class, Bert) or issubclass(model_class, GPT2)
-        dataset = dataset_class(model_name = model_class.model_name())
-    else:
-        assert dataset_class.category() == Speech
-        dataset = dataset_class(train_split = LibriSpeech.test_clean, test_split = LibriSpeech.test_other)
+    model, dataset = get_model_and_dataset(model_class.model_name(), dataset_class.dataset_name())
+    assert isinstance(model, model_class)
+    assert isinstance(dataset, dataset_class)
+    initial_weights: Tensor = model.output_layer.weight.clone()
 
     # Checkpoint the initial model weights.
     model_pointer: ModelPointer = ModelPointer(
@@ -390,8 +396,7 @@ def perform_training_for_model(
         assert checkpointed_model.model is not None
 
         if checkpointed_model.expected_model_class() is not None:
-            assert isinstance(checkpointed_model.model, checkpointed_model.expected_model_class()) or \
-                   issubclass(checkpointed_model.model, checkpointed_model.expected_model_class())
+            assert isinstance(checkpointed_model.model, checkpointed_model.expected_model_class())
 
         # Compare the state of the model loaded from remote storage with the original, local model.
         local_model_state: dict[str, Any] = model.state_dict
@@ -404,37 +409,16 @@ def perform_training_for_model(
         model = checkpointed_model
 
 
-def test_checkpoint_and_train_simple_model_on_cifar10():
-    perform_training_for_model(ResNet18, CIFAR10)
-
-
-def test_checkpoint_and_train_vgg11_on_cifar10():
-    perform_training_for_model(VGG11, CIFAR10)
-
-
-def test_checkpoint_and_train_vgg13_on_cifar10():
-    perform_training_for_model(VGG13, CIFAR10)
-
-
-def test_checkpoint_and_train_vgg16_on_cifar10():
-    perform_training_for_model(VGG16, CIFAR10)
-
-
-def test_checkpoint_and_train_vgg19_on_cifar10():
-    perform_training_for_model(VGG19, CIFAR10)
-
-
-def test_checkpoint_and_train_inception_v3_on_cifar10():
-    perform_training_for_model(InceptionV3, CIFAR10)
-
-
-def test_checkpoint_and_train_bert_on_imdb_truncated():
-    perform_training_for_model(Bert, IMDbLargeMovieReviewTruncated)
-
-
-def test_checkpoint_and_train_gpt2_on_imdb_truncated():
-    perform_training_for_model(GPT2, IMDbLargeMovieReviewTruncated)
-
-
-def test_checkpoint_and_train_deep_speech2_on_libri_speech():
-    perform_training_for_model(DeepSpeech2, LibriSpeech)
+@pytest.mark.parametrize("model_class,dataset_class", [
+    (ResNet18, CIFAR10), (ResNet18, TinyImageNet),
+    (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
+    (VGG11, CIFAR10), (VGG11, TinyImageNet),
+    (VGG13, CIFAR10), (VGG13, TinyImageNet),
+    (VGG16, CIFAR10), (VGG16, TinyImageNet),
+    (VGG19, CIFAR10), (VGG19, TinyImageNet),
+    (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
+    (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
+    (DeepSpeech2, LibriSpeech)
+])
+def test_perform_training_for_model(model_class: Type[DeepLearningModel], dataset_class: Type[CustomDataset]):
+    perform_training_for_model(model_class, dataset_class, target_training_duration_ms=2000.0, num_training_loops=3)

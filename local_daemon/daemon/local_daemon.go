@@ -2695,7 +2695,17 @@ func (d *SchedulerDaemonImpl) processExecOrYieldRequest(msg *messaging.JupyterMe
 	// This will force the replica to necessarily yield the execution to the other replicas.
 	// If no replicas are able to execute the code due to resource contention, then a new replica will be created dynamically.
 	// There may be a particular replica specified to execute the request. We'll extract the ID of that replica to this variable, if it is present.
-	targetReplicaId, metadataDict, _ := d.processExecuteRequestMetadata(msg, kernel)
+	targetReplicaId, metadataDict, err := d.processExecuteRequestMetadata(msg, kernel)
+
+	// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
+	var allocationFailedDueToInsufficientResources bool
+
+	var targetError resource.InsufficientResourcesError
+	if err != nil && errors.As(err, &targetError) {
+		d.log.Debug("Received InsufficientResourcesError while processing metadata of 'execute_request'. " +
+			"Must've tried to update resource request to some invalid value.")
+		allocationFailedDueToInsufficientResources = true
+	}
 
 	// Extract the workload ID (which may or may not be included in the metadata of the request),
 	// and assign it to the kernel ID if it hasn't already been assigned a value for this kernel.
@@ -2709,16 +2719,10 @@ func (d *SchedulerDaemonImpl) processExecOrYieldRequest(msg *messaging.JupyterMe
 	// No SMR replica can have an ID of 0.
 	differentTargetReplicaSpecified := targetReplicaId != int32(-1) && targetReplicaId != kernel.ReplicaID()
 
-	// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
-	var (
-		err                                        error
-		allocationFailedDueToInsufficientResources bool
-	)
-
 	// Create a snapshot of the available idle resources on this node prior to our (potential) attempt
 	// to reserve resources for this kernel replica in anticipation of its leader election.
 	idleResourcesBeforeReservation := d.resourceManager.IdleResources()
-	shouldYield := differentTargetReplicaSpecified || kernel.SupposedToYieldNextExecutionRequest() || msg.JupyterMessageType() == messaging.ShellYieldRequest
+	shouldYield := differentTargetReplicaSpecified || allocationFailedDueToInsufficientResources || kernel.SupposedToYieldNextExecutionRequest() || msg.JupyterMessageType() == messaging.ShellYieldRequest
 	if !shouldYield && d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
 		// We didn't want to bother reserving resources for this kernel replica if its either been explicitly told
 		// to yield, or if another replica of the same kernel was explicitly expected to yield. But now that we know
@@ -2750,7 +2754,7 @@ func (d *SchedulerDaemonImpl) processExecOrYieldRequest(msg *messaging.JupyterMe
 
 			metadataDict["gpu_device_ids"] = gpuDeviceIds
 		}
-	} else if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
+	} else if !shouldYield && d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
 		gpuDeviceIds, _ := d.resourceManager.GetGpuDeviceIdsAssignedToReplica(kernel.ReplicaID(), kernel.ID())
 
 		if gpuDeviceIds != nil {

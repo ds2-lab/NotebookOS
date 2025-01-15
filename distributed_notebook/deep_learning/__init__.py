@@ -3,30 +3,30 @@ from typing import Optional, Tuple, Any, Type, List, Dict
 
 from distributed_notebook.deep_learning.configuration import ComputerVision, NaturalLanguageProcessing, Testing, Speech
 
-from .datasets import CIFAR10, TinyImageNet, CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated, LibriSpeech, \
-    CustomDataset, DatasetNamesByCategory, DatasetClassesByName
+from .data import CIFAR10, CIFAR100, TinyImageNet, CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated, \
+    LibriSpeech, CustomDataset, DatasetNamesByCategory, DatasetClassesByName
 from .models import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
     Bert, GPT2, DeepSpeech, DeepSpeech2, DeepLearningModel, ComputerVisionModel, SimpleModel, \
     ModelClassesByName, ModelNameToModelCategory
 
 ModelNameToCompatibleDatasetClasses: Dict[str, List[Type]] = {
     ResNet18.model_name(): [
-        CIFAR10, TinyImageNet
+        CIFAR10, CIFAR100, TinyImageNet
     ],
     VGG11.model_name(): [
-        CIFAR10, TinyImageNet
+        CIFAR10, CIFAR100, TinyImageNet
     ],
     VGG13.model_name(): [
-        CIFAR10, TinyImageNet
+        CIFAR10, CIFAR100, TinyImageNet
     ],
     VGG16.model_name(): [
-        CIFAR10, TinyImageNet
+        CIFAR10, CIFAR100, TinyImageNet
     ],
     VGG19.model_name(): [
-        CIFAR10, TinyImageNet
+        CIFAR10, CIFAR100, TinyImageNet
     ],
     InceptionV3.model_name(): [
-        CIFAR10, TinyImageNet
+        CIFAR10, CIFAR100, TinyImageNet
     ],
     Bert.model_name(): [
         CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated

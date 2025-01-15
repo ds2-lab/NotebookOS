@@ -1,4 +1,4 @@
-from distributed_notebook.deep_learning.datasets import CoLA, IMDbLargeMovieReviewTruncated
+from distributed_notebook.deep_learning.data import CoLA, IMDbLargeMovieReviewTruncated
 from distributed_notebook.deep_learning.models import GPT2
 
 def test_train_gpt2_on_cola():

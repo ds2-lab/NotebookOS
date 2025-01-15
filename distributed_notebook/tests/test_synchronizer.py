@@ -3,6 +3,8 @@ import builtins as builtin_mod
 import random
 import types
 import uuid
+import pytest
+
 from typing import Any, Optional, Type
 from unittest import mock
 
@@ -12,10 +14,11 @@ from torch.nn import Parameter
 import distributed_notebook
 import distributed_notebook.sync
 from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
-    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2
-from distributed_notebook.deep_learning.datasets import ComputerVision, NaturalLanguageProcessing, Speech
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
-from distributed_notebook.deep_learning.datasets.loader import load_dataset
+    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
+    CoLA, get_model_and_dataset
+from distributed_notebook.deep_learning.data import ComputerVision, NaturalLanguageProcessing, Speech
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel
@@ -704,19 +707,24 @@ def train_and_sync_model(
     io_loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
 
     # Create the model.
-    model: DeepLearningModel = model_class(created_for_first_time=True)
-    initial_weights: Tensor = model.output_layer.weight.clone()
+    # model: DeepLearningModel = model_class(created_for_first_time=True)
+    # initial_weights: Tensor = model.output_layer.weight.clone()
 
     # Create the dataset.
-    if dataset_class.category() == ComputerVision:
-        assert issubclass(model_class, ComputerVisionModel)
-        dataset = dataset_class(image_size=model_class.expected_image_size())
-    elif dataset_class.category() == NaturalLanguageProcessing:
-        assert issubclass(model_class, Bert) or issubclass(model_class, GPT2)
-        dataset = dataset_class(model_name=model_class.model_name())
-    else:
-        assert dataset_class.category() == Speech
-        dataset = dataset_class(train_split=LibriSpeech.test_clean, test_split=LibriSpeech.test_other)
+    # if dataset_class.category() == ComputerVision:
+    #     assert issubclass(model_class, ComputerVisionModel)
+    #     dataset = dataset_class(image_size=model_class.expected_image_size())
+    # elif dataset_class.category() == NaturalLanguageProcessing:
+    #     assert issubclass(model_class, Bert) or issubclass(model_class, GPT2)
+    #     dataset = dataset_class(model_name=model_class.model_name())
+    # else:
+    #     assert dataset_class.category() == Speech
+    #     dataset = dataset_class(train_split=LibriSpeech.test_clean, test_split=LibriSpeech.test_other)
+
+    model, dataset = get_model_and_dataset(model_class.model_name(), dataset_class.dataset_name())
+    assert isinstance(model, model_class)
+    assert isinstance(dataset, dataset_class)
+    initial_weights: Tensor = model.output_layer.weight.clone()
 
     synchronize_variable(
         io_loop=io_loop,
@@ -789,37 +797,16 @@ def train_and_sync_model(
         assert weight.equal(updated_weights)
 
 
-def test_train_and_sync_resnet18_on_cifar10():
-    train_and_sync_model(ResNet18, CIFAR10)
-
-
-def test_train_and_sync_vgg11_on_cifar10():
-    train_and_sync_model(VGG11, CIFAR10)
-
-
-def test_train_and_sync_vgg13_on_cifar10():
-    train_and_sync_model(VGG13, CIFAR10)
-
-
-def test_train_and_sync_vgg16_on_cifar10():
-    train_and_sync_model(VGG16, CIFAR10)
-
-
-def test_train_and_sync_vgg19_on_cifar10():
-    train_and_sync_model(VGG19, CIFAR10)
-
-
-def test_train_and_sync_inception_v3_on_cifar10():
-    train_and_sync_model(InceptionV3, CIFAR10)
-
-
-def test_train_and_sync_bert_on_imdb_truncated():
-    train_and_sync_model(Bert, IMDbLargeMovieReviewTruncated)
-
-
-def test_train_and_sync_gpt2_on_imdb_truncated():
-    train_and_sync_model(GPT2, IMDbLargeMovieReviewTruncated)
-
-
-def test_train_and_sync_deep_speech2_on_libri_speech():
-    train_and_sync_model(DeepSpeech2, LibriSpeech)
+@pytest.mark.parametrize("model_class,dataset_class", [
+    (ResNet18, CIFAR10), (ResNet18, TinyImageNet),
+    (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
+    (VGG11, CIFAR10), (VGG11, TinyImageNet),
+    (VGG13, CIFAR10), (VGG13, TinyImageNet),
+    (VGG16, CIFAR10), (VGG16, TinyImageNet),
+    (VGG19, CIFAR10), (VGG19, TinyImageNet),
+    (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
+    (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
+    (DeepSpeech2, LibriSpeech)
+])
+def test_train_model_on_dataset(model_class: Type[DeepLearningModel], dataset_class: Type[CustomDataset]):
+    train_and_sync_model(model_class, dataset_class, target_training_duration_ms=2000.0)

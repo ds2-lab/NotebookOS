@@ -6,13 +6,14 @@ from typing import List, Optional, Dict, Union
 
 import torchaudio
 import torch.nn as nn
-
 from torch.utils.data import DataLoader
+
 from torchaudio import datasets
 
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 
 from distributed_notebook.deep_learning.configuration import Speech
+from distributed_notebook.deep_learning.data.loader import WrappedLoader
 
 char_map_str: str = """
  ' 0
@@ -217,26 +218,28 @@ class LibriSpeech(CustomDataset):
             self.log.debug(f"The {self.name} dataset was downloaded to root directory \"{root_dir}\" in {self._download_duration_sec} seconds.")
 
         if self._train_dataset is not None:
-            self._train_loader: Optional[DataLoader] = DataLoader(
+            self._train_loader: Optional[WrappedLoader] = WrappedLoader(
                 self._train_dataset,
                 batch_size=batch_size,
                 shuffle=shuffle,
                 num_workers=num_workers,
                 collate_fn=lambda x: data_processing(x, 'train'),
+                dataset_name=self.dataset_name(),
             )
         else:
-            self._train_loader: Optional[DataLoader] = None
+            self._train_loader: Optional[WrappedLoader] = None
 
         if self._test_dataset is not None:
-            self._test_loader: Optional[DataLoader] = DataLoader(
+            self._test_loader: Optional[WrappedLoader] = WrappedLoader(
                 self._test_dataset,
                 batch_size=batch_size,
                 shuffle=shuffle,
                 num_workers=num_workers,
                 collate_fn=lambda x: data_processing(x, 'valid'),
+                dataset_name=self.dataset_name(),
             )
         else:
-            self._test_loader: Optional[DataLoader] = None
+            self._test_loader: Optional[WrappedLoader] = None
 
     @staticmethod
     def category() -> str:

@@ -115,6 +115,10 @@ func NewInsufficientResourcesError(avail types.Spec, req types.Spec, kinds []Kin
 	}
 }
 
+func (e InsufficientResourcesError) Unwrap() error {
+	return fmt.Errorf(e.Error())
+}
+
 func (e InsufficientResourcesError) Error() string {
 	return e.String()
 }

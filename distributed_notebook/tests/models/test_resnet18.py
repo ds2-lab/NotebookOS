@@ -5,7 +5,7 @@ def test_train_resnet18_on_cifar10():
     """
     Train the ResNet-18 model on the CIFAR-10 dataset. Validate that the weights are updated correctly.
     """
-    dataset: CIFAR10 = CIFAR10(image_size = ResNet18.expected_image_size())
+    dataset: CIFAR10 = CIFAR10(image_size=ResNet18.expected_image_size())
     model: ResNet18 = ResNet18(created_for_first_time=True)
 
     training_duration_ms: int = 1000
@@ -30,8 +30,8 @@ def test_train_resnet18_on_tiny_imagenet():
     """
     Train the ResNet-18 model on the Tiny ImageNet dataset. Validate that the weights are updated correctly.
     """
-    dataset: TinyImageNet = TinyImageNet(image_size = ResNet18.expected_image_size())
-    model: ResNet18 = ResNet18(created_for_first_time=True, out_features = 200)
+    dataset: TinyImageNet = TinyImageNet(image_size=ResNet18.expected_image_size())
+    model: ResNet18 = ResNet18(created_for_first_time=True, out_features=200)
 
     training_duration_ms: int = 1000
 

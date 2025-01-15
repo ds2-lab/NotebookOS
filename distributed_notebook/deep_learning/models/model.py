@@ -2,13 +2,13 @@ import gc
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, Type
+from typing import Optional, Dict, Any, Type, List
 
 import torch
 import torch.nn as nn
 from torch.nn import Module
 
-from distributed_notebook.logs import ColoredLogFormatter
+from distributed_notebook.logs import ColoredLogFormatter, colors
 
 
 class DeepLearningModel(ABC):
@@ -20,6 +20,7 @@ class DeepLearningModel(ABC):
             total_training_time_seconds: int = 0,
             total_num_epochs: int = 0,
             created_for_first_time: bool = False,
+            gpu_device_ids: Optional[List[int]] = None,
             **kwargs,
     ):
         # Initialize logging
@@ -31,11 +32,23 @@ class DeepLearningModel(ABC):
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+        self._last_gpu_device_ids_used: List[int] = []
+        """ The device IDs that were used by this model before the current device IDs. """
+
+        self._device_ids: list[int] = []
         self.gpu_device = None
         self.cpu_device = torch.device('cpu')
         if torch.cuda.is_available():
             self.log.debug("CUDA is available.")
-            self.gpu_device = torch.device('cuda')
+
+            if gpu_device_ids is not None and len(gpu_device_ids) > 0:
+                self.log.debug(f"Creating initial cuda device using GPU {gpu_device_ids[0]}")
+                self.gpu_device = torch.device(f'cuda:{gpu_device_ids[0]}')
+                self._device_ids = list(gpu_device_ids)
+            else:
+                self.log.debug("Creating initial cuda device with non-specific GPU")
+                self.gpu_device = torch.device('cuda')
+
             self.gpu_available: bool = True
         else:
             self.log.warning("CUDA is NOT available.")
@@ -54,7 +67,6 @@ class DeepLearningModel(ABC):
         self.model: Optional[Module] = None
         self._optimizer: Optional[Module] = None
         self._out_features: int = out_features
-        self._device_ids: list[int] = []
 
         # Flag that is set to True everytime we train and set to False everytime we write the model's parameters or
         # state dictionary to remote storage.
@@ -86,44 +98,12 @@ class DeepLearningModel(ABC):
     def model_name() -> str:
         pass
 
-    def set_gpu_device_ids(self, device_ids: list[int] = None):
+    @property
+    def last_gpu_device_ids_used(self) -> List[int]:
         """
-        Change the GPU device IDs used by the model.
-
-        If the model is wrapped in torch.nn.DataParallel, then this will first unwrap the model before
-        either re-wrapping it in torch.nn.DataParallel, or just specifying a new PyTorch device with the
-        specified GPU device ID.
+        Returns the device IDs that were used by this model before the current device IDs.
         """
-        if len(device_ids) == 0:
-            raise ValueError("device IDs list is empty")
-
-        st: float = time.time()
-
-        # Unwrap from DataParallel (if in DataParallel).
-        if isinstance(self.model, torch.nn.DataParallel):
-            old_device_ids: list[int] = self.model.device_ids
-            self.log.debug(f"Unwrapping model from DataParallel. Old GPU device IDs: {old_device_ids}.")
-            self.model = self.model.module
-        else:
-            old_device_ids: list[int] = [0]
-
-        if len(device_ids) == 1:
-            gpu_device_id: int = device_ids[0]
-            self.log.debug(f"Using GPU #{gpu_device_id}")
-            self.gpu_device = torch.device(f'cuda:{gpu_device_id}')
-
-            self.model = self.model.to(self.gpu_device)
-        else:
-            self.log.debug(f"Wrapping model from DataParallel. GPU device IDs: {device_ids}.")
-            self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
-
-            self.gpu_device = torch.device(f"cuda:{device_ids[0]}")
-            self.model = self.model.to(self.gpu_device)
-
-        et: float = time.time()
-        self.log.debug(f"Changed GPU device IDs from {old_device_ids} to {device_ids} in {et - st} seconds.")
-
-        self._device_ids = device_ids
+        return self._last_gpu_device_ids_used
 
     def checkpointed(self):
         """
@@ -325,10 +305,11 @@ class DeepLearningModel(ABC):
         training_time_millis: float = time_spent_training_sec * 1.0e3
         self.log.debug(f"Training completed. Number of epochs: {num_epochs}. "
                        f"Time elapsed: {training_time_millis:,} ms. "
-                       f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} individual samples).")
+                       f"Processed {num_minibatches_processed} mini-batches "
+                       f"({num_samples_processed} individual samples).")
 
         if self.gpu_available:
-            self.log.debug("Copying model from GPU to CPU.")
+            self.log.debug(f"Copying model from GPU device {self.gpu_device} to CPU.")
             copy_start: float = time.time()
             self.to_cpu()
 
@@ -338,7 +319,7 @@ class DeepLearningModel(ABC):
             torch.cuda.synchronize()
             copy_end: float = time.time()
             copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
-            self.log.debug(f"Copied model from GPU to CPU in {copy_gpu2cpu_millis} ms.")
+            self.log.debug(f"Copied model from GPU device {self.gpu_device} to CPU in {copy_gpu2cpu_millis} ms.")
 
         self._requires_checkpointing = True
 
@@ -352,17 +333,17 @@ class DeepLearningModel(ABC):
         """
         copy_cpu2gpu_millis: float = 0.0
         copy_gpu2cpu_millis: float = 0.0
-        actual_training_time_millis: float = 0.0
+        true_training_time_ms: float = 0.0
 
         if self.gpu_available:
             st: float = time.time()
             self.to_gpu()
             et: float = time.time()
             copy_cpu2gpu_millis: float = (et - st) * 1.0e3
-            self.log.debug(f"Copied model from CPU to GPU in {copy_cpu2gpu_millis} ms.")
+            self.log.debug(f"Copied model from CPU to GPU device {self.gpu_device} in {copy_cpu2gpu_millis} ms.")
 
         if target_training_duration_millis <= 0:
-            return actual_training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
+            return true_training_time_ms, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
         self.log.debug(f"Training for {target_training_duration_millis} milliseconds.")
 
@@ -373,7 +354,12 @@ class DeepLearningModel(ABC):
         num_minibatches_processed: int = 0
         num_samples_processed: int = 0
 
-        self.log.debug(f"Model '{self.name}' has started training.")
+        dataset_name: str = "N/A"
+        if hasattr(loader, "dataset_name"):
+            dataset_name = loader.dataset_name
+
+        self.log.debug(f"Model '{self.name}' has {colors.LIGHT_GREEN}started training{colors.END} on dataset "
+                       f"'{dataset_name}' on GPU(s): {colors.LIGHT_PURPLE}{self._device_ids}.{colors.END}")
         while ((time.time() - start_time) * 1.0e3) < target_training_duration_millis:
             for elem in loader:
                 if len(elem) == 2:
@@ -385,27 +371,39 @@ class DeepLearningModel(ABC):
                     raise ValueError(f"Unexpectedly received {len(elem)} item(s) from DataLoader: {elem}")
 
                 if self.gpu_available:
+                    copy_st: float = time.time()
                     samples, labels = samples.to(self.gpu_device), labels.to(self.gpu_device)
 
                     if attention_mask is not None:
                         attention_mask = attention_mask.to(self.gpu_device)
 
                     torch.cuda.synchronize()
+                    copy_et: float = time.time()
+
+                    self.log.debug("Copied samples, labels, and possibly the attention_mask from CPU to "
+                                   f"GPU device {self.gpu_device} in {round((copy_et - copy_st) * 1.0e3, 3):,} ms.")
 
                 # Zero the parameter gradients
                 self._optimizer.zero_grad()
+
+                self.log.debug("Zeroed optimizer gradients. Beginning forward pass now.")
 
                 forward_pass_start: float = time.time()
                 # Forward pass
                 if attention_mask is not None:
                     outputs = self.model(samples, attention_mask=attention_mask, labels=labels)
+                    loss_st: float = time.time()
                     loss = outputs.loss
                 else:
                     outputs = self.model(samples)
+                    self.log.debug("Computed outputs. Computing loss now.")
+                    loss_st: float = time.time()
                     loss = self._criterion(outputs, labels)
+                    self.log.debug("Computed loss")
 
                 # Backward pass and optimization
                 loss.backward()
+                loss_et: float = time.time()
                 self._optimizer.step()
                 forward_pass_end: float = time.time()
 
@@ -418,8 +416,9 @@ class DeepLearningModel(ABC):
                 num_samples_processed += len(samples)
 
                 self.log.debug(f"Processed {len(samples)} samples in "
-                               f"{round((forward_pass_end - forward_pass_start) * 1.0e3, 9):,} milliseconds. "
-                               f"Total time elapsed so far: {round((time.time() - start_time) * 1.0e3, 9):,} milliseconds.")
+                               f"{round((forward_pass_end - forward_pass_start) * 1.0e3, 9):,} ms. "
+                               f"Total time elapsed: {round((time.time() - start_time) * 1.0e3, 9):,} ms.")
+                self.log.debug(f"\tComputed loss in {round((loss_et - loss_st) * 1.0e3, 3):,} ms.")
 
                 if self.gpu_available:
                     del samples
@@ -429,6 +428,11 @@ class DeepLearningModel(ABC):
 
                     if attention_mask is not None:
                         del attention_mask
+
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    with torch.no_grad():
+                        torch.cuda.empty_cache()
 
                     torch.cuda.synchronize()
 
@@ -441,20 +445,24 @@ class DeepLearningModel(ABC):
 
         time_spent_training_sec: float = (time.time() - start_time)
         self.total_training_time_seconds += time_spent_training_sec
-        actual_training_time_millis: float = time_spent_training_sec * 1.0e3
+        true_training_time_ms: float = time_spent_training_sec * 1.0e3
 
-        if actual_training_time_millis > target_training_duration_millis:
-            self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
-                           f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. Trained for "
-                           f"{round(actual_training_time_millis - target_training_duration_millis, 9)} ms too long. "
+        if true_training_time_ms > target_training_duration_millis:
+            self.log.debug(f"{colors.LIGHT_GREEN}Training completed.{colors.END} "
+                           f"Target time: {target_training_duration_millis:,} ms. "
+                           f"Time elapsed: {round(true_training_time_ms, 9):,} ms. "
+                           f"{colors.YELLOW}Trained for "
+                           f"{round(true_training_time_ms - target_training_duration_millis, 9)} "
+                           f"ms too long.{colors.END} "
                            f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
         else:
-            self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
-                       f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. "
-                       f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} individual samples).")
+            self.log.debug(f"{colors.LIGHT_GREEN}Training completed.{colors.END} "
+                           f"Target time: {target_training_duration_millis:,} ms. "
+                           f"Time elapsed: {round(true_training_time_ms, 9):,} ms. "
+                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
 
         if self.gpu_available:
-            self.log.debug("Copying model from GPU to CPU.")
+            self.log.debug(f"Copying model from GPU device {self.gpu_device} to CPU.")
             copy_start: float = time.time()
             self.to_cpu()
 
@@ -464,11 +472,11 @@ class DeepLearningModel(ABC):
             torch.cuda.synchronize()
             copy_end: float = time.time()
             copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
-            self.log.debug(f"Copied model from GPU to CPU in {copy_gpu2cpu_millis} ms.")
+            self.log.debug(f"Copied model from GPU device {self.gpu_device} to CPU in {copy_gpu2cpu_millis} ms.")
 
         self._requires_checkpointing = True
 
-        return actual_training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
+        return true_training_time_ms, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
     @property
     def out_features(self) -> int:
@@ -502,7 +510,7 @@ class DeepLearningModel(ABC):
 
     @property
     @abstractmethod
-    def output_layer(self)->nn.Module:
+    def output_layer(self) -> nn.Module:
         pass
 
     @property
@@ -527,7 +535,7 @@ class DeepLearningModel(ABC):
             raise ValueError("GPU is unavailable. Cannot move {self.name} model, optimizer, and criterion to the GPU.")
 
         size_mb = self.size_mb
-        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the GPU. "
+        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to GPU device {self.gpu_device}. "
                        f"Model size: {round(size_mb, 6)} MB.")
 
         st: float = time.time()
@@ -548,10 +556,10 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU. "
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU device {self.gpu_device}. "
                        f"Model size: {round(size_mb, 6)} MB.")
         self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
-        self.log.debug(f"\t\tCopied optimizer in {(round(et_optimizer - et_model) * 1.0e3, 9)} ms.")
+        self.log.debug(f"\t\tCopied optimizer in {round((et_optimizer - et_model) * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied criterion in {round((et_criterion - et_optimizer) * 1.0e3, 9)} ms.")
 
         self.cpu_to_gpu_times.append(total_time_elapsed)
@@ -560,7 +568,7 @@ class DeepLearningModel(ABC):
 
     def to_cpu(self) -> float:  # Return the total time elapsed in seconds.
         size_mb: float = self.size_mb
-        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the CPU. "
+        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the CPU device {self.cpu_device}. "
                        f"Model size: {round(size_mb, 6)} MB.")
 
         st: float = time.time()
@@ -581,12 +589,63 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU. "
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU device {self.cpu_device}. "
                        f"Model size: {round(size_mb, 6)} MB.")
         self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
-        self.log.debug(f"\t\tCopied optimizer in {(round(et_optimizer - et_model) * 1.0e3, 9)} ms.")
+        self.log.debug(f"\t\tCopied optimizer in {round((et_optimizer - et_model) * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied criterion in {round((et_criterion - et_optimizer) * 1.0e3, 9)} ms.")
 
         self.gpu_to_cpu_times.append(total_time_elapsed)
 
         return total_time_elapsed
+
+    def set_gpu_device_ids(self, device_ids: list[int] = None):
+        """
+        Change the GPU device IDs used by the model.
+
+        If the model is wrapped in torch.nn.DataParallel, then this will first unwrap the model before
+        either re-wrapping it in torch.nn.DataParallel, or just specifying a new PyTorch device with the
+        specified GPU device ID.
+        """
+        if len(device_ids) == 0:
+            raise ValueError("device IDs list is empty")
+
+        if not isinstance(device_ids, list):
+            device_ids = list(device_ids)
+
+        st: float = time.time()
+
+        # Unwrap from DataParallel (if in DataParallel).
+        if isinstance(self.model, torch.nn.DataParallel):
+            old_device_ids: list[int] = self.model.device_ids
+            self.log.debug(f"Unwrapping model from DataParallel. Old GPU device IDs: {old_device_ids}.")
+            self.model = self.model.module
+        else:
+            old_device_ids: list[int] = [0]
+
+        if len(device_ids) == 1:
+            gpu_device_id: int = device_ids[0]
+            self.log.debug(f"Using GPU #{gpu_device_id}")
+            self.gpu_device = torch.device(f'cuda:{gpu_device_id}')
+
+            self.model = self.model.to(self.gpu_device)
+        else:
+            self.log.debug(f"{colors.LIGHT_CYAN}Wrapping model in DataParallel.{colors.END} "
+                           f"GPU device IDs: {colors.LIGHT_PURPLE}{device_ids}.{colors.END}")
+
+            # torch.cuda.set_device(device_ids[0])
+            # self.gpu_device = torch.device("cuda")
+
+            self.gpu_device = torch.device(f"cuda:{device_ids[0]}")
+            self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
+
+            self.model = self.model.to(self.gpu_device)
+
+        et: float = time.time()
+        self.log.debug(f"{colors.LIGHT_BLUE}Changed GPU device IDs{colors.END} from "
+                       f"{colors.LIGHT_GRAY}{old_device_ids}{colors.END} to "
+                       f"{colors.LIGHT_PURPLE}{device_ids}{colors.END} in {et - st} seconds. "
+                       f"Current GPU device: {self.gpu_device}.")
+
+        self._last_gpu_device_ids_used = self._device_ids.copy()
+        self._device_ids = device_ids

@@ -1,7 +1,7 @@
 import os
 import torch
 
-from distributed_notebook.deep_learning.datasets import LibriSpeech
+from distributed_notebook.deep_learning.data import LibriSpeech
 from distributed_notebook.deep_learning.models import DeepSpeech2
 
 

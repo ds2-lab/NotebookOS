@@ -15,8 +15,8 @@ from ipykernel.control import ControlThread
 
 import distributed_notebook.sync.raft_log
 from distributed_notebook.deep_learning import ResNet18, CIFAR10, DeepLearningModel, VGG16, InceptionV3, VGG19, VGG13, \
-    VGG11, IMDbLargeMovieReviewTruncated, Bert, GPT2, DeepSpeech2, LibriSpeech
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+    VGG11, IMDbLargeMovieReviewTruncated, Bert, GPT2, DeepSpeech2, LibriSpeech, TinyImageNet, CoLA
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.kernel import DistributedKernel
 from distributed_notebook.sync import Synchronizer, RaftLog, SyncAST
 from distributed_notebook.sync.election import Election, ExecutionCompleted, AllReplicasProposedYield
@@ -512,6 +512,8 @@ async def perform_training(
 
     weights: Optional[torch.Tensor] = None
     for i in range(1, num_training_loops + 1):
+        print(f'\n\n\n{"\033[0;36m"}Training Loop {i}/{num_training_loops} for Model "{model_class.model_name()}" on '
+              f'Dataset "{dataset_class.dataset_name()}"{"\033[0m"}\n\n')
         execution_request: Dict[str, Any] = create_execution_request(message_id = str(uuid.uuid4()))
         assert execution_request is not None
 
@@ -549,8 +551,20 @@ async def perform_training(
         assert dataset is not None
         assert isinstance(dataset, dataset_class)
 
+        print(torch.cuda.memory_summary(abbreviated=False))
+        await asyncio.sleep(0.125)
+
     assert kernel.get_creation_code_called == 1
     assert kernel.get_download_code_called == num_training_loops - 1
+
+    print(torch.cuda.memory_summary(abbreviated=False))
+    await asyncio.sleep(0.25)
+    print(f'{"\033[0;32m"}\n\n\n\n\n\nFinished test for training model "{model_class.model_name()}" on '
+          f'dataset "{dataset_class.dataset_name()}"\n\n\n\n\n{"\033[0m"}')
+
+    # The user_ns seems to persist between unit tests sometimes...
+    # Not sure why, but we clear it here to prevent any issues.
+    kernel.shell.user_ns.clear()
 
 
 async def propose_lead_and_win(
@@ -3382,57 +3396,19 @@ async def test_skip_election_delayed_messages(kernel: DistributedKernel, executi
     assert spoofed_session.num_send_calls == 7
     assert len(spoofed_session.message_types_sent) == 7
 
-
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
+@pytest.mark.parametrize("model_class,dataset_class", [
+    (ResNet18, CIFAR10), (ResNet18, TinyImageNet),
+    (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
+    (VGG11, CIFAR10), (VGG11, TinyImageNet),
+    (VGG13, CIFAR10), (VGG13, TinyImageNet),
+    (VGG16, CIFAR10), (VGG16, TinyImageNet),
+    (VGG19, CIFAR10), (VGG19, TinyImageNet),
+    (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
+    (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
+    (DeepSpeech2, LibriSpeech)
+])
 @pytest.mark.asyncio
-async def test_train_cv_resnet18_on_cifar10():
-    await perform_training(ResNet18, CIFAR10, target_training_duration_ms = 2000.0)
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.asyncio
-async def test_train_cv_vgg11_on_cifar10():
-    await perform_training(VGG11, CIFAR10, target_training_duration_ms = 2000.0)
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.asyncio
-async def test_train_cv_vgg13_on_cifar10():
-    await perform_training(VGG13, CIFAR10, target_training_duration_ms = 2000.0)
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.asyncio
-async def test_train_cv_vgg16_on_cifar10():
-    await perform_training(VGG16, CIFAR10, target_training_duration_ms = 2000.0)
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.asyncio
-async def test_train_cv_vgg19_on_cifar10():
-    await perform_training(VGG19, CIFAR10, target_training_duration_ms = 2000.0)
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.asyncio
-async def test_train_cv_inception_v3_on_cifar10():
-    await perform_training(InceptionV3, CIFAR10, target_training_duration_ms = 2000.0)
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.asyncio
-async def test_train_nlp_bert_on_truncated_imdb():
-    await perform_training(Bert, IMDbLargeMovieReviewTruncated, target_training_duration_ms = 2500.0)
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.asyncio
-async def test_train_nlp_gpt2_on_truncated_imdb():
-    await perform_training(GPT2, IMDbLargeMovieReviewTruncated, target_training_duration_ms = 2500.0)
-
-@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
-                   mocked_serialize_and_append_value)
-@pytest.mark.asyncio
-async def test_train_speech_deep_speech2_on_libri_speech():
-    await perform_training(DeepSpeech2, LibriSpeech, target_training_duration_ms = 2500.0)
+async def test_train_model_on_dataset(model_class: Type[DeepLearningModel], dataset_class: Type[CustomDataset]):
+    await perform_training(model_class, dataset_class, target_training_duration_ms=2000.0)
