@@ -6,8 +6,8 @@ from typing import Dict, Any, Union, Optional
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
-from distributed_notebook.deep_learning.datasets.loader import WrappedLoader
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.loader import WrappedLoader
 
 from distributed_notebook.deep_learning.configuration import ComputerVision
 

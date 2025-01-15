@@ -7,7 +7,7 @@ import traceback
 import types
 from typing import Any, Callable, Optional
 
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 

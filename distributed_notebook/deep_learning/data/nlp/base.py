@@ -4,13 +4,13 @@ from abc import ABC
 from typing import Callable, Dict, Union, Optional, Any
 
 import torch.utils.data
-from datasets import load_from_disk
+import datasets
 
 from torch.utils.data import Dataset, TensorDataset, SequentialSampler, RandomSampler, DataLoader
 
-from distributed_notebook.deep_learning.datasets.hugging_face import HuggingFaceDataset
-from distributed_notebook.deep_learning.datasets.nlp.util import get_tokenizer
-from distributed_notebook.deep_learning.datasets.loader import WrappedLoader
+from distributed_notebook.deep_learning.data.hugging_face import HuggingFaceDataset
+from distributed_notebook.deep_learning.data.nlp.util import get_tokenizer
+from distributed_notebook.deep_learning.data.loader import WrappedLoader
 
 
 class TextDataset(Dataset):
@@ -113,7 +113,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
                   f'Loading cached, tokenized {self.name} dataset from directory "{self._dataset_dict_path}" now...')
 
             _read_start: float = time.time()
-            self._tokenized_datasets = load_from_disk(self._dataset_dict_path)
+            self._tokenized_datasets = datasets.load_from_disk(self._dataset_dict_path)
 
             print(f'Read cached, tokenized {self.name} dataset from directory "{self._dataset_dict_path}" '
                   f'in {time.time() - _read_start} seconds.')

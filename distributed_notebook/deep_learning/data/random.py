@@ -4,7 +4,7 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Dataset
 
 from distributed_notebook.deep_learning import Testing
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 
 import time
 import os

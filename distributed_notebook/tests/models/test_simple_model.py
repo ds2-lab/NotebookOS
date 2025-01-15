@@ -1,7 +1,7 @@
 from torch import Size
 from torch.nn.parameter import Parameter
 
-from distributed_notebook.deep_learning.datasets.random import RandomCustomDataset
+from distributed_notebook.deep_learning.data.random import RandomCustomDataset
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
 
 def test_instantiate():

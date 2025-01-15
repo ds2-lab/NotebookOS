@@ -20,6 +20,7 @@ class DeepLearningModel(ABC):
             total_training_time_seconds: int = 0,
             total_num_epochs: int = 0,
             created_for_first_time: bool = False,
+            gpu_device_ids: Optional[List[int]] = None,
             **kwargs,
     ):
         # Initialize logging
@@ -34,11 +35,20 @@ class DeepLearningModel(ABC):
         self._last_gpu_device_ids_used: List[int] = []
         """ The device IDs that were used by this model before the current device IDs. """
 
+        self._device_ids: list[int] = []
         self.gpu_device = None
         self.cpu_device = torch.device('cpu')
         if torch.cuda.is_available():
             self.log.debug("CUDA is available.")
-            self.gpu_device = torch.device('cuda')
+
+            if gpu_device_ids is not None and len(gpu_device_ids) > 0:
+                self.log.debug(f"Creating initial cuda device using GPU {gpu_device_ids[0]}")
+                self.gpu_device = torch.device(f'cuda:{gpu_device_ids[0]}')
+                self._device_ids = list(gpu_device_ids)
+            else:
+                self.log.debug("Creating initial cuda device with non-specific GPU")
+                self.gpu_device = torch.device('cuda')
+
             self.gpu_available: bool = True
         else:
             self.log.warning("CUDA is NOT available.")
@@ -57,7 +67,6 @@ class DeepLearningModel(ABC):
         self.model: Optional[Module] = None
         self._optimizer: Optional[Module] = None
         self._out_features: int = out_features
-        self._device_ids: list[int] = []
 
         # Flag that is set to True everytime we train and set to False everytime we write the model's parameters or
         # state dictionary to remote storage.
@@ -95,49 +104,6 @@ class DeepLearningModel(ABC):
         Returns the device IDs that were used by this model before the current device IDs.
         """
         return self._last_gpu_device_ids_used
-
-    def set_gpu_device_ids(self, device_ids: list[int] = None):
-        """
-        Change the GPU device IDs used by the model.
-
-        If the model is wrapped in torch.nn.DataParallel, then this will first unwrap the model before
-        either re-wrapping it in torch.nn.DataParallel, or just specifying a new PyTorch device with the
-        specified GPU device ID.
-        """
-        if len(device_ids) == 0:
-            raise ValueError("device IDs list is empty")
-
-        if not isinstance(device_ids, list):
-            device_ids = list(device_ids)
-
-        st: float = time.time()
-
-        # Unwrap from DataParallel (if in DataParallel).
-        if isinstance(self.model, torch.nn.DataParallel):
-            old_device_ids: list[int] = self.model.device_ids
-            self.log.debug(f"Unwrapping model from DataParallel. Old GPU device IDs: {old_device_ids}.")
-            self.model = self.model.module
-        else:
-            old_device_ids: list[int] = [0]
-
-        if len(device_ids) == 1:
-            gpu_device_id: int = device_ids[0]
-            self.log.debug(f"Using GPU #{gpu_device_id}")
-            self.gpu_device = torch.device(f'cuda:{gpu_device_id}')
-
-            self.model = self.model.to(self.gpu_device)
-        else:
-            self.log.debug(f"Wrapping model in DataParallel. GPU device IDs: {device_ids}.")
-            self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
-
-            self.gpu_device = torch.device(f"cuda:{device_ids[0]}")
-            self.model = self.model.to(self.gpu_device)
-
-        et: float = time.time()
-        self.log.debug(f"Changed GPU device IDs from {old_device_ids} to {device_ids} in {et - st} seconds.")
-
-        self._last_gpu_device_ids_used = self._device_ids.copy()
-        self._device_ids = device_ids
 
     def checkpointed(self):
         """
@@ -405,27 +371,39 @@ class DeepLearningModel(ABC):
                     raise ValueError(f"Unexpectedly received {len(elem)} item(s) from DataLoader: {elem}")
 
                 if self.gpu_available:
+                    copy_st: float = time.time()
                     samples, labels = samples.to(self.gpu_device), labels.to(self.gpu_device)
 
                     if attention_mask is not None:
                         attention_mask = attention_mask.to(self.gpu_device)
 
                     torch.cuda.synchronize()
+                    copy_et: float = time.time()
+
+                    self.log.debug("Copied samples, labels, and possibly the attention_mask from CPU to "
+                                   f"GPU device {self.gpu_device} in {round((copy_et - copy_st) * 1.0e3, 3):,} ms.")
 
                 # Zero the parameter gradients
                 self._optimizer.zero_grad()
+
+                self.log.debug("Zeroed optimizer gradients. Beginning forward pass now.")
 
                 forward_pass_start: float = time.time()
                 # Forward pass
                 if attention_mask is not None:
                     outputs = self.model(samples, attention_mask=attention_mask, labels=labels)
+                    loss_st: float = time.time()
                     loss = outputs.loss
                 else:
                     outputs = self.model(samples)
+                    self.log.debug("Computed outputs. Computing loss now.")
+                    loss_st: float = time.time()
                     loss = self._criterion(outputs, labels)
+                    self.log.debug("Computed loss")
 
                 # Backward pass and optimization
                 loss.backward()
+                loss_et: float = time.time()
                 self._optimizer.step()
                 forward_pass_end: float = time.time()
 
@@ -438,8 +416,9 @@ class DeepLearningModel(ABC):
                 num_samples_processed += len(samples)
 
                 self.log.debug(f"Processed {len(samples)} samples in "
-                               f"{round((forward_pass_end - forward_pass_start) * 1.0e3, 9):,} milliseconds. "
-                               f"Total time elapsed so far: {round((time.time() - start_time) * 1.0e3, 9):,} milliseconds.")
+                               f"{round((forward_pass_end - forward_pass_start) * 1.0e3, 9):,} ms. "
+                               f"Total time elapsed: {round((time.time() - start_time) * 1.0e3, 9):,} ms.")
+                self.log.debug(f"\tComputed loss in {round((loss_et - loss_st) * 1.0e3, 3):,} ms.")
 
                 if self.gpu_available:
                     del samples
@@ -619,3 +598,54 @@ class DeepLearningModel(ABC):
         self.gpu_to_cpu_times.append(total_time_elapsed)
 
         return total_time_elapsed
+
+    def set_gpu_device_ids(self, device_ids: list[int] = None):
+        """
+        Change the GPU device IDs used by the model.
+
+        If the model is wrapped in torch.nn.DataParallel, then this will first unwrap the model before
+        either re-wrapping it in torch.nn.DataParallel, or just specifying a new PyTorch device with the
+        specified GPU device ID.
+        """
+        if len(device_ids) == 0:
+            raise ValueError("device IDs list is empty")
+
+        if not isinstance(device_ids, list):
+            device_ids = list(device_ids)
+
+        st: float = time.time()
+
+        # Unwrap from DataParallel (if in DataParallel).
+        if isinstance(self.model, torch.nn.DataParallel):
+            old_device_ids: list[int] = self.model.device_ids
+            self.log.debug(f"Unwrapping model from DataParallel. Old GPU device IDs: {old_device_ids}.")
+            self.model = self.model.module
+        else:
+            old_device_ids: list[int] = [0]
+
+        if len(device_ids) == 1:
+            gpu_device_id: int = device_ids[0]
+            self.log.debug(f"Using GPU #{gpu_device_id}")
+            self.gpu_device = torch.device(f'cuda:{gpu_device_id}')
+
+            self.model = self.model.to(self.gpu_device)
+        else:
+            self.log.debug(f"{colors.LIGHT_CYAN}Wrapping model in DataParallel.{colors.END} "
+                           f"GPU device IDs: {colors.LIGHT_PURPLE}{device_ids}.{colors.END}")
+
+            # torch.cuda.set_device(device_ids[0])
+            # self.gpu_device = torch.device("cuda")
+
+            self.gpu_device = torch.device(f"cuda:{device_ids[0]}")
+            self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
+
+            self.model = self.model.to(self.gpu_device)
+
+        et: float = time.time()
+        self.log.debug(f"{colors.LIGHT_BLUE}Changed GPU device IDs{colors.END} from "
+                       f"{colors.LIGHT_GRAY}{old_device_ids}{colors.END} to "
+                       f"{colors.LIGHT_PURPLE}{device_ids}{colors.END} in {et - st} seconds. "
+                       f"Current GPU device: {self.gpu_device}.")
+
+        self._last_gpu_device_ids_used = self._device_ids.copy()
+        self._device_ids = device_ids

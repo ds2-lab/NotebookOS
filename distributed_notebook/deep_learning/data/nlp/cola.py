@@ -1,8 +1,8 @@
 import os.path
 from typing import Dict, Union, Optional
 
-from distributed_notebook.deep_learning.datasets.nlp.base import NLPDataset
-from distributed_notebook.deep_learning.datasets.nlp.util import get_username
+from distributed_notebook.deep_learning.data.nlp.base import NLPDataset
+from distributed_notebook.deep_learning.data.nlp.util import get_username
 from distributed_notebook.deep_learning.configuration import NaturalLanguageProcessing
 
 

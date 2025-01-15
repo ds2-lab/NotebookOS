@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.sync.log import SynchronizedValue
 
@@ -49,7 +49,7 @@ class SyncPointer(SynchronizedValue, ABC):
 
 class DatasetPointer(SyncPointer):
     """
-    DatasetPointer is a SyncPointer for datasets.
+    DatasetPointer is a SyncPointer for data.
     """
     def __init__(
             self,

@@ -16,7 +16,7 @@ from ipykernel.control import ControlThread
 import distributed_notebook.sync.raft_log
 from distributed_notebook.deep_learning import ResNet18, CIFAR10, DeepLearningModel, VGG16, InceptionV3, VGG19, VGG13, \
     VGG11, IMDbLargeMovieReviewTruncated, Bert, GPT2, DeepSpeech2, LibriSpeech, TinyImageNet, CoLA
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.kernel import DistributedKernel
 from distributed_notebook.sync import Synchronizer, RaftLog, SyncAST
 from distributed_notebook.sync.election import Election, ExecutionCompleted, AllReplicasProposedYield

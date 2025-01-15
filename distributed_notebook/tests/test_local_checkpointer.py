@@ -8,9 +8,9 @@ from torch import Tensor
 from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
     ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
     CoLA, get_model_and_dataset
-from distributed_notebook.deep_learning.datasets import ComputerVision, NaturalLanguageProcessing, Speech
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
-from distributed_notebook.deep_learning.datasets.random import RandomCustomDataset
+from distributed_notebook.deep_learning.data import ComputerVision, NaturalLanguageProcessing, Speech
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.random import RandomCustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule

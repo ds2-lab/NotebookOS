@@ -3,7 +3,7 @@ from typing import Optional, Tuple, Any, Type, List, Dict
 
 from distributed_notebook.deep_learning.configuration import ComputerVision, NaturalLanguageProcessing, Testing, Speech
 
-from .datasets import CIFAR10, CIFAR100, TinyImageNet, CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated, \
+from .data import CIFAR10, CIFAR100, TinyImageNet, CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated, \
     LibriSpeech, CustomDataset, DatasetNamesByCategory, DatasetClassesByName
 from .models import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
     Bert, GPT2, DeepSpeech, DeepSpeech2, DeepLearningModel, ComputerVisionModel, SimpleModel, \

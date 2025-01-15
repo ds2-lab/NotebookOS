@@ -1,5 +1,5 @@
-from distributed_notebook.deep_learning.datasets import CoLA, IMDbLargeMovieReview
-from distributed_notebook.deep_learning.datasets.nlp import IMDbLargeMovieReviewTruncated
+from distributed_notebook.deep_learning.data import CoLA, IMDbLargeMovieReview
+from distributed_notebook.deep_learning.data.nlp import IMDbLargeMovieReviewTruncated
 from distributed_notebook.deep_learning.models.nlp.bert import Bert
 
 def test_train_bert_on_cola():

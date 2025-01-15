@@ -10,10 +10,10 @@ from torch.utils.data import DataLoader
 
 from torchaudio import datasets
 
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 
 from distributed_notebook.deep_learning.configuration import Speech
-from distributed_notebook.deep_learning.datasets.loader import WrappedLoader
+from distributed_notebook.deep_learning.data.loader import WrappedLoader
 
 char_map_str: str = """
  ' 0

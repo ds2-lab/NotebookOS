@@ -34,8 +34,8 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
-from distributed_notebook.deep_learning.datasets import load_dataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.gateway import gateway_pb2
@@ -4314,19 +4314,19 @@ class DistributedKernel(IPythonKernel):
                 and len(self.dataset_pointers_catchup) == 0
         ):
             self.log.debug(
-                "There were no models or datasets committed during catch-up phase."
+                "There were no models or data committed during catch-up phase."
             )
             return
 
         self.log.debug(
-            "Downloading any models and datasets that were committed during catch-up phase..."
+            "Downloading any models and data that were committed during catch-up phase..."
         )
         await asyncio.gather(
             self.__download_model_pointers_committed_while_catching_up(),
             self.__download_dataset_pointers_committed_while_catching_up(),
         )
         self.log.debug(
-            "Finished downloading the models and datasets that were committed during catch-up phase."
+            "Finished downloading the models and data that were committed during catch-up phase."
         )
 
     def __load_model_from_remote_storage(

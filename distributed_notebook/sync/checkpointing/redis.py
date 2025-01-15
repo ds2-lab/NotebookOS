@@ -6,8 +6,8 @@ import time
 
 import torch
 
-from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
-from distributed_notebook.deep_learning.datasets import load_dataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
 

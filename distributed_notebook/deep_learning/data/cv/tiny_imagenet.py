@@ -5,8 +5,8 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
-from distributed_notebook.deep_learning.datasets.hugging_face import HuggingFaceDataset
-from distributed_notebook.deep_learning.datasets.loader import WrappedLoader
+from distributed_notebook.deep_learning.data.hugging_face import HuggingFaceDataset
+from distributed_notebook.deep_learning.data.loader import WrappedLoader
 
 from distributed_notebook.deep_learning.configuration import ComputerVision
 
