@@ -549,7 +549,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			kernel.EXPECT().Size().Return(3).AnyTimes()
 
-			setActiveCall := kernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).AnyTimes()
+			setActiveCall := kernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any())
 			kernel.EXPECT().NumActiveExecutionOperations().Return(0).Times(1)
 			kernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).Times(1)
 		})
@@ -742,9 +742,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
 		})
 
-		It("should respond correctly upon receiving three YIELD notifications", func() {
-
-		})
+		//It("should respond correctly upon receiving three YIELD notifications", func() {
+		//
+		//})
 	})
 
 	Context("Processing general ZMQ Messages", func() {
