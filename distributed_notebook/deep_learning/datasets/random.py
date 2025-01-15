@@ -3,6 +3,7 @@ from torch import Tensor
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Dataset
 
+from distributed_notebook.deep_learning import Testing
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 
 import time
@@ -73,6 +74,14 @@ class RandomCustomDataset(CustomDataset):
 
         self._train_loader = DataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
         self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+
+    @staticmethod
+    def category() -> str:
+        return Testing
+
+    @staticmethod
+    def dataset_name() -> str:
+        return "Random Custom Dataset"
 
     @property
     def download_duration_sec(self)->float:
