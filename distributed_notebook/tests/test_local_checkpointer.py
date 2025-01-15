@@ -7,7 +7,7 @@ from torch import Tensor
 
 from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
     ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
-    CoLA
+    CoLA, get_model_and_dataset
 from distributed_notebook.deep_learning.datasets import ComputerVision, NaturalLanguageProcessing, Speech
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.datasets.random import RandomCustomDataset
@@ -305,20 +305,25 @@ def perform_training_for_model(
 
     checkpointer: LocalCheckpointer = LocalCheckpointer()
 
-    # Create the model.
-    model = model_class(created_for_first_time=True)
-    initial_weights = model.output_layer.weight.clone()
+    # # Create the model.
+    # model = model_class(created_for_first_time=True)
+    # initial_weights = model.output_layer.weight.clone()
+    #
+    # # Create the dataset.
+    # if dataset_class.category() == ComputerVision:
+    #     assert issubclass(model_class, ComputerVisionModel)
+    #     dataset = dataset_class(image_size=model_class.expected_image_size())
+    # elif dataset_class.category() == NaturalLanguageProcessing:
+    #     assert issubclass(model_class, Bert) or issubclass(model_class, GPT2)
+    #     dataset = dataset_class(model_name = model_class.model_name())
+    # else:
+    #     assert dataset_class.category() == Speech
+    #     dataset = dataset_class(train_split = LibriSpeech.test_clean, test_split = LibriSpeech.test_other)
 
-    # Create the dataset.
-    if dataset_class.category() == ComputerVision:
-        assert issubclass(model_class, ComputerVisionModel)
-        dataset = dataset_class(image_size=model_class.expected_image_size())
-    elif dataset_class.category() == NaturalLanguageProcessing:
-        assert issubclass(model_class, Bert) or issubclass(model_class, GPT2)
-        dataset = dataset_class(model_name = model_class.model_name())
-    else:
-        assert dataset_class.category() == Speech
-        dataset = dataset_class(train_split = LibriSpeech.test_clean, test_split = LibriSpeech.test_other)
+    model, dataset = get_model_and_dataset(model_class.model_name(), dataset_class.dataset_name())
+    assert isinstance(model, model_class)
+    assert isinstance(dataset, dataset_class)
+    initial_weights: Tensor = model.output_layer.weight.clone()
 
     # Checkpoint the initial model weights.
     model_pointer: ModelPointer = ModelPointer(
