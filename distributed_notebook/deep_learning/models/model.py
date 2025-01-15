@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.nn import Module
 
-from distributed_notebook.logs import ColoredLogFormatter
+from distributed_notebook.logs import ColoredLogFormatter, colors
 
 
 class DeepLearningModel(ABC):
@@ -367,17 +367,17 @@ class DeepLearningModel(ABC):
         """
         copy_cpu2gpu_millis: float = 0.0
         copy_gpu2cpu_millis: float = 0.0
-        actual_training_time_millis: float = 0.0
+        true_training_time_ms: float = 0.0
 
         if self.gpu_available:
             st: float = time.time()
             self.to_gpu()
             et: float = time.time()
             copy_cpu2gpu_millis: float = (et - st) * 1.0e3
-            self.log.debug(f"Copied model from CPU to GPU in {copy_cpu2gpu_millis} ms.")
+            self.log.debug(f"Copied model from CPU to GPU device {self.gpu_device} in {copy_cpu2gpu_millis} ms.")
 
         if target_training_duration_millis <= 0:
-            return actual_training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
+            return true_training_time_ms, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
         self.log.debug(f"Training for {target_training_duration_millis} milliseconds.")
 
@@ -392,8 +392,8 @@ class DeepLearningModel(ABC):
         if hasattr(loader, "dataset_name"):
             dataset_name = loader.dataset_name
 
-        self.log.debug(f"Model '{self.name}' has started training on dataset '{dataset_name}' "
-                       f"on the following GPU(s): {self._device_ids}.")
+        self.log.debug(f"Model '{self.name}' has {colors.LIGHT_GREEN}started training{colors.END} on dataset "
+                       f"'{dataset_name}' on GPU(s): {colors.LIGHT_PURPLE}{self._device_ids}.{colors.END}")
         while ((time.time() - start_time) * 1.0e3) < target_training_duration_millis:
             for elem in loader:
                 if len(elem) == 2:
@@ -466,20 +466,24 @@ class DeepLearningModel(ABC):
 
         time_spent_training_sec: float = (time.time() - start_time)
         self.total_training_time_seconds += time_spent_training_sec
-        actual_training_time_millis: float = time_spent_training_sec * 1.0e3
+        true_training_time_ms: float = time_spent_training_sec * 1.0e3
 
-        if actual_training_time_millis > target_training_duration_millis:
-            self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
-                           f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. Trained for "
-                           f"{round(actual_training_time_millis - target_training_duration_millis, 9)} ms too long. "
+        if true_training_time_ms > target_training_duration_millis:
+            self.log.debug(f"{colors.LIGHT_GREEN}Training completed.{colors.END} "
+                           f"Target time: {target_training_duration_millis:,} ms. "
+                           f"Time elapsed: {round(true_training_time_ms, 9):,} ms. "
+                           f"{colors.YELLOW}Trained for "
+                           f"{round(true_training_time_ms - target_training_duration_millis, 9)} "
+                           f"ms too long.{colors.END} "
                            f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
         else:
-            self.log.debug(f"Training completed. Target time: {target_training_duration_millis:,} ms. "
-                       f"Time elapsed: {round(actual_training_time_millis, 9):,} ms. "
-                       f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} individual samples).")
+            self.log.debug(f"{colors.LIGHT_GREEN}Training completed.{colors.END} "
+                           f"Target time: {target_training_duration_millis:,} ms. "
+                           f"Time elapsed: {round(true_training_time_ms, 9):,} ms. "
+                           f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} samples).")
 
         if self.gpu_available:
-            self.log.debug("Copying model from GPU to CPU.")
+            self.log.debug(f"Copying model from GPU device {self.gpu_device} to CPU.")
             copy_start: float = time.time()
             self.to_cpu()
 
@@ -489,11 +493,11 @@ class DeepLearningModel(ABC):
             torch.cuda.synchronize()
             copy_end: float = time.time()
             copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
-            self.log.debug(f"Copied model from GPU to CPU in {copy_gpu2cpu_millis} ms.")
+            self.log.debug(f"Copied model from GPU device {self.gpu_device} to CPU in {copy_gpu2cpu_millis} ms.")
 
         self._requires_checkpointing = True
 
-        return actual_training_time_millis, copy_cpu2gpu_millis, copy_gpu2cpu_millis
+        return true_training_time_ms, copy_cpu2gpu_millis, copy_gpu2cpu_millis
 
     @property
     def out_features(self) -> int:
@@ -527,7 +531,7 @@ class DeepLearningModel(ABC):
 
     @property
     @abstractmethod
-    def output_layer(self)->nn.Module:
+    def output_layer(self) -> nn.Module:
         pass
 
     @property
