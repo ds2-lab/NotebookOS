@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/configuration"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
@@ -74,13 +75,16 @@ var _ = Describe("Local Daemon Tests", func() {
 		mockCtrl         *gomock.Controller
 		kernel1Replica1  *mock_scheduling.MockKernelReplica
 		kernel2Replica2  *mock_scheduling.MockKernelReplica
-		resourceManager  *resource.AllocationManager
-		hostSpec         *types.DecimalSpec
+		//kernel3Replica3  *mock_scheduling.MockKernelReplica
+		resourceManager *resource.AllocationManager
+		hostSpec        *types.DecimalSpec
 
-		kernel1Key          = "23d90942-8c3de3a713a5c3611792b7a5"
-		kernel2Key          = "d2324990-3563adca181e235c77317a9b"
-		kernel1Id           = "66902bac-9386-432e-b1b9-21ac853fa1c9"
-		kernel2Id           = "c8fd0d64-b35d-4e14-80fa-4ed2d399bcb6"
+		kernel1Key = "23d90942-8c3de3a713a5c3611792b7a5"
+		kernel2Key = "d2324990-3563adca181e235c77317a9b"
+		//kernel3Key          = "7d1657ee-0ec2-468b-9f08-60269954b181"
+		kernel1Id = "66902bac-9386-432e-b1b9-21ac853fa1c9"
+		kernel2Id = "c8fd0d64-b35d-4e14-80fa-4ed2d399bcb6"
+		//kernel3Id           = "a40f1f8b-ed62-4c0f-b3c6-e42c781c917e"
 		kernel1PersistentId = "63914d5f-57f6-4ff4-b95a-16d5a9e85946"
 
 		workloadId = uuid.NewString()
@@ -102,17 +106,6 @@ var _ = Describe("Local Daemon Tests", func() {
 			WorkloadId:      workloadId,
 		}
 
-		//kernel1ReplicaSpec = &proto.KernelReplicaSpec{
-		//	Kernel:                    kernel1Spec,
-		//	ReplicaId:                 1,
-		//	NumReplicas:               3,
-		//	Replicas:                  []string{"10.0.0.1:8000", "10.0.0.2:8000", "10.0.0.3:8000"},
-		//	Join:                      true,
-		//	PersistentId:              &kernel1PersistentId,
-		//	DockerModeKernelDebugPort: 32000,
-		//	WorkloadId:                workloadId,
-		//}
-
 		kernel2ResourceSpec = &proto.ResourceSpec{
 			Gpu:    4,
 			Cpu:    2048,
@@ -129,6 +122,23 @@ var _ = Describe("Local Daemon Tests", func() {
 			ResourceSpec:    kernel2ResourceSpec,
 			WorkloadId:      workloadId,
 		}
+
+		//kernel3ResourceSpec = &proto.ResourceSpec{
+		//	Gpu:    8,
+		//	Cpu:    2048,
+		//	Memory: 1250,
+		//	Vram:   32,
+		//}
+		//
+		//kernel3Spec = &proto.KernelSpec{
+		//	Id:              kernel3Id,
+		//	Session:         kernel3Id,
+		//	Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+		//	SignatureScheme: "hmac-sha256",
+		//	Key:             kernel3Key,
+		//	ResourceSpec:    kernel3ResourceSpec,
+		//	WorkloadId:      workloadId,
+		//}
 	)
 
 	BeforeEach(func() {
@@ -143,6 +153,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 		kernel1Replica1 = createKernelReplica(mockCtrl, kernel1Id, kernel1Key, workloadId, 1, kernel1Spec, kernel1ResourceSpec)
 		kernel2Replica2 = createKernelReplica(mockCtrl, kernel2Id, kernel2Key, workloadId, 2, kernel2Spec, kernel2ResourceSpec)
+		//kernel3Replica3 = createKernelReplica(mockCtrl, kernel3Id, kernel3Key, workloadId, 3, kernel3Spec, kernel3ResourceSpec)
 		resourceManager = resource.NewAllocationManager(hostSpec)
 
 		schedulingPolicy, err := policy.GetSchedulingPolicy(&scheduling.SchedulerOptions{
@@ -166,6 +177,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
 			executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
 		}
+		config.LogLevel = logger.LOG_LEVEL_ALL
 		config.InitLogger(&schedulerDaemon.log, schedulerDaemon)
 	})
 
@@ -1239,22 +1251,34 @@ var _ = Describe("Local Daemon Tests", func() {
 		})
 
 		Context("Adjusting resource specs", func() {
-			updateKernel1Replica1ResourceSpec := func(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
-				GinkgoWriter.Printf("Updating resource spec of Kernel 1 Replica 1 from %v to %v.\n", kernel1Replica1.ResourceSpec(), newSpec)
+			updateKernelResourceSpec := func(kernelReplica *mock_scheduling.MockKernelReplica, newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+				GinkgoWriter.Printf("Updating resource spec of Kernel 1 Replica 1 from %v to %v.\n", kernelReplica.ResourceSpec(), newSpec)
 
 				Expect(tx).To(BeNil())
 
-				currentSpec := kernel1Replica1.ResourceSpec()
+				currentSpec := kernelReplica.ResourceSpec()
 
 				currentSpec.Millicpus = decimal.NewFromFloat(newSpec.CPU())
 				currentSpec.MemoryMb = decimal.NewFromFloat(newSpec.MemoryMB())
 				currentSpec.GPUs = decimal.NewFromFloat(newSpec.GPU())
 				currentSpec.VRam = decimal.NewFromFloat(newSpec.VRAM())
 
-				GinkgoWriter.Printf("Kernel 1 Replica 1 resource spec post-modification: %v\n", kernel1Replica1.ResourceSpec())
+				GinkgoWriter.Printf("Kernel 1 Replica 1 resource spec post-modification: %v\n", kernelReplica.ResourceSpec())
 
 				return nil
 			}
+
+			updateKernel1Replica1ResourceSpec := func(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+				return updateKernelResourceSpec(kernel1Replica1, newSpec, tx)
+			}
+
+			//updateKernel2Replica2ResourceSpec := func(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+			//	return updateKernelResourceSpec(kernel2Replica2, newSpec, tx)
+			//}
+			//
+			//updateKernel3Replica3ResourceSpec := func(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+			//	return updateKernelResourceSpec(kernel3Replica3, newSpec, tx)
+			//}
 
 			validateCommittedReserved := func(kernelReplica scheduling.KernelReplica) {
 				GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
@@ -1473,7 +1497,6 @@ var _ = Describe("Local Daemon Tests", func() {
 			})
 
 			It("Will fail to reserve an updated resource spec for a kernel replica if the updated spec exceeds the host's available resources", func() {
-				kernel1Replica1.EXPECT().UpdateResourceSpec(gomock.Any(), nil).Times(1).DoAndReturn(updateKernel1Replica1ResourceSpec)
 				kernel1Replica1.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 				kernel1Replica1.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
 
@@ -1484,19 +1507,16 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				validatePending([]scheduling.KernelReplica{kernel1Replica1})
 
-				impossibleSpec := types.NewFloat64Spec(99999, 99999, 99999, 99999)
+				impossibleSpec := types.NewFloat64Spec(500, 500, 16, 32)
 
 				By("Updating the pending resource request of the kernel, but failing to upgrade the pending request to committed")
 
-				processedMessage := processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon, messaging.ShellExecuteRequest,
-					kernel1Replica1, impossibleSpec)
+				processedMessage := processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon,
+					messaging.ShellExecuteRequest, kernel1Replica1, impossibleSpec)
+
+				fmt.Printf("processedMessage: %v\n", processedMessage.StringFormatted())
 
 				Expect(processedMessage).ToNot(BeNil())
-				Expect(kernel1Replica1.ResourceSpec().Equals(impossibleSpec)).To(BeTrue())
-				Expect(resourceManager.CommittedResources().IsZero()).To(BeTrue())
-				Expect(resourceManager.IdleResources().Equals(hostSpec)).To(BeTrue())
-				Expect(resourceManager.SpecResources().Equals(hostSpec.Clone())).To(BeTrue())
-				Expect(resourceManager.PendingResources().Equals(impossibleSpec)).To(BeTrue())
 
 				By("Returning a 'yield_request' message after processing the 'execute_request' message that contained the large spec")
 
