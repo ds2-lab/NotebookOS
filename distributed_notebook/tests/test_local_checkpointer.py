@@ -416,39 +416,4 @@ def perform_training_for_model(
     (DeepSpeech2, LibriSpeech)
 ])
 def test_perform_training_for_model(model_class: Type[DeepLearningModel], dataset_class: Type[CustomDataset]):
-    perform_training_for_model(model_class, dataset_class, target_training_duration_ms=2000.0)
-
-# def test_checkpoint_and_train_simple_model_on_cifar10():
-#     perform_training_for_model(ResNet18, CIFAR10)
-#
-#
-# def test_checkpoint_and_train_vgg11_on_cifar10():
-#     perform_training_for_model(VGG11, CIFAR10)
-#
-#
-# def test_checkpoint_and_train_vgg13_on_cifar10():
-#     perform_training_for_model(VGG13, CIFAR10)
-#
-#
-# def test_checkpoint_and_train_vgg16_on_cifar10():
-#     perform_training_for_model(VGG16, CIFAR10)
-#
-#
-# def test_checkpoint_and_train_vgg19_on_cifar10():
-#     perform_training_for_model(VGG19, CIFAR10)
-#
-#
-# def test_checkpoint_and_train_inception_v3_on_cifar10():
-#     perform_training_for_model(InceptionV3, CIFAR10)
-#
-#
-# def test_checkpoint_and_train_bert_on_imdb_truncated():
-#     perform_training_for_model(Bert, IMDbLargeMovieReviewTruncated)
-#
-#
-# def test_checkpoint_and_train_gpt2_on_imdb_truncated():
-#     perform_training_for_model(GPT2, IMDbLargeMovieReviewTruncated)
-#
-#
-# def test_checkpoint_and_train_deep_speech2_on_libri_speech():
-#     perform_training_for_model(DeepSpeech2, LibriSpeech)
+    perform_training_for_model(model_class, dataset_class, target_training_duration_ms=2000.0, num_training_loops=3)

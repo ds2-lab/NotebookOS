@@ -805,38 +805,3 @@ def train_and_sync_model(
 ])
 def test_train_model_on_dataset(model_class: Type[DeepLearningModel], dataset_class: Type[CustomDataset]):
     train_and_sync_model(model_class, dataset_class, target_training_duration_ms=2000.0)
-
-# def test_train_and_sync_resnet18_on_cifar10():
-#     train_and_sync_model(ResNet18, CIFAR10)
-#
-#
-# def test_train_and_sync_vgg11_on_cifar10():
-#     train_and_sync_model(VGG11, CIFAR10)
-#
-#
-# def test_train_and_sync_vgg13_on_cifar10():
-#     train_and_sync_model(VGG13, CIFAR10)
-#
-#
-# def test_train_and_sync_vgg16_on_cifar10():
-#     train_and_sync_model(VGG16, CIFAR10)
-#
-#
-# def test_train_and_sync_vgg19_on_cifar10():
-#     train_and_sync_model(VGG19, CIFAR10)
-#
-#
-# def test_train_and_sync_inception_v3_on_cifar10():
-#     train_and_sync_model(InceptionV3, CIFAR10)
-#
-#
-# def test_train_and_sync_bert_on_imdb_truncated():
-#     train_and_sync_model(Bert, IMDbLargeMovieReviewTruncated)
-#
-#
-# def test_train_and_sync_gpt2_on_imdb_truncated():
-#     train_and_sync_model(GPT2, IMDbLargeMovieReviewTruncated)
-#
-#
-# def test_train_and_sync_deep_speech2_on_libri_speech():
-#     train_and_sync_model(DeepSpeech2, LibriSpeech)
