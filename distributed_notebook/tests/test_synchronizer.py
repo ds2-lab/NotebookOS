@@ -3,6 +3,8 @@ import builtins as builtin_mod
 import random
 import types
 import uuid
+import pytest
+
 from typing import Any, Optional, Type
 from unittest import mock
 
@@ -12,7 +14,8 @@ from torch.nn import Parameter
 import distributed_notebook
 import distributed_notebook.sync
 from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
-    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2
+    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
+    CoLA
 from distributed_notebook.deep_learning.datasets import ComputerVision, NaturalLanguageProcessing, Speech
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.datasets import load_dataset
@@ -789,37 +792,51 @@ def train_and_sync_model(
         assert weight.equal(updated_weights)
 
 
-def test_train_and_sync_resnet18_on_cifar10():
-    train_and_sync_model(ResNet18, CIFAR10)
+@pytest.mark.parametrize("model_class,dataset_class", [
+    (ResNet18, CIFAR10), (ResNet18, TinyImageNet),
+    (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
+    (VGG11, CIFAR10), (VGG11, TinyImageNet),
+    (VGG13, CIFAR10), (VGG13, TinyImageNet),
+    (VGG16, CIFAR10), (VGG16, TinyImageNet),
+    (VGG19, CIFAR10), (VGG19, TinyImageNet),
+    (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
+    (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
+    (DeepSpeech2, LibriSpeech)
+])
+def test_train_model_on_dataset(model_class: Type[DeepLearningModel], dataset_class: Type[CustomDataset]):
+    train_and_sync_model(model_class, dataset_class, target_training_duration_ms=2000.0)
 
-
-def test_train_and_sync_vgg11_on_cifar10():
-    train_and_sync_model(VGG11, CIFAR10)
-
-
-def test_train_and_sync_vgg13_on_cifar10():
-    train_and_sync_model(VGG13, CIFAR10)
-
-
-def test_train_and_sync_vgg16_on_cifar10():
-    train_and_sync_model(VGG16, CIFAR10)
-
-
-def test_train_and_sync_vgg19_on_cifar10():
-    train_and_sync_model(VGG19, CIFAR10)
-
-
-def test_train_and_sync_inception_v3_on_cifar10():
-    train_and_sync_model(InceptionV3, CIFAR10)
-
-
-def test_train_and_sync_bert_on_imdb_truncated():
-    train_and_sync_model(Bert, IMDbLargeMovieReviewTruncated)
-
-
-def test_train_and_sync_gpt2_on_imdb_truncated():
-    train_and_sync_model(GPT2, IMDbLargeMovieReviewTruncated)
-
-
-def test_train_and_sync_deep_speech2_on_libri_speech():
-    train_and_sync_model(DeepSpeech2, LibriSpeech)
+# def test_train_and_sync_resnet18_on_cifar10():
+#     train_and_sync_model(ResNet18, CIFAR10)
+#
+#
+# def test_train_and_sync_vgg11_on_cifar10():
+#     train_and_sync_model(VGG11, CIFAR10)
+#
+#
+# def test_train_and_sync_vgg13_on_cifar10():
+#     train_and_sync_model(VGG13, CIFAR10)
+#
+#
+# def test_train_and_sync_vgg16_on_cifar10():
+#     train_and_sync_model(VGG16, CIFAR10)
+#
+#
+# def test_train_and_sync_vgg19_on_cifar10():
+#     train_and_sync_model(VGG19, CIFAR10)
+#
+#
+# def test_train_and_sync_inception_v3_on_cifar10():
+#     train_and_sync_model(InceptionV3, CIFAR10)
+#
+#
+# def test_train_and_sync_bert_on_imdb_truncated():
+#     train_and_sync_model(Bert, IMDbLargeMovieReviewTruncated)
+#
+#
+# def test_train_and_sync_gpt2_on_imdb_truncated():
+#     train_and_sync_model(GPT2, IMDbLargeMovieReviewTruncated)
+#
+#
+# def test_train_and_sync_deep_speech2_on_libri_speech():
+#     train_and_sync_model(DeepSpeech2, LibriSpeech)

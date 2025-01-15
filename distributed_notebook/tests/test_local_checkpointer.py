@@ -6,7 +6,8 @@ import pytest
 from torch import Tensor
 
 from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
-    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2
+    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
+    CoLA
 from distributed_notebook.deep_learning.datasets import ComputerVision, NaturalLanguageProcessing, Speech
 from distributed_notebook.deep_learning.datasets.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.datasets.random import RandomCustomDataset
@@ -390,8 +391,7 @@ def perform_training_for_model(
         assert checkpointed_model.model is not None
 
         if checkpointed_model.expected_model_class() is not None:
-            assert isinstance(checkpointed_model.model, checkpointed_model.expected_model_class()) or \
-                   issubclass(checkpointed_model.model, checkpointed_model.expected_model_class())
+            assert isinstance(checkpointed_model.model, checkpointed_model.expected_model_class())
 
         # Compare the state of the model loaded from remote storage with the original, local model.
         local_model_state: dict[str, Any] = model.state_dict
@@ -404,37 +404,51 @@ def perform_training_for_model(
         model = checkpointed_model
 
 
-def test_checkpoint_and_train_simple_model_on_cifar10():
-    perform_training_for_model(ResNet18, CIFAR10)
+@pytest.mark.parametrize("model_class,dataset_class", [
+    (ResNet18, CIFAR10), (ResNet18, TinyImageNet),
+    (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
+    (VGG11, CIFAR10), (VGG11, TinyImageNet),
+    (VGG13, CIFAR10), (VGG13, TinyImageNet),
+    (VGG16, CIFAR10), (VGG16, TinyImageNet),
+    (VGG19, CIFAR10), (VGG19, TinyImageNet),
+    (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
+    (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
+    (DeepSpeech2, LibriSpeech)
+])
+def test_perform_training_for_model(model_class: Type[DeepLearningModel], dataset_class: Type[CustomDataset]):
+    perform_training_for_model(model_class, dataset_class, target_training_duration_ms=2000.0)
 
-
-def test_checkpoint_and_train_vgg11_on_cifar10():
-    perform_training_for_model(VGG11, CIFAR10)
-
-
-def test_checkpoint_and_train_vgg13_on_cifar10():
-    perform_training_for_model(VGG13, CIFAR10)
-
-
-def test_checkpoint_and_train_vgg16_on_cifar10():
-    perform_training_for_model(VGG16, CIFAR10)
-
-
-def test_checkpoint_and_train_vgg19_on_cifar10():
-    perform_training_for_model(VGG19, CIFAR10)
-
-
-def test_checkpoint_and_train_inception_v3_on_cifar10():
-    perform_training_for_model(InceptionV3, CIFAR10)
-
-
-def test_checkpoint_and_train_bert_on_imdb_truncated():
-    perform_training_for_model(Bert, IMDbLargeMovieReviewTruncated)
-
-
-def test_checkpoint_and_train_gpt2_on_imdb_truncated():
-    perform_training_for_model(GPT2, IMDbLargeMovieReviewTruncated)
-
-
-def test_checkpoint_and_train_deep_speech2_on_libri_speech():
-    perform_training_for_model(DeepSpeech2, LibriSpeech)
+# def test_checkpoint_and_train_simple_model_on_cifar10():
+#     perform_training_for_model(ResNet18, CIFAR10)
+#
+#
+# def test_checkpoint_and_train_vgg11_on_cifar10():
+#     perform_training_for_model(VGG11, CIFAR10)
+#
+#
+# def test_checkpoint_and_train_vgg13_on_cifar10():
+#     perform_training_for_model(VGG13, CIFAR10)
+#
+#
+# def test_checkpoint_and_train_vgg16_on_cifar10():
+#     perform_training_for_model(VGG16, CIFAR10)
+#
+#
+# def test_checkpoint_and_train_vgg19_on_cifar10():
+#     perform_training_for_model(VGG19, CIFAR10)
+#
+#
+# def test_checkpoint_and_train_inception_v3_on_cifar10():
+#     perform_training_for_model(InceptionV3, CIFAR10)
+#
+#
+# def test_checkpoint_and_train_bert_on_imdb_truncated():
+#     perform_training_for_model(Bert, IMDbLargeMovieReviewTruncated)
+#
+#
+# def test_checkpoint_and_train_gpt2_on_imdb_truncated():
+#     perform_training_for_model(GPT2, IMDbLargeMovieReviewTruncated)
+#
+#
+# def test_checkpoint_and_train_deep_speech2_on_libri_speech():
+#     perform_training_for_model(DeepSpeech2, LibriSpeech)
