@@ -41,8 +41,8 @@ def test_read_after_write():
 
     # The size will now be three -- as we wrote the model state, the state of the model's optimizer, and
     # the state of the model's criterion.
-    assert checkpointer.size == 3
-    assert len(checkpointer) == 3
+    assert checkpointer.size == 4
+    assert len(checkpointer) == 4
 
     model_state, optimizer_state, criterion_state, constructor_args_state = checkpointer.read_state_dicts(model_pointer)
 
