@@ -401,7 +401,7 @@ def test_sync_and_change_deep_learning_model():
         initial_bias=initial_bias
     )
 
-    weight: Parameter = model.model.fc.weight
+    weight: Parameter = model.model.fc.weight.detach().cpu().clone()
     for weight_vector in weight.data:
         for w in weight_vector:
             assert w == initial_weights
@@ -430,7 +430,7 @@ def test_sync_and_change_deep_learning_model():
     assert isinstance(synchronizer.global_ns["model"], SimpleModel)
     assert isinstance(user_module.model, SimpleModel)
 
-    weight: Parameter = user_ns["model"].model.fc.weight
+    weight: Parameter = user_ns["model"].model.fc.weight.detach().cpu().clone()
     for weight_vector in weight.data:
         for w in weight_vector:
             assert w == initial_weights
@@ -438,7 +438,7 @@ def test_sync_and_change_deep_learning_model():
     for b in user_ns["model"].model.fc.bias.data:
         assert b == initial_bias
 
-    weight: Parameter = synchronizer.global_ns["model"].model.fc.weight
+    weight: Parameter = synchronizer.global_ns["model"].model.fc.weight.detach().cpu().clone()
     for weight_vector in weight.data:
         for w in weight_vector:
             assert w == initial_weights
@@ -446,7 +446,7 @@ def test_sync_and_change_deep_learning_model():
     for b in synchronizer.global_ns["model"].model.fc.bias.data:
         assert b == initial_bias
 
-    weight: Parameter = user_module.model.model.fc.weight
+    weight: Parameter = user_module.model.model.fc.weight.detach().cpu().clone()
     for weight_vector in weight.data:
         for w in weight_vector:
             assert w == initial_weights
@@ -465,7 +465,7 @@ def test_sync_and_change_deep_learning_model():
         model.set_weights(updated_weights)
         model.set_bias(updated_bias)
 
-        weight: Parameter = model.model.fc.weight
+        weight: Parameter = model.model.fc.weight.detach().cpu().clone()
         for weight_vector in weight.data:
             for w in weight_vector:
                 assert w == updated_weights
@@ -494,7 +494,7 @@ def test_sync_and_change_deep_learning_model():
         assert isinstance(synchronizer.global_ns["model"], SimpleModel)
         assert isinstance(user_module.model, SimpleModel)
 
-        weight: Parameter = user_ns["model"].model.fc.weight
+        weight: Parameter = user_ns["model"].model.fc.weight.detach().cpu().clone()
         for weight_vector in weight.data:
             for w in weight_vector:
                 assert w == updated_weights
@@ -502,7 +502,7 @@ def test_sync_and_change_deep_learning_model():
         for b in user_ns["model"].model.fc.bias.data:
             assert b == updated_bias
 
-        weight: Parameter = synchronizer.global_ns["model"].model.fc.weight
+        weight: Parameter = synchronizer.global_ns["model"].model.fc.weight.detach().cpu().clone()
         for weight_vector in weight.data:
             for w in weight_vector:
                 assert w == updated_weights
@@ -510,7 +510,7 @@ def test_sync_and_change_deep_learning_model():
         for b in synchronizer.global_ns["model"].model.fc.bias.data:
             assert b == updated_bias
 
-        weight: Parameter = user_module.model.model.fc.weight
+        weight: Parameter = user_module.model.model.fc.weight.detach().cpu().clone()
         for weight_vector in weight.data:
             for w in weight_vector:
                 assert w == updated_weights
@@ -585,7 +585,7 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
     assert isinstance(synchronizer.global_ns["model"], SimpleModel)
     assert isinstance(user_module.model, SimpleModel)
 
-    weight: Parameter = user_ns["model"].model.fc.weight
+    weight: Parameter = user_ns["model"].model.fc.weight.detach().cpu().clone()
     for weight_vector in weight.data:
         for w in weight_vector:
             assert w == initial_weights
@@ -593,7 +593,7 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
     for b in user_ns["model"].model.fc.bias.data:
         assert b == initial_bias
 
-    weight: Parameter = synchronizer.global_ns["model"].model.fc.weight
+    weight: Parameter = synchronizer.global_ns["model"].model.fc.weight.detach().cpu().clone()
     for weight_vector in weight.data:
         for w in weight_vector:
             assert w == initial_weights
@@ -601,7 +601,7 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
     for b in synchronizer.global_ns["model"].model.fc.bias.data:
         assert b == initial_bias
 
-    weight: Parameter = user_module.model.model.fc.weight
+    weight: Parameter = user_module.model.model.fc.weight.detach().cpu().clone()
     for weight_vector in weight.data:
         for w in weight_vector:
             assert w == initial_weights
@@ -625,7 +625,7 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
             initial_bias=updated_bias
         )
 
-        weight: Parameter = model.model.fc.weight
+        weight: Parameter = model.model.fc.weight.detach().cpu().clone()
         for weight_vector in weight.data:
             for w in weight_vector:
                 assert w == updated_weights
@@ -654,7 +654,7 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
         assert isinstance(synchronizer.global_ns["model"], SimpleModel)
         assert isinstance(user_module.model, SimpleModel)
 
-        weight: Parameter = user_ns["model"].model.fc.weight
+        weight: Parameter = user_ns["model"].model.fc.weight.detach().cpu().clone()
         for weight_vector in weight.data:
             for w in weight_vector:
                 assert w == updated_weights
@@ -662,7 +662,7 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
         for b in user_ns["model"].model.fc.bias.data:
             assert b == updated_bias
 
-        weight: Parameter = synchronizer.global_ns["model"].model.fc.weight
+        weight: Parameter = synchronizer.global_ns["model"].model.fc.weight.detach().cpu().clone()
         for weight_vector in weight.data:
             for w in weight_vector:
                 assert w == updated_weights
@@ -670,7 +670,7 @@ def test_sync_and_change_deep_learning_model_new_model_obj():
         for b in synchronizer.global_ns["model"].model.fc.bias.data:
             assert b == updated_bias
 
-        weight: Parameter = user_module.model.model.fc.weight
+        weight: Parameter = user_module.model.model.fc.weight.detach().cpu().clone()
         for weight_vector in weight.data:
             for w in weight_vector:
                 assert w == updated_weights
@@ -708,7 +708,7 @@ def train_and_sync_model(
 
     # Create the model.
     # model: DeepLearningModel = model_class(created_for_first_time=True)
-    # initial_weights: Tensor = model.output_layer.weight.clone()
+    # initial_weights: Tensor = model.output_layer.weight.detach().cpu().clone()
 
     # Create the dataset.
     # if dataset_class.category() == ComputerVision:
@@ -724,7 +724,7 @@ def train_and_sync_model(
     model, dataset = get_model_and_dataset(model_class.model_name(), dataset_class.dataset_name())
     assert isinstance(model, model_class)
     assert isinstance(dataset, dataset_class)
-    initial_weights: Tensor = model.output_layer.weight.clone()
+    initial_weights: Tensor = model.output_layer.weight.detach().cpu().clone()
 
     synchronize_variable(
         io_loop=io_loop,
@@ -747,13 +747,13 @@ def train_and_sync_model(
     assert isinstance(synchronizer.global_ns["model"], model_class)
     assert isinstance(user_module.model, model_class)
 
-    weight: Parameter = user_ns["model"].output_layer.weight
+    weight: Parameter = user_ns["model"].output_layer.weight.detach().cpu().clone()
     assert weight.equal(initial_weights)
 
-    weight: Parameter = synchronizer.global_ns["model"].output_layer.weight
+    weight: Parameter = synchronizer.global_ns["model"].output_layer.weight.detach().cpu().clone()
     assert weight.equal(initial_weights)
 
-    weight: Parameter = user_module.model.output_layer.weight
+    weight: Parameter = user_module.model.output_layer.weight.detach().cpu().clone()
     assert weight.equal(initial_weights)
 
     previous_weights: Tensor = initial_weights.clone()
@@ -762,7 +762,7 @@ def train_and_sync_model(
         model.train(dataset.train_loader, target_training_duration_ms)
 
         # Establish that the model's weights have changed.
-        updated_weights = model.output_layer.weight.clone()
+        updated_weights = model.output_layer.weight.detach().cpu().clone()
         assert not previous_weights.equal(updated_weights)
         previous_weights = updated_weights.clone()
 
@@ -787,13 +787,13 @@ def train_and_sync_model(
         assert isinstance(synchronizer.global_ns["model"], model_class)
         assert isinstance(user_module.model, model_class)
 
-        weight: Parameter = user_ns["model"].output_layer.weight
+        weight: Parameter = user_ns["model"].output_layer.weight.detach().cpu().clone()
         assert weight.equal(updated_weights)
 
-        weight: Parameter = synchronizer.global_ns["model"].output_layer.weight
+        weight: Parameter = synchronizer.global_ns["model"].output_layer.weight.detach().cpu().clone()
         assert weight.equal(updated_weights)
 
-        weight: Parameter = user_module.model.output_layer.weight
+        weight: Parameter = user_module.model.output_layer.weight.detach().cpu().clone()
         assert weight.equal(updated_weights)
 
 

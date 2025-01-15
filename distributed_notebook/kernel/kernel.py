@@ -175,26 +175,30 @@ model = __download_func__(__model_pointer__, existing_model = {existing_model_co
 print("Downloaded the latest model parameters from remote storage for model of type '{model_name}'.", flush = True)
 """
 
-def get_create_model_and_dataset_code(deep_learning_model: str, dataset: str) -> str:
+
+def get_create_model_and_dataset_code(deep_learning_model: str, dataset: str, batch_size: Optional[int] = None) -> str:
     return f"""# Create both the model and the dataset.
 print(f"Creating model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
 from distributed_notebook.deep_learning import get_model_and_dataset
-_model, _dataset = get_model_and_dataset(deep_learning_model_name = "{deep_learning_model}", dataset_name = "{dataset}")
+_model, _dataset = get_model_and_dataset(deep_learning_model_name = "{deep_learning_model}", dataset_name = "{dataset}", batch_size = {batch_size})
 model = _model
 dataset = _dataset
 print(f"Created model ('{deep_learning_model}') and dataset ('{dataset}') for the first time.", flush = True)
 """
 
-def get_create_dataset_only_code(existing_model_name: str, dataset: str) -> str:
+
+def get_create_dataset_only_code(existing_model_name: str, dataset: str, batch_size: Optional[int] = None) -> str:
     return f"""# Create just the dataset.
 print(f"Creating dataset ('{dataset}') for the first time.", flush = True)
 from distributed_notebook.deep_learning import get_model_and_dataset
-_, _dataset = get_model_and_dataset(deep_learning_model_name = "{existing_model_name}", dataset_name = "{dataset}")
+_, _dataset = get_model_and_dataset(deep_learning_model_name = "{existing_model_name}", dataset_name = "{dataset}", batch_size = {batch_size})
 dataset = _dataset
 print(f"Created dataset ('{dataset}') for the first time.", flush = True)
 """
 
-def get_skipped_creation_code(existing_model_name: str, existing_dataset_name: str) -> str:
+
+def get_skipped_creation_code(existing_model_name: str, existing_dataset_name: str,
+                              batch_size: Optional[int] = None) -> str:
     return """# existing model is '%s', existing dataset is '%s'
 print(f"Model ('{model.name}') and dataset ('{dataset.name}') already exist.", flush = True)
 """ % (existing_model_name, existing_dataset_name)
@@ -1913,7 +1917,8 @@ class DistributedKernel(IPythonKernel):
             return
 
         if model.requires_checkpointing:
-            self.log.debug(f"Found model '{model.name}' in user namespace; however, model doesn't require checkpointing.")
+            self.log.debug(
+                f"Found model '{model.name}' in user namespace; however, model doesn't require checkpointing.")
             return
 
         model_pointer: ModelPointer = ModelPointer(
@@ -2005,6 +2010,7 @@ class DistributedKernel(IPythonKernel):
 
         target_model: Optional[str] = metadata.get("model", None)
         target_dataset: Optional[str] = metadata.get("dataset", None)
+        batch_size: Optional[int] = metadata.get("batch_size", None)
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -2026,6 +2032,7 @@ class DistributedKernel(IPythonKernel):
             gpu_device_ids=gpu_device_ids,
             deep_learning_model_name=target_model,
             dataset=target_dataset,
+            batch_size=batch_size,
         )
 
         if inspect.isawaitable(reply_content):
@@ -2726,6 +2733,7 @@ class DistributedKernel(IPythonKernel):
             gpu_device_ids: list[int] = None,
             deep_learning_model: Optional[str] = None,
             dataset_name: Optional[str] = None,
+            batch_size: Optional[int] = None,
     ) -> str:
         """
         Generate the Python code that will be executed by this Jupyter kernel.
@@ -2736,6 +2744,7 @@ class DistributedKernel(IPythonKernel):
         :param gpu_device_ids: the GPU device IDs assigned to this kernel.
         :param deep_learning_model: the name of the deep learning model to be used during the training.
         :param dataset_name: the name of the dataset to be used during the training.
+        :param batch_size: the batch size for the training job. only used when the variables are first created.
 
         :return: the generated Python code to be executed by this Jupyter kernel.
         """
@@ -2761,7 +2770,7 @@ class DistributedKernel(IPythonKernel):
                 self.log.debug(f'No "model" variable in user namespace. '
                                f'Will create new "{deep_learning_model}" model variable and '
                                f'new "{dataset_name}" dataset variable.')
-                creation_code = get_create_model_and_dataset_code(deep_learning_model, dataset_name)
+                creation_code = get_create_model_and_dataset_code(deep_learning_model, dataset_name, batch_size)
                 self._get_creation_code_called += 1
 
             # Case 2: there IS an existing model variable, but it's not of the correct type.
@@ -2774,7 +2783,7 @@ class DistributedKernel(IPythonKernel):
                     f"variable for '{deep_learning_model}' model of type '{ModelClassesByName[deep_learning_model].__name__}'."
                 )
                 existing_model = None
-                creation_code = get_create_model_and_dataset_code(deep_learning_model, dataset_name)
+                creation_code = get_create_model_and_dataset_code(deep_learning_model, dataset_name, batch_size)
                 self._get_creation_code_called += 1
 
             # Case 3: there is already an existing "model" variable of the correct type in the user namespace.
@@ -2794,7 +2803,7 @@ class DistributedKernel(IPythonKernel):
                 if dataset is None or not isinstance(dataset, DatasetClassesByName[dataset_name]):
                     self.log.debug("Dataset variable either does not exist or is for the wrong type of dataset.")
                     self.log.debug(f'Will create new "dataset" variable for "{dataset_name}" dataset.')
-                    creation_code = get_create_dataset_only_code(deep_learning_model, dataset_name)
+                    creation_code = get_create_dataset_only_code(deep_learning_model, dataset_name, batch_size)
                 else:
                     # Case 3b: the dataset variable also already existed, so we'll not create any new variables.
                     creation_code = get_skipped_creation_code(deep_learning_model, dataset_name)
@@ -2871,6 +2880,7 @@ class DistributedKernel(IPythonKernel):
             gpu_device_ids: list[int] = None,
             deep_learning_model_name: Optional[str] = None,
             dataset: Optional[str] = None,
+            batch_size: Optional[int] = None,
             *,
             cell_meta=None,
             cell_id=None,
@@ -2882,6 +2892,7 @@ class DistributedKernel(IPythonKernel):
         Args:
             :param dataset: the dataset to be used for deep learning training
             :param deep_learning_model_name: the model to be used for deep learning training
+            :param batch_size: batch size to pass to dataset constructor
             :param gpu_device_ids: the gpu device IDs that we've been assigned/allocated
             :param remote_storage_name: the name of the remote storage that we should use for (simulated) checkpointing
             :param cell_meta:
@@ -2996,6 +3007,7 @@ class DistributedKernel(IPythonKernel):
                 gpu_device_ids=gpu_device_ids,
                 deep_learning_model_name=deep_learning_model_name,
                 dataset=dataset,
+                batch_size=batch_size,
             )
 
             # Re-enable stdout and stderr forwarding.
@@ -3043,6 +3055,7 @@ class DistributedKernel(IPythonKernel):
             gpu_device_ids: list[int] = None,
             deep_learning_model_name: Optional[str] = None,
             dataset: Optional[str] = None,
+            batch_size: Optional[int] = None,
     ) -> tuple[Dict[str, Any], bool, str]:
         """
         Execute the user-submitted code.
@@ -3067,6 +3080,7 @@ class DistributedKernel(IPythonKernel):
                 gpu_device_ids=gpu_device_ids,
                 deep_learning_model=deep_learning_model_name,
                 dataset_name=dataset,
+                batch_size=batch_size,
             )
             performed_gpu_training = True
         elif "training_duration_millis = " in code:
@@ -3080,6 +3094,7 @@ class DistributedKernel(IPythonKernel):
                 gpu_device_ids=gpu_device_ids,
                 deep_learning_model=deep_learning_model_name,
                 dataset_name=dataset,
+                batch_size=batch_size,
             )
             performed_gpu_training = True
         else:
