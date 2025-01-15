@@ -46,6 +46,7 @@ ModelNameToCompatibleDatasetClasses: Dict[str, List[Type]] = {
 def get_model_and_dataset(
         deep_learning_model_name: Optional[str] = None,
         dataset_name: Optional[str] = None,
+        batch_size: Optional[int] = None,
         dataset_kwargs: Dict[str, Any] = None,
 ) -> Tuple[DeepLearningModel, CustomDataset]:
     """
@@ -54,7 +55,9 @@ def get_model_and_dataset(
     If deep_learning_model_name is a valid model name, then assign the specified model.
     Otherwise, assign the default model (ResNet-18).
 
-    :param dataset_name: name of dataset to assign
+    :param dataset_kwargs: arguments to pass to the dataset constructor.
+    :param batch_size: batch size to pass to the dataset constructor.
+    :param dataset_name: name of dataset to assign.
     :param deep_learning_model_name: name of model to assign.
     """
     model_arguments: Dict[str, Any] = {}
@@ -92,6 +95,9 @@ def get_model_and_dataset(
     elif category == NaturalLanguageProcessing:
         assert issubclass(model_class, Bert) or issubclass(model_class, GPT2)
         dataset_arguments["model_name"] = model_class.model_name()
+
+    if batch_size is not None:
+        dataset_arguments["batch_size"] = batch_size
 
     if dataset_kwargs is not None:
         dataset_arguments.update(dataset_kwargs)

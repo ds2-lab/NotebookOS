@@ -12,7 +12,7 @@ output_layer = model.output_layer
 
 # Extract weights and biases
 prev_weights = output_layer.weight.detach().cpu()
-for _ in range(0, 5):
+for _ in range(0, 3):
     print(f"Initial weights: {prev_weights}")
     model.train(dataset.train_loader, training_duration_ms)
 

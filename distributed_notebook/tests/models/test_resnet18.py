@@ -1,3 +1,6 @@
+import pytest
+import torch
+
 from distributed_notebook.deep_learning import CIFAR10, ResNet18, TinyImageNet
 
 
@@ -22,7 +25,7 @@ def test_train_resnet18_on_cifar10():
         updated_weights = output_layer.weight.detach().cpu()
         print(f"Updated weights: {updated_weights}")
 
-        assert prev_weights.equal(updated_weights) == False
+        assert not prev_weights.equal(updated_weights)
         prev_weights = updated_weights
 
 
@@ -48,4 +51,34 @@ def test_train_resnet18_on_tiny_imagenet():
         print(f"Updated weights: {updated_weights}")
 
         assert prev_weights.equal(updated_weights) == False
+        prev_weights = updated_weights
+
+
+@pytest.mark.skipif(torch.cuda.device_count() <= 1, reason="requires >= 2 torch.cuda.devices (i.e., 2+ GPUs)")
+def test_train_resnet18_on_cifar10_multi_gpu():
+    """
+    Train the ResNet-18 model on the CIFAR-10 dataset. Validate that the weights are updated correctly.
+
+    This version uses multiple GPUs.
+    """
+    dataset: CIFAR10 = CIFAR10(image_size=ResNet18.expected_image_size())
+    model: ResNet18 = ResNet18(created_for_first_time=True, gpu_device_ids=[0])
+
+    training_duration_ms: int = 2500
+
+    model.set_gpu_device_ids([0, 1])
+
+    # Access the classification head (last layer)
+    output_layer = model.output_layer
+
+    # Extract weights and biases
+    prev_weights = output_layer.weight.detach().cpu()
+    for _ in range(0, 5):
+        print(f"Initial weights: {prev_weights}")
+        model.train(dataset.train_loader, training_duration_ms)
+
+        updated_weights = output_layer.weight.detach().cpu()
+        print(f"Updated weights: {updated_weights}")
+
+        assert not prev_weights.equal(updated_weights)
         prev_weights = updated_weights

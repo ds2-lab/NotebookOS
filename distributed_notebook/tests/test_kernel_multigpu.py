@@ -366,6 +366,7 @@ async def perform_training(
         gpu_allocation_mode: str = "moving-window",
         gpu_allocation_window_size: int = 1,
         gpu_ids: Optional[List[int]] = None,
+        batch_size: Optional[int] = None,
 ):
     """
     Helper/utility function to carry out a unit test in which a kernel proposes and leads the execution of
@@ -373,6 +374,7 @@ async def perform_training(
 
     :param model_class: the specified model
     :param dataset_class: the specified dataset
+    :param batch_size: batch size argument to pass to the dataset constructor
     :param num_training_loops: how many times to execute
     :param target_training_duration_ms: how long each execution should aim to last
     :param gpu_allocation_mode: determines how GPUs are allocated. Options include "fixed", "moving-window", or "all".
@@ -424,6 +426,9 @@ async def perform_training(
         assert metadata is not None
         metadata["model"] = model_class.model_name()
         metadata["dataset"] = dataset_class.dataset_name()
+
+        if batch_size is not None:
+            metadata["batch_size"] = batch_size
 
         if gpu_allocation_mode.lower().strip() == "fixed":
             # Allocate a fixed, specified set of GPUs.
@@ -727,10 +732,11 @@ async def test_train_model_on_dataset(
     await perform_training(
         model_class,
         dataset_class,
-        target_training_duration_ms=2000.0,
+        target_training_duration_ms=3000.0,
         gpu_allocation_mode=gpu_allocation_mode,
         gpu_allocation_window_size=gpu_allocation_window_size,
         num_training_loops=num_training_loops,
+        batch_size=16,
     )
 
 
@@ -769,10 +775,11 @@ async def test_train_model_on_dataset_moving_window_2(
     await perform_training(
         model_class,
         dataset_class,
-        target_training_duration_ms=2000.0,
+        target_training_duration_ms=3000.0,
         gpu_allocation_mode=gpu_allocation_mode,
         gpu_allocation_window_size=gpu_allocation_window_size,
         num_training_loops=num_training_loops,
+        batch_size=16,
     )
 
 
@@ -811,8 +818,9 @@ async def test_train_model_on_dataset_moving_window_3(
     await perform_training(
         model_class,
         dataset_class,
-        target_training_duration_ms=2000.0,
+        target_training_duration_ms=3000.0,
         gpu_allocation_mode=gpu_allocation_mode,
         gpu_allocation_window_size=gpu_allocation_window_size,
         num_training_loops=num_training_loops,
+        batch_size=16,
     )

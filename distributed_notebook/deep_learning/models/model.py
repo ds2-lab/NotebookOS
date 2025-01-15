@@ -2,7 +2,7 @@ import gc
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, Type, List
+from typing import Optional, Dict, Any, Type, List, Collection
 
 import torch
 import torch.nn as nn
@@ -417,7 +417,7 @@ class DeepLearningModel(ABC):
 
                 self.log.debug(f"Processed {len(samples)} samples in "
                                f"{round((forward_pass_end - forward_pass_start) * 1.0e3, 9):,} ms. "
-                               f"Total time elapsed: {round((time.time() - start_time) * 1.0e3, 9):,} ms.")
+                               f"Time elapsed: {round((time.time() - start_time) * 1.0e3, 3):,} / {round(target_training_duration_millis, 3)} ms.")
                 self.log.debug(f"\tComputed loss in {round((loss_et - loss_st) * 1.0e3, 3):,} ms.")
 
                 if self.gpu_available:
@@ -599,7 +599,7 @@ class DeepLearningModel(ABC):
 
         return total_time_elapsed
 
-    def set_gpu_device_ids(self, device_ids: list[int] = None):
+    def set_gpu_device_ids(self, device_ids: Collection[int] = None):
         """
         Change the GPU device IDs used by the model.
 
@@ -632,9 +632,6 @@ class DeepLearningModel(ABC):
         else:
             self.log.debug(f"{colors.LIGHT_CYAN}Wrapping model in DataParallel.{colors.END} "
                            f"GPU device IDs: {colors.LIGHT_PURPLE}{device_ids}.{colors.END}")
-
-            # torch.cuda.set_device(device_ids[0])
-            # self.gpu_device = torch.device("cuda")
 
             self.gpu_device = torch.device(f"cuda:{device_ids[0]}")
             self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
