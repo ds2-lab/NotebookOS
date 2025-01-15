@@ -1,14 +1,14 @@
 from .custom_dataset import CustomDataset
 from .speech import LibriSpeech
 from .nlp import CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated
-from .cv import CIFAR10, TinyImageNet
+from .cv import CIFAR10, CIFAR100, TinyImageNet
 
 from distributed_notebook.deep_learning.configuration import ComputerVision, Speech, NaturalLanguageProcessing
 
 from typing import Type, List, Dict, Optional
 
 ALL_DATASET_CLASSES: List[Type[CustomDataset]] = [
-    CIFAR10, TinyImageNet,
+    CIFAR10, CIFAR100, TinyImageNet,
     CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated,
     LibriSpeech,
 ]
@@ -21,7 +21,7 @@ DatasetCategories: List[str] = [
 
 DatasetClassesByCategory: Dict[str, List[Type[CustomDataset]]] = {
     ComputerVision: [
-        CIFAR10, TinyImageNet
+        CIFAR10, CIFAR100, TinyImageNet
     ],
     NaturalLanguageProcessing: [
         CoLA, IMDbLargeMovieReview, IMDbLargeMovieReviewTruncated
@@ -33,7 +33,7 @@ DatasetClassesByCategory: Dict[str, List[Type[CustomDataset]]] = {
 
 DatasetNamesByCategory: Dict[str, List[str]] = {
     ComputerVision: [
-        CIFAR10.dataset_name(), TinyImageNet.dataset_name()
+        CIFAR10.dataset_name(), CIFAR100.dataset_name(), TinyImageNet.dataset_name()
     ],
     NaturalLanguageProcessing: [
         CoLA.dataset_name(), IMDbLargeMovieReview.dataset_name(), IMDbLargeMovieReviewTruncated.dataset_name()
@@ -45,6 +45,7 @@ DatasetNamesByCategory: Dict[str, List[str]] = {
 
 DatasetClassesByName: Dict[str, Type[CustomDataset]] = {
     CIFAR10.dataset_name(): CIFAR10,
+    CIFAR100.dataset_name(): CIFAR100,
     TinyImageNet.dataset_name(): TinyImageNet,
     CoLA.dataset_name(): CoLA,
     IMDbLargeMovieReview.dataset_name(): IMDbLargeMovieReview,
@@ -54,6 +55,7 @@ DatasetClassesByName: Dict[str, Type[CustomDataset]] = {
 
 DatasetNameToModelCategory: Dict[str, Type[CustomDataset]] = {
     CIFAR10.dataset_name(): ComputerVision,
+    CIFAR100.dataset_name(): ComputerVision,
     TinyImageNet.dataset_name(): ComputerVision,
     CoLA.dataset_name(): NaturalLanguageProcessing,
     IMDbLargeMovieReview.dataset_name(): NaturalLanguageProcessing,
