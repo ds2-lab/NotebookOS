@@ -64,6 +64,9 @@ func createKernelReplica(mockController *gomock.Controller, kernelId string, ker
 	kernelReplica.EXPECT().ID().Return(kernelId).AnyTimes()
 	kernelReplica.EXPECT().WaitForPendingExecuteRequests().AnyTimes()
 	kernelReplica.EXPECT().WorkloadId().AnyTimes().Return(workloadId)
+	kernelReplica.EXPECT().String().AnyTimes().DoAndReturn(func() string {
+		return fmt.Sprintf("replica(%s:%d)", kernelId, replicaId)
+	})
 
 	return kernelReplica
 }
