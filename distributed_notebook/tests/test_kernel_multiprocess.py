@@ -1,6 +1,10 @@
 import asyncio
 import logging
-import multiprocessing
+from torch.multiprocessing import Process, set_start_method
+try:
+    set_start_method('spawn')
+except RuntimeError:
+    pass
 import os
 import sys
 import uuid
@@ -50,6 +54,21 @@ FullFakePersistentStorePath: str = f"./store/{FakePersistentStorePath}"
 
 CommittedValues: list[SynchronizedValue] = []
 
+
+def perform_training_process(
+        process_identifier: int,
+        model_class: Type,
+        dataset_class: Type,
+        num_training_loops: int = 3,
+        target_training_duration_ms: float = 1000.0,
+):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(perform_training(process_identifier, model_class, dataset_class, num_training_loops, target_training_duration_ms))
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
 
 async def perform_training(
         process_identifier: int,
@@ -159,22 +178,15 @@ def test_train_resnet_cifar10():
     Create two processes, each of which houses a DistributedKernel that will train ResNet18 on CIFAR-10.
     """
 
-    p1_args = (0, ResNet18, CIFAR10)
-    kwargs = {
-        "num_training_loops": 3,
-        "target_training_duration_ms": 10000,
-    }
-    p1: multiprocessing.Process = multiprocessing.Process(target=perform_training, args=p1_args, kwargs=kwargs)
-
-    p2_args = (1, ResNet18, CIFAR10)
-    kwargs = {
-        "num_training_loops": 3,
-        "target_training_duration_ms": 10000,
-    }
-    p2: multiprocessing.Process = multiprocessing.Process(target=perform_training, args=p2_args, kwargs=kwargs)
+    p1: Process = Process(target=perform_training_process, args=(0, ResNet18, CIFAR10, 3, 10000,))
+    p2: Process = Process(target=perform_training_process, args=(1, ResNet18, CIFAR10, 3, 10000,))
 
     p1.start()
+    print("Started process p1", flush = True)
     p2.start()
+    print("Started process p2", flush = True)
 
     p1.join()
+    print("Joined process p1", flush = True)
     p2.join()
+    print("Joined process p2", flush = True)
