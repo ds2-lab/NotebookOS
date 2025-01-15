@@ -46,7 +46,8 @@ dependencies = [
     "datasets",
     "portalocker>=2.0.0",
     "pytest",
-    "pytest-asyncio"
+    "pytest-asyncio",
+    "torchaudio"
 ]
 
 readme = "README.md"
