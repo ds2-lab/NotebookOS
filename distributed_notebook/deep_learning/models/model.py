@@ -107,6 +107,9 @@ class DeepLearningModel(ABC):
         if len(device_ids) == 0:
             raise ValueError("device IDs list is empty")
 
+        if not isinstance(device_ids, list):
+            device_ids = list(device_ids)
+
         st: float = time.time()
 
         # Unwrap from DataParallel (if in DataParallel).
@@ -124,7 +127,7 @@ class DeepLearningModel(ABC):
 
             self.model = self.model.to(self.gpu_device)
         else:
-            self.log.debug(f"Wrapping model from DataParallel. GPU device IDs: {device_ids}.")
+            self.log.debug(f"Wrapping model in DataParallel. GPU device IDs: {device_ids}.")
             self.model = torch.nn.DataParallel(self.model, device_ids=device_ids)
 
             self.gpu_device = torch.device(f"cuda:{device_ids[0]}")
@@ -336,10 +339,11 @@ class DeepLearningModel(ABC):
         training_time_millis: float = time_spent_training_sec * 1.0e3
         self.log.debug(f"Training completed. Number of epochs: {num_epochs}. "
                        f"Time elapsed: {training_time_millis:,} ms. "
-                       f"Processed {num_minibatches_processed} mini-batches ({num_samples_processed} individual samples).")
+                       f"Processed {num_minibatches_processed} mini-batches "
+                       f"({num_samples_processed} individual samples).")
 
         if self.gpu_available:
-            self.log.debug("Copying model from GPU to CPU.")
+            self.log.debug(f"Copying model from GPU device {self.gpu_device} to CPU.")
             copy_start: float = time.time()
             self.to_cpu()
 
@@ -349,7 +353,7 @@ class DeepLearningModel(ABC):
             torch.cuda.synchronize()
             copy_end: float = time.time()
             copy_gpu2cpu_millis = (copy_end - copy_start) * 1.0e3
-            self.log.debug(f"Copied model from GPU to CPU in {copy_gpu2cpu_millis} ms.")
+            self.log.debug(f"Copied model from GPU device {self.gpu_device} to CPU in {copy_gpu2cpu_millis} ms.")
 
         self._requires_checkpointing = True
 
@@ -388,7 +392,8 @@ class DeepLearningModel(ABC):
         if hasattr(loader, "dataset_name"):
             dataset_name = loader.dataset_name
 
-        self.log.debug(f"Model '{self.name}' has started training on dataset '{dataset_name}'.")
+        self.log.debug(f"Model '{self.name}' has started training on dataset '{dataset_name}' "
+                       f"on the following GPU(s): {self._device_ids}.")
         while ((time.time() - start_time) * 1.0e3) < target_training_duration_millis:
             for elem in loader:
                 if len(elem) == 2:
@@ -547,7 +552,7 @@ class DeepLearningModel(ABC):
             raise ValueError("GPU is unavailable. Cannot move {self.name} model, optimizer, and criterion to the GPU.")
 
         size_mb = self.size_mb
-        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the GPU. "
+        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to GPU device {self.gpu_device}. "
                        f"Model size: {round(size_mb, 6)} MB.")
 
         st: float = time.time()
@@ -568,7 +573,7 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU. "
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU device {self.gpu_device}. "
                        f"Model size: {round(size_mb, 6)} MB.")
         self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied optimizer in {(round(et_optimizer - et_model) * 1.0e3, 9)} ms.")
@@ -580,7 +585,7 @@ class DeepLearningModel(ABC):
 
     def to_cpu(self) -> float:  # Return the total time elapsed in seconds.
         size_mb: float = self.size_mb
-        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the CPU. "
+        self.log.debug(f"Moving {self.name} model, optimizer, and criterion to the CPU device {self.cpu_device}. "
                        f"Model size: {round(size_mb, 6)} MB.")
 
         st: float = time.time()
@@ -601,7 +606,7 @@ class DeepLearningModel(ABC):
         et_criterion: float = time.time()
 
         total_time_elapsed: float = et_criterion - st
-        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU. "
+        self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU device {self.cpu_device}. "
                        f"Model size: {round(size_mb, 6)} MB.")
         self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied optimizer in {(round(et_optimizer - et_model) * 1.0e3, 9)} ms.")
