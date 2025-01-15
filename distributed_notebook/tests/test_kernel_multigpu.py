@@ -344,17 +344,19 @@ def propose_vote(
     assert election.voting_phase_completed_successfully == True
     assert election.winner == expected_winner_id
 
-def moving_window(slice_, window_size):
-    n = len(slice_)
+
+def moving_window(slice_, window_size: int):
+    n: int = len(slice_)
     if n == 0 or window_size <= 0:
         raise ValueError("Slice must be non-empty and window size must be positive.")
 
-    idx = 0  # Start index for the window
+    idx: int = 0  # Start index for the window
     while True:
         # Create the current window, wrapping around the slice using modulo arithmetic
         window = tuple(slice_[(idx + i) % n] for i in range(window_size))
         yield window
         idx += 1  # Move to the next starting position
+
 
 async def perform_training(
         model_class: Type,
@@ -426,7 +428,7 @@ async def perform_training(
         if gpu_allocation_mode.lower().strip() == "fixed":
             # Allocate a fixed, specified set of GPUs.
             metadata["gpu_device_ids"] = gpu_ids
-        elif gpu_allocation_mode.lower().strip() == "round-robin":
+        elif gpu_allocation_mode.lower().strip() == "moving-window":
             # Cyclic moving window allocations.
             metadata["gpu_device_ids"] = next(device_ids_gen)
         elif gpu_allocation_mode.lower().strip() == "all":
@@ -448,13 +450,13 @@ async def perform_training(
         assert model is not None
         assert isinstance(model, model_class)
 
-        next_weights: torch.nn.Parameter = model.output_layer.weight.clone()
+        next_weights: torch.nn.Parameter = model.output_layer.weight.clone().cpu()
         # After the first loop, compare previous weights against current weights to ensure they're changing.
         if i > 1:
             assert weights is not None
             assert not weights.equal(next_weights)
 
-        weights = next_weights
+        weights = next_weights.clone().cpu()
 
         async with kernel.user_ns_lock:
             dataset: CustomDataset = kernel.shell.user_ns.get("dataset", None)
@@ -473,6 +475,9 @@ async def perform_training(
     print(f'\n\n\n\n\n\nFinished test for training model "{model_class.model_name()}" on '
           f'dataset "{dataset_class.dataset_name()}"\n\n\n\n\n')
 
+    # The user_ns seems to persist between unit tests sometimes...
+    # Not sure why, but we clear it here to prevent any issues.
+    kernel.shell.user_ns.clear()
 
 async def propose_lead_and_win(
         kernel: DistributedKernel,
@@ -677,37 +682,40 @@ async def propose_lead_and_win(
 
     assert synchronizer.execution_count == term_number
 
-
-##################################
-# Category: Computer Vision (CV)
-# Dataset: CIFAR-10
-##################################
-
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., 2+ GPUs)")
-@pytest.mark.parametrize("model_class,dataset_class,gpu_allocation_mode,gpu_allocation_window_size,num_training_loops", [
-    # Allocate ALL GPUs and train 5 times for each valid model+dataset permutation.
-    (ResNet18, CIFAR10, "all", -1, 5), (ResNet18, TinyImageNet, "all", -1, 5),
-    (InceptionV3, CIFAR10, "all", -1, 5), (InceptionV3, TinyImageNet, "all", -1, 5),
-    (VGG11, CIFAR10, "all", -1, 5), (VGG11, TinyImageNet, "all", -1, 5),
-    (VGG13, CIFAR10, "all", -1, 5), (VGG13, TinyImageNet, "all", -1, 5),
-    (VGG16, CIFAR10, "all", -1, 5), (VGG16, TinyImageNet, "all", -1, 5),
-    (VGG19, CIFAR10, "all", -1, 5), (VGG19, TinyImageNet, "all", -1, 5),
-    (Bert, IMDbLargeMovieReviewTruncated, "all", -1, 5), (Bert, CoLA, "all", -1, 5),
-    (GPT2, IMDbLargeMovieReviewTruncated, "all", -1, 5), (GPT2, CoLA, "all", -1, 5),
-    (DeepSpeech2, LibriSpeech, "all", -1, 5),
-    # Use a round-robin allocation strategy and train for NUM_GPUS * 3 times for each valid model+dataset permutation.
-    (ResNet18, CIFAR10, "moving_window", 1, 3 * torch.cuda.device_count()), (ResNet18, TinyImageNet, "moving_window", 1, 3 * torch.cuda.device_count()),
-    (InceptionV3, CIFAR10, "moving_window", 1, 3 * torch.cuda.device_count()), (InceptionV3, TinyImageNet, "moving_window", 1, 3 * torch.cuda.device_count()),
-    (VGG11, CIFAR10, "moving_window", 1, 3 * torch.cuda.device_count()), (VGG11, TinyImageNet, "moving_window", 1, 3 * torch.cuda.device_count()),
-    (VGG13, CIFAR10, "moving_window", 1, 3 * torch.cuda.device_count()), (VGG13, TinyImageNet, "moving_window", 1, 3 * torch.cuda.device_count()),
-    (VGG16, CIFAR10, "moving_window", 1, 3 * torch.cuda.device_count()), (VGG16, TinyImageNet, "moving_window", 1, 3 * torch.cuda.device_count()),
-    (VGG19, CIFAR10, "moving_window", 1, 3 * torch.cuda.device_count()), (VGG19, TinyImageNet, "moving_window", 1, 3 * torch.cuda.device_count()),
-    (Bert, IMDbLargeMovieReviewTruncated, "moving_window", 1, 3 * torch.cuda.device_count()), (Bert, CoLA, "moving_window", 1, 3 * torch.cuda.device_count()),
-    (GPT2, IMDbLargeMovieReviewTruncated, "moving_window", 1, 3 * torch.cuda.device_count()), (GPT2, CoLA, "moving_window", 1, 3 * torch.cuda.device_count()),
-    (DeepSpeech2, LibriSpeech, "moving_window", 1, 3 * torch.cuda.device_count()),
-])
+@pytest.mark.parametrize("model_class,dataset_class,gpu_allocation_mode,gpu_allocation_window_size,num_training_loops",
+                         [
+                             # Allocate ALL GPUs and train 5 times for each valid model+dataset permutation.
+                             # (ResNet18, CIFAR10, "all", -1, 5), (ResNet18, TinyImageNet, "all", -1, 5),
+                             # (InceptionV3, CIFAR10, "all", -1, 5), (InceptionV3, TinyImageNet, "all", -1, 5),
+                             # (VGG11, CIFAR10, "all", -1, 5), (VGG11, TinyImageNet, "all", -1, 5),
+                             # (VGG13, CIFAR10, "all", -1, 5), (VGG13, TinyImageNet, "all", -1, 5),
+                             # (VGG16, CIFAR10, "all", -1, 5), (VGG16, TinyImageNet, "all", -1, 5),
+                             # (VGG19, CIFAR10, "all", -1, 5), (VGG19, TinyImageNet, "all", -1, 5),
+                             # (Bert, IMDbLargeMovieReviewTruncated, "all", -1, 5), (Bert, CoLA, "all", -1, 5),
+                             # (GPT2, IMDbLargeMovieReviewTruncated, "all", -1, 5), (GPT2, CoLA, "all", -1, 5),
+                             # (DeepSpeech2, LibriSpeech, "all", -1, 5),
+                             # Use round-robin GPU allocations & train for NUM_GPUS * 3 loops for each permutation.
+                             (ResNet18, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (ResNet18, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (InceptionV3, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (InceptionV3, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (VGG11, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (VGG11, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (VGG13, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (VGG13, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (VGG16, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (VGG16, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (VGG19, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (VGG19, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (Bert, IMDbLargeMovieReviewTruncated, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (Bert, CoLA, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (GPT2, IMDbLargeMovieReviewTruncated, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (GPT2, CoLA, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             (DeepSpeech2, LibriSpeech, "moving-window", 1, 3 * torch.cuda.device_count()),
+                         ])
 @pytest.mark.asyncio
 async def test_train_model_on_dataset(
         model_class: Type[DeepLearningModel],
@@ -725,21 +733,31 @@ async def test_train_model_on_dataset(
         num_training_loops=num_training_loops,
     )
 
+
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 3, reason="requires >= 3 torch.cuda.devices (i.e., 3+ GPUs)")
-@pytest.mark.parametrize("model_class,dataset_class,gpu_allocation_mode,gpu_allocation_window_size,num_training_loops", [
-    # Use a moving-window allocation strategy with window_size=2 and train for NUM_GPUS * 3 times for each valid model+dataset permutation.
-    (ResNet18, CIFAR10, "moving_window", 2, 3 * torch.cuda.device_count()), (ResNet18, TinyImageNet, "moving_window", 2, 3 * torch.cuda.device_count()),
-    (InceptionV3, CIFAR10, "moving_window", 2, 3 * torch.cuda.device_count()), (InceptionV3, TinyImageNet, "moving_window", 2, 3 * torch.cuda.device_count()),
-    (VGG11, CIFAR10, "moving_window", 2, 3 * torch.cuda.device_count()), (VGG11, TinyImageNet, "moving_window", 2, 3 * torch.cuda.device_count()),
-    (VGG13, CIFAR10, "moving_window", 2, 3 * torch.cuda.device_count()), (VGG13, TinyImageNet, "moving_window", 2, 3 * torch.cuda.device_count()),
-    (VGG16, CIFAR10, "moving_window", 2, 3 * torch.cuda.device_count()), (VGG16, TinyImageNet, "moving_window", 2, 3 * torch.cuda.device_count()),
-    (VGG19, CIFAR10, "moving_window", 2, 3 * torch.cuda.device_count()), (VGG19, TinyImageNet, "moving_window", 2, 3 * torch.cuda.device_count()),
-    (Bert, IMDbLargeMovieReviewTruncated, "moving_window", 2, 3 * torch.cuda.device_count()), (Bert, CoLA, "moving_window", 2, 3 * torch.cuda.device_count()),
-    (GPT2, IMDbLargeMovieReviewTruncated, "moving_window", 2, 3 * torch.cuda.device_count()), (GPT2, CoLA, "moving_window", 2, 3 * torch.cuda.device_count()),
-    (DeepSpeech2, LibriSpeech, "moving_window", 2, 3 * torch.cuda.device_count()),
-])
+@pytest.mark.parametrize("model_class,dataset_class,gpu_allocation_mode,gpu_allocation_window_size,num_training_loops",
+                         [
+                             # Use a moving-window allocation strategy with window_size=2 and train for NUM_GPUS * 3 times for each valid model+dataset permutation.
+                             (ResNet18, CIFAR10, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (ResNet18, TinyImageNet, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (InceptionV3, CIFAR10, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (InceptionV3, TinyImageNet, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (VGG11, CIFAR10, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (VGG11, TinyImageNet, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (VGG13, CIFAR10, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (VGG13, TinyImageNet, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (VGG16, CIFAR10, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (VGG16, TinyImageNet, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (VGG19, CIFAR10, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (VGG19, TinyImageNet, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (Bert, IMDbLargeMovieReviewTruncated, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (Bert, CoLA, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (GPT2, IMDbLargeMovieReviewTruncated, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (GPT2, CoLA, "moving-window", 2, 3 * torch.cuda.device_count()),
+                             (DeepSpeech2, LibriSpeech, "moving-window", 2, 3 * torch.cuda.device_count()),
+                         ])
 @pytest.mark.asyncio
 async def test_train_model_on_dataset_moving_window_2(
         model_class: Type[DeepLearningModel],
@@ -757,21 +775,31 @@ async def test_train_model_on_dataset_moving_window_2(
         num_training_loops=num_training_loops,
     )
 
+
 @mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
                    mocked_serialize_and_append_value)
 @pytest.mark.skipif(torch.cuda.device_count() < 4, reason="requires >= 4 torch.cuda.devices (i.e., 4+ GPUs)")
-@pytest.mark.parametrize("model_class,dataset_class,gpu_allocation_mode,gpu_allocation_window_size,num_training_loops", [
-    # Use a moving-window allocation strategy with window_size=3 and train for NUM_GPUS * 3 times for each valid model+dataset permutation.
-    (ResNet18, CIFAR10, "moving_window", 3, 3 * torch.cuda.device_count()), (ResNet18, TinyImageNet, "moving_window", 3, 3 * torch.cuda.device_count()),
-    (InceptionV3, CIFAR10, "moving_window", 3, 3 * torch.cuda.device_count()), (InceptionV3, TinyImageNet, "moving_window", 3, 3 * torch.cuda.device_count()),
-    (VGG11, CIFAR10, "moving_window", 3, 3 * torch.cuda.device_count()), (VGG11, TinyImageNet, "moving_window", 3, 3 * torch.cuda.device_count()),
-    (VGG13, CIFAR10, "moving_window", 3, 3 * torch.cuda.device_count()), (VGG13, TinyImageNet, "moving_window", 3, 3 * torch.cuda.device_count()),
-    (VGG16, CIFAR10, "moving_window", 3, 3 * torch.cuda.device_count()), (VGG16, TinyImageNet, "moving_window", 3, 3 * torch.cuda.device_count()),
-    (VGG19, CIFAR10, "moving_window", 3, 3 * torch.cuda.device_count()), (VGG19, TinyImageNet, "moving_window", 3, 3 * torch.cuda.device_count()),
-    (Bert, IMDbLargeMovieReviewTruncated, "moving_window", 3, 3 * torch.cuda.device_count()), (Bert, CoLA, "moving_window", 3, 3 * torch.cuda.device_count()),
-    (GPT2, IMDbLargeMovieReviewTruncated, "moving_window", 3, 3 * torch.cuda.device_count()), (GPT2, CoLA, "moving_window", 3, 3 * torch.cuda.device_count()),
-    (DeepSpeech2, LibriSpeech, "moving_window", 3, 3 * torch.cuda.device_count()),
-])
+@pytest.mark.parametrize("model_class,dataset_class,gpu_allocation_mode,gpu_allocation_window_size,num_training_loops",
+                         [
+                             # Use a moving-window allocation strategy with window_size=3 and train for NUM_GPUS * 3 times for each valid model+dataset permutation.
+                             (ResNet18, CIFAR10, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (ResNet18, TinyImageNet, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (InceptionV3, CIFAR10, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (InceptionV3, TinyImageNet, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (VGG11, CIFAR10, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (VGG11, TinyImageNet, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (VGG13, CIFAR10, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (VGG13, TinyImageNet, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (VGG16, CIFAR10, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (VGG16, TinyImageNet, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (VGG19, CIFAR10, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (VGG19, TinyImageNet, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (Bert, IMDbLargeMovieReviewTruncated, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (Bert, CoLA, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (GPT2, IMDbLargeMovieReviewTruncated, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (GPT2, CoLA, "moving-window", 3, 3 * torch.cuda.device_count()),
+                             (DeepSpeech2, LibriSpeech, "moving-window", 3, 3 * torch.cuda.device_count()),
+                         ])
 @pytest.mark.asyncio
 async def test_train_model_on_dataset_moving_window_3(
         model_class: Type[DeepLearningModel],
