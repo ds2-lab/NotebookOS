@@ -580,7 +580,7 @@ class DeepLearningModel(ABC):
         self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to GPU device {self.gpu_device}. "
                        f"Model size: {round(size_mb, 6)} MB.")
         self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
-        self.log.debug(f"\t\tCopied optimizer in {(round(et_optimizer - et_model) * 1.0e3, 9)} ms.")
+        self.log.debug(f"\t\tCopied optimizer in {round((et_optimizer - et_model) * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied criterion in {round((et_criterion - et_optimizer) * 1.0e3, 9)} ms.")
 
         self.cpu_to_gpu_times.append(total_time_elapsed)
@@ -613,7 +613,7 @@ class DeepLearningModel(ABC):
         self.log.debug(f"Finished moving {self.name} model, optimizer, and criterion to CPU device {self.cpu_device}. "
                        f"Model size: {round(size_mb, 6)} MB.")
         self.log.debug(f"\tTotal time elapsed: {round(total_time_elapsed * 1.0e3, 9)} ms.")
-        self.log.debug(f"\t\tCopied optimizer in {(round(et_optimizer - et_model) * 1.0e3, 9)} ms.")
+        self.log.debug(f"\t\tCopied optimizer in {round((et_optimizer - et_model) * 1.0e3, 9)} ms.")
         self.log.debug(f"\t\tCopied criterion in {round((et_criterion - et_optimizer) * 1.0e3, 9)} ms.")
 
         self.gpu_to_cpu_times.append(total_time_elapsed)
