@@ -414,8 +414,8 @@ async def perform_training(
 
     weights: Optional[torch.Tensor] = None
     for i in range(1, num_training_loops + 1):
-        print(f'\n\n\nTraining Loop {i}/{num_training_loops} for Model "{model_class.model_name()}" on '
-              f'Dataset "{dataset_class.dataset_name()}"\n\n')
+        print(f'\n\n\n{"\033[0;36m"}Training Loop {i}/{num_training_loops} for Model "{model_class.model_name()}" on '
+              f'Dataset "{dataset_class.dataset_name()}"{"\033[0m"}\n\n')
         execution_request: Dict[str, Any] = create_execution_request(message_id=str(uuid.uuid4()))
         assert execution_request is not None
 
@@ -472,8 +472,8 @@ async def perform_training(
 
     print(torch.cuda.memory_summary(abbreviated=False))
     await asyncio.sleep(0.25)
-    print(f'\n\n\n\n\n\nFinished test for training model "{model_class.model_name()}" on '
-          f'dataset "{dataset_class.dataset_name()}"\n\n\n\n\n')
+    print(f'{"\033[0;32m"}\n\n\n\n\n\nFinished test for training model "{model_class.model_name()}" on '
+          f'dataset "{dataset_class.dataset_name()}"\n\n\n\n\n{"\033[0m"}')
 
     # The user_ns seems to persist between unit tests sometimes...
     # Not sure why, but we clear it here to prevent any issues.
@@ -688,33 +688,33 @@ async def propose_lead_and_win(
 @pytest.mark.parametrize("model_class,dataset_class,gpu_allocation_mode,gpu_allocation_window_size,num_training_loops",
                          [
                              # Allocate ALL GPUs and train 5 times for each valid model+dataset permutation.
-                             # (ResNet18, CIFAR10, "all", -1, 5), (ResNet18, TinyImageNet, "all", -1, 5),
-                             # (InceptionV3, CIFAR10, "all", -1, 5), (InceptionV3, TinyImageNet, "all", -1, 5),
-                             # (VGG11, CIFAR10, "all", -1, 5), (VGG11, TinyImageNet, "all", -1, 5),
-                             # (VGG13, CIFAR10, "all", -1, 5), (VGG13, TinyImageNet, "all", -1, 5),
-                             # (VGG16, CIFAR10, "all", -1, 5), (VGG16, TinyImageNet, "all", -1, 5),
-                             # (VGG19, CIFAR10, "all", -1, 5), (VGG19, TinyImageNet, "all", -1, 5),
-                             # (Bert, IMDbLargeMovieReviewTruncated, "all", -1, 5), (Bert, CoLA, "all", -1, 5),
-                             # (GPT2, IMDbLargeMovieReviewTruncated, "all", -1, 5), (GPT2, CoLA, "all", -1, 5),
-                             # (DeepSpeech2, LibriSpeech, "all", -1, 5),
+                             (ResNet18, CIFAR10, "all", -1, 5), (ResNet18, TinyImageNet, "all", -1, 5),
+                             (InceptionV3, CIFAR10, "all", -1, 5), (InceptionV3, TinyImageNet, "all", -1, 5),
+                             (VGG11, CIFAR10, "all", -1, 5), (VGG11, TinyImageNet, "all", -1, 5),
+                             (VGG13, CIFAR10, "all", -1, 5), (VGG13, TinyImageNet, "all", -1, 5),
+                             (VGG16, CIFAR10, "all", -1, 5), (VGG16, TinyImageNet, "all", -1, 5),
+                             (VGG19, CIFAR10, "all", -1, 5), (VGG19, TinyImageNet, "all", -1, 5),
+                             (Bert, IMDbLargeMovieReviewTruncated, "all", -1, 5), (Bert, CoLA, "all", -1, 5),
+                             (GPT2, IMDbLargeMovieReviewTruncated, "all", -1, 5), (GPT2, CoLA, "all", -1, 5),
+                             (DeepSpeech2, LibriSpeech, "all", -1, 5),
                              # Use round-robin GPU allocations & train for NUM_GPUS * 3 loops for each permutation.
-                             (ResNet18, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (ResNet18, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (InceptionV3, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (InceptionV3, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (VGG11, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (VGG11, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (VGG13, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (VGG13, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (VGG16, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (VGG16, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (VGG19, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (VGG19, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (Bert, IMDbLargeMovieReviewTruncated, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (Bert, CoLA, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (GPT2, IMDbLargeMovieReviewTruncated, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (GPT2, CoLA, "moving-window", 1, 3 * torch.cuda.device_count()),
-                             (DeepSpeech2, LibriSpeech, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (ResNet18, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (ResNet18, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (InceptionV3, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (InceptionV3, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (VGG11, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (VGG11, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (VGG13, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (VGG13, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (VGG16, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (VGG16, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (VGG19, CIFAR10, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (VGG19, TinyImageNet, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (Bert, IMDbLargeMovieReviewTruncated, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (Bert, CoLA, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (GPT2, IMDbLargeMovieReviewTruncated, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (GPT2, CoLA, "moving-window", 1, 3 * torch.cuda.device_count()),
+                             # (DeepSpeech2, LibriSpeech, "moving-window", 1, 3 * torch.cuda.device_count()),
                          ])
 @pytest.mark.asyncio
 async def test_train_model_on_dataset(

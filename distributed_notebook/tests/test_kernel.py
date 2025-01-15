@@ -512,8 +512,8 @@ async def perform_training(
 
     weights: Optional[torch.Tensor] = None
     for i in range(1, num_training_loops + 1):
-        print(f'\n\n\nTraining Loop {i}/{num_training_loops} for Model "{model_class.model_name()}" on '
-              f'Dataset "{dataset_class.dataset_name()}"\n\n')
+        print(f'\n\n\n{"\033[0;36m"}Training Loop {i}/{num_training_loops} for Model "{model_class.model_name()}" on '
+              f'Dataset "{dataset_class.dataset_name()}"{"\033[0m"}\n\n')
         execution_request: Dict[str, Any] = create_execution_request(message_id = str(uuid.uuid4()))
         assert execution_request is not None
 
@@ -559,8 +559,8 @@ async def perform_training(
 
     print(torch.cuda.memory_summary(abbreviated=False))
     await asyncio.sleep(0.25)
-    print(f'\n\n\n\n\n\nFinished test for training model "{model_class.model_name()}" on '
-          f'dataset "{dataset_class.dataset_name()}"\n\n\n\n\n')
+    print(f'{"\033[0;32m"}\n\n\n\n\n\nFinished test for training model "{model_class.model_name()}" on '
+          f'dataset "{dataset_class.dataset_name()}"\n\n\n\n\n{"\033[0m"}')
 
     # The user_ns seems to persist between unit tests sometimes...
     # Not sure why, but we clear it here to prevent any issues.
