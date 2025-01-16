@@ -303,6 +303,20 @@ func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 	return nil
 }
 
+// UpdateIndex updates the ClusterIndex that contains the specified Host.
+func (c *BaseCluster) UpdateIndex(host scheduling.Host) error {
+	key := fmt.Sprintf("%s:%v", scheduling.CategoryClusterIndex, "*")
+	index, loaded := c.indexes.Load(key)
+
+	if !loaded || index == nil {
+		return fmt.Errorf("could not find index with category '%s' and key '%s'",
+			scheduling.CategoryClusterIndex, "*")
+	}
+
+	index.Update(host)
+	return nil
+}
+
 // unsafeCheckIfScaleOperationIsComplete is used to check if there is an active scaling operation and,
 // if there is, then to check if that operation is complete.
 func (c *BaseCluster) unsafeCheckIfScaleOperationIsComplete(host scheduling.Host) {

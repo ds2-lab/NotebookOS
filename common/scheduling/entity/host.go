@@ -13,6 +13,7 @@ import (
 	"log"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -51,6 +52,10 @@ type SubscriptionQuerier interface {
 
 	// SubscriptionRatio returns the subscription ratio of the Cluster.
 	SubscriptionRatio() float64
+}
+
+type IndexUpdater interface {
+	UpdateIndex(host scheduling.Host) error
 }
 
 // unsafeApplyResourceSnapshotToHost does the actual work of the ApplyResourceSnapshotToHost function, but
@@ -129,6 +134,8 @@ type Host struct {
 	// subscription ratio and the Cluster's subscription ratio.
 	SubscriptionQuerier SubscriptionQuerier
 
+	indexUpdater IndexUpdater
+
 	// Cached penalties
 	sip               cache.InlineCache      // Scale-in penalty.
 	sipSession        scheduling.UserSession // Scale-in penalty session.
@@ -149,7 +156,8 @@ type Host struct {
 // newHostForRestoration always returns a non-nil error. It either returns an error returned by the network
 // call to retrieve the latest GPU info from the remote host, or it returns an ErrRestoreRequired error
 // to ensure that the Cluster Gateway knows to use the returned Host to restore an existing Host.
-func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirmedId *proto.HostId, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int) (*Host, error) {
+func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirmedId *proto.HostId,
+	millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int) (*Host, error) {
 	gpuInfoResp, gpuFetchError := localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
 	if gpuFetchError != nil {
 		log.Printf(utils.RedStyle.Render("[ERROR] Failed to fetch latest GPU information from "+
@@ -189,8 +197,9 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 //
 // If NewHost is called directly, then the conn field of the Host will not be populated. To populate this field,
 // call NewHostWithConn instead.
-func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int, querier SubscriptionQuerier,
-	metricsProvider scheduling.MetricsProvider, localGatewayClient proto.LocalGatewayClient, resourceBindingMode scheduling.ResourceBindingMode,
+func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int,
+	querier SubscriptionQuerier, indexUpdater IndexUpdater, metricsProvider scheduling.MetricsProvider,
+	localGatewayClient proto.LocalGatewayClient, resourceBindingMode scheduling.ResourceBindingMode,
 	errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
@@ -265,6 +274,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		SubscriptionQuerier:                 querier,
 		kernelsWithCommittedResources:       make(map[string]int32),
 		containersWithPreCommittedResources: make(map[string]scheduling.KernelContainer),
+		indexUpdater:                        indexUpdater,
 		ProperlyInitialized:                 true,
 	}
 
@@ -281,13 +291,15 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 }
 
 // NewHostWithConn creates and returns a new *Host.
-func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int, querier SubscriptionQuerier,
-	metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn, resourceBindingMode scheduling.ResourceBindingMode, errorCallback scheduling.ErrorCallback) (*Host, error) {
+func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int,
+	querier SubscriptionQuerier, indexUpdater IndexUpdater, metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn,
+	resourceBindingMode scheduling.ResourceBindingMode, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
-	host, err := NewHost(id, addr, millicpus, memMb, vramGb, numReplicasPerKernel, querier, metricsProvider, localGatewayClient, resourceBindingMode, errorCallback)
+	host, err := NewHost(id, addr, millicpus, memMb, vramGb, numReplicasPerKernel, querier,
+		indexUpdater, metricsProvider, localGatewayClient, resourceBindingMode, errorCallback)
 	if err != nil {
 		// We need to return host here, in case the error is ErrRestoreRequired, as a host IS returned in that case.
 		// It's a host with only some fields filled-in so that it can be used to restore the existing host.
@@ -415,6 +427,11 @@ func (h *Host) SetIdx(idx int) {
 	h.heapIndex = idx
 }
 
+// GetIdx returns the target Host's heapIndex.
+func (h *Host) GetIdx() int {
+	return h.heapIndex
+}
+
 func (h *Host) Compare(h2 interface{}) float64 {
 	switch h.schedulerPoolType {
 	case scheduling.SchedulerPoolTypeUndersubscribed:
@@ -424,6 +441,11 @@ func (h *Host) Compare(h2 interface{}) float64 {
 			return h.IdleGPUs() - v // Seeking value, simply follow normal logic.
 		}
 
+		host2 := h2.(*Host)
+		if h == host2 {
+			return 0
+		}
+
 		ret := h2.(*Host).IdleGPUs() - h.IdleGPUs()
 
 		// For the pool to provide all GPUs to one container, idle gpus are either 0 or all.
@@ -431,7 +453,13 @@ func (h *Host) Compare(h2 interface{}) float64 {
 			return ret
 		}
 
-		return h.subscribedRatio.Sub(h2.(*Host).SubscribedRatioAsDecimal()).InexactFloat64()
+		diff := h.subscribedRatio.Sub(h2.(*Host).SubscribedRatioAsDecimal()).InexactFloat64()
+		if diff != 0 {
+			return diff
+		}
+
+		// For otherwise equal hosts, compare their IDs for stable ordering
+		return float64(strings.Compare(h.ID, host2.ID))
 	default:
 		// SchedulerPoolTypeOversubscribed
 		// Min heap.
@@ -439,7 +467,14 @@ func (h *Host) Compare(h2 interface{}) float64 {
 		case float64:
 			log.Printf("Non-updated schedulerPoolType: host %s", h.ID)
 		}
-		return h.subscribedRatio.Sub(h2.(*Host).SubscribedRatioAsDecimal()).InexactFloat64()
+
+		diff := h.subscribedRatio.Sub(h2.(*Host).SubscribedRatioAsDecimal()).InexactFloat64()
+		if diff != 0 {
+			return diff
+		}
+
+		// For otherwise equal hosts, compare their IDs for stable ordering
+		return float64(strings.Compare(h.ID, h2.(*Host).ID))
 	}
 }
 
@@ -1042,14 +1077,14 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	return nil
 }
 
-func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string, incrementPending bool) (err error) {
+func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string, incrementPending bool) error {
 	if _, loaded := h.kernelsWithCommittedResources[kernelId]; !loaded {
 		h.log.Error("Cannot release committed resources from replica of kernel \"%s\". No replica of kernel \"%s\" has resources committed to it. (Requested to release: %s)",
 			kernelId, kernelId, spec.String())
 		return ErrInvalidContainer
 	}
 
-	err = h.resourceManager.RunTransaction(func(state *transaction.State) {
+	err := h.resourceManager.RunTransaction(func(state *transaction.State) {
 		state.CommittedResources().Subtract(spec)
 
 		if incrementPending {
@@ -1062,11 +1097,13 @@ func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string,
 	if err != nil {
 		h.log.Error("Failed to release committed resources [%s] from replica of kernel %s.",
 			spec.String(), kernelId, kernelId)
-		return
+		return err
 	}
 
+	h.indexUpdater.UpdateIndex(h)
+
 	delete(h.kernelsWithCommittedResources, kernelId)
-	return
+	return nil
 }
 
 // unsafeUncommitResources releases the specified resources and returns nil on success.
@@ -1200,34 +1237,10 @@ func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, r
 		return
 	}
 
+	h.indexUpdater.UpdateIndex(h)
+
 	h.kernelsWithCommittedResources[kernelId] = replicaId
 	return
-}
-
-// unsafeCommitResources commits the specified resources and returns nil on success.
-// unsafeCommitResources is not thread safe and should only be called with the schedulingMutex already held.
-func (h *Host) unsafeCommitResourcesOld(spec *types.DecimalSpec, kernelId string, replicaId int32) error {
-	if replicaId, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
-		h.log.Error("Attempting to commit resources %v to replica of kernel %s, but we've already committed resources to replica %d of kernel %s.",
-			spec.String(), kernelId, replicaId, kernelId)
-		return fmt.Errorf("%w (replica %d of kernel \"%s\")", ErrResourcesAlreadyCommitted, replicaId, kernelId)
-	}
-
-	if err := h.resourceManager.CommittedResources().Add(spec); err != nil {
-		return err
-	}
-
-	if err := h.subtractFromPendingResources(spec, kernelId, replicaId); err != nil {
-		return err
-	}
-
-	if err := h.resourceManager.IdleResources().Subtract(spec); err != nil {
-		return err
-	}
-
-	h.kernelsWithCommittedResources[kernelId] = replicaId
-
-	return nil
 }
 
 // ContainerRemoved is to be called when a Container is stopped and removed from the Host.
@@ -1713,6 +1726,11 @@ func (h *Host) addPendingResources(spec *types.DecimalSpec, kernelId string, con
 	return nil
 }
 
+// GetCreatedAt returns the time at which the Host was created.
+func (h *Host) GetCreatedAt() time.Time {
+	return h.CreatedAt
+}
+
 // AddToCommittedResources is only intended to be used during unit tests.
 func (h *Host) AddToCommittedResources(spec *types.DecimalSpec) error {
 	err := h.resourceManager.CommittedResources().Add(spec)
@@ -1727,19 +1745,22 @@ func (h *Host) SubtractFromIdleResources(spec *types.DecimalSpec) error {
 	return err
 }
 
-// GetCreatedAt returns the time at which the Host was created.
-func (h *Host) GetCreatedAt() time.Time {
-	return h.CreatedAt
+// AddToIdleResources is only intended to be used during unit tests.
+func (h *Host) AddToIdleResources(spec *types.DecimalSpec) error {
+	err := h.resourceManager.IdleResources().Add(spec)
+	h.RecomputeSubscribedRatio()
+	return err
 }
 
-//func (h *Host) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
-//	err := h.resourceManager.CommittedResources().Subtract(spec)
-//	h.RecomputeSubscribedRatio()
-//	return err
-//}
+// SubtractFromCommittedResources is only intended to be used during unit tests.
+func (h *Host) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
+	err := h.resourceManager.CommittedResources().Subtract(spec)
+	h.RecomputeSubscribedRatio()
+	return err
+}
 
-//func (h *Host) SubtractFromPendingResources(spec *types.DecimalSpec) error {
-//	err := h.resourceManager.PendingResources().Subtract(spec)
-//	h.RecomputeSubscribedRatio()
-//	return err
-//}
+func (h *Host) SubtractFromPendingResources(spec *types.DecimalSpec) error {
+	err := h.resourceManager.PendingResources().Subtract(spec)
+	h.RecomputeSubscribedRatio()
+	return err
+}

@@ -45,6 +45,8 @@ type Host interface {
 	GetLatestGpuInfo() *proto.GpuInfo
 	SetSchedulerPoolType(schedulerPoolType SchedulerPoolType)
 	SetIdx(idx int)
+	// GetIdx returns the target Host's heapIndex.
+	GetIdx() int
 	Compare(h2 interface{}) float64
 	RecomputeSubscribedRatio() decimal.Decimal
 	LastResourcesSnapshot() types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
@@ -174,9 +176,10 @@ type Host interface {
 	AddToCommittedResources(spec *types.DecimalSpec) error
 	// SubtractFromIdleResources is only intended to be used during unit tests.
 	SubtractFromIdleResources(spec *types.DecimalSpec) error
-	//SubtractFromPendingResources(spec *types.DecimalSpec) error
-	//SubtractFromCommittedResources(spec *types.DecimalSpec) error
-	//AddToIdleResources(spec *types.DecimalSpec) error
+	// SubtractFromCommittedResources is only intended to be used during unit tests.
+	SubtractFromCommittedResources(spec *types.DecimalSpec) error
+	// AddToIdleResources is only intended to be used during unit tests.
+	AddToIdleResources(spec *types.DecimalSpec) error
 }
 
 type HostStatistics interface {

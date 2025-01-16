@@ -646,6 +646,20 @@ func (mr *MockClusterMockRecorder) SubscriptionRatio() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscriptionRatio", reflect.TypeOf((*MockCluster)(nil).SubscriptionRatio))
 }
 
+// UpdateIndex mocks base method.
+func (m *MockCluster) UpdateIndex(host scheduling.Host) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateIndex", host)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateIndex indicates an expected call of UpdateIndex.
+func (mr *MockClusterMockRecorder) UpdateIndex(host any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateIndex", reflect.TypeOf((*MockCluster)(nil).UpdateIndex), host)
+}
+
 // MockScheduler is a mock of Scheduler interface.
 type MockScheduler struct {
 	ctrl     *gomock.Controller
@@ -1565,6 +1579,20 @@ func (mr *MockHostMockRecorder) AddToCommittedResources(spec any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddToCommittedResources", reflect.TypeOf((*MockHost)(nil).AddToCommittedResources), spec)
 }
 
+// AddToIdleResources mocks base method.
+func (m *MockHost) AddToIdleResources(spec *types.DecimalSpec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AddToIdleResources", spec)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AddToIdleResources indicates an expected call of AddToIdleResources.
+func (mr *MockHostMockRecorder) AddToIdleResources(spec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddToIdleResources", reflect.TypeOf((*MockHost)(nil).AddToIdleResources), spec)
+}
+
 // AddToPendingResources mocks base method.
 func (m *MockHost) AddToPendingResources(spec *types.DecimalSpec) error {
 	m.ctrl.T.Helper()
@@ -1976,6 +2004,20 @@ func (m *MockHost) GetID() string {
 func (mr *MockHostMockRecorder) GetID() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetID", reflect.TypeOf((*MockHost)(nil).GetID))
+}
+
+// GetIdx mocks base method.
+func (m *MockHost) GetIdx() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetIdx")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// GetIdx indicates an expected call of GetIdx.
+func (mr *MockHostMockRecorder) GetIdx() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIdx", reflect.TypeOf((*MockHost)(nil).GetIdx))
 }
 
 // GetKernelStatus mocks base method.
@@ -3034,6 +3076,20 @@ func (m *MockHost) SubscribedRatioAsDecimal() decimal.Decimal {
 func (mr *MockHostMockRecorder) SubscribedRatioAsDecimal() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribedRatioAsDecimal", reflect.TypeOf((*MockHost)(nil).SubscribedRatioAsDecimal))
+}
+
+// SubtractFromCommittedResources mocks base method.
+func (m *MockHost) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SubtractFromCommittedResources", spec)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SubtractFromCommittedResources indicates an expected call of SubtractFromCommittedResources.
+func (mr *MockHostMockRecorder) SubtractFromCommittedResources(spec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubtractFromCommittedResources", reflect.TypeOf((*MockHost)(nil).SubtractFromCommittedResources), spec)
 }
 
 // SubtractFromIdleResources mocks base method.

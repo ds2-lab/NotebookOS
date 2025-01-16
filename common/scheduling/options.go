@@ -41,13 +41,7 @@ type SchedulerOptions struct {
 	StdDevScaleOutPerHostSec            int     `name:"std_dev_scale_out_per_host_sec" json:"std_dev_scale_out_per_host_sec" yaml:"std_dev_scale_out_per_host_sec"`
 	MeanScaleInPerHostSec               int     `name:"mean_scale_in_per_host_sec" json:"mean_scale_in_per_host_sec" yaml:"mean_scale_in_per_host_sec"`
 	StdDevScaleInPerHostSec             int     `name:"std_dev_scale_in_per_host_sec" json:"std_dev_scale_in_per_host_sec" yaml:"std_dev_scale_in_per_host_sec"`
-	// NumReplicas                   int     `name:"num-replicas"                      json:"num-replicas"                     yaml:"num-replicas"                        description:"Number of kernel replicas."`
 }
-
-// GetNumReplicas returns the number of replicas per kernel.
-//func (opts *SchedulerOptions) GetNumReplicas() int {
-//	return opts.NumReplicas
-//}
 
 // GetGpusPerHost returns the number of allocatable GPUs on each entity.Host.
 func (opts *SchedulerOptions) GetGpusPerHost() int {

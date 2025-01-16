@@ -323,6 +323,8 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 				s.log.Error("Failed to release resource reservation for kernel %s on host %s (ID=%s): %v",
 					kernelSpec.Id, host.GetNodeName(), host.GetID(), err)
 			}
+
+			s.placer.UpdateIndex(host)
 		}
 
 		return nil, scheduling.ErrInsufficientHostsAvailable
@@ -706,6 +708,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
+		s.placer.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -727,6 +730,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
+		s.placer.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -759,6 +763,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
+		s.placer.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -783,6 +788,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
+		s.placer.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
