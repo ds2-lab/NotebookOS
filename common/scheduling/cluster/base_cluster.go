@@ -390,6 +390,8 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 
 	c.unsafeCheckIfScaleOperationIsComplete(host)
 
+	c.scheduler.HostAdded(host)
+
 	if c.metricsProvider != nil && c.metricsProvider.GetNumHostsGauge() != nil {
 		c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
 	}

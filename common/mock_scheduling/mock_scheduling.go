@@ -684,18 +684,18 @@ func (m *MockScheduler) EXPECT() *MockSchedulerMockRecorder {
 	return m.recorder
 }
 
-// AddHost mocks base method.
-func (m *MockScheduler) AddHost() error {
+// RequestNewHost mocks base method.
+func (m *MockScheduler) RequestNewHost() error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddHost")
+	ret := m.ctrl.Call(m, "RequestNewHost")
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// AddHost indicates an expected call of AddHost.
-func (mr *MockSchedulerMockRecorder) AddHost() *gomock.Call {
+// RequestNewHost indicates an expected call of RequestNewHost.
+func (mr *MockSchedulerMockRecorder) RequestNewHost() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddHost", reflect.TypeOf((*MockScheduler)(nil).AddHost))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestNewHost", reflect.TypeOf((*MockScheduler)(nil).RequestNewHost))
 }
 
 // DeployKernelReplicas mocks base method.

@@ -10,7 +10,7 @@ import (
 type LeastLoadedPlacer struct {
 	*AbstractPlacer
 
-	index *index.RandomClusterIndex
+	index *index.LeastLoadedIndex
 }
 
 // NewLeastLoadedPlacer creates a new LeastLoadedPlacer.
@@ -18,11 +18,23 @@ func NewLeastLoadedPlacer(metricsProvider scheduling.MetricsProvider, numReplica
 	basePlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
 	leastLoadedPlacer := &LeastLoadedPlacer{
 		AbstractPlacer: basePlacer,
-		index:          index.NewRandomClusterIndex(100),
+		index:          index.NewLeastLoadedIndex(100),
 	}
 
 	basePlacer.instance = leastLoadedPlacer
 	return leastLoadedPlacer, nil
+}
+
+// Len returns the number of scheduling.Host instances in the underlying least-loaded index.
+// Len is equivalent to Size.
+func (placer *LeastLoadedPlacer) Len() int {
+	return placer.index.Len()
+}
+
+// Size returns the number of scheduling.Host instances in the underlying least-loaded index.
+// Size is equivalent to Len.
+func (placer *LeastLoadedPlacer) Size() int {
+	return placer.index.Len()
 }
 
 func (placer *LeastLoadedPlacer) UpdateIndex(host scheduling.Host) {

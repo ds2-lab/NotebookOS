@@ -67,13 +67,16 @@ type KernelScheduler interface {
 }
 
 type HostScheduler interface {
-	// AddHost adds a new Host to the Cluster.
+	// RequestNewHost adds a new Host to the Cluster.
 	// We simulate this using node taints.
-	AddHost() error
+	RequestNewHost() error
 
 	// RemoveHost removes a Host from the Cluster.
 	// We simulate this using node taints.
 	RemoveHost(hostId string) error
+
+	// HostAdded is called by the Cluster when a new Host connects to the Cluster.
+	HostAdded(host Host)
 
 	// ReleaseIdleHosts Tries to release n idle hosts. Return the number of hosts that were actually released.
 	// Error will be nil on success and non-nil if some sort of failure is encountered.

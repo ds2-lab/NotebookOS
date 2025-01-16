@@ -187,24 +187,19 @@ func (s *BaseScheduler) Placer() scheduling.Placer {
 	return s.placer
 }
 
-// TryGetCandidateHosts performs a single attempt/pass of searching for candidate Host instances.
+// FindCandidateHosts performs a single attempt/pass of searching for candidate Host instances.
 //
-// TryGetCandidateHosts is exported so that it can be unit tested.
-func (s *BaseScheduler) TryGetCandidateHosts(hosts []scheduling.Host, kernelSpec *proto.KernelSpec) []scheduling.Host {
+// FindCandidateHosts is exported so that it can be unit tested.
+func (s *BaseScheduler) FindCandidateHosts(hosts []scheduling.Host, kernelSpec *proto.KernelSpec) []scheduling.Host {
 	s.candidateHostMutex.Lock()
 
-	// Identify the hosts onto which we will place replicas of the kernel.
 	numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
 	s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
 		numHostsRequired, kernelSpec.Id, len(hosts))
-
-	hostBatch := s.placer.FindHosts(kernelSpec, numHostsRequired)
-
-	// Add all the hosts returned by FindHosts to our running slice of hosts.
+	hostBatch := s.instance.findCandidateHosts(numHostsRequired, kernelSpec)
 	hosts = append(hosts, hostBatch...)
 
 	s.candidateHostMutex.Unlock()
-
 	return hosts
 }
 
@@ -269,7 +264,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		hosts       []scheduling.Host
 	)
 	for numTries < maxAttempts && len(hosts) < s.schedulingPolicy.NumReplicas() {
-		hosts = s.TryGetCandidateHosts(hosts, kernelSpec) // note: this function executes atomically.
+		hosts = s.FindCandidateHosts(hosts, kernelSpec) // note: this function executes atomically.
 
 		if len(hosts) < s.schedulingPolicy.NumReplicas() {
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
@@ -349,9 +344,9 @@ func (s *BaseScheduler) MinimumCapacity() int32 {
 	return s.schedulingPolicy.ScalingConfiguration().MinimumCapacity
 }
 
-// AddHost adds a new node to the kubernetes Cluster.
+// RequestNewHost adds a new node to the kubernetes Cluster.
 // We simulate this using node taints.
-func (s *BaseScheduler) AddHost() error {
+func (s *BaseScheduler) RequestNewHost() error {
 	p := s.cluster.RequestHosts(context.Background(), 1) /* s.hostSpec */
 
 	result, err := p.Result()
@@ -945,6 +940,11 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 	return dataDirectory, nil
 }
 
+// HostAdded is called by the Cluster when a new Host connects to the Cluster.
+func (s *BaseScheduler) HostAdded(host scheduling.Host) {
+	s.instance.HostAdded(host)
+}
+
 // ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (s *BaseScheduler) ValidateCapacity() {
@@ -1004,7 +1004,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 		// The size of the pending host pool will grow each time we provision a new host.
 		numFailures := 0
 		for int32(s.cluster.Len()) < scaledOutNumHosts {
-			err := s.AddHost()
+			err := s.RequestNewHost()
 			if err != nil {
 				s.log.Error("Failed to add new host because: %v", err)
 				numFailures += 1

@@ -309,7 +309,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				fmt.Printf("Error: %v\n", err)
 			})
 
-			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the TryGetCandidateHosts method", func() {
+			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the FindCandidateHosts method", func() {
 				validateVariablesNonNil()
 
 				largerHostSpec := types.NewDecimalSpec(8000, 64000, 64, 32)
@@ -338,7 +338,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				}
 
 				candidateHosts := make([]scheduling.Host, 0)
-				candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, bigKernelSpec)
+				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
@@ -353,7 +353,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 				hosts[i] = bigHost2
 
-				candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, bigKernelSpec)
+				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(2))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
@@ -506,7 +506,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				By("Correctly returning only 2 candidate hosts due to the other hosts becoming too oversubscribed")
 
 				candidateHosts := make([]scheduling.Host, 0)
-				candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, kernelSpec)
+				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, kernelSpec)
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(2))
 
@@ -1370,7 +1370,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				fmt.Printf("Error: %v\n", err)
 			})
 
-			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the TryGetCandidateHosts method", func() {
+			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the FindCandidateHosts method", func() {
 				validateVariablesNonNil()
 
 				largerHostSpec := types.NewDecimalSpec(8000, 64000, 64, 32)
@@ -1399,7 +1399,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				}
 
 				candidateHosts := make([]scheduling.Host, 0)
-				candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, bigKernelSpec)
+				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
@@ -1415,7 +1415,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 				hosts[i] = bigHost2
 
-				candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, bigKernelSpec)
+				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
@@ -1653,7 +1653,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				fmt.Printf("Error: %v\n", err)
 			})
 
-			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the TryGetCandidateHosts method", func() {
+			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the FindCandidateHosts method", func() {
 				validateVariablesNonNil()
 
 				largerHostSpec := types.NewDecimalSpec(8000, 64000, 64, 32)
@@ -1682,7 +1682,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				}
 
 				candidateHosts := make([]scheduling.Host, 0)
-				candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, bigKernelSpec)
+				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
@@ -1698,7 +1698,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 				hosts[i] = bigHost2
 
-				candidateHosts = dockerScheduler.TryGetCandidateHosts(candidateHosts, bigKernelSpec)
+				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))

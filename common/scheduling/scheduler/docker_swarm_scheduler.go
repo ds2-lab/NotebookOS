@@ -110,6 +110,19 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	return host, nil
 }
 
+// HostAdded is called by the Cluster when a new Host connects to the Cluster.
+func (s *DockerScheduler) HostAdded(_ scheduling.Host) {
+	// Do nothing...
+}
+
+// findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
+// DockerScheduler does not do anything special or fancy.
+func (s *DockerScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) []scheduling.Host {
+	// Identify the hosts onto which we will place replicas of the kernel.
+	hostBatch := s.placer.FindHosts(kernelSpec, numToFind)
+	return hostBatch
+}
+
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
 func (s *DockerScheduler) addReplicaSetup(_ string, _ *scheduling.AddReplicaOperation) {
 	// no-op
