@@ -3,6 +3,8 @@ package scheduling
 const (
 	CategoryClusterIndex = "BaseCluster"
 
+	CategoryGandivaPoolIndex = "GandivaPool"
+
 	// IndexDisqualified indicates that the host has been indexed and unqualified now.
 	IndexDisqualified IndexQualification = -1
 	// IndexUnqualified indicates that the host is not qualified.

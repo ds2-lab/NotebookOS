@@ -89,6 +89,7 @@ func (index *StaticClusterIndex) Add(host scheduling.Host) {
 	}
 
 	host.SetMeta(HostMetaStaticIndex, i)
+	host.SetMeta(scheduling.HostIndexIdentifier, "*")
 	host.SetContainedWithinIndex(true)
 	index.length += 1
 	index.sortIndex()
@@ -168,6 +169,7 @@ func (index *StaticClusterIndex) Remove(host scheduling.Host) {
 
 	index.hosts[i] = nil
 	host.SetMeta(HostMetaStaticIndex, nil)
+	host.SetMeta(scheduling.HostIndexIdentifier, nil)
 	host.SetContainedWithinIndex(false)
 
 	// Update freeStart.

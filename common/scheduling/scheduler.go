@@ -89,9 +89,13 @@ type HostScheduler interface {
 	// GetCandidateHost identifies a single candidate host for a particular kernel replica, reserving resources on hosts
 	// before returning them.
 	//
-	// If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it to
-	// the blacklist.
+	// If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it
+	// to the blacklist.
 	GetCandidateHost(replica KernelReplica, blacklistedHosts []Host, forTraining bool) (Host, error)
+
+	// UpdateHostInIndex is a callback for schedulers that maintain their own placers, rather than using the single
+	// primary placer of the cluster.
+	// UpdateHostInIndex(host Host)
 }
 
 type SchedulerMetricsManager interface {

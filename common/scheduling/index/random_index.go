@@ -94,6 +94,7 @@ func (index *RandomClusterIndex) Add(host scheduling.Host) {
 		index.freeStart += 1
 	}
 	host.SetMeta(HostMetaRandomIndex, i)
+	host.SetMeta(scheduling.HostIndexIdentifier, "*")
 	host.SetContainedWithinIndex(true)
 	index.log.Debug("Added Host %s to RandomClusterIndex at position %d.", host.GetID(), i)
 	index.len += 1
@@ -149,6 +150,7 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 	index.hosts[i] = nil
 	index.len -= 1
 	host.SetMeta(HostMetaRandomIndex, nil)
+	host.SetMeta(scheduling.HostIndexIdentifier, nil)
 	host.SetContainedWithinIndex(false)
 
 	// Update freeStart.

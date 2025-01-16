@@ -37,14 +37,8 @@ func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMa
 		BaseCluster: baseCluster,
 	}
 
-	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider,
-		notificationBroker, schedulingPolicy, opts)
-	if err != nil {
-		dockerCluster.log.Error("Failed to create Docker Swarm Cluster Scheduler: %v", err)
-		panic(err)
-	}
-
-	dockerCluster.scheduler = dockerScheduler
+	dockerCluster.scheduler = scheduler.GetDockerComposeScheduler(dockerCluster, placer, hostMapper, hostSpec,
+		kernelProvider, notificationBroker, schedulingPolicy, opts)
 	baseCluster.instance = dockerCluster
 	baseCluster.initRatioUpdater()
 

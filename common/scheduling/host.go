@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+const (
+	HostIndexIdentifier HostMetaKey = "identifier"
+)
+
 // ErrorCallback defines a function to be called if a Host appears to be dead.
 type ErrorCallback func(localDaemonId string, nodeName string, errorName string, errorMessage string) error
 

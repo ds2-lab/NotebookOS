@@ -11,19 +11,26 @@ import (
 )
 
 type HostPool struct {
-	NumGpus int32
-	Placer  *placer.LeastLoadedPlacer
+	NumGpus    int32
+	Identifier string
+	Placer     *placer.LeastLoadedPlacer
+}
+
+func GetHostGroupIdentifier(gpus int32) string {
+	return fmt.Sprintf("GpuPool[%d]", gpus)
 }
 
 func NewHostGroup(gpus int32, numReplicas int, metricsProvider scheduling.MetricsProvider, schedulingPolicy scheduling.Policy) (*HostPool, error) {
-	leastLoadedPlacer, err := placer.NewLeastLoadedPlacer(metricsProvider, numReplicas, schedulingPolicy)
+	identifier := GetHostGroupIdentifier(gpus)
+	leastLoadedPlacer, err := placer.NewLeastLoadedPlacer(metricsProvider, numReplicas, schedulingPolicy, identifier)
 	if err != nil {
 		return nil, err
 	}
 
 	hostGroup := &HostPool{
-		NumGpus: gpus,
-		Placer:  leastLoadedPlacer,
+		NumGpus:    gpus,
+		Placer:     leastLoadedPlacer,
+		Identifier: identifier,
 	}
 
 	return hostGroup, nil
@@ -35,34 +42,37 @@ type GandivaScheduler struct {
 	hostGroupsInitialized bool
 	hostPools             map[int32]*HostPool
 
-	// unpooledNodes contains scheduling.Host instances that have been added to the scheduling.Cluster, but that have
+	// unpooledHosts contains scheduling.Host instances that have been added to the scheduling.Cluster, but that have
 	// not yet been placed into a Host/GPU pool.
 	//
 	// (In Gandiva, hosts are placed into groups corresponding to the number of GPUs required
 	// by jobs that are scheduled on hosts of that pool.)
-	unpooledNodes *queue.Fifo[scheduling.Host]
+	unpooledHosts *queue.Fifo[scheduling.Host]
 
 	mu sync.Mutex
 }
 
-func NewGandivaScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec,
-	kernelProvider KernelProvider, notificationBroker NotificationBroker, schedulingPolicy scheduling.Policy,
-	opts *scheduling.SchedulerOptions) (*GandivaScheduler, error) {
+func NewGandivaScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
+	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
+	schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) (*GandivaScheduler, error) {
 
-	baseScheduler, err := NewDockerScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider, notificationBroker, schedulingPolicy, opts)
+	dockerScheduler, err := newDockerScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider,
+		notificationBroker, schedulingPolicy, opts)
 	if err != nil {
 		return nil, err
 	}
 
 	gandivaScheduler := &GandivaScheduler{
-		DockerScheduler: baseScheduler,
+		DockerScheduler: dockerScheduler,
 		hostPools:       make(map[int32]*HostPool),
-		unpooledNodes:   queue.NewFifo[scheduling.Host](8),
+		unpooledHosts:   queue.NewFifo[scheduling.Host](8),
 	}
 
-	gandivaScheduler.DockerScheduler.instance = gandivaScheduler
+	gandivaScheduler.instance = gandivaScheduler
+	dockerScheduler.instance = gandivaScheduler
+	dockerScheduler.BaseScheduler.instance = gandivaScheduler
 
-	err = gandivaScheduler.initHostGroups()
+	err = gandivaScheduler.initHostPools()
 	if err != nil {
 		gandivaScheduler.log.Error("Failed to initialize Host Groups: %v", err)
 		return nil, err
@@ -76,19 +86,40 @@ func NewGandivaScheduler(cluster scheduling.Cluster, placer scheduling.Placer, h
 	return gandivaScheduler, nil
 }
 
+func (s *GandivaScheduler) NumUnpooledHosts() int {
+	return s.unpooledHosts.Len()
+}
+
+func (s *GandivaScheduler) NumHostsInPool(gpus int32) int {
+	pool, loaded := s.hostPools[gpus]
+	if !loaded {
+		return -1
+	}
+
+	return pool.Placer.Len()
+}
+
+func (s *GandivaScheduler) GetHostPool(gpus int32) *HostPool {
+	return s.hostPools[gpus]
+}
+
+func (s *GandivaScheduler) Instance() scheduling.Scheduler {
+	return s.DockerScheduler.BaseScheduler.instance
+}
+
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *GandivaScheduler) HostAdded(host scheduling.Host) {
 	s.log.Debug("Host %s (ID=%s) was added to the Cluster. Adding new host to 'unpooled hosts' queue.",
 		host.GetNodeName(), host.GetID(), host.GetNodeName(), host.GetID())
 
-	s.unpooledNodes.Enqueue(host)
+	s.unpooledHosts.Enqueue(host)
 }
 
 // logFindCandidateHosts simply logs a message about how many hosts were found during a part of findCandidateHosts.
 func (s *GandivaScheduler) logFindCandidateHosts(numHosts int, numGpus int32, hosts []scheduling.Host) {
 	// We did not find all the hosts that we need.
 	if hosts == nil || len(hosts) == 0 {
-		s.log.Debug("Failed to find any candidate hosts from %d-GPU pool. (We need %d hosts.)", numGpus, hosts)
+		s.log.Debug("Failed to find any candidate hosts from %d-GPU pool. We need %d host(s).", numGpus, numHosts)
 	} else {
 		s.log.Debug("Found %d/%d candidate hosts from %d-GPU pool.", len(hosts), numHosts, numGpus)
 	}
@@ -109,6 +140,11 @@ func (s *GandivaScheduler) findCandidateHosts(numHostsRequired int, kernelSpec *
 
 	numGpus := kernelSpec.ResourceSpec.Gpu
 	pool := s.hostPools[numGpus]
+
+	if pool == nil {
+		s.log.Error("No pool found for specified number of GPUs: %d", numGpus)
+		return []scheduling.Host{}
+	}
 
 	var hosts []scheduling.Host
 
@@ -144,7 +180,7 @@ func (s *GandivaScheduler) findCandidateHosts(numHostsRequired int, kernelSpec *
 		panic(fmt.Sprintf("Number of required hosts is invalid: %d", numHostsRequired))
 	}
 
-	if s.unpooledNodes.Len() == 0 {
+	if s.unpooledHosts.Len() == 0 {
 		s.log.Debug("There are no unpooled nodes available. Cannot find %d remaining host(s).", numHostsRequired)
 		return hosts
 	}
@@ -157,16 +193,16 @@ func (s *GandivaScheduler) findCandidateHosts(numHostsRequired int, kernelSpec *
 	}
 
 	hostBatch := pool.Placer.FindHosts(kernelSpec, numHostsRequired)
+	hosts = append(hosts, hostBatch...)
 
 	s.log.Debug("Found %d host(s) after adding %d host(s) to %d-GPU pool. Found total of %d/%d host(s).",
 		len(hostBatch), numHostsAddedToPool, numGpus, len(hosts), numHostsRequired)
 
-	hosts = append(hosts, hostBatch...)
 	return hosts
 }
 
 // unsafeUpdatePool attempts to add up to 'numHostsRequired' scheduling.Host instances from
-// the unpooledNodes to the HostPool for the specified number of GPUs, 'numGPUs'.
+// the unpooledHosts to the HostPool for the specified number of GPUs, 'numGPUs'.
 //
 // unsafeUpdatePool returns the number of hosts that were added to the specified HostPool.
 func (s *GandivaScheduler) unsafeUpdatePool(numHostsRequired int, numGpus int32) int {
@@ -178,8 +214,8 @@ func (s *GandivaScheduler) unsafeUpdatePool(numHostsRequired int, numGpus int32)
 
 	// As long as we've not yet added enough new hosts to satisfy the request, and there are still unpooled hosts
 	// that we can add to the pool, continue adding unpooled hosts to the pool.
-	for numHostsAddedToPool < numHostsRequired && s.unpooledNodes.Len() > 0 {
-		unpooledHost, ok := s.unpooledNodes.Dequeue()
+	for numHostsAddedToPool < numHostsRequired && s.unpooledHosts.Len() > 0 {
+		unpooledHost, ok := s.unpooledHosts.Dequeue()
 		if !ok {
 			s.log.Error("Expected to have at least one more unpooled host; however, there are none left...")
 			break
@@ -190,27 +226,31 @@ func (s *GandivaScheduler) unsafeUpdatePool(numHostsRequired int, numGpus int32)
 	}
 
 	s.log.Debug("Added %d/%d unpooled host(s) to the %d-GPU pool. Remaining unpooled hosts: %d.",
-		numHostsAddedToPool, numHostsRequired, numGpus, s.unpooledNodes.Len())
+		numHostsAddedToPool, numHostsRequired, numGpus, s.unpooledHosts.Len())
 
 	return numHostsAddedToPool
 }
 
-// initHostGroups initializes the hostPools map of the target GandivaScheduler,
-// creating a HostPool for 1, 2, 4, and 8 GPUs.
-func (s *GandivaScheduler) initHostGroups() error {
+// initHostPools initializes the hostPools map of the target GandivaScheduler,
+// creating a HostPool for 1, 2, 3, ..., 'GpusPerHost' GPUs.
+func (s *GandivaScheduler) initHostPools() error {
 	if s.hostGroupsInitialized {
 		return nil
 	}
 
-	var gpus int32 = 1
-	for gpus <= 8 {
-		hostGroup, err := NewHostGroup(gpus, s.schedulingPolicy.NumReplicas(), s.cluster.MetricsProvider(), s.schedulingPolicy)
+	for gpus := 0; gpus <= s.opts.GpusPerHost; gpus++ {
+		hostGroup, err := NewHostGroup(int32(gpus), s.schedulingPolicy.NumReplicas(), s.cluster.MetricsProvider(), s.schedulingPolicy)
 		if err != nil {
 			return err
 		}
 
-		s.hostPools[gpus] = hostGroup
-		gpus = gpus * 2
+		s.hostPools[int32(gpus)] = hostGroup
+
+		err = s.cluster.AddIndex(hostGroup.Placer.GetIndex())
+		if err != nil {
+			s.log.Error("Failed to add index for %d-GPU pool: %v", gpus, err)
+			panic(err)
+		}
 	}
 
 	return nil

@@ -10,15 +10,18 @@ import (
 type LeastLoadedPlacer struct {
 	*AbstractPlacer
 
-	index *index.LeastLoadedIndex
+	index      *index.LeastLoadedIndex
+	identifier string
 }
 
 // NewLeastLoadedPlacer creates a new LeastLoadedPlacer.
-func NewLeastLoadedPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.Policy) (*LeastLoadedPlacer, error) {
+func NewLeastLoadedPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int,
+	schedulingPolicy scheduling.Policy, identifier string) (*LeastLoadedPlacer, error) {
 	basePlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
 	leastLoadedPlacer := &LeastLoadedPlacer{
 		AbstractPlacer: basePlacer,
-		index:          index.NewLeastLoadedIndex(100),
+		identifier:     identifier,
+		index:          index.NewLeastLoadedIndex(100, identifier),
 	}
 
 	basePlacer.instance = leastLoadedPlacer

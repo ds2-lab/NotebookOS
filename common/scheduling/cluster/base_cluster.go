@@ -305,15 +305,22 @@ func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 
 // UpdateIndex updates the ClusterIndex that contains the specified Host.
 func (c *BaseCluster) UpdateIndex(host scheduling.Host) error {
-	key := fmt.Sprintf("%s:%v", scheduling.CategoryClusterIndex, "*")
-	index, loaded := c.indexes.Load(key)
-
-	if !loaded || index == nil {
-		return fmt.Errorf("could not find index with category '%s' and key '%s'",
-			scheduling.CategoryClusterIndex, "*")
+	identifierMetadata := host.GetMeta(scheduling.HostIndexIdentifier)
+	if identifierMetadata == nil {
+		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexIdentifier ('%s') metadata",
+			host.GetNodeName(), host.GetID(), scheduling.HostIndexIdentifier)
 	}
 
-	index.Update(host)
+	key := fmt.Sprintf("%s:%v", scheduling.CategoryClusterIndex, identifierMetadata.(string))
+	clusterIndex, loaded := c.indexes.Load(key)
+
+	if !loaded || clusterIndex == nil {
+		return fmt.Errorf("could not find clusterIndex with category '%s' and key '%s'",
+			scheduling.CategoryClusterIndex, identifierMetadata.(string))
+	}
+
+	c.log.Debug("Updating index %s for host %s (id=%s)", key, host.GetNodeName(), host.GetID())
+	clusterIndex.Update(host)
 	return nil
 }
 
@@ -374,6 +381,8 @@ func (c *BaseCluster) onDisabledHostAdded(host scheduling.Host) error {
 
 // onHostAdded is called when a host is added to the BaseCluster.
 func (c *BaseCluster) onHostAdded(host scheduling.Host) {
+	c.scheduler.HostAdded(host)
+
 	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
 		if _, qualificationStatus := index.IsQualified(host); qualificationStatus == scheduling.IndexNewQualified {
 			c.log.Debug("Adding new host to index: %v", host)
@@ -389,8 +398,6 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 	})
 
 	c.unsafeCheckIfScaleOperationIsComplete(host)
-
-	c.scheduler.HostAdded(host)
 
 	if c.metricsProvider != nil && c.metricsProvider.GetNumHostsGauge() != nil {
 		c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))

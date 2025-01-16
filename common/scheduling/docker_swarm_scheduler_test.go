@@ -337,8 +337,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					ResourceSpec:    bigResourceSpec,
 				}
 
-				candidateHosts := make([]scheduling.Host, 0)
-				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
+				candidateHosts := dockerScheduler.FindCandidateHosts(3, bigKernelSpec)
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
@@ -353,8 +352,10 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 				hosts[i] = bigHost2
 
-				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
-				Expect(candidateHosts).ToNot(BeNil())
+				hostBatch := dockerScheduler.FindCandidateHosts(3-len(candidateHosts), bigKernelSpec)
+				Expect(hostBatch).ToNot(BeNil())
+
+				candidateHosts = append(candidateHosts, hostBatch...)
 				Expect(len(candidateHosts)).To(Equal(2))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
 				Expect(candidateHosts[1]).To(Equal(bigHost2))
@@ -505,8 +506,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 				By("Correctly returning only 2 candidate hosts due to the other hosts becoming too oversubscribed")
 
-				candidateHosts := make([]scheduling.Host, 0)
-				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, kernelSpec)
+				candidateHosts := dockerScheduler.FindCandidateHosts(3, kernelSpec)
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(2))
 
@@ -1398,8 +1398,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					ResourceSpec:    bigResourceSpec,
 				}
 
-				candidateHosts := make([]scheduling.Host, 0)
-				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
+				candidateHosts := dockerScheduler.FindCandidateHosts(3, bigKernelSpec)
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
@@ -1415,10 +1414,11 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 				hosts[i] = bigHost2
 
-				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
-				Expect(candidateHosts).ToNot(BeNil())
-				Expect(len(candidateHosts)).To(Equal(1))
-				Expect(candidateHosts[0]).To(Equal(bigHost1))
+				hostBatch := dockerScheduler.FindCandidateHosts(3-len(candidateHosts), bigKernelSpec)
+				Expect(hostBatch).ToNot(BeNil())
+				Expect(len(hostBatch)).To(Equal(1))
+				Expect(hostBatch[0]).To(Equal(bigHost1))
+				candidateHosts = append(candidateHosts, hostBatch...)
 				//Expect(candidateHosts[1]).To(Equal(bigHost2))
 
 				Expect(bigHost1.NumReservations()).To(Equal(1))
@@ -1681,8 +1681,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					ResourceSpec:    bigResourceSpec,
 				}
 
-				candidateHosts := make([]scheduling.Host, 0)
-				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
+				candidateHosts := dockerScheduler.FindCandidateHosts(1, bigKernelSpec)
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
@@ -1698,8 +1697,10 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 				hosts[i] = bigHost2
 
-				candidateHosts = dockerScheduler.FindCandidateHosts(candidateHosts, bigKernelSpec)
-				Expect(candidateHosts).ToNot(BeNil())
+				hostBatch := dockerScheduler.FindCandidateHosts(1-len(candidateHosts), bigKernelSpec)
+				Expect(hostBatch).ToNot(BeNil())
+
+				candidateHosts = append(candidateHosts, hostBatch...)
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
 				//Expect(candidateHosts[1]).To(Equal(bigHost2))

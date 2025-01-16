@@ -81,7 +81,7 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 	Context("Adding and Removing Hosts", func() {
 		Context("Empty Hosts", func() {
 			It("Will handle a single add operation correctly", func() {
-				leastLoadedIndex := index.NewLeastLoadedIndex(4)
+				leastLoadedIndex := index.NewLeastLoadedIndex(4, uuid.NewString())
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
 				host1 := createHost()
@@ -107,7 +107,7 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 			})
 
 			It("Will handle an add followed by a remove correctly", func() {
-				leastLoadedIndex := index.NewLeastLoadedIndex(4)
+				leastLoadedIndex := index.NewLeastLoadedIndex(4, uuid.NewString())
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
 				host1 := createHost()
@@ -127,7 +127,7 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 			})
 
 			It("Will handle multiple add and remove operations correctly", func() {
-				leastLoadedIndex := index.NewLeastLoadedIndex(4)
+				leastLoadedIndex := index.NewLeastLoadedIndex(4, uuid.NewString())
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
 				host1 := createHost()
@@ -189,7 +189,7 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 			)
 
 			BeforeEach(func() {
-				leastLoadedIndex = index.NewLeastLoadedIndex(4)
+				leastLoadedIndex = index.NewLeastLoadedIndex(4, uuid.NewString())
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
 				host1 = createHost()
