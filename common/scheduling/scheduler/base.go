@@ -182,8 +182,8 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingBufferSize)
 		clusterScheduler.log.Debug("GPU Refresh Interval: %v",
 			clusterScheduler.remoteSynchronizationInterval)
-		clusterScheduler.log.Debug("Scheduling policy: %v",
-			clusterScheduler.schedulingPolicy)
+		clusterScheduler.log.Debug("Scheduling policy: %s",
+			clusterScheduler.schedulingPolicy.Name())
 	}
 
 	return clusterScheduler

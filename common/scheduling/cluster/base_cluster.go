@@ -383,15 +383,15 @@ func (c *BaseCluster) onDisabledHostAdded(host scheduling.Host) error {
 func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 	c.scheduler.HostAdded(host)
 
-	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
+	c.indexes.Range(func(indexKey string, index scheduling.IndexProvider) bool {
 		if _, qualificationStatus := index.IsQualified(host); qualificationStatus == scheduling.IndexNewQualified {
-			c.log.Debug("Adding new host to index: %v", host)
+			c.log.Debug("Adding new host to index %s: %v", indexKey, host)
 			index.Add(host)
 		} else if qualificationStatus == scheduling.IndexQualified {
-			c.log.Debug("Updating existing host within index: %v", host)
+			c.log.Debug("Updating existing host within index %s: %v", indexKey, host)
 			index.Update(host)
 		} else if qualificationStatus == scheduling.IndexDisqualified {
-			c.log.Debug("Removing existing host from index in onHostAdded: %v", host)
+			c.log.Debug("Removing existing host from index %s in onHostAdded: %v", indexKey, host)
 			index.Remove(host)
 		} // else unqualified
 		return true

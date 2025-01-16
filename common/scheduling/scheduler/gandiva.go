@@ -110,7 +110,7 @@ func (s *GandivaScheduler) Instance() scheduling.Scheduler {
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *GandivaScheduler) HostAdded(host scheduling.Host) {
 	s.log.Debug("Host %s (ID=%s) was added to the Cluster. Adding new host to 'unpooled hosts' queue.",
-		host.GetNodeName(), host.GetID(), host.GetNodeName(), host.GetID())
+		host.GetNodeName(), host.GetID())
 
 	s.unpooledHosts.Enqueue(host)
 }
@@ -239,7 +239,9 @@ func (s *GandivaScheduler) initHostPools() error {
 	}
 
 	for gpus := 0; gpus <= s.opts.GpusPerHost; gpus++ {
-		hostGroup, err := NewHostGroup(int32(gpus), s.schedulingPolicy.NumReplicas(), s.cluster.MetricsProvider(), s.schedulingPolicy)
+		hostGroup, err := NewHostGroup(int32(gpus), s.schedulingPolicy.NumReplicas(),
+			s.cluster.MetricsProvider(), s.schedulingPolicy)
+
 		if err != nil {
 			return err
 		}
@@ -251,6 +253,8 @@ func (s *GandivaScheduler) initHostPools() error {
 			s.log.Error("Failed to add index for %d-GPU pool: %v", gpus, err)
 			panic(err)
 		}
+
+		s.log.Debug("Initialized %d-GPU pool.", gpus)
 	}
 
 	return nil

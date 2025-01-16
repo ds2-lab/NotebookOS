@@ -46,16 +46,15 @@ func (index *LeastLoadedIndex) GetMetadataKey() scheduling.HostMetaKey {
 }
 
 func (index *LeastLoadedIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
-	// Since all hosts are qualified, we check if the host is in the index only.
 	val := host.GetMeta(HostMetaLeastLoadedIndexPos)
 	if val == nil {
-		return index.identifier, scheduling.IndexNewQualified
+		return index.identifier, scheduling.IndexUnqualified
 	}
 
 	if _, ok := val.(int32); ok {
 		return index.identifier, scheduling.IndexQualified
 	} else {
-		return index.identifier, scheduling.IndexNewQualified
+		return index.identifier, scheduling.IndexUnqualified
 	}
 }
 
