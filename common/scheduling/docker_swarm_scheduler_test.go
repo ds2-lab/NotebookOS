@@ -73,7 +73,7 @@ var (
 			"scheduler-http-port": 8078,
 			"common_options": {
 			"gpus-per-host": 8,
-			"deployment_mode": "docker-compose",
+			"deployment_mode": "docker-swarm",
 			"using-wsl": true,
 			"docker_network_name": "distributed_cluster_default",
 			"prometheus_interval": 15,

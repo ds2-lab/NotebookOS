@@ -440,6 +440,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
 			clusterGateway.executionFailedCallback = clusterGateway.dynamicV4FailureHandler
 		}
+	case string(scheduling.Gandiva):
+		{
+			clusterGateway.policyKey = scheduling.Gandiva
+			clusterGateway.log.Debug("Using the 'GANDIVA' scheduling policy.")
+			clusterGateway.executionFailedCallback = clusterGateway.gandivaV4FailureHandler
+		}
 	case string(scheduling.FcfsBatch):
 		{
 			clusterGateway.policyKey = scheduling.FcfsBatch
@@ -1510,6 +1516,10 @@ func (d *ClusterGatewayImpl) dynamicV3FailureHandler(_ scheduling.Kernel, msg *m
 
 func (d *ClusterGatewayImpl) dynamicV4FailureHandler(_ scheduling.Kernel, msg *messaging.JupyterMessage) error {
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
+}
+
+func (d *ClusterGatewayImpl) gandivaV4FailureHandler(_ scheduling.Kernel, msg *messaging.JupyterMessage) error {
+	panic("The 'GANDIVA' scheduling policy is not yet supported.")
 }
 
 // DockerComposeMode returns true if we're running in Docker via "docker compose".

@@ -14,6 +14,7 @@ const (
 	FcfsBatch               PolicyKey = "fcfs-batch"
 	AutoScalingFcfsBatch    PolicyKey = "auto-scaling-fcfs-batch"
 	Reservation             PolicyKey = "reservation"
+	Gandiva                 PolicyKey = "gandiva"
 
 	NoIdleSessionReclamation                IdleSessionReclamationPolicyKey = "none"
 	GoogleColabIdleSessionReclamationPolicy IdleSessionReclamationPolicyKey = "google-colab"
