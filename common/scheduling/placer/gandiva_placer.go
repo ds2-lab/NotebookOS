@@ -252,7 +252,6 @@ func (placer *GandivaPlacer) findHosts(blacklist []interface{}, kernelSpec *prot
 
 	numGpus := kernelSpec.ResourceSpec.Gpu
 	pool := placer.hostPools[numGpus]
-
 	if pool == nil {
 		placer.log.Error("No pool found for specified number of GPUs: %d", numGpus)
 		return []scheduling.Host{}
