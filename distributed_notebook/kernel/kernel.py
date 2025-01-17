@@ -55,7 +55,7 @@ from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer im
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
-from ..deep_learning import DatasetClassesByName, ModelClassesByName, ResNet18
+from ..deep_learning import DatasetClassesByName, ModelClassesByName, ResNet18, CIFAR10
 
 import_torch_start: float = time.time()
 try:
