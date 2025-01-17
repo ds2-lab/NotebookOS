@@ -20,7 +20,7 @@ func NewLeastLoadedPlacer(metricsProvider scheduling.MetricsProvider, numReplica
 	basePlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
 	leastLoadedPlacer := &LeastLoadedPlacer{
 		AbstractPlacer: basePlacer,
-		index:          index.NewLeastLoadedIndex(100),
+		index:          index.NewLeastLoadedIndex(index.LeastLoadedIndexMetadataKey),
 	}
 
 	basePlacer.instance = leastLoadedPlacer

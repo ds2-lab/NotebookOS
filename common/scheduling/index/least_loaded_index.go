@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"slices"
 	"sync"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 )
 
 const (
-	HostMetaLeastLoadedIndexPos types.HeapElementMetadataKey = "least_loaded_index_position"
+	LeastLoadedIndexMetadataKey types.HeapElementMetadataKey = "least_loaded_index_position"
 
 	expectedLeastLoadedIndex = "*"
 )
@@ -44,15 +43,17 @@ const (
 // LeastLoadedIndex is a simple Cluster that seeks the least-loaded hosts.
 // LeastLoadedIndex uses CategoryClusterIndex and all hosts are qualified.
 type LeastLoadedIndex struct {
-	hosts *types.Heap // The Host instances contained within the LeastLoadedIndex.
-	mu    sync.Mutex
-	log   logger.Logger
+	hosts       *types.Heap // The Host instances contained within the LeastLoadedIndex.
+	mu          sync.Mutex
+	log         logger.Logger
+	metadataKey types.HeapElementMetadataKey
 }
 
-func NewLeastLoadedIndex(size int) *LeastLoadedIndex {
+func NewLeastLoadedIndex(metadataKey types.HeapElementMetadataKey) *LeastLoadedIndex {
 	index := &LeastLoadedIndex{
 		// hosts: make(types.Heap, 0, size),
-		hosts: types.NewHeap(HostMetaLeastLoadedIndexPos),
+		hosts:       types.NewHeap(metadataKey),
+		metadataKey: metadataKey,
 	}
 
 	config.InitLogger(&index.log, index)
@@ -65,11 +66,11 @@ func (index *LeastLoadedIndex) Category() (string, interface{}) {
 }
 
 func (index *LeastLoadedIndex) GetMetadataKey() types.HeapElementMetadataKey {
-	return HostMetaLeastLoadedIndexPos
+	return index.metadataKey
 }
 
 func (index *LeastLoadedIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
-	val := host.GetMeta(HostMetaLeastLoadedIndexPos)
+	val := host.GetMeta(index.metadataKey)
 	if val == nil {
 		return "*", scheduling.IndexNewQualified
 	}
@@ -92,39 +93,25 @@ func (index *LeastLoadedIndex) Add(host scheduling.Host) {
 	index.unsafeAdd(host)
 }
 
-func (index *LeastLoadedIndex) unsafeAdd(_host scheduling.Host) {
-	//_host, ok := host.(*leastLoadedHost)
-	//if !ok {
-	//	_host = &leastLoadedHost{
-	//		Host: host,
-	//	}
-	//}
+func (index *LeastLoadedIndex) unsafeAdd(host scheduling.Host) {
+	heap.Push(index.hosts, host)
+	idx := host.GetIdx()
 
-	heap.Push(index.hosts, _host)
-	idx := _host.GetIdx()
-
-	_host.SetMeta(HostMetaLeastLoadedIndexPos, int32(idx))
-	_host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
-	_host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
-	_host.SetContainedWithinIndex(true)
+	host.SetMeta(index.metadataKey, int32(idx))
+	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
+	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
+	host.SetContainedWithinIndex(true)
 	index.log.Debug("Added Host %s (ID=%s) to LeastLoadedIndex at position %d.",
-		_host.GetNodeName(), _host.GetID(), idx)
+		host.GetNodeName(), host.GetID(), idx)
 }
 
-func (index *LeastLoadedIndex) unsafeAddBack(_host scheduling.Host) {
-	//_host, ok := host.(*leastLoadedHost)
-	//if !ok {
-	//	_host = &leastLoadedHost{
-	//		Host: host,
-	//	}
-	//}
-
-	heap.Push(index.hosts, _host)
-	idx := _host.GetIdx()
-	_host.SetMeta(HostMetaLeastLoadedIndexPos, int32(idx))
-	_host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
-	_host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
-	_host.SetContainedWithinIndex(true)
+func (index *LeastLoadedIndex) unsafeAddBack(host scheduling.Host) {
+	heap.Push(index.hosts, host)
+	idx := host.GetIdx()
+	host.SetMeta(index.metadataKey, int32(idx))
+	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
+	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
+	host.SetContainedWithinIndex(true)
 }
 
 func (index *LeastLoadedIndex) Update(host scheduling.Host) {
@@ -132,7 +119,7 @@ func (index *LeastLoadedIndex) Update(host scheduling.Host) {
 	heap.Fix(index.hosts, oldIdx)
 	newIdx := host.GetIdx()
 
-	host.SetMeta(HostMetaLeastLoadedIndexPos, int32(newIdx))
+	host.SetMeta(index.metadataKey, int32(newIdx))
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
 }
@@ -141,7 +128,7 @@ func (index *LeastLoadedIndex) UpdateMultiple(hosts []scheduling.Host) {
 	heap.Init(index.hosts)
 
 	for _, host := range hosts {
-		host.SetMeta(HostMetaLeastLoadedIndexPos, int32(host.GetIdx()))
+		host.SetMeta(index.metadataKey, int32(host.GetIdx()))
 		host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 		host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
 	}
@@ -151,7 +138,7 @@ func (index *LeastLoadedIndex) Remove(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
-	i, ok := host.GetMeta(HostMetaLeastLoadedIndexPos).(int32)
+	i, ok := host.GetMeta(index.metadataKey).(int32)
 	if !ok {
 		index.log.Warn("Cannot remove host %s; it is not present within LeastLoadedIndex", host.GetID())
 		return
@@ -159,14 +146,14 @@ func (index *LeastLoadedIndex) Remove(host scheduling.Host) {
 
 	if !host.IsContainedWithinIndex() {
 		index.log.Warn("Host %s thinks it is not contained within any Cluster indices; "+
-			"however, its \"%s\" metadata has a non-nil value (%d).\n", host.GetID(), HostMetaLeastLoadedIndexPos, i)
+			"however, its \"%s\" metadata has a non-nil value (%d).\n", host.GetID(), index.metadataKey, i)
 	}
 
 	index.log.Debug("Removing host %s from LeastLoadedIndex, position=%d", host.GetID(), i)
 
 	heap.Remove(index.hosts, int(i))
 
-	host.SetMeta(HostMetaLeastLoadedIndexPos, nil)
+	host.SetMeta(index.metadataKey, nil)
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, nil)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, nil)
 	host.SetContainedWithinIndex(false)
@@ -178,18 +165,23 @@ func (index *LeastLoadedIndex) GetMetrics(_ scheduling.Host) []float64 {
 
 // getBlacklist converts the list of interface{} to a list of []int32 containing
 // the indices of blacklisted Host instances within a LeastLoadedIndex.
-func (index *LeastLoadedIndex) getBlacklist(blacklist []interface{}) []int32 {
-	__blacklist := make([]int32, 0)
-	for i, meta := range blacklist {
-		if meta == nil {
-			index.log.Error("Blacklist contains nil entry at index %d.", i)
+func (index *LeastLoadedIndex) getBlacklist(blacklist []interface{}) []scheduling.Host {
+	blacklistParsed := make([]scheduling.Host, 0)
+
+	if len(blacklist) == 0 {
+		return blacklistParsed
+	}
+
+	for i, host := range blacklist {
+		if host == nil {
+			index.log.Error("Blacklist contains nil entry at index %d: %v", i, blacklist)
 			continue
 		}
 
-		__blacklist = append(__blacklist, meta.(int32))
+		blacklistParsed = append(blacklistParsed, host.(scheduling.Host))
 	}
 
-	return __blacklist
+	return blacklistParsed
 }
 
 // unsafeSeek does the actual work of the Seek method.
@@ -219,7 +211,7 @@ func (index *LeastLoadedIndex) unsafeSeek(blacklistArg []interface{}) scheduling
 
 		if nextHost != nil {
 			// If the given host is blacklisted, then look for a different host.
-			if slices.Contains(blacklist, host.GetMeta(HostMetaLeastLoadedIndexPos).(int32)) {
+			if ContainsHost(blacklist, host) {
 				// Remove the host from the index temporarily so that we don't get it again.
 				// We can't return it because it's blacklisted, but we need to keep looking.
 				heap.Pop(index.hosts)

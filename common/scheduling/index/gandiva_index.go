@@ -23,9 +23,9 @@ type GandivaIndex struct {
 	identifier string
 }
 
-func NewGandivaIndex(size int, numGpus int32) *GandivaIndex {
+func NewGandivaIndex(numGpus int32) *GandivaIndex {
 	index := &GandivaIndex{
-		LeastLoadedIndex: NewLeastLoadedIndex(size),
+		LeastLoadedIndex: NewLeastLoadedIndex(HostMetaGandivaIndexPos),
 		numGpus:          numGpus,
 		identifier:       fmt.Sprintf("%d-GPU Pool", numGpus),
 	}

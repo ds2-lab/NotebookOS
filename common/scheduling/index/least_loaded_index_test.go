@@ -21,12 +21,9 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 		mockCluster *mock_scheduling.MockCluster
 	)
 
-	nextHostIndex := 0
 	hostSpec := types.NewDecimalSpec(64000, 128000, 8, 40)
 
 	BeforeEach(func() {
-		nextHostIndex = 0
-
 		mockCtrl = gomock.NewController(GinkgoT())
 		mockCluster = mock_scheduling.NewMockCluster(mockCtrl)
 	})
@@ -35,11 +32,11 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 		mockCtrl.Finish()
 	})
 
-	createHost := func() scheduling.Host {
+	createHost := func(idx int) scheduling.Host {
 		localGatewayClient := mock_proto.NewMockLocalGatewayClient(mockCtrl)
 
-		hostId := fmt.Sprintf("Host%d", nextHostIndex)
-		nodeName := fmt.Sprintf("Host%d", nextHostIndex)
+		hostId := fmt.Sprintf("Host%d", idx)
+		nodeName := fmt.Sprintf("Host%d", idx)
 
 		localGatewayClient.EXPECT().SetID(
 			gomock.Any(),
@@ -73,18 +70,16 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 		Expect(host).ToNot(BeNil())
 		Expect(err).To(BeNil())
 
-		nextHostIndex += 1
-
 		return host
 	}
 
 	Context("Adding and Removing Hosts", func() {
 		Context("Empty Hosts", func() {
 			It("Will handle a single add operation correctly", func() {
-				leastLoadedIndex := index.NewLeastLoadedIndex(4)
+				leastLoadedIndex := index.NewLeastLoadedIndex(index.LeastLoadedIndexMetadataKey)
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
-				host1 := createHost()
+				host1 := createHost(1)
 				leastLoadedIndex.Add(host1)
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
@@ -107,10 +102,10 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 			})
 
 			It("Will handle an add followed by a remove correctly", func() {
-				leastLoadedIndex := index.NewLeastLoadedIndex(4)
+				leastLoadedIndex := index.NewLeastLoadedIndex(index.LeastLoadedIndexMetadataKey)
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
-				host1 := createHost()
+				host1 := createHost(1)
 				leastLoadedIndex.Add(host1)
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
@@ -127,35 +122,43 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 			})
 
 			It("Will handle multiple add and remove operations correctly", func() {
-				leastLoadedIndex := index.NewLeastLoadedIndex(4)
+				leastLoadedIndex := index.NewLeastLoadedIndex(index.LeastLoadedIndexMetadataKey)
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
-				host1 := createHost()
+				host1 := createHost(1)
 				leastLoadedIndex.Add(host1)
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
-				ret, _ := leastLoadedIndex.Seek(make([]interface{}, 0))
+				meta := host1.GetMeta(index.LeastLoadedIndexMetadataKey)
+				Expect(meta).ToNot(BeNil())
+				Expect(meta.(int32)).To(Equal(int32(0)))
+
+				ret, _ := leastLoadedIndex.Seek([]interface{}{})
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
-				host2 := createHost()
+				host2 := createHost(2)
 				leastLoadedIndex.Add(host2)
 				Expect(leastLoadedIndex.Len()).To(Equal(2))
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
+				Expect(meta).ToNot(BeNil())
+				Expect(meta.(int32)).To(Equal(int32(1)))
+
+				ret, _ = leastLoadedIndex.Seek([]interface{}{})
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(2))
 
 				By("Succeeding during consecutive calls to Seek")
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _ = leastLoadedIndex.Seek([]interface{}{})
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(2))
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _ = leastLoadedIndex.Seek([]interface{}{})
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(2))
@@ -165,17 +168,22 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 				leastLoadedIndex.Remove(host1)
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 1))
+				ret, _ = leastLoadedIndex.Seek([]interface{}{})
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host2))
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
 				By("Correctly removing the final host")
 
+				meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
+				Expect(meta).ToNot(BeNil())
+				Expect(meta.(int32)).To(Equal(int32(0)))
+
+				fmt.Printf("Removing final host.")
 				leastLoadedIndex.Remove(host2)
 				Expect(leastLoadedIndex.Len()).To(Equal(0))
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _ = leastLoadedIndex.Seek([]interface{}{})
 				Expect(ret).To(BeNil())
 			})
 		})
@@ -189,12 +197,12 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 			)
 
 			BeforeEach(func() {
-				leastLoadedIndex = index.NewLeastLoadedIndex(4)
+				leastLoadedIndex = index.NewLeastLoadedIndex(index.LeastLoadedIndexMetadataKey)
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
-				host1 = createHost()
-				host2 = createHost()
-				host3 = createHost()
+				host1 = createHost(1)
+				host2 = createHost(2)
+				host3 = createHost(3)
 
 				err := host1.AddToCommittedResources(types.NewDecimalSpec(128, 256, 2, 2))
 				Expect(err).To(BeNil())

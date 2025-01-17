@@ -126,7 +126,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	for _, host := range replicaHosts {
 		s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.",
 			host.GetID(), host.GetNodeName(), kernelId, replicaSpec.ReplicaId)
-		blacklist = append(blacklist, host.GetMeta(s.placer.GetIndex().GetMetadataKey()))
+		blacklist = append(blacklist, host)
 	}
 
 	host := s.placer.FindHost(blacklist, replicaSpec.Kernel, forTraining)

@@ -22,7 +22,7 @@ func NewGandivaPlacer(metricsProvider scheduling.MetricsProvider, numReplicas in
 	leastLoadedPlacer := &GandivaPlacer{
 		AbstractPlacer: basePlacer,
 		numGpus:        numGpus,
-		index:          index.NewGandivaIndex(100, numGpus),
+		index:          index.NewGandivaIndex(numGpus),
 	}
 
 	basePlacer.instance = leastLoadedPlacer

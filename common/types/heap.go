@@ -48,15 +48,15 @@ func (h *Heap) Swap(i, j int) {
 	h.Elements[i].SetIdx(j)
 	h.Elements[j].SetIdx(i)
 
-	h.Elements[i].SetMeta(h.MetadataKey, j)
-	h.Elements[j].SetMeta(h.MetadataKey, i)
+	h.Elements[i].SetMeta(h.MetadataKey, int32(j))
+	h.Elements[j].SetMeta(h.MetadataKey, int32(i))
 
 	h.Elements[i], h.Elements[j] = h.Elements[j], h.Elements[i]
 }
 
 func (h *Heap) Push(x interface{}) {
 	x.(HeapElement).SetIdx(len(h.Elements))
-	x.(HeapElement).SetMeta(h.MetadataKey, len(h.Elements))
+	x.(HeapElement).SetMeta(h.MetadataKey, int32(len(h.Elements)))
 	h.Elements = append(h.Elements, x.(HeapElement))
 }
 
