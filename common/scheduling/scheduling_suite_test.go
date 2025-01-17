@@ -11,3 +11,8 @@ func TestScheduling(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Scheduling Suite")
 }
+
+// Un-comment this to enable debug logging for all test files in the suite.
+//var _ = BeforeSuite(func() {
+//	config.LogLevel = logger.LOG_LEVEL_ALL
+//})

@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Scusemua/go-utils/config"
-	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -158,8 +156,6 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 		hostMapper     *mock_scheduler.MockHostMapper
 		// notificationBroker *mock_scheduler.MockNotificationBroker
 	)
-
-	config.LogLevel = logger.LOG_LEVEL_ALL
 
 	hostSpec := types.NewDecimalSpec(8000, 64000, 8, 32)
 
