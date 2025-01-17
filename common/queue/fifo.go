@@ -22,6 +22,24 @@ func (q *Fifo[T]) Enqueue(elem T) {
 	q.elements = append(q.elements, elem)
 }
 
+// Remove removes the specified element from anywhere in the queue.
+//
+// If the target element is found and removed, then it will be returned along with the boolean flag "true".
+//
+// If the target element is not found, then "false" is returned, along with the 'zero' value for the type parameter
+// of the target Fifo.
+func (q *Fifo[T]) Remove(target T, eq func(t1 T, t2 T) bool) (T, bool) {
+	for idx, elem := range q.elements {
+		if eq(target, elem) {
+			q.elements = append(q.elements[:idx], q.elements[idx+1:]...)
+			return target, true
+		}
+	}
+
+	var zero T
+	return zero, false
+}
+
 // Dequeue removes and returns the next element in the queue.
 //
 // If the length of the Queue is 0, then Dequeue will return nil.

@@ -2,6 +2,7 @@ package placer
 
 import (
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/queue"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -52,29 +53,78 @@ type GandivaPlacer struct {
 
 	// totalGpusPerHost is the number of GPUs that are available for use on each Host within the cluster.
 	totalGpusPerHost int
+
+	placerId string
 }
 
 // NewGandivaPlacer creates a new GandivaPlacer.
 func NewGandivaPlacer(metrics scheduling.MetricsProvider, numReplicas int, policy scheduling.Policy, gpusPerHost int) (*GandivaPlacer, error) {
 	basePlacer := NewAbstractPlacer(metrics, numReplicas, policy)
-	groupedGandivaPlacer := &GandivaPlacer{
+	gandivaPlacer := &GandivaPlacer{
 		AbstractPlacer:   basePlacer,
 		totalGpusPerHost: gpusPerHost,
 		hostPools:        make(map[int32]*HostPool),
 		hostPoolsStr:     make(map[string]*HostPool),
 		allHosts:         index.NewLeastLoadedIndex(),
 		unpooledHosts:    queue.NewFifo[scheduling.Host](16),
+		placerId:         uuid.NewString(),
 	}
 
-	basePlacer.instance = groupedGandivaPlacer
+	basePlacer.instance = gandivaPlacer
 
-	err := groupedGandivaPlacer.initHostPools()
+	err := gandivaPlacer.initHostPools()
 	if err != nil {
-		groupedGandivaPlacer.log.Error("Failed to initialize host pools: %v", err)
+		gandivaPlacer.log.Error("Failed to initialize host pools: %v", err)
 		return nil, err
 	}
 
-	return groupedGandivaPlacer, nil
+	gandivaPlacer.allHosts.RegisterHostAddedCallback(gandivaPlacer.placerId, gandivaPlacer.hostAddedCallback)
+	gandivaPlacer.allHosts.RegisterHostRemovedCallback(gandivaPlacer.placerId, gandivaPlacer.hostRemovedCallback)
+
+	return gandivaPlacer, nil
+}
+
+// hostAddedCallback is registered with the allHosts index of the target GandivaPlacer and is invoked
+// whenever a Host is added to the allHosts index.
+func (placer *GandivaPlacer) hostAddedCallback(host scheduling.Host) {
+	placer.log.Debug("Host %s (ID=%s) was added to the Cluster.", host.GetNodeName(), host.GetID())
+	placer.unpooledHosts.Enqueue(host)
+}
+
+// hostRemovedCallback is registered with the allHosts index of the target GandivaPlacer and is invoked
+// whenever a Host is removed from the allHosts index.
+func (placer *GandivaPlacer) hostRemovedCallback(host scheduling.Host) {
+	placer.log.Debug("Host %s (ID=%s) was removed from the Cluster.", host.GetNodeName(), host.GetID())
+
+	_, removed := placer.unpooledHosts.Remove(host, func(h1 scheduling.Host, h2 scheduling.Host) bool {
+		return h1 == h2 || h1.GetID() == h2.GetID()
+	})
+
+	// If the host was found and removed from the unpooled hosts queue, then we're done.
+	if removed {
+		return
+	}
+
+	// We didn't find and remove the host from the unpooled hosts queue.
+	// This means that the host is in one of the GPU pools.
+	// First, figure out which index the host is contained within.
+	keyMetadata := host.GetMeta(scheduling.HostIndexKeyMetadata)
+	if keyMetadata == nil {
+		placer.log.Warn("Host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata entry",
+			host.GetNodeName(), host.GetID(), scheduling.HostIndexKeyMetadata)
+		return
+	}
+
+	// Attempt to load the pool.
+	pool, loaded := placer.hostPoolsStr[keyMetadata.(string)]
+	if !loaded {
+		placer.log.Error("Could not load GPU pool from key \"%s\" for host %s (ID=%s).",
+			keyMetadata, host.GetNodeName(), host.GetID())
+		return
+	}
+
+	// Remove the host from the pool.
+	pool.Placer.GetIndex().Remove(host)
 }
 
 // Len returns the number of scheduling.Host instances in the underlying least-loaded index.
