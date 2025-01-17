@@ -166,6 +166,16 @@
   tags:
     - dashboard
 
+- name: Create the workload-job-config.yaml file for the Dashboard Backend component using the associated template.
+  template:
+    src: ./dashboard/dashboard_workload_job_config.yaml.j2
+    dest: "{{ gopath }}/pkg/{{ git_repo_name }}/setup/ansible/roles/deploy-distr-notebook-docker-stack/files/dashboard_backend/workload-job-config.yaml"
+    mode: 0777
+    owner: "{{ remote_username }}"
+    group: "{{ remote_username }}"
+  tags:
+    - dashboard
+
 - name: Create the .env file for the Dashboard Backend component using the associated template.
   template:
     src: ./dashboard/dashboard_env.j2
