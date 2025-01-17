@@ -176,6 +176,10 @@ func (index *MultiIndex[T]) GetHostPool(gpus int32) (*HostPool[T], bool) {
 	return nil, false
 }
 
+func (index *MultiIndex[T]) Identifier() string {
+	return fmt.Sprintf("MultiIndex[%d,%d]", len(index.HostPools), index.Len())
+}
+
 func (index *MultiIndex[T]) Len() int {
 	index.mu.Lock()
 	defer index.mu.Unlock()
@@ -193,14 +197,8 @@ func (index *MultiIndex[T]) Add(host scheduling.Host) {
 	index.Size += 1
 }
 
+// Update is not thread-safe.
 func (index *MultiIndex[T]) Update(host scheduling.Host) {
-	index.mu.Lock()
-	defer index.mu.Unlock()
-
-	index.unsafeUpdate(host)
-}
-
-func (index *MultiIndex[T]) unsafeUpdate(host scheduling.Host) {
 	hostPool, loaded := index.HostIdToHostPool[host.GetID()]
 	if !loaded {
 		index.log.Warn("Could not load GPU pool for host %s (ID=%s). Cannot update host.",
@@ -211,12 +209,10 @@ func (index *MultiIndex[T]) unsafeUpdate(host scheduling.Host) {
 	hostPool.Pool.Update(host)
 }
 
+// UpdateMultiple is not thread-safe.
 func (index *MultiIndex[T]) UpdateMultiple(hosts []scheduling.Host) {
-	index.mu.Lock()
-	defer index.mu.Unlock()
-
 	for _, host := range hosts {
-		index.unsafeUpdate(host)
+		index.Update(host)
 	}
 }
 
@@ -269,10 +265,11 @@ func (index *MultiIndex[T]) GetMetrics(host scheduling.Host) []float64 {
 }
 
 func (index *MultiIndex[T]) Category() (string, interface{}) {
-	return scheduling.CategoryGandivaPoolIndex, "*"
+	return scheduling.CategoryClusterIndex, "*"
 }
 
 func (index *MultiIndex[T]) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
+	// Since all hosts are qualified, we check if the host is in the index only.
 	_, hostIsFree := index.FreeHostsMap[host.GetID()]
 	if hostIsFree {
 		// The host is already present in the index.
@@ -286,7 +283,7 @@ func (index *MultiIndex[T]) IsQualified(host scheduling.Host) (interface{}, sche
 		return expectedMultiIndexValue, scheduling.IndexQualified
 	}
 
-	return expectedMultiIndexValue, scheduling.IndexUnqualified
+	return expectedMultiIndexValue, scheduling.IndexNewQualified
 }
 
 // seekCriteria is used by the Seek method.

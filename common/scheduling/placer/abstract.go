@@ -22,6 +22,9 @@ type AbstractPlacer struct {
 	numReplicas      int
 	instance         internalPlacer
 	schedulingPolicy scheduling.Policy
+
+	// resourceReserver is a function used by placers to reserve resources on candidate hosts.
+	resourceReserver resourceReserver
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.
@@ -31,6 +34,9 @@ func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas i
 		numReplicas:      numReplicas,
 		schedulingPolicy: schedulingPolicy,
 	}
+
+	placer.resourceReserver = getResourceReserver(placer.reservationShouldUsePendingResources())
+
 	config.InitLogger(&placer.log, placer)
 	return placer
 }

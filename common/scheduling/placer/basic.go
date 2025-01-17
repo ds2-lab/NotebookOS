@@ -43,16 +43,20 @@ func (placer *BasicPlacer) GetIndex() scheduling.ClusterIndex {
 }
 
 // FindHosts returns a single host that can satisfy the resourceSpec.
-func (placer *BasicPlacer) findHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) []scheduling.Host {
+func (placer *BasicPlacer) findHosts(blacklist []interface{}, spec *proto.KernelSpec, numHosts int, forTraining bool,
+	metrics ...[]float64) []scheduling.Host {
 	var (
 		pos   interface{}       = nil
 		hosts []scheduling.Host = nil
 	)
 
+	// Create a wrapper around the 'resourceReserver' field so that it can be called by the index.
+	reserveResources := func(candidateHost scheduling.Host) bool {
+		return placer.resourceReserver(candidateHost, spec, forTraining)
+	}
+
 	// Seek `numHosts` Hosts from the Placer's index.
-	hosts, _ = placer.index.SeekMultipleFrom(pos, numHosts, func(candidateHost scheduling.Host) bool {
-		return placer.tryReserveResourcesOnHost(candidateHost, kernelSpec, forTraining)
-	}, blacklist)
+	hosts, _ = placer.index.SeekMultipleFrom(pos, numHosts, reserveResources, blacklist, metrics...)
 
 	if len(hosts) > 0 {
 		return hosts
@@ -63,8 +67,10 @@ func (placer *BasicPlacer) findHosts(blacklist []interface{}, kernelSpec *proto.
 }
 
 // FindHost returns a single host that can satisfy the resourceSpec.
-func (placer *BasicPlacer) findHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
-	hosts := placer.findHosts(blacklist, kernelSpec, 1, forTraining)
+func (placer *BasicPlacer) findHost(blacklist []interface{}, spec *proto.KernelSpec, forTraining bool,
+	metrics ...[]float64) scheduling.Host {
+	
+	hosts := placer.findHosts(blacklist, spec, 1, forTraining, metrics...)
 
 	if hosts == nil || len(hosts) == 0 {
 		return nil
@@ -84,32 +90,4 @@ func (placer *BasicPlacer) UpdateIndexMultiple(hosts []scheduling.Host) {
 // NumHostsInIndex returns the length of the BasicPlacer's index.
 func (placer *BasicPlacer) NumHostsInIndex() int {
 	return placer.index.Len()
-}
-
-// tryReserveResourcesOnHost attempts to reserve resources for a future replica of the specified kernel
-// on the specified host, returning true if the reservation was created successfully.
-func (placer *BasicPlacer) tryReserveResourcesOnHost(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) bool {
-	var usePendingReservation bool
-
-	if forTraining {
-		// If we are migrating a replica that needs to begin training right away, then we should not use a pending reservation.
-		// The container will need resources committed to it immediately.
-		usePendingReservation = false
-	} else {
-		usePendingReservation = placer.reservationShouldUsePendingResources()
-	}
-
-	reserved, err := candidateHost.ReserveResources(kernelSpec, usePendingReservation)
-
-	if err != nil {
-		placer.log.Debug("Failed to reserve resources for replica of kernel %s on host %s (ID=%s): %v",
-			kernelSpec.Id, candidateHost.GetNodeName(), candidateHost.GetID(), err)
-
-		// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
-		if reserved {
-			panic("We successfully reserved resources on a Host despite ReserveResources also returning an error...")
-		}
-	}
-
-	return reserved
 }

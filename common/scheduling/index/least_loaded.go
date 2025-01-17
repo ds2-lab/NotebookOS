@@ -90,40 +90,32 @@ func (index *LeastLoadedIndex) unsafeAddBack(host scheduling.Host) {
 	host.SetContainedWithinIndex(true)
 }
 
+// Update is not thread-safe.
 func (index *LeastLoadedIndex) Update(host scheduling.Host) {
-	index.mu.Lock()
-	defer index.mu.Unlock()
-
-	index.unsafeUpdate(host, expectedLeastLoadedIndex)
-}
-
-func (index *LeastLoadedIndex) unsafeUpdate(host scheduling.Host, keyMetadata interface{}) {
 	oldIdx := host.GetIdx()
 	heap.Fix(index.hosts, oldIdx)
 	newIdx := host.GetIdx()
 
 	host.SetMeta(LeastLoadedIndexMetadataKey, int32(newIdx))
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
-	host.SetMeta(scheduling.HostIndexKeyMetadata, keyMetadata)
+	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
 
 	// Invoke callbacks.
 	index.InvokeHostUpdatedCallbacks(host)
 }
 
-func (index *LeastLoadedIndex) UpdateMultiple(hosts []scheduling.Host) {
-	index.mu.Lock()
-	defer index.mu.Unlock()
-
-	index.unsafeUpdateMultiple(hosts, expectedLeastLoadedIndex)
+func (index *LeastLoadedIndex) Identifier() string {
+	return fmt.Sprintf("LeastLoadedIndex[%d]", index.Len())
 }
 
-func (index *LeastLoadedIndex) unsafeUpdateMultiple(hosts []scheduling.Host, keyMetadata interface{}) {
+// UpdateMultiple is not thread-safe.
+func (index *LeastLoadedIndex) UpdateMultiple(hosts []scheduling.Host) {
 	heap.Init(index.hosts)
 
 	for _, host := range hosts {
 		host.SetMeta(LeastLoadedIndexMetadataKey, int32(host.GetIdx()))
 		host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
-		host.SetMeta(scheduling.HostIndexKeyMetadata, keyMetadata)
+		host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
 
 		// Invoke callbacks.
 		index.InvokeHostUpdatedCallbacks(host)

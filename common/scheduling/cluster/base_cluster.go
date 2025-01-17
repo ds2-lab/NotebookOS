@@ -399,6 +399,10 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 			c.log.Debug("Removing existing host from index %s in onHostAdded: %v", indexKey, host)
 			index.Remove(host)
 		} // else unqualified
+
+		c.log.Debug("Host %s (ID=%s) is not qualified to be added to index '%s'.",
+			host.GetNodeName(), host.GetID(), index.Identifier())
+
 		return true
 	})
 

@@ -3,8 +3,6 @@ package scheduling
 const (
 	CategoryClusterIndex = "BaseCluster"
 
-	CategoryGandivaPoolIndex = "GandivaPool"
-
 	// IndexDisqualified indicates that the host has been indexed and unqualified now.
 	IndexDisqualified IndexQualification = -1
 	// IndexUnqualified indicates that the host is not qualified.
@@ -20,6 +18,9 @@ type IndexQualification int
 type IndexProvider interface {
 	// Category returns the category of the index and the expected value.
 	Category() (category string, expected interface{})
+
+	// Identifier returns the index's identifier.
+	Identifier() string
 
 	// IsQualified returns the actual value according to the index category and whether the Host is qualified.
 	// An index provider must be able to track indexed Host instances and indicate disqualification.

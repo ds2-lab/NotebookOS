@@ -1,6 +1,7 @@
 package index
 
 import (
+	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -256,6 +257,10 @@ func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 	defer index.mu.Unlock()
 
 	return index.seekInternal(blacklist, metrics...)
+}
+
+func (index *StaticClusterIndex) Identifier() string {
+	return fmt.Sprintf("StaticClusterIndex[%d]", index.Len())
 }
 
 // seekInternal does the actual work of the Seek method.

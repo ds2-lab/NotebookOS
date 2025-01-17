@@ -143,11 +143,6 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *DockerScheduler) HostAdded(host scheduling.Host) {
 	s.log.Debug("Host %s (ID=%s) has been added.", host.GetNodeName(), host.GetID())
-
-	// The Gandiva scheduler is an extension of the Docker Scheduler.
-	if s.instance != s {
-		s.instance.HostAdded(host)
-	}
 }
 
 // findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.

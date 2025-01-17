@@ -1,6 +1,7 @@
 package index
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
@@ -43,6 +44,10 @@ func NewRandomClusterIndex(size int) *RandomClusterIndex {
 	config.InitLogger(&index.log, index)
 
 	return index
+}
+
+func (index *RandomClusterIndex) Identifier() string {
+	return fmt.Sprintf("RandomClusterIndex[%d]", index.len)
 }
 
 func (index *RandomClusterIndex) Category() (string, interface{}) {
