@@ -336,6 +336,11 @@ func (s *BaseScheduler) FindCandidateHosts(numHosts int, kernelSpec *proto.Kerne
 	s.candidateHostMutex.Lock()
 	hostBatch := s.instance.findCandidateHosts(numHosts, kernelSpec)
 	s.candidateHostMutex.Unlock()
+
+	if hostBatch == nil {
+		hostBatch = make([]scheduling.Host, 0)
+	}
+
 	return hostBatch
 }
 
@@ -403,7 +408,8 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
 		s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
 			numHostsRequired, kernelSpec.Id, len(hosts))
-		hosts = s.FindCandidateHosts(numHostsRequired, kernelSpec) // note: this function executes atomically.
+		hostBatch := s.FindCandidateHosts(numHostsRequired, kernelSpec) // note: this function executes atomically.
+		hosts = append(hosts, hostBatch...)
 
 		if len(hosts) < s.schedulingPolicy.NumReplicas() {
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",

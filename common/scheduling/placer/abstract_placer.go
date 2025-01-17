@@ -68,11 +68,11 @@ func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts i
 
 	var successLabel string
 	if hosts == nil || len(hosts) < numHosts {
-		placer.log.Warn(utils.OrangeStyle.Render("Failed to identify the %d required hosts for kernel %s. Found only %d/%d. Time elapsed: %v."),
-			placer.numReplicas, kernelSpec.Id, len(hosts), placer.numReplicas, latency)
+		placer.log.Warn(utils.OrangeStyle.Render("Found only %d/%d hosts for kernel %s. Time elapsed: %v."),
+			len(hosts), numHosts, kernelSpec.Id, latency)
 		successLabel = "false"
 	} else {
-		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts for kernel %s after %v."),
+		placer.log.Debug(utils.GreenStyle.Render("Found %d/%d viable hosts for kernel %s after %v."),
 			len(hosts), numHosts, kernelSpec.Id, latency)
 		successLabel = "true"
 	}

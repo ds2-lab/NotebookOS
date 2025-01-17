@@ -136,6 +136,7 @@ type Host interface {
 	SetErrorCallback(callback ErrorCallback)
 	Penalty(gpus float64) (float64, PreemptionInfo, error)
 	HasAnyReplicaOfKernel(kernelId string) bool
+	HasReservationForKernel(kernelId string) bool
 	HasSpecificReplicaOfKernel(kernelId string, replicaId int32) bool
 	GetAnyReplicaOfKernel(kernelId string) KernelContainer
 	GetSpecificReplicaOfKernel(kernelId string, replicaId int32) KernelContainer

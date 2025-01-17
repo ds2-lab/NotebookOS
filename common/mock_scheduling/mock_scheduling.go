@@ -684,20 +684,6 @@ func (m *MockScheduler) EXPECT() *MockSchedulerMockRecorder {
 	return m.recorder
 }
 
-// RequestNewHost mocks base method.
-func (m *MockScheduler) RequestNewHost() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RequestNewHost")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// RequestNewHost indicates an expected call of RequestNewHost.
-func (mr *MockSchedulerMockRecorder) RequestNewHost() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestNewHost", reflect.TypeOf((*MockScheduler)(nil).RequestNewHost))
-}
-
 // DeployKernelReplicas mocks base method.
 func (m *MockScheduler) DeployKernelReplicas(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	m.ctrl.T.Helper()
@@ -783,6 +769,18 @@ func (m *MockScheduler) GetOversubscriptionFactor(ratio decimal.Decimal) decimal
 func (mr *MockSchedulerMockRecorder) GetOversubscriptionFactor(ratio any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOversubscriptionFactor", reflect.TypeOf((*MockScheduler)(nil).GetOversubscriptionFactor), ratio)
+}
+
+// HostAdded mocks base method.
+func (m *MockScheduler) HostAdded(host scheduling.Host) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "HostAdded", host)
+}
+
+// HostAdded indicates an expected call of HostAdded.
+func (mr *MockSchedulerMockRecorder) HostAdded(host any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HostAdded", reflect.TypeOf((*MockScheduler)(nil).HostAdded), host)
 }
 
 // MigrateKernelReplica mocks base method.
@@ -912,6 +910,20 @@ func (m *MockScheduler) RemoveReplicaFromHost(kernelReplica scheduling.KernelRep
 func (mr *MockSchedulerMockRecorder) RemoveReplicaFromHost(kernelReplica any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveReplicaFromHost", reflect.TypeOf((*MockScheduler)(nil).RemoveReplicaFromHost), kernelReplica)
+}
+
+// RequestNewHost mocks base method.
+func (m *MockScheduler) RequestNewHost() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequestNewHost")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RequestNewHost indicates an expected call of RequestNewHost.
+func (mr *MockSchedulerMockRecorder) RequestNewHost() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestNewHost", reflect.TypeOf((*MockScheduler)(nil).RequestNewHost))
 }
 
 // ScheduleKernelReplica mocks base method.
@@ -2221,6 +2233,20 @@ func (mr *MockHostMockRecorder) HasAnyReplicaOfKernel(kernelId any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasAnyReplicaOfKernel", reflect.TypeOf((*MockHost)(nil).HasAnyReplicaOfKernel), kernelId)
 }
 
+// HasReservationForKernel mocks base method.
+func (m *MockHost) HasReservationForKernel(kernelId string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasReservationForKernel", kernelId)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasReservationForKernel indicates an expected call of HasReservationForKernel.
+func (mr *MockHostMockRecorder) HasReservationForKernel(kernelId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasReservationForKernel", reflect.TypeOf((*MockHost)(nil).HasReservationForKernel), kernelId)
+}
+
 // HasSpecificReplicaOfKernel mocks base method.
 func (m *MockHost) HasSpecificReplicaOfKernel(kernelId string, replicaId int32) bool {
 	m.ctrl.T.Helper()
@@ -2919,15 +2945,15 @@ func (mr *MockHostMockRecorder) SetIdx(idx any) *gomock.Call {
 }
 
 // SetMeta mocks base method.
-func (m *MockHost) SetMeta(key types.HeapElementMetadataKey, value any) {
+func (m *MockHost) SetMeta(arg0 types.HeapElementMetadataKey, arg1 any) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetMeta", key, value)
+	m.ctrl.Call(m, "SetMeta", arg0, arg1)
 }
 
 // SetMeta indicates an expected call of SetMeta.
-func (mr *MockHostMockRecorder) SetMeta(key, value any) *gomock.Call {
+func (mr *MockHostMockRecorder) SetMeta(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMeta", reflect.TypeOf((*MockHost)(nil).SetMeta), key, value)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMeta", reflect.TypeOf((*MockHost)(nil).SetMeta), arg0, arg1)
 }
 
 // SetSchedulerPoolType mocks base method.

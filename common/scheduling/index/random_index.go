@@ -5,7 +5,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"math/rand"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -207,16 +206,16 @@ func (index *RandomClusterIndex) reshuffleRequired() bool {
 
 // getBlacklist converts the list of interface{} to a list of []int32 containing
 // the indices of blacklisted Host instances within a RandomClusterIndex.
-func (index *RandomClusterIndex) getBlacklist(blacklist []interface{}) []int32 {
+func (index *RandomClusterIndex) getBlacklist(blacklist []interface{}) []scheduling.Host {
 
-	__blacklist := make([]int32, 0)
+	__blacklist := make([]scheduling.Host, 0)
 	for i, meta := range blacklist {
 		if meta == nil {
 			index.log.Error("Blacklist contains nil entry at index %d.", i)
 			continue
 		}
 
-		__blacklist = append(__blacklist, meta.(int32))
+		__blacklist = append(__blacklist, meta.(scheduling.Host))
 	}
 
 	return __blacklist
@@ -248,7 +247,8 @@ func (index *RandomClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics 
 			hostsSeen += 1
 
 			// If the given host is blacklisted, then look for a different host.
-			if slices.Contains(blacklist, host.GetMeta(HostMetaRandomIndex).(int32)) {
+			// if slices.Contains(blacklist, host.GetMeta(HostMetaRandomIndex).(int32)) {
+			if ContainsHost(blacklist, host) {
 				// Set to nil so that we have to continue searching.
 				host = nil
 			}

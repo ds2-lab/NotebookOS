@@ -1477,7 +1477,13 @@ func (h *Host) updatePenaltyList(cached *scheduling.PenaltyContainers) *scheduli
 	return cached
 }
 
-// HasAnyReplicaOfKernel returns true if the Host currently has a Container (i.e., a kernel replica) of the
+// HasReservationForKernel returns true if the target Host has a reservation for the specified kernel.
+func (h *Host) HasReservationForKernel(kernelId string) bool {
+	_, loaded := h.reservations.Load(kernelId)
+	return loaded
+}
+
+// HasAnyReplicaOfKernel returns true if the target Host currently has a Container (i.e., a kernel replica) of the
 // specified kernel.
 func (h *Host) HasAnyReplicaOfKernel(kernelId string) bool {
 	found := false

@@ -217,15 +217,15 @@ func (index *StaticClusterIndex) GetMetrics(scheduling.Host) (metrics []float64)
 
 // getBlacklist converts the list of interface{} to a list of []int32 containing
 // the indices of blacklisted Host instances within a RandomClusterIndex.
-func (index *StaticClusterIndex) getBlacklist(blacklist []interface{}) []int32 {
-	__blacklist := make([]int32, 0)
+func (index *StaticClusterIndex) getBlacklist(blacklist []interface{}) []scheduling.Host {
+	__blacklist := make([]scheduling.Host, 0)
 	for i, meta := range blacklist {
 		if meta == nil {
 			index.log.Error("Blacklist contains nil entry at index %d.", i)
 			continue
 		}
 
-		__blacklist = append(__blacklist, meta.(int32))
+		__blacklist = append(__blacklist, meta.(scheduling.Host))
 	}
 
 	return __blacklist
@@ -284,7 +284,7 @@ func (index *StaticClusterIndex) seekInternal(blacklistArg []interface{}, _ ...[
 		index.seekStart++
 		if host != nil {
 			// If the given host is blacklisted, then look for a different host.
-			if slices.Contains(blacklist, host.GetMeta(HostMetaStaticIndex).(int32)) {
+			if ContainsHost(blacklist, host) { // host.GetMeta(HostMetaStaticIndex).(int32)) {
 				// Set to nil so that we have to continue searching.
 				host = nil
 			}

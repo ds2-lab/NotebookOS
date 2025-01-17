@@ -516,6 +516,15 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					Expect(host.NumReservations()).To(Equal(1))
 					err = host.ReleaseReservation(kernelSpec)
 					Expect(err).To(BeNil())
+
+					Expect(host.HasAnyReplicaOfKernel(kernelId)).To(BeFalse())
+					Expect(host.HasReservationForKernel(kernelId)).To(BeFalse())
+				}
+
+				// Ensure that no hosts have a reservation for the kernel.
+				for _, host := range hosts {
+					Expect(host.HasAnyReplicaOfKernel(kernelId)).To(BeFalse())
+					Expect(host.HasReservationForKernel(kernelId)).To(BeFalse())
 				}
 
 				Expect(dockerCluster.Len()).To(Equal(5))
@@ -523,6 +532,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				Expect(dockerCluster.NumScaleOutOperationsAttempted()).To(Equal(0))
 				Expect(dockerCluster.NumScaleOutOperationsSucceeded()).To(Equal(0))
 
+				By("Correctly identifying three candidate hosts")
+
+				fmt.Printf("\nSearching for candidate hosts again.\n\n")
 				candidateHosts, err = dockerScheduler.GetCandidateHosts(context.Background(), kernelSpec)
 				Expect(err).To(BeNil())
 				Expect(candidateHosts).ToNot(BeNil())
@@ -1378,6 +1390,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				// Create a new, larger host.
 				i := len(hosts)
 				bigHost1, _, _, err := addHost(i, largerHostSpec, false, dockerCluster, mockCtrl)
+				GinkgoWriter.Printf("Created bigHost1: name=%s & ID=%s\n", bigHost1.GetNodeName(), bigHost1.GetID())
 				Expect(err).To(BeNil())
 				Expect(bigHost1).ToNot(BeNil())
 
@@ -1399,6 +1412,8 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				}
 
 				candidateHosts := dockerScheduler.FindCandidateHosts(3, bigKernelSpec)
+				GinkgoWriter.Printf("Found candidate: Host %s (ID=%s)\n",
+					candidateHosts[0].GetNodeName(), candidateHosts[0].GetID())
 				Expect(candidateHosts).ToNot(BeNil())
 				Expect(len(candidateHosts)).To(Equal(1))
 				Expect(candidateHosts[0]).To(Equal(bigHost1))
@@ -1411,15 +1426,19 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				bigHost2, _, _, err := addHost(i, largerHostSpec, false, dockerCluster, mockCtrl)
 				Expect(err).To(BeNil())
 				Expect(bigHost2).ToNot(BeNil())
+				GinkgoWriter.Printf("Created bigHost2: name=%s & ID=%s\n", bigHost1.GetNodeName(), bigHost1.GetID())
 
 				hosts[i] = bigHost2
 
 				hostBatch := dockerScheduler.FindCandidateHosts(3-len(candidateHosts), bigKernelSpec)
 				Expect(hostBatch).ToNot(BeNil())
 				Expect(len(hostBatch)).To(Equal(1))
-				Expect(hostBatch[0]).To(Equal(bigHost1))
+				GinkgoWriter.Printf("Found candidate: Host %s (ID=%s)\n",
+					hostBatch[0].GetNodeName(), hostBatch[0].GetID())
+				Expect(hostBatch[0]).To(Equal(bigHost2))
 				candidateHosts = append(candidateHosts, hostBatch...)
-				//Expect(candidateHosts[1]).To(Equal(bigHost2))
+				Expect(candidateHosts[0]).To(Equal(bigHost1))
+				Expect(candidateHosts[1]).To(Equal(bigHost2))
 
 				Expect(bigHost1.NumReservations()).To(Equal(1))
 				reservation, loaded := bigHost1.GetReservation(kernelId)
@@ -1663,6 +1682,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				bigHost1, _, _, err := addHost(i, largerHostSpec, false, dockerCluster, mockCtrl)
 				Expect(err).To(BeNil())
 				Expect(bigHost1).ToNot(BeNil())
+				GinkgoWriter.Printf("Created bigHost1: name=%s & ID=%s\n", bigHost1.GetNodeName(), bigHost1.GetID())
 
 				hosts[i] = bigHost1
 
@@ -1694,6 +1714,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				bigHost2, _, _, err := addHost(i, largerHostSpec, false, dockerCluster, mockCtrl)
 				Expect(err).To(BeNil())
 				Expect(bigHost2).ToNot(BeNil())
+				GinkgoWriter.Printf("Created bigHost2: name=%s & ID=%s\n", bigHost1.GetNodeName(), bigHost1.GetID())
 
 				hosts[i] = bigHost2
 
