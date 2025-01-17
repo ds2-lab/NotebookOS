@@ -190,6 +190,9 @@ func (index *LeastLoadedIndex) unsafeSeek(blacklistArg []interface{}) scheduling
 		if nextHost != nil {
 			// If the given host is blacklisted, then look for a different host.
 			if ContainsHost(blacklist, host) {
+				index.log.Debug("Host %s (ID=%s) is black-listed. Temporarily removing the host from the index.",
+					host.GetNodeName(), host.GetID())
+
 				// Remove the host from the index temporarily so that we don't get it again.
 				// We can't return it because it's blacklisted, but we need to keep looking.
 				heap.Pop(index.hosts)
@@ -294,7 +297,7 @@ func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteria
 		// Remove the host so that we don't get it again if we need to keep looking.
 		// We'll add it back once we're done finding all the hosts.
 		//
-		// We use heap.Remove instead of heap.Pop because the criteraFunc called up above may reserve
+		// We use heap.Remove instead of heap.Pop because the criteriaFunc called up above may reserve
 		// resources on the host, which may cause its position in the heap to be updated. In this case,
 		// it may no longer be the next element in the heap, so we remove it explicitly using whatever
 		// its current index is.

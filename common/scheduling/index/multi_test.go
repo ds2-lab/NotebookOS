@@ -15,7 +15,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-var _ = Describe("GandivaIndex Tests", func() {
+var _ = Describe("MultiIndex Tests", func() {
 	var (
 		mockCtrl    *gomock.Controller
 		mockCluster *mock_scheduling.MockCluster
@@ -76,7 +76,7 @@ var _ = Describe("GandivaIndex Tests", func() {
 	Context("Adding and Removing Hosts", func() {
 		Context("Empty Hosts", func() {
 			It("Will handle a single add operation correctly", func() {
-				gandivaIndex := index.NewGandivaIndex(int32(hostSpec.GPU()))
+				gandivaIndex := index.NewMultiIndex(int32(hostSpec.GPU()))
 				Expect(gandivaIndex).ToNot(BeNil())
 
 				host1 := createHost(1)
@@ -102,7 +102,7 @@ var _ = Describe("GandivaIndex Tests", func() {
 			})
 
 			It("Will handle an add followed by a remove correctly", func() {
-				gandivaIndex := index.NewGandivaIndex(int32(hostSpec.GPU()))
+				gandivaIndex := index.NewMultiIndex(int32(hostSpec.GPU()))
 				Expect(gandivaIndex).ToNot(BeNil())
 
 				host1 := createHost(1)
@@ -122,7 +122,7 @@ var _ = Describe("GandivaIndex Tests", func() {
 			})
 
 			It("Will handle multiple add and remove operations correctly", func() {
-				gandivaIndex := index.NewGandivaIndex(int32(hostSpec.GPU()))
+				gandivaIndex := index.NewMultiIndex(int32(hostSpec.GPU()))
 				Expect(gandivaIndex).ToNot(BeNil())
 
 				host1 := createHost(1)
@@ -190,14 +190,14 @@ var _ = Describe("GandivaIndex Tests", func() {
 
 		Context("Non-Empty Hosts", func() {
 			var (
-				gandivaIndex *index.GandivaIndex
+				gandivaIndex *index.MultiIndex
 				host1        scheduling.Host
 				host2        scheduling.Host
 				host3        scheduling.Host
 			)
 
 			BeforeEach(func() {
-				gandivaIndex = index.NewGandivaIndex(int32(hostSpec.GPU()))
+				gandivaIndex = index.NewMultiIndex(int32(hostSpec.GPU()))
 				Expect(gandivaIndex).ToNot(BeNil())
 
 				host1 = createHost(1)

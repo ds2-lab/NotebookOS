@@ -33,7 +33,7 @@ type GandivaPlacer struct {
 	*AbstractPlacer
 
 	// allHosts is a LeastLoadedIndex that contains all the hosts managed by this GandivaPlacer.
-	allHosts *index.LeastLoadedIndex
+	allHosts *index.RandomClusterIndex
 
 	// hostGroupsInitialized indicates whether the host pools have been initialized.
 	hostGroupsInitialized bool
@@ -65,7 +65,7 @@ func NewGandivaPlacer(metrics scheduling.MetricsProvider, numReplicas int, polic
 		totalGpusPerHost: gpusPerHost,
 		hostPools:        make(map[int32]*HostPool),
 		hostPoolsStr:     make(map[string]*HostPool),
-		allHosts:         index.NewLeastLoadedIndex(),
+		allHosts:         index.NewRandomClusterIndex(16),
 		unpooledHosts:    queue.NewFifo[scheduling.Host](16),
 		placerId:         uuid.NewString(),
 	}

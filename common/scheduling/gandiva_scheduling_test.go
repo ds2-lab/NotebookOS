@@ -205,7 +205,7 @@ var _ = Describe("Gandiva Scheduling Tests", func() {
 		dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, gandivaPlacer, mockedHostMapper,
 			mockedKernelProvider, nil, nil, schedulingPolicy,
 			func(f func(stats *statistics.ClusterStatistics)) {}, &opts.SchedulerOptions)
-		
+
 		dockerScheduler, ok = dockerSwarmCluster.Scheduler().(*scheduler.DockerScheduler)
 		Expect(ok).To(BeTrue())
 		Expect(dockerScheduler).ToNot(BeNil())
@@ -369,6 +369,9 @@ var _ = Describe("Gandiva Scheduling Tests", func() {
 		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(2))
 		Expect(dockerSwarmCluster.Len()).To(Equal(2))
 
+		Expect(gandivaPlacer.Len()).To(Equal(2))
+		Expect(gandivaPlacer.GetIndex().Len()).To(Equal(2))
+
 		resourceSpec := proto.NewResourceSpec(1250, 2000, 5, 4)
 		kernel1Id := uuid.NewString()
 		kernel1Key := uuid.NewString()
@@ -406,6 +409,9 @@ var _ = Describe("Gandiva Scheduling Tests", func() {
 		Expect(hostPool.Placer.Len()).To(Equal(1))
 		Expect(hostPool.Placer.Size()).To(Equal(1))
 
+		Expect(gandivaPlacer.Len()).To(Equal(2))
+		Expect(gandivaPlacer.GetIndex().Len()).To(Equal(2))
+
 		By("Returning the other available host again when finding a candidate a second time")
 
 		kernel2Id := uuid.NewString()
@@ -425,6 +431,8 @@ var _ = Describe("Gandiva Scheduling Tests", func() {
 		Expect(candidateHosts[0]).To(Equal(host2))
 
 		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(0))
+		Expect(gandivaPlacer.Len()).To(Equal(2))
+		Expect(gandivaPlacer.GetIndex().Len()).To(Equal(2))
 
 		Expect(gandivaPlacer.NumHostsInPool(0)).To(Equal(0))
 		Expect(gandivaPlacer.NumHostsInPool(1)).To(Equal(0))
