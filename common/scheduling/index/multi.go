@@ -55,7 +55,7 @@ func (p *HostPool[T]) AddHost(host scheduling.Host) {
 }
 
 // MultiIndexProvider provides the individual indices used by a MultiIndex.
-type MultiIndexProvider[T scheduling.ClusterIndex] func() (T, error)
+type MultiIndexProvider[T scheduling.ClusterIndex] func() T
 
 // MultiIndex manages a collection of sub-indices organized by number of GPUs.
 type MultiIndex[T scheduling.ClusterIndex] struct {
@@ -107,7 +107,10 @@ func NewMultiIndex[T scheduling.ClusterIndex](maxGpus int32, provider MultiIndex
 	return index, nil
 }
 
-func (index *MultiIndex[T]) initializeHostPools(maxGPUs int32, provider MultiIndexProvider[T]) error {
+// initializeHostPools creates all the HostPool instances to be managed by the target MultiIndex.
+//
+// It uses the given MultiIndexProvider to create each of the "sub-indices"/HostPool instances.
+func (index *MultiIndex[T]) initializeHostPools(maxGPUs int32, indexProvider MultiIndexProvider[T]) error {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -117,13 +120,7 @@ func (index *MultiIndex[T]) initializeHostPools(maxGPUs int32, provider MultiInd
 
 	var gpus int32
 	for gpus = 0; gpus <= maxGPUs; gpus++ {
-		subIndex, err := provider()
-
-		if err != nil {
-			return err
-		}
-
-		index.HostPools[gpus] = NewHostPool(subIndex, gpus)
+		index.HostPools[gpus] = NewHostPool(indexProvider(), gpus)
 		index.log.Debug("Initialized %d-GPU pool.", gpus)
 	}
 

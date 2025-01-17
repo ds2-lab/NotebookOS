@@ -76,8 +76,9 @@ var _ = Describe("MultiIndex Tests", func() {
 	Context("Adding and Removing Hosts", func() {
 		Context("Empty Hosts", func() {
 			It("Will handle a single add operation correctly", func() {
-				gandivaIndex := index.NewMultiIndex(int32(hostSpec.GPU()))
+				gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
 				Expect(gandivaIndex).ToNot(BeNil())
+				Expect(err).To(BeNil())
 
 				host1 := createHost(1)
 				gandivaIndex.Add(host1)
@@ -102,7 +103,8 @@ var _ = Describe("MultiIndex Tests", func() {
 			})
 
 			It("Will handle an add followed by a remove correctly", func() {
-				gandivaIndex := index.NewMultiIndex(int32(hostSpec.GPU()))
+				gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
+				Expect(err).To(BeNil())
 				Expect(gandivaIndex).ToNot(BeNil())
 
 				host1 := createHost(1)
@@ -122,7 +124,8 @@ var _ = Describe("MultiIndex Tests", func() {
 			})
 
 			It("Will handle multiple add and remove operations correctly", func() {
-				gandivaIndex := index.NewMultiIndex(int32(hostSpec.GPU()))
+				gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
+				Expect(err).To(BeNil())
 				Expect(gandivaIndex).ToNot(BeNil())
 
 				host1 := createHost(1)
@@ -190,14 +193,16 @@ var _ = Describe("MultiIndex Tests", func() {
 
 		Context("Non-Empty Hosts", func() {
 			var (
-				gandivaIndex *index.MultiIndex
+				gandivaIndex *index.MultiIndex[*index.LeastLoadedIndex]
+				err          error
 				host1        scheduling.Host
 				host2        scheduling.Host
 				host3        scheduling.Host
 			)
 
 			BeforeEach(func() {
-				gandivaIndex = index.NewMultiIndex(int32(hostSpec.GPU()))
+				gandivaIndex, err = index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
+				Expect(err).To(BeNil())
 				Expect(gandivaIndex).ToNot(BeNil())
 
 				host1 = createHost(1)
