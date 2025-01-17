@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"slices"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 )
 
 const (
-	HostMetaGandivaIndexPos scheduling.HostMetaKey = "gandiva_index_position"
+	HostMetaGandivaIndexPos types.HeapElementMetadataKey = "gandiva_index_position"
 )
 
 // GandivaIndex is a simple Cluster that seeks the least-loaded hosts.
@@ -38,7 +39,7 @@ func (index *GandivaIndex) Category() (string, interface{}) {
 	return scheduling.CategoryGandivaPoolIndex, index.identifier
 }
 
-func (index *GandivaIndex) GetMetadataKey() scheduling.HostMetaKey {
+func (index *GandivaIndex) GetMetadataKey() types.HeapElementMetadataKey {
 	return HostMetaGandivaIndexPos
 }
 
@@ -61,7 +62,7 @@ func (index *GandivaIndex) IsQualified(host scheduling.Host) (interface{}, sched
 }
 
 func (index *GandivaIndex) Len() int {
-	return len(index.hosts)
+	return index.hosts.Len()
 }
 
 func (index *GandivaIndex) Add(host scheduling.Host) {
@@ -72,7 +73,7 @@ func (index *GandivaIndex) Add(host scheduling.Host) {
 }
 
 func (index *GandivaIndex) unsafeAdd(host scheduling.Host) {
-	heap.Push(&index.hosts, host)
+	heap.Push(index.hosts, host)
 	idx := host.GetIdx()
 	host.SetMeta(HostMetaGandivaIndexPos, int32(idx))
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryGandivaPoolIndex)
@@ -83,7 +84,7 @@ func (index *GandivaIndex) unsafeAdd(host scheduling.Host) {
 }
 
 func (index *GandivaIndex) unsafeAddBack(host scheduling.Host) {
-	heap.Push(&index.hosts, host)
+	heap.Push(index.hosts, host)
 	idx := host.GetIdx()
 	host.SetMeta(HostMetaGandivaIndexPos, int32(idx))
 	host.SetContainedWithinIndex(true)
@@ -94,7 +95,7 @@ func (index *GandivaIndex) Update(host scheduling.Host) {
 	index.log.Debug("Fixing position of Host %s (ID=%s) in GandivaIndex '%s' (old index of host: %d)",
 		host.GetNodeName(), host.GetID(), index.identifier, oldIdx)
 
-	heap.Fix(&index.hosts, oldIdx)
+	heap.Fix(index.hosts, oldIdx)
 	newIdx := host.GetIdx()
 
 	if oldIdx != newIdx {
@@ -110,7 +111,7 @@ func (index *GandivaIndex) Update(host scheduling.Host) {
 }
 
 func (index *GandivaIndex) UpdateMultiple(hosts []scheduling.Host) {
-	heap.Init(&index.hosts)
+	heap.Init(index.hosts)
 
 	for _, host := range hosts {
 		host.SetMeta(HostMetaGandivaIndexPos, int32(host.GetIdx()))
@@ -136,7 +137,7 @@ func (index *GandivaIndex) Remove(host scheduling.Host) {
 
 	index.log.Debug("Removing host %s from GandivaIndex, position=%d", host.GetID(), i)
 
-	heap.Remove(&index.hosts, int(i))
+	heap.Remove(index.hosts, int(i))
 
 	host.SetMeta(HostMetaGandivaIndexPos, nil)
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, nil)
@@ -167,7 +168,7 @@ func (index *GandivaIndex) getBlacklist(blacklist []interface{}) []int32 {
 // unsafeSeek does the actual work of the Seek method.
 // unsafeSeek does not acquire the mutex. It should be called from a function that has already acquired the mutex.
 func (index *GandivaIndex) unsafeSeek(blacklistArg []interface{}) scheduling.Host {
-	if len(index.hosts) == 0 {
+	if index.hosts.Len() == 0 {
 		return nil
 	}
 
@@ -194,7 +195,7 @@ func (index *GandivaIndex) unsafeSeek(blacklistArg []interface{}) scheduling.Hos
 			if slices.Contains(blacklist, host.GetMeta(HostMetaGandivaIndexPos).(int32)) {
 				// Remove the host from the index temporarily so that we don't get it again.
 				// We can't return it because it's blacklisted, but we need to keep looking.
-				heap.Pop(&index.hosts)
+				heap.Pop(index.hosts)
 
 				// Take note that we need to add the host back before we return from unsafeSeek.
 				hostsToBeAddedBack = append(hostsToBeAddedBack, host)
@@ -297,7 +298,7 @@ func (index *GandivaIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc
 		// its current index is.
 		//
 		// We only have to do this if we're going to keep searching.
-		heap.Remove(&index.hosts, candidateHost.GetIdx())
+		heap.Remove(index.hosts, candidateHost.GetIdx())
 
 		// Take note that we need to add the host back.
 		hostsToBeAddedBack[candidateHost.GetID()] = candidateHost

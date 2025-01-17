@@ -1,9 +1,5 @@
 package types
 
-import (
-	"math/rand"
-)
-
 type Comparable interface {
 	// Compare compares the object with specified object.
 	// Returns negative, 0, positive if the object is smaller than, equal to, or larger than specified object respectively.
@@ -16,73 +12,96 @@ type HeapElement interface {
 	SetIdx(int)
 
 	String() string
+
+	SetMeta(HeapElementMetadataKey, interface{})
 }
 
-type Heap []HeapElement
+type HeapElementMetadataKey string
 
-func (h Heap) Len() int {
-	return len(h)
+func (k HeapElementMetadataKey) String() string {
+	return string(k)
 }
 
-func (h Heap) Less(i, j int) bool {
+type Heap struct {
+	Elements    []HeapElement
+	MetadataKey HeapElementMetadataKey
+}
+
+func NewHeap(metadataKey HeapElementMetadataKey) *Heap {
+	return &Heap{
+		Elements:    make([]HeapElement, 0),
+		MetadataKey: metadataKey,
+	}
+}
+
+func (h *Heap) Len() int {
+	return len(h.Elements)
+}
+
+func (h *Heap) Less(i, j int) bool {
 	// fmt.Printf("Less %d, %d (%v, %v) of %d\n", i, j, h[i], h[j], len(h))
-	return h[i].Compare(h[j]) < 0
+	return h.Elements[i].Compare(h.Elements[j]) < 0
 }
 
-func (h Heap) Swap(i, j int) {
+func (h *Heap) Swap(i, j int) {
 	// fmt.Printf("Swap %d, %d (%v, %v) of %d\n", i, j, h[i], h[j], len(h))
-	h[i].SetIdx(j)
-	h[j].SetIdx(i)
-	h[i], h[j] = h[j], h[i]
+	h.Elements[i].SetIdx(j)
+	h.Elements[j].SetIdx(i)
+
+	h.Elements[i].SetMeta(h.MetadataKey, j)
+	h.Elements[j].SetMeta(h.MetadataKey, i)
+
+	h.Elements[i], h.Elements[j] = h.Elements[j], h.Elements[i]
 }
 
 func (h *Heap) Push(x interface{}) {
-	x.(HeapElement).SetIdx(len(*h))
-	*h = append(*h, x.(HeapElement))
+	x.(HeapElement).SetIdx(len(h.Elements))
+	x.(HeapElement).SetMeta(h.MetadataKey, len(h.Elements))
+	h.Elements = append(h.Elements, x.(HeapElement))
 }
 
 func (h *Heap) Pop() interface{} {
-	old := *h
+	old := h.Elements
 	n := len(old)
 	ret := old[n-1]
 	old[n-1] = nil // avoid memory leak
-	*h = old[0 : n-1]
+	h.Elements = old[0 : n-1]
 
 	// fmt.Printf("Popped value %v off of heap.\n", ret)
 	return ret
 }
 
-func (h Heap) Peek() HeapElement {
-	if len(h) == 0 {
+func (h *Heap) Peek() HeapElement {
+	if len(h.Elements) == 0 {
 		return nil
 	}
-	return h[0]
+	return h.Elements[0]
 }
 
-func (h Heap) Seek(target interface{}) HeapElement {
-	return h.SeekFrom(target, 0, false)
-}
-
-func (h Heap) SeekFrom(target interface{}, idx int, exclude bool) HeapElement {
-	if 0 >= len(h) {
-		return nil
-	}
-	i, j := idx, idx
-	if exclude {
-		i, j = i*2+1, i*2+2
-	}
-	for ; i < len(h) || j < len(h); i, j = i*2+1, i*2+2 {
-		smallJ := j != i && j < len(h) && h.Less(j, i)
-		if smallJ && h[j].Compare(target) >= 0.0 {
-			return h[j]
-		} else if h[i].Compare(target) >= 0.0 {
-			return h[i]
-		}
-
-		// Randomly select a branch
-		if rand.Intn(2) == 1 {
-			i = j
-		}
-	}
-	return nil
-}
+//func (h Heap) Seek(target interface{}) HeapElement {
+//	return h.SeekFrom(target, 0, false)
+//}
+//
+//func (h Heap) SeekFrom(target interface{}, idx int, exclude bool) HeapElement {
+//	if 0 >= len(h) {
+//		return nil
+//	}
+//	i, j := idx, idx
+//	if exclude {
+//		i, j = i*2+1, i*2+2
+//	}
+//	for ; i < len(h) || j < len(h); i, j = i*2+1, i*2+2 {
+//		smallJ := j != i && j < len(h) && h.Less(j, i)
+//		if smallJ && h[j].Compare(target) >= 0.0 {
+//			return h[j]
+//		} else if h[i].Compare(target) >= 0.0 {
+//			return h[i]
+//		}
+//
+//		// Randomly select a branch
+//		if rand.Intn(2) == 1 {
+//			i = j
+//		}
+//	}
+//	return nil
+//}

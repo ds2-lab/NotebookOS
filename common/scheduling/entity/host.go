@@ -1569,12 +1569,12 @@ func (h *Host) TimeSinceLastSynchronizationWithRemote() time.Duration {
 }
 
 // SetMeta sets the metadata of the host.
-func (h *Host) SetMeta(key scheduling.HostMetaKey, value interface{}) {
+func (h *Host) SetMeta(key types.HeapElementMetadataKey, value interface{}) {
 	h.meta.Store(string(key), value)
 }
 
 // GetMeta return the metadata of the host.
-func (h *Host) GetMeta(key scheduling.HostMetaKey) interface{} {
+func (h *Host) GetMeta(key types.HeapElementMetadataKey) interface{} {
 	if h.meta == nil {
 		log.Printf(utils.OrangeStyle.Render("[WARNING] Cannot retrieve metadata \"%s\" -- metadata dictionary is nil..."), key)
 		return nil

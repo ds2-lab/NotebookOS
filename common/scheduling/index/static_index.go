@@ -4,6 +4,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"slices"
 	"sync"
@@ -11,8 +12,8 @@ import (
 )
 
 const (
-	expectedStaticIndex                        = "*"
-	HostMetaStaticIndex scheduling.HostMetaKey = "static_index_pos"
+	expectedStaticIndex                              = "*"
+	HostMetaStaticIndex types.HeapElementMetadataKey = "static_index_pos"
 )
 
 // StaticClusterIndex is a simple Cluster that seeks hosts randomly.
@@ -48,7 +49,7 @@ func (index *StaticClusterIndex) Category() (category string, expected interface
 	return scheduling.CategoryClusterIndex, expectedStaticIndex
 }
 
-func (index *StaticClusterIndex) GetMetadataKey() scheduling.HostMetaKey {
+func (index *StaticClusterIndex) GetMetadataKey() types.HeapElementMetadataKey {
 	return HostMetaStaticIndex
 }
 

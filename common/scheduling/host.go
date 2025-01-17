@@ -13,14 +13,12 @@ import (
 )
 
 const (
-	HostIndexCategoryMetadata HostMetaKey = "index_category"
-	HostIndexKeyMetadata      HostMetaKey = "index_key"
+	HostIndexCategoryMetadata types.HeapElementMetadataKey = "index_category"
+	HostIndexKeyMetadata      types.HeapElementMetadataKey = "index_key"
 )
 
 // ErrorCallback defines a function to be called if a Host appears to be dead.
 type ErrorCallback func(localDaemonId string, nodeName string, errorName string, errorMessage string) error
-
-type HostMetaKey string
 
 type PreemptionInfo interface {
 	fmt.Stringer
@@ -30,6 +28,8 @@ type PreemptionInfo interface {
 }
 
 type Host interface {
+	types.HeapElement
+
 	proto.LocalGatewayClient
 
 	// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote Local Daemon.
@@ -144,9 +144,8 @@ type Host interface {
 	Stats() HostStatistics
 	LastReschedule() types.StatFloat64Field
 	TimeSinceLastSynchronizationWithRemote() time.Duration
-	SetMeta(key HostMetaKey, value interface{})
 	GetReservation(kernelId string) (ResourceReservation, bool) // GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
-	GetMeta(key HostMetaKey) interface{}
+	GetMeta(key types.HeapElementMetadataKey) interface{}
 	Priority(session UserSession) float64
 
 	IdleGPUs() float64

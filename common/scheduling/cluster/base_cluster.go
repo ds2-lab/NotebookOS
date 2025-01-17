@@ -54,9 +54,6 @@ type BaseCluster struct {
 	// scheduler is the scheduling.Scheduler for the Cluster.
 	scheduler scheduling.Scheduler
 
-	// placer is the Placer for the Cluster.
-	placer scheduling.Placer
-
 	log logger.Logger
 
 	// minimumCapacity is the minimum number of nodes we must have available at any time.
@@ -109,7 +106,6 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		validateCapacityInterval:  time.Second * time.Duration(opts.GetScalingInterval()),
 		DisabledHosts:             hashmap.NewConcurrentMap[scheduling.Host](256),
 		statisticsUpdaterProvider: statisticsUpdaterProvider,
-		placer:                    placer,
 		numFailedScaleInOps:       0,
 		numFailedScaleOutOps:      0,
 		numSuccessfulScaleInOps:   0,
@@ -267,7 +263,7 @@ func (c *BaseCluster) SubscriptionRatio() float64 {
 
 // Placer returns the Placer used by the Cluster.
 func (c *BaseCluster) Placer() scheduling.Placer {
-	return c.placer
+	return c.scheduler.Placer()
 }
 
 // ReadLockHosts locks the underlying host manager such that no Host instances can be added or removed.

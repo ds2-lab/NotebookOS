@@ -2,6 +2,7 @@ package index
 
 import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"math/rand"
 	"slices"
@@ -14,9 +15,9 @@ import (
 )
 
 const (
-	expectedRandomIndex                           = "*"
-	HostMetaRandomIndex    scheduling.HostMetaKey = "random_index"
-	randomIndexGCThreshold                        = 10
+	expectedRandomIndex                                 = "*"
+	HostMetaRandomIndex    types.HeapElementMetadataKey = "random_index"
+	randomIndexGCThreshold                              = 10
 )
 
 // RandomClusterIndex is a simple Cluster that seeks hosts randomly.
@@ -48,7 +49,7 @@ func (index *RandomClusterIndex) Category() (string, interface{}) {
 	return scheduling.CategoryClusterIndex, expectedRandomIndex
 }
 
-func (index *RandomClusterIndex) GetMetadataKey() scheduling.HostMetaKey {
+func (index *RandomClusterIndex) GetMetadataKey() types.HeapElementMetadataKey {
 	return HostMetaRandomIndex
 }
 

@@ -22,6 +22,10 @@ import (
 
 const (
 	InvalidationThreshold = 0.1
+
+	OversubscribedIndexKey  types.HeapElementMetadataKey = "oversubscribed_index"
+	UndersubscribedIndexKey types.HeapElementMetadataKey = "undersubscribed_index"
+	IdleIndexKey            types.HeapElementMetadataKey = "idle_index"
 )
 
 // schedulingNotification is a struct that is sent over a channel to notify the "main" goroutine handling the
@@ -135,9 +139,9 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		remoteSynchronizationInterval:            time.Second * time.Duration(b.options.GpuPollIntervalSeconds),
 		placer:                                   b.placer,
 		hostSpec:                                 b.hostSpec,
-		oversubscribed:                           make(types.Heap, 0, 10),
-		undersubscribed:                          make(types.Heap, 0, 10),
-		idleHosts:                                make(types.Heap, 0, 10),
+		oversubscribed:                           types.NewHeap(OversubscribedIndexKey),
+		undersubscribed:                          types.NewHeap(UndersubscribedIndexKey),
+		idleHosts:                                types.NewHeap(IdleIndexKey),
 		maxSubscribedRatio:                       decimal.NewFromFloat(b.options.MaxSubscribedRatio),
 		subscriptionRatio:                        decimal.NewFromFloat(b.options.MaxSubscribedRatio),
 		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]](64),
@@ -250,9 +254,9 @@ type BaseScheduler struct {
 	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
 	containerEventHandler scheduling.ContainerWatcher
 
-	oversubscribed  types.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
-	undersubscribed types.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
-	idleHosts       types.Heap
+	oversubscribed  *types.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
+	undersubscribed *types.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
+	idleHosts       *types.Heap
 
 	lastCapacityValidation time.Time         // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
 	stRatio                *types.MovingStat // session/training ratio
@@ -454,7 +458,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 					kernelSpec.Id, host.GetNodeName(), host.GetID(), err)
 			}
 
-			s.placer.UpdateIndex(host)
+			s.cluster.UpdateIndex(host)
 		}
 
 		return nil, scheduling.ErrInsufficientHostsAvailable
@@ -838,7 +842,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.placer.UpdateIndex(targetHost)
+		s.cluster.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -860,7 +864,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.placer.UpdateIndex(targetHost)
+		s.cluster.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -893,7 +897,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.placer.UpdateIndex(targetHost)
+		s.cluster.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -918,7 +922,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.placer.UpdateIndex(targetHost)
+		s.cluster.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -1221,8 +1225,8 @@ func (s *BaseScheduler) validate() {
 
 		for s.oversubscribed.Len() > 0 && s.oversubscribed.Peek().(scheduling.Host).OversubscriptionFactor().LessThan(decimal.Zero) {
 			host := s.oversubscribed.Peek()
-			heap.Pop(&s.oversubscribed)
-			s.designateSubscriptionPoolType(host.(scheduling.Host), &s.undersubscribed, scheduling.SchedulerPoolTypeUndersubscribed)
+			heap.Pop(s.oversubscribed)
+			s.designateSubscriptionPoolType(host.(scheduling.Host), s.undersubscribed, scheduling.SchedulerPoolTypeUndersubscribed)
 		}
 
 		s.lastSubscribedRatio = s.pendingSubscribedRatio

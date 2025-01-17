@@ -2083,7 +2083,7 @@ func (mr *MockHostMockRecorder) GetLocalGatewayClient() *gomock.Call {
 }
 
 // GetMeta mocks base method.
-func (m *MockHost) GetMeta(key scheduling.HostMetaKey) any {
+func (m *MockHost) GetMeta(key types.HeapElementMetadataKey) any {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMeta", key)
 	ret0, _ := ret[0].(any)
@@ -2919,7 +2919,7 @@ func (mr *MockHostMockRecorder) SetIdx(idx any) *gomock.Call {
 }
 
 // SetMeta mocks base method.
-func (m *MockHost) SetMeta(key scheduling.HostMetaKey, value any) {
+func (m *MockHost) SetMeta(key types.HeapElementMetadataKey, value any) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetMeta", key, value)
 }
@@ -3274,10 +3274,10 @@ func (mr *MockClusterIndexMockRecorder) Category() *gomock.Call {
 }
 
 // GetMetadataKey mocks base method.
-func (m *MockClusterIndex) GetMetadataKey() scheduling.HostMetaKey {
+func (m *MockClusterIndex) GetMetadataKey() types.HeapElementMetadataKey {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMetadataKey")
-	ret0, _ := ret[0].(scheduling.HostMetaKey)
+	ret0, _ := ret[0].(types.HeapElementMetadataKey)
 	return ret0
 }
 
