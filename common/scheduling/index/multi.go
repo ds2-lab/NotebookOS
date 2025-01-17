@@ -58,6 +58,9 @@ func (p *HostPool[T]) AddHost(host scheduling.Host) {
 type MultiIndexProvider[T scheduling.ClusterIndex] func() T
 
 // MultiIndex manages a collection of sub-indices organized by number of GPUs.
+//
+// The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
+// For example, LeastLoadedIndex, StaticClusterIndex, RandomClusterIndex, etc.
 type MultiIndex[T scheduling.ClusterIndex] struct {
 	// FreeHosts are scheduling.Host instances that have not been placed into a particular HostPool yet.
 	FreeHosts *queue.Fifo[scheduling.Host]
@@ -86,6 +89,15 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 	mu  sync.Mutex
 }
 
+// NewMultiIndex creates and returns a new MultiIndex.
+//
+// The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
+//
+// The MultiIndexProvider is a function that returns concrete instantiations of the type parameter.
+// It will typically just be the "constructor" (i.e., the NewX function, such as NewLeastLoadedIndex).
+//
+// If the constructor accepts parameters, then a closure of the constructor could be passed, assuming the
+// values of those parameters can accetably remain the same for the program's execution.
 func NewMultiIndex[T scheduling.ClusterIndex](maxGpus int32, provider MultiIndexProvider[T]) (*MultiIndex[T], error) {
 	index := &MultiIndex[T]{
 		FreeHosts:        queue.NewFifo[scheduling.Host](16),
@@ -96,7 +108,7 @@ func NewMultiIndex[T scheduling.ClusterIndex](maxGpus int32, provider MultiIndex
 		Size:             0,
 	}
 
-	config.InitLogger(&index.log, index)
+	config.InitLogger(&index.log, fmt.Sprintf("MultiIndex[%d]", maxGpus))
 
 	err := index.initializeHostPools(maxGpus, provider)
 	if err != nil {
@@ -251,8 +263,11 @@ func (index *MultiIndex[T]) seekCriteria(_ scheduling.Host) bool {
 
 func (index *MultiIndex[T]) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}) {
 	if len(metrics) == 0 {
-		panic("No metrics received in call to SeekMultipleFrom for Multi-Index...")
+		index.log.Warn("No metrics received in call to SeekMultipleFrom for Multi-Index...")
+		return nil, nil
 	}
+
+	index.log.Debug("Seeking single host with metrics: %v", metrics)
 
 	hosts, _ := index.SeekMultipleFrom(nil, 1, index.seekCriteria, blacklist, metrics...)
 

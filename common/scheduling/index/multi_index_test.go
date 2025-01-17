@@ -15,6 +15,10 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+var (
+	emptyBlacklist = make([]interface{}, 0)
+)
+
 var _ = Describe("MultiIndex Tests", func() {
 	var (
 		mockCtrl    *gomock.Controller
@@ -73,270 +77,312 @@ var _ = Describe("MultiIndex Tests", func() {
 		return host
 	}
 
-	Context("Adding and Removing Hosts", func() {
-		Context("Empty Hosts", func() {
-			It("Will handle a single add operation correctly", func() {
-				gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
-				Expect(gandivaIndex).ToNot(BeNil())
-				Expect(err).To(BeNil())
+	Context("Multi-Index of LeastLoadedIndex HostPools", func() {
+		Context("Adding and Removing Hosts", func() {
+			Context("Empty Hosts", func() {
+				It("Will handle a single add operation correctly", func() {
+					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
+					Expect(gandivaIndex).ToNot(BeNil())
+					Expect(err).To(BeNil())
 
-				host1 := createHost(1)
-				gandivaIndex.Add(host1)
-				Expect(gandivaIndex.Len()).To(Equal(1))
+					host1 := createHost(1)
+					gandivaIndex.Add(host1)
+					Expect(gandivaIndex.Len()).To(Equal(1))
 
-				ret, _ := gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host1))
-				Expect(gandivaIndex.Len()).To(Equal(1))
+					ret, _ := gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host1))
+					Expect(gandivaIndex.Len()).To(Equal(1))
 
-				By("Succeeding during consecutive calls to Seek")
+					By("Succeeding during consecutive calls to Seek")
 
-				ret, _ = gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host1))
-				Expect(gandivaIndex.Len()).To(Equal(1))
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host1))
+					Expect(gandivaIndex.Len()).To(Equal(1))
 
-				ret, _ = gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host1))
-				Expect(gandivaIndex.Len()).To(Equal(1))
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host1))
+					Expect(gandivaIndex.Len()).To(Equal(1))
+				})
+
+				It("Will handle an add followed by a remove correctly", func() {
+					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
+					Expect(err).To(BeNil())
+					Expect(gandivaIndex).ToNot(BeNil())
+
+					host1 := createHost(1)
+					gandivaIndex.Add(host1)
+					Expect(gandivaIndex.Len()).To(Equal(1))
+
+					ret, _ := gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host1))
+					Expect(gandivaIndex.Len()).To(Equal(1))
+
+					gandivaIndex.Remove(host1)
+					Expect(gandivaIndex.Len()).To(Equal(0))
+
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).To(BeNil())
+				})
+
+				It("Will handle multiple add and remove operations correctly", func() {
+					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
+					Expect(err).To(BeNil())
+					Expect(gandivaIndex).ToNot(BeNil())
+
+					host1 := createHost(1)
+					gandivaIndex.Add(host1)
+					Expect(gandivaIndex.Len()).To(Equal(1))
+
+					meta := host1.GetMeta(index.LeastLoadedIndexMetadataKey)
+					Expect(meta).To(BeNil())
+
+					ret, _ := gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host1))
+					Expect(gandivaIndex.Len()).To(Equal(1))
+
+					meta = host1.GetMeta(index.LeastLoadedIndexMetadataKey)
+					Expect(meta).ToNot(BeNil())
+					Expect(meta.(int32)).To(Equal(int32(0)))
+
+					host2 := createHost(2)
+					gandivaIndex.Add(host2)
+					Expect(gandivaIndex.Len()).To(Equal(2))
+
+					meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
+					Expect(meta).To(BeNil())
+
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host1))
+					Expect(gandivaIndex.Len()).To(Equal(2))
+
+					meta = host1.GetMeta(index.LeastLoadedIndexMetadataKey)
+					Expect(meta).ToNot(BeNil())
+					Expect(meta.(int32)).To(Equal(int32(0)))
+
+					meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
+					Expect(meta).To(BeNil())
+
+					By("Succeeding during consecutive calls to Seek")
+
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host1))
+					Expect(gandivaIndex.Len()).To(Equal(2))
+
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host1))
+					Expect(gandivaIndex.Len()).To(Equal(2))
+
+					By("Correctly removing one of the two hosts")
+
+					gandivaIndex.Remove(host1)
+					Expect(gandivaIndex.Len()).To(Equal(1))
+
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host2))
+					Expect(gandivaIndex.Len()).To(Equal(1))
+
+					By("Correctly removing the final host")
+
+					meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
+					Expect(meta).ToNot(BeNil())
+					Expect(meta.(int32)).To(Equal(int32(0)))
+
+					fmt.Printf("Removing final host.")
+					gandivaIndex.Remove(host2)
+					Expect(gandivaIndex.Len()).To(Equal(0))
+
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).To(BeNil())
+				})
 			})
 
-			It("Will handle an add followed by a remove correctly", func() {
-				gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
-				Expect(err).To(BeNil())
-				Expect(gandivaIndex).ToNot(BeNil())
+			Context("Non-Empty Hosts", func() {
+				var (
+					gandivaIndex *index.MultiIndex[*index.LeastLoadedIndex]
+					err          error
+					host1        scheduling.Host
+					host2        scheduling.Host
+					host3        scheduling.Host
+				)
 
-				host1 := createHost(1)
-				gandivaIndex.Add(host1)
-				Expect(gandivaIndex.Len()).To(Equal(1))
+				commitResources := func(host scheduling.Host, resources *types.DecimalSpec) {
+					err := host.AddToCommittedResources(resources)
+					Expect(err).To(BeNil())
 
-				ret, _ := gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host1))
-				Expect(gandivaIndex.Len()).To(Equal(1))
+					err = host.SubtractFromIdleResources(resources)
+					Expect(err).To(BeNil())
 
-				gandivaIndex.Remove(host1)
-				Expect(gandivaIndex.Len()).To(Equal(0))
+					fmt.Printf("\nCommitted the following resources to Host %s (ID=%s): %v\n",
+						host.GetNodeName(), host.GetID(), resources.String())
+					fmt.Printf("Host %s now has the following idle resources: %v\n",
+						host.GetNodeName(), host.IdleResources().String())
+					fmt.Printf("Host %s now has the following committed resources: %v\n\n",
+						host.GetNodeName(), host.CommittedResources().String())
 
-				ret, _ = gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).To(BeNil())
-			})
+					GinkgoWriter.Printf("\nCommitted the following resources to Host %s (ID=%s): %v\n",
+						host.GetNodeName(), host.GetID(), resources.String())
+					GinkgoWriter.Printf("Host %s now has the following idle resources: %v\n",
+						host.GetNodeName(), host.IdleResources().String())
+					GinkgoWriter.Printf("Host %s now has the following committed resources: %v\n\n",
+						host.GetNodeName(), host.CommittedResources().String())
 
-			It("Will handle multiple add and remove operations correctly", func() {
-				gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
-				Expect(err).To(BeNil())
-				Expect(gandivaIndex).ToNot(BeNil())
+					gandivaIndex.Update(host)
+				}
 
-				host1 := createHost(1)
-				gandivaIndex.Add(host1)
-				Expect(gandivaIndex.Len()).To(Equal(1))
+				releaseResources := func(host scheduling.Host, resources *types.DecimalSpec) {
+					err := host.SubtractFromCommittedResources(resources)
+					Expect(err).To(BeNil())
 
-				meta := host1.GetMeta(index.LeastLoadedIndexMetadataKey)
-				Expect(meta).ToNot(BeNil())
-				Expect(meta.(int32)).To(Equal(int32(0)))
+					err = host.AddToIdleResources(resources)
+					Expect(err).To(BeNil())
 
-				ret, _ := gandivaIndex.Seek([]interface{}{})
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host1))
-				Expect(gandivaIndex.Len()).To(Equal(1))
+					fmt.Printf("\nReleased the following resources from Host %s (ID=%s): %v\n",
+						host.GetNodeName(), host.GetID(), resources.String())
+					fmt.Printf("Host %s now has the following idle resources: %v\n",
+						host.GetNodeName(), host.IdleResources().String())
+					fmt.Printf("Host %s now has the following committed resources: %v\n\n",
+						host.GetNodeName(), host.CommittedResources().String())
 
-				host2 := createHost(2)
-				gandivaIndex.Add(host2)
-				Expect(gandivaIndex.Len()).To(Equal(2))
+					GinkgoWriter.Printf("\nReleased the following resources from Host %s (ID=%s): %v\n",
+						host.GetNodeName(), host.GetID(), resources.String())
+					GinkgoWriter.Printf("Host %s now has the following idle resources: %v\n",
+						host.GetNodeName(), host.IdleResources().String())
+					GinkgoWriter.Printf("Host %s now has the following committed resources: %v\n\n",
+						host.GetNodeName(), host.CommittedResources().String())
 
-				meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
-				Expect(meta).ToNot(BeNil())
-				Expect(meta.(int32)).To(Equal(int32(1)))
+					gandivaIndex.Update(host)
+				}
 
-				ret, _ = gandivaIndex.Seek([]interface{}{})
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host1))
-				Expect(gandivaIndex.Len()).To(Equal(2))
+				BeforeEach(func() {
+					gandivaIndex, err = index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
+					Expect(err).To(BeNil())
+					Expect(gandivaIndex).ToNot(BeNil())
 
-				By("Succeeding during consecutive calls to Seek")
+					host1 = createHost(1)
+					host2 = createHost(2)
+					host3 = createHost(3)
 
-				ret, _ = gandivaIndex.Seek([]interface{}{})
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host1))
-				Expect(gandivaIndex.Len()).To(Equal(2))
+					err := host1.AddToCommittedResources(types.NewDecimalSpec(128, 256, 2, 2))
+					Expect(err).To(BeNil())
+					err = host1.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 2, 2))
+					Expect(err).To(BeNil())
 
-				ret, _ = gandivaIndex.Seek([]interface{}{})
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host1))
-				Expect(gandivaIndex.Len()).To(Equal(2))
+					err = host2.AddToCommittedResources(types.NewDecimalSpec(128, 256, 4, 2))
+					Expect(err).To(BeNil())
+					err = host2.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 4, 2))
+					Expect(err).To(BeNil())
 
-				By("Correctly removing one of the two hosts")
+					err = host3.AddToCommittedResources(types.NewDecimalSpec(128, 256, 6, 2))
+					Expect(err).To(BeNil())
+					err = host3.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 6, 2))
+					Expect(err).To(BeNil())
 
-				gandivaIndex.Remove(host1)
-				Expect(gandivaIndex.Len()).To(Equal(1))
+					gandivaIndex.Add(host1)
+					gandivaIndex.Add(host2)
+					gandivaIndex.Add(host3)
+				})
 
-				ret, _ = gandivaIndex.Seek([]interface{}{})
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host2))
-				Expect(gandivaIndex.Len()).To(Equal(1))
+				It("Will correctly handle multiple add and remove operations", func() {
+					By("Correctly handling the addition of 3 hosts")
+					Expect(gandivaIndex.Len()).To(Equal(3))
 
-				By("Correctly removing the final host")
+					By("Correctly returning the least-loaded host")
 
-				meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
-				Expect(meta).ToNot(BeNil())
-				Expect(meta.(int32)).To(Equal(int32(0)))
+					ret, _ := gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host1))
+					Expect(gandivaIndex.Len()).To(Equal(3))
 
-				fmt.Printf("Removing final host.")
-				gandivaIndex.Remove(host2)
-				Expect(gandivaIndex.Len()).To(Equal(0))
+					By("Correctly handling the removal of the least-loaded host")
 
-				ret, _ = gandivaIndex.Seek([]interface{}{})
-				Expect(ret).To(BeNil())
-			})
-		})
+					gandivaIndex.Remove(host1)
+					Expect(gandivaIndex.Len()).To(Equal(2))
 
-		Context("Non-Empty Hosts", func() {
-			var (
-				gandivaIndex *index.MultiIndex[*index.LeastLoadedIndex]
-				err          error
-				host1        scheduling.Host
-				host2        scheduling.Host
-				host3        scheduling.Host
-			)
+					By("Correctly returning the 'new' least-loaded host")
 
-			BeforeEach(func() {
-				gandivaIndex, err = index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
-				Expect(err).To(BeNil())
-				Expect(gandivaIndex).ToNot(BeNil())
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host2))
+					Expect(gandivaIndex.Len()).To(Equal(2))
 
-				host1 = createHost(1)
-				host2 = createHost(2)
-				host3 = createHost(3)
+					By("Correctly handling the removal of the least-loaded host")
 
-				err := host1.AddToCommittedResources(types.NewDecimalSpec(128, 256, 2, 2))
-				Expect(err).To(BeNil())
-				err = host1.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 2, 2))
-				Expect(err).To(BeNil())
+					gandivaIndex.Remove(host2)
+					Expect(gandivaIndex.Len()).To(Equal(1))
 
-				err = host2.AddToCommittedResources(types.NewDecimalSpec(128, 256, 4, 2))
-				Expect(err).To(BeNil())
-				err = host2.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 4, 2))
-				Expect(err).To(BeNil())
+					By("Correctly returning the 'new' least-loaded host")
 
-				err = host3.AddToCommittedResources(types.NewDecimalSpec(128, 256, 6, 2))
-				Expect(err).To(BeNil())
-				err = host3.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 6, 2))
-				Expect(err).To(BeNil())
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host3))
+					Expect(gandivaIndex.Len()).To(Equal(1))
 
-				gandivaIndex.Add(host1)
-				gandivaIndex.Add(host2)
-				gandivaIndex.Add(host3)
-			})
+					By("Correctly handling the removal of final remaining host")
 
-			It("Will correctly handle multiple add and remove operations", func() {
-				By("Correctly handling the addition of 3 hosts")
-				Expect(gandivaIndex.Len()).To(Equal(3))
+					gandivaIndex.Remove(host3)
+					Expect(gandivaIndex.Len()).To(Equal(0))
 
-				By("Correctly returning the least-loaded host")
+					By("Correctly returning no hosts because the index is empty")
 
-				ret, _ := gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host1))
-				Expect(gandivaIndex.Len()).To(Equal(3))
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).To(BeNil())
+					Expect(gandivaIndex.Len()).To(Equal(0))
+				})
 
-				By("Correctly handling the removal of the least-loaded host")
+				It("Will correctly update its order when the resources of hosts change", func() {
+					By("Correctly handling the addition of 3 hosts")
+					Expect(gandivaIndex.Len()).To(Equal(3))
 
-				gandivaIndex.Remove(host1)
-				Expect(gandivaIndex.Len()).To(Equal(2))
+					// Host1 and Host2 will have equal resources, but "Host1" < "Host2" (i.e., compare the IDs), so
+					// Host1 should still be returned upon seeking.
+					By("Correctly sorting itself such that host1 is returned upon seeking, due to it having a 'lower' ID")
 
-				By("Correctly returning the 'new' least-loaded host")
+					commitResources(host1, types.NewDecimalSpec(128, 256, 2, 2))
 
-				ret, _ = gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host2))
-				Expect(gandivaIndex.Len()).To(Equal(2))
+					ret, _ := gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					GinkgoWriter.Printf("Candidate host name: \"%s\"\n", ret.GetNodeName())
+					Expect(ret).To(Equal(host1))
+					Expect(gandivaIndex.Len()).To(Equal(3))
 
-				By("Correctly handling the removal of the least-loaded host")
+					By("Correctly sorting itself such that host2 is returned upon seeking")
 
-				gandivaIndex.Remove(host2)
-				Expect(gandivaIndex.Len()).To(Equal(1))
+					commitResources(host1, types.NewDecimalSpec(128, 256, 1, 2))
 
-				By("Correctly returning the 'new' least-loaded host")
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					GinkgoWriter.Printf("Candidate host name: \"%s\"\n", ret.GetNodeName())
+					Expect(ret).To(Equal(host2))
+					Expect(gandivaIndex.Len()).To(Equal(3))
 
-				ret, _ = gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host3))
-				Expect(gandivaIndex.Len()).To(Equal(1))
+					By("Correctly sorting itself such that host1 is returned upon seeking")
 
-				By("Correctly handling the removal of final remaining host")
+					commitResources(host1, types.NewDecimalSpec(128, 256, 1, 2))
 
-				gandivaIndex.Remove(host3)
-				Expect(gandivaIndex.Len()).To(Equal(0))
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					GinkgoWriter.Printf("Candidate host name: \"%s\"\n", ret.GetNodeName())
+					Expect(ret).To(Equal(host1))
+					Expect(gandivaIndex.Len()).To(Equal(3))
 
-				By("Correctly returning no hosts because the index is empty")
+					By("Correctly sorting itself such that host3 is returned upon seeking")
 
-				ret, _ = gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).To(BeNil())
-				Expect(gandivaIndex.Len()).To(Equal(0))
-			})
+					releaseResources(host3, types.NewDecimalSpec(128, 256, 6, 2))
 
-			It("Will correctly update its order when the resources of hosts change", func() {
-				By("Correctly handling the addition of 3 hosts")
-				Expect(gandivaIndex.Len()).To(Equal(3))
-
-				// Host1 and Host2 will have equal resources, but "Host1" < "Host2" (i.e., compare the IDs), so
-				// Host1 should still be returned upon seeking.
-				By("Correctly sorting itself such that host1 is returned upon seeking, due to it having a 'lower' ID")
-
-				err := host1.AddToCommittedResources(types.NewDecimalSpec(128, 256, 2, 2))
-				Expect(err).To(BeNil())
-				err = host1.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 2, 2))
-				Expect(err).To(BeNil())
-
-				gandivaIndex.Update(host1)
-
-				ret, _ := gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host1))
-				Expect(gandivaIndex.Len()).To(Equal(3))
-
-				By("Correctly sorting itself such that host2 is returned upon seeking")
-
-				err = host1.AddToCommittedResources(types.NewDecimalSpec(128, 256, 1, 2))
-				Expect(err).To(BeNil())
-				err = host1.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 1, 2))
-				Expect(err).To(BeNil())
-
-				gandivaIndex.Update(host1)
-
-				ret, _ = gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host2))
-				Expect(gandivaIndex.Len()).To(Equal(3))
-
-				By("Correctly sorting itself such that host1 is returned upon seeking")
-
-				err = host2.AddToCommittedResources(types.NewDecimalSpec(128, 256, 1, 2))
-				Expect(err).To(BeNil())
-				err = host2.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 1, 2))
-				Expect(err).To(BeNil())
-
-				gandivaIndex.Update(host1)
-
-				ret, _ = gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host1))
-				Expect(gandivaIndex.Len()).To(Equal(3))
-
-				By("Correctly sorting itself such that host3 is returned upon seeking")
-
-				err = host3.SubtractFromCommittedResources(types.NewDecimalSpec(128, 256, 6, 2))
-				Expect(err).To(BeNil())
-				err = host3.AddToIdleResources(types.NewDecimalSpec(128, 256, 6, 2))
-				Expect(err).To(BeNil())
-
-				gandivaIndex.Update(host1)
-
-				ret, _ = gandivaIndex.Seek(make([]interface{}, 0))
-				Expect(ret).ToNot(BeNil())
-				Expect(ret).To(Equal(host3))
-				Expect(gandivaIndex.Len()).To(Equal(3))
+					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{hostSpec.GPU()})
+					Expect(ret).ToNot(BeNil())
+					Expect(ret).To(Equal(host3))
+					Expect(gandivaIndex.Len()).To(Equal(3))
+				})
 			})
 		})
 	})

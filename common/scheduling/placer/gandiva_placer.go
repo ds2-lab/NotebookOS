@@ -9,28 +9,9 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 )
 
-type HostPool struct {
-	NumGpus int32
-	Placer  *BasicPlacer
-}
-
-func NewHostGroup(gpus int32, numReplicas int, metricsProvider scheduling.MetricsProvider, schedulingPolicy scheduling.Policy) (*HostPool, error) {
-	basicPlacer, err := NewBasicPlacer(metricsProvider, numReplicas, schedulingPolicy)
-	if err != nil {
-		return nil, err
-	}
-
-	hostGroup := &HostPool{
-		NumGpus: gpus,
-		Placer:  basicPlacer,
-	}
-
-	return hostGroup, nil
-}
-
 // GandivaPlacer manages a collection of underlying Gandiva placers.
 type GandivaPlacer struct {
-	*AbstractPlacer
+	*BasicPlacer
 
 	// allHosts is a LeastLoadedIndex that contains all the hosts managed by this GandivaPlacer.
 	allHosts *index.RandomClusterIndex
