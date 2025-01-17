@@ -300,23 +300,32 @@ func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 	}
 
 	c.indexes.Store(key, index)
+
+	c.log.Debug("Added index under key '%s'", key)
+
 	return nil
 }
 
 // UpdateIndex updates the ClusterIndex that contains the specified Host.
 func (c *BaseCluster) UpdateIndex(host scheduling.Host) error {
-	identifierMetadata := host.GetMeta(scheduling.HostIndexIdentifier)
-	if identifierMetadata == nil {
-		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexIdentifier ('%s') metadata",
-			host.GetNodeName(), host.GetID(), scheduling.HostIndexIdentifier)
+	categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
+	if categoryMetadata == nil {
+		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexCategoryMetadata ('%s') metadata",
+			host.GetNodeName(), host.GetID(), scheduling.HostIndexCategoryMetadata)
 	}
 
-	key := fmt.Sprintf("%s:%v", scheduling.CategoryClusterIndex, identifierMetadata.(string))
+	keyMetadata := host.GetMeta(scheduling.HostIndexKeyMetadata)
+	if keyMetadata == nil {
+		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata",
+			host.GetNodeName(), host.GetID(), scheduling.HostIndexKeyMetadata)
+	}
+
+	key := fmt.Sprintf("%s:%v", categoryMetadata, keyMetadata.(string))
 	clusterIndex, loaded := c.indexes.Load(key)
 
 	if !loaded || clusterIndex == nil {
-		return fmt.Errorf("could not find clusterIndex with category '%s' and key '%s'",
-			scheduling.CategoryClusterIndex, identifierMetadata.(string))
+		return fmt.Errorf("could not find cluster index with category '%s' and key '%s'",
+			categoryMetadata, keyMetadata.(string))
 	}
 
 	c.log.Debug("Updating index %s for host %s (id=%s)", key, host.GetNodeName(), host.GetID())

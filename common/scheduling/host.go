@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	HostIndexIdentifier HostMetaKey = "identifier"
+	HostIndexCategoryMetadata HostMetaKey = "index_category"
+	HostIndexKeyMetadata      HostMetaKey = "index_key"
 )
 
 // ErrorCallback defines a function to be called if a Host appears to be dead.

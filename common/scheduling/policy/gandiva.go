@@ -60,7 +60,7 @@ func (p *GandivaPolicy) SmrEnabled() bool {
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *GandivaPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
-	return placer.NewLeastLoadedPlacer(metricsProvider, p.NumReplicas(), p, "*")
+	return placer.NewLeastLoadedPlacer(metricsProvider, p.NumReplicas(), p)
 }
 
 //////////////////////////////////////////

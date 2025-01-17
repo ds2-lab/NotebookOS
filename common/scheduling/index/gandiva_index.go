@@ -4,32 +4,29 @@ import (
 	"container/heap"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/types"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/Scusemua/go-utils/config"
-	"github.com/Scusemua/go-utils/logger"
 )
 
 const (
-	HostMetaLeastLoadedIndexPos scheduling.HostMetaKey = "least_loaded_index_position"
-
-	expectedLeastLoadedIndex = "*"
+	HostMetaGandivaIndexPos scheduling.HostMetaKey = "gandiva_index_position"
 )
 
-// LeastLoadedIndex is a simple Cluster that seeks the least-loaded hosts.
-// LeastLoadedIndex uses CategoryClusterIndex and all hosts are qualified.
-type LeastLoadedIndex struct {
-	hosts types.Heap // The Host instances contained within the LeastLoadedIndex.
-	mu    sync.Mutex
-	log   logger.Logger
+// GandivaIndex is a simple Cluster that seeks the least-loaded hosts.
+// GandivaIndex uses CategoryClusterIndex and all hosts are qualified.
+type GandivaIndex struct {
+	*LeastLoadedIndex
+	numGpus    int32
+	identifier string
 }
 
-func NewLeastLoadedIndex(size int) *LeastLoadedIndex {
-	index := &LeastLoadedIndex{
-		hosts: make(types.Heap, 0, size),
+func NewGandivaIndex(size int, numGpus int32) *GandivaIndex {
+	index := &GandivaIndex{
+		LeastLoadedIndex: NewLeastLoadedIndex(size),
+		numGpus:          numGpus,
+		identifier:       fmt.Sprintf("%d-GPU Pool", numGpus),
 	}
 
 	config.InitLogger(&index.log, index)
@@ -37,111 +34,123 @@ func NewLeastLoadedIndex(size int) *LeastLoadedIndex {
 	return index
 }
 
-func (index *LeastLoadedIndex) Category() (string, interface{}) {
-	return scheduling.CategoryClusterIndex, "*"
+func (index *GandivaIndex) Category() (string, interface{}) {
+	return scheduling.CategoryGandivaPoolIndex, index.identifier
 }
 
-func (index *LeastLoadedIndex) GetMetadataKey() scheduling.HostMetaKey {
-	return HostMetaLeastLoadedIndexPos
+func (index *GandivaIndex) GetMetadataKey() scheduling.HostMetaKey {
+	return HostMetaGandivaIndexPos
 }
 
-func (index *LeastLoadedIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
-	val := host.GetMeta(HostMetaLeastLoadedIndexPos)
+func (index *GandivaIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
+	val := host.GetMeta(HostMetaGandivaIndexPos)
 	if val == nil {
-		return "*", scheduling.IndexNewQualified
+		// The only time a host is qualified is if we're adding it explicitly within the Gandiva scheduler,
+		// or if the host is already present in the index.
+		return index.identifier, scheduling.IndexUnqualified
 	}
 
 	if _, ok := val.(int32); ok {
-		return "*", scheduling.IndexQualified
+		// The host is already present in the index.
+		return index.identifier, scheduling.IndexQualified
 	} else {
-		return "*", scheduling.IndexNewQualified
+		// The only time a host is qualified is if we're adding it explicitly within the Gandiva scheduler,
+		// or if the host is already present in the index.
+		return index.identifier, scheduling.IndexUnqualified
 	}
 }
 
-func (index *LeastLoadedIndex) Len() int {
+func (index *GandivaIndex) Len() int {
 	return len(index.hosts)
 }
 
-func (index *LeastLoadedIndex) Add(host scheduling.Host) {
+func (index *GandivaIndex) Add(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
 	index.unsafeAdd(host)
 }
 
-func (index *LeastLoadedIndex) unsafeAdd(host scheduling.Host) {
+func (index *GandivaIndex) unsafeAdd(host scheduling.Host) {
 	heap.Push(&index.hosts, host)
 	idx := host.GetIdx()
-	host.SetMeta(HostMetaLeastLoadedIndexPos, int32(idx))
-	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
-	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
+	host.SetMeta(HostMetaGandivaIndexPos, int32(idx))
+	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryGandivaPoolIndex)
+	host.SetMeta(scheduling.HostIndexKeyMetadata, index.identifier)
 	host.SetContainedWithinIndex(true)
-	index.log.Debug("Added Host %s (ID=%s) to LeastLoadedIndex at position %d.",
+	index.log.Debug("Added Host %s (ID=%s) to GandivaIndex at position %d.",
 		host.GetNodeName(), host.GetID(), idx)
 }
 
-func (index *LeastLoadedIndex) unsafeAddBack(host scheduling.Host) {
+func (index *GandivaIndex) unsafeAddBack(host scheduling.Host) {
 	heap.Push(&index.hosts, host)
 	idx := host.GetIdx()
-	host.SetMeta(HostMetaLeastLoadedIndexPos, int32(idx))
-	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
-	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
+	host.SetMeta(HostMetaGandivaIndexPos, int32(idx))
 	host.SetContainedWithinIndex(true)
 }
 
-func (index *LeastLoadedIndex) Update(host scheduling.Host) {
+func (index *GandivaIndex) Update(host scheduling.Host) {
 	oldIdx := host.GetIdx()
+	index.log.Debug("Fixing position of Host %s (ID=%s) in GandivaIndex '%s' (old index of host: %d)",
+		host.GetNodeName(), host.GetID(), index.identifier, oldIdx)
 
 	heap.Fix(&index.hosts, oldIdx)
 	newIdx := host.GetIdx()
 
-	host.SetMeta(HostMetaLeastLoadedIndexPos, int32(newIdx))
-	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
-	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
+	if oldIdx != newIdx {
+		index.log.Debug("Updated position of Host %s (ID=%s) from %d to %d in GandivaIndex '%s'",
+			host.GetNodeName(), host.GetID(), oldIdx, newIdx, index.identifier)
+	} else {
+		index.log.Debug("Position of Host %s (ID=%s) in GandivaIndex '%s' did not change (%d).",
+			host.GetNodeName(), host.GetID(), index.identifier, oldIdx)
+	}
+	host.SetMeta(HostMetaGandivaIndexPos, int32(newIdx))
+	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryGandivaPoolIndex)
+	host.SetMeta(scheduling.HostIndexKeyMetadata, index.identifier)
 }
 
-func (index *LeastLoadedIndex) UpdateMultiple(hosts []scheduling.Host) {
+func (index *GandivaIndex) UpdateMultiple(hosts []scheduling.Host) {
 	heap.Init(&index.hosts)
 
 	for _, host := range hosts {
-		host.SetMeta(HostMetaLeastLoadedIndexPos, int32(host.GetIdx()))
-		host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
-		host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
+		host.SetMeta(HostMetaGandivaIndexPos, int32(host.GetIdx()))
+		host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryGandivaPoolIndex)
+		host.SetMeta(scheduling.HostIndexKeyMetadata, index.identifier)
 	}
 }
 
-func (index *LeastLoadedIndex) Remove(host scheduling.Host) {
+func (index *GandivaIndex) Remove(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
-	i, ok := host.GetMeta(HostMetaLeastLoadedIndexPos).(int32)
+	i, ok := host.GetMeta(HostMetaGandivaIndexPos).(int32)
 	if !ok {
-		index.log.Warn("Cannot remove host %s; it is not present within LeastLoadedIndex", host.GetID())
+		index.log.Warn("Cannot remove host %s; it is not present within GandivaIndex", host.GetID())
 		return
 	}
 
 	if !host.IsContainedWithinIndex() {
 		index.log.Warn("Host %s thinks it is not contained within any Cluster indices; "+
-			"however, its \"%s\" metadata has a non-nil value (%d).\n", host.GetID(), HostMetaLeastLoadedIndexPos, i)
+			"however, its \"%s\" metadata has a non-nil value (%d).\n", host.GetID(), HostMetaGandivaIndexPos, i)
 	}
 
-	index.log.Debug("Removing host %s from LeastLoadedIndex, position=%d", host.GetID(), i)
+	index.log.Debug("Removing host %s from GandivaIndex, position=%d", host.GetID(), i)
 
 	heap.Remove(&index.hosts, int(i))
 
-	host.SetMeta(HostMetaLeastLoadedIndexPos, nil)
+	host.SetMeta(HostMetaGandivaIndexPos, nil)
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, nil)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, nil)
 	host.SetContainedWithinIndex(false)
 }
 
-func (index *LeastLoadedIndex) GetMetrics(_ scheduling.Host) []float64 {
+func (index *GandivaIndex) GetMetrics(_ scheduling.Host) []float64 {
 	return nil
 }
 
 // getBlacklist converts the list of interface{} to a list of []int32 containing
-// the indices of blacklisted Host instances within a LeastLoadedIndex.
-func (index *LeastLoadedIndex) getBlacklist(blacklist []interface{}) []int32 {
+// the indices of blacklisted Host instances within a GandivaIndex.
+func (index *GandivaIndex) getBlacklist(blacklist []interface{}) []int32 {
 	__blacklist := make([]int32, 0)
 	for i, meta := range blacklist {
 		if meta == nil {
@@ -157,7 +166,7 @@ func (index *LeastLoadedIndex) getBlacklist(blacklist []interface{}) []int32 {
 
 // unsafeSeek does the actual work of the Seek method.
 // unsafeSeek does not acquire the mutex. It should be called from a function that has already acquired the mutex.
-func (index *LeastLoadedIndex) unsafeSeek(blacklistArg []interface{}) scheduling.Host {
+func (index *GandivaIndex) unsafeSeek(blacklistArg []interface{}) scheduling.Host {
 	if len(index.hosts) == 0 {
 		return nil
 	}
@@ -182,7 +191,7 @@ func (index *LeastLoadedIndex) unsafeSeek(blacklistArg []interface{}) scheduling
 
 		if nextHost != nil {
 			// If the given host is blacklisted, then look for a different host.
-			if slices.Contains(blacklist, host.GetMeta(HostMetaLeastLoadedIndexPos).(int32)) {
+			if slices.Contains(blacklist, host.GetMeta(HostMetaGandivaIndexPos).(int32)) {
 				// Remove the host from the index temporarily so that we don't get it again.
 				// We can't return it because it's blacklisted, but we need to keep looking.
 				heap.Pop(&index.hosts)
@@ -211,7 +220,7 @@ func (index *LeastLoadedIndex) unsafeSeek(blacklistArg []interface{}) scheduling
 	return host
 }
 
-func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}) {
+func (index *GandivaIndex) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -223,7 +232,7 @@ func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float6
 // Pass nil as pos to reset the seek.
 //
 // This entire method is thread-safe. The index is locked until this method returns.
-func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction,
+func (index *GandivaIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction,
 	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
 	index.mu.Lock()
 

@@ -13,7 +13,7 @@ import (
 type HostPool struct {
 	NumGpus    int32
 	Identifier string
-	Placer     *placer.LeastLoadedPlacer
+	Placer     *placer.GandivaPlacer
 }
 
 func GetHostGroupIdentifier(gpus int32) string {
@@ -22,14 +22,14 @@ func GetHostGroupIdentifier(gpus int32) string {
 
 func NewHostGroup(gpus int32, numReplicas int, metricsProvider scheduling.MetricsProvider, schedulingPolicy scheduling.Policy) (*HostPool, error) {
 	identifier := GetHostGroupIdentifier(gpus)
-	leastLoadedPlacer, err := placer.NewLeastLoadedPlacer(metricsProvider, numReplicas, schedulingPolicy, identifier)
+	gandivaPlacer, err := placer.NewGandivaPlacer(metricsProvider, numReplicas, schedulingPolicy, gpus)
 	if err != nil {
 		return nil, err
 	}
 
 	hostGroup := &HostPool{
 		NumGpus:    gpus,
-		Placer:     leastLoadedPlacer,
+		Placer:     gandivaPlacer,
 		Identifier: identifier,
 	}
 

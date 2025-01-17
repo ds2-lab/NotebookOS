@@ -12,7 +12,7 @@ import (
 
 const (
 	expectedStaticIndex                        = "*"
-	HostMetaStaticIndex scheduling.HostMetaKey = "static_index"
+	HostMetaStaticIndex scheduling.HostMetaKey = "static_index_pos"
 )
 
 // StaticClusterIndex is a simple Cluster that seeks hosts randomly.
@@ -89,7 +89,8 @@ func (index *StaticClusterIndex) Add(host scheduling.Host) {
 	}
 
 	host.SetMeta(HostMetaStaticIndex, i)
-	host.SetMeta(scheduling.HostIndexIdentifier, "*")
+	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
+	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedStaticIndex)
 	host.SetContainedWithinIndex(true)
 	index.length += 1
 	index.sortIndex()
@@ -169,7 +170,8 @@ func (index *StaticClusterIndex) Remove(host scheduling.Host) {
 
 	index.hosts[i] = nil
 	host.SetMeta(HostMetaStaticIndex, nil)
-	host.SetMeta(scheduling.HostIndexIdentifier, nil)
+	host.SetMeta(scheduling.HostIndexCategoryMetadata, nil)
+	host.SetMeta(scheduling.HostIndexKeyMetadata, nil)
 	host.SetContainedWithinIndex(false)
 
 	// Update freeStart.
