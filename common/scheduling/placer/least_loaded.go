@@ -6,23 +6,21 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 )
 
-// GandivaPlacer is a simple placer that places sessions randomly.
-type GandivaPlacer struct {
+// LeastLoadedPlacer is a placer that places sessions onto the least-loaded hosts in its index.
+type LeastLoadedPlacer struct {
 	*AbstractPlacer
 
-	index   *index.GandivaIndex
-	numGpus int32
+	index *index.LeastLoadedIndex
 }
 
-// NewGandivaPlacer creates a new GandivaPlacer.
-func NewGandivaPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int,
-	schedulingPolicy scheduling.Policy, numGpus int32) (*GandivaPlacer, error) {
+// NewLeastLoadedPlacer creates a new LeastLoadedPlacer.
+func NewLeastLoadedPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int,
+	schedulingPolicy scheduling.Policy) (*LeastLoadedPlacer, error) {
 
 	basePlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
-	leastLoadedPlacer := &GandivaPlacer{
+	leastLoadedPlacer := &LeastLoadedPlacer{
 		AbstractPlacer: basePlacer,
-		numGpus:        numGpus,
-		index:          index.NewGandivaIndex(numGpus),
+		index:          index.NewLeastLoadedIndex(index.LeastLoadedIndexMetadataKey),
 	}
 
 	basePlacer.instance = leastLoadedPlacer
@@ -31,31 +29,31 @@ func NewGandivaPlacer(metricsProvider scheduling.MetricsProvider, numReplicas in
 
 // Len returns the number of scheduling.Host instances in the underlying least-loaded index.
 // Len is equivalent to Size.
-func (placer *GandivaPlacer) Len() int {
+func (placer *LeastLoadedPlacer) Len() int {
 	return placer.index.Len()
 }
 
 // Size returns the number of scheduling.Host instances in the underlying least-loaded index.
 // Size is equivalent to Len.
-func (placer *GandivaPlacer) Size() int {
+func (placer *LeastLoadedPlacer) Size() int {
 	return placer.index.Len()
 }
 
-func (placer *GandivaPlacer) UpdateIndex(host scheduling.Host) {
+func (placer *LeastLoadedPlacer) UpdateIndex(host scheduling.Host) {
 	placer.index.Update(host)
 }
 
-func (placer *GandivaPlacer) UpdateIndexMultiple(hosts []scheduling.Host) {
+func (placer *LeastLoadedPlacer) UpdateIndexMultiple(hosts []scheduling.Host) {
 	placer.index.UpdateMultiple(hosts)
 }
 
 // GetIndex returns the ClusterIndex of the specific Placer implementation.
-func (placer *GandivaPlacer) GetIndex() scheduling.ClusterIndex {
+func (placer *LeastLoadedPlacer) GetIndex() scheduling.ClusterIndex {
 	return placer.index
 }
 
-// NumHostsInIndex returns the length of the GandivaPlacer's index.
-func (placer *GandivaPlacer) NumHostsInIndex() int {
+// NumHostsInIndex returns the length of the LeastLoadedPlacer's index.
+func (placer *LeastLoadedPlacer) NumHostsInIndex() int {
 	return placer.index.Len()
 }
 
@@ -63,7 +61,7 @@ func (placer *GandivaPlacer) NumHostsInIndex() int {
 // on the specified host, returning true if the reservation was created successfully.
 //
 // Returns: true if the reservation was created successfully.
-func (placer *GandivaPlacer) tryReserveResourcesOnHost(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) bool {
+func (placer *LeastLoadedPlacer) tryReserveResourcesOnHost(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) bool {
 	var usePendingReservation bool
 
 	if forTraining {
@@ -91,7 +89,7 @@ func (placer *GandivaPlacer) tryReserveResourcesOnHost(candidateHost scheduling.
 // findHosts iterates over the Host instances in the index, attempting to reserve the requested resources
 // on each Host until either the requested number of Host instances has been found, or until all Host
 // instances have been checked.
-func (placer *GandivaPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int) []scheduling.Host {
+func (placer *LeastLoadedPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts int) []scheduling.Host {
 	var (
 		pos   interface{}       = nil
 		hosts []scheduling.Host = nil
@@ -114,7 +112,7 @@ func (placer *GandivaPlacer) findHosts(kernelSpec *proto.KernelSpec, numHosts in
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *GandivaPlacer) findHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
+func (placer *LeastLoadedPlacer) findHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
 	hosts, _ := placer.index.SeekMultipleFrom(nil, 1, func(candidateHost scheduling.Host) bool {
 		success := placer.tryReserveResourcesOnHost(candidateHost, kernelSpec, forTraining)
 
