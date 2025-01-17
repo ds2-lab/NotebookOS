@@ -10,6 +10,7 @@ ENV LANG=C.UTF-8 \
 # Add files
 ADD common/proto /distributed_notebook/common/proto
 ADD distributed_notebook /distributed_notebook/distributed_notebook
+ADD pyproject.toml /distributed_notebook/distributed_notebook/pyproject.toml
 ADD README.md /distributed_notebook/README.md
 ADD MANIFEST.in /distributed_notebook/MANIFEST.in
 ADD setup.py /distributed_notebook/setup.py
@@ -22,6 +23,9 @@ ADD dockfiles/cpu-python3-amd64-debug/apport-settings /home/jovyan/.config/appor
 
 RUN chmod -R 777 /home/jovyan/sample_notebooks/*
 RUN chown jovyan /home/jovyan/sample_notebooks/*
+
+# Install distributed_notebook module.
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install /distributed_notebook/distributed_notebook
 
 # Install kernel
 RUN cd /distributed_notebook \

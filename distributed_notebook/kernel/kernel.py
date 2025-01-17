@@ -55,7 +55,7 @@ from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer im
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
-from ..deep_learning import DatasetClassesByName, ModelClassesByName
+from ..deep_learning import DatasetClassesByName, ModelClassesByName, ResNet18
 
 import_torch_start: float = time.time()
 try:
@@ -2008,9 +2008,9 @@ class DistributedKernel(IPythonKernel):
             except ValueError:
                 pass
 
-        target_model: Optional[str] = metadata.get("model", None)
-        target_dataset: Optional[str] = metadata.get("dataset", None)
-        batch_size: Optional[int] = metadata.get("batch_size", None)
+        target_model: Optional[str] = metadata.get("model", ResNet18.model_name())
+        target_dataset: Optional[str] = metadata.get("dataset", CIFAR10.dataset_name())
+        batch_size: Optional[int] = metadata.get("batch_size", 8)
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
