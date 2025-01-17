@@ -69,7 +69,7 @@ func (s *KubernetesScheduler) HostAdded(host scheduling.Host) {
 // KubernetesScheduler does not do anything special or fancy.
 func (s *KubernetesScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) []scheduling.Host {
 	// Identify the hosts onto which we will place replicas of the kernel.
-	hostBatch := s.placer.FindHosts(kernelSpec, numToFind)
+	hostBatch := s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
 	return hostBatch
 }
 

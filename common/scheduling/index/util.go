@@ -19,3 +19,18 @@ func ContainsHost(hosts []scheduling.Host, target scheduling.Host) bool {
 
 	return false
 }
+
+// getBlacklist converts the list of interface{} to a list of []int32 containing
+// the indices of blacklisted Host instances within a GandivaIndex.
+func getBlacklist(blacklist []interface{}) []scheduling.Host {
+	__blacklist := make([]scheduling.Host, 0)
+	for _, meta := range blacklist {
+		if meta == nil {
+			continue
+		}
+
+		__blacklist = append(__blacklist, meta.(scheduling.Host))
+	}
+
+	return __blacklist
+}

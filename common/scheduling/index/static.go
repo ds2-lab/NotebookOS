@@ -19,6 +19,7 @@ const (
 // StaticClusterIndex is a simple Cluster that seeks hosts randomly.
 // StaticClusterIndex uses CategoryClusterIndex and all hosts are qualified.
 type StaticClusterIndex struct {
+	*CallbackManager
 	hosts     []scheduling.Host // The Host instances in the index.
 	length    int               // The number of Host instances in the index.
 	freeStart int32             // The first freed index.
@@ -28,11 +29,12 @@ type StaticClusterIndex struct {
 	log logger.Logger
 }
 
-func NewStaticClusterIndex() *StaticClusterIndex {
+func NewStaticClusterIndex(initialSize int) *StaticClusterIndex {
 	index := &StaticClusterIndex{
-		hosts:     make([]scheduling.Host, 0),
-		length:    0,
-		freeStart: 0,
+		CallbackManager: NewCallbackManager(),
+		hosts:           make([]scheduling.Host, 0, initialSize),
+		length:          0,
+		freeStart:       0,
 	}
 
 	config.InitLogger(&index.log, index)
@@ -47,10 +49,6 @@ func NewStaticClusterIndex() *StaticClusterIndex {
 // Category returns the category of the index and the expected value.
 func (index *StaticClusterIndex) Category() (category string, expected interface{}) {
 	return scheduling.CategoryClusterIndex, expectedStaticIndex
-}
-
-func (index *StaticClusterIndex) GetMetadataKey() types.HeapElementMetadataKey {
-	return HostMetaStaticIndex
 }
 
 // IsQualified returns the actual value according to the index category and whether the host is qualified.
@@ -95,6 +93,9 @@ func (index *StaticClusterIndex) Add(host scheduling.Host) {
 	host.SetContainedWithinIndex(true)
 	index.length += 1
 	index.sortIndex()
+
+	// Invoke callback.
+	index.InvokeHostAddedCallbacks(host)
 }
 
 // sortIndex sorts the Host instances in the index by their number of idle GPUs.
@@ -122,12 +123,18 @@ func (index *StaticClusterIndex) sortIndex() {
 	}
 }
 
-func (index *StaticClusterIndex) Update(_ scheduling.Host) {
+func (index *StaticClusterIndex) Update(host scheduling.Host) {
 	index.sortIndex()
+
+	index.InvokeHostUpdatedCallbacks(host)
 }
 
-func (index *StaticClusterIndex) UpdateMultiple(_ []scheduling.Host) {
+func (index *StaticClusterIndex) UpdateMultiple(hosts []scheduling.Host) {
 	index.sortIndex()
+
+	for _, host := range hosts {
+		index.InvokeHostUpdatedCallbacks(host)
+	}
 }
 
 func (index *StaticClusterIndex) Remove(host scheduling.Host) {
@@ -181,6 +188,9 @@ func (index *StaticClusterIndex) Remove(host scheduling.Host) {
 	}
 
 	index.compactLocked(index.freeStart)
+
+	// Invoke callback.
+	index.InvokeHostRemovedCallbacks(host)
 }
 
 // compact compacts the index by calling compactLocked.
@@ -213,22 +223,6 @@ func (index *StaticClusterIndex) compactLocked(from int32) {
 // GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.
 func (index *StaticClusterIndex) GetMetrics(scheduling.Host) (metrics []float64) {
 	return nil
-}
-
-// getBlacklist converts the list of interface{} to a list of []int32 containing
-// the indices of blacklisted Host instances within a RandomClusterIndex.
-func (index *StaticClusterIndex) getBlacklist(blacklist []interface{}) []scheduling.Host {
-	__blacklist := make([]scheduling.Host, 0)
-	for i, meta := range blacklist {
-		if meta == nil {
-			index.log.Error("Blacklist contains nil entry at index %d.", i)
-			continue
-		}
-
-		__blacklist = append(__blacklist, meta.(scheduling.Host))
-	}
-
-	return __blacklist
 }
 
 // // // // // // // // // // // // // //
@@ -272,7 +266,7 @@ func (index *StaticClusterIndex) seekInternal(blacklistArg []interface{}, _ ...[
 	}
 
 	// Convert the blacklistArg parameter into a slice of a concrete type; in this case, []int32.
-	blacklist := index.getBlacklist(blacklistArg)
+	blacklist := getBlacklist(blacklistArg)
 	var host scheduling.Host
 
 	// Keep iterating as long as:

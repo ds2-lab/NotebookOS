@@ -27,5 +27,5 @@ type internalPlacer interface {
 	// find. These Host instances will have the resources reserved on them.
 	//
 	// This is the Placer-implementation-specific logic of the Placer.FindHosts method.
-	findHosts(kernelSpec *proto.KernelSpec, numHosts int) []scheduling.Host
+	findHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) []scheduling.Host
 }

@@ -37,7 +37,7 @@ func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMa
 		BaseCluster: baseCluster,
 	}
 
-	dockerCluster.scheduler = scheduler.GetDockerComposeScheduler(dockerCluster, placer, hostMapper, hostSpec,
+	dockerCluster.scheduler = scheduler.GetDockerSwarmScheduler(dockerCluster, placer, hostMapper, hostSpec,
 		kernelProvider, notificationBroker, schedulingPolicy, opts)
 	baseCluster.instance = dockerCluster
 	baseCluster.initRatioUpdater()

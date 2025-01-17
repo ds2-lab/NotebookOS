@@ -154,7 +154,7 @@ func (s *DockerScheduler) HostAdded(host scheduling.Host) {
 // DockerScheduler does not do anything special or fancy.
 func (s *DockerScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) []scheduling.Host {
 	// Identify the hosts onto which we will place replicas of the kernel.
-	hostBatch := s.placer.FindHosts(kernelSpec, numToFind)
+	hostBatch := s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
 	return hostBatch
 }
 

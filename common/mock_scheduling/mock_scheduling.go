@@ -1439,17 +1439,17 @@ func (mr *MockPlacerMockRecorder) FindHost(blacklist, kernelSpec, forTraining an
 }
 
 // FindHosts mocks base method.
-func (m *MockPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []scheduling.Host {
+func (m *MockPlacer) FindHosts(blacklist []any, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) []scheduling.Host {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindHosts", kernelSpec, numHosts)
+	ret := m.ctrl.Call(m, "FindHosts", blacklist, kernelSpec, numHosts, forTraining)
 	ret0, _ := ret[0].([]scheduling.Host)
 	return ret0
 }
 
 // FindHosts indicates an expected call of FindHosts.
-func (mr *MockPlacerMockRecorder) FindHosts(kernelSpec, numHosts any) *gomock.Call {
+func (mr *MockPlacerMockRecorder) FindHosts(blacklist, kernelSpec, numHosts, forTraining any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindHosts", reflect.TypeOf((*MockPlacer)(nil).FindHosts), kernelSpec, numHosts)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindHosts", reflect.TypeOf((*MockPlacer)(nil).FindHosts), blacklist, kernelSpec, numHosts, forTraining)
 }
 
 // GetIndex mocks base method.
@@ -3297,20 +3297,6 @@ func (m *MockClusterIndex) Category() (string, any) {
 func (mr *MockClusterIndexMockRecorder) Category() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Category", reflect.TypeOf((*MockClusterIndex)(nil).Category))
-}
-
-// GetMetadataKey mocks base method.
-func (m *MockClusterIndex) GetMetadataKey() types.HeapElementMetadataKey {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetMetadataKey")
-	ret0, _ := ret[0].(types.HeapElementMetadataKey)
-	return ret0
-}
-
-// GetMetadataKey indicates an expected call of GetMetadataKey.
-func (mr *MockClusterIndexMockRecorder) GetMetadataKey() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetadataKey", reflect.TypeOf((*MockClusterIndex)(nil).GetMetadataKey))
 }
 
 // GetMetrics mocks base method.
@@ -6526,6 +6512,20 @@ func (m *MockPolicy) ContainerLifetime() scheduling.ContainerLifetime {
 func (mr *MockPolicyMockRecorder) ContainerLifetime() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerLifetime", reflect.TypeOf((*MockPolicy)(nil).ContainerLifetime))
+}
+
+// GetGpusPerHost mocks base method.
+func (m *MockPolicy) GetGpusPerHost() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetGpusPerHost")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// GetGpusPerHost indicates an expected call of GetGpusPerHost.
+func (mr *MockPolicyMockRecorder) GetGpusPerHost() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGpusPerHost", reflect.TypeOf((*MockPolicy)(nil).GetGpusPerHost))
 }
 
 // GetNewPlacer mocks base method.

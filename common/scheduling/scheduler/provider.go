@@ -15,20 +15,11 @@ func GetDockerComposeScheduler(cluster scheduling.Cluster, placer scheduling.Pla
 		err              error
 	)
 
-	if schedulingPolicy.PolicyKey() == scheduling.Gandiva {
-		clusterScheduler, err = NewGandivaScheduler(cluster, placer, hostMapper, hostSpec,
-			kernelProvider, notificationBroker, schedulingPolicy, opts)
-		if err != nil {
-			fmt.Printf("[ERROR] Failed to create Docker Compose Scheduler: %v", err)
-			panic(err)
-		}
-	} else {
-		clusterScheduler, err = NewDockerScheduler(cluster, placer, hostMapper, hostSpec,
-			kernelProvider, notificationBroker, schedulingPolicy, opts)
-		if err != nil {
-			fmt.Printf("[ERROR] Failed to create Docker Compose Scheduler: %v", err)
-			panic(err)
-		}
+	clusterScheduler, err = NewDockerScheduler(cluster, placer, hostMapper, hostSpec,
+		kernelProvider, notificationBroker, schedulingPolicy, opts)
+	if err != nil {
+		fmt.Printf("[ERROR] Failed to create Docker Compose Scheduler: %v", err)
+		panic(err)
 	}
 
 	return clusterScheduler
@@ -43,20 +34,11 @@ func GetDockerSwarmScheduler(cluster scheduling.Cluster, placer scheduling.Place
 		err              error
 	)
 
-	if schedulingPolicy.PolicyKey() == scheduling.Gandiva {
-		clusterScheduler, err = NewGandivaScheduler(cluster, placer, hostMapper, hostSpec,
-			kernelProvider, notificationBroker, schedulingPolicy, opts)
-		if err != nil {
-			fmt.Printf("[ERROR] Failed to create Docker Compose Scheduler: %v", err)
-			panic(err)
-		}
-	} else {
-		clusterScheduler, err = NewDockerScheduler(cluster, placer, hostMapper, hostSpec,
-			kernelProvider, notificationBroker, schedulingPolicy, opts)
-		if err != nil {
-			fmt.Printf("[ERROR] Failed to create Docker Compose Scheduler: %v", err)
-			panic(err)
-		}
+	clusterScheduler, err = NewDockerScheduler(cluster, placer, hostMapper, hostSpec,
+		kernelProvider, notificationBroker, schedulingPolicy, opts)
+	if err != nil {
+		fmt.Printf("[ERROR] Failed to create Docker Compose Scheduler: %v", err)
+		panic(err)
 	}
 
 	return clusterScheduler

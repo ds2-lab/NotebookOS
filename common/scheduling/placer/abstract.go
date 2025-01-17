@@ -49,8 +49,9 @@ func (placer *AbstractPlacer) reservationShouldUsePendingResources() bool {
 // The number of hosts returned is determined by the placer.
 //
 // The core logic of FindHosts is implemented by the AbstractPlacer's internalPlacer instance/field.
-func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []scheduling.Host {
+func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) []scheduling.Host {
 	placer.mu.Lock()
+	defer placer.mu.Unlock()
 	st := time.Now()
 
 	// The following checks make sense/apply for all concrete implementations of Placer.
@@ -62,7 +63,7 @@ func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts i
 	}
 
 	// Invoke internalPlacer's implementation of the findHosts method for the core logic of FindHosts.
-	hosts := placer.instance.findHosts(kernelSpec, numHosts)
+	hosts := placer.instance.findHosts(blacklist, kernelSpec, numHosts, forTraining)
 
 	latency := time.Since(st)
 

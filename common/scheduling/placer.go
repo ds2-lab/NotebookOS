@@ -18,7 +18,7 @@ import (
 type Placer interface {
 	// FindHosts returns a list of hosts that can satisfy the resourceSpec.
 	// The number of hosts returned is determined by the placer.
-	FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []Host
+	FindHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) []Host
 
 	// FindHost returns a host that can satisfy the resourceSpec.
 	// This method is provided for development. Implementation are not required to implement this method.
@@ -38,8 +38,14 @@ type Placer interface {
 	// NumHostsInIndex returns the length of the Placer's index.
 	NumHostsInIndex() int
 
+	// UpdateIndex updates a Host in the index.
+	//
+	// Important: UpdateIndex is NOT thread-safe.
 	UpdateIndex(host Host)
 
+	// UpdateIndexMultiple updates multiple Host instances within the index.
+	//
+	// Important: UpdateIndexMultiple is NOT thread-safe.
 	UpdateIndexMultiple(hosts []Host)
 
 	// GetIndex returns the placer's index.ClusterIndex.

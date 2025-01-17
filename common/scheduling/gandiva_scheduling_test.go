@@ -99,7 +99,7 @@ var (
 }`
 )
 
-var _ = Describe("Gandiva Cluster/Scheduler Tests", func() {
+var _ = Describe("Gandiva Scheduling Tests", func() {
 	var (
 		mockCtrl *gomock.Controller
 
@@ -107,8 +107,7 @@ var _ = Describe("Gandiva Cluster/Scheduler Tests", func() {
 		mockedKernelProvider *mock_scheduler.MockKernelProvider
 
 		dockerSwarmCluster *cluster.DockerSwarmCluster
-		randomPlacer       *placer.RandomPlacer
-		gandivaScheduler   *scheduler.GandivaScheduler
+		dockerScheduler    *scheduler.DockerScheduler
 		schedulingPolicy   scheduling.Policy
 
 		opts *domain.ClusterGatewayOptions
@@ -195,29 +194,39 @@ var _ = Describe("Gandiva Cluster/Scheduler Tests", func() {
 		Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
 		Expect(schedulingPolicy.Name()).To(Equal("Gandiva"))
 
-		randomPlacer, err = placer.NewRandomPlacer(nil, 1, schedulingPolicy)
+		clusterPlacer, err := schedulingPolicy.GetNewPlacer(nil)
 		Expect(err).To(BeNil())
+		Expect(clusterPlacer).ToNot(BeNil())
 
-		dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, randomPlacer, mockedHostMapper,
+		gandivaPlacer, ok := clusterPlacer.(*placer.GandivaPlacer)
+		Expect(ok).To(BeTrue())
+		Expect(gandivaPlacer).ToNot(BeNil())
+
+		dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, gandivaPlacer, mockedHostMapper,
 			mockedKernelProvider, nil, nil, schedulingPolicy,
 			func(f func(stats *statistics.ClusterStatistics)) {}, &opts.SchedulerOptions)
-
-		var ok bool
-		gandivaScheduler, ok = dockerSwarmCluster.Scheduler().(*scheduler.GandivaScheduler)
+		
+		dockerScheduler, ok = dockerSwarmCluster.Scheduler().(*scheduler.DockerScheduler)
 		Expect(ok).To(BeTrue())
-		Expect(gandivaScheduler).ToNot(BeNil())
+		Expect(dockerScheduler).ToNot(BeNil())
 	})
 
 	It("Will be instantiated correctly", func() {
-		Expect(gandivaScheduler).ToNot(BeNil())
+		Expect(dockerScheduler).ToNot(BeNil())
+		Expect(dockerScheduler.Instance()).To(Equal(dockerScheduler))
 
-		Expect(gandivaScheduler.Instance()).To(Equal(gandivaScheduler))
+		clusterPlacer := dockerScheduler.Placer()
+		Expect(clusterPlacer).ToNot(BeNil())
+
+		gandivaPlacer, ok := clusterPlacer.(*placer.GandivaPlacer)
+		Expect(ok).To(BeTrue())
+		Expect(gandivaPlacer).ToNot(BeNil())
 
 		var i int32
 		for i = 0; i < 9; i++ {
-			Expect(gandivaScheduler.NumHostsInPool(i)).To(Equal(0))
+			Expect(gandivaPlacer.NumHostsInPool(i)).To(Equal(0))
 
-			hostPool := gandivaScheduler.GetHostPool(i)
+			hostPool := gandivaPlacer.GetHostPool(i)
 			Expect(hostPool).ToNot(BeNil())
 			Expect(hostPool.NumGpus).To(Equal(i))
 
@@ -229,24 +238,31 @@ var _ = Describe("Gandiva Cluster/Scheduler Tests", func() {
 	})
 
 	It("Will correctly update the positions of host in the index when their resources change", func() {
+		clusterPlacer := dockerScheduler.Placer()
+		Expect(clusterPlacer).ToNot(BeNil())
+
+		gandivaPlacer, ok := clusterPlacer.(*placer.GandivaPlacer)
+		Expect(ok).To(BeTrue())
+		Expect(gandivaPlacer).ToNot(BeNil())
+
 		_, _ = createHost(1)
-		Expect(gandivaScheduler.NumUnpooledHosts()).To(Equal(1))
+		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(1))
 		Expect(dockerSwarmCluster.Len()).To(Equal(1))
 
 		_, _ = createHost(2)
-		Expect(gandivaScheduler.NumUnpooledHosts()).To(Equal(2))
+		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(2))
 		Expect(dockerSwarmCluster.Len()).To(Equal(2))
 
 		kernelResourceSpec := types.NewDecimalSpec(128, 128, 5, 2)
 		kernel1Spec := createKernelSpec(kernelResourceSpec)
 		kernel2Spec := createKernelSpec(kernelResourceSpec)
 
-		candidateHosts := gandivaScheduler.FindCandidateHosts(1, kernel1Spec)
+		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
 		Expect(len(candidateHosts)).To(Equal(1))
 		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 		//Expect(candidateHosts[0]).To(Equal(host1))
 
-		candidateHosts = gandivaScheduler.FindCandidateHosts(1, kernel2Spec)
+		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
 		Expect(len(candidateHosts)).To(Equal(1))
 		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 		//Expect(candidateHosts[0]).To(Equal(host2))
@@ -266,37 +282,44 @@ var _ = Describe("Gandiva Cluster/Scheduler Tests", func() {
 			ResourceSpec:    resourceSpec,
 		}
 
-		candidateHosts := gandivaScheduler.FindCandidateHosts(1, kernelSpec)
+		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernelSpec)
 		Expect(len(candidateHosts)).To(Equal(0))
 	})
 
 	It("Will return a candidate host in response to a request", func() {
+		clusterPlacer := dockerScheduler.Placer()
+		Expect(clusterPlacer).ToNot(BeNil())
+
+		gandivaPlacer, ok := clusterPlacer.(*placer.GandivaPlacer)
+		Expect(ok).To(BeTrue())
+		Expect(gandivaPlacer).ToNot(BeNil())
+
 		host1, _ := createHost(1)
 
-		Expect(gandivaScheduler.NumUnpooledHosts()).To(Equal(1))
+		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(1))
 
 		kernel1ResourceSpec := types.NewDecimalSpec(128, 128, 2, 2)
 		kernel1Spec := createKernelSpec(kernel1ResourceSpec)
 
 		By("Returning the only available host when finding a candidate")
 
-		candidateHosts := gandivaScheduler.FindCandidateHosts(1, kernel1Spec)
+		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
 		Expect(len(candidateHosts)).To(Equal(1))
 		Expect(candidateHosts[0]).To(Equal(host1))
 
-		Expect(gandivaScheduler.NumUnpooledHosts()).To(Equal(0))
+		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(0))
 
-		Expect(gandivaScheduler.NumHostsInPool(0)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(1)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(2)).To(Equal(1))
-		Expect(gandivaScheduler.NumHostsInPool(3)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(4)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(5)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(6)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(7)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(8)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(0)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(1)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(2)).To(Equal(1))
+		Expect(gandivaPlacer.NumHostsInPool(3)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(4)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(5)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(6)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(7)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(8)).To(Equal(0))
 
-		hostPool := gandivaScheduler.GetHostPool(int32(2))
+		hostPool := gandivaPlacer.GetHostPool(int32(2))
 		Expect(hostPool).ToNot(BeNil())
 		Expect(hostPool.NumGpus).To(Equal(int32(2)))
 		Expect(hostPool.Placer.Len()).To(Equal(1))
@@ -307,23 +330,23 @@ var _ = Describe("Gandiva Cluster/Scheduler Tests", func() {
 		kernel2ResourceSpec := types.NewDecimalSpec(128, 128, 2, 2)
 		kernel2Spec := createKernelSpec(kernel2ResourceSpec)
 
-		candidateHosts = gandivaScheduler.FindCandidateHosts(1, kernel2Spec)
+		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
 		Expect(len(candidateHosts)).To(Equal(1))
 		Expect(candidateHosts[0]).To(Equal(host1))
 
-		Expect(gandivaScheduler.NumUnpooledHosts()).To(Equal(0))
+		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(0))
 
-		Expect(gandivaScheduler.NumHostsInPool(0)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(1)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(2)).To(Equal(1))
-		Expect(gandivaScheduler.NumHostsInPool(3)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(4)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(5)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(6)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(7)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(8)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(0)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(1)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(2)).To(Equal(1))
+		Expect(gandivaPlacer.NumHostsInPool(3)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(4)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(5)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(6)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(7)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(8)).To(Equal(0))
 
-		hostPool = gandivaScheduler.GetHostPool(int32(2))
+		hostPool = gandivaPlacer.GetHostPool(int32(2))
 		Expect(hostPool).ToNot(BeNil())
 		Expect(hostPool.NumGpus).To(Equal(int32(2)))
 		Expect(hostPool.Placer.Len()).To(Equal(1))
@@ -331,12 +354,19 @@ var _ = Describe("Gandiva Cluster/Scheduler Tests", func() {
 	})
 
 	It("Will return the least-loaded candidate host in response to a request", func() {
+		clusterPlacer := dockerScheduler.Placer()
+		Expect(clusterPlacer).ToNot(BeNil())
+
+		gandivaPlacer, ok := clusterPlacer.(*placer.GandivaPlacer)
+		Expect(ok).To(BeTrue())
+		Expect(gandivaPlacer).ToNot(BeNil())
+
 		host1, _ := createHost(1)
-		Expect(gandivaScheduler.NumUnpooledHosts()).To(Equal(1))
+		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(1))
 		Expect(dockerSwarmCluster.Len()).To(Equal(1))
 
 		host2, _ := createHost(2)
-		Expect(gandivaScheduler.NumUnpooledHosts()).To(Equal(2))
+		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(2))
 		Expect(dockerSwarmCluster.Len()).To(Equal(2))
 
 		resourceSpec := proto.NewResourceSpec(1250, 2000, 5, 4)
@@ -353,24 +383,24 @@ var _ = Describe("Gandiva Cluster/Scheduler Tests", func() {
 
 		By("Returning an available host when finding a candidate")
 
-		candidateHosts := gandivaScheduler.FindCandidateHosts(1, kernel1Spec)
+		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
 		Expect(len(candidateHosts)).To(Equal(1))
 		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 		Expect(candidateHosts[0]).To(Equal(host1))
 
-		Expect(gandivaScheduler.NumUnpooledHosts()).To(Equal(1))
+		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(1))
 
-		Expect(gandivaScheduler.NumHostsInPool(0)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(1)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(2)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(3)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(4)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(5)).To(Equal(1))
-		Expect(gandivaScheduler.NumHostsInPool(6)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(7)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(8)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(0)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(1)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(2)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(3)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(4)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(5)).To(Equal(1))
+		Expect(gandivaPlacer.NumHostsInPool(6)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(7)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(8)).To(Equal(0))
 
-		hostPool := gandivaScheduler.GetHostPool(int32(5))
+		hostPool := gandivaPlacer.GetHostPool(int32(5))
 		Expect(hostPool).ToNot(BeNil())
 		Expect(hostPool.NumGpus).To(Equal(int32(5)))
 		Expect(hostPool.Placer.Len()).To(Equal(1))
@@ -389,24 +419,24 @@ var _ = Describe("Gandiva Cluster/Scheduler Tests", func() {
 			ResourceSpec:    resourceSpec,
 		}
 
-		candidateHosts = gandivaScheduler.FindCandidateHosts(1, kernel2Spec)
+		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
 		Expect(len(candidateHosts)).To(Equal(1))
 		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 		Expect(candidateHosts[0]).To(Equal(host2))
 
-		Expect(gandivaScheduler.NumUnpooledHosts()).To(Equal(0))
+		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(0))
 
-		Expect(gandivaScheduler.NumHostsInPool(0)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(1)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(2)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(3)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(4)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(5)).To(Equal(2))
-		Expect(gandivaScheduler.NumHostsInPool(6)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(7)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(8)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(0)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(1)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(2)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(3)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(4)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(5)).To(Equal(2))
+		Expect(gandivaPlacer.NumHostsInPool(6)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(7)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(8)).To(Equal(0))
 
-		hostPool = gandivaScheduler.GetHostPool(int32(5))
+		hostPool = gandivaPlacer.GetHostPool(int32(5))
 		Expect(hostPool).ToNot(BeNil())
 		Expect(hostPool.NumGpus).To(Equal(int32(5)))
 		Expect(hostPool.Placer.Len()).To(Equal(2))
@@ -428,24 +458,24 @@ var _ = Describe("Gandiva Cluster/Scheduler Tests", func() {
 			ResourceSpec:    resourceSpec,
 		}
 
-		candidateHosts = gandivaScheduler.FindCandidateHosts(1, kernel3Spec)
+		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel3Spec)
 		Expect(len(candidateHosts)).To(Equal(1))
 		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 		Expect(candidateHosts[0]).To(Equal(host1))
 
-		Expect(gandivaScheduler.NumUnpooledHosts()).To(Equal(0))
+		Expect(gandivaPlacer.NumUnpooledHosts()).To(Equal(0))
 
-		Expect(gandivaScheduler.NumHostsInPool(0)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(1)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(2)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(3)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(4)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(5)).To(Equal(2))
-		Expect(gandivaScheduler.NumHostsInPool(6)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(7)).To(Equal(0))
-		Expect(gandivaScheduler.NumHostsInPool(8)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(0)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(1)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(2)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(3)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(4)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(5)).To(Equal(2))
+		Expect(gandivaPlacer.NumHostsInPool(6)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(7)).To(Equal(0))
+		Expect(gandivaPlacer.NumHostsInPool(8)).To(Equal(0))
 
-		hostPool = gandivaScheduler.GetHostPool(int32(5))
+		hostPool = gandivaPlacer.GetHostPool(int32(5))
 		Expect(hostPool).ToNot(BeNil())
 		Expect(hostPool.NumGpus).To(Equal(int32(5)))
 		Expect(hostPool.Placer.Len()).To(Equal(2))

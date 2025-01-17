@@ -60,7 +60,7 @@ func (p *DynamicV4Policy) ContainerLifetime() scheduling.ContainerLifetime {
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *DynamicV4Policy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
-	return placer.NewStaticPlacer(metricsProvider, p.NumReplicas(), p)
+	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p)
 }
 
 func (p *DynamicV4Policy) ScalingConfiguration() *scheduling.ScalingConfiguration {

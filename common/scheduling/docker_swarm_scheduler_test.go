@@ -16,6 +16,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/scheduling/mock_scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
@@ -188,7 +189,10 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			clusterPlacer, err = schedulingPolicy.GetNewPlacer(nil)
 			Expect(err).To(BeNil())
 			Expect(clusterPlacer).ToNot(BeNil())
-			_, ok := clusterPlacer.(*placer.StaticPlacer)
+			_, ok := clusterPlacer.(*placer.BasicPlacer)
+			Expect(ok).To(BeTrue())
+
+			_, ok = clusterPlacer.GetIndex().(*index.StaticClusterIndex)
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
@@ -1266,7 +1270,10 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			clusterPlacer, err = schedulingPolicy.GetNewPlacer(nil)
 			Expect(err).To(BeNil())
 			Expect(clusterPlacer).ToNot(BeNil())
-			_, ok := clusterPlacer.(*placer.RandomPlacer)
+			_, ok := clusterPlacer.(*placer.BasicPlacer)
+			Expect(ok).To(BeTrue())
+
+			_, ok = clusterPlacer.GetIndex().(*index.RandomClusterIndex)
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
@@ -1556,7 +1563,10 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			clusterPlacer, err = schedulingPolicy.GetNewPlacer(nil)
 			Expect(err).To(BeNil())
 			Expect(clusterPlacer).ToNot(BeNil())
-			_, ok := clusterPlacer.(*placer.RandomPlacer)
+			_, ok := clusterPlacer.(*placer.BasicPlacer)
+			Expect(ok).To(BeTrue())
+
+			_, ok = clusterPlacer.GetIndex().(*index.RandomClusterIndex)
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,

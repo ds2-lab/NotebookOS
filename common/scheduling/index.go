@@ -1,7 +1,5 @@
 package scheduling
 
-import "github.com/scusemua/distributed-notebook/common/types"
-
 // HostCriteriaFunction is used by a ClusterIndexQuerier, specifically in its implementation of
 // SeekMultipleFrom, to determine if a Host will be considered viable by the Caller before returning it.
 //
@@ -22,8 +20,6 @@ type ClusterIndexQuerier interface {
 	//
 	// This entire method is thread-safe. The index is locked until this method returns.
 	SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]Host, interface{})
-
-	GetMetadataKey() types.HeapElementMetadataKey
 }
 
 type ClusterIndex interface {

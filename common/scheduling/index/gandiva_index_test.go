@@ -129,7 +129,7 @@ var _ = Describe("GandivaIndex Tests", func() {
 				gandivaIndex.Add(host1)
 				Expect(gandivaIndex.Len()).To(Equal(1))
 
-				meta := host1.GetMeta(index.HostMetaGandivaIndexPos)
+				meta := host1.GetMeta(index.LeastLoadedIndexMetadataKey)
 				Expect(meta).ToNot(BeNil())
 				Expect(meta.(int32)).To(Equal(int32(0)))
 
@@ -142,7 +142,7 @@ var _ = Describe("GandivaIndex Tests", func() {
 				gandivaIndex.Add(host2)
 				Expect(gandivaIndex.Len()).To(Equal(2))
 
-				meta = host2.GetMeta(index.HostMetaGandivaIndexPos)
+				meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
 				Expect(meta).ToNot(BeNil())
 				Expect(meta.(int32)).To(Equal(int32(1)))
 
@@ -175,7 +175,7 @@ var _ = Describe("GandivaIndex Tests", func() {
 
 				By("Correctly removing the final host")
 
-				meta = host2.GetMeta(index.HostMetaGandivaIndexPos)
+				meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
 				Expect(meta).ToNot(BeNil())
 				Expect(meta.(int32)).To(Equal(int32(0)))
 

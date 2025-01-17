@@ -85,6 +85,9 @@ type Policy interface {
 	// and/or displaying to users.
 	Name() string
 
+	// GetGpusPerHost returns the number of GPUs available on each host.
+	GetGpusPerHost() int
+
 	// NumReplicas returns the number of replicas that each kernel should have under the target scheduling Policy.
 	NumReplicas() int
 

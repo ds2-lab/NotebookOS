@@ -306,13 +306,13 @@ func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 func (c *BaseCluster) UpdateIndex(host scheduling.Host) error {
 	categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
 	if categoryMetadata == nil {
-		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexCategoryMetadata ('%s') metadata",
+		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexCategoryMetadata ('%s') metadata entry",
 			host.GetNodeName(), host.GetID(), scheduling.HostIndexCategoryMetadata)
 	}
 
 	keyMetadata := host.GetMeta(scheduling.HostIndexKeyMetadata)
 	if keyMetadata == nil {
-		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata",
+		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata entry",
 			host.GetNodeName(), host.GetID(), scheduling.HostIndexKeyMetadata)
 	}
 
