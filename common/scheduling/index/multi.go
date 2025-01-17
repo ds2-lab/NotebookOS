@@ -108,7 +108,7 @@ func NewMultiIndex[T scheduling.ClusterIndex](maxGpus int32, provider MultiIndex
 		Size:             0,
 	}
 
-	config.InitLogger(&index.log, fmt.Sprintf("MultiIndex[%d]", maxGpus))
+	config.InitLogger(&index.log, fmt.Sprintf("MultiIndex[%d] ", maxGpus))
 
 	err := index.initializeHostPools(maxGpus, provider)
 	if err != nil {
@@ -126,6 +126,8 @@ func (index *MultiIndex[T]) initializeHostPools(maxGPUs int32, indexProvider Mul
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
+	index.log.Debug("Initializing %d host pools now.", maxGPUs+1)
+
 	if index.HostGroupsInitialized {
 		return nil
 	}
@@ -133,10 +135,45 @@ func (index *MultiIndex[T]) initializeHostPools(maxGPUs int32, indexProvider Mul
 	var gpus int32
 	for gpus = 0; gpus <= maxGPUs; gpus++ {
 		index.HostPools[gpus] = NewHostPool(indexProvider(), gpus)
-		index.log.Debug("Initialized %d-GPU pool.", gpus)
+		index.log.Debug("Initialized HostPool #%d: %d-GPU pool.", len(index.HostPools), gpus)
 	}
 
 	return nil
+}
+
+// NumFreeHosts returns the number of "free" scheduling.Host instances within the target MultiIndex.
+//
+// "Free" hosts are those that have not been placed into a particular HostPool (yet).
+func (index *MultiIndex[T]) NumFreeHosts() int {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+
+	return index.FreeHosts.Len()
+}
+
+// NumHostsInPool returns the number of hosts in the specified host pool.
+func (index *MultiIndex[T]) NumHostsInPool(gpus int32) int {
+	pool, loaded := index.HostPools[gpus]
+	if !loaded {
+		index.log.Warn("Size of %d-GPU pool requested; however, no such pool exists...", gpus)
+
+		return -1
+	}
+
+	return pool.Len()
+}
+
+// GetHostPool returns the HostPool for the specified number of GPUs.
+//
+// The HostPool will be the one responsible for containing Hosts that serve sessions/kernels/jobs
+// requiring `gpus` number of GPUs.
+func (index *MultiIndex[T]) GetHostPool(gpus int32) (*HostPool[T], bool) {
+	pool, loaded := index.HostPools[gpus]
+	if loaded {
+		return pool, true
+	}
+
+	return nil, false
 }
 
 func (index *MultiIndex[T]) Len() int {
@@ -223,7 +260,7 @@ func (index *MultiIndex[T]) GetMetrics(host scheduling.Host) []float64 {
 
 	hostPool, loaded := index.HostIdToHostPool[host.GetID()]
 	if !loaded {
-		index.log.Warn("Could not load GPU pool for host %s (ID=%s). Cannot get metrisc for host.",
+		index.log.Warn("Could not load GPU pool for host %s (ID=%s). Cannot get metrics for host.",
 			host.GetNodeName(), host.GetID())
 		return []float64{}
 	}
