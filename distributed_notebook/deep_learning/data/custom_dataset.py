@@ -51,6 +51,10 @@ class CustomDataset(ABC):
     def dataset_already_downloaded(self)->bool:
         return False
 
+    @dataset_already_downloaded.setter
+    def dataset_already_downloaded(self, val: bool):
+        pass
+
     @property
     @abstractmethod
     def download_start(self)->float:

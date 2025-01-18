@@ -188,6 +188,10 @@ class NLPDataset(HuggingFaceDataset, ABC):
     def dataset_already_downloaded(self) -> bool:
         return self._dataset_already_downloaded
 
+    @dataset_already_downloaded.setter
+    def dataset_already_downloaded(self, val: bool):
+        self._dataset_already_downloaded = val
+
     @property
     def dataset_already_tokenized(self) -> bool:
         return self._dataset_already_tokenized
