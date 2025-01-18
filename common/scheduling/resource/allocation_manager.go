@@ -793,6 +793,7 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 			panic("Received no GPU device ID when one should have been available.")
 		}
 
+		m.log.Debug("Allocating GPU #%d to replica %d of kernel '%s'.", gpuDeviceId, replicaId, kernelId)
 		gpuDeviceIds = append(gpuDeviceIds, gpuDeviceId)
 	}
 
@@ -802,8 +803,8 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	m.numPendingAllocations.Decr()
 	m.numCommittedAllocations.Incr()
 
-	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isReservation=%v): %v",
-		replicaId, kernelId, isReservation, requestedResources.String())
+	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isReservation=%v): %v. GPUs reserved/allocated: %v.",
+		replicaId, kernelId, isReservation, requestedResources.String(), allocation.GpuDeviceIds)
 	m.log.Debug("Updated resource counts: %s.", m.resourcesWrapper.GetResourceCountsAsString())
 
 	// Update Prometheus metrics.
