@@ -4028,9 +4028,16 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 		d.ClusterStatistics.NumTimesDownloadModelMicroseconds += 1
 	}
 
+	// Downloading the dataset overhead.
 	if trace.DownloadDatasetMicroseconds > 0 {
 		d.ClusterStatistics.CumulativeTimeDownloadTrainingDataMicroseconds += float64(trace.DownloadDatasetMicroseconds)
 		d.ClusterStatistics.NumTimesDownloadTrainingDataMicroseconds += 1
+	}
+
+	// Tokenization overhead. Only relevant for NLP datasets.
+	if trace.TokenizeDatasetMicroseconds > 0 {
+		d.ClusterStatistics.CumulativeTokenizeDatasetMicroseconds += float64(trace.TokenizeDatasetMicroseconds)
+		d.ClusterStatistics.NumTimesTokenizeDatasetMicroseconds += 1
 	}
 
 	if trace.UploadModelAndTrainingDataMicroseconds > 0 {

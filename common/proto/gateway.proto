@@ -504,6 +504,8 @@ message RequestTrace {
   int64 electionEndTime = 30;
 
   float e2eLatencyMilliseconds = 31;
+  // Time spent tokenizing the dataset.
+  float tokenizeDatasetMicroseconds = 32;
 }
 
 message PingInstruction {
