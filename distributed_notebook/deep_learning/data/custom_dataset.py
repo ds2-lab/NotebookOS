@@ -32,17 +32,19 @@ class CustomDataset(ABC):
     def dataset_name()->str:
         pass
 
-    def _check_if_downloaded(self, filenames: list, base_folder: str) -> bool:
-        """
-        Check if the dataset is already downloaded.
+    @property
+    @abstractmethod
+    def recorded_tokenization_overhead(self)->bool:
+        pass
 
-        :return: True if the dataset is already downloaded, otherwise False
+    @abstractmethod
+    def set_recorded_tokenization_overhead(self, val: bool = True):
         """
-        for filename, md5 in filenames:
-            fpath = os.path.join(self._root_dir, base_folder, filename)
-            if not check_integrity(fpath, md5):
-                return False
-        return True
+        This should be called by the kernel when it retrieves the tokenization overhead, as we only
+        tokenize the dataset once. This flag lets us know that we've already recorded the tokenization
+        overhead and should not re-record it again in the future.
+        """
+        pass
 
     @property
     @abstractmethod
@@ -93,6 +95,18 @@ class CustomDataset(ABC):
             "shuffle": self._shuffle,
             "num_workers": self._num_workers
         }
+
+    def _check_if_downloaded(self, filenames: list, base_folder: str) -> bool:
+        """
+        Check if the dataset is already downloaded.
+
+        :return: True if the dataset is already downloaded, otherwise False
+        """
+        for filename, md5 in filenames:
+            fpath = os.path.join(self._root_dir, base_folder, filename)
+            if not check_integrity(fpath, md5):
+                return False
+        return True
 
     @property
     def num_workers(self)->int:

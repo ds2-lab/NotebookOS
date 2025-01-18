@@ -323,6 +323,23 @@ class LibriSpeech(CustomDataset):
         return -1
 
     @property
+    def recorded_tokenization_overhead(self)->bool:
+        """
+        Speech datasets do not need to be tokenized, so we always return True.
+        :return:
+        """
+        return True
+
+    def set_recorded_tokenization_overhead(self, val: bool = True):
+        """
+        This should be called by the kernel when it retrieves the tokenization overhead, as we only
+        tokenize the dataset once. This flag lets us know that we've already recorded the tokenization
+        overhead and should not re-record it again in the future.
+        """
+        # No-op
+        pass
+
+    @property
     def requires_tokenization(self) -> bool:
         return False
 

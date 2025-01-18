@@ -74,6 +74,11 @@ class NLPDataset(HuggingFaceDataset, ABC):
 
         if not self._dataset_already_tokenized:
             print(f'Tokenizing the {self.name} dataset now. Will cache tokenized data in directory "{self._dataset_dict_path}"')
+
+            # When the kernel retrieves the tokenization time to record the overhead, we flip this flag to true,
+            # That way, we don't double-count it in the future.
+            self._recorded_tokenization_overhead: bool = False
+
             self._tokenize_start: float = time.time()
 
             self.tokenizer = get_tokenizer(model_name)
@@ -108,7 +113,7 @@ class NLPDataset(HuggingFaceDataset, ABC):
                   f'{time.time() - write_start} seconds. '
                   f'Total time elapsed: {self._tokenize_duration} seconds.')
         else:
-            # TODO: Read the cached tokenized dataset.
+            self._recorded_tokenization_overhead: bool = True
             print(f'The {self.name} dataset was already tokenized. '
                   f'Loading cached, tokenized {self.name} dataset from directory "{self._dataset_dict_path}" now...')
 
@@ -137,6 +142,18 @@ class NLPDataset(HuggingFaceDataset, ABC):
         validation_sampler = SequentialSampler(validation_data)
         self._test_loader = WrappedLoader(validation_data, sampler=validation_sampler,
                                           batch_size=batch_size, dataset_name=self.dataset_name())
+
+    @property
+    def recorded_tokenization_overhead(self)->bool:
+        return self._recorded_tokenization_overhead
+
+    def set_recorded_tokenization_overhead(self, val: bool = True):
+        """
+        This should be called by the kernel when it retrieves the tokenization overhead, as we only
+        tokenize the dataset once. This flag lets us know that we've already recorded the tokenization
+        overhead and should not re-record it again in the future.
+        """
+        self._recorded_tokenization_overhead = val
 
     @property
     def tokenization_start(self) -> float:

@@ -6,12 +6,12 @@ from typing import Dict, Any, Union, Optional
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
+from distributed_notebook.deep_learning.data.cv.base import ComputerVisionDataset
 from distributed_notebook.deep_learning.data.loader import WrappedLoader
 
 from distributed_notebook.deep_learning.configuration import ComputerVision
 
-class CIFAR100(CustomDataset):
+class CIFAR100(ComputerVisionDataset):
     default_root_directory: str = os.path.expanduser("~/.cache/distributed_notebook/datasets/cifar100")
 
     def __init__(
@@ -127,19 +127,3 @@ class CIFAR100(CustomDataset):
     @property
     def test_loader(self)->Optional[DataLoader]:
         return self._test_loader
-
-    @property
-    def requires_tokenization(self) -> bool:
-        return False
-
-    @property
-    def tokenization_start(self) -> float:
-        return -1.0
-
-    @property
-    def tokenization_end(self) -> float:
-        return -1.0
-
-    @property
-    def tokenization_duration_sec(self) -> float:
-        return -1.0
