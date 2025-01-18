@@ -561,9 +561,19 @@ class Synchronizer:
                 f"Successfully appended value: {sync_ast}. Checkpointing={checkpointing}."
             )
             self.log.debug(f"Synchronizing {len(keys)} key(s) now.")
+
+            unknown_keys: set[str] = set()
+
             for key in keys:
                 synced = synced + 1
                 self.log.debug('Syncing key "%s" now.' % key)
+
+                if key not in self.global_ns:
+                    self.log.error(f'Cannot sync key "{key}" as there is no variable '
+                                   f'in our global namespace with that name...')
+                    unknown_keys.add(key)
+                    continue
+
                 await self.sync_key(
                     sync_log,
                     key,
@@ -585,6 +595,12 @@ class Synchronizer:
             tb = traceback.format_exc()
             self.log.error(f"Exception Encountered: {e}")
             self.log.error(tb)
+            return False
+
+        # If there were keys we were unable to sync, then return an error.
+        if len(unknown_keys) > 0:
+            comma: str = ","
+            self.log.error(f"Non-zero number of unknown keys ({len(unknown_keys)}): {comma.join(list(unknown_keys))}")
             return False
 
         return True
