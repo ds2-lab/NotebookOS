@@ -4489,9 +4489,7 @@ class DistributedKernel(IPythonKernel):
                     f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves "
                     f"while catching up. Saving for later."
                 )
-                self.dataset_pointers_catchup[pointer.user_namespace_variable_name] = (
-                    pointer
-                )
+                self.dataset_pointers_catchup[pointer.user_namespace_variable_name] = pointer
                 return None
             else:
                 self.log.debug(
