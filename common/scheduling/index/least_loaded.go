@@ -74,8 +74,8 @@ func (index *LeastLoadedIndex) unsafeAdd(host scheduling.Host) {
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
 	host.SetContainedWithinIndex(true)
-	index.log.Debug("Added Host %s (ID=%s) to LeastLoadedIndex at position %d.",
-		host.GetNodeName(), host.GetID(), idx)
+	index.log.Debug("Added Host %s (ID=%s) to LeastLoadedIndex at position %d. Index length: %d.",
+		host.GetNodeName(), host.GetID(), idx, index.Len())
 
 	// Invoke callback.
 	index.InvokeHostAddedCallbacks(host)
