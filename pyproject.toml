@@ -47,7 +47,8 @@ dependencies = [
     "portalocker>=2.0.0",
     "pytest",
     "pytest-asyncio",
-    "torchaudio"
+    "torchaudio",
+    "torchvision"
 ]
 
 readme = "README.md"
