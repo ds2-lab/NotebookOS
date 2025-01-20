@@ -22,6 +22,9 @@ type AbstractPlacer struct {
 	numReplicas      int
 	instance         internalPlacer
 	schedulingPolicy scheduling.Policy
+
+	// resourceReserver is a function used by placers to reserve resources on candidate hosts.
+	resourceReserver resourceReserver
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.
@@ -31,6 +34,9 @@ func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas i
 		numReplicas:      numReplicas,
 		schedulingPolicy: schedulingPolicy,
 	}
+
+	placer.resourceReserver = getResourceReserver(placer.reservationShouldUsePendingResources())
+
 	config.InitLogger(&placer.log, placer)
 	return placer
 }
@@ -49,8 +55,9 @@ func (placer *AbstractPlacer) reservationShouldUsePendingResources() bool {
 // The number of hosts returned is determined by the placer.
 //
 // The core logic of FindHosts is implemented by the AbstractPlacer's internalPlacer instance/field.
-func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts int) []scheduling.Host {
+func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) []scheduling.Host {
 	placer.mu.Lock()
+	defer placer.mu.Unlock()
 	st := time.Now()
 
 	// The following checks make sense/apply for all concrete implementations of Placer.
@@ -62,17 +69,17 @@ func (placer *AbstractPlacer) FindHosts(kernelSpec *proto.KernelSpec, numHosts i
 	}
 
 	// Invoke internalPlacer's implementation of the findHosts method for the core logic of FindHosts.
-	hosts := placer.instance.findHosts(kernelSpec, numHosts)
+	hosts := placer.instance.findHosts(blacklist, kernelSpec, numHosts, forTraining)
 
 	latency := time.Since(st)
 
 	var successLabel string
 	if hosts == nil || len(hosts) < numHosts {
-		placer.log.Warn(utils.OrangeStyle.Render("Failed to identify the %d required hosts for kernel %s. Found only %d/%d. Time elapsed: %v."),
-			placer.numReplicas, kernelSpec.Id, len(hosts), placer.numReplicas, latency)
+		placer.log.Warn(utils.OrangeStyle.Render("Found only %d/%d hosts for kernel %s. Time elapsed: %v."),
+			len(hosts), numHosts, kernelSpec.Id, latency)
 		successLabel = "false"
 	} else {
-		placer.log.Debug(utils.GreenStyle.Render("Successfully identified %d/%d viable hosts for kernel %s after %v."),
+		placer.log.Debug(utils.GreenStyle.Render("Found %d/%d viable hosts for kernel %s after %v."),
 			len(hosts), numHosts, kernelSpec.Id, latency)
 		successLabel = "true"
 	}

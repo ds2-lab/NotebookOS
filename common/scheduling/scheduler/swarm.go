@@ -37,9 +37,13 @@ type DockerScheduler struct {
 	dockerModeKernelDebugPort atomic.Int32
 }
 
-func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper, hostSpec types.Spec,
-	kernelProvider KernelProvider, notificationBroker NotificationBroker, schedulingPolicy scheduling.Policy,
-	opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
+// newDockerScheduler is called internally by "constructors" of other schedulers that "extend" DockerScheduler.
+func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
+	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
+	schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
+	if cluster == nil {
+		panic("Cluster cannot be nil")
+	}
 
 	baseScheduler := newBaseSchedulerBuilder().
 		WithCluster(cluster).
@@ -57,17 +61,42 @@ func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 
 	dockerScheduler.dockerModeKernelDebugPort.Store(DockerKernelDebugPortDefault)
 
-	baseScheduler.instance = dockerScheduler
-
 	err := dockerScheduler.refreshClusterNodes()
 	if err != nil {
 		dockerScheduler.log.Error("Initial retrieval of Docker nodes failed: %v", err)
 	}
 
-	// Note: if I re-enable this, then I need to revisit Host::doContainerRemovedResourceUpdate.
-	// go dockerScheduler.pollForResourceData()
+	return dockerScheduler, nil
+}
+
+func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
+	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
+	schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
+
+	dockerScheduler, err := newDockerScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider,
+		notificationBroker, schedulingPolicy, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	dockerScheduler.BaseScheduler.instance = dockerScheduler
+
+	err = dockerScheduler.refreshClusterNodes()
+	if err != nil {
+		dockerScheduler.log.Error("Initial retrieval of Docker nodes failed: %v", err)
+	}
 
 	return dockerScheduler, nil
+}
+
+func (s *DockerScheduler) Instance() scheduling.Scheduler {
+	return s.BaseScheduler.instance
+}
+
+func (s *DockerScheduler) setInstance(instance clusterSchedulerInternal) {
+	s.instance = instance
+	s.BaseScheduler.instance = instance
+	s.BaseScheduler.setInstance(instance)
 }
 
 // selectViableHostForReplica is called at scheduling-time (rather than before we get to the point of scheduling, such
@@ -84,7 +113,8 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	for _, blacklistedHost := range blacklistedHosts {
 		s.log.Debug("Host %s (ID=%s) of kernel %s-%d was specifically specified as being blacklisted.",
 			blacklistedHost.GetNodeName(), blacklistedHost.GetID(), kernelId, replicaSpec.ReplicaId)
-		blacklist = append(blacklist, blacklistedHost.GetMeta(s.placer.GetIndex().GetMetadataKey()))
+		// blacklist = append(blacklist, blacklistedHost.GetMeta(s.placer.GetIndex().GetMetadataKey()))
+		blacklist = append(blacklist, blacklistedHost)
 	}
 
 	replicaHosts, err := s.hostMapper.GetHostsOfKernel(kernelId)
@@ -97,7 +127,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	for _, host := range replicaHosts {
 		s.log.Debug("Adding host %s (on node %s) of kernel %s-%d to blacklist.",
 			host.GetID(), host.GetNodeName(), kernelId, replicaSpec.ReplicaId)
-		blacklist = append(blacklist, host.GetMeta(s.placer.GetIndex().GetMetadataKey()))
+		blacklist = append(blacklist, host)
 	}
 
 	host := s.placer.FindHost(blacklist, replicaSpec.Kernel, forTraining)
@@ -108,6 +138,19 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 	s.log.Debug("Selected host %s (ID=%s) as target for migration. Will migrate kernel %s-%d to host %s.",
 		host.GetNodeName(), host.GetID(), kernelId, replicaSpec.ReplicaId, host.GetNodeName())
 	return host, nil
+}
+
+// HostAdded is called by the Cluster when a new Host connects to the Cluster.
+func (s *DockerScheduler) HostAdded(host scheduling.Host) {
+	s.log.Debug("Host %s (ID=%s) has been added.", host.GetNodeName(), host.GetID())
+}
+
+// findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
+// DockerScheduler does not do anything special or fancy.
+func (s *DockerScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) []scheduling.Host {
+	// Identify the hosts onto which we will place replicas of the kernel.
+	hostBatch := s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
+	return hostBatch
 }
 
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.

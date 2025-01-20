@@ -1,10 +1,11 @@
 package index
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"math/rand"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,16 +15,16 @@ import (
 )
 
 const (
-	expectedRandomIndex                           = "*"
-	HostMetaRandomIndex    scheduling.HostMetaKey = "random_index"
-	randomIndexGCThreshold                        = 10
+	expectedRandomIndex                                 = "*"
+	HostMetaRandomIndex    types.HeapElementMetadataKey = "random_index"
+	randomIndexGCThreshold                              = 10
 )
 
 // RandomClusterIndex is a simple Cluster that seeks hosts randomly.
 // RandomClusterIndex uses CategoryClusterIndex and all hosts are qualified.
 type RandomClusterIndex struct {
-	// The permutation of the hosts. Collection of indices that gets shuffled. We use these to index the hosts field.
-	perm        []int
+	*CallbackManager
+	perm        []int             // The permutation of the hosts. Collection of indices that gets shuffled. We use these to index the hosts field.
 	freeStart   int32             // The first freed index.
 	seekStart   int32             // The start index of the seek.
 	numShuffles atomic.Int32      // The number of times the index has been shuffled to a new random permutation.
@@ -35,7 +36,8 @@ type RandomClusterIndex struct {
 
 func NewRandomClusterIndex(size int) *RandomClusterIndex {
 	index := &RandomClusterIndex{
-		hosts: make([]scheduling.Host, 0, size),
+		CallbackManager: NewCallbackManager(),
+		hosts:           make([]scheduling.Host, 0, size),
 	}
 	index.numShuffles.Store(0)
 
@@ -44,12 +46,12 @@ func NewRandomClusterIndex(size int) *RandomClusterIndex {
 	return index
 }
 
-func (index *RandomClusterIndex) Category() (string, interface{}) {
-	return scheduling.CategoryClusterIndex, expectedRandomIndex
+func (index *RandomClusterIndex) Identifier() string {
+	return fmt.Sprintf("RandomClusterIndex[%d]", index.len)
 }
 
-func (index *RandomClusterIndex) GetMetadataKey() scheduling.HostMetaKey {
-	return HostMetaRandomIndex
+func (index *RandomClusterIndex) Category() (string, interface{}) {
+	return scheduling.CategoryClusterIndex, expectedRandomIndex
 }
 
 func (index *RandomClusterIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
@@ -94,17 +96,30 @@ func (index *RandomClusterIndex) Add(host scheduling.Host) {
 		index.freeStart += 1
 	}
 	host.SetMeta(HostMetaRandomIndex, i)
+	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
+	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedRandomIndex)
 	host.SetContainedWithinIndex(true)
 	index.log.Debug("Added Host %s to RandomClusterIndex at position %d.", host.GetID(), i)
 	index.len += 1
+
+	// Invoke callback.
+	index.InvokeHostAddedCallbacks(host)
 }
 
-func (index *RandomClusterIndex) Update(_ scheduling.Host) {
+func (index *RandomClusterIndex) Update(host scheduling.Host) {
 	// No-op.
+
+	// Invoke callbacks.
+	index.InvokeHostUpdatedCallbacks(host)
 }
 
-func (index *RandomClusterIndex) UpdateMultiple(_ []scheduling.Host) {
+func (index *RandomClusterIndex) UpdateMultiple(hosts []scheduling.Host) {
 	// No-op.
+
+	// Invoke callbacks.
+	for _, host := range hosts {
+		index.InvokeHostUpdatedCallbacks(host)
+	}
 }
 
 func (index *RandomClusterIndex) Remove(host scheduling.Host) {
@@ -149,6 +164,8 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 	index.hosts[i] = nil
 	index.len -= 1
 	host.SetMeta(HostMetaRandomIndex, nil)
+	host.SetMeta(scheduling.HostIndexCategoryMetadata, nil)
+	host.SetMeta(scheduling.HostIndexKeyMetadata, nil)
 	host.SetContainedWithinIndex(false)
 
 	// Update freeStart.
@@ -160,6 +177,9 @@ func (index *RandomClusterIndex) Remove(host scheduling.Host) {
 	if len(index.hosts)-int(index.len) >= randomIndexGCThreshold {
 		index.compactLocked(index.freeStart)
 	}
+
+	// Invoke callback.
+	index.InvokeHostRemovedCallbacks(host)
 }
 
 func (index *RandomClusterIndex) compactLocked(from int32) {
@@ -200,23 +220,6 @@ func (index *RandomClusterIndex) reshuffleRequired() bool {
 	return index.seekStart == 0 || index.seekStart >= int32(len(index.perm))
 }
 
-// getBlacklist converts the list of interface{} to a list of []int32 containing
-// the indices of blacklisted Host instances within a RandomClusterIndex.
-func (index *RandomClusterIndex) getBlacklist(blacklist []interface{}) []int32 {
-
-	__blacklist := make([]int32, 0)
-	for i, meta := range blacklist {
-		if meta == nil {
-			index.log.Error("Blacklist contains nil entry at index %d.", i)
-			continue
-		}
-
-		__blacklist = append(__blacklist, meta.(int32))
-	}
-
-	return __blacklist
-}
-
 // unsafeSeek does the actual work of the Seek method.
 // unsafeSeek does not acquire the mutex. It should be called from a function that has already acquired the mutex.
 func (index *RandomClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics ...[]float64) (scheduling.Host, interface{}) {
@@ -225,7 +228,7 @@ func (index *RandomClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics 
 	}
 
 	// Convert the blacklistArg parameter into a slice of a concrete type; in this case, []int32.
-	blacklist := index.getBlacklist(blacklistArg)
+	blacklist := getBlacklist(blacklistArg)
 	hostsSeen := 0
 	var host scheduling.Host
 
@@ -243,7 +246,8 @@ func (index *RandomClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics 
 			hostsSeen += 1
 
 			// If the given host is blacklisted, then look for a different host.
-			if slices.Contains(blacklist, host.GetMeta(HostMetaRandomIndex).(int32)) {
+			// if slices.Contains(blacklist, host.GetMeta(HostMetaRandomIndex).(int32)) {
+			if ContainsHost(blacklist, host) {
 				// Set to nil so that we have to continue searching.
 				host = nil
 			}

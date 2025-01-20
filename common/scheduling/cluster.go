@@ -175,6 +175,9 @@ type IndexManager interface {
 
 	// AddIndex adds an index to the BaseCluster. For each category and expected value, there can be only one index.
 	AddIndex(index IndexProvider) error
+
+	// UpdateIndex updates the ClusterIndex that contains the specified Host.
+	UpdateIndex(host Host) error
 }
 
 type ClusterMetricsManager interface {

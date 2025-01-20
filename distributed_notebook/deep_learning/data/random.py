@@ -91,6 +91,10 @@ class RandomCustomDataset(CustomDataset):
     def dataset_already_downloaded(self)->bool:
         return self._dataset_already_downloaded
 
+    @dataset_already_downloaded.setter
+    def dataset_already_downloaded(self, val: bool):
+        self._dataset_already_downloaded = val
+
     @property
     def download_start_time(self)->float:
         return -1

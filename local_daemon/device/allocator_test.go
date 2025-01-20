@@ -3,8 +3,6 @@ package device_test
 import (
 	"fmt"
 
-	"github.com/Scusemua/go-utils/config"
-	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -129,7 +127,6 @@ func getGpuPods(pods []corev1.Pod) []corev1.Pod {
 }
 
 var _ = Describe("Allocator Tests", func() {
-	config.LogLevel = logger.LOG_LEVEL_ALL
 	totalVirtualGPUs := 64
 	stopChan := make(chan interface{})
 	vgpusChangedChan := make(chan interface{})

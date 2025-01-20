@@ -67,13 +67,16 @@ type KernelScheduler interface {
 }
 
 type HostScheduler interface {
-	// AddHost adds a new Host to the Cluster.
+	// RequestNewHost adds a new Host to the Cluster.
 	// We simulate this using node taints.
-	AddHost() error
+	RequestNewHost() error
 
 	// RemoveHost removes a Host from the Cluster.
 	// We simulate this using node taints.
 	RemoveHost(hostId string) error
+
+	// HostAdded is called by the Cluster when a new Host connects to the Cluster.
+	HostAdded(host Host)
 
 	// ReleaseIdleHosts Tries to release n idle hosts. Return the number of hosts that were actually released.
 	// Error will be nil on success and non-nil if some sort of failure is encountered.
@@ -86,9 +89,13 @@ type HostScheduler interface {
 	// GetCandidateHost identifies a single candidate host for a particular kernel replica, reserving resources on hosts
 	// before returning them.
 	//
-	// If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it to
-	// the blacklist.
+	// If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it
+	// to the blacklist.
 	GetCandidateHost(replica KernelReplica, blacklistedHosts []Host, forTraining bool) (Host, error)
+
+	// UpdateHostInIndex is a callback for schedulers that maintain their own placers, rather than using the single
+	// primary placer of the cluster.
+	// UpdateHostInIndex(host Host)
 }
 
 type SchedulerMetricsManager interface {

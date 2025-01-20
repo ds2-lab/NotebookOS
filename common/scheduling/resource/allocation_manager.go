@@ -70,8 +70,8 @@ type AllocationManager struct {
 	// numCommittedAllocations is the number of active Allocation instances of type CommittedAllocation.
 	numCommittedAllocations types.StatInt32
 
-	// availableGpuDevices is a queue.FifoQueue containing GPU device IDs.
-	availableGpuDevices *queue.FifoQueue
+	// availableGpuDevices is a queue.Fifo containing GPU device IDs.
+	availableGpuDevices *queue.Fifo[int]
 
 	metricsManager *metrics.LocalDaemonPrometheusManager
 }
@@ -81,7 +81,7 @@ func NewAllocationManager(resourceSpec types.Spec) *AllocationManager {
 	manager := &AllocationManager{
 		ID:                         uuid.NewString(),
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, *Allocation](128),
-		availableGpuDevices:        queue.NewQueue(int(resourceSpec.GPU())),
+		availableGpuDevices:        queue.NewFifo[int](int(resourceSpec.GPU())),
 	}
 
 	for i := 0; i < int(resourceSpec.GPU()); i++ {
@@ -787,17 +787,13 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 
 	gpuDeviceIds := make([]int, 0, int(allocation.GPUs.InexactFloat64()))
 	for len(gpuDeviceIds) < int(allocation.GPUs.InexactFloat64()) {
-		val := m.availableGpuDevices.Dequeue()
+		gpuDeviceId, ok := m.availableGpuDevices.Dequeue()
 
-		if val == nil {
-			panic("Received nil GPU device ID when one should have been available.")
-		}
-
-		gpuDeviceId, ok := val.(int)
 		if !ok {
-			panic("Received nil GPU device ID when one should have been available.")
+			panic("Received no GPU device ID when one should have been available.")
 		}
 
+		m.log.Debug("Allocating GPU #%d to replica %d of kernel '%s'.", gpuDeviceId, replicaId, kernelId)
 		gpuDeviceIds = append(gpuDeviceIds, gpuDeviceId)
 	}
 
@@ -807,8 +803,8 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	m.numPendingAllocations.Decr()
 	m.numCommittedAllocations.Incr()
 
-	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isReservation=%v): %v",
-		replicaId, kernelId, isReservation, requestedResources.String())
+	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isReservation=%v): %v. GPUs reserved/allocated: %v.",
+		replicaId, kernelId, isReservation, requestedResources.String(), allocation.GpuDeviceIds)
 	m.log.Debug("Updated resource counts: %s.", m.resourcesWrapper.GetResourceCountsAsString())
 
 	// Update Prometheus metrics.

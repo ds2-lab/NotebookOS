@@ -55,7 +55,8 @@ from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer im
 from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
-from ..deep_learning import DatasetClassesByName, ModelClassesByName
+from ..deep_learning import DatasetClassesByName, ModelClassesByName, ResNet18, CIFAR10, NaturalLanguageProcessing
+from ..deep_learning.data.nlp.base import NLPDataset
 
 import_torch_start: float = time.time()
 try:
@@ -2008,9 +2009,9 @@ class DistributedKernel(IPythonKernel):
             except ValueError:
                 pass
 
-        target_model: Optional[str] = metadata.get("model", None)
-        target_dataset: Optional[str] = metadata.get("dataset", None)
-        batch_size: Optional[int] = metadata.get("batch_size", None)
+        target_model: Optional[str] = metadata.get("model", ResNet18.model_name())
+        target_dataset: Optional[str] = metadata.get("dataset", CIFAR10.dataset_name())
+        batch_size: Optional[int] = metadata.get("batch_size", 8)
 
         # Re-broadcast our input for the benefit of listening clients, and
         # start computing output
@@ -3069,26 +3070,23 @@ class DistributedKernel(IPythonKernel):
             assert gpu_device_ids is not None and len(gpu_device_ids) > 0
 
         performed_gpu_training: bool = False
-        if target_training_duration_millis > 0:
-            self.log.debug(
-                f"Explicitly instructed to train for {target_training_duration_millis:,} milliseconds. "
-                f"Discarding specified code. Will use custom training code instead generated for model "
-                f"'{deep_learning_model_name}' and dataset '{dataset}'."
-            )
-            code = await self.get_custom_training_code(
-                target_training_duration_millis=target_training_duration_millis,
-                gpu_device_ids=gpu_device_ids,
-                deep_learning_model=deep_learning_model_name,
-                dataset_name=dataset,
-                batch_size=batch_size,
-            )
-            performed_gpu_training = True
-        elif "training_duration_millis = " in code:
-            target_training_duration_millis = int(float(code[27:]))
+
+        # Check for the special training code that indicates that we are to generate some code to simulate
+        # the execution of deep learning training.
+        #
+        # Note that the user could also just submit the code that we generate directly, but this simplified
+        # the implementation for evaluation purposes.
+        if "training_duration_millis = " in code:
+            # First, make sure that we have a valid, non-zero value for the 'target_training_duration_millis' variable.
+            if target_training_duration_millis <= 0:
+                target_training_duration_millis = int(float(code[27:]))
+
             self.log.debug(
                 f"Explicitly instructed to train for {target_training_duration_millis / 1.0e3:,} seconds. "
                 f"Discarding specified code. Will use custom training code instead."
             )
+
+            # Generate the custom code.
             code = await self.get_custom_training_code(
                 target_training_duration_millis=target_training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
@@ -3097,8 +3095,34 @@ class DistributedKernel(IPythonKernel):
                 batch_size=batch_size,
             )
             performed_gpu_training = True
-        else:
-            pass
+
+        # if target_training_duration_millis > 0 and torch.cuda.is_available():
+        #     self.log.debug(
+        #         f"Explicitly instructed to train for {target_training_duration_millis:,} milliseconds. "
+        #         f"Discarding specified code. Will use custom training code instead generated for model "
+        #         f"'{deep_learning_model_name}' and dataset '{dataset}'."
+        #     )
+        #     code = await self.get_custom_training_code(
+        #         target_training_duration_millis=target_training_duration_millis,
+        #         gpu_device_ids=gpu_device_ids,
+        #         deep_learning_model=deep_learning_model_name,
+        #         dataset_name=dataset,
+        #         batch_size=batch_size,
+        #     )
+        #     performed_gpu_training = True
+        # elif "training_duration_millis = " in code:
+        #     target_training_duration_millis = int(float(code[27:]))
+        #
+        #     code = await self.get_custom_training_code(
+        #         target_training_duration_millis=target_training_duration_millis,
+        #         gpu_device_ids=gpu_device_ids,
+        #         deep_learning_model=deep_learning_model_name,
+        #         dataset_name=dataset,
+        #         batch_size=batch_size,
+        #     )
+        #     performed_gpu_training = True
+        # else:
+        #     pass
 
         self.log.debug(f"Executing the following code now:\n"
                        f"{ColoredLogFormatter.LIGHT_CYAN}{ColoredLogFormatter.BOLD}{code}{ColoredLogFormatter.reset}\n")
@@ -3233,6 +3257,50 @@ class DistributedKernel(IPythonKernel):
             f"Retrieved most recent GPU to CPU time from model in shell user namespace: {gpu2cpu_micros} µs"
         )
 
+    async def extract_dataset_tokenization_latency(
+            self,
+            code: str = "",
+    ):
+        """
+        Inspect the 'dataset' variable from the user namespace and determine if we need to record its download
+        latency for the execution request that we're currently processing.
+        """
+        async with self._user_ns_lock:
+            dataset: Optional[CustomDataset] = self.shell.user_ns.get("dataset", None)
+
+        if dataset is None:
+            self.log.debug("Could not find 'dataset' variable in user namespace.")
+            return
+
+        # Tokenization overhead is only relevant for NLP datasets.
+        # We can stop here if we find that the dataset is not an NLP dataset.
+        if dataset.category() != NaturalLanguageProcessing:
+            return
+
+        if "dataset" not in code:
+            self.log.debug(
+                "Found 'dataset' variable in user namespace; "
+                "however, 'dataset' was not referenced in the last executed user-submitted code."
+            )
+            return
+
+        # TODO: Does this not ultimately get double-counted?
+        if dataset.recorded_tokenization_overhead:
+            self.log.debug(f'Tokenization overhead of "{dataset.dataset_name()}" dataset has already been recorded.')
+            return
+
+        # If the dataset was not already downloaded, then record the time
+        # it took to download the dataset in the current execution stats.
+        self.log.debug(f'Tokenization overhead of "{dataset.dataset_name()}" dataset has NOT yet been recorded.')
+        self.current_execution_stats.tokenize_dataset_microseconds = dataset.tokenization_duration_sec * 1.0e6
+
+        # Flip this to True so that we don't re-record the tokenization overhead if we train
+        # again using the same dataset variable.
+        dataset.set_recorded_tokenization_overhead(True)
+
+        self.current_execution_stats.tokenize_training_data_start_unix_millis = dataset.tokenization_start
+        self.current_execution_stats.tokenize_training_data_end_unix_millis = dataset.tokenization_end
+
     async def extract_dataset_download_latency(
             self,
             code: str = "",
@@ -3255,6 +3323,7 @@ class DistributedKernel(IPythonKernel):
             )
             return
 
+        # TODO: Does this not ultimately get double-counted?
         dataset_already_downloaded: bool = dataset.dataset_already_downloaded
         if dataset_already_downloaded:
             self.log.debug("Dataset was already downloaded.")
@@ -3262,19 +3331,15 @@ class DistributedKernel(IPythonKernel):
 
         # If the dataset was not already downloaded, then record the time
         # it took to download the dataset in the current execution stats.
-        self.log.debug(
-            "Dataset was NOT already downloaded. Extracting download times now."
-        )
-        self.current_execution_stats.download_training_data_microseconds = (
-                dataset.download_duration_sec * 1.0e6
-        )
+        self.log.debug("Dataset was NOT already downloaded. Extracting download times now.")
+        self.current_execution_stats.download_training_data_microseconds = dataset.download_duration_sec * 1.0e6
 
-        self.current_execution_stats.download_training_data_start_unix_millis = (
-            dataset.download_start
-        )
-        self.current_execution_stats.download_training_data_end_unix_millis = (
-            dataset.download_end
-        )
+        # Flip this to True so that we don't re-read the download overhead if we train
+        # again using the same dataset variable.
+        dataset.dataset_already_downloaded = True
+
+        self.current_execution_stats.download_training_data_start_unix_millis = dataset.download_start
+        self.current_execution_stats.download_training_data_end_unix_millis = dataset.download_end
 
     async def handle_post_execution_overheads(
             self,
@@ -3321,6 +3386,7 @@ class DistributedKernel(IPythonKernel):
         elif self.use_real_gpus and performing_gpu_training:
             await self.extract_mem_copy_times(code=code)
             await self.extract_dataset_download_latency(code=code)
+            await self.extract_dataset_tokenization_latency(code=code)
 
     async def simulate_remote_checkpointing(
             self,
@@ -4489,9 +4555,7 @@ class DistributedKernel(IPythonKernel):
                     f"Received committed '{pointer.dataset_name}' Dataset pointer proposed by ourselves "
                     f"while catching up. Saving for later."
                 )
-                self.dataset_pointers_catchup[pointer.user_namespace_variable_name] = (
-                    pointer
-                )
+                self.dataset_pointers_catchup[pointer.user_namespace_variable_name] = pointer
                 return None
             else:
                 self.log.debug(

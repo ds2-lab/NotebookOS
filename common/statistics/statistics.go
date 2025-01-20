@@ -129,6 +129,9 @@ type ClusterStatistics struct {
 	// NumTimesDownloadTrainingDataMicroseconds is the total number of times that a kernel downloaded the training data.
 	NumTimesDownloadTrainingDataMicroseconds float64 `json:"num_times_download_training_data_microseconds" csv:"num_times_download_training_data_microseconds"`
 
+	CumulativeTokenizeDatasetMicroseconds float64 `json:"cumulative_tokenize_dataset_microseconds" csv:"cumulative_tokenize_dataset_microseconds"`
+	NumTimesTokenizeDatasetMicroseconds   float64 `json:"num_times_tokenize_dataset_microseconds" csv:"num_times_tokenize_dataset_microseconds"`
+
 	// CumulativeTimeDownloadModelMicroseconds is the cumulative, aggregate time spent downloading the model by all kernels.
 	CumulativeTimeDownloadModelMicroseconds float64 `json:"cumulative_time_download_model_microseconds" csv:"cumulative_time_download_model_microseconds"`
 	// NumTimesDownloadModelMicroseconds is the total number of times that a kernel downloaded the model.
