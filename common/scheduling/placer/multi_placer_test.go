@@ -178,643 +178,646 @@ var _ = Describe("MultiPlacer Tests", func() {
 		}
 	}
 
-	BeforeEach(func() {
-		err := json.Unmarshal([]byte(multiPlacerSchedulerTestOpts), &opts)
-		if err != nil {
-			panic(err)
-		}
+	Context("MultiPlacer Backed By MultiIndex of LeastLoadedIndex", func() {
 
-		mockCtrl = gomock.NewController(GinkgoT())
-		mockedHostMapper = mock_scheduler.NewMockHostMapper(mockCtrl)
-		mockedKernelProvider = mock_scheduler.NewMockKernelProvider(mockCtrl)
+		BeforeEach(func() {
+			err := json.Unmarshal([]byte(multiPlacerSchedulerTestOpts), &opts)
+			if err != nil {
+				panic(err)
+			}
 
-		hostSpec = types.NewDecimalSpec(64000, 128000, float64(opts.SchedulerOptions.GpusPerHost), 40)
+			mockCtrl = gomock.NewController(GinkgoT())
+			mockedHostMapper = mock_scheduler.NewMockHostMapper(mockCtrl)
+			mockedKernelProvider = mock_scheduler.NewMockKernelProvider(mockCtrl)
 
-		schedulingPolicy, err = policy.GetSchedulingPolicy(&opts.SchedulerOptions)
-		Expect(err).To(BeNil())
-		Expect(schedulingPolicy).ToNot(BeNil())
-		Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
-		Expect(schedulingPolicy.Name()).To(Equal("First-Come, First-Serve Batch Scheduling"))
+			hostSpec = types.NewDecimalSpec(64000, 128000, float64(opts.SchedulerOptions.GpusPerHost), 40)
 
-		multiPlacer, err := placer.NewMultiPlacerWithSpecificIndex[*index.LeastLoadedIndex](nil, 1, schedulingPolicy, index.NewLeastLoadedIndexWrapper)
-		Expect(err).To(BeNil())
-		Expect(multiPlacer).ToNot(BeNil())
+			schedulingPolicy, err = policy.GetSchedulingPolicy(&opts.SchedulerOptions)
+			Expect(err).To(BeNil())
+			Expect(schedulingPolicy).ToNot(BeNil())
+			Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
+			Expect(schedulingPolicy.Name()).To(Equal("First-Come, First-Serve Batch Scheduling"))
 
-		dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, multiPlacer, mockedHostMapper,
-			mockedKernelProvider, nil, nil, schedulingPolicy,
-			func(f func(stats *statistics.ClusterStatistics)) {}, &opts.SchedulerOptions)
+			multiPlacer, err := placer.NewMultiPlacerWithSpecificIndex[*index.LeastLoadedIndex](nil, 1, schedulingPolicy, index.NewLeastLoadedIndexWrapper)
+			Expect(err).To(BeNil())
+			Expect(multiPlacer).ToNot(BeNil())
 
-		var ok bool
-		dockerScheduler, ok = dockerSwarmCluster.Scheduler().(*scheduler.DockerScheduler)
-		Expect(ok).To(BeTrue())
-		Expect(dockerScheduler).ToNot(BeNil())
+			dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, multiPlacer, mockedHostMapper,
+				mockedKernelProvider, nil, nil, schedulingPolicy,
+				func(f func(stats *statistics.ClusterStatistics)) {}, &opts.SchedulerOptions)
 
-		clusterPlacer := dockerScheduler.Placer()
-		Expect(clusterPlacer).ToNot(BeNil())
+			var ok bool
+			dockerScheduler, ok = dockerSwarmCluster.Scheduler().(*scheduler.DockerScheduler)
+			Expect(ok).To(BeTrue())
+			Expect(dockerScheduler).ToNot(BeNil())
 
-		multiPlacer, ok = clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
-		GinkgoWriter.Printf("Type of the Cluster's Placer: %s\n", reflect.TypeOf(clusterPlacer))
-		Expect(ok).To(BeTrue())
-		Expect(multiPlacer).ToNot(BeNil())
-	})
+			clusterPlacer := dockerScheduler.Placer()
+			Expect(clusterPlacer).ToNot(BeNil())
 
-	It("Will be instantiated correctly", func() {
-		Expect(dockerScheduler).ToNot(BeNil())
-		Expect(dockerScheduler.Instance()).To(Equal(dockerScheduler))
+			multiPlacer, ok = clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
+			GinkgoWriter.Printf("Type of the Cluster's Placer: %s\n", reflect.TypeOf(clusterPlacer))
+			Expect(ok).To(BeTrue())
+			Expect(multiPlacer).ToNot(BeNil())
+		})
 
-		clusterPlacer := dockerScheduler.Placer()
-		Expect(clusterPlacer).ToNot(BeNil())
+		It("Will be instantiated correctly", func() {
+			Expect(dockerScheduler).ToNot(BeNil())
+			Expect(dockerScheduler.Instance()).To(Equal(dockerScheduler))
 
-		multiPlacer, ok := clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
-		GinkgoWriter.Printf("Type of the Cluster's Placer: %s\n", reflect.TypeOf(clusterPlacer))
-		Expect(ok).To(BeTrue())
-		Expect(multiPlacer).ToNot(BeNil())
+			clusterPlacer := dockerScheduler.Placer()
+			Expect(clusterPlacer).ToNot(BeNil())
 
-		var i int32
-		for i = 0; i < 9; i++ {
-			Expect(multiPlacer.NumHostsInPool(i)).To(Equal(0))
+			multiPlacer, ok := clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
+			GinkgoWriter.Printf("Type of the Cluster's Placer: %s\n", reflect.TypeOf(clusterPlacer))
+			Expect(ok).To(BeTrue())
+			Expect(multiPlacer).ToNot(BeNil())
 
-			hostPool, loaded := multiPlacer.GetHostPool(i)
+			var i int32
+			for i = 0; i < 9; i++ {
+				Expect(multiPlacer.NumHostsInPool(i)).To(Equal(0))
+
+				hostPool, loaded := multiPlacer.GetHostPool(i)
+				Expect(loaded).To(BeTrue())
+				Expect(hostPool).ToNot(BeNil())
+				Expect(hostPool.NumGPUs).To(Equal(i))
+				Expect(hostPool.Len()).To(Equal(0))
+				Expect(hostPool.Size()).To(Equal(0))
+
+				placer := hostPool.Pool
+				Expect(placer).ToNot(BeNil())
+				Expect(placer.Len()).To(Equal(0))
+			}
+		})
+
+		It("Will correctly update the positions of host in the index when their resources change", func() {
+			clusterPlacer := dockerScheduler.Placer()
+			Expect(clusterPlacer).ToNot(BeNil())
+
+			multiPlacer, ok := clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
+			Expect(ok).To(BeTrue())
+			Expect(multiPlacer).ToNot(BeNil())
+
+			_, _ = createHost(1)
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(1))
+			Expect(dockerSwarmCluster.Len()).To(Equal(1))
+
+			_, _ = createHost(2)
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(2))
+			Expect(dockerSwarmCluster.Len()).To(Equal(2))
+
+			kernelResourceSpec := types.NewDecimalSpec(128, 128, 5, 2)
+			kernel1Spec := createKernelSpec(kernelResourceSpec)
+			kernel2Spec := createKernelSpec(kernelResourceSpec)
+
+			candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+			Expect(len(candidateHosts)).To(Equal(1))
+			GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
+			//Expect(candidateHosts[0]).To(Equal(host1))
+
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+			Expect(len(candidateHosts)).To(Equal(1))
+			GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
+			//Expect(candidateHosts[0]).To(Equal(host2))
+		})
+
+		It("Will not return any candidate hosts when there are no hosts in the cluster", func() {
+			kernelId := uuid.NewString()
+			kernelKey := uuid.NewString()
+			resourceSpec := proto.NewResourceSpec(1250, 2000, 4, 4)
+
+			kernelSpec := &proto.KernelSpec{
+				Id:              kernelId,
+				Session:         kernelId,
+				Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+				SignatureScheme: jupyter.JupyterSignatureScheme,
+				Key:             kernelKey,
+				ResourceSpec:    resourceSpec,
+			}
+
+			candidateHosts := dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(0))
+		})
+
+		It("Will return a candidate host in response to a request", func() {
+			clusterPlacer := dockerScheduler.Placer()
+			Expect(clusterPlacer).ToNot(BeNil())
+
+			multiPlacer, ok := clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
+			Expect(ok).To(BeTrue())
+			Expect(multiPlacer).ToNot(BeNil())
+
+			host1, _ := createHost(1)
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(1))
+
+			kernel1ResourceSpec := types.NewDecimalSpec(128, 128, 2, 2)
+			kernel1Spec := createKernelSpec(kernel1ResourceSpec)
+
+			By("Returning the only available host when finding a candidate")
+
+			candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+			Expect(len(candidateHosts)).To(Equal(1))
+			Expect(candidateHosts[0]).To(Equal(host1))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(0))
+
+			Expect(multiPlacer.NumHostsInPool(0)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(1)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(2)).To(Equal(1))
+			Expect(multiPlacer.NumHostsInPool(3)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(4)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(5)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(6)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(7)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(8)).To(Equal(0))
+
+			hostPool, loaded := multiPlacer.GetHostPool(2)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.NumGPUs).To(Equal(i))
-			Expect(hostPool.Len()).To(Equal(0))
-			Expect(hostPool.Size()).To(Equal(0))
-
-			placer := hostPool.Pool
-			Expect(placer).ToNot(BeNil())
-			Expect(placer.Len()).To(Equal(0))
-		}
-	})
-
-	It("Will correctly update the positions of host in the index when their resources change", func() {
-		clusterPlacer := dockerScheduler.Placer()
-		Expect(clusterPlacer).ToNot(BeNil())
-
-		multiPlacer, ok := clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
-		Expect(ok).To(BeTrue())
-		Expect(multiPlacer).ToNot(BeNil())
-
-		_, _ = createHost(1)
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(1))
-		Expect(dockerSwarmCluster.Len()).To(Equal(1))
-
-		_, _ = createHost(2)
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(2))
-		Expect(dockerSwarmCluster.Len()).To(Equal(2))
-
-		kernelResourceSpec := types.NewDecimalSpec(128, 128, 5, 2)
-		kernel1Spec := createKernelSpec(kernelResourceSpec)
-		kernel2Spec := createKernelSpec(kernelResourceSpec)
-
-		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
-		Expect(len(candidateHosts)).To(Equal(1))
-		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
-		//Expect(candidateHosts[0]).To(Equal(host1))
-
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
-		Expect(len(candidateHosts)).To(Equal(1))
-		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
-		//Expect(candidateHosts[0]).To(Equal(host2))
-	})
-
-	It("Will not return any candidate hosts when there are no hosts in the cluster", func() {
-		kernelId := uuid.NewString()
-		kernelKey := uuid.NewString()
-		resourceSpec := proto.NewResourceSpec(1250, 2000, 4, 4)
-
-		kernelSpec := &proto.KernelSpec{
-			Id:              kernelId,
-			Session:         kernelId,
-			Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-			SignatureScheme: jupyter.JupyterSignatureScheme,
-			Key:             kernelKey,
-			ResourceSpec:    resourceSpec,
-		}
-
-		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(0))
-	})
-
-	It("Will return a candidate host in response to a request", func() {
-		clusterPlacer := dockerScheduler.Placer()
-		Expect(clusterPlacer).ToNot(BeNil())
-
-		multiPlacer, ok := clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
-		Expect(ok).To(BeTrue())
-		Expect(multiPlacer).ToNot(BeNil())
-
-		host1, _ := createHost(1)
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(1))
-
-		kernel1ResourceSpec := types.NewDecimalSpec(128, 128, 2, 2)
-		kernel1Spec := createKernelSpec(kernel1ResourceSpec)
-
-		By("Returning the only available host when finding a candidate")
-
-		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
-		Expect(len(candidateHosts)).To(Equal(1))
-		Expect(candidateHosts[0]).To(Equal(host1))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(0))
-
-		Expect(multiPlacer.NumHostsInPool(0)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(1)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(2)).To(Equal(1))
-		Expect(multiPlacer.NumHostsInPool(3)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(4)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(5)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(6)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(7)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(8)).To(Equal(0))
-
-		hostPool, loaded := multiPlacer.GetHostPool(2)
-		Expect(loaded).To(BeTrue())
-		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(2)))
-		Expect(hostPool.Len()).To(Equal(1))
-		Expect(hostPool.Size()).To(Equal(1))
-
-		By("Returning the only available host again when finding a candidate a second time")
-
-		kernel2ResourceSpec := types.NewDecimalSpec(128, 128, 2, 2)
-		kernel2Spec := createKernelSpec(kernel2ResourceSpec)
-
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
-		Expect(len(candidateHosts)).To(Equal(1))
-		Expect(candidateHosts[0]).To(Equal(host1))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(0))
-
-		Expect(multiPlacer.NumHostsInPool(0)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(1)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(2)).To(Equal(1))
-		Expect(multiPlacer.NumHostsInPool(3)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(4)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(5)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(6)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(7)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(8)).To(Equal(0))
-
-		hostPool, loaded = multiPlacer.GetHostPool(2)
-		Expect(loaded).To(BeTrue())
-		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(2)))
-		Expect(hostPool.Len()).To(Equal(1))
-		Expect(hostPool.Size()).To(Equal(1))
-	})
-
-	It("Will return the least-loaded candidate host in response to a request", func() {
-		clusterPlacer := dockerScheduler.Placer()
-		Expect(clusterPlacer).ToNot(BeNil())
-
-		multiPlacer, ok := clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
-		Expect(ok).To(BeTrue())
-		Expect(multiPlacer).ToNot(BeNil())
-
-		host1, _ := createHost(1)
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(1))
-		Expect(dockerSwarmCluster.Len()).To(Equal(1))
-
-		host2, _ := createHost(2)
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(2))
-		Expect(dockerSwarmCluster.Len()).To(Equal(2))
-
-		Expect(multiPlacer.Len()).To(Equal(2))
-		Expect(multiPlacer.GetIndex().Len()).To(Equal(2))
-
-		resourceSpec := proto.NewResourceSpec(1250, 2000, 5, 4)
-		kernel1Id := uuid.NewString()
-		kernel1Key := uuid.NewString()
-		kernel1Spec := &proto.KernelSpec{
-			Id:              kernel1Id,
-			Session:         kernel1Id,
-			Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-			SignatureScheme: jupyter.JupyterSignatureScheme,
-			Key:             kernel1Key,
-			ResourceSpec:    resourceSpec,
-		}
-
-		By("Returning an available host when finding a candidate")
-
-		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
-		Expect(len(candidateHosts)).To(Equal(1))
-		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
-		candidateHost := candidateHosts[0]
-		Expect(candidateHost).To(Equal(host1))
-		GinkgoWriter.Printf("Committed resources of host %s (ID=%s): \"%s\"\n",
-			candidateHost.GetNodeName(), candidateHost.GetID(), candidateHost.CommittedResources().String())
-		Expect(candidateHost.CommittedResources().Equals(kernel1Spec.ResourceSpec)).To(BeTrue())
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(1))
-
-		Expect(multiPlacer.NumHostsInPool(0)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(1)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(2)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(3)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(4)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(5)).To(Equal(1))
-		Expect(multiPlacer.NumHostsInPool(6)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(7)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(8)).To(Equal(0))
-
-		hostPool, loaded := multiPlacer.GetHostPool(5)
-		Expect(loaded).To(BeTrue())
-		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(5)))
-		Expect(hostPool.Len()).To(Equal(1))
-		Expect(hostPool.Size()).To(Equal(1))
-
-		Expect(multiPlacer.Len()).To(Equal(2))
-		Expect(multiPlacer.GetIndex().Len()).To(Equal(2))
-
-		By("Returning the other available host again when finding a candidate a second time")
-
-		kernel2Id := uuid.NewString()
-		kernel2Key := uuid.NewString()
-		kernel2Spec := &proto.KernelSpec{
-			Id:              kernel2Id,
-			Session:         kernel2Id,
-			Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-			SignatureScheme: jupyter.JupyterSignatureScheme,
-			Key:             kernel2Key,
-			ResourceSpec:    resourceSpec,
-		}
-
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
-		Expect(len(candidateHosts)).To(Equal(1))
-		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
-		Expect(candidateHosts[0]).To(Equal(host2))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(0))
-		Expect(multiPlacer.Len()).To(Equal(2))
-		Expect(multiPlacer.GetIndex().Len()).To(Equal(2))
-
-		Expect(multiPlacer.NumHostsInPool(0)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(1)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(2)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(3)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(4)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(5)).To(Equal(2))
-		Expect(multiPlacer.NumHostsInPool(6)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(7)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(8)).To(Equal(0))
-
-		hostPool, loaded = multiPlacer.GetHostPool(5)
-		Expect(loaded).To(BeTrue())
-		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(5)))
-		Expect(hostPool.Len()).To(Equal(2))
-		Expect(hostPool.Size()).To(Equal(2))
-
-		By("Returning the correct host after further resource adjustments have occurred")
-
-		// Artificially increase the resources available on Host #1.
-		releaseResources(host1, types.NewDecimalSpec(128, 128, 2, 2))
-
-		kernel3Id := uuid.NewString()
-		kernel3Key := uuid.NewString()
-		kernel3Spec := &proto.KernelSpec{
-			Id:              kernel3Id,
-			Session:         kernel3Id,
-			Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-			SignatureScheme: jupyter.JupyterSignatureScheme,
-			Key:             kernel3Key,
-			ResourceSpec:    resourceSpec,
-		}
-
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel3Spec)
-		Expect(len(candidateHosts)).To(Equal(1))
-		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
-		Expect(candidateHosts[0]).To(Equal(host1))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(0))
-
-		Expect(multiPlacer.NumHostsInPool(0)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(1)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(2)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(3)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(4)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(5)).To(Equal(2))
-		Expect(multiPlacer.NumHostsInPool(6)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(7)).To(Equal(0))
-		Expect(multiPlacer.NumHostsInPool(8)).To(Equal(0))
-
-		hostPool, loaded = multiPlacer.GetHostPool(5)
-		Expect(loaded).To(BeTrue())
-		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(5)))
-		Expect(hostPool.Len()).To(Equal(2))
-		Expect(hostPool.Size()).To(Equal(2))
-	})
-
-	It("Will correctly allocate jobs with different GPU requirements to different pools", func() {
-		clusterPlacer := dockerScheduler.Placer()
-		Expect(clusterPlacer).ToNot(BeNil())
-
-		multiPlacer, ok := clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
-		Expect(ok).To(BeTrue())
-		Expect(multiPlacer).ToNot(BeNil())
-
-		numHosts := 8
-		hosts := make([]scheduling.Host, 0, numHosts)
-
-		expectedHostPoolSizes := []int{0, 0, 0, 0, 0, 0, 0, 0, 0}
-		for i := 0; i < numHosts; i++ {
-			host, _ := createHost(1)
-			hosts = append(hosts, host)
-		}
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts))
-
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
-
-		numGpusPerSession := []float64{1, 2, 4, 8, 4, 2, 1, 8, 2, 2, 2}
-		numSessions := len(numGpusPerSession)
-		kernelSpecs := make([]*proto.KernelSpec, 0, numSessions)
-
-		for i := 0; i < numSessions; i++ {
-			numGpus := numGpusPerSession[i]
-			vramGb := numGpus * 2
-
-			kernelResourceSpec := types.NewDecimalSpec(128, 128, numGpus, vramGb)
-			kernelSpec := createKernelSpec(kernelResourceSpec)
-
-			kernelSpecs = append(kernelSpecs, kernelSpec)
-		}
-
-		//
-		//
-		By("Adding a host to the 1-GPU host pool")
-
-		sessionIndex := 0
-		kernelSpec := kernelSpecs[sessionIndex]
-		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(1))
-
-		candidateHost := candidateHosts[0]
-		Expect(candidateHost).To(Equal(hosts[0]))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 1))
-
-		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
-		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
-
-		expectedHostPoolSizes[1] = 1
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
-
-		//
-		//
-		By("Adding a host to the 2-GPU host pool")
-
-		sessionIndex = 1
-		kernelSpec = kernelSpecs[sessionIndex]
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(1))
-
-		candidateHost = candidateHosts[0]
-		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
-		Expect(candidateHost).To(Equal(hosts[1]))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 2))
-
-		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
-		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
-
-		expectedHostPoolSizes[2] = 1
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
-
-		//
-		//
-		By("Adding a host to the 4-GPU host pool")
-
-		sessionIndex = 2
-		kernelSpec = kernelSpecs[sessionIndex]
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(1))
-
-		candidateHost = candidateHosts[0]
-		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
-		Expect(candidateHost).To(Equal(hosts[2]))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 3))
-
-		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
-		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
-
-		expectedHostPoolSizes[4] = 1
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
-
-		//
-		//
-		By("Adding a host to the 8-GPU host pool")
-
-		sessionIndex = 3
-		kernelSpec = kernelSpecs[sessionIndex]
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(1))
-
-		candidateHost = candidateHosts[0]
-		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
-		Expect(candidateHost).To(Equal(hosts[3]))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4))
-
-		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
-		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
-
-		expectedHostPoolSizes[8] = 1
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
-
-		//
-		//
-		//
-		By("Not adding a host to the 4-GPU host pool as the current host can be used")
-
-		sessionIndex = 4
-		kernelSpec = kernelSpecs[sessionIndex]
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(1))
-
-		candidateHost = candidateHosts[0]
-		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
-		Expect(candidateHost).To(Equal(hosts[2]))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
-
-		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
-		combinedSpec := kernelSpecs[2].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
-		Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
-
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
-
-		//
-		// 2, 1, 8
-		By("Not adding a host to the 2-GPU host pool as the current host can be used")
-
-		sessionIndex = 5
-		kernelSpec = kernelSpecs[sessionIndex]
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(1))
-
-		candidateHost = candidateHosts[0]
-		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
-		Expect(candidateHost).To(Equal(hosts[1]))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
-
-		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
-		combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
-		Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
-
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
-
-		//
-		// 1, 8
-		By("Not adding a host to the 1-GPU host pool as the current host can be used")
-
-		sessionIndex = 6
-		kernelSpec = kernelSpecs[sessionIndex]
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(1))
-
-		candidateHost = candidateHosts[0]
-		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
-		Expect(candidateHost).To(Equal(hosts[0]))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
-
-		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
-		combinedSpec = kernelSpecs[0].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
-		Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
-
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
-
-		//
-		// 8
-		By("Adding a host to the 8-GPU host pool as the current host cannot be used")
-
-		sessionIndex = 7
-		kernelSpec = kernelSpecs[sessionIndex]
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(1))
-
-		candidateHost = candidateHosts[0]
-		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
-		Expect(candidateHost).To(Equal(hosts[4]))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // One less than before
-
-		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
-		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
-
-		expectedHostPoolSizes[8] = 2
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
-
-		//
-		//
-		// 2, 2, 2
-		By("Not yet adding a host to the 2-GPU host pool as the current host can be used")
-
-		sessionIndex = 8
-		kernelSpec = kernelSpecs[sessionIndex]
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(1))
-
-		candidateHost = candidateHosts[0]
-		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
-		Expect(candidateHost).To(Equal(hosts[1]))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // Same as before
-
-		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
-		combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().Add(kernelSpecs[5].ResourceSpec.ToDecimalSpec()).Add(kernelSpec.ResourceSpec.ToDecimalSpec())
-		Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
-
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
-
-		//
-		//
-		// 2, 2
-		By("Not yet adding a host to the 2-GPU host pool as the current host can be used")
-
-		sessionIndex = 9
-		kernelSpec = kernelSpecs[sessionIndex]
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(1))
-
-		candidateHost = candidateHosts[0]
-		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
-		Expect(candidateHost).To(Equal(hosts[1]))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // Same as before
-
-		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
-		combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().
-			Add(kernelSpecs[5].ResourceSpec.ToDecimalSpec()).
-			Add(kernelSpecs[8].ResourceSpec.ToDecimalSpec()).
-			Add(kernelSpec.ResourceSpec.ToDecimalSpec())
-		Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
-
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
-
-		//
-		//
-		// 2
-		By("Adding a host to the 2-GPU host pool as the current host cannot be used")
-
-		sessionIndex = 10
-		kernelSpec = kernelSpecs[sessionIndex]
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
-		Expect(len(candidateHosts)).To(Equal(1))
-
-		candidateHost = candidateHosts[0]
-		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
-		Expect(candidateHost).To(Equal(hosts[5]))
-
-		Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 6)) // One less than before
-
-		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
-		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
-
-		expectedHostPoolSizes[2] = 2
-		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
-			Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
-			Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
-		}
+			Expect(hostPool.NumGPUs).To(Equal(int32(2)))
+			Expect(hostPool.Len()).To(Equal(1))
+			Expect(hostPool.Size()).To(Equal(1))
+
+			By("Returning the only available host again when finding a candidate a second time")
+
+			kernel2ResourceSpec := types.NewDecimalSpec(128, 128, 2, 2)
+			kernel2Spec := createKernelSpec(kernel2ResourceSpec)
+
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+			Expect(len(candidateHosts)).To(Equal(1))
+			Expect(candidateHosts[0]).To(Equal(host1))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(0))
+
+			Expect(multiPlacer.NumHostsInPool(0)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(1)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(2)).To(Equal(1))
+			Expect(multiPlacer.NumHostsInPool(3)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(4)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(5)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(6)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(7)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(8)).To(Equal(0))
+
+			hostPool, loaded = multiPlacer.GetHostPool(2)
+			Expect(loaded).To(BeTrue())
+			Expect(hostPool).ToNot(BeNil())
+			Expect(hostPool.NumGPUs).To(Equal(int32(2)))
+			Expect(hostPool.Len()).To(Equal(1))
+			Expect(hostPool.Size()).To(Equal(1))
+		})
+
+		It("Will return the least-loaded candidate host in response to a request", func() {
+			clusterPlacer := dockerScheduler.Placer()
+			Expect(clusterPlacer).ToNot(BeNil())
+
+			multiPlacer, ok := clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
+			Expect(ok).To(BeTrue())
+			Expect(multiPlacer).ToNot(BeNil())
+
+			host1, _ := createHost(1)
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(1))
+			Expect(dockerSwarmCluster.Len()).To(Equal(1))
+
+			host2, _ := createHost(2)
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(2))
+			Expect(dockerSwarmCluster.Len()).To(Equal(2))
+
+			Expect(multiPlacer.Len()).To(Equal(2))
+			Expect(multiPlacer.GetIndex().Len()).To(Equal(2))
+
+			resourceSpec := proto.NewResourceSpec(1250, 2000, 5, 4)
+			kernel1Id := uuid.NewString()
+			kernel1Key := uuid.NewString()
+			kernel1Spec := &proto.KernelSpec{
+				Id:              kernel1Id,
+				Session:         kernel1Id,
+				Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+				SignatureScheme: jupyter.JupyterSignatureScheme,
+				Key:             kernel1Key,
+				ResourceSpec:    resourceSpec,
+			}
+
+			By("Returning an available host when finding a candidate")
+
+			candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+			Expect(len(candidateHosts)).To(Equal(1))
+			GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
+			candidateHost := candidateHosts[0]
+			Expect(candidateHost).To(Equal(host1))
+			GinkgoWriter.Printf("Committed resources of host %s (ID=%s): \"%s\"\n",
+				candidateHost.GetNodeName(), candidateHost.GetID(), candidateHost.CommittedResources().String())
+			Expect(candidateHost.CommittedResources().Equals(kernel1Spec.ResourceSpec)).To(BeTrue())
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(1))
+
+			Expect(multiPlacer.NumHostsInPool(0)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(1)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(2)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(3)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(4)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(5)).To(Equal(1))
+			Expect(multiPlacer.NumHostsInPool(6)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(7)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(8)).To(Equal(0))
+
+			hostPool, loaded := multiPlacer.GetHostPool(5)
+			Expect(loaded).To(BeTrue())
+			Expect(hostPool).ToNot(BeNil())
+			Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+			Expect(hostPool.Len()).To(Equal(1))
+			Expect(hostPool.Size()).To(Equal(1))
+
+			Expect(multiPlacer.Len()).To(Equal(2))
+			Expect(multiPlacer.GetIndex().Len()).To(Equal(2))
+
+			By("Returning the other available host again when finding a candidate a second time")
+
+			kernel2Id := uuid.NewString()
+			kernel2Key := uuid.NewString()
+			kernel2Spec := &proto.KernelSpec{
+				Id:              kernel2Id,
+				Session:         kernel2Id,
+				Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+				SignatureScheme: jupyter.JupyterSignatureScheme,
+				Key:             kernel2Key,
+				ResourceSpec:    resourceSpec,
+			}
+
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+			Expect(len(candidateHosts)).To(Equal(1))
+			GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
+			Expect(candidateHosts[0]).To(Equal(host2))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(0))
+			Expect(multiPlacer.Len()).To(Equal(2))
+			Expect(multiPlacer.GetIndex().Len()).To(Equal(2))
+
+			Expect(multiPlacer.NumHostsInPool(0)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(1)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(2)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(3)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(4)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(5)).To(Equal(2))
+			Expect(multiPlacer.NumHostsInPool(6)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(7)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(8)).To(Equal(0))
+
+			hostPool, loaded = multiPlacer.GetHostPool(5)
+			Expect(loaded).To(BeTrue())
+			Expect(hostPool).ToNot(BeNil())
+			Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+			Expect(hostPool.Len()).To(Equal(2))
+			Expect(hostPool.Size()).To(Equal(2))
+
+			By("Returning the correct host after further resource adjustments have occurred")
+
+			// Artificially increase the resources available on Host #1.
+			releaseResources(host1, types.NewDecimalSpec(128, 128, 2, 2))
+
+			kernel3Id := uuid.NewString()
+			kernel3Key := uuid.NewString()
+			kernel3Spec := &proto.KernelSpec{
+				Id:              kernel3Id,
+				Session:         kernel3Id,
+				Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+				SignatureScheme: jupyter.JupyterSignatureScheme,
+				Key:             kernel3Key,
+				ResourceSpec:    resourceSpec,
+			}
+
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel3Spec)
+			Expect(len(candidateHosts)).To(Equal(1))
+			GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
+			Expect(candidateHosts[0]).To(Equal(host1))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(0))
+
+			Expect(multiPlacer.NumHostsInPool(0)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(1)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(2)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(3)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(4)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(5)).To(Equal(2))
+			Expect(multiPlacer.NumHostsInPool(6)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(7)).To(Equal(0))
+			Expect(multiPlacer.NumHostsInPool(8)).To(Equal(0))
+
+			hostPool, loaded = multiPlacer.GetHostPool(5)
+			Expect(loaded).To(BeTrue())
+			Expect(hostPool).ToNot(BeNil())
+			Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+			Expect(hostPool.Len()).To(Equal(2))
+			Expect(hostPool.Size()).To(Equal(2))
+		})
+
+		It("Will correctly allocate jobs with different GPU requirements to different pools", func() {
+			clusterPlacer := dockerScheduler.Placer()
+			Expect(clusterPlacer).ToNot(BeNil())
+
+			multiPlacer, ok := clusterPlacer.(*placer.MultiPlacer[*index.LeastLoadedIndex])
+			Expect(ok).To(BeTrue())
+			Expect(multiPlacer).ToNot(BeNil())
+
+			numHosts := 8
+			hosts := make([]scheduling.Host, 0, numHosts)
+
+			expectedHostPoolSizes := []int{0, 0, 0, 0, 0, 0, 0, 0, 0}
+			for i := 0; i < numHosts; i++ {
+				host, _ := createHost(1)
+				hosts = append(hosts, host)
+			}
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts))
+
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+
+			numGpusPerSession := []float64{1, 2, 4, 8, 4, 2, 1, 8, 2, 2, 2}
+			numSessions := len(numGpusPerSession)
+			kernelSpecs := make([]*proto.KernelSpec, 0, numSessions)
+
+			for i := 0; i < numSessions; i++ {
+				numGpus := numGpusPerSession[i]
+				vramGb := numGpus * 2
+
+				kernelResourceSpec := types.NewDecimalSpec(128, 128, numGpus, vramGb)
+				kernelSpec := createKernelSpec(kernelResourceSpec)
+
+				kernelSpecs = append(kernelSpecs, kernelSpec)
+			}
+
+			//
+			//
+			By("Adding a host to the 1-GPU host pool")
+
+			sessionIndex := 0
+			kernelSpec := kernelSpecs[sessionIndex]
+			candidateHosts := dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(1))
+
+			candidateHost := candidateHosts[0]
+			Expect(candidateHost).To(Equal(hosts[0]))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 1))
+
+			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+			expectedHostPoolSizes[1] = 1
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+
+			//
+			//
+			By("Adding a host to the 2-GPU host pool")
+
+			sessionIndex = 1
+			kernelSpec = kernelSpecs[sessionIndex]
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(1))
+
+			candidateHost = candidateHosts[0]
+			GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+			Expect(candidateHost).To(Equal(hosts[1]))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 2))
+
+			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+			expectedHostPoolSizes[2] = 1
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+
+			//
+			//
+			By("Adding a host to the 4-GPU host pool")
+
+			sessionIndex = 2
+			kernelSpec = kernelSpecs[sessionIndex]
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(1))
+
+			candidateHost = candidateHosts[0]
+			GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+			Expect(candidateHost).To(Equal(hosts[2]))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 3))
+
+			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+			expectedHostPoolSizes[4] = 1
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+
+			//
+			//
+			By("Adding a host to the 8-GPU host pool")
+
+			sessionIndex = 3
+			kernelSpec = kernelSpecs[sessionIndex]
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(1))
+
+			candidateHost = candidateHosts[0]
+			GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+			Expect(candidateHost).To(Equal(hosts[3]))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4))
+
+			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+			expectedHostPoolSizes[8] = 1
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+
+			//
+			//
+			//
+			By("Not adding a host to the 4-GPU host pool as the current host can be used")
+
+			sessionIndex = 4
+			kernelSpec = kernelSpecs[sessionIndex]
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(1))
+
+			candidateHost = candidateHosts[0]
+			GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+			Expect(candidateHost).To(Equal(hosts[2]))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
+
+			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			combinedSpec := kernelSpecs[2].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
+
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+
+			//
+			// 2, 1, 8
+			By("Not adding a host to the 2-GPU host pool as the current host can be used")
+
+			sessionIndex = 5
+			kernelSpec = kernelSpecs[sessionIndex]
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(1))
+
+			candidateHost = candidateHosts[0]
+			GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+			Expect(candidateHost).To(Equal(hosts[1]))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
+
+			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
+
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+
+			//
+			// 1, 8
+			By("Not adding a host to the 1-GPU host pool as the current host can be used")
+
+			sessionIndex = 6
+			kernelSpec = kernelSpecs[sessionIndex]
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(1))
+
+			candidateHost = candidateHosts[0]
+			GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+			Expect(candidateHost).To(Equal(hosts[0]))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
+
+			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			combinedSpec = kernelSpecs[0].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
+
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+
+			//
+			// 8
+			By("Adding a host to the 8-GPU host pool as the current host cannot be used")
+
+			sessionIndex = 7
+			kernelSpec = kernelSpecs[sessionIndex]
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(1))
+
+			candidateHost = candidateHosts[0]
+			GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+			Expect(candidateHost).To(Equal(hosts[4]))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // One less than before
+
+			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+			expectedHostPoolSizes[8] = 2
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+
+			//
+			//
+			// 2, 2, 2
+			By("Not yet adding a host to the 2-GPU host pool as the current host can be used")
+
+			sessionIndex = 8
+			kernelSpec = kernelSpecs[sessionIndex]
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(1))
+
+			candidateHost = candidateHosts[0]
+			GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+			Expect(candidateHost).To(Equal(hosts[1]))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // Same as before
+
+			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().Add(kernelSpecs[5].ResourceSpec.ToDecimalSpec()).Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
+
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+
+			//
+			//
+			// 2, 2
+			By("Not yet adding a host to the 2-GPU host pool as the current host can be used")
+
+			sessionIndex = 9
+			kernelSpec = kernelSpecs[sessionIndex]
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(1))
+
+			candidateHost = candidateHosts[0]
+			GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+			Expect(candidateHost).To(Equal(hosts[1]))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // Same as before
+
+			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().
+				Add(kernelSpecs[5].ResourceSpec.ToDecimalSpec()).
+				Add(kernelSpecs[8].ResourceSpec.ToDecimalSpec()).
+				Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
+
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+
+			//
+			//
+			// 2
+			By("Adding a host to the 2-GPU host pool as the current host cannot be used")
+
+			sessionIndex = 10
+			kernelSpec = kernelSpecs[sessionIndex]
+			candidateHosts = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+			Expect(len(candidateHosts)).To(Equal(1))
+
+			candidateHost = candidateHosts[0]
+			GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+			Expect(candidateHost).To(Equal(hosts[5]))
+
+			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 6)) // One less than before
+
+			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+			expectedHostPoolSizes[2] = 2
+			for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+				Expect(multiPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+				Expect(multiPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+			}
+		})
 	})
 })

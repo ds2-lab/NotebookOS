@@ -1,6 +1,8 @@
 from distributed_notebook.deep_learning.data import CoLA, IMDbLargeMovieReviewTruncated
 from distributed_notebook.deep_learning.models import GPT2
 
+import torch
+
 def test_train_gpt2_on_cola():
     """
 
@@ -9,7 +11,9 @@ def test_train_gpt2_on_cola():
     dataset: CoLA = CoLA(model_name = "gpt2")
     model: GPT2 = GPT2(out_features = 2)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     classifier = model.model.score
@@ -33,7 +37,9 @@ def test_train_gpt2_on_imdb():
     dataset: IMDbLargeMovieReviewTruncated = IMDbLargeMovieReviewTruncated(model_name = "gpt2")
     model: GPT2 = GPT2(out_features = 2)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     classifier = model.model.score

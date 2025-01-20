@@ -11,7 +11,9 @@ def test_train_resnet18_on_cifar10():
     dataset: CIFAR10 = CIFAR10(image_size=ResNet18.expected_image_size())
     model: ResNet18 = ResNet18(created_for_first_time=True)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer
@@ -36,7 +38,9 @@ def test_train_resnet18_on_tiny_imagenet():
     dataset: TinyImageNet = TinyImageNet(image_size=ResNet18.expected_image_size())
     model: ResNet18 = ResNet18(created_for_first_time=True, out_features=200)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer

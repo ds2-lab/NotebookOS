@@ -9,6 +9,11 @@ import (
 )
 
 // GandivaPlacer manages a collection of underlying Gandiva placers.
+//
+// GandivaPlacer implements the scheduling logic of Gandiva, presented at NSDI'19 in the paper
+// ["Gandiva: Introspective Cluster Scheduling for Deep Learning"].
+//
+// ["Gandiva: Introspective Cluster Scheduling for Deep Learning"]: https://www.usenix.org/system/files/nsdi19-gu.pdf
 type GandivaPlacer struct {
 	*BasicPlacer
 

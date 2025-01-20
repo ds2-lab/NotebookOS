@@ -11,7 +11,9 @@ def test_train_inception_v3_on_cifar10():
     dataset: CIFAR10 = CIFAR10(image_size = InceptionV3.expected_image_size())
     model: InceptionV3 = InceptionV3(created_for_first_time=True)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer
@@ -36,7 +38,9 @@ def test_train_inception_v3_on_tiny_imagenet():
     dataset: TinyImageNet = TinyImageNet(image_size = InceptionV3.expected_image_size())
     model: InceptionV3 = InceptionV3(created_for_first_time=True, out_features = 200)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer
@@ -64,7 +68,9 @@ def test_train_inception_v3_on_cifar10_multi_gpu():
     dataset: CIFAR10 = CIFAR10(image_size=InceptionV3.expected_image_size())
     model: InceptionV3 = InceptionV3(created_for_first_time=True, out_features=200)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     model.set_gpu_device_ids([0, 1])
 

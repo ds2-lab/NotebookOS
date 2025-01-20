@@ -17,7 +17,8 @@ const (
 	HostMetaStaticIndex types.HeapElementMetadataKey = "static_index_pos"
 )
 
-// StaticClusterIndex is a simple Cluster that seeks hosts randomly.
+// StaticClusterIndex implements the logic of the static scheduling policy.
+//
 // StaticClusterIndex uses CategoryClusterIndex and all hosts are qualified.
 type StaticClusterIndex struct {
 	*CallbackManager
