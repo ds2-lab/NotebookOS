@@ -398,10 +398,11 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 		} else if qualificationStatus == scheduling.IndexDisqualified {
 			c.log.Debug("Removing existing host from index %s in onHostAdded: %v", indexKey, host)
 			index.Remove(host)
-		} // else unqualified
-
-		c.log.Debug("Host %s (ID=%s) is not qualified to be added to index '%s'.",
-			host.GetNodeName(), host.GetID(), index.Identifier())
+		} else {
+			// Log level is set to warn because, as of right now, there are never any actual qualifications.
+			c.log.Warn("Host %s (ID=%s) is not qualified to be added to index '%s'.",
+				host.GetNodeName(), host.GetID(), index.Identifier())
+		}
 
 		return true
 	})
