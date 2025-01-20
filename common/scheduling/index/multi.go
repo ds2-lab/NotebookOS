@@ -63,7 +63,7 @@ type MultiIndexProvider[T scheduling.ClusterIndex] func(poolNumber int32) *Multi
 // MultiIndex manages a collection of sub-indices organized by some numerical quantity, such as the number of GPUs.
 //
 // The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
-// For example, LeastLoadedIndex, StaticClusterIndex, RandomClusterIndex, etc.
+// For example, LeastLoadedIndex, StaticIndex, RandomClusterIndex, etc.
 type MultiIndex[T scheduling.ClusterIndex] struct {
 	// FreeHosts are scheduling.Host instances that have not been placed into a particular HostPool yet.
 	FreeHosts *queue.Fifo[scheduling.Host]

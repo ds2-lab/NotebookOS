@@ -47,6 +47,48 @@ func NewStaticIndex(gpusPerHost int32) (*StaticIndex, error) {
 	return static, nil
 }
 
+// NumFreeHosts returns the number of "free" scheduling.Host instances within the target MultiIndex.
+//
+// "Free" hosts are those that have not been placed into a particular HostPool (yet).
+func (index *StaticIndex) NumFreeHosts() int {
+	index.MultiIndex.mu.Lock()
+	defer index.MultiIndex.mu.Unlock()
+
+	return index.MultiIndex.FreeHosts.Len()
+}
+
+// HasHostPool returns true if the MultiIndex has a host pool for the specified pool index.
+func (index *StaticIndex) HasHostPool(gpus int32) bool {
+	bucket := index.GetBucket(gpus)
+	_, loaded := index.MultiIndex.HostPools[bucket]
+	return loaded
+}
+
+// NumHostsInPool returns the number of hosts in the specified host pool.
+func (index *StaticIndex) NumHostsInPool(gpus int32) int {
+	bucket := index.GetBucket(gpus)
+	pool, loaded := index.MultiIndex.HostPools[bucket]
+	if !loaded {
+		index.MultiIndex.log.Warn("Size of pool %d (gpus=%d) requested; however, no such pool exists...",
+			bucket, gpus)
+
+		return -1
+	}
+
+	return pool.Len()
+}
+
+// GetHostPool returns the HostPool for the specified pool index.
+func (index *StaticIndex) GetHostPool(gpus int32) (*HostPool[*LeastLoadedIndex], bool) {
+	bucket := index.GetBucket(gpus)
+	pool, loaded := index.MultiIndex.HostPools[bucket]
+	if loaded {
+		return pool, true
+	}
+
+	return nil, false
+}
+
 // GetBucket returns the slot/pool that the kernel (replica) with the given spec should be placed into.
 func (index *StaticIndex) GetBucket(gpus int32) int32 {
 	bucket := index.GpusPerHost / gpus
