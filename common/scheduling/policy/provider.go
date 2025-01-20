@@ -39,6 +39,10 @@ func GetSchedulingPolicy(opts *scheduling.SchedulerOptions) (scheduling.Policy, 
 		{
 			return NewDynamicV4Policy(opts)
 		}
+	case string(scheduling.Gandiva):
+		{
+			return NewGandivaPolicy(opts)
+		}
 	}
 	return nil, fmt.Errorf("%w: \"%s\"", scheduling.ErrInvalidSchedulingPolicy, opts.SchedulingPolicy)
 }

@@ -66,7 +66,7 @@ func (p *ReservationPolicy) SmrEnabled() bool {
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
-	return placer.NewRandomPlacer(metricsProvider, p.NumReplicas(), p)
+	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p)
 }
 
 //////////////////////////////////

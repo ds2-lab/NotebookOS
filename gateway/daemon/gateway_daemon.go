@@ -440,6 +440,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.log.Debug("Using the 'DYNAMIC v4' scheduling policy.")
 			clusterGateway.executionFailedCallback = clusterGateway.dynamicV4FailureHandler
 		}
+	case string(scheduling.Gandiva):
+		{
+			clusterGateway.policyKey = scheduling.Gandiva
+			clusterGateway.log.Debug("Using the 'GANDIVA' scheduling policy.")
+			clusterGateway.executionFailedCallback = clusterGateway.gandivaV4FailureHandler
+		}
 	case string(scheduling.FcfsBatch):
 		{
 			clusterGateway.policyKey = scheduling.FcfsBatch
@@ -1067,8 +1073,8 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 
 	// Create a host scheduler client and register it.
 	host, err := entity.NewHostWithConn(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
-		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, d.cluster.NumReplicas(), d.cluster, d.gatewayPrometheusManager,
-		gConn, d.Scheduler().Policy().ResourceBindingMode(), d.localDaemonDisconnected)
+		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, d.cluster.NumReplicas(), d.cluster, d.cluster,
+		d.gatewayPrometheusManager, gConn, d.Scheduler().Policy().ResourceBindingMode(), d.localDaemonDisconnected)
 
 	if err != nil {
 		if errors.Is(err, entity.ErrRestoreRequired) {
@@ -1510,6 +1516,10 @@ func (d *ClusterGatewayImpl) dynamicV3FailureHandler(_ scheduling.Kernel, msg *m
 
 func (d *ClusterGatewayImpl) dynamicV4FailureHandler(_ scheduling.Kernel, msg *messaging.JupyterMessage) error {
 	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
+}
+
+func (d *ClusterGatewayImpl) gandivaV4FailureHandler(_ scheduling.Kernel, msg *messaging.JupyterMessage) error {
+	panic("The 'GANDIVA' scheduling policy is not yet supported.")
 }
 
 // DockerComposeMode returns true if we're running in Docker via "docker compose".
@@ -4018,9 +4028,16 @@ func (d *ClusterGatewayImpl) updateStatisticsFromShellExecuteReply(trace *proto.
 		d.ClusterStatistics.NumTimesDownloadModelMicroseconds += 1
 	}
 
+	// Downloading the dataset overhead.
 	if trace.DownloadDatasetMicroseconds > 0 {
 		d.ClusterStatistics.CumulativeTimeDownloadTrainingDataMicroseconds += float64(trace.DownloadDatasetMicroseconds)
 		d.ClusterStatistics.NumTimesDownloadTrainingDataMicroseconds += 1
+	}
+
+	// Tokenization overhead. Only relevant for NLP datasets.
+	if trace.TokenizeDatasetMicroseconds > 0 {
+		d.ClusterStatistics.CumulativeTokenizeDatasetMicroseconds += float64(trace.TokenizeDatasetMicroseconds)
+		d.ClusterStatistics.NumTimesTokenizeDatasetMicroseconds += 1
 	}
 
 	if trace.UploadModelAndTrainingDataMicroseconds > 0 {

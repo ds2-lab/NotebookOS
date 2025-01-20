@@ -8,8 +8,8 @@ services:
     platform: linux/amd64
     build:
       context: ../..
-      dockerfile: ../docker-WSL2/hoster/Dockerfile
-    image: scusemua/docker-hoster:latest
+      dockerfile: deploy/docker-WSL2/hoster/Dockerfile
+    image: $USER/docker-hoster:latest
     labels:
       app: "distributed_cluster"
       component: "docker_hoster"
@@ -26,7 +26,7 @@ services:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: scusemua/jupyter-debug:latest
+    image: $USER/jupyter-debug:latest
     labels:
       app: "distributed_cluster"
       component: "jupyter_server"
@@ -50,18 +50,18 @@ services:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: scusemua/gateway:latest
+    image: $USER/gateway:latest
     labels:
       app: "distributed_cluster"
       component: "cluster_gateway"
       logging: "promtail"
-      logging_jobname: "jupyter"
+      logging_jobname: "gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - {@current_directory}/gateway/gateway.yml:/gateway.yml
-      - {@current_directory}/local_daemon/daemon.yml:/local_daemon/daemon.yml
-      - {@current_directory}/docker-compose.yml:/docker-compose.yml
-      - /home/$USER/kernel_base:/home/$USER/kernel_base
+      - /home/$USER/gateway-runtime-state:/gateway-runtime-state
+      - {@current_directory}gateway/gateway.yml:/gateway.yml
+      - {@current_directory}local_daemon/daemon.yml:/local_daemon/daemon.yml
+      - {@current_directory}docker-compose.yml:/docker-compose.yml
     container_name: "gateway"
     restart: unless-stopped
     expose:
@@ -83,22 +83,22 @@ services:
     platform: linux/amd64
     environment:
       - KERNEL_TEMP_BASE_IN_CONTAINER=/kernel_base
-      - KERNEL_IMAGE=scusemua/jupyter-debug:latest
+      - KERNEL_IMAGE=$USER/jupyter-debug:latest
       - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=/home/$USER/kernel_storage
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: scusemua/daemon:latest
+    image: $USER/daemon:latest
     labels:
       app: "distributed_cluster"
       component: "local_daemon"
       logging: "promtail"
-      logging_jobname: "jupyter"
+      logging_jobname: "local_daemon"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/kernel_base:/kernel_base
-      - {@current_directory}/local_daemon/daemon.yml:/daemon.yml
+      - {@current_directory}local_daemon/daemon.yml:/daemon.yml
     depends_on:
       - gateway
       - docker-hoster
@@ -123,6 +123,7 @@ services:
     volumes:
       - ./prometheus:/etc/prometheus
       - prometheus_data:/prometheus
+      - /var/run/docker.sock:/var/run/docker.sock
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.listen-address=0.0.0.0:8500
@@ -130,7 +131,7 @@ services:
     image: prom/prometheus:main
     container_name: prometheus
     restart: unless-stopped
-    user: "1000:1000"
+    user: 0:0
     depends_on:
       init-prometheus:
         condition: service_completed_successfully
@@ -144,7 +145,7 @@ services:
       - "3100:3100"
     volumes:
       - loki_data:/loki
-      - {@current_directory}/loki/loki-config.yaml:/etc/loki/loki-config.yaml
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml
 
   promtail:
     image: grafana/promtail:3.2.0
@@ -152,10 +153,21 @@ services:
       - /var/log:/var/log
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock
-      - {@current_directory}/promtail/config.yml:/etc/promtail/config.yml
+      - ./promtail/config.yml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
     depends_on:
       - loki
+
+  grafana-image-renderer:
+    image: grafana/grafana-image-renderer:latest
+    ports:
+      - 5555
+    environment:
+      - HTTP_PORT=5555
+      - RENDERING_VIEWPORT_MAX_HEIGHT=10000
+      - RENDERING_VIEWPORT_MAX_WIDTH=5000
+      - RENDERING_VIEWPORT_DEVICE_SCALE_FACTOR=2
+      - RENDERING_VIEWPORT_MAX_DEVICE_SCALE_FACTOR=8
 
   grafana:
     platform: linux/amd64
@@ -165,11 +177,13 @@ services:
       - "3000:3000"
     restart: unless-stopped
     environment:
-      - GF_SECURITY_ADMIN_USER=scusemua
+      - GF_SECURITY_ADMIN_USER=$USER
       - GF_SECURITY_ADMIN_PASSWORD=grafana
+      - GF_RENDERING_SERVER_URL=http://grafana-image-renderer:5555/render
+      - GF_RENDERING_CALLBACK_URL=http://grafana:3000/
     volumes:
-      - {@current_directory}/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
-      - {@current_directory}/grafana/grafana.ini:/etc/grafana/grafana.ini
+      - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
       - grafana_data:/var/lib/grafana
 
   redis:
@@ -183,22 +197,23 @@ services:
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"] # Enables AOF persistence for durability
     restart: unless-stopped
 
-  dashboard_backend:
-    image: scusemua/distributed-notebook-dashboard-backend:latest
-    ports:
-      - "9000:9000"
-    restart: unless-stopped
-    volumes:
-      - ./dashboard-backend/config-docker.yaml:/etc/distributed-notebook-cluster/dashboard.yaml
-
-  dashboard_frontend:
-    image: scusemua/distributed-notebook-dashboard-frontend:latest
-    ports:
-      - "8001:8001"
-    restart: unless-stopped
+#  dashboard_backend:
+#    image: $USER/distributed-notebook-dashboard-backend:latest
+#    ports:
+#      - "9000:9000"
+#    restart: unless-stopped
+#    volumes:
+#      - ./dashboard-backend/config-docker.yaml:/etc/distributed-notebook-cluster/dashboard.yaml
+#
+#  dashboard_frontend:
+#    image: $USER/distributed-notebook-dashboard-frontend:latest
+#    ports:
+#      - "8001:8001"
+#    restart: unless-stopped
 
 volumes:
-  storage:
   coredumps_volume:
   prometheus_data:
   grafana_data:
+  loki_data:
+  redis_data:

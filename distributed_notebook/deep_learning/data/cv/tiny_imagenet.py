@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
+from distributed_notebook.deep_learning.data.cv.base import ComputerVisionDataset
 from distributed_notebook.deep_learning.data.hugging_face import HuggingFaceDataset
 from distributed_notebook.deep_learning.data.loader import WrappedLoader
 
@@ -44,7 +45,7 @@ class _TinyImageNetDataset(Dataset):
         return image, label
 
 
-class TinyImageNet(HuggingFaceDataset):
+class TinyImageNet(HuggingFaceDataset, ComputerVisionDataset):
     default_root_directory: str = os.path.expanduser("~/.cache/huggingface/datasets/zh-plus___tiny-imagenet")
 
     # https://huggingface.co/datasets/zh-plus/tiny-imagenet
@@ -124,6 +125,10 @@ class TinyImageNet(HuggingFaceDataset):
     def dataset_already_downloaded(self) -> bool:
         return self._dataset_already_downloaded
 
+    @dataset_already_downloaded.setter
+    def dataset_already_downloaded(self, val: bool):
+        self._dataset_already_downloaded = val
+
     @property
     def download_start_time(self) -> float:
         return self._download_start
@@ -158,19 +163,3 @@ class TinyImageNet(HuggingFaceDataset):
     @property
     def test_loader(self)->Optional[DataLoader]:
         return self._test_loader
-
-    @property
-    def requires_tokenization(self) -> bool:
-        return False
-
-    @property
-    def tokenization_start(self) -> float:
-        return -1.0
-
-    @property
-    def tokenization_end(self) -> float:
-        return -1.0
-
-    @property
-    def tokenization_duration_sec(self) -> float:
-        return -1.0

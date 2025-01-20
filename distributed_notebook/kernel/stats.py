@@ -25,6 +25,9 @@ class ExecutionStats(object):
             download_model_end_unix_millis: float = 0,
             upload_model_start_unix_millis: float = 0,
             upload_model_end_unix_millis: float = 0,
+            tokenize_dataset_microseconds: float = 0,
+            tokenize_training_data_start_unix_millis: float = 0,
+            tokenize_training_data_end_unix_millis: float = 0,
             won_election: bool = False,  # always true for non-static/non-dynamic scheduling policies
     ):
         """
@@ -42,6 +45,7 @@ class ExecutionStats(object):
         self.download_runtime_dependencies_microseconds: float = download_runtime_dependencies_microseconds
         self.download_model_microseconds: float = download_model_microseconds
         self.download_training_data_microseconds: float = download_training_data_microseconds
+        self.tokenize_dataset_microseconds: float = tokenize_dataset_microseconds
         self.upload_model_and_training_data_microseconds: float = upload_model_and_training_data_microseconds
         self.execution_start_unix_millis: float = execution_start_unix_millis
         self.execution_end_unix_millis: float = execution_end_unix_millis
@@ -57,6 +61,9 @@ class ExecutionStats(object):
 
         self.download_training_data_start_unix_millis: float = download_training_data_start_unix_millis
         self.download_training_data_end_unix_millis: float = download_training_data_end_unix_millis
+
+        self.tokenize_training_data_start_unix_millis: float = tokenize_training_data_start_unix_millis
+        self.tokenize_training_data_end_unix_millis: float = tokenize_training_data_end_unix_millis
 
         self.download_model_start_unix_millis: float = download_model_start_unix_millis
         self.download_model_end_unix_millis: float = download_model_end_unix_millis

@@ -14,6 +14,7 @@ const (
 	FcfsBatch               PolicyKey = "fcfs-batch"
 	AutoScalingFcfsBatch    PolicyKey = "auto-scaling-fcfs-batch"
 	Reservation             PolicyKey = "reservation"
+	Gandiva                 PolicyKey = "gandiva"
 
 	NoIdleSessionReclamation                IdleSessionReclamationPolicyKey = "none"
 	GoogleColabIdleSessionReclamationPolicy IdleSessionReclamationPolicyKey = "google-colab"
@@ -83,6 +84,9 @@ type Policy interface {
 	// Name returns a human-readable, nicely-formatted name of the scheduling Policy suitable for logging, printing,
 	// and/or displaying to users.
 	Name() string
+
+	// GetGpusPerHost returns the number of GPUs available on each host.
+	GetGpusPerHost() int
 
 	// NumReplicas returns the number of replicas that each kernel should have under the target scheduling Policy.
 	NumReplicas() int

@@ -20,8 +20,6 @@ type ClusterIndexQuerier interface {
 	//
 	// This entire method is thread-safe. The index is locked until this method returns.
 	SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]Host, interface{})
-
-	GetMetadataKey() HostMetaKey
 }
 
 type ClusterIndex interface {

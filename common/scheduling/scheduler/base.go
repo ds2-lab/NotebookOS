@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -20,6 +22,10 @@ import (
 
 const (
 	InvalidationThreshold = 0.1
+
+	OversubscribedIndexKey  types.HeapElementMetadataKey = "oversubscribed_index"
+	UndersubscribedIndexKey types.HeapElementMetadataKey = "undersubscribed_index"
+	IdleIndexKey            types.HeapElementMetadataKey = "idle_index"
 )
 
 // schedulingNotification is a struct that is sent over a channel to notify the "main" goroutine handling the
@@ -53,6 +59,138 @@ type KernelProvider interface {
 type NotificationBroker interface {
 	SendErrorNotification(errorName string, errorMessage string)
 	SendInfoNotification(title string, message string)
+}
+
+type baseSchedulerBuilder struct {
+	cluster            scheduling.Cluster
+	placer             scheduling.Placer
+	hostMapper         HostMapper
+	hostSpec           types.Spec
+	kernelProvider     KernelProvider
+	notificationBroker NotificationBroker
+	schedulingPolicy   scheduling.Policy // Optional, will be extracted from Options if not specified.
+	options            *scheduling.SchedulerOptions
+}
+
+func newBaseSchedulerBuilder() *baseSchedulerBuilder {
+	return &baseSchedulerBuilder{}
+}
+
+func (b *baseSchedulerBuilder) WithCluster(cluster scheduling.Cluster) *baseSchedulerBuilder {
+	b.cluster = cluster
+	return b
+}
+
+func (b *baseSchedulerBuilder) WithPlacer(placer scheduling.Placer) *baseSchedulerBuilder {
+	b.placer = placer
+	return b
+}
+
+func (b *baseSchedulerBuilder) WithHostMapper(hostMapper HostMapper) *baseSchedulerBuilder {
+	b.hostMapper = hostMapper
+	return b
+}
+
+func (b *baseSchedulerBuilder) WithHostSpec(hostSpec types.Spec) *baseSchedulerBuilder {
+	b.hostSpec = hostSpec
+	return b
+}
+
+func (b *baseSchedulerBuilder) WithSchedulingPolicy(schedulingPolicy scheduling.Policy) *baseSchedulerBuilder {
+	b.schedulingPolicy = schedulingPolicy
+	return b
+}
+
+func (b *baseSchedulerBuilder) WithKernelProvider(kernelProvider KernelProvider) *baseSchedulerBuilder {
+	b.kernelProvider = kernelProvider
+	return b
+}
+
+func (b *baseSchedulerBuilder) WithNotificationBroker(notificationBroker NotificationBroker) *baseSchedulerBuilder {
+	b.notificationBroker = notificationBroker
+	return b
+}
+
+func (b *baseSchedulerBuilder) WithOptions(options *scheduling.SchedulerOptions) *baseSchedulerBuilder {
+	b.options = options
+	return b
+}
+
+// Build method
+func (b *baseSchedulerBuilder) Build() *BaseScheduler {
+	if b.options == nil {
+		panic("Cannot construct BaseScheduler using baseSchedulerBuilder with nil options.")
+	}
+
+	if b.schedulingPolicy == nil {
+		schedulingPolicy, err := policy.GetSchedulingPolicy(b.options)
+		if err != nil {
+			panic(err)
+		}
+
+		b.schedulingPolicy = schedulingPolicy
+	}
+
+	clusterScheduler := &BaseScheduler{
+		cluster:                                  b.cluster,
+		hostMapper:                               b.hostMapper,
+		stRatio:                                  types.NewMovingStatFromWindow(5),
+		opts:                                     b.options,
+		remoteSynchronizationInterval:            time.Second * time.Duration(b.options.GpuPollIntervalSeconds),
+		placer:                                   b.placer,
+		hostSpec:                                 b.hostSpec,
+		oversubscribed:                           types.NewHeap(OversubscribedIndexKey),
+		undersubscribed:                          types.NewHeap(UndersubscribedIndexKey),
+		idleHosts:                                types.NewHeap(IdleIndexKey),
+		maxSubscribedRatio:                       decimal.NewFromFloat(b.options.MaxSubscribedRatio),
+		subscriptionRatio:                        decimal.NewFromFloat(b.options.MaxSubscribedRatio),
+		activeAddReplicaOpsPerKernel:             hashmap.NewCornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]](64),
+		addReplicaOperationsByKernelReplicaId:    hashmap.NewCornelkMap[string, *scheduling.AddReplicaOperation](64),
+		addReplicaNewPodOrContainerNotifications: hashmap.NewCornelkMap[string, chan *scheduling.AddReplicaOperation](64),
+		kernelProvider:                           b.kernelProvider,
+		notificationBroker:                       b.notificationBroker,
+		schedulingPolicy:                         b.schedulingPolicy,
+		//gpusPerHost:                              float64(b.options.GpusPerHost),
+		//virtualGpusPerHost:                       int32(b.options.VirtualGpusPerHost),
+		//scalingFactor:                            b.options.ScalingFactor,
+		//scalingLimit:                             b.options.ScalingLimit,
+		//scalingInterval:                          time.Second * time.Duration(b.options.ScalingInterval),
+		//maximumHostsToReleaseAtOnce:              int32(b.options.MaximumHostsToReleaseAtOnce),
+		//scalingIntervalSec:                       int32(b.options.ScalingInterval),
+		//predictiveAutoscalingEnabled:             b.options.PredictiveAutoscalingEnabled,
+		//scalingBufferSize:                        int32(b.options.ScalingBufferSize),
+		//maximumCapacity:                          int32(b.options.MaximumNumNodes),
+		//minimumCapacity:                          int32(b.options.MinimumNumNodes),
+	}
+	config.InitLogger(&clusterScheduler.log, clusterScheduler)
+
+	if b.options.GpuPollIntervalSeconds <= 0 {
+		clusterScheduler.remoteSynchronizationInterval = time.Second * 5
+	}
+
+	if clusterScheduler.log.GetLevel() == logger.LOG_LEVEL_ALL {
+		clusterScheduler.log.Debug("Scheduling Configuration:")
+		clusterScheduler.log.Debug("GpusPerHost: %d",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().GpusPerHost)
+		clusterScheduler.log.Debug("ScalingFactor: %.2f",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingFactor)
+		clusterScheduler.log.Debug("ScalingLimit: %.2f",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingLimit)
+		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().MaximumHostsToReleaseAtOnce)
+		clusterScheduler.log.Debug("ScalingInterval: %d",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec)
+		clusterScheduler.log.Debug("PredictiveAutoscalingEnabled: %v",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().PredictiveAutoscalingEnabled)
+		clusterScheduler.log.Debug("ScalingBufferSize: %d",
+			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingBufferSize)
+		clusterScheduler.log.Debug("GPU Refresh Interval: %v",
+			clusterScheduler.remoteSynchronizationInterval)
+		clusterScheduler.log.Debug("Scheduling policy: %s",
+			clusterScheduler.schedulingPolicy.Name())
+	}
+
+	return clusterScheduler
 }
 
 type BaseScheduler struct {
@@ -116,9 +254,9 @@ type BaseScheduler struct {
 	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
 	containerEventHandler scheduling.ContainerWatcher
 
-	oversubscribed  types.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
-	undersubscribed types.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
-	idleHosts       types.Heap
+	oversubscribed  *types.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
+	undersubscribed *types.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
+	idleHosts       *types.Heap
 
 	lastCapacityValidation time.Time         // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
 	stRatio                *types.MovingStat // session/training ratio
@@ -187,25 +325,23 @@ func (s *BaseScheduler) Placer() scheduling.Placer {
 	return s.placer
 }
 
-// TryGetCandidateHosts performs a single attempt/pass of searching for candidate Host instances.
+func (s *BaseScheduler) setInstance(instance clusterSchedulerInternal) {
+	s.instance = instance
+}
+
+// FindCandidateHosts performs a single attempt/pass of searching for candidate Host instances.
 //
-// TryGetCandidateHosts is exported so that it can be unit tested.
-func (s *BaseScheduler) TryGetCandidateHosts(hosts []scheduling.Host, kernelSpec *proto.KernelSpec) []scheduling.Host {
+// FindCandidateHosts is exported so that it can be unit tested.
+func (s *BaseScheduler) FindCandidateHosts(numHosts int, kernelSpec *proto.KernelSpec) []scheduling.Host {
 	s.candidateHostMutex.Lock()
-
-	// Identify the hosts onto which we will place replicas of the kernel.
-	numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
-	s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
-		numHostsRequired, kernelSpec.Id, len(hosts))
-
-	hostBatch := s.placer.FindHosts(kernelSpec, numHostsRequired)
-
-	// Add all the hosts returned by FindHosts to our running slice of hosts.
-	hosts = append(hosts, hostBatch...)
-
+	hostBatch := s.instance.findCandidateHosts(numHosts, kernelSpec)
 	s.candidateHostMutex.Unlock()
 
-	return hosts
+	if hostBatch == nil {
+		hostBatch = make([]scheduling.Host, 0)
+	}
+
+	return hostBatch
 }
 
 // isScalingOutEnabled returns true if the scheduling.ResourceScalingPolicy of the configured scheduling.Policy permits
@@ -269,7 +405,11 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		hosts       []scheduling.Host
 	)
 	for numTries < maxAttempts && len(hosts) < s.schedulingPolicy.NumReplicas() {
-		hosts = s.TryGetCandidateHosts(hosts, kernelSpec) // note: this function executes atomically.
+		numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
+		s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
+			numHostsRequired, kernelSpec.Id, len(hosts))
+		hostBatch := s.FindCandidateHosts(numHostsRequired, kernelSpec) // note: this function executes atomically.
+		hosts = append(hosts, hostBatch...)
 
 		if len(hosts) < s.schedulingPolicy.NumReplicas() {
 			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
@@ -323,6 +463,8 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 				s.log.Error("Failed to release resource reservation for kernel %s on host %s (ID=%s): %v",
 					kernelSpec.Id, host.GetNodeName(), host.GetID(), err)
 			}
+
+			s.cluster.UpdateIndex(host)
 		}
 
 		return nil, scheduling.ErrInsufficientHostsAvailable
@@ -347,9 +489,9 @@ func (s *BaseScheduler) MinimumCapacity() int32 {
 	return s.schedulingPolicy.ScalingConfiguration().MinimumCapacity
 }
 
-// AddHost adds a new node to the kubernetes Cluster.
+// RequestNewHost adds a new node to the kubernetes Cluster.
 // We simulate this using node taints.
-func (s *BaseScheduler) AddHost() error {
+func (s *BaseScheduler) RequestNewHost() error {
 	p := s.cluster.RequestHosts(context.Background(), 1) /* s.hostSpec */
 
 	result, err := p.Result()
@@ -706,6 +848,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
+		s.cluster.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -727,6 +870,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
+		s.cluster.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -759,6 +903,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
+		s.cluster.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -783,6 +928,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
+		s.cluster.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -939,6 +1085,11 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 	return dataDirectory, nil
 }
 
+// HostAdded is called by the Cluster when a new Host connects to the Cluster.
+func (s *BaseScheduler) HostAdded(host scheduling.Host) {
+	s.instance.HostAdded(host)
+}
+
 // ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (s *BaseScheduler) ValidateCapacity() {
@@ -998,7 +1149,7 @@ func (s *BaseScheduler) ValidateCapacity() {
 		// The size of the pending host pool will grow each time we provision a new host.
 		numFailures := 0
 		for int32(s.cluster.Len()) < scaledOutNumHosts {
-			err := s.AddHost()
+			err := s.RequestNewHost()
 			if err != nil {
 				s.log.Error("Failed to add new host because: %v", err)
 				numFailures += 1
@@ -1080,8 +1231,8 @@ func (s *BaseScheduler) validate() {
 
 		for s.oversubscribed.Len() > 0 && s.oversubscribed.Peek().(scheduling.Host).OversubscriptionFactor().LessThan(decimal.Zero) {
 			host := s.oversubscribed.Peek()
-			heap.Pop(&s.oversubscribed)
-			s.designateSubscriptionPoolType(host.(scheduling.Host), &s.undersubscribed, scheduling.SchedulerPoolTypeUndersubscribed)
+			heap.Pop(s.oversubscribed)
+			s.designateSubscriptionPoolType(host.(scheduling.Host), s.undersubscribed, scheduling.SchedulerPoolTypeUndersubscribed)
 		}
 
 		s.lastSubscribedRatio = s.pendingSubscribedRatio

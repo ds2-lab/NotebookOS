@@ -50,6 +50,7 @@ func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer
 	}
 
 	baseScheduler.instance = kubernetesScheduler
+	kubernetesScheduler.instance = kubernetesScheduler
 
 	err := kubernetesScheduler.refreshClusterNodes()
 	if err != nil {
@@ -57,6 +58,19 @@ func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer
 	}
 
 	return kubernetesScheduler, nil
+}
+
+// HostAdded is called by the Cluster when a new Host connects to the Cluster.
+func (s *KubernetesScheduler) HostAdded(host scheduling.Host) {
+	s.log.Debug("Host %s (ID=%s) has been added.", host.GetNodeName(), host.GetID())
+}
+
+// findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
+// KubernetesScheduler does not do anything special or fancy.
+func (s *KubernetesScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) []scheduling.Host {
+	// Identify the hosts onto which we will place replicas of the kernel.
+	hostBatch := s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
+	return hostBatch
 }
 
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.

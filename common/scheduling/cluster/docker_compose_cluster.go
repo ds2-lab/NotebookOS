@@ -42,14 +42,8 @@ func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, host
 		DisabledHosts: hashmap.NewConcurrentMap[scheduling.Host](256),
 	}
 
-	dockerScheduler, err := scheduler.NewDockerScheduler(dockerCluster, placer, hostMapper, hostSpec, kernelProvider,
-		notificationBroker, schedulingPolicy, opts)
-	if err != nil {
-		dockerCluster.log.Error("Failed to create Docker Compose Scheduler: %v", err)
-		panic(err)
-	}
-
-	dockerCluster.scheduler = dockerScheduler
+	dockerCluster.scheduler = scheduler.GetDockerComposeScheduler(dockerCluster, placer, hostMapper, hostSpec,
+		kernelProvider, notificationBroker, schedulingPolicy, opts)
 	baseCluster.instance = dockerCluster
 	baseCluster.initRatioUpdater()
 

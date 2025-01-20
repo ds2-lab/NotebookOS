@@ -54,9 +54,6 @@ type BaseCluster struct {
 	// scheduler is the scheduling.Scheduler for the Cluster.
 	scheduler scheduling.Scheduler
 
-	// placer is the Placer for the Cluster.
-	placer scheduling.Placer
-
 	log logger.Logger
 
 	// minimumCapacity is the minimum number of nodes we must have available at any time.
@@ -109,7 +106,6 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		validateCapacityInterval:  time.Second * time.Duration(opts.GetScalingInterval()),
 		DisabledHosts:             hashmap.NewConcurrentMap[scheduling.Host](256),
 		statisticsUpdaterProvider: statisticsUpdaterProvider,
-		placer:                    placer,
 		numFailedScaleInOps:       0,
 		numFailedScaleOutOps:      0,
 		numSuccessfulScaleInOps:   0,
@@ -267,7 +263,7 @@ func (c *BaseCluster) SubscriptionRatio() float64 {
 
 // Placer returns the Placer used by the Cluster.
 func (c *BaseCluster) Placer() scheduling.Placer {
-	return c.placer
+	return c.scheduler.Placer()
 }
 
 // ReadLockHosts locks the underlying host manager such that no Host instances can be added or removed.
@@ -300,6 +296,36 @@ func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 	}
 
 	c.indexes.Store(key, index)
+
+	c.log.Debug("Added index under key '%s'", key)
+
+	return nil
+}
+
+// UpdateIndex updates the ClusterIndex that contains the specified Host.
+func (c *BaseCluster) UpdateIndex(host scheduling.Host) error {
+	categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
+	if categoryMetadata == nil {
+		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexCategoryMetadata ('%s') metadata entry",
+			host.GetNodeName(), host.GetID(), scheduling.HostIndexCategoryMetadata)
+	}
+
+	keyMetadata := host.GetMeta(scheduling.HostIndexKeyMetadata)
+	if keyMetadata == nil {
+		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata entry",
+			host.GetNodeName(), host.GetID(), scheduling.HostIndexKeyMetadata)
+	}
+
+	key := fmt.Sprintf("%s:%v", categoryMetadata, keyMetadata.(string))
+	clusterIndex, loaded := c.indexes.Load(key)
+
+	if !loaded || clusterIndex == nil {
+		return fmt.Errorf("could not find cluster index with category '%s' and key '%s'",
+			categoryMetadata, keyMetadata.(string))
+	}
+
+	c.log.Debug("Updating index %s for host %s (id=%s)", key, host.GetNodeName(), host.GetID())
+	clusterIndex.Update(host)
 	return nil
 }
 
@@ -360,17 +386,23 @@ func (c *BaseCluster) onDisabledHostAdded(host scheduling.Host) error {
 
 // onHostAdded is called when a host is added to the BaseCluster.
 func (c *BaseCluster) onHostAdded(host scheduling.Host) {
-	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
+	c.scheduler.HostAdded(host)
+
+	c.indexes.Range(func(indexKey string, index scheduling.IndexProvider) bool {
 		if _, qualificationStatus := index.IsQualified(host); qualificationStatus == scheduling.IndexNewQualified {
-			c.log.Debug("Adding new host to index: %v", host)
+			c.log.Debug("Adding new host to index %s: %v", indexKey, host)
 			index.Add(host)
 		} else if qualificationStatus == scheduling.IndexQualified {
-			c.log.Debug("Updating existing host within index: %v", host)
+			c.log.Debug("Updating existing host within index %s: %v", indexKey, host)
 			index.Update(host)
 		} else if qualificationStatus == scheduling.IndexDisqualified {
-			c.log.Debug("Removing existing host from index in onHostAdded: %v", host)
+			c.log.Debug("Removing existing host from index %s in onHostAdded: %v", indexKey, host)
 			index.Remove(host)
 		} // else unqualified
+
+		c.log.Debug("Host %s (ID=%s) is not qualified to be added to index '%s'.",
+			host.GetNodeName(), host.GetID(), index.Identifier())
+
 		return true
 	})
 

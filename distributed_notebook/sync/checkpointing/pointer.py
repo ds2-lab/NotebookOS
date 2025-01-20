@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
 
+from typing import Dict, Any, Optional
+
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.sync.log import SynchronizedValue
-
-from typing import Optional
 
 class SyncPointer(SynchronizedValue, ABC):
     """
@@ -68,12 +68,13 @@ class DatasetPointer(SyncPointer):
         self._dataset: Optional[CustomDataset] = dataset
         self._dataset_description: dict[str, str|int|bool] = dataset.description
 
-    def __getstate__(self):
-        d = dict(self.__dict__)
+    def __getstate__(self) -> Dict[str, Any]:
+        state_dict: Dict[str, Any] = dict(self.__dict__)
 
-        del d['_dataset']
+        if '_dataset' in state_dict:
+            del state_dict['_dataset']
 
-        return d
+        return state_dict
 
     @property
     def dataset_name(self)->str:

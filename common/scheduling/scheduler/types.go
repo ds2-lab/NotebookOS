@@ -8,6 +8,9 @@ import (
 type clusterSchedulerInternal interface {
 	scheduling.Scheduler
 
+	// findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
+	findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) []scheduling.Host
+
 	// addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
 	addReplicaSetup(kernelId string, addReplicaOp *scheduling.AddReplicaOperation)
 

@@ -67,7 +67,7 @@ def load_dataset(dataset_description: dict[str, str|bool|int])->CustomDataset:
     if 'name' not in dataset_description:
         raise ValueError(f"dataset description does not contain a '_name' field: {dataset_description}")
 
-    dataset_name:str = dataset_description['name']
+    dataset_name:str = dataset_description.pop('name')
 
     cls: Optional[Type] = None
     for dataset_class in ALL_DATASET_CLASSES:
