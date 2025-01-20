@@ -229,8 +229,8 @@ fi
 go install sigs.k8s.io/kind@v0.22.0
 
 # Protoc Golang Bindings 
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.35.1
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
 
 # Python Proto Bindings
 python3.12 -m pip install --user grpcio-tools
