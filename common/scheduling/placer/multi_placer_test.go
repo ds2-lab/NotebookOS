@@ -198,7 +198,8 @@ var _ = Describe("MultiPlacer Tests", func() {
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
 			Expect(schedulingPolicy.Name()).To(Equal("First-Come, First-Serve Batch Scheduling"))
 
-			multiPlacer, err := placer.NewMultiPlacerWithSpecificIndex[*index.LeastLoadedIndex](nil, 1, schedulingPolicy, index.NewLeastLoadedIndexWrapper)
+			multiPlacer, err := placer.NewMultiPlacerWithSpecificIndex[*index.LeastLoadedIndex](nil, 1,
+				schedulingPolicy, index.NewLeastLoadedIndexWrapper, int32(schedulingPolicy.GetGpusPerHost()+1))
 			Expect(err).To(BeNil())
 			Expect(multiPlacer).ToNot(BeNil())
 
@@ -239,7 +240,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 				hostPool, loaded := multiPlacer.GetHostPool(i)
 				Expect(loaded).To(BeTrue())
 				Expect(hostPool).ToNot(BeNil())
-				Expect(hostPool.NumGPUs).To(Equal(i))
+				Expect(hostPool.PoolNumber).To(Equal(i))
 				Expect(hostPool.Len()).To(Equal(0))
 				Expect(hostPool.Size()).To(Equal(0))
 
@@ -334,7 +335,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 			hostPool, loaded := multiPlacer.GetHostPool(2)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.NumGPUs).To(Equal(int32(2)))
+			Expect(hostPool.PoolNumber).To(Equal(int32(2)))
 			Expect(hostPool.Len()).To(Equal(1))
 			Expect(hostPool.Size()).To(Equal(1))
 
@@ -362,7 +363,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 			hostPool, loaded = multiPlacer.GetHostPool(2)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.NumGPUs).To(Equal(int32(2)))
+			Expect(hostPool.PoolNumber).To(Equal(int32(2)))
 			Expect(hostPool.Len()).To(Equal(1))
 			Expect(hostPool.Size()).To(Equal(1))
 		})
@@ -424,7 +425,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 			hostPool, loaded := multiPlacer.GetHostPool(5)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+			Expect(hostPool.PoolNumber).To(Equal(int32(5)))
 			Expect(hostPool.Len()).To(Equal(1))
 			Expect(hostPool.Size()).To(Equal(1))
 
@@ -466,7 +467,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 			hostPool, loaded = multiPlacer.GetHostPool(5)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+			Expect(hostPool.PoolNumber).To(Equal(int32(5)))
 			Expect(hostPool.Len()).To(Equal(2))
 			Expect(hostPool.Size()).To(Equal(2))
 
@@ -506,7 +507,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 			hostPool, loaded = multiPlacer.GetHostPool(5)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+			Expect(hostPool.PoolNumber).To(Equal(int32(5)))
 			Expect(hostPool.Len()).To(Equal(2))
 			Expect(hostPool.Size()).To(Equal(2))
 		})

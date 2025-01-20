@@ -41,9 +41,9 @@ type MultiPlacer[T scheduling.ClusterIndex] struct {
 // NewMultiPlacerWithSpecificIndex enables the creation of an arbitrary BasicPlacer (or an arbitrary MultiPlacer)
 // backed by an arbitrary scheduling.ClusterIndex.
 func NewMultiPlacerWithSpecificIndex[T scheduling.ClusterIndex](metrics scheduling.MetricsProvider, numReplicas int,
-	policy scheduling.Policy, provider index.Provider[T]) (*MultiPlacer[T], error) {
+	policy scheduling.Policy, provider index.Provider[T], numPools int32) (*MultiPlacer[T], error) {
 
-	basePlacer, err := NewBasicPlacerWithSpecificMultiIndex[T](metrics, numReplicas, policy, provider)
+	basePlacer, err := NewBasicPlacerWithSpecificMultiIndex[T](metrics, numReplicas, policy, provider, numPools)
 	if err != nil {
 		return nil, err
 	}

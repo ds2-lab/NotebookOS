@@ -229,7 +229,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 			hostPool, loaded := gandivaPlacer.GetHostPool(i)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.NumGPUs).To(Equal(i))
+			Expect(hostPool.PoolNumber).To(Equal(i))
 			Expect(hostPool.Len()).To(Equal(0))
 			Expect(hostPool.Size()).To(Equal(0))
 
@@ -324,7 +324,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		hostPool, loaded := gandivaPlacer.GetHostPool(2)
 		Expect(loaded).To(BeTrue())
 		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(2)))
+		Expect(hostPool.PoolNumber).To(Equal(int32(2)))
 		Expect(hostPool.Len()).To(Equal(1))
 		Expect(hostPool.Size()).To(Equal(1))
 
@@ -352,7 +352,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		hostPool, loaded = gandivaPlacer.GetHostPool(2)
 		Expect(loaded).To(BeTrue())
 		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(2)))
+		Expect(hostPool.PoolNumber).To(Equal(int32(2)))
 		Expect(hostPool.Len()).To(Equal(1))
 		Expect(hostPool.Size()).To(Equal(1))
 	})
@@ -411,7 +411,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		hostPool, loaded := gandivaPlacer.GetHostPool(5)
 		Expect(loaded).To(BeTrue())
 		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+		Expect(hostPool.PoolNumber).To(Equal(int32(5)))
 		Expect(hostPool.Len()).To(Equal(1))
 		Expect(hostPool.Size()).To(Equal(1))
 
@@ -453,7 +453,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		hostPool, loaded = gandivaPlacer.GetHostPool(5)
 		Expect(loaded).To(BeTrue())
 		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+		Expect(hostPool.PoolNumber).To(Equal(int32(5)))
 		Expect(hostPool.Len()).To(Equal(2))
 		Expect(hostPool.Size()).To(Equal(2))
 
@@ -493,7 +493,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		hostPool, loaded = gandivaPlacer.GetHostPool(5)
 		Expect(loaded).To(BeTrue())
 		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+		Expect(hostPool.PoolNumber).To(Equal(int32(5)))
 		Expect(hostPool.Len()).To(Equal(2))
 		Expect(hostPool.Size()).To(Equal(2))
 	})

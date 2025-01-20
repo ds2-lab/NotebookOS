@@ -56,8 +56,8 @@ var _ = Describe("MultiIndex Tests", func() {
 			gomock.Any(),
 			&proto.Void{},
 		).Return(&proto.GpuInfo{
-			SpecGPUs:              int32(hostSpec.GPU()),
-			IdleGPUs:              int32(hostSpec.GPU()),
+			SpecGPUs:              int32(hostSpec.GPU() + 1),
+			IdleGPUs:              int32(hostSpec.GPU() + 1),
 			CommittedGPUs:         0,
 			PendingGPUs:           0,
 			NumPendingAllocations: 0,
@@ -81,7 +81,7 @@ var _ = Describe("MultiIndex Tests", func() {
 		Context("Adding and Removing Hosts", func() {
 			Context("Empty Hosts", func() {
 				It("Will handle a single add operation correctly", func() {
-					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndexWrapper)
+					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(gandivaIndex).ToNot(BeNil())
 					Expect(err).To(BeNil())
 
@@ -108,7 +108,7 @@ var _ = Describe("MultiIndex Tests", func() {
 				})
 
 				It("Will handle an add followed by a remove correctly", func() {
-					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndexWrapper)
+					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(err).To(BeNil())
 					Expect(gandivaIndex).ToNot(BeNil())
 
@@ -129,7 +129,7 @@ var _ = Describe("MultiIndex Tests", func() {
 				})
 
 				It("Will handle multiple add and remove operations correctly", func() {
-					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndexWrapper)
+					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(err).To(BeNil())
 					Expect(gandivaIndex).ToNot(BeNil())
 
@@ -215,7 +215,7 @@ var _ = Describe("MultiIndex Tests", func() {
 				)
 
 				BeforeEach(func() {
-					multiIndex, err = index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndexWrapper)
+					multiIndex, err = index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(err).To(BeNil())
 					Expect(multiIndex).ToNot(BeNil())
 

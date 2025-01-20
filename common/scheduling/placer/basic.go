@@ -19,11 +19,11 @@ type BasicPlacer struct {
 // NewBasicPlacerWithSpecificMultiIndex enables the creation of an arbitrary MultiPlacer (which contains a promoted
 // BasicPlacer, of course) that is backed by the *index.MultiIndex[T].
 func NewBasicPlacerWithSpecificMultiIndex[T scheduling.ClusterIndex](metricsProvider scheduling.MetricsProvider, numReplicas int,
-	schedulingPolicy scheduling.Policy, indexProvider index.Provider[T]) (*BasicPlacer, error) {
+	schedulingPolicy scheduling.Policy, indexProvider index.Provider[T], numPools int32) (*BasicPlacer, error) {
 
 	abstractPlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
 
-	multiIndex, err := index.NewMultiIndex[T](int32(schedulingPolicy.GetGpusPerHost()), indexProvider)
+	multiIndex, err := index.NewMultiIndex[T](numPools, indexProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -57,13 +57,14 @@ func NewBasicPlacerWithSpecificIndex[T scheduling.ClusterIndex](metricsProvider 
 	return basicPlacer, nil
 }
 
-// NewBasicPlacer creates a new BasicPlacer.
+// NewBasicPlacer creates a new BasicPlacer backed by a scheduling.ClusterIndex whose type is determined by the
+// specified scheduling.Policy.
 func NewBasicPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.Policy) (*BasicPlacer, error) {
 	abstractPlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
 
 	basicPlacer := &BasicPlacer{
 		AbstractPlacer: abstractPlacer,
-		index:          index.GetIndex(schedulingPolicy.PolicyKey(), schedulingPolicy.GetGpusPerHost()),
+		index:          index.GetIndex(schedulingPolicy.PolicyKey(), schedulingPolicy.GetGpusPerHost()+1 /* for Gandiva */),
 	}
 
 	abstractPlacer.instance = basicPlacer
