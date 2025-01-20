@@ -47,7 +47,7 @@ func (p *FcfsBatchSchedulingPolicy) NumReplicas() int {
 }
 
 func (p *FcfsBatchSchedulingPolicy) ResourceBindingMode() scheduling.ResourceBindingMode {
-	return scheduling.BindResourcesAtTrainingStart
+	return scheduling.BindResourcesWhenContainerScheduled
 }
 
 func (p *FcfsBatchSchedulingPolicy) ContainerLifetime() scheduling.ContainerLifetime {

@@ -16,7 +16,7 @@ type GandivaPlacer struct {
 }
 
 // NewGandivaPlacer creates a new GandivaPlacer.
-func NewGandivaPlacer(metrics scheduling.MetricsProvider, numReplicas int, policy scheduling.Policy, gpusPerHost int) (*GandivaPlacer, error) {
+func NewGandivaPlacer(metrics scheduling.MetricsProvider, numReplicas int, policy scheduling.Policy) (*GandivaPlacer, error) {
 	basePlacer, err := NewBasicPlacer(metrics, numReplicas, policy)
 	if err != nil {
 		return nil, err

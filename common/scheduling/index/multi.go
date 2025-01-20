@@ -54,8 +54,11 @@ func (p *HostPool[T]) AddHost(host scheduling.Host) {
 	p.Pool.Add(host)
 }
 
-// MultiIndexProvider provides the individual indices used by a MultiIndex.
-type MultiIndexProvider[T scheduling.ClusterIndex] func() T
+// Provider provides the individual indices used by a MultiIndex.
+type Provider[T scheduling.ClusterIndex] func(gpus int32) T
+
+// MultiIndexProvider creates and return MultiIndex structs backed by indices of the type parameter T.
+type MultiIndexProvider[T scheduling.ClusterIndex] func(gpus int32) *MultiIndex[T]
 
 // MultiIndex manages a collection of sub-indices organized by number of GPUs.
 //
@@ -73,7 +76,7 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 	HostPools map[int32]*HostPool[T]
 
 	// IndexProvider provides the individual indices used by a MultiIndex.
-	IndexProvider MultiIndexProvider[T]
+	IndexProvider Provider[T]
 
 	// HostGroupsInitialized indicates whether the host pools have been initialized.
 	HostGroupsInitialized bool
@@ -93,12 +96,12 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 //
 // The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
 //
-// The MultiIndexProvider is a function that returns concrete instantiations of the type parameter.
+// The IndexProvider is a function that returns concrete instantiations of the type parameter.
 // It will typically just be the "constructor" (i.e., the NewX function, such as NewLeastLoadedIndex).
 //
 // If the constructor accepts parameters, then a closure of the constructor could be passed, assuming the
 // values of those parameters can accetably remain the same for the program's execution.
-func NewMultiIndex[T scheduling.ClusterIndex](maxGpus int32, provider MultiIndexProvider[T]) (*MultiIndex[T], error) {
+func NewMultiIndex[T scheduling.ClusterIndex](maxGpus int32, provider Provider[T]) (*MultiIndex[T], error) {
 	index := &MultiIndex[T]{
 		FreeHosts:        queue.NewFifo[scheduling.Host](16),
 		FreeHostsMap:     make(map[string]scheduling.Host),
@@ -121,8 +124,8 @@ func NewMultiIndex[T scheduling.ClusterIndex](maxGpus int32, provider MultiIndex
 
 // initializeHostPools creates all the HostPool instances to be managed by the target MultiIndex.
 //
-// It uses the given MultiIndexProvider to create each of the "sub-indices"/HostPool instances.
-func (index *MultiIndex[T]) initializeHostPools(maxGPUs int32, indexProvider MultiIndexProvider[T]) error {
+// It uses the given IndexProvider to create each of the "sub-indices"/HostPool instances.
+func (index *MultiIndex[T]) initializeHostPools(maxGPUs int32, indexProvider Provider[T]) error {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -134,7 +137,7 @@ func (index *MultiIndex[T]) initializeHostPools(maxGPUs int32, indexProvider Mul
 
 	var gpus int32
 	for gpus = 0; gpus <= maxGPUs; gpus++ {
-		index.HostPools[gpus] = NewHostPool(indexProvider(), gpus)
+		index.HostPools[gpus] = NewHostPool(indexProvider(gpus), gpus)
 		index.log.Debug("Initialized HostPool #%d: %d-GPU pool.", len(index.HostPools), gpus)
 	}
 

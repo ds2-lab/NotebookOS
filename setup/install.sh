@@ -52,6 +52,8 @@ if ! command python3 --version &> /dev/null; then
     cd Python-$PYTHON_VERSION
     mkdir debug
     cd debug
+
+    # ../configure --enable-optimizations --with-pydebug --enable-shared --with-ensurepip=install && make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG" && sudo make altinstall
     ../configure --enable-optimizations --with-pydebug --enable-shared --with-ensurepip=install
     make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG" 
     sudo make altinstall

@@ -12,6 +12,51 @@ type BasicPlacer struct {
 	index scheduling.ClusterIndex
 }
 
+// NewBasicPlacerWithSpecificMultiIndex creates a new BasicPlacer backed by a *index.MultiIndex.
+// The underlying *index.MultiIndex manages a pool of scheduling.ClusterIndex instances whose concrete type is
+// the type parameter T.
+//
+// NewBasicPlacerWithSpecificMultiIndex enables the creation of an arbitrary MultiPlacer (which contains a promoted
+// BasicPlacer, of course) that is backed by the *index.MultiIndex[T].
+func NewBasicPlacerWithSpecificMultiIndex[T scheduling.ClusterIndex](metricsProvider scheduling.MetricsProvider, numReplicas int,
+	schedulingPolicy scheduling.Policy, indexProvider index.Provider[T]) (*BasicPlacer, error) {
+
+	abstractPlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
+
+	multiIndex, err := index.NewMultiIndex[T](int32(schedulingPolicy.GetGpusPerHost()), indexProvider)
+	if err != nil {
+		return nil, err
+	}
+
+	basicPlacer := &BasicPlacer{
+		AbstractPlacer: abstractPlacer,
+		index:          multiIndex,
+	}
+
+	abstractPlacer.instance = basicPlacer
+	return basicPlacer, nil
+}
+
+// NewBasicPlacerWithSpecificIndex creates a new BasicPlacer backed by a scheduling.ClusterIndex
+// whose type is determined by whatever the given indexProvider returns, rather than by the
+// scheduling.Policy configured for the scheduling.Cluster.
+//
+// NewBasicPlacerWithSpecificIndex enables the creation of an arbitrary BasicPlacer (or an arbitrary MultiPlacer)
+// backed by an arbitrary scheduling.ClusterIndex.
+func NewBasicPlacerWithSpecificIndex[T scheduling.ClusterIndex](metricsProvider scheduling.MetricsProvider, numReplicas int,
+	schedulingPolicy scheduling.Policy, indexProvider index.Provider[T]) (*BasicPlacer, error) {
+
+	abstractPlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
+
+	basicPlacer := &BasicPlacer{
+		AbstractPlacer: abstractPlacer,
+		index:          indexProvider(int32(schedulingPolicy.GetGpusPerHost())),
+	}
+
+	abstractPlacer.instance = basicPlacer
+	return basicPlacer, nil
+}
+
 // NewBasicPlacer creates a new BasicPlacer.
 func NewBasicPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.Policy) (*BasicPlacer, error) {
 	abstractPlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
@@ -69,7 +114,7 @@ func (placer *BasicPlacer) findHosts(blacklist []interface{}, spec *proto.Kernel
 // FindHost returns a single host that can satisfy the resourceSpec.
 func (placer *BasicPlacer) findHost(blacklist []interface{}, spec *proto.KernelSpec, forTraining bool,
 	metrics ...[]float64) scheduling.Host {
-	
+
 	hosts := placer.findHosts(blacklist, spec, 1, forTraining, metrics...)
 
 	if hosts == nil || len(hosts) == 0 {

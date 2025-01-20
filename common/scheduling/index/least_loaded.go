@@ -27,6 +27,11 @@ type LeastLoadedIndex struct {
 	log   logger.Logger
 }
 
+// NewLeastLoadedIndexWrapper satisfies the index.Provider definition.
+func NewLeastLoadedIndexWrapper(_ int32) *LeastLoadedIndex {
+	return NewLeastLoadedIndex()
+}
+
 func NewLeastLoadedIndex() *LeastLoadedIndex {
 	index := &LeastLoadedIndex{
 		CallbackManager: NewCallbackManager(),

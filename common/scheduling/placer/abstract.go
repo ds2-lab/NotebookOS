@@ -35,10 +35,44 @@ func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas i
 		schedulingPolicy: schedulingPolicy,
 	}
 
-	placer.resourceReserver = getResourceReserver(placer.reservationShouldUsePendingResources())
+	placer.resourceReserver = placer.getResourceReserver()
 
 	config.InitLogger(&placer.log, placer)
 	return placer
+}
+
+// getResourceReserver returns a resourceReserver based on the closure created by passing a value for
+// reservationShouldUsePendingResources, which may differ depending on the placer implementation and
+// configured scheduling policy.
+func (placer *AbstractPlacer) getResourceReserver() resourceReserver {
+	return func(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) bool {
+		var usePendingReservation bool
+
+		// If we are migrating a replica that needs to begin training right away,
+		// then we should not use a pending reservation.
+		//
+		// The container will need resources committed to it immediately.
+		//
+		// Alternatively, if we aren't going to be creating reservations for a kernel container that intends to
+		// begin training immediately upon being created, then we defer to the configured scheduling policy.
+		// To do this, we simply query the resource binding mode of the configured scheduling policy by calling
+		// the placer's 'reservationShouldUsePendingResources' method.
+		if forTraining {
+			usePendingReservation = false
+		} else {
+			usePendingReservation = placer.reservationShouldUsePendingResources()
+		}
+
+		reserved, err := candidateHost.ReserveResources(kernelSpec, usePendingReservation)
+		if err != nil {
+			// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
+			if reserved {
+				panic("We successfully reserved resources on a Host despite ReserveResources also returning an error...")
+			}
+		}
+
+		return reserved
+	}
 }
 
 // reservationShouldUsePendingResources returns true if resource reservations on candidate hosts should be made

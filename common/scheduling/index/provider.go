@@ -17,7 +17,7 @@ func GetIndex(policyKey scheduling.PolicyKey, gpusPerHost int) scheduling.Cluste
 	} else if policyKey == scheduling.DynamicV3 || policyKey == scheduling.DynamicV4 {
 		panic("Dynamic v3 and Dynamic v4 are not yet supported.")
 	} else if policyKey == scheduling.Gandiva {
-		index, err = NewMultiIndex[*LeastLoadedIndex](int32(gpusPerHost), NewLeastLoadedIndex)
+		index, err = NewMultiIndex[*LeastLoadedIndex](int32(gpusPerHost), NewLeastLoadedIndexWrapper)
 	} else {
 		panic(fmt.Sprintf("Unknown or unsupported policy \"%s\"; cannot create index", policyKey.String()))
 	}

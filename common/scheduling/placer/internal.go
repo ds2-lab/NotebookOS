@@ -32,30 +32,3 @@ type internalPlacer interface {
 
 // resourceReserver is used by placers to reserve resources on candidate hosts.
 type resourceReserver func(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) bool
-
-// getResourceReserver returns a resourceReserver based on the closure created by passing a value for
-// reservationShouldUsePendingResources, which may differ depending on the placer implementation and
-// configured scheduling policy.
-func getResourceReserver(reservationShouldUsePendingResources bool) resourceReserver {
-	return func(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) bool {
-		var usePendingReservation bool
-
-		if forTraining {
-			// If we are migrating a replica that needs to begin training right away, then we should not use a pending reservation.
-			// The container will need resources committed to it immediately.
-			usePendingReservation = false
-		} else {
-			usePendingReservation = reservationShouldUsePendingResources
-		}
-
-		reserved, err := candidateHost.ReserveResources(kernelSpec, usePendingReservation)
-		if err != nil {
-			// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
-			if reserved {
-				panic("We successfully reserved resources on a Host despite ReserveResources also returning an error...")
-			}
-		}
-
-		return reserved
-	}
-}
