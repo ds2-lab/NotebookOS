@@ -151,6 +151,12 @@ func (index *MultiIndex[T]) NumFreeHosts() int {
 	return index.FreeHosts.Len()
 }
 
+// HasHostPool returns true if the MultiIndex has a host pool for the specified number of GPUs.
+func (index *MultiIndex[T]) HasHostPool(gpus int32) bool {
+	_, loaded := index.HostPools[gpus]
+	return loaded
+}
+
 // NumHostsInPool returns the number of hosts in the specified host pool.
 func (index *MultiIndex[T]) NumHostsInPool(gpus int32) int {
 	pool, loaded := index.HostPools[gpus]

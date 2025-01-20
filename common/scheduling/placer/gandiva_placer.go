@@ -63,6 +63,12 @@ func (placer *GandivaPlacer) NumFreeHosts() int {
 	return placer.getIndex().NumFreeHosts()
 }
 
+// HasHostPool returns true if the GandivaPlacer's underlying MultiIndex has a host pool for the specified
+// number of GPUs.
+func (placer *GandivaPlacer) HasHostPool(gpus int32) bool {
+	return placer.getIndex().HasHostPool(gpus)
+}
+
 // NumHostsInPool returns the number of hosts in the specified host pool.
 func (placer *GandivaPlacer) NumHostsInPool(gpus int32) int {
 	return placer.getIndex().NumHostsInPool(gpus)
