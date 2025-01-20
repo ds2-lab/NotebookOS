@@ -15,22 +15,22 @@ fi
 
 # Ensure the argument is provided and valid
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <true|false>"
+  echo "Usage: $0 <default|static|dynamic-v3|dynamic-v4|fcfs-batch|auto-scaling-fcfs-batch|reservation|gandiva>"
   exit 1
 fi
 
 # Get the first argument and validate
 new_value=$1
-if [[ "$new_value" != "true" && "$new_value" != "false" ]]; then
+if [[ "$new_value" != "default" && "$new_value" != "static" && "$new_value" != "dynamic-v3" && "$new_value" != "dynamic-v4" && "$new_value" != "fcfs-batch" && "$new_value" != "auto-scaling-fcfs-batch" && "$new_value" != "reservation" && "$new_value" != "gandiva" ]]; then
   echo "Error: Argument must be 'true' or 'false'."
   exit 1
 fi
 
 # Use sed to update the file
-sed -i.bak -E "s/^use_real_gpus:.*/use_real_gpus: $new_value/" "$target_file"
+sed -i.bak -E "s/^scheduling-policy:.*/scheduling-policy: $new_value/" "$target_file"
 
 if [[ $? -eq 0 ]]; then
-  echo "Successfully updated 'use_real_gpus' to '$new_value' in '$target_file'."
+  echo "Successfully updated 'scheduling-policy' to '$new_value' in '$target_file'."
 else
   echo "Error: Failed to update the file."
   exit 1
@@ -51,22 +51,22 @@ fi
 
 # Ensure the argument is provided and valid
 if [[ $# -lt 1 ]]; then
-  echo "Usage: $0 <true|false>"
+  echo "Usage: $0 <default|static|dynamic-v3|dynamic-v4|fcfs-batch|auto-scaling-fcfs-batch|reservation|gandiva>"
   exit 1
 fi
 
 # Get the first argument and validate
 new_value=$1
-if [[ "$new_value" != "true" && "$new_value" != "false" ]]; then
+if [[ "$new_value" != "default" && "$new_value" != "static" && "$new_value" != "dynamic-v3" && "$new_value" != "dynamic-v4" && "$new_value" != "fcfs-batch" && "$new_value" != "auto-scaling-fcfs-batch" && "$new_value" != "reservation" && "$new_value" != "gandiva" ]]; then
   echo "Error: Argument must be 'true' or 'false'."
   exit 1
 fi
 
 # Use sed to update the file
-sed -i.bak -E "s/^use_real_gpus:.*/use_real_gpus: $new_value/" "$target_file"
+sed -i.bak -E "s/^scheduling-policy:.*/scheduling-policy: $new_value/" "$target_file"
 
 if [[ $? -eq 0 ]]; then
-  echo "Successfully updated 'use_real_gpus' to '$new_value' in '$target_file'."
+  echo "Successfully updated 'scheduling-policy' to '$new_value' in '$target_file'."
 else
   echo "Error: Failed to update the file."
   exit 1
