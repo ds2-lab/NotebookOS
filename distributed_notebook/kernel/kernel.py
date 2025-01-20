@@ -3070,26 +3070,23 @@ class DistributedKernel(IPythonKernel):
             assert gpu_device_ids is not None and len(gpu_device_ids) > 0
 
         performed_gpu_training: bool = False
-        if target_training_duration_millis > 0:
-            self.log.debug(
-                f"Explicitly instructed to train for {target_training_duration_millis:,} milliseconds. "
-                f"Discarding specified code. Will use custom training code instead generated for model "
-                f"'{deep_learning_model_name}' and dataset '{dataset}'."
-            )
-            code = await self.get_custom_training_code(
-                target_training_duration_millis=target_training_duration_millis,
-                gpu_device_ids=gpu_device_ids,
-                deep_learning_model=deep_learning_model_name,
-                dataset_name=dataset,
-                batch_size=batch_size,
-            )
-            performed_gpu_training = True
-        elif "training_duration_millis = " in code:
-            target_training_duration_millis = int(float(code[27:]))
+
+        # Check for the special training code that indicates that we are to generate some code to simulate
+        # the execution of deep learning training.
+        #
+        # Note that the user could also just submit the code that we generate directly, but this simplified
+        # the implementation for evaluation purposes.
+        if "training_duration_millis = " in code:
+            # First, make sure that we have a valid, non-zero value for the 'target_training_duration_millis' variable.
+            if target_training_duration_millis <= 0:
+                target_training_duration_millis = int(float(code[27:]))
+
             self.log.debug(
                 f"Explicitly instructed to train for {target_training_duration_millis / 1.0e3:,} seconds. "
                 f"Discarding specified code. Will use custom training code instead."
             )
+
+            # Generate the custom code.
             code = await self.get_custom_training_code(
                 target_training_duration_millis=target_training_duration_millis,
                 gpu_device_ids=gpu_device_ids,
@@ -3098,8 +3095,34 @@ class DistributedKernel(IPythonKernel):
                 batch_size=batch_size,
             )
             performed_gpu_training = True
-        else:
-            pass
+
+        # if target_training_duration_millis > 0 and torch.cuda.is_available():
+        #     self.log.debug(
+        #         f"Explicitly instructed to train for {target_training_duration_millis:,} milliseconds. "
+        #         f"Discarding specified code. Will use custom training code instead generated for model "
+        #         f"'{deep_learning_model_name}' and dataset '{dataset}'."
+        #     )
+        #     code = await self.get_custom_training_code(
+        #         target_training_duration_millis=target_training_duration_millis,
+        #         gpu_device_ids=gpu_device_ids,
+        #         deep_learning_model=deep_learning_model_name,
+        #         dataset_name=dataset,
+        #         batch_size=batch_size,
+        #     )
+        #     performed_gpu_training = True
+        # elif "training_duration_millis = " in code:
+        #     target_training_duration_millis = int(float(code[27:]))
+        #
+        #     code = await self.get_custom_training_code(
+        #         target_training_duration_millis=target_training_duration_millis,
+        #         gpu_device_ids=gpu_device_ids,
+        #         deep_learning_model=deep_learning_model_name,
+        #         dataset_name=dataset,
+        #         batch_size=batch_size,
+        #     )
+        #     performed_gpu_training = True
+        # else:
+        #     pass
 
         self.log.debug(f"Executing the following code now:\n"
                        f"{ColoredLogFormatter.LIGHT_CYAN}{ColoredLogFormatter.BOLD}{code}{ColoredLogFormatter.reset}\n")
