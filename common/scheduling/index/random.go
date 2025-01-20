@@ -99,7 +99,8 @@ func (index *RandomClusterIndex) Add(host scheduling.Host) {
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedRandomIndex)
 	host.SetContainedWithinIndex(true)
-	index.log.Debug("Added Host %s to RandomClusterIndex at position %d.", host.GetID(), i)
+	index.log.Debug("Added Host %s to RandomClusterIndex at position %d. Index length: %d.",
+		host.GetID(), i, index.Len())
 	index.len += 1
 
 	// Invoke callback.
