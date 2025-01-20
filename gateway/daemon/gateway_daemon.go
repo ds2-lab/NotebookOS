@@ -952,6 +952,8 @@ func (d *ClusterGatewayImpl) acceptHostConnection() (*grpc.ClientConn, net.Conn,
 	cliSession, err := yamux.Client(incoming, yamux.DefaultConfig())
 	if err != nil {
 		d.log.Error("Failed to create yamux client session: %v", err)
+		d.log.Error("Incoming remote: %v", incoming.RemoteAddr().String())
+		d.log.Error("Incoming local: %v", incoming.LocalAddr().String())
 		return nil, nil, nil, err
 	}
 
@@ -959,6 +961,11 @@ func (d *ClusterGatewayImpl) acceptHostConnection() (*grpc.ClientConn, net.Conn,
 	conn, err := cliSession.Accept()
 	if err != nil {
 		d.log.Error("Failed to wait for the replacement of host scheduler connection: %v", err)
+		d.log.Error("Incoming remote: %v", incoming.RemoteAddr().String())
+		d.log.Error("Incoming local: %v", incoming.LocalAddr().String())
+		d.log.Error("CLI Session addr: %v", cliSession.Addr().String())
+		d.log.Error("CLI Session remote: %v", cliSession.RemoteAddr().String())
+		d.log.Error("CLI Session local: %v", cliSession.LocalAddr().String())
 		return nil, nil, nil, err
 	}
 
