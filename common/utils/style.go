@@ -1,8 +1,10 @@
 package utils
 
 import (
+	"fmt"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
+	"os"
 )
 
 func init() {
@@ -40,3 +42,26 @@ var (
 
 	NotificationStyles = []lipgloss.Style{RedStyle, OrangeStyle, GrayStyle, GreenStyle}
 )
+
+func init() {
+	lipgloss.SetColorProfile(termenv.ANSI256)
+
+	// https://no-color.org/
+	//
+	// If there is a NO_COLOR environment variable, then colored output is disabled.
+	noColorVal := os.Getenv("NO_COLOR")
+	if noColorVal != "" {
+		fmt.Printf("[INFO] Found non-empty value for \"NO_COLOR\" environment variable: \"%s\".\n"+
+			"Disabling colored output.\n", noColorVal)
+
+		RedStyle = RedStyle.Foreground(lipgloss.NoColor{})
+		OrangeStyle = OrangeStyle.Foreground(lipgloss.NoColor{})
+		YellowStyle = YellowStyle.Foreground(lipgloss.NoColor{})
+		GreenStyle = GreenStyle.Foreground(lipgloss.NoColor{})
+		LightBlueStyle = LightBlueStyle.Foreground(lipgloss.NoColor{})
+		BlueStyle = BlueStyle.Foreground(lipgloss.NoColor{})
+		LightPurpleStyle = LightPurpleStyle.Foreground(lipgloss.NoColor{})
+		PurpleStyle = PurpleStyle.Foreground(lipgloss.NoColor{})
+		GrayStyle = GrayStyle.Foreground(lipgloss.NoColor{})
+	}
+}
