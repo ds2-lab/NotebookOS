@@ -312,7 +312,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the FindCandidateHosts method", func() {
 				validateVariablesNonNil()
 
-				largerHostSpec := types.NewDecimalSpec(8000, 64000, 64, 32)
+				largerHostSpec := types.NewDecimalSpec(8000, 64000, 8, 64)
 
 				// Create a new, larger host.
 				i := len(hosts)
@@ -326,7 +326,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 				kernelId := uuid.NewString()
 				kernelKey := uuid.NewString()
-				bigResourceSpec := proto.NewResourceSpec(1250, 2000, 32 /* too many */, 4)
+				bigResourceSpec := proto.NewResourceSpec(1250, 2000, 8 /* too many */, 4)
 
 				bigKernelSpec := &proto.KernelSpec{
 					Id:              kernelId,

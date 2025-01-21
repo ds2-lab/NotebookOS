@@ -31,13 +31,17 @@ func roundToLowestPowerOf2(val float64) float64 {
 
 // GetStaticIndexBucket returns the bucket number of the specified number of GPUs, given the number
 // of GPUs per host and the number of pools available in the StaticIndex.
-func GetStaticIndexBucket(gpus int32, gpusPerHost int32, numPools int32) int32 {
+//
+// GetStaticIndexBucket will return -1 for an unknown or unexpected or unsupported set of inputs, such
+// as when gpus > gpusPerHost.
+func GetStaticIndexBucket(gpus int32, gpusPerHost int32) int32 {
 	if gpus == 0 {
 		gpus = 1
 	}
 
 	if gpus > gpusPerHost {
-		panic(fmt.Sprintf("Requested %d GPUs, but there are only %d GPUs per host", gpus, gpusPerHost))
+		// panic(fmt.Sprintf("Requested %d GPUs, but there are only %d GPUs per host", gpus, gpusPerHost))
+		return -1
 	}
 
 	// First, divide the number of GPUs per host by the number of requested GPUs.
@@ -212,7 +216,7 @@ func (index *StaticIndex) GetHostPool(gpus int32) (*HostPool[*LeastLoadedIndex],
 //
 // If gpus is 0, then it is set to 1 for the purposes of bucket calculation.
 func (index *StaticIndex) GetBucket(gpus int32) int32 {
-	return GetStaticIndexBucket(gpus, index.GpusPerHost, index.NumPools)
+	return GetStaticIndexBucket(gpus, index.GpusPerHost)
 }
 
 // Seek returns the host specified by the metrics.
