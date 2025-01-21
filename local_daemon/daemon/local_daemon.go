@@ -1693,7 +1693,7 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 	frames := messaging.NewJupyterFramesWithHeader(messaging.MessageTypeAddReplicaRequest, kernel.Sessions()[0])
 	if err := frames.EncodeContent(&messaging.MessageSMRAddOrUpdateReplicaRequest{
 		NodeID:  replicaId,
-		Address: hostname, // s.daemon.getInvoker(kernel).GetReplicaAddress(kernel.KernelSpec(), replicaId),
+		Address: hostname,
 	}); err != nil {
 		d.log.Error("Failed to encode content of \"MessageSMRAddOrUpdateReplicaRequest\" message: %v", err)
 		return nil, err
@@ -1865,7 +1865,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	}
 
 	kernelId := in.Kernel.Id
-	d.log.Debug("SchedulerDaemonImpl::StartKernelReplica(\"%s\"). ResourceSpec: %v", kernelId, in.Kernel.ResourceSpec)
+	d.log.Debug("SchedulerDaemonImpl::StartKernelReplica(\"%s\"). Spec: %v.", kernelId, in)
 
 	if otherReplica, loaded := d.kernels.Load(kernelId); loaded {
 		d.log.Error("We already have a replica of kernel %s running locally (replica %d). Cannot launch new replica on this node.", kernelId, otherReplica.ReplicaID())

@@ -45,7 +45,7 @@ const (
 	KernelSMRPort        = "SMR_PORT"
 	KernelSMRPortDefault = 8080
 
-	DockerKernelName     = "kernel-%s"
+	DockerKernelName     = "kernel-%s-%s"
 	VarContainerImage    = "{image}"
 	VarConnectionFile    = "{connection_file}"
 	VarContainerName     = "{container_name}"
@@ -94,6 +94,7 @@ type DockerInvoker struct {
 	targetMountDir                       string
 	invokerCmd                           string                           // Command used to create the Docker container.
 	containerName                        string                           // Name of the launched container; this is the empty string before the container is launched.
+	kernelId                             string                           // The ID of the target kernel.
 	dockerNetworkName                    string                           // The name of the Docker network that the Local Daemon container is running within.
 	smrPort                              int                              // Port used by the SMR cluster.
 	closing                              int32                            // Indicates whether the container is closing/shutting down.
@@ -289,6 +290,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	ivk.closed = make(chan struct{})
 	ivk.spec = spec
 	ivk.status = jupyter.KernelStatusInitializing
+	ivk.kernelId = spec.Kernel.Id
 
 	ivk.log.Debug("[DockerInvoker] Invoking with context now.\n")
 
@@ -575,16 +577,19 @@ func (ivk *DockerInvoker) Wait() (jupyter.KernelStatus, error) {
 		<-ivk.closed
 	}
 
-	ivk.closedAt = time.Time{} // Update closedAt to extend expriation time
+	ivk.closedAt = time.Time{} // Update closedAt to extend expiration time
 	return ivk.status, nil
 }
 
-func (ivk *DockerInvoker) GetReplicaAddress(kernel *proto.KernelSpec, replicaId int32) string {
-	return fmt.Sprintf("%s:%d", ivk.generateKernelName(kernel, replicaId), ivk.smrPort)
-}
+//func (ivk *DockerInvoker) GetReplicaAddress(kernel *proto.KernelSpec, replicaId int32) string {
+//	return fmt.Sprintf("%s:%d", ivk.generateKernelName(kernel, replicaId), ivk.smrPort)
+//}
 
-func (ivk *DockerInvoker) generateKernelName(kernel *proto.KernelSpec, replica_id int32) string {
-	return fmt.Sprintf(DockerKernelName, fmt.Sprintf("%s-%d", kernel.Id, replica_id))
+// generateKernelName generates and returns a name for the kernel container based on the kernel ID and replica ID.
+func (ivk *DockerInvoker) generateKernelName(kernel *proto.KernelSpec, replicaId int32) string {
+	// We append a string of random characters to the end of the name to help mitigate the risk of name collisions
+	// when re-running the same workload (with the same kernels/sessions) multiple times on the same cluster.
+	return fmt.Sprintf(DockerKernelName, fmt.Sprintf("%s-%d", kernel.Id, replicaId), utils.GenerateRandomString(8))
 }
 
 // extractKernelName extracts kernel name and port from the replica spec

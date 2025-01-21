@@ -435,8 +435,9 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.Ke
 				}
 
 				responsesReceived = append(responsesReceived, notification)
-				s.log.Debug("Successfully scheduled replica %d of kernel %s on host %s. %d/%d replicas scheduled. Time elapsed: %v.",
-					notification.ReplicaId, in.Id, notification.Host.GetID(), len(responsesReceived), responsesRequired, time.Since(st))
+				s.log.Debug("Successfully scheduled replica %d of kernel %s on host %s (ID=%s). %d/%d replicas scheduled. Time elapsed: %v.",
+					notification.ReplicaId, in.Id, notification.Host.GetNodeName(), notification.Host.GetID(), len(responsesReceived),
+					responsesRequired, time.Since(st))
 			}
 		}
 	}

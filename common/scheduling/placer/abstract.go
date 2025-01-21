@@ -209,8 +209,8 @@ func (placer *AbstractPlacer) Place(host scheduling.Host, in *proto.KernelReplic
 
 	placer.instance.UpdateIndex(host)
 
-	placer.log.Debug("Returning connection info for replica %d of kernel %s after placing it on Host %s: %v",
-		in.ReplicaId, in.Kernel.Id, host.GetID(), connInfo)
+	placer.log.Debug("Returning connection info for replica %d of kernel %s after placing it on Host %s (ID=%s): %v",
+		in.ReplicaId, in.Kernel.Id, host.GetNodeName(), host.GetID(), connInfo)
 
 	return connInfo, err
 }
@@ -225,7 +225,8 @@ func (placer *AbstractPlacer) Reclaim(host scheduling.Host, sess scheduling.User
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	placer.log.Debug("Calling StopKernel on kernel %s running on host %v.", sess.ID(), host)
+	placer.log.Debug("Calling StopKernel on kernel %s running on host %s (ID=%v).",
+		sess.ID(), host.GetNodeName(), host.GetID())
 	_, err := host.StopKernel(ctx, &proto.KernelId{Id: sess.ID()})
 
 	return err
