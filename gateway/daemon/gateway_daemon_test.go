@@ -1154,15 +1154,16 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				WorkloadId:      "SpoofedWorkloadId",
 				ResourceSpec: &proto.ResourceSpec{
 					Gpu:    2,
-					Cpu:    100,
-					Memory: 1000,
-					Vram:   1,
+					Cpu:    1250,
+					Memory: 2048,
+					Vram:   2,
 				},
 			}).AnyTimes()
 			mockedKernel.EXPECT().ResourceSpec().Return(&types.DecimalSpec{
 				GPUs:      decimal.NewFromFloat(2),
-				Millicpus: decimal.NewFromFloat(100),
-				MemoryMb:  decimal.NewFromFloat(1000),
+				Millicpus: decimal.NewFromFloat(1250),
+				MemoryMb:  decimal.NewFromFloat(2048),
+				VRam:      decimal.NewFromFloat(2),
 			}).AnyTimes()
 			mockedKernel.EXPECT().ID().Return(kernelId).AnyTimes()
 			mockedKernel.EXPECT().RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(),
