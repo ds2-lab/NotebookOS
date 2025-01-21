@@ -15,24 +15,53 @@ import (
 // host pools.
 type MultiIndexProvider[T scheduling.ClusterIndex, V *index.MultiIndex[T]] func(gpusPerHost int32) V
 
-func GetMultiIndexProvider[T scheduling.ClusterIndex, V *index.MultiIndex[T]](indexProvider index.Provider[T]) MultiIndexProvider[T, V] {
-	provider := func(gpusPerHost int32) V {
-		multiIndex, err := index.NewMultiIndex[T](gpusPerHost, indexProvider)
-		if err != nil {
-			panic(err)
-		}
-
-		return multiIndex
-	}
-
-	return provider
-}
+//func GetMultiIndexProvider[T scheduling.ClusterIndex, V *index.MultiIndex[T]](indexProvider index.Provider[T]) MultiIndexProvider[T, V] {
+//	provider := func(gpusPerHost int32) V {
+//		multiIndex, err := index.NewMultiIndex[T](gpusPerHost, indexProvider)
+//		if err != nil {
+//			panic(err)
+//		}
+//
+//		return multiIndex
+//	}
+//
+//	return provider
+//}
 
 // MultiPlacer manages a collection of underlying Gandiva placers.
 type MultiPlacer[T scheduling.ClusterIndex] struct {
 	*BasicPlacer
 
 	placerId string
+}
+
+// StaticPlacer is a particular type of MultiPlacer that implements the logic for the static scheduling policy.
+type StaticPlacer MultiPlacer[*index.StaticIndex]
+
+// NewStaticPlacer creates and returns a StaticPlacer struct.
+func NewStaticPlacer(metrics scheduling.MetricsProvider, numReplicas int, policy scheduling.Policy) (*StaticPlacer, error) {
+	provider := func(gpusPerHost int32) *index.StaticIndex {
+		staticIndex, err := index.NewStaticIndex(gpusPerHost)
+		if err != nil {
+			panic(err)
+		}
+
+		return staticIndex
+	}
+
+	basePlacer, err := NewBasicPlacerWithSpecificIndex[*index.StaticIndex](metrics, numReplicas, policy, provider)
+	if err != nil {
+		return nil, err
+	}
+
+	staticPlacer := &StaticPlacer{
+		BasicPlacer: basePlacer,
+		placerId:    uuid.NewString(),
+	}
+
+	basePlacer.instance = staticPlacer
+
+	return staticPlacer, nil
 }
 
 // NewMultiPlacerWithSpecificIndex creates a new MultiPlacer backed by a specific scheduling.ClusterIndex,

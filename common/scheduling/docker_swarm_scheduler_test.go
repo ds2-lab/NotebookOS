@@ -188,7 +188,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			_, ok := clusterPlacer.(*placer.BasicPlacer)
 			Expect(ok).To(BeTrue())
 
-			_, ok = clusterPlacer.GetIndex().(*index.StaticClusterIndex)
+			_, ok = clusterPlacer.GetIndex().(*index.StaticIndex)
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
