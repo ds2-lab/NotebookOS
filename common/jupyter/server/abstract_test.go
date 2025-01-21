@@ -154,7 +154,7 @@ var _ = Describe("AbstractServer", func() {
 					[]byte(""))
 				_, err = messaging.NewJupyterFramesFromBytes(ackResponse.Frames).Sign(signatureScheme, []byte(kernelKey))
 
-				server.Log.Info("Responding to message with ACK: %v", ackResponse)
+				server.Log.Debug("Responding to message with ACK: %v", ackResponse)
 
 				time.Sleep(time.Millisecond * 5)
 
@@ -382,7 +382,7 @@ var _ = Describe("AbstractServer", func() {
 					[]byte(""),
 					[]byte(""))
 
-				server.Log.Info("Responding to message with ACK: %v", ackResponse)
+				server.Log.Debug("Responding to message with ACK: %v", ackResponse)
 
 				time.Sleep(time.Millisecond * 5)
 
@@ -471,7 +471,7 @@ var _ = Describe("AbstractServer", func() {
 			jMsg := messaging.NewJupyterMessage(&msg)
 			_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
-			fmt.Printf("[a] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
+			//fmt.Printf("[a] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
 			requestTrace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, now, client.Log) // Simulate recv
 			client.Log.Debug(utils.LightBlueStyle.Render("RequestTrace: %s"), requestTrace.String())
 			Expect(requestTrace).ToNot(BeNil())
@@ -482,7 +482,7 @@ var _ = Describe("AbstractServer", func() {
 			Expect(jMsg.JupyterFrames.Len()).To(Equal(8))
 			Expect(jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false)).To(Equal(7))
 
-			fmt.Printf("[b] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
+			//fmt.Printf("[b] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
 
 			Expect(requestTrace.MessageId).To(Equal(msgId))
 			Expect(requestTrace.MessageType).To(Equal(messaging.KernelInfoRequest))

@@ -67,10 +67,11 @@ func (s *KubernetesScheduler) HostAdded(host scheduling.Host) {
 
 // findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
 // KubernetesScheduler does not do anything special or fancy.
-func (s *KubernetesScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) []scheduling.Host {
+//
+// If findCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
+func (s *KubernetesScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
 	// Identify the hosts onto which we will place replicas of the kernel.
-	hostBatch := s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
-	return hostBatch
+	return s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
 }
 
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.

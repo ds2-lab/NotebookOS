@@ -30,7 +30,7 @@ func NewHostPool[T scheduling.ClusterIndex](pool T, poolNumber int32) *HostPool[
 
 // SeekMultipleFrom simply forwards the call to the target HostPool's Pool field (which is a scheduling.ClusterIndex).
 func (p *HostPool[T]) SeekMultipleFrom(pos interface{}, numHosts int, criteria scheduling.HostCriteriaFunction,
-	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}, error) {
 	return p.Pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist, metrics...)
 }
 
@@ -345,21 +345,26 @@ func (index *MultiIndex[T]) seekCriteria(_ scheduling.Host) bool {
 	return true
 }
 
-func (index *MultiIndex[T]) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}) {
+func (index *MultiIndex[T]) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}, error) {
 	if len(metrics) == 0 {
 		index.log.Warn("No metrics received in call to SeekMultipleFrom for Multi-Index...")
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	index.log.Debug("Seeking single host with metrics: %v", metrics)
 
-	hosts, _ := index.SeekMultipleFrom(nil, 1, index.seekCriteria, blacklist, metrics...)
+	hosts, _, err := index.SeekMultipleFrom(nil, 1, index.seekCriteria, blacklist, metrics...)
 
-	if hosts == nil || len(hosts) == 0 {
-		return nil, nil
+	if err != nil {
+		index.log.Error("Error occurred while seeking host: %v", err)
+		return nil, nil, err
 	}
 
-	return hosts[0], nil
+	if hosts == nil || len(hosts) == 0 {
+		return nil, nil, nil
+	}
+
+	return hosts[0], nil, nil
 }
 
 // logSeekMultiple simply logs a message about how many hosts were found during a part of findCandidateHosts.
@@ -377,7 +382,7 @@ func (index *MultiIndex[T]) logSeekMultiple(numHosts int, poolNumber int32, host
 //
 // This entire method is thread-safe. The index is locked until this method returns.
 func (index *MultiIndex[T]) SeekMultipleFrom(pos interface{}, numHosts int, criteria scheduling.HostCriteriaFunction,
-	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}, error) {
 
 	index.mu.Lock()
 	defer index.mu.Unlock()
@@ -385,7 +390,7 @@ func (index *MultiIndex[T]) SeekMultipleFrom(pos interface{}, numHosts int, crit
 	// If for whatever reason, we were instructed to find zero hosts, then just return immediately.
 	if numHosts == 0 {
 		index.log.Warn("Instructed to find candidate hosts; however, NumHosts=%d...", numHosts)
-		return []scheduling.Host{}, nil
+		return []scheduling.Host{}, nil, nil
 	}
 
 	if len(metrics) == 0 {
@@ -397,19 +402,27 @@ func (index *MultiIndex[T]) SeekMultipleFrom(pos interface{}, numHosts int, crit
 	if pool == nil {
 		index.log.Error("No pool found for specified pool index: %d", poolNumber)
 		index.log.Error("Valid pool indices are: %v", index.unsafeHostPoolIDs())
-		return []scheduling.Host{}, nil
+		return []scheduling.Host{}, nil, nil
 	}
 
 	// If there is at least one valid host available, then we'll try to see if it is viable.
-	var hosts []scheduling.Host
+	var (
+		hosts []scheduling.Host
+		err   error
+	)
 	if pool.Len() > 0 {
 		// Attempt to find some candidate hosts.
-		hosts, _ = pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist)
+		hosts, _, err = pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist)
+
+		if err != nil {
+			index.log.Error("Error occurred while seeking %d host(s): %v", numHosts, err)
+			return nil, nil, err
+		}
 
 		// Check if we found all the hosts that we need.
 		if hosts != nil && len(hosts) == numHosts {
 			index.log.Debug("Successfully identified all %d required host(s) from %d-host pool.", numHosts, poolNumber)
-			return hosts, nil
+			return hosts, nil, nil
 		}
 
 		index.logSeekMultiple(numHosts, poolNumber, hosts)
@@ -435,7 +448,7 @@ func (index *MultiIndex[T]) SeekMultipleFrom(pos interface{}, numHosts int, crit
 
 	if index.FreeHosts.Len() == 0 {
 		index.log.Debug("There are no unpooled nodes available. Cannot find %d remaining host(s).", numHosts)
-		return hosts, nil
+		return hosts, nil, nil
 	}
 
 	numHostsAddedToPool := index.unsafeUpdatePool(numHosts, poolNumber)
@@ -445,13 +458,20 @@ func (index *MultiIndex[T]) SeekMultipleFrom(pos interface{}, numHosts int, crit
 			numHostsAddedToPool, numHosts)
 	}
 
-	hostBatch, _ := pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist)
+	hostBatch, _, err := pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist)
+
+	if err != nil {
+		index.log.Error("Error occurred while seeking %d host(s) after updating pool %d: %v",
+			numHosts, poolNumber, err)
+		return nil, nil, err
+	}
+
 	hosts = append(hosts, hostBatch...)
 
 	index.log.Debug("Found %d host(s) after adding %d host(s) to %d-host pool. Found total of %d/%d host(s).",
 		len(hostBatch), numHostsAddedToPool, poolNumber, len(hosts), numHosts)
 
-	return hosts, nil
+	return hosts, nil, nil
 }
 
 // unsafeUpdatePool attempts to add up to 'numHosts' scheduling.Host instances from

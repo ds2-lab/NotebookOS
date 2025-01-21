@@ -218,7 +218,7 @@ func (index *LeastLoadedIndex) unsafeSeek(blacklistArg []interface{}) scheduling
 	return host
 }
 
-func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}) {
+func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}, error) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -228,7 +228,7 @@ func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float6
 	//	return nil, -1
 	//}
 
-	return host, -1
+	return host, -1, nil
 }
 
 // SeekMultipleFrom seeks n Host instances from a random permutation of the index.
@@ -236,7 +236,7 @@ func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float6
 //
 // This entire method is thread-safe. The index is locked until this method returns.
 func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction,
-	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}, error) {
 	index.mu.Lock()
 
 	hostsToBeAddedBack := make(map[string]scheduling.Host)
@@ -320,5 +320,5 @@ func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteria
 	// Note: we deferred two things up above:
 	// - adding back any hosts we removed from the index
 	// - unlocking the index
-	return hosts, -1
+	return hosts, -1, nil
 }

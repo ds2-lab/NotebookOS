@@ -4,8 +4,13 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"math"
+)
+
+var (
+	ErrMissingMetrics = errors.New("cannot seek host(s) because one or more required metrics were not provided")
 )
 
 // roundToLowestPowerOf2 rounds the given value (down) to the closest power of 2 (that is <= val).
@@ -211,7 +216,13 @@ func (index *StaticIndex) GetBucket(gpus int32) int32 {
 }
 
 // Seek returns the host specified by the metrics.
-func (index *StaticIndex) Seek(blacklist []interface{}, metrics ...[]float64) (host scheduling.Host, pos interface{}) {
+func (index *StaticIndex) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}, error) {
+	if len(metrics) == 0 || len(metrics[0]) == 0 {
+		index.log.Error("StaticIndex::Seek is missing valid metrics.")
+
+		return nil, nil, fmt.Errorf("%w: gpus", ErrMissingMetrics)
+	}
+
 	numGpus := int32(metrics[0][0])
 	bucket := float64(index.GetBucket(numGpus))
 
@@ -227,10 +238,12 @@ func (index *StaticIndex) Seek(blacklist []interface{}, metrics ...[]float64) (h
 // Pass nil as pos to reset the seek.
 //
 // This entire method is thread-safe. The index is locked until this method returns.
-func (index *StaticIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+func (index *StaticIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}, error) {
 	if len(metrics) == 0 || len(metrics[0]) == 0 {
 		index.log.Error("StaticIndex::SeekMultipleFrom is missing valid metrics.")
-		panic("StaticIndex::SeekMultipleFrom requires a single valid metric to be passed in the form of the number of GPUs required for the host")
+		// panic("StaticIndex::SeekMultipleFrom requires a single valid metric to be passed in the form of the number of GPUs required for the host")
+
+		return make([]scheduling.Host, 0), nil, fmt.Errorf("%w: gpus", ErrMissingMetrics)
 	}
 
 	numGpus := int32(metrics[0][0])

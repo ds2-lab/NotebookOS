@@ -31,10 +31,11 @@ func NewStaticPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int
 
 // FindHosts returns a single host that can satisfy the resourceSpec.
 func (placer *StaticPlacer) findHosts(blacklist []interface{}, spec *proto.KernelSpec, numHosts int, forTraining bool,
-	metrics ...[]float64) []scheduling.Host {
+	metrics ...[]float64) ([]scheduling.Host, error) {
 	var (
-		pos   interface{}       = nil
-		hosts []scheduling.Host = nil
+		pos   interface{}
+		hosts []scheduling.Host
+		err   error
 	)
 
 	// Our index will expect the first metric to be the number of GPUs.
@@ -46,29 +47,29 @@ func (placer *StaticPlacer) findHosts(blacklist []interface{}, spec *proto.Kerne
 	}
 
 	// Seek `numHosts` Hosts from the Placer's index.
-	hosts, _ = placer.index.SeekMultipleFrom(pos, numHosts, reserveResources, blacklist, metrics...)
+	hosts, pos, err = placer.index.SeekMultipleFrom(pos, numHosts, reserveResources, blacklist, metrics...)
 
-	if len(hosts) > 0 {
-		return hosts
-	}
-
-	// The Host could not satisfy the resourceSpec, so return nil.
-	return nil
+	return hosts, err
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
 func (placer *StaticPlacer) findHost(blacklist []interface{}, spec *proto.KernelSpec, training bool,
-	metrics ...[]float64) scheduling.Host {
+	metrics ...[]float64) (scheduling.Host, error) {
 
 	// Our index will expect the first metric to be the number of GPUs.
 	// findHosts will handle this, however, so we can just call findHosts immediately.
-	hosts := placer.findHosts(blacklist, spec, 1, training, metrics...)
+	hosts, err := placer.findHosts(blacklist, spec, 1, training, metrics...)
 
-	if hosts == nil || len(hosts) == 0 {
-		return nil
+	if err != nil {
+		placer.log.Error("Error while finding hosts for replica of kernel %s: %v", spec.Id, err)
+		return nil, err
 	}
 
-	return hosts[0]
+	if hosts == nil || len(hosts) == 0 {
+		return nil, nil
+	}
+
+	return hosts[0], nil
 }
 
 // getIndex returns the target MultiPlacer's index field with a type assertion

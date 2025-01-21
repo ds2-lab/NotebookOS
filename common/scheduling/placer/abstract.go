@@ -89,7 +89,9 @@ func (placer *AbstractPlacer) reservationShouldUsePendingResources() bool {
 // The number of hosts returned is determined by the placer.
 //
 // The core logic of FindHosts is implemented by the AbstractPlacer's internalPlacer instance/field.
-func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) []scheduling.Host {
+//
+// If FindHosts returns nil (rather than an empty slice), then an error occurred.
+func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) ([]scheduling.Host, error) {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 	st := time.Now()
@@ -103,7 +105,11 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 	}
 
 	// Invoke internalPlacer's implementation of the findHosts method for the core logic of FindHosts.
-	hosts := placer.instance.findHosts(blacklist, kernelSpec, numHosts, forTraining)
+	hosts, err := placer.instance.findHosts(blacklist, kernelSpec, numHosts, forTraining)
+	if err != nil {
+		placer.log.Error("Error encountered while trying to find viable hosts for replica of kernel %s: %v",
+			kernelSpec.Id, err)
+	}
 
 	latency := time.Since(st)
 
@@ -123,18 +129,26 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 			With(prometheus.Labels{"successful": successLabel}).Observe(float64(latency.Microseconds()))
 	}
 
-	placer.instance.UpdateIndexMultiple(hosts)
-	return hosts
+	if hosts != nil {
+		placer.instance.UpdateIndexMultiple(hosts)
+	}
+
+	return hosts, err
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
+func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) (scheduling.Host, error) {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 
 	st := time.Now()
 	// Invoke internalPlacer's implementation of the findHost method for the core logic of FindHost.
-	host := placer.instance.findHost(blacklist, kernelSpec, forTraining)
+	host, err := placer.instance.findHost(blacklist, kernelSpec, forTraining)
+	if err != nil {
+		placer.log.Error("Error while finding host for replica of kernel %s: %v", kernelSpec.Id, err)
+		return nil, err
+	}
+
 	latency := time.Since(st)
 
 	if host == nil {
@@ -154,7 +168,7 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *prot
 	}
 
 	placer.instance.UpdateIndex(host)
-	return host
+	return host, nil
 }
 
 // Place atomically places a replica on a host.

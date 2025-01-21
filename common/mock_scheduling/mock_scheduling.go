@@ -1425,11 +1425,12 @@ func (m *MockPlacer) EXPECT() *MockPlacerMockRecorder {
 }
 
 // FindHost mocks base method.
-func (m *MockPlacer) FindHost(blacklist []any, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
+func (m *MockPlacer) FindHost(blacklist []any, kernelSpec *proto.KernelSpec, forTraining bool) (scheduling.Host, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindHost", blacklist, kernelSpec, forTraining)
 	ret0, _ := ret[0].(scheduling.Host)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // FindHost indicates an expected call of FindHost.
@@ -1439,11 +1440,12 @@ func (mr *MockPlacerMockRecorder) FindHost(blacklist, kernelSpec, forTraining an
 }
 
 // FindHosts mocks base method.
-func (m *MockPlacer) FindHosts(blacklist []any, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) []scheduling.Host {
+func (m *MockPlacer) FindHosts(blacklist []any, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) ([]scheduling.Host, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindHosts", blacklist, kernelSpec, numHosts, forTraining)
 	ret0, _ := ret[0].([]scheduling.Host)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // FindHosts indicates an expected call of FindHosts.
@@ -3313,6 +3315,20 @@ func (mr *MockClusterIndexMockRecorder) GetMetrics(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetrics", reflect.TypeOf((*MockClusterIndex)(nil).GetMetrics), arg0)
 }
 
+// Identifier mocks base method.
+func (m *MockClusterIndex) Identifier() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Identifier")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// Identifier indicates an expected call of Identifier.
+func (mr *MockClusterIndexMockRecorder) Identifier() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Identifier", reflect.TypeOf((*MockClusterIndex)(nil).Identifier))
+}
+
 // IsQualified mocks base method.
 func (m *MockClusterIndex) IsQualified(arg0 scheduling.Host) (any, scheduling.IndexQualification) {
 	m.ctrl.T.Helper()
@@ -3355,7 +3371,7 @@ func (mr *MockClusterIndexMockRecorder) Remove(arg0 any) *gomock.Call {
 }
 
 // Seek mocks base method.
-func (m *MockClusterIndex) Seek(blacklist []any, metrics ...[]float64) (scheduling.Host, any) {
+func (m *MockClusterIndex) Seek(blacklist []any, metrics ...[]float64) (scheduling.Host, any, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{blacklist}
 	for _, a := range metrics {
@@ -3364,7 +3380,8 @@ func (m *MockClusterIndex) Seek(blacklist []any, metrics ...[]float64) (scheduli
 	ret := m.ctrl.Call(m, "Seek", varargs...)
 	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(any)
-	return ret0, ret1
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // Seek indicates an expected call of Seek.
@@ -3375,7 +3392,7 @@ func (mr *MockClusterIndexMockRecorder) Seek(blacklist any, metrics ...any) *gom
 }
 
 // SeekMultipleFrom mocks base method.
-func (m *MockClusterIndex) SeekMultipleFrom(pos any, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []any, metrics ...[]float64) ([]scheduling.Host, any) {
+func (m *MockClusterIndex) SeekMultipleFrom(pos any, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []any, metrics ...[]float64) ([]scheduling.Host, any, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{pos, n, criteriaFunc, blacklist}
 	for _, a := range metrics {
@@ -3384,7 +3401,8 @@ func (m *MockClusterIndex) SeekMultipleFrom(pos any, n int, criteriaFunc schedul
 	ret := m.ctrl.Call(m, "SeekMultipleFrom", varargs...)
 	ret0, _ := ret[0].([]scheduling.Host)
 	ret1, _ := ret[1].(any)
-	return ret0, ret1
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // SeekMultipleFrom indicates an expected call of SeekMultipleFrom.

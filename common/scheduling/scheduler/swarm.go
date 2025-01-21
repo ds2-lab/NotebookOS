@@ -130,7 +130,14 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 		blacklist = append(blacklist, host)
 	}
 
-	host := s.placer.FindHost(blacklist, replicaSpec.Kernel, forTraining)
+	host, err := s.placer.FindHost(blacklist, replicaSpec.Kernel, forTraining)
+	if err != nil {
+		s.log.Error("Error while finding host for replica %d of kernel %s: %v",
+			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, err)
+
+		return nil, err
+	}
+
 	if host == nil {
 		return nil, scheduling.ErrInsufficientHostsAvailable
 	}
@@ -147,10 +154,11 @@ func (s *DockerScheduler) HostAdded(host scheduling.Host) {
 
 // findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
 // DockerScheduler does not do anything special or fancy.
-func (s *DockerScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) []scheduling.Host {
+//
+// If findCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
+func (s *DockerScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
 	// Identify the hosts onto which we will place replicas of the kernel.
-	hostBatch := s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
-	return hostBatch
+	return s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
 }
 
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.

@@ -332,16 +332,12 @@ func (s *BaseScheduler) setInstance(instance clusterSchedulerInternal) {
 // FindCandidateHosts performs a single attempt/pass of searching for candidate Host instances.
 //
 // FindCandidateHosts is exported so that it can be unit tested.
-func (s *BaseScheduler) FindCandidateHosts(numHosts int, kernelSpec *proto.KernelSpec) []scheduling.Host {
+//
+// If FindCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
+func (s *BaseScheduler) FindCandidateHosts(numHosts int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
 	s.candidateHostMutex.Lock()
-	hostBatch := s.instance.findCandidateHosts(numHosts, kernelSpec)
-	s.candidateHostMutex.Unlock()
-
-	if hostBatch == nil {
-		hostBatch = make([]scheduling.Host, 0)
-	}
-
-	return hostBatch
+	defer s.candidateHostMutex.Unlock()
+	return s.instance.findCandidateHosts(numHosts, kernelSpec)
 }
 
 // isScalingOutEnabled returns true if the scheduling.ResourceScalingPolicy of the configured scheduling.Policy permits
@@ -408,7 +404,13 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
 		s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
 			numHostsRequired, kernelSpec.Id, len(hosts))
-		hostBatch := s.FindCandidateHosts(numHostsRequired, kernelSpec) // note: this function executes atomically.
+		hostBatch, err := s.FindCandidateHosts(numHostsRequired, kernelSpec) // note: this function executes atomically.
+		if err != nil {
+			s.log.Error("Error while searching for %d candidate host(s) for kernel %s: %v",
+				numHostsRequired, kernelSpec.Id, err)
+			return nil, err
+		}
+
 		hosts = append(hosts, hostBatch...)
 
 		if len(hosts) < s.schedulingPolicy.NumReplicas() {

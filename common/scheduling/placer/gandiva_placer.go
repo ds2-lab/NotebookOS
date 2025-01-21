@@ -107,14 +107,15 @@ func (placer *GandivaPlacer) NumHostsInIndex() int {
 // on each Host until either the requested number of Host instances has been found, or until all Host
 // instances have been checked.
 func (placer *GandivaPlacer) findHosts(blacklist []interface{}, spec *proto.KernelSpec, numHosts int, forTraining bool,
-	metrics ...[]float64) []scheduling.Host {
+	metrics ...[]float64) ([]scheduling.Host, error) {
 
 	// Our index will expect the first metric to be the number of GPUs.
 	metrics = append([][]float64{{spec.ResourceSpec.GPU()}}, metrics...)
 
 	var (
-		pos   interface{}       = nil
-		hosts []scheduling.Host = nil
+		pos   interface{}
+		hosts []scheduling.Host
+		err   error
 	)
 
 	// Create a wrapper around the 'resourceReserver' field so that it can be called by the index.
@@ -123,27 +124,27 @@ func (placer *GandivaPlacer) findHosts(blacklist []interface{}, spec *proto.Kern
 	}
 
 	// Seek `numHosts` Hosts from the Placer's index.
-	hosts, _ = placer.index.SeekMultipleFrom(pos, numHosts, reserveResources, blacklist, metrics...)
+	hosts, _, err = placer.index.SeekMultipleFrom(pos, numHosts, reserveResources, blacklist, metrics...)
 
-	if len(hosts) > 0 {
-		return hosts
-	}
-
-	// The Host could not satisfy the resourceSpec, so return nil.
-	return nil
+	return hosts, err
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
 func (placer *GandivaPlacer) findHost(blacklist []interface{}, spec *proto.KernelSpec, training bool,
-	metrics ...[]float64) scheduling.Host {
+	metrics ...[]float64) (scheduling.Host, error) {
 
 	// Our index will expect the first metric to be the number of GPUs.
 	// findHosts will handle this, however, so we can just call findHosts immediately.
-	hosts := placer.findHosts(blacklist, spec, 1, training, metrics...)
+	hosts, err := placer.findHosts(blacklist, spec, 1, training, metrics...)
 
-	if hosts == nil || len(hosts) == 0 {
-		return nil
+	if err != nil {
+		placer.log.Error("Error while finding hosts for replica of kernel %s: %v", spec.Id, err)
+		return nil, err
 	}
 
-	return hosts[0]
+	if hosts == nil || len(hosts) == 0 {
+		return nil, nil
+	}
+
+	return hosts[0], nil
 }
