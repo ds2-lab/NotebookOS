@@ -28,10 +28,10 @@ if ! [[ $new_value =~ $re ]] ; then
 fi
 
 # Use sed to update the file
-sed -i.bak -E "s/^use_real_gpus:.*/use_real_gpus: $new_value/" "$target_file"
+sed -i.bak -E "s/^gpus-per-host:.*/gpus-per-host: $new_value/" "$target_file"
 
 if [[ $? -eq 0 ]]; then
-  echo "Successfully updated 'use_real_gpus' to '$new_value' in '$target_file'."
+  echo "Successfully updated 'gpus-per-host' to '$new_value' in '$target_file'."
 else
   echo "Error: Failed to update the file."
   exit 1
@@ -65,10 +65,10 @@ if ! [[ $new_value =~ $re ]] ; then
 fi
 
 # Use sed to update the file
-sed -i.bak -E "s/^use_real_gpus:.*/use_real_gpus: $new_value/" "$target_file"
+sed -i.bak -E "s/^gpus-per-host:.*/gpus-per-host: $new_value/" "$target_file"
 
 if [[ $? -eq 0 ]]; then
-  echo "Successfully updated 'use_real_gpus' to '$new_value' in '$target_file'."
+  echo "Successfully updated 'gpus-per-host' to '$new_value' in '$target_file'."
 else
   echo "Error: Failed to update the file."
   exit 1
