@@ -537,7 +537,7 @@ func (c *BaseCluster) registerScaleOperation(operationId string, targetClusterSi
 	if c.activeScaleOperation != nil {
 		opType := c.activeScaleOperation.OperationType
 		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", opType.String())
-		return nil, fmt.Errorf("%w: %s", ErrScalingActive, opType.String())
+		return nil, fmt.Errorf("%w: %s", scheduling.ErrScalingActive, opType.String())
 	}
 
 	var (
@@ -611,7 +611,7 @@ func (c *BaseCluster) registerScaleOutOperation(operationId string, targetCluste
 
 	if c.activeScaleOperation != nil {
 		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, ErrScalingActive
+		return nil, scheduling.ErrScalingActive
 	}
 
 	currentClusterSize := int32(c.Len())
@@ -638,7 +638,7 @@ func (c *BaseCluster) registerScaleInOperation(operationId string, targetCluster
 
 	if c.activeScaleOperation != nil {
 		c.log.Error("Cannot register new ScaleInOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, ErrScalingActive
+		return nil, scheduling.ErrScalingActive
 	}
 
 	var (

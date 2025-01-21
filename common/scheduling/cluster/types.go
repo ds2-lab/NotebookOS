@@ -2,14 +2,12 @@ package cluster
 
 import (
 	"fmt"
-	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 )
 
 var (
 	ErrDuplicatedIndexDefined = fmt.Errorf("duplicated index defined")
-	ErrScalingActive          = errors.New("there is already an active scaling operation taking place")
 	// ErrDuplicateScaleOperation = errors.New("scale operation with same ID already exists")
 )
 

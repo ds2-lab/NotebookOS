@@ -10,7 +10,6 @@ import (
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
@@ -438,7 +437,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 
 			p := s.cluster.RequestHosts(ctx, int32(numHostsRequired))
 			if err := p.Error(); err != nil {
-				if errors.Is(err, cluster.ErrScalingActive) {
+				if errors.Is(err, scheduling.ErrScalingActive) {
 					s.log.Debug("Could not register new scale-out operation as there is already an active scale-out operation.",
 						numHostsRequired, kernelSpec.Id, err)
 				} else {

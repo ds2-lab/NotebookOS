@@ -2,9 +2,14 @@ package scheduling
 
 import (
 	"github.com/Scusemua/go-utils/promise"
+	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"golang.org/x/net/context"
+)
+
+var (
+	ErrScalingActive = errors.New("there is already an active scaling operation taking place")
 )
 
 type ClusterSessionManager interface {
