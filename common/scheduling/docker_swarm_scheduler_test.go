@@ -314,16 +314,17 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					initialSize := len(hosts)
 
 					// First, add two new hosts, so that there are 5 hosts.
-					for i := initialSize; i < initialSize+2; i++ {
-						host, localGatewayClient, resourceSpoofer, err := addHost(i, hostSpec, false, dockerCluster, mockCtrl)
+					var hostIndex int
+					for hostIndex = initialSize; hostIndex < initialSize+2; hostIndex++ {
+						host, localGatewayClient, resourceSpoofer, err := addHost(hostIndex, hostSpec, false, dockerCluster, mockCtrl)
 						Expect(err).To(BeNil())
 						Expect(host).ToNot(BeNil())
 						Expect(localGatewayClient).ToNot(BeNil())
 						Expect(resourceSpoofer).ToNot(BeNil())
 
-						hosts[i] = host
-						localGatewayClients[i] = localGatewayClient
-						resourceSpoofers[i] = resourceSpoofer
+						hosts[hostIndex] = host
+						localGatewayClients[hostIndex] = localGatewayClient
+						resourceSpoofers[hostIndex] = resourceSpoofer
 					}
 
 					Expect(dockerCluster.Len()).To(Equal(5))
@@ -345,9 +346,10 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					err = dockerCluster.NewHostAddedOrConnected(host)
 					Expect(err).To(BeNil())
 
-					hosts[5] = host
-					localGatewayClients[5] = localGatewayClient
-					resourceSpoofers[5] = resourceSpoofer
+					hosts[hostIndex] = host
+					localGatewayClients[hostIndex] = localGatewayClient
+					resourceSpoofers[hostIndex] = resourceSpoofer
+					hostIndex++
 
 					Expect(dockerCluster.Len()).To(Equal(5))
 					Expect(dockerCluster.NumDisabledHosts()).To(Equal(1))

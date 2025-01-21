@@ -163,6 +163,13 @@ func (index *MultiIndex[T]) NumFreeHosts() int {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
+	return index.unsafeNumFreeHosts()
+}
+
+// unsafeNumFreeHosts returns the number of "free" scheduling.Host instances within the target MultiIndex.
+//
+// "Free" hosts are those that have not been placed into a particular HostPool (yet).
+func (index *MultiIndex[T]) unsafeNumFreeHosts() int {
 	return index.FreeHosts.Len()
 }
 
@@ -451,25 +458,31 @@ func (index *MultiIndex[T]) SeekMultipleFrom(pos interface{}, numHosts int, crit
 		return hosts, nil, nil
 	}
 
-	numHostsAddedToPool := index.unsafeUpdatePool(numHosts, poolNumber)
+	// Keep trying to add free hosts until we either run out of free hosts,
+	// or we find enough hosts to fulfill/satisfy the request.
+	for index.unsafeNumFreeHosts() > 0 && numHosts > 0 {
+		numHostsAddedToPool := index.unsafeUpdatePool(numHosts, poolNumber)
 
-	if numHostsAddedToPool < numHosts {
-		index.log.Debug("Insufficient unpooled hosts available. Will only be able to find at most %d/%d host(s).",
-			numHostsAddedToPool, numHosts)
+		if numHostsAddedToPool < numHosts {
+			index.log.Debug("Insufficient unpooled hosts available. Will only be able to find at most %d/%d host(s).",
+				numHostsAddedToPool, numHosts)
+		}
+
+		hostBatch, _, err := pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist)
+
+		if err != nil {
+			index.log.Error("Error occurred while seeking %d host(s) after updating pool %d: %v",
+				numHosts, poolNumber, err)
+			return nil, nil, err
+		}
+
+		hosts = append(hosts, hostBatch...)
+
+		index.log.Debug("Found %d host(s) after adding %d host(s) to %d-host pool. Found total of %d/%d host(s).",
+			len(hostBatch), numHostsAddedToPool, poolNumber, len(hosts), numHosts)
+
+		numHosts -= len(hostBatch)
 	}
-
-	hostBatch, _, err := pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist)
-
-	if err != nil {
-		index.log.Error("Error occurred while seeking %d host(s) after updating pool %d: %v",
-			numHosts, poolNumber, err)
-		return nil, nil, err
-	}
-
-	hosts = append(hosts, hostBatch...)
-
-	index.log.Debug("Found %d host(s) after adding %d host(s) to %d-host pool. Found total of %d/%d host(s).",
-		len(hostBatch), numHostsAddedToPool, poolNumber, len(hosts), numHosts)
 
 	return hosts, nil, nil
 }

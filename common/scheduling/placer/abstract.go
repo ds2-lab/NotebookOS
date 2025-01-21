@@ -143,8 +143,10 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *prot
 	defer placer.mu.Unlock()
 
 	st := time.Now()
+	metrics := []float64{kernelSpec.ResourceSpec.GPU()}
+
 	// Invoke internalPlacer's implementation of the findHost method for the core logic of FindHost.
-	host, err := placer.instance.findHost(blacklist, kernelSpec, forTraining)
+	host, err := placer.instance.findHost(blacklist, kernelSpec, forTraining, metrics)
 	if err != nil {
 		placer.log.Error("Error while finding host for replica of kernel %s: %v", kernelSpec.Id, err)
 		return nil, err
