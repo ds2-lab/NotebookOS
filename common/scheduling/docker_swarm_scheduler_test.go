@@ -403,9 +403,11 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					resourceSpec := proto.NewResourceSpec(1250, 2000, 2, 4)
 
 					kernelSpec := &proto.KernelSpec{
-						Id:              kernelId,
-						Session:         kernelId,
-						Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+						Id:      kernelId,
+						Session: kernelId,
+						Argv: []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel",
+							"-f", "{connection_file}", "--debug",
+							"--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
 						SignatureScheme: jupyter.JupyterSignatureScheme,
 						Key:             kernelKey,
 						ResourceSpec:    resourceSpec,
