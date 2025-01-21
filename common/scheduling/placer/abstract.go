@@ -105,7 +105,8 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 	}
 
 	// Invoke internalPlacer's implementation of the findHosts method for the core logic of FindHosts.
-	hosts, err := placer.instance.findHosts(blacklist, kernelSpec, numHosts, forTraining)
+	metrics := []float64{kernelSpec.ResourceSpec.GPU()}
+	hosts, err := placer.instance.findHosts(blacklist, kernelSpec, numHosts, forTraining, metrics)
 	if err != nil {
 		placer.log.Error("Error encountered while trying to find viable hosts for replica of kernel %s: %v",
 			kernelSpec.Id, err)
