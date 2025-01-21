@@ -59,9 +59,9 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/gateway-runtime-state:/gateway-runtime-state
-      - {@current_directory}gateway/gateway.yml:/gateway.yml
-      - {@current_directory}local_daemon/daemon.yml:/local_daemon/daemon.yml
-      - {@current_directory}docker-compose.yml:/docker-compose.yml
+      - {@current_directory}/gateway/gateway.yml:/gateway.yml
+      - {@current_directory}/local_daemon/daemon.yml:/local_daemon/daemon.yml
+      - {@current_directory}/docker-compose.yml:/docker-compose.yml
     container_name: "gateway"
     restart: unless-stopped
     expose:
@@ -98,7 +98,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/$USER/kernel_base:/kernel_base
-      - {@current_directory}local_daemon/daemon.yml:/daemon.yml
+      - {@current_directory}/local_daemon/daemon.yml:/daemon.yml
     depends_on:
       - gateway
       - docker-hoster
