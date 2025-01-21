@@ -4145,14 +4145,14 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 		d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
 
 		kernel, loaded := d.kernels.Load(from.ID())
-		if !loaded {
+
+		if loaded {
+			go func() {
+				_ = d.removeAllReplicasOfKernel(kernel)
+			}()
+		} else {
 			d.log.Error("Could not find Distributed Kernel Client for kernel \"%s\"...", from.ID())
-
 		}
-
-		go func() {
-			_ = d.removeAllReplicasOfKernel(kernel)
-		}()
 	}
 
 	sendError := d.sendZmqMessage(msg, socket, from.ID())
