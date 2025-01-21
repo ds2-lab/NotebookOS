@@ -2948,10 +2948,10 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 
 	kernel, ok := d.kernels.Load(sessionId)
 	if !ok {
-		errorMessage := fmt.Sprintf("Could not find Kernel \"%s\"; cannot stop kernel.", sessionId)
+		errorMessage := fmt.Sprintf("Could not find kernel associated with session \"%s\"; cannot stop kernel.", sessionId)
 		d.log.Error(errorMessage)
 		// Spawn a separate goroutine to send an error notification to the dashboard.
-		go d.notifyDashboardOfError(errorMessage, errorMessage)
+		go d.notifyDashboardOfWarning(errorMessage, errorMessage)
 
 		return types.ErrKernelNotFound
 	}
@@ -4148,6 +4148,8 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 
 		if loaded {
 			go func() {
+				// TODO: Could this cause problems where we are in the process of removing replicas
+				//	     when a new "execute_request" arrives?
 				_ = d.removeAllReplicasOfKernel(kernel)
 			}()
 		} else {
