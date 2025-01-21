@@ -535,8 +535,9 @@ func (c *BaseCluster) registerScaleOperation(operationId string, targetClusterSi
 	defer c.scalingOpMutex.Unlock()
 
 	if c.activeScaleOperation != nil {
-		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, ErrScalingActive
+		opType := c.activeScaleOperation.OperationType
+		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", opType.String())
+		return nil, fmt.Errorf("%w: %s", ErrScalingActive, opType.String())
 	}
 
 	var (
@@ -1091,17 +1092,21 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	defer c.scalingOpMutex.Unlock()
 
 	if !host.Enabled() {
-		c.log.Debug("Attempting to add disabled host %s (ID=%s) to the cluster now.", host.GetNodeName(), host.GetID())
+		c.log.Debug("Attempting to add disabled host %s (ID=%s) to the cluster now.",
+			host.GetNodeName(), host.GetID())
 		err := c.onDisabledHostAdded(host)
 		if err != nil {
-			c.log.Error("Failed to add disabled Host %s (ID=%s) to cluster because: %v", host.GetNodeName(), host.GetID(), err)
+			c.log.Error("Failed to add disabled Host %s (ID=%s) to cluster because: %v",
+				host.GetNodeName(), host.GetID(), err)
 			return err
 		}
-		c.log.Debug("Successfully added disabled host %s (ID=%s) to the cluster.", host.GetNodeName(), host.GetID())
+		c.log.Debug("Successfully added disabled host %s (ID=%s) to the cluster. Number of disabled hosts: %d.",
+			host.GetNodeName(), host.GetID(), c.DisabledHosts.Len())
 		return nil
 	}
 
-	c.log.Debug("Host %s (ID=%s) has just connected to the Cluster or is being re-enabled", host.GetNodeName(), host.GetID())
+	c.log.Debug("Host %s (ID=%s) has just connected to the Cluster or is being re-enabled",
+		host.GetNodeName(), host.GetID())
 
 	c.hostMutex.Lock()
 	// The host mutex is already locked if we're performing a scaling operation.

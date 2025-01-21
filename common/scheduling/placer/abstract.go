@@ -170,7 +170,9 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *prot
 		}
 	}
 
-	placer.instance.UpdateIndex(host)
+	if host != nil {
+		placer.instance.UpdateIndex(host)
+	}
 	return host, nil
 }
 

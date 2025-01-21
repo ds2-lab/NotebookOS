@@ -10,11 +10,13 @@ import (
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"math"
 	"sync"
 	"time"
@@ -395,12 +397,20 @@ func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, black
 // This function is NOT idempotent. This locks the Hosts that are returned.
 func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
 	var (
-		numTries    = 0
-		maxAttempts = 3
 		bestAttempt = 0
 		hosts       []scheduling.Host
 	)
-	for numTries < maxAttempts && len(hosts) < s.schedulingPolicy.NumReplicas() {
+
+	maxAttempts := 6
+	retryParameters := wait.Backoff{
+		Duration: time.Second * 2,
+		Factor:   1.5,
+		Jitter:   1.125,
+		Steps:    maxAttempts,
+		Cap:      time.Second * time.Duration(30),
+	}
+
+	for retryParameters.Steps > 0 && len(hosts) < s.schedulingPolicy.NumReplicas() {
 		numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
 		s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
 			numHostsRequired, kernelSpec.Id, len(hosts))
@@ -428,21 +438,21 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 
 			p := s.cluster.RequestHosts(ctx, int32(numHostsRequired))
 			if err := p.Error(); err != nil {
-				s.log.Error("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
-					numHostsRequired, kernelSpec.Id, err)
+				if errors.Is(err, cluster.ErrScalingActive) {
+					s.log.Debug("Could not register new scale-out operation as there is already an active scale-out operation.",
+						numHostsRequired, kernelSpec.Id, err)
+				} else {
+					s.log.Error("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+						numHostsRequired, kernelSpec.Id, err)
+				}
 			}
-
-			numTries += 1
 
 			if len(hosts) > bestAttempt {
 				bestAttempt = len(hosts)
 			}
 
-			if (numTries + 1) < maxAttempts {
-				// Don't want to print this if we've just used up our last try, so to speak.
-				s.log.Debug("Trying again to find %d hosts to serve replicas of kernel %s.",
-					s.schedulingPolicy.NumReplicas(), kernelSpec.Id)
-			}
+			sleepInterval := retryParameters.Step()
+			time.Sleep(sleepInterval)
 
 			continue
 		}
@@ -455,7 +465,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 	// If not, then we need to release any hosts we did reserve.
 	if len(hosts) < s.schedulingPolicy.NumReplicas() {
 		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...",
-			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, numTries)
+			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, retryParameters.Steps-maxAttempts+1)
 
 		// Release any resource reservations that we created, since we're aborting the scheduling
 		// of the replicas of the kernel.
@@ -466,7 +476,11 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 					kernelSpec.Id, host.GetNodeName(), host.GetID(), err)
 			}
 
-			s.cluster.UpdateIndex(host)
+			err = s.cluster.UpdateIndex(host)
+			if err != nil {
+				s.log.Error("Error while attempting to update index of host %s (ID=%s): %v",
+					host.GetNodeName(), host.GetID(), err)
+			}
 		}
 
 		return nil, scheduling.ErrInsufficientHostsAvailable

@@ -8,7 +8,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
-	"log"
 	"math/rand"
 	"os/exec"
 	"strings"
@@ -153,7 +152,7 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 	return func() {
 		currentScale := c.Len()
 		numNewNodesRequired := targetScale - int32(currentScale)
-		c.log.Debug("Scaling-out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d.",
+		c.log.Debug("Scaling out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d.",
 			targetScale, currentScale, numNewNodesRequired, c.DisabledHosts.Len())
 
 		numDisabledHostsUsed := 0
@@ -193,11 +192,13 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 				return numNewNodesRequired != 0
 			})
 
-			// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the "disabled hosts" mapping.
+			// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the
+			// "disabled hosts" mapping.
 			for _, host := range enabledHosts {
 				_, loaded := c.DisabledHosts.LoadAndDelete(host.GetID())
 				if !loaded {
-					log.Fatalf("Failed to find host %s in DisabledHosts map after using it in scale-out operation.", host.GetID())
+					c.log.Error("Failed to find host %s in DisabledHosts map after using it in scale-out operation.",
+						host.GetID())
 				}
 			}
 		}
@@ -213,6 +214,11 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 			coreLogicDoneChan <- struct{}{}
 			return
 		}
+
+		c.log.Debug("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.",
+			targetScale)
+		c.log.Debug("Number of disabled nodes used: %d. Number of additional nodes required: %d.",
+			numDisabledHostsUsed, numNewNodesRequired)
 
 		app := "docker"
 		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetScale)

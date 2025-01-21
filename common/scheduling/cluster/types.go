@@ -2,15 +2,14 @@ package cluster
 
 import (
 	"fmt"
+	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 var (
 	ErrDuplicatedIndexDefined = fmt.Errorf("duplicated index defined")
-	ErrScalingActive          = status.Error(codes.FailedPrecondition, "there is already an active scaling operation taking place")
+	ErrScalingActive          = errors.New("there is already an active scaling operation taking place")
 	// ErrDuplicateScaleOperation = errors.New("scale operation with same ID already exists")
 )
 

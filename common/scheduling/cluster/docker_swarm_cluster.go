@@ -141,7 +141,7 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 	return func() {
 		currentScale := c.Len()
 		numNewNodesRequired := targetScale - int32(currentScale)
-		c.log.Debug("Scaling-out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d.",
+		c.log.Debug("Scaling out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d.",
 			targetScale, currentScale, numNewNodesRequired, c.DisabledHosts.Len())
 
 		numDisabledHostsUsed := 0
