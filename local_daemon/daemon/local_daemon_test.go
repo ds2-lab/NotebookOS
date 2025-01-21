@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"fmt"
-	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/configuration"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
@@ -180,7 +179,6 @@ var _ = Describe("Local Daemon Tests", func() {
 			outgoingExecuteRequestQueueMutexes: hashmap.NewCornelkMap[string, *sync.Mutex](128),
 			executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
 		}
-		config.LogLevel = logger.LOG_LEVEL_ALL
 		config.InitLogger(&schedulerDaemon.log, schedulerDaemon)
 	})
 

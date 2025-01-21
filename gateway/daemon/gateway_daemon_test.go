@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Scusemua/go-utils/logger"
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
@@ -1111,8 +1110,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		)
 
 		BeforeEach(func() {
-			config.LogLevel = logger.LOG_LEVEL_ALL
-
 			abstractServer = &server.AbstractServer{
 				DebugMode: true,
 				Log:       config.GetLogger("TestAbstractServer"),
@@ -2125,8 +2122,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			var options *domain.ClusterGatewayOptions
 
 			BeforeEach(func() {
-				config.LogLevel = logger.LOG_LEVEL_ALL
-
 				abstractServer = &server.AbstractServer{
 					DebugMode: true,
 					Log:       config.GetLogger("TestAbstractServer"),
@@ -2285,8 +2280,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
 
 			BeforeEach(func() {
-				config.LogLevel = logger.LOG_LEVEL_ALL
-
 				abstractServer = &server.AbstractServer{
 					DebugMode: true,
 					Log:       config.GetLogger("TestAbstractServer"),

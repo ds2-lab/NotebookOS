@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/Scusemua/go-utils/config"
-	"github.com/Scusemua/go-utils/logger"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -69,8 +68,6 @@ var _ = Describe("AbstractServer", func() {
 
 	serverName := "TestServer"
 	clientName := "TestClient"
-
-	config.LogLevel = logger.LOG_LEVEL_ALL
 
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())

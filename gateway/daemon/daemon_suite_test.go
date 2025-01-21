@@ -22,7 +22,7 @@ func init() {
 
 func TestDaemon(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Local Daemon Suite")
+	RunSpecs(t, "Daemon Suite")
 }
 
 var _ = BeforeSuite(func() {
