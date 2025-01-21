@@ -25,7 +25,6 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
-	"testing"
 	"time"
 
 	"github.com/Scusemua/go-utils/config"
@@ -121,11 +120,6 @@ var (
 	"consul_addr": ""
 }`
 )
-
-func TestProxy(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Daemon Suite")
-}
 
 type MockedDistributedKernelClientProvider struct {
 	ctrl *gomock.Controller
