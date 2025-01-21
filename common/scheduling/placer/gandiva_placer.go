@@ -22,10 +22,7 @@ type GandivaPlacer struct {
 
 // NewGandivaPlacer creates a new GandivaPlacer.
 func NewGandivaPlacer(metrics scheduling.MetricsProvider, numReplicas int, policy scheduling.Policy) (*GandivaPlacer, error) {
-	basePlacer, err := NewBasicPlacer(metrics, numReplicas, policy)
-	if err != nil {
-		return nil, err
-	}
+	basePlacer := NewBasicPlacer(metrics, numReplicas, policy)
 
 	clusterIndex := basePlacer.GetIndex()
 	_, ok := clusterIndex.(*index.MultiIndex[*index.LeastLoadedIndex])
@@ -104,16 +101,6 @@ func (placer *GandivaPlacer) GetIndex() scheduling.ClusterIndex {
 // NumHostsInIndex returns the length of the GandivaPlacer's index.
 func (placer *GandivaPlacer) NumHostsInIndex() int {
 	return placer.Len()
-}
-
-// logFindHosts simply logs a message about how many hosts were found during a part of findCandidateHosts.
-func (placer *GandivaPlacer) logFindHosts(numHosts int, numGpus int32, hosts []scheduling.Host) {
-	// We did not find all the hosts that we need.
-	if hosts == nil || len(hosts) == 0 {
-		placer.log.Debug("Failed to find any candidate hosts from %d-GPU pool. We need %d host(s).", numGpus, numHosts)
-	} else {
-		placer.log.Debug("Found %d/%d candidate hosts from %d-GPU pool.", len(hosts), numHosts, numGpus)
-	}
 }
 
 // findHosts iterates over the Host instances in the index, attempting to reserve the requested resources

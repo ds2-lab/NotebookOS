@@ -41,12 +41,9 @@ type MultiPlacer[T scheduling.ClusterIndex] struct {
 // NewMultiPlacerWithSpecificIndex enables the creation of an arbitrary BasicPlacer (or an arbitrary MultiPlacer)
 // backed by an arbitrary scheduling.ClusterIndex.
 func NewMultiPlacerWithSpecificIndex[T scheduling.ClusterIndex](metrics scheduling.MetricsProvider, numReplicas int,
-	policy scheduling.Policy, provider index.Provider[T], numPools int32) (*MultiPlacer[T], error) {
+	policy scheduling.Policy, provider index.Provider[T], numPools int32) *MultiPlacer[T] {
 
-	basePlacer, err := NewBasicPlacerWithSpecificMultiIndex[T](metrics, numReplicas, policy, provider, numPools)
-	if err != nil {
-		return nil, err
-	}
+	basePlacer := NewBasicPlacerWithSpecificMultiIndex[T](metrics, numReplicas, policy, provider, numPools)
 
 	multiPlacer := &MultiPlacer[T]{
 		BasicPlacer: basePlacer,
@@ -55,15 +52,12 @@ func NewMultiPlacerWithSpecificIndex[T scheduling.ClusterIndex](metrics scheduli
 
 	basePlacer.instance = multiPlacer
 
-	return multiPlacer, nil
+	return multiPlacer
 }
 
 // NewMultiPlacer creates a new MultiPlacer.
-func NewMultiPlacer[T scheduling.ClusterIndex](metrics scheduling.MetricsProvider, numReplicas int, policy scheduling.Policy) (*MultiPlacer[T], error) {
-	basePlacer, err := NewBasicPlacer(metrics, numReplicas, policy)
-	if err != nil {
-		return nil, err
-	}
+func NewMultiPlacer[T scheduling.ClusterIndex](metrics scheduling.MetricsProvider, numReplicas int, policy scheduling.Policy) *MultiPlacer[T] {
+	basePlacer := NewBasicPlacer(metrics, numReplicas, policy)
 
 	multiPlacer := &MultiPlacer[T]{
 		BasicPlacer: basePlacer,
@@ -72,13 +66,18 @@ func NewMultiPlacer[T scheduling.ClusterIndex](metrics scheduling.MetricsProvide
 
 	basePlacer.instance = multiPlacer
 
-	return multiPlacer, nil
+	return multiPlacer
 }
 
 // getIndex returns the target MultiPlacer's index field with a type assertion
 // so that it is returned as a *index.MultiIndex[T].
 func (placer *MultiPlacer[T]) getIndex() *index.MultiIndex[T] {
 	return placer.index.(*index.MultiIndex[T])
+}
+
+// NumHostPools returns the number of HostPools managed by the MultiPlacer.
+func (placer *MultiPlacer[T]) NumHostPools() int {
+	return placer.index.(*index.MultiIndex[T]).NumHostPools()
 }
 
 // Len returns the number of scheduling.Host instances in the underlying least-loaded index.

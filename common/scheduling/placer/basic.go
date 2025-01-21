@@ -19,14 +19,11 @@ type BasicPlacer struct {
 // NewBasicPlacerWithSpecificMultiIndex enables the creation of an arbitrary MultiPlacer (which contains a promoted
 // BasicPlacer, of course) that is backed by the *index.MultiIndex[T].
 func NewBasicPlacerWithSpecificMultiIndex[T scheduling.ClusterIndex](metricsProvider scheduling.MetricsProvider, numReplicas int,
-	schedulingPolicy scheduling.Policy, indexProvider index.Provider[T], numPools int32) (*BasicPlacer, error) {
+	schedulingPolicy scheduling.Policy, indexProvider index.Provider[T], numPools int32) *BasicPlacer {
 
 	abstractPlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
 
-	multiIndex, err := index.NewMultiIndex[T](numPools, indexProvider)
-	if err != nil {
-		return nil, err
-	}
+	multiIndex := index.NewMultiIndex[T](numPools, indexProvider)
 
 	basicPlacer := &BasicPlacer{
 		AbstractPlacer: abstractPlacer,
@@ -34,7 +31,7 @@ func NewBasicPlacerWithSpecificMultiIndex[T scheduling.ClusterIndex](metricsProv
 	}
 
 	abstractPlacer.instance = basicPlacer
-	return basicPlacer, nil
+	return basicPlacer
 }
 
 // NewBasicPlacerWithSpecificIndex creates a new BasicPlacer backed by a scheduling.ClusterIndex
@@ -44,7 +41,7 @@ func NewBasicPlacerWithSpecificMultiIndex[T scheduling.ClusterIndex](metricsProv
 // NewBasicPlacerWithSpecificIndex enables the creation of an arbitrary BasicPlacer (or an arbitrary MultiPlacer)
 // backed by an arbitrary scheduling.ClusterIndex.
 func NewBasicPlacerWithSpecificIndex[T scheduling.ClusterIndex](metricsProvider scheduling.MetricsProvider, numReplicas int,
-	schedulingPolicy scheduling.Policy, indexProvider index.Provider[T]) (*BasicPlacer, error) {
+	schedulingPolicy scheduling.Policy, indexProvider index.Provider[T]) *BasicPlacer {
 
 	abstractPlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
 
@@ -54,12 +51,12 @@ func NewBasicPlacerWithSpecificIndex[T scheduling.ClusterIndex](metricsProvider 
 	}
 
 	abstractPlacer.instance = basicPlacer
-	return basicPlacer, nil
+	return basicPlacer
 }
 
 // NewBasicPlacer creates a new BasicPlacer backed by a scheduling.ClusterIndex whose type is determined by the
 // specified scheduling.Policy.
-func NewBasicPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.Policy) (*BasicPlacer, error) {
+func NewBasicPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, schedulingPolicy scheduling.Policy) *BasicPlacer {
 	abstractPlacer := NewAbstractPlacer(metricsProvider, numReplicas, schedulingPolicy)
 
 	basicPlacer := &BasicPlacer{
@@ -68,7 +65,7 @@ func NewBasicPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int,
 	}
 
 	abstractPlacer.instance = basicPlacer
-	return basicPlacer, nil
+	return basicPlacer
 }
 
 // Len returns the number of scheduling.Host instances in the underlying least-loaded index.

@@ -198,9 +198,8 @@ var _ = Describe("MultiPlacer Tests", func() {
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
 			Expect(schedulingPolicy.Name()).To(Equal("First-Come, First-Serve Batch Scheduling"))
 
-			multiPlacer, err := placer.NewMultiPlacerWithSpecificIndex[*index.LeastLoadedIndex](nil, 1,
+			multiPlacer := placer.NewMultiPlacerWithSpecificIndex[*index.LeastLoadedIndex](nil, 1,
 				schedulingPolicy, index.NewLeastLoadedIndexWrapper, int32(schedulingPolicy.GetGpusPerHost()+1))
-			Expect(err).To(BeNil())
 			Expect(multiPlacer).ToNot(BeNil())
 
 			dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, multiPlacer, mockedHostMapper,
