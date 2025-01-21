@@ -245,6 +245,9 @@ type SchedulerDaemonImpl struct {
 	// bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy.
 	bindDebugpyPort bool
 
+	// If true, rename stopped kernel containers to save/persist them. Enables you to persist their state, logs, etc.
+	saveStoppedKernelContainers bool
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -314,6 +317,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		electionTimeoutSeconds:             localDaemonOptions.ElectionTimeoutSeconds,
 		useRealGpus:                        localDaemonOptions.UseRealGPUs,
 		bindDebugpyPort:                    localDaemonOptions.BindDebugPyPort,
+		saveStoppedKernelContainers:        localDaemonOptions.SaveStoppedKernelContainers,
 	}
 
 	for _, configFunc := range configs {
@@ -1052,6 +1056,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
 			UseRealGpus:                          d.useRealGpus,
 			BindDebugpyPort:                      d.bindDebugpyPort,
+			SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1905,6 +1910,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
 			UseRealGpus:                          d.useRealGpus,
 			BindDebugpyPort:                      d.bindDebugpyPort,
+			SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.

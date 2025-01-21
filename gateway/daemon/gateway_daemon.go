@@ -2949,9 +2949,14 @@ func (d *ClusterGatewayImpl) handleShutdownRequest(msg *messaging.JupyterMessage
 	kernel, ok := d.kernels.Load(sessionId)
 	if !ok {
 		errorMessage := fmt.Sprintf("Could not find kernel associated with session \"%s\"; cannot stop kernel.", sessionId)
-		d.log.Error(errorMessage)
-		// Spawn a separate goroutine to send an error notification to the dashboard.
-		go d.notifyDashboardOfWarning(errorMessage, errorMessage)
+		d.log.Warn(errorMessage)
+
+		// For long-running containers, this error is actually problematic / indicating that something is wrong.
+		// For short-lived containers, it's not a big deal.
+		if d.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning {
+			// Spawn a separate goroutine to send an error notification to the dashboard.
+			go d.notifyDashboardOfWarning(errorMessage, errorMessage)
+		}
 
 		return types.ErrKernelNotFound
 	}

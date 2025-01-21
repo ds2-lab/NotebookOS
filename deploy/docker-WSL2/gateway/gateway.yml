@@ -45,7 +45,7 @@ predictive_autoscaling: false
 scaling-buffer-size: 3
 min_cluster_nodes: 4
 max_cluster_nodes: 32
-gpus-per-host: 1
+gpus-per-host: 8
 local_mode: false
 deployment_mode: "docker-compose"
 debug_mode: true

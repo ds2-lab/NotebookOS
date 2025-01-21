@@ -73,8 +73,12 @@ var (
 	// dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
 	dockerInvokerCmd = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
 
+	// dockerShutdownCmd is used to shut down a running kernel container
 	dockerShutdownCmd = "docker stop {container_name}"
-	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
+	// dockerRemoveCmd is used to fully remove a stopped kernel container
+	dockerRemoveCmd = "docker rm -f {container_name}"
+	// dockerRenameCmd is used to rename a stopped kernel container
+	dockerRenameCmd = "docker container rename {container_name} {container_new_name}"
 
 	ErrDockerContainerCreationFailed = errors.New("failed to create docker container for new kernel")
 	ErrUnexpectedReplicaExpression   = fmt.Errorf("unexpected replica expression, expected url")
@@ -110,6 +114,7 @@ type DockerInvoker struct {
 	simulateWriteAfterExecOnCriticalPath bool                             // Should the simulated network write after executing code be on the critical path?
 	useRealGpus                          bool                             // UseRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
 	bindDebugpyPort                      bool                             // bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
+	saveStoppedKernelContainers          bool                             // If true, then do not fully remove stopped kernel containers.
 	workloadId                           string
 	smrEnabled                           bool
 
@@ -179,6 +184,9 @@ type DockerInvokerOptions struct {
 
 	// BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
 	BindDebugpyPort bool
+
+	// If true, then do not fully remove stopped kernel containers.
+	SaveStoppedKernelContainers bool
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider metrics.ContainerMetricsProvider) *DockerInvoker {
@@ -218,6 +226,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		smrEnabled:                           opts.SmrEnabled,
 		useRealGpus:                          opts.UseRealGpus,
 		bindDebugpyPort:                      opts.BindDebugpyPort,
+		saveStoppedKernelContainers:          opts.SaveStoppedKernelContainers,
 	}
 
 	// This is a DockerInvoker, so it's one of these two.
@@ -457,9 +466,71 @@ func (ivk *DockerInvoker) Close() error {
 	// Status will not change anymore, reset the handler.
 	ivk.statusChanged = ivk.defaultStatusChangedHandler
 
+	if ivk.saveStoppedKernelContainers {
+		return ivk.renameStoppedContainer()
+	}
+
+	return ivk.removeStoppedContainer()
+}
+
+func (ivk *DockerInvoker) removeStoppedContainer() error {
+	removeCommandStr := strings.ReplaceAll(dockerRemoveCmd, VarContainerName, ivk.containerName)
+	removeCommandArgv := strings.Split(removeCommandStr, " ")
+
+	removeCommand := exec.CommandContext(context.Background(), removeCommandArgv[0], removeCommandArgv[1:]...)
+
+	var removeStdoutBuffer, removeStderrBuffer bytes.Buffer
+	removeCommand.Stdout = &removeStdoutBuffer
+	removeCommand.Stderr = &removeStderrBuffer
+
+	if err := removeCommand.Run(); err != nil {
+		errorMessage := removeStderrBuffer.String()
+		ivk.log.Warn("Failed to remove container %s: %v (%v)\n", ivk.containerName, errorMessage, err)
+
+		return errors.Join(err, fmt.Errorf(errorMessage))
+	}
+
+	return nil
+}
+
+// renameStoppedContainer will rename the stopped docker container with name <foo>
+// to a new name <foo>-old-<suffix>, where <suffix> is a
+func (ivk *DockerInvoker) renameStoppedContainer() error {
+	renameCmdStr := strings.ReplaceAll(dockerRenameCmd, VarContainerName, ivk.containerName)
+
+	// Generate a timestamp suffix at millisecond granularity
+	suffix := time.Now().Format("2006-01-02-15-04-05.000")
+
+	newName := fmt.Sprintf("%s-old-%s", ivk.containerName, suffix)
+
+	renameCmdStr = strings.ReplaceAll(renameCmdStr, VarContainerNewName, newName)
+
+	renameArgv := strings.Split(renameCmdStr, " ")
+
+	ivk.log.Debug("Renaming (stopped) container %s via %s.", ivk.containerName, renameArgv)
+
+	renameCmd := exec.CommandContext(context.Background(), renameArgv[0], renameArgv[1:]...)
+
+	var renameStdoutBuffer, renameStderrBuffer bytes.Buffer
+	renameCmd.Stdout = &renameStdoutBuffer
+	renameCmd.Stderr = &renameStderrBuffer
+
+	if err := renameCmd.Run(); err != nil {
+		errorMessage := renameStderrBuffer.String()
+		ivk.log.Warn("Failed to rename container %s: %v\n", ivk.containerName, errorMessage)
+
+		// Simply remove the container.
+		return ivk.removeStoppedContainer()
+	}
+
+	return nil
+}
+
+func (ivk *DockerInvoker) oldRenameStoppedContainer() error {
 	// Rename the stopped Container so that we can create a new one with the same name in its place.
 	idx := 0
-	for idx < 512 /* This is inefficient and will break if we migrate a container > 512 times. */ {
+
+	for idx < 8192 /* This is both very inefficient and will break if we migrate a container > 8192 times. */ {
 		renameCmdStr := strings.ReplaceAll(dockerRenameCmd, VarContainerName, ivk.containerName)
 		newName := fmt.Sprintf("%s-old-%d", ivk.containerName, idx)
 		renameCmdStr = strings.ReplaceAll(renameCmdStr, VarContainerNewName, newName)

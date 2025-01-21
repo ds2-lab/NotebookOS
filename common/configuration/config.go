@@ -24,4 +24,5 @@ type CommonOptions struct {
 	ElectionTimeoutSeconds             int    `name:"election_timeout_seconds" json:"election_timeout_seconds" yaml:"election_timeout_seconds" description:"How long kernel leader elections wait to receive all proposals before electing a leader"`
 	UseRealGPUs                        bool   `name:"use_real_gpus" json:"use_real_gpus" yaml:"use_real_gpus" description:"Flag which informs system whether to use real GPUs for training or not."`
 	BindDebugPyPort                    bool   `name:"bind_debugpy_port" json:"bind_debugpy_port" yaml:"bind_debugpy_port" description:"If true, bind a port to the kernel for debugpy."`
+	SaveStoppedKernelContainers        bool   `name:"save_stopped_kernel_containers" json:"save_stopped_kernel_containers" yaml:"save_stopped_kernel_containers" description:"If true, rename stopped kernel containers to save/persist them."`
 }
