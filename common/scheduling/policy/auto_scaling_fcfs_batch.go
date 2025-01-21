@@ -32,7 +32,7 @@ func NewAutoScalingFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) 
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *AutoScalingFcfsBatchSchedulingPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
-	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p)
+	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p), nil
 }
 
 func (p *AutoScalingFcfsBatchSchedulingPolicy) ResourceScalingPolicy() scheduling.ResourceScalingPolicy {

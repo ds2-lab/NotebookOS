@@ -61,14 +61,7 @@ func (p *StaticPolicy) SmrEnabled() bool {
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *StaticPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
-	return placer.NewBasicPlacerWithSpecificIndex[*index.StaticIndex](metricsProvider, p.NumReplicas(), p, func(gpusPerHost int32) *index.StaticIndex {
-		staticIndex, err := index.NewStaticIndex(gpusPerHost)
-		if err != nil {
-			panic(err)
-		}
-
-		return staticIndex
-	})
+	return placer.NewBasicPlacerWithSpecificIndex[*index.StaticIndex](metricsProvider, p.NumReplicas(), p, index.NewStaticIndex), nil
 }
 
 //////////////////////////////////////////
