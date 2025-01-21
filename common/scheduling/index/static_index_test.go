@@ -113,19 +113,22 @@ var _ = Describe("Static Index Tests", func() {
 				staticIndex.Add(host1)
 				Expect(staticIndex.Len()).To(Equal(1))
 
-				ret, _ := staticIndex.Seek(emptyBlacklist, []float64{4})
+				ret, _, err := staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(staticIndex.Len()).To(Equal(1))
 
 				By("Succeeding during consecutive calls to Seek")
 
-				ret, _ = staticIndex.Seek(emptyBlacklist, []float64{4})
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(staticIndex.Len()).To(Equal(1))
 
-				ret, _ = staticIndex.Seek(emptyBlacklist, []float64{4})
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(staticIndex.Len()).To(Equal(1))
@@ -139,7 +142,8 @@ var _ = Describe("Static Index Tests", func() {
 				staticIndex.Add(host1)
 				Expect(staticIndex.Len()).To(Equal(1))
 
-				ret, _ := staticIndex.Seek(emptyBlacklist, []float64{4})
+				ret, _, err := staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(staticIndex.Len()).To(Equal(1))
@@ -147,7 +151,7 @@ var _ = Describe("Static Index Tests", func() {
 				staticIndex.Remove(host1)
 				Expect(staticIndex.Len()).To(Equal(0))
 
-				ret, _ = staticIndex.Seek(emptyBlacklist, []float64{4})
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
 				Expect(ret).To(BeNil())
 			})
 
@@ -162,7 +166,8 @@ var _ = Describe("Static Index Tests", func() {
 				meta := host1.GetMeta(index.LeastLoadedIndexMetadataKey)
 				Expect(meta).To(BeNil())
 
-				ret, _ := staticIndex.Seek(emptyBlacklist, []float64{4})
+				ret, _, err := staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(staticIndex.Len()).To(Equal(1))
@@ -178,7 +183,8 @@ var _ = Describe("Static Index Tests", func() {
 				meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
 				Expect(meta).To(BeNil())
 
-				ret, _ = staticIndex.Seek(emptyBlacklist, []float64{4})
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(staticIndex.Len()).To(Equal(2))
@@ -192,12 +198,14 @@ var _ = Describe("Static Index Tests", func() {
 
 				By("Succeeding during consecutive calls to Seek")
 
-				ret, _ = staticIndex.Seek(emptyBlacklist, []float64{4})
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(staticIndex.Len()).To(Equal(2))
 
-				ret, _ = staticIndex.Seek(emptyBlacklist, []float64{4})
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(staticIndex.Len()).To(Equal(2))
@@ -207,7 +215,8 @@ var _ = Describe("Static Index Tests", func() {
 				staticIndex.Remove(host1)
 				Expect(staticIndex.Len()).To(Equal(1))
 
-				ret, _ = staticIndex.Seek(emptyBlacklist, []float64{4})
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host2))
 				Expect(staticIndex.Len()).To(Equal(1))
@@ -222,14 +231,13 @@ var _ = Describe("Static Index Tests", func() {
 				staticIndex.Remove(host2)
 				Expect(staticIndex.Len()).To(Equal(0))
 
-				ret, _ = staticIndex.Seek(emptyBlacklist, []float64{4})
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
 				Expect(ret).To(BeNil())
 			})
 		})
 
 		It("Will correctly compute values GetStaticIndexBucket", func() {
 			gpusPerHost := int32(8)
-			numPools := int32(4)
 
 			Expect(index.GetStaticIndexBucket(0, gpusPerHost)).To(Equal(int32(8)))
 			Expect(index.GetStaticIndexBucket(1, gpusPerHost)).To(Equal(int32(8)))
@@ -287,7 +295,8 @@ var _ = Describe("Static Index Tests", func() {
 
 				By("Correctly returning the least-loaded host")
 
-				ret, _ := staticIndex.Seek(emptyBlacklist, []float64{2})
+				ret, _, err := staticIndex.Seek(emptyBlacklist, []float64{2})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(staticIndex.Len()).To(Equal(3))
@@ -299,7 +308,8 @@ var _ = Describe("Static Index Tests", func() {
 
 				By("Correctly returning the 'new' least-loaded host")
 
-				ret, _ = staticIndex.Seek(emptyBlacklist, []float64{2})
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{2})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host2))
 				Expect(staticIndex.Len()).To(Equal(2))
@@ -311,7 +321,8 @@ var _ = Describe("Static Index Tests", func() {
 
 				By("Correctly returning the 'new' least-loaded host")
 
-				ret, _ = staticIndex.Seek(emptyBlacklist, []float64{2})
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{2})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host3))
 				Expect(staticIndex.Len()).To(Equal(1))
@@ -323,7 +334,7 @@ var _ = Describe("Static Index Tests", func() {
 
 				By("Correctly returning no hosts because the index is empty")
 
-				ret, _ = staticIndex.Seek(emptyBlacklist, []float64{2})
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{2})
 				Expect(ret).To(BeNil())
 				Expect(staticIndex.Len()).To(Equal(0))
 			})

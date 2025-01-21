@@ -88,19 +88,23 @@ var _ = Describe("MultiIndex Tests", func() {
 					multiIndex.Add(host1)
 					Expect(multiIndex.Len()).To(Equal(1))
 
-					ret, _ := multiIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err := multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
 					Expect(multiIndex.Len()).To(Equal(1))
 
 					By("Succeeding during consecutive calls to Seek")
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
 					Expect(multiIndex.Len()).To(Equal(1))
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
 					Expect(multiIndex.Len()).To(Equal(1))
@@ -114,7 +118,8 @@ var _ = Describe("MultiIndex Tests", func() {
 					multiIndex.Add(host1)
 					Expect(multiIndex.Len()).To(Equal(1))
 
-					ret, _ := multiIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err := multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
 					Expect(multiIndex.Len()).To(Equal(1))
@@ -122,7 +127,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					multiIndex.Remove(host1)
 					Expect(multiIndex.Len()).To(Equal(0))
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
 					Expect(ret).To(BeNil())
 				})
 
@@ -137,7 +142,8 @@ var _ = Describe("MultiIndex Tests", func() {
 					meta := host1.GetMeta(index.LeastLoadedIndexMetadataKey)
 					Expect(meta).To(BeNil())
 
-					ret, _ := multiIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err := multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
 					Expect(multiIndex.Len()).To(Equal(1))
@@ -153,7 +159,8 @@ var _ = Describe("MultiIndex Tests", func() {
 					meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
 					Expect(meta).To(BeNil())
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
 					Expect(multiIndex.Len()).To(Equal(2))
@@ -167,12 +174,14 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Succeeding during consecutive calls to Seek")
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
 					Expect(multiIndex.Len()).To(Equal(2))
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
 					Expect(multiIndex.Len()).To(Equal(2))
@@ -182,7 +191,8 @@ var _ = Describe("MultiIndex Tests", func() {
 					multiIndex.Remove(host1)
 					Expect(multiIndex.Len()).To(Equal(1))
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host2))
 					Expect(multiIndex.Len()).To(Equal(1))
@@ -197,7 +207,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					multiIndex.Remove(host2)
 					Expect(multiIndex.Len()).To(Equal(0))
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
 					Expect(ret).To(BeNil())
 				})
 			})
@@ -247,7 +257,8 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly returning the least-loaded host")
 
-					ret, _ := multiIndex.Seek(emptyBlacklist, []float64{2})
+					ret, _, err := multiIndex.Seek(emptyBlacklist, []float64{2})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
 					Expect(multiIndex.Len()).To(Equal(3))
@@ -259,7 +270,8 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly returning the 'new' least-loaded host")
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{2})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{2})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host2))
 					Expect(multiIndex.Len()).To(Equal(2))
@@ -271,7 +283,8 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly returning the 'new' least-loaded host")
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{2})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{2})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host3))
 					Expect(multiIndex.Len()).To(Equal(1))
@@ -283,7 +296,7 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly returning no hosts because the index is empty")
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{2})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{2})
 					Expect(ret).To(BeNil())
 					Expect(multiIndex.Len()).To(Equal(0))
 				})
