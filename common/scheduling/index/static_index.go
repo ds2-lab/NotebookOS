@@ -51,8 +51,8 @@ func GetStaticIndexBucket(gpus int32, gpusPerHost int32, numPools int32) int32 {
 	_bucket := float64(gpusPerHost) / float64(gpus)
 	poolIndex := int32(roundToLowestPowerOf2(_bucket))
 
-	fmt.Printf("NumGpus=%d, GpusPerHost=%d, NumPools=%d, _bucket=%f, poolIndex=%d\n",
-		gpus, gpusPerHost, numPools, _bucket, poolIndex)
+	//fmt.Printf("NumGpus=%d, GpusPerHost=%d, NumPools=%d, _bucket=%f, poolIndex=%d\n",
+	//	gpus, gpusPerHost, numPools, _bucket, poolIndex)
 
 	return poolIndex
 }
@@ -138,10 +138,17 @@ func (index *StaticIndex) NumFreeHosts() int {
 	return index.MultiIndex.FreeHosts.Len()
 }
 
-// HasHostPool returns true if the MultiIndex has a host pool for the specified pool index.
-func (index *StaticIndex) HasHostPool(poolNumber int32) bool {
-	bucket := index.GetBucket(poolNumber)
+// HasHostPool returns true if the MultiIndex has a host pool for the specified number of GPUs.
+// The gpus parameter is not treated directly as an index. Instead, it is first converted to a bucket.
+func (index *StaticIndex) HasHostPool(gpus int32) bool {
+	bucket := index.GetBucket(gpus)
 	_, loaded := index.MultiIndex.HostPools[bucket]
+	return loaded
+}
+
+// HasHostPoolByIndex returns true if the MultiIndex has a host pool for the specified pool index.
+func (index *StaticIndex) HasHostPoolByIndex(poolNumber int32) bool {
+	_, loaded := index.MultiIndex.HostPools[poolNumber]
 	return loaded
 }
 
