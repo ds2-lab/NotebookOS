@@ -2,37 +2,73 @@ package placer
 
 import (
 	"github.com/google/uuid"
+	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 )
 
 // StaticPlacer is a particular type of MultiPlacer that implements the logic for the static scheduling policy.
-type StaticPlacer MultiPlacer[*index.StaticIndex]
+type StaticPlacer struct {
+	*BasicPlacer
+
+	PlacerId string
+}
 
 // NewStaticPlacer creates and returns a StaticPlacer struct.
-func NewStaticPlacer(metrics scheduling.MetricsProvider, numReplicas int, policy scheduling.Policy) (*StaticPlacer, error) {
-	provider := func(gpusPerHost int32) *index.StaticIndex {
-		staticIndex, err := index.NewStaticIndex(gpusPerHost)
-		if err != nil {
-			panic(err)
-		}
-
-		return staticIndex
-	}
-
-	basePlacer, err := NewBasicPlacerWithSpecificIndex[*index.StaticIndex](metrics, numReplicas, policy, provider)
-	if err != nil {
-		return nil, err
-	}
+func NewStaticPlacer(metricsProvider scheduling.MetricsProvider, numReplicas int, policy scheduling.Policy) *StaticPlacer {
+	basePlacer := NewBasicPlacerWithSpecificIndex[*index.StaticIndex](metricsProvider, numReplicas, policy, index.NewStaticIndex)
 
 	staticPlacer := &StaticPlacer{
 		BasicPlacer: basePlacer,
-		placerId:    uuid.NewString(),
+		PlacerId:    uuid.NewString(),
 	}
 
 	basePlacer.instance = staticPlacer
+	staticPlacer.instance = staticPlacer
 
-	return staticPlacer, nil
+	return staticPlacer
+}
+
+// FindHosts returns a single host that can satisfy the resourceSpec.
+func (placer *StaticPlacer) findHosts(blacklist []interface{}, spec *proto.KernelSpec, numHosts int, forTraining bool,
+	metrics ...[]float64) []scheduling.Host {
+	var (
+		pos   interface{}       = nil
+		hosts []scheduling.Host = nil
+	)
+
+	// Our index will expect the first metric to be the number of GPUs.
+	metrics = append([][]float64{{spec.ResourceSpec.GPU()}}, metrics...)
+
+	// Create a wrapper around the 'resourceReserver' field so that it can be called by the index.
+	reserveResources := func(candidateHost scheduling.Host) bool {
+		return placer.resourceReserver(candidateHost, spec, forTraining)
+	}
+
+	// Seek `numHosts` Hosts from the Placer's index.
+	hosts, _ = placer.index.SeekMultipleFrom(pos, numHosts, reserveResources, blacklist, metrics...)
+
+	if len(hosts) > 0 {
+		return hosts
+	}
+
+	// The Host could not satisfy the resourceSpec, so return nil.
+	return nil
+}
+
+// FindHost returns a single Host instance that can satisfy the resourceSpec.
+func (placer *StaticPlacer) findHost(blacklist []interface{}, spec *proto.KernelSpec, training bool,
+	metrics ...[]float64) scheduling.Host {
+
+	// Our index will expect the first metric to be the number of GPUs.
+	// findHosts will handle this, however, so we can just call findHosts immediately.
+	hosts := placer.findHosts(blacklist, spec, 1, training, metrics...)
+
+	if hosts == nil || len(hosts) == 0 {
+		return nil
+	}
+
+	return hosts[0]
 }
 
 // getIndex returns the target MultiPlacer's index field with a type assertion
@@ -48,21 +84,45 @@ func (placer *StaticPlacer) NumFreeHosts() int {
 	return placer.getIndex().NumFreeHosts()
 }
 
+// NumHostPools returns the number of HostPools managed by the StaticPlacer.
+func (placer *StaticPlacer) NumHostPools() int {
+	return int(placer.getIndex().NumPools)
+}
+
+// HostPoolIDs returns the valid IDs of each HostPool managed by the target StaticPlacer.
+func (placer *StaticPlacer) HostPoolIDs() []int32 {
+	return placer.getIndex().HostPoolIDs()
+}
+
 // HasHostPool returns true if the MultiPlacer's underlying MultiIndex has a host pool for the specified
 // number of GPUs.
-func (placer *StaticPlacer) HasHostPool(gpus int32) bool {
-	return placer.getIndex().HasHostPool(gpus)
+//
+// The gpus parameter is not treated directly as an index. Instead, it is first converted to a bucket.
+func (placer *StaticPlacer) HasHostPool(poolNumber int32) bool {
+	return placer.getIndex().HasHostPool(poolNumber)
+}
+
+// HasHostPoolByIndex returns true if the MultiIndex has a host pool for the specified pool index.
+func (placer *StaticPlacer) HasHostPoolByIndex(poolNumber int32) bool {
+	return placer.getIndex().HasHostPoolByIndex(poolNumber)
 }
 
 // NumHostsInPool returns the number of hosts in the specified host pool.
+// The gpus parameter is not treated directly as an index. Instead, it is first converted to a bucket.
 func (placer *StaticPlacer) NumHostsInPool(gpus int32) int {
 	return placer.getIndex().NumHostsInPool(gpus)
 }
 
-// GetHostPool returns the index.HostPool for the specified number of GPUs.
+// NumHostsInPoolByIndex returns the number of hosts in the specified host pool.
+// The gpus parameter is not treated directly as an index. Instead, it is first converted to a bucket.
+func (placer *StaticPlacer) NumHostsInPoolByIndex(poolIndex int32) int {
+	return placer.getIndex().NumHostsInPoolByIndex(poolIndex)
+}
+
+// GetHostPool returns the index.HostPool for the specified index.
 //
 // The index.HostPool will be the one responsible for containing scheduling.Host instances that serve
 // sessions/kernels/jobs requiring `gpus` number of GPUs.
-func (placer *StaticPlacer) GetHostPool(gpus int32) (*index.HostPool[*index.LeastLoadedIndex], bool) {
-	return placer.getIndex().GetHostPool(gpus)
+func (placer *StaticPlacer) GetHostPool(poolNumber int32) (*index.HostPool[*index.LeastLoadedIndex], bool) {
+	return placer.getIndex().GetHostPool(poolNumber)
 }
