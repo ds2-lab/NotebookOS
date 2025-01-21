@@ -90,7 +90,13 @@ func (index *StaticIndex) GetHostPool(gpus int32) (*HostPool[*LeastLoadedIndex],
 }
 
 // GetBucket returns the slot/pool that the kernel (replica) with the given spec should be placed into.
+//
+// If gpus is 0, then it is set to 1 for the purposes of bucket calculation.
 func (index *StaticIndex) GetBucket(gpus int32) int32 {
+	if gpus == 0 {
+		gpus = 1
+	}
+
 	bucket := index.GpusPerHost / gpus
 	if bucket > index.NumPools {
 		bucket = index.NumPools
