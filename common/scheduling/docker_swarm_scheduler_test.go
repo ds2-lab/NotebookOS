@@ -1666,8 +1666,8 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 					for _, host := range candidateHosts {
 						Expect(host.NumReservations()).To(Equal(1))
-						Expect(host.PendingResources().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
-						Expect(host.CommittedResources().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeFalse())
+						Expect(host.PendingResources().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeFalse())
+						Expect(host.CommittedResources().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 
 						reservation, loaded := host.GetReservation(kernelId)
 						Expect(loaded).To(BeTrue())
@@ -1676,7 +1676,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 						// Matches host.
 						Expect(reservation.GetHostId()).To(Equal(host.GetID()))
 						// Not pending.
-						Expect(reservation.GetCreatedUsingPendingResources()).To(BeTrue())
+						Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
 						// Created recently.
 						Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
 						// Correct amount of resources.
