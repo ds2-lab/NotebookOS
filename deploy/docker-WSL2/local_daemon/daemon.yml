@@ -64,3 +64,4 @@ starting_resource_port: 16007
 num_resource_ports: 4096
 use_real_gpus: false
 bind_debugpy_port: false
+save_stopped_kernel_containers: false
