@@ -50,11 +50,9 @@ func GetStaticIndexBucket(gpus int32, gpusPerHost int32, numPools int32) int32 {
 	// - 8 / 7 = 1.1428... -> 1
 	_bucket := float64(gpusPerHost) / float64(gpus)
 	poolIndex := int32(roundToLowestPowerOf2(_bucket))
+
 	fmt.Printf("NumGpus=%d, GpusPerHost=%d, NumPools=%d, _bucket=%f, poolIndex=%d\n",
 		gpus, gpusPerHost, numPools, _bucket, poolIndex)
-	if poolIndex > numPools {
-		poolIndex = numPools
-	}
 
 	return poolIndex
 }

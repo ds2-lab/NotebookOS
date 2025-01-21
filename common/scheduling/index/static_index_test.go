@@ -227,6 +227,21 @@ var _ = Describe("Static Index Tests", func() {
 			})
 		})
 
+		It("Will correctly compute values GetStaticIndexBucket", func() {
+			gpusPerHost := int32(8)
+			numPools := int32(4)
+
+			Expect(index.GetStaticIndexBucket(0, gpusPerHost, numPools)).To(Equal(int32(8)))
+			Expect(index.GetStaticIndexBucket(1, gpusPerHost, numPools)).To(Equal(int32(8)))
+			Expect(index.GetStaticIndexBucket(2, gpusPerHost, numPools)).To(Equal(int32(4)))
+			Expect(index.GetStaticIndexBucket(3, gpusPerHost, numPools)).To(Equal(int32(2)))
+			Expect(index.GetStaticIndexBucket(4, gpusPerHost, numPools)).To(Equal(int32(2)))
+			Expect(index.GetStaticIndexBucket(5, gpusPerHost, numPools)).To(Equal(int32(1)))
+			Expect(index.GetStaticIndexBucket(6, gpusPerHost, numPools)).To(Equal(int32(1)))
+			Expect(index.GetStaticIndexBucket(7, gpusPerHost, numPools)).To(Equal(int32(1)))
+			Expect(index.GetStaticIndexBucket(8, gpusPerHost, numPools)).To(Equal(int32(1)))
+		})
+
 		Context("Non-Empty Hosts", func() {
 			var (
 				staticIndex *index.StaticIndex
