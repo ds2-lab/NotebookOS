@@ -242,6 +242,9 @@ type SchedulerDaemonImpl struct {
 	// useRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
 	useRealGpus bool
 
+	// bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy.
+	bindDebugpyPort bool
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -310,6 +313,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		SimulateCheckpointingLatency:       localDaemonOptions.SimulateCheckpointingLatency,
 		electionTimeoutSeconds:             localDaemonOptions.ElectionTimeoutSeconds,
 		useRealGpus:                        localDaemonOptions.UseRealGPUs,
+		bindDebugpyPort:                    localDaemonOptions.BindDebugPyPort,
 	}
 
 	for _, configFunc := range configs {
@@ -1047,6 +1051,7 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
 			UseRealGpus:                          d.useRealGpus,
+			BindDebugpyPort:                      d.bindDebugpyPort,
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1899,6 +1904,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			WorkloadId:                           in.WorkloadId,
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
 			UseRealGpus:                          d.useRealGpus,
+			BindDebugpyPort:                      d.bindDebugpyPort,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.

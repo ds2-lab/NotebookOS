@@ -864,6 +864,7 @@ class DistributedKernel(IPythonKernel):
             self.num_replicas: int = 1
             self.smr_nodes_map = {1: str(self.hostname) + ":" + str(self.smr_port)}
             self.debug_port: int = int(os.environ.get("debug_port", "31000"))
+            self.debugpy_port: int = int(os.environ.get("debugpy_port", self.debug_port + 10000))
 
             if "persistent_id" in kwargs:
                 self.persistent_id: str = kwargs["persistent_id"]
@@ -1072,11 +1073,13 @@ class DistributedKernel(IPythonKernel):
         if "debug_port" in response_dict:
             self.debug_port: int = int(response_dict["debug_port"])
             self.log.info(f"Assigned debug port to {self.debug_port}")
+            self.debugpy_port: int = int(os.environ.get("debugpy_port", self.debug_port + 10000))
         else:
             self.log.warning(
                 'No "debug_port" entry found in response from local daemon.'
             )
             self.debug_port: int = -1
+            self.debugpy_port: int = -1
 
         if "message_acknowledgements_enabled" in response_dict:
             self.message_acknowledgements_enabled = bool(
@@ -1124,9 +1127,8 @@ class DistributedKernel(IPythonKernel):
             )
             return
 
-        debugpy_port: int = self.debug_port + 1000
-        self.log.debug(f"Starting debugpy server on 0.0.0.0:{debugpy_port}")
-        debugpy.listen(("0.0.0.0", debugpy_port))
+        self.log.debug(f"Starting debugpy server on 0.0.0.0:{self.debugpy_port}")
+        debugpy.listen(("0.0.0.0", self.debugpy_port))
 
         if self.debugpy_wait_for_client:
             self.log.debug("Waiting for debugpy client to connect before proceeding.")
@@ -3096,7 +3098,7 @@ class DistributedKernel(IPythonKernel):
             )
             performed_gpu_training = True
 
-        # if target_training_duration_millis > 0 and torch.cuda.is_available():
+        # if target_training_duration_millis > 0 and torch.cuda.is_available():dewb
         #     self.log.debug(
         #         f"Explicitly instructed to train for {target_training_duration_millis:,} milliseconds. "
         #         f"Discarding specified code. Will use custom training code instead generated for model "
