@@ -7,7 +7,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"math/rand"
 	"os/exec"
 	"strings"
@@ -19,9 +18,6 @@ import (
 // but simply toggled "off" and "on".
 type DockerComposeCluster struct {
 	*BaseCluster
-
-	// DisabledHosts is a map from host ID to scheduling.Host containing all the Host instances that are currently set to "off".
-	DisabledHosts hashmap.HashMap[string, scheduling.Host]
 }
 
 // NewDockerComposeCluster creates a new DockerComposeCluster struct and returns a pointer to it.
@@ -37,8 +33,7 @@ func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, host
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerComposeCluster", statisticsUpdaterProvider)
 
 	dockerCluster := &DockerComposeCluster{
-		BaseCluster:   baseCluster,
-		DisabledHosts: hashmap.NewConcurrentMap[scheduling.Host](256),
+		BaseCluster: baseCluster,
 	}
 
 	dockerCluster.scheduler = scheduler.GetDockerComposeScheduler(dockerCluster, placer, hostMapper, hostSpec,
