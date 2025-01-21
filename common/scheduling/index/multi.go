@@ -6,6 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/queue"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"slices"
 	"sync"
 )
 
@@ -55,10 +56,35 @@ func (p *HostPool[T]) AddHost(host scheduling.Host) {
 }
 
 // Provider provides the individual indices used by a MultiIndex.
-type Provider[T scheduling.ClusterIndex] func(poolNumber int32) T
+//
+// The parameter n is used by the scheduling.ClusterIndex function to instantiate the index.
+// The parameter is often the number of GPU pools, or the quantity used by the index to
+// determine how many pools there should be.
+type Provider[T scheduling.ClusterIndex] func(n int32) T
 
 // MultiIndexProvider creates and return MultiIndex structs backed by indices of the type parameter T.
-type MultiIndexProvider[T scheduling.ClusterIndex] func(poolNumber int32) *MultiIndex[T]
+//
+// The parameter n is used by the scheduling.ClusterIndex function to instantiate the index.
+// The parameter is often the number of GPU pools, or the quantity used by the index to
+// determine how many pools there should be.
+type MultiIndexProvider[T scheduling.ClusterIndex] func(n int32) *MultiIndex[T]
+
+// HostPoolInitializer is used to initialize the host pools of a MultiIndex.
+type HostPoolInitializer[T scheduling.ClusterIndex] func(numPools int32, indexProvider Provider[T]) map[int32]*HostPool[T]
+
+// initializeHostPoolsDefault creates all the HostPool instances to be managed by the target MultiIndex.
+//
+// It uses the given IndexProvider to create each of the "sub-indices"/HostPool instances.
+func initializeHostPoolsDefault[T scheduling.ClusterIndex](numPools int32, indexProvider Provider[T]) map[int32]*HostPool[T] {
+	pools := make(map[int32]*HostPool[T])
+
+	var poolNumber int32
+	for poolNumber = 0; poolNumber < numPools; poolNumber++ {
+		pools[poolNumber] = NewHostPool(indexProvider(poolNumber), poolNumber)
+	}
+
+	return pools
+}
 
 // MultiIndex manages a collection of sub-indices organized by some numerical quantity, such as the number of GPUs.
 //
@@ -83,7 +109,7 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 	// HostIdToHostPool is a mapping from Host ID to the Host Pool in which the Host is contained.
 	HostIdToHostPool map[string]*HostPool[T]
 
-	// Size encodes the total number of scheduling.Host instances contained within this MutliIndex.
+	// Size encodes the total number of scheduling.Host instances contained within this MultiIndex.
 	// Size includes scheduling.Host instances in FreeHosts as well as those in the HostPools.
 	Size int
 
@@ -91,7 +117,7 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 	mu  sync.Mutex
 }
 
-// NewMultiIndex creates and returns a new MultiIndex.
+// NewMultiIndexWithHostPoolInitializer creates and returns a new MultiIndex.
 //
 // The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
 //
@@ -100,7 +126,7 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 //
 // If the constructor accepts parameters, then a closure of the constructor could be passed, assuming the
 // values of those parameters can acceptably remain the same for the program's execution.
-func NewMultiIndex[T scheduling.ClusterIndex](numPools int32, provider Provider[T]) (*MultiIndex[T], error) {
+func NewMultiIndexWithHostPoolInitializer[T scheduling.ClusterIndex](numPools int32, provider Provider[T], initializer HostPoolInitializer[T]) *MultiIndex[T] {
 	index := &MultiIndex[T]{
 		FreeHosts:        queue.NewFifo[scheduling.Host](16),
 		FreeHostsMap:     make(map[string]scheduling.Host),
@@ -112,35 +138,22 @@ func NewMultiIndex[T scheduling.ClusterIndex](numPools int32, provider Provider[
 
 	config.InitLogger(&index.log, fmt.Sprintf("MultiIndex[%d Pools] ", numPools))
 
-	err := index.initializeHostPools(numPools, provider)
-	if err != nil {
-		index.log.Error("Failed to initialize host pools: %v", err)
-		return nil, err
-	}
+	index.HostPools = initializer(numPools, provider)
 
-	return index, nil
+	return index
 }
 
-// initializeHostPools creates all the HostPool instances to be managed by the target MultiIndex.
+// NewMultiIndex creates and returns a new MultiIndex.
 //
-// It uses the given IndexProvider to create each of the "sub-indices"/HostPool instances.
-func (index *MultiIndex[T]) initializeHostPools(numPools int32, indexProvider Provider[T]) error {
-	index.mu.Lock()
-	defer index.mu.Unlock()
-
-	index.log.Debug("Initializing %d host pools now.", numPools+1)
-
-	if index.HostGroupsInitialized {
-		return nil
-	}
-
-	var poolNumber int32
-	for poolNumber = 0; poolNumber < numPools; poolNumber++ {
-		index.HostPools[poolNumber] = NewHostPool(indexProvider(poolNumber), poolNumber)
-		index.log.Debug("Initialized HostPool %d", poolNumber)
-	}
-
-	return nil
+// The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
+//
+// The IndexProvider is a function that returns concrete instantiations of the type parameter.
+// It will typically just be the "constructor" (i.e., the NewX function, such as NewLeastLoadedIndex).
+//
+// If the constructor accepts parameters, then a closure of the constructor could be passed, assuming the
+// values of those parameters can acceptably remain the same for the program's execution.
+func NewMultiIndex[T scheduling.ClusterIndex](numPools int32, provider Provider[T]) *MultiIndex[T] {
+	return NewMultiIndexWithHostPoolInitializer[T](numPools, provider, initializeHostPoolsDefault)
 }
 
 // NumFreeHosts returns the number of "free" scheduling.Host instances within the target MultiIndex.
@@ -151,6 +164,38 @@ func (index *MultiIndex[T]) NumFreeHosts() int {
 	defer index.mu.Unlock()
 
 	return index.FreeHosts.Len()
+}
+
+// HostPoolIDs returns the valid IDs of each HostPool managed by the target MultiIndex.
+//
+// The returned slice of HostPool IDs will be sorted in ascending order (i.e., smallest to largest).
+//
+// HostPoolIDs is thread safe.
+func (index *MultiIndex[T]) HostPoolIDs() []int32 {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+
+	return index.unsafeHostPoolIDs()
+}
+
+// unsafeHostPoolIDs returns the valid IDs of each HostPool managed by the target MultiIndex.
+//
+// The returned slice of HostPool IDs will be sorted in ascending order (i.e., smallest to largest).
+//
+// unsafeHostPoolIDs is NOT thread safe.
+func (index *MultiIndex[T]) unsafeHostPoolIDs() []int32 {
+	ids := make([]int32, 0, len(index.HostPools))
+	for id, _ := range index.HostPools {
+		ids = append(ids, id)
+	}
+
+	slices.Sort(ids)
+	return ids
+}
+
+// NumHostPools returns the number of HostPools managed by the MultiPlacer.
+func (index *MultiIndex[T]) NumHostPools() int {
+	return len(index.HostPools)
 }
 
 // HasHostPool returns true if the MultiIndex has a host pool for the specified pool index.
@@ -351,6 +396,7 @@ func (index *MultiIndex[T]) SeekMultipleFrom(pos interface{}, numHosts int, crit
 	pool := index.HostPools[poolNumber]
 	if pool == nil {
 		index.log.Error("No pool found for specified pool index: %d", poolNumber)
+		index.log.Error("Valid pool indices are: %v", index.unsafeHostPoolIDs())
 		return []scheduling.Host{}, nil
 	}
 

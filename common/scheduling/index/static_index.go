@@ -3,15 +3,71 @@ package index
 import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"math"
 )
 
+// roundToLowestPowerOf2 rounds the given value (down) to the closest power of 2 (that is <= val).
+func roundToLowestPowerOf2(val float64) float64 {
+	// Special case for non-positive values.
+	if val <= 0 {
+		return 0
+	}
+
+	// Find the exponent of the power of 2.
+	exponent := math.Floor(math.Log2(val))
+
+	// Calculate the power of 2.
+	result := math.Pow(2, exponent)
+
+	return result
+}
+
+// GetStaticIndexBucket returns the bucket number of the specified number of GPUs, given the number
+// of GPUs per host and the number of pools available in the StaticIndex.
+func GetStaticIndexBucket(gpus int32, gpusPerHost int32, numPools int32) int32 {
+	if gpus == 0 {
+		gpus = 1
+	}
+
+	if gpus > gpusPerHost {
+		panic(fmt.Sprintf("Requested %d GPUs, but there are only %d GPUs per host", gpus, gpusPerHost))
+	}
+
+	// First, divide the number of GPUs per host by the number of requested GPUs.
+	// Typically, there are 8 GPUs per host.
+	// So, we'll have:
+	// - 8 / 8 = 1
+	// - 8 / 4 = 2
+	// - 8 / 2 = 4
+	// - 8 / 1 = 8
+	//
+	// For non-standard/uncommon values (3, 5, 6, and 7), we'll round them to the nearest power of 2:
+	// - 8 / 3 = 2.6666... --> 2
+	// - 8 / 5 = 1.6 --> 1
+	// - 8 / 6 = 1.3333... -> 1
+	// - 8 / 7 = 1.1428... -> 1
+	_bucket := float64(gpusPerHost) / float64(gpus)
+	poolIndex := int32(roundToLowestPowerOf2(_bucket))
+	fmt.Printf("NumGpus=%d, GpusPerHost=%d, NumPools=%d, _bucket=%f, poolIndex=%d\n",
+		gpus, gpusPerHost, numPools, _bucket, poolIndex)
+	if poolIndex > numPools {
+		poolIndex = numPools
+	}
+
+	return poolIndex
+}
+
+// StaticIndex is a struct that implements the scheduling.ClusterIndex interface
+// and provides support for the Static scheduling algorithm/policy.
 type StaticIndex struct {
 	MultiIndex *MultiIndex[*LeastLoadedIndex]
 
 	GpusPerHost int32
 	NumPools    int32
+
+	log logger.Logger
 }
 
 // isPowerOf2 returns true if the given value is a power of 2.
@@ -19,10 +75,26 @@ func isPowerOf2(n int32) bool {
 	return (n & (n - 1)) == 0
 }
 
+// staticIndexPoolInitializer satisfies the HostPoolInitializer type and is used to initialize the HostPool instances
+// of the MultiIndex that underlies a StaticIndex.
+func staticIndexPoolInitializer(numPools int32, indexProvider Provider[*LeastLoadedIndex]) map[int32]*HostPool[*LeastLoadedIndex] {
+	pools := make(map[int32]*HostPool[*LeastLoadedIndex], numPools)
+
+	poolNumber := int32(1)
+	for int32(len(pools)) < numPools {
+		pools[poolNumber] = NewHostPool(indexProvider(poolNumber), poolNumber)
+		fmt.Printf("Initialized HostPool %d/%d with ID=%d\n", len(pools), numPools, poolNumber)
+
+		poolNumber = poolNumber * 2
+	}
+
+	return pools
+}
+
 // NewStaticIndex creates and returns a pointer to a new StaticIndex struct.
 //
 // Important: the 'gpusPerHost' parameter is expected to be a power of 2. If it isn't, then NewStaticIndex will panic.
-func NewStaticIndex(gpusPerHost int32) (*StaticIndex, error) {
+func NewStaticIndex(gpusPerHost int32) *StaticIndex {
 	if !isPowerOf2(gpusPerHost) {
 		panic(fmt.Sprintf("GPUs per host is NOT a power of 2: %d", gpusPerHost))
 	}
@@ -30,21 +102,32 @@ func NewStaticIndex(gpusPerHost int32) (*StaticIndex, error) {
 	// Compute the number of pools.
 	numPools := int32(math.Log2(float64(gpusPerHost)) + 1)
 
-	multi, err := NewMultiIndex[*LeastLoadedIndex](numPools, NewLeastLoadedIndexWrapper)
-	if err != nil {
-		return nil, err
-	}
+	multi := NewMultiIndexWithHostPoolInitializer[*LeastLoadedIndex](numPools, NewLeastLoadedIndexWrapper, staticIndexPoolInitializer)
 
 	// Reinitialize the logger with a different prefix.
 	config.InitLogger(&multi.log, fmt.Sprintf("StaticIndex[%d Pools] ", numPools))
 
-	static := &StaticIndex{
+	staticIndex := &StaticIndex{
 		MultiIndex:  multi,
 		NumPools:    numPools,
 		GpusPerHost: gpusPerHost,
 	}
 
-	return static, nil
+	config.InitLogger(&staticIndex.log, fmt.Sprintf("StaticIndex[%d Pools] ", numPools))
+
+	return staticIndex
+}
+
+// GetNumPools is a convenience method to return index.NumPools as an int (rather than an int32).
+func (index *StaticIndex) GetNumPools() int {
+	return int(index.NumPools)
+}
+
+// HostPoolIDs returns the valid IDs of each HostPool managed by the target StaticIndex.
+//
+// The returned slice of HostPool IDs will be sorted in ascending order (i.e., smallest to largest).
+func (index *StaticIndex) HostPoolIDs() []int32 {
+	return index.MultiIndex.HostPoolIDs()
 }
 
 // NumFreeHosts returns the number of "free" scheduling.Host instances within the target MultiIndex.
@@ -58,18 +141,32 @@ func (index *StaticIndex) NumFreeHosts() int {
 }
 
 // HasHostPool returns true if the MultiIndex has a host pool for the specified pool index.
-func (index *StaticIndex) HasHostPool(gpus int32) bool {
-	bucket := index.GetBucket(gpus)
+func (index *StaticIndex) HasHostPool(poolNumber int32) bool {
+	bucket := index.GetBucket(poolNumber)
 	_, loaded := index.MultiIndex.HostPools[bucket]
 	return loaded
 }
 
+// NumHostsInPoolByIndex returns the number of hosts in the specified host pool.
+// The gpus parameter is not treated directly as an index. Instead, it is first converted to a bucket.
+func (index *StaticIndex) NumHostsInPoolByIndex(poolIndex int32) int {
+	pool, loaded := index.MultiIndex.HostPools[poolIndex]
+	if !loaded {
+		index.log.Warn("Size of pool with unknown index=%d requested.", poolIndex)
+
+		return -1
+	}
+
+	return pool.Len()
+}
+
 // NumHostsInPool returns the number of hosts in the specified host pool.
+// The gpus parameter is not treated directly as an index. Instead, it is first converted to a bucket.
 func (index *StaticIndex) NumHostsInPool(gpus int32) int {
 	bucket := index.GetBucket(gpus)
 	pool, loaded := index.MultiIndex.HostPools[bucket]
 	if !loaded {
-		index.MultiIndex.log.Warn("Size of pool %d (gpus=%d) requested; however, no such pool exists...",
+		index.log.Warn("Size of pool %d (gpus=%d) requested; however, no such pool exists...",
 			bucket, gpus)
 
 		return -1
@@ -78,7 +175,19 @@ func (index *StaticIndex) NumHostsInPool(gpus int32) int {
 	return pool.Len()
 }
 
-// GetHostPool returns the HostPool for the specified pool index.
+// GetHostPoolByIndex returns the HostPool for the specified pool index.
+// GetHostPoolByIndex does not convert the given index to a bucket.
+func (index *StaticIndex) GetHostPoolByIndex(poolNumber int32) (*HostPool[*LeastLoadedIndex], bool) {
+	pool, loaded := index.MultiIndex.HostPools[poolNumber]
+	if loaded {
+		return pool, true
+	}
+
+	return nil, false
+}
+
+// GetHostPool returns the HostPool for the specified number of GPUs.
+// The gpus parameter is not treated directly as an index. Instead, it is first converted to a bucket.
 func (index *StaticIndex) GetHostPool(gpus int32) (*HostPool[*LeastLoadedIndex], bool) {
 	bucket := index.GetBucket(gpus)
 	pool, loaded := index.MultiIndex.HostPools[bucket]
@@ -93,22 +202,15 @@ func (index *StaticIndex) GetHostPool(gpus int32) (*HostPool[*LeastLoadedIndex],
 //
 // If gpus is 0, then it is set to 1 for the purposes of bucket calculation.
 func (index *StaticIndex) GetBucket(gpus int32) int32 {
-	if gpus == 0 {
-		gpus = 1
-	}
-
-	bucket := index.GpusPerHost / gpus
-	if bucket > index.NumPools {
-		bucket = index.NumPools
-	}
-
-	return bucket - 1
+	return GetStaticIndexBucket(gpus, index.GpusPerHost, index.NumPools)
 }
 
 // Seek returns the host specified by the metrics.
 func (index *StaticIndex) Seek(blacklist []interface{}, metrics ...[]float64) (host scheduling.Host, pos interface{}) {
 	numGpus := int32(metrics[0][0])
 	bucket := float64(index.GetBucket(numGpus))
+
+	index.log.Debug("Seeking host with numGPUs=%d, bucket=%d", numGpus, int32(bucket))
 
 	return index.MultiIndex.Seek(blacklist, []float64{bucket})
 }
@@ -121,8 +223,15 @@ func (index *StaticIndex) Seek(blacklist []interface{}, metrics ...[]float64) (h
 //
 // This entire method is thread-safe. The index is locked until this method returns.
 func (index *StaticIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+	if len(metrics) == 0 || len(metrics[0]) == 0 {
+		index.log.Error("StaticIndex::SeekMultipleFrom is missing valid metrics.")
+		panic("StaticIndex::SeekMultipleFrom requires a single valid metric to be passed in the form of the number of GPUs required for the host")
+	}
+
 	numGpus := int32(metrics[0][0])
 	bucket := float64(index.GetBucket(numGpus))
+
+	index.log.Debug("Seeking %d host(s) with numGPUs=%d, bucket=%d", n, numGpus, int32(bucket))
 
 	return index.MultiIndex.SeekMultipleFrom(pos, n, criteriaFunc, blacklist, []float64{bucket})
 }

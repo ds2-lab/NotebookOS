@@ -13,6 +13,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"go.uber.org/mock/gomock"
+	"slices"
 )
 
 var _ = Describe("Static Index Tests", func() {
@@ -73,12 +74,40 @@ var _ = Describe("Static Index Tests", func() {
 		return host
 	}
 
+	It("Will be instantiated correctly", func() {
+		staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
+		Expect(staticIndex).ToNot(BeNil())
+
+		expectedHostPoolIds := []int32{1, 2, 4, 8}
+
+		Expect(staticIndex.NumPools).To(Equal(int32(4)))
+		Expect(staticIndex.GetNumPools()).To(Equal(4))
+
+		actualHostPoolIds := staticIndex.HostPoolIDs()
+		Expect(actualHostPoolIds).ToNot(BeNil())
+		Expect(len(actualHostPoolIds)).To(Equal(len(expectedHostPoolIds)))
+
+		Expect(expectedHostPoolIds).To(Equal(actualHostPoolIds))
+		for _, expectedId := range expectedHostPoolIds {
+			Expect(slices.Contains(actualHostPoolIds, expectedId)).To(BeTrue())
+		}
+
+		for _, expectedId := range expectedHostPoolIds {
+			GinkgoWriter.Printf("Loading HostPool %d\n", expectedId)
+			pool, loaded := staticIndex.GetHostPoolByIndex(expectedId)
+			Expect(loaded).To(BeTrue())
+			Expect(pool).ToNot(BeNil())
+			Expect(pool.Len()).To(Equal(0))
+
+			Expect(staticIndex.NumHostsInPoolByIndex(expectedId)).To(Equal(0))
+		}
+	})
+
 	Context("Adding and Removing Hosts", func() {
 		Context("Empty Hosts", func() {
 			It("Will handle a single add operation correctly", func() {
-				staticIndex, err := index.NewStaticIndex(int32(hostSpec.GPU()))
+				staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
 				Expect(staticIndex).ToNot(BeNil())
-				Expect(err).To(BeNil())
 
 				host1 := createHost(1)
 				staticIndex.Add(host1)
@@ -103,8 +132,7 @@ var _ = Describe("Static Index Tests", func() {
 			})
 
 			It("Will handle an add followed by a remove correctly", func() {
-				staticIndex, err := index.NewStaticIndex(int32(hostSpec.GPU()))
-				Expect(err).To(BeNil())
+				staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
 				Expect(staticIndex).ToNot(BeNil())
 
 				host1 := createHost(1)
@@ -124,8 +152,7 @@ var _ = Describe("Static Index Tests", func() {
 			})
 
 			It("Will handle multiple add and remove operations correctly", func() {
-				staticIndex, err := index.NewStaticIndex(int32(hostSpec.GPU()))
-				Expect(err).To(BeNil())
+				staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
 				Expect(staticIndex).ToNot(BeNil())
 
 				host1 := createHost(1)
@@ -203,15 +230,13 @@ var _ = Describe("Static Index Tests", func() {
 		Context("Non-Empty Hosts", func() {
 			var (
 				staticIndex *index.StaticIndex
-				err         error
 				host1       scheduling.Host
 				host2       scheduling.Host
 				host3       scheduling.Host
 			)
 
 			BeforeEach(func() {
-				staticIndex, err = index.NewStaticIndex(int32(hostSpec.GPU()))
-				Expect(err).To(BeNil())
+				staticIndex = index.NewStaticIndex(int32(hostSpec.GPU()))
 				Expect(staticIndex).ToNot(BeNil())
 
 				host1 = createHost(1)

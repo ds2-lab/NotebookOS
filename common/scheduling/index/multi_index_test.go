@@ -81,9 +81,8 @@ var _ = Describe("MultiIndex Tests", func() {
 		Context("Adding and Removing Hosts", func() {
 			Context("Empty Hosts", func() {
 				It("Will handle a single add operation correctly", func() {
-					multiIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
+					multiIndex := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(multiIndex).ToNot(BeNil())
-					Expect(err).To(BeNil())
 
 					host1 := createHost(1)
 					multiIndex.Add(host1)
@@ -108,8 +107,7 @@ var _ = Describe("MultiIndex Tests", func() {
 				})
 
 				It("Will handle an add followed by a remove correctly", func() {
-					multiIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
-					Expect(err).To(BeNil())
+					multiIndex := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(multiIndex).ToNot(BeNil())
 
 					host1 := createHost(1)
@@ -129,8 +127,7 @@ var _ = Describe("MultiIndex Tests", func() {
 				})
 
 				It("Will handle multiple add and remove operations correctly", func() {
-					multiIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
-					Expect(err).To(BeNil())
+					multiIndex := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(multiIndex).ToNot(BeNil())
 
 					host1 := createHost(1)
@@ -208,15 +205,13 @@ var _ = Describe("MultiIndex Tests", func() {
 			Context("Non-Empty Hosts", func() {
 				var (
 					multiIndex *index.MultiIndex[*index.LeastLoadedIndex]
-					err        error
 					host1      scheduling.Host
 					host2      scheduling.Host
 					host3      scheduling.Host
 				)
 
 				BeforeEach(func() {
-					multiIndex, err = index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
-					Expect(err).To(BeNil())
+					multiIndex = index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(multiIndex).ToNot(BeNil())
 
 					host1 = createHost(1)
