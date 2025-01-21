@@ -315,7 +315,7 @@ class SimulatedCheckpointer(object):
 
             # Keep sleeping in ~1sec increments until we've transferred everything.
             while bytes_remaining > 0:
-                self.log.debug("Sleeping for 1 second as remaining data transfer is expected to take longer than that.")
+                # self.log.debug("Sleeping for 1 second as remaining data transfer is expected to take longer than that.")
                 await asyncio.sleep(sleep_interval_sec)
 
                 # Since current_rate is bytes/second, and we just simulated I/O for 1 second,

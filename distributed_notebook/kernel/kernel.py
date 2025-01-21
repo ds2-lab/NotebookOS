@@ -528,8 +528,8 @@ class DistributedKernel(IPythonKernel):
         self.remote_storages: Dict[str, SimulatedCheckpointer] = {
             "AWS S3 (Default)": SimulatedCheckpointer(
                 name="AWS S3 (Default)",
-                download_rate=200_000_000,  # 200MB/sec
-                upload_rate=1_000_000,  # 1MB/sec
+                download_rate=300_000_000,  # 300 MB/sec
+                upload_rate=75_000_000,  # 75 MB/sec
                 download_variance_percent=0.05,
                 upload_variance_percent=0.05,
                 read_failure_chance_percentage=0.0,
@@ -2567,7 +2567,7 @@ class DistributedKernel(IPythonKernel):
         self.cuda_initialized = True
 
     async def simulate_download_model_and_training_data(
-            self, force: bool = False
+            self, force: bool = False, remote_storage_name: Optional[str] = None,
     ) -> tuple[float, float]:
         self.log.debug("Simulating the downloading of model and training data...")
 
@@ -2618,11 +2618,11 @@ class DistributedKernel(IPythonKernel):
             f"Downloading model and training data. Combined size: {vram_mb:,} MB."
         )
         download_model_duration: float = await self.simulate_remote_checkpointing(
-            None, io_type="download", vram_bytes=vram_bytes // 2
+            remote_storage_name, io_type="download", vram_bytes=vram_bytes // 2
         )
         download_training_data_duration: float = (
             await self.simulate_remote_checkpointing(
-                None, io_type="download", vram_bytes=vram_bytes // 2
+                remote_storage_name, io_type="download", vram_bytes=vram_bytes // 2
             )
         )
 
