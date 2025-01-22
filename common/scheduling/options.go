@@ -41,6 +41,9 @@ type SchedulerOptions struct {
 	StdDevScaleOutPerHostSec            int     `name:"std_dev_scale_out_per_host_sec" json:"std_dev_scale_out_per_host_sec" yaml:"std_dev_scale_out_per_host_sec"`
 	MeanScaleInPerHostSec               int     `name:"mean_scale_in_per_host_sec" json:"mean_scale_in_per_host_sec" yaml:"mean_scale_in_per_host_sec"`
 	StdDevScaleInPerHostSec             int     `name:"std_dev_scale_in_per_host_sec" json:"std_dev_scale_in_per_host_sec" yaml:"std_dev_scale_in_per_host_sec"`
+
+	// If true, then assign debug ports to kernel containers that will be passed to their Golang backend to start a net/pprof debug server.
+	AssignKernelDebugPorts bool `name:"assign_kernel_debug_ports" json:"assign_kernel_debug_ports" yaml:"assign_kernel_debug_ports" description:"If true, then assign debug ports to kernel containers that will be passed to their Golang backend to start a net/pprof debug server."`
 }
 
 // GetGpusPerHost returns the number of allocatable GPUs on each entity.Host.

@@ -7,7 +7,6 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"math"
 	"slices"
 	"sync"
 	"time"
@@ -304,13 +303,9 @@ func (m *JobManager) scheduleJobs() error {
 		}
 	}
 
-	for _, job := range m.RunnableJobs {
-		// TODO: Add this logic?
-		//if 'node_set' in job:
-		//	# make sure that all jobs to run can be allocated
-		//	ret = CLUSTER.release_job_res(job, end=False)
-		//	assert ret
-	}
+	//for _, job := range m.RunnableJobs {
+	//
+	//}
 
 	for _, job := range jobsToPreempt {
 		m.preemptJob(job)
@@ -396,36 +391,55 @@ func (m *JobManager) preemptJob(job *Job) {
 	panic("Not implemented")
 }
 
-func (m *JobManager) performPromotionsAndDemotions() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	nextJump := time.UnixMilli(math.MaxInt32)
-	for _, job := range m.RunnableJobs {
-		if job.IsRunning() {
-			queueId := job.CurrentQueueId
-			if !m.isLastQueue(queueId) {
-				jumpTimeFloat := math.Ceil(float64((m.QueueLimits[queueId] - job.ExecutedTime) / time.Duration(job.NumGPUs())))
-				jumpTime := time.Now().Add(time.Duration(jumpTimeFloat))
-
-				if jumpTime.Before(nextJump) {
-					nextJump = jumpTime
-				}
-			}
-			continue
-		}
-
-		if job.IsPending() {
-			// line 2998
-			continue
-		}
-	}
-
-	// TODO: Implement me.
-	panic("Not implemented")
-
-	return nil
-}
+// Commented out
+//
+// This corresponds to lines 2986 - 3004 of scheduler.py from ElasticNotebook.
+// I don't think we need that part though, as they seem to just use it to figure out
+// when to run simulator to for next event to be processed.
+//
+// That is, they figure out if the next queue jump occurs before/after the next event,
+// and if it is before, then they will run simulator until the queue jump occurs, rather
+// than until the next jump occurs.
+//
+//func (m *JobManager) performPromotionsAndDemotions() error {
+//	m.mu.Lock()
+//	defer m.mu.Unlock()
+//
+//	nextJump := time.UnixMilli(math.MaxInt32)
+//	for _, job := range m.RunnableJobs {
+//		if job.IsRunning() {
+//			queueId := job.CurrentQueueId
+//			if !m.isLastQueue(queueId) {
+//				jumpTimeFloat := math.Ceil(float64((m.QueueLimits[queueId] - job.ExecutedTime) / time.Duration(job.NumGPUs())))
+//				jumpTime := time.Now().Add(time.Duration(jumpTimeFloat))
+//
+//				if jumpTime.Before(nextJump) {
+//					nextJump = jumpTime
+//				}
+//			}
+//			continue
+//		}
+//
+//		if job.IsPending() {
+//			// When will pending jobs push back to Q0?
+//			if m.StarvationLimit > 0 && job.CurrentQueueId > 0 && job.ExecutedTime > 0 {
+//				timeDifference := (job.ExecutedTime * m.StarvationLimit) - job.LastPendingTime
+//				if timeDifference > 0 {
+//					jumpTime := time.Now().Add(timeDifference)
+//
+//					if jumpTime.Before(nextJump) {
+//						nextJump = jumpTime
+//					}
+//				}
+//			}
+//		}
+//	}
+//
+//	// TODO: Implement me.
+//	panic("Not implemented")
+//
+//	return nil
+//}
 
 func (m *JobManager) Perform2DLAS() {
 	err := m.updateJobs()
@@ -436,10 +450,5 @@ func (m *JobManager) Perform2DLAS() {
 	err = m.scheduleJobs()
 	if err != nil {
 		m.log.Error("Encountered one or more errors while scheduling jobs: %v", err)
-	}
-
-	err = m.performPromotionsAndDemotions()
-	if err != nil {
-		m.log.Error("Encountered one or more errors while promoting and demoting jobs: %v", err)
 	}
 }

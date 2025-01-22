@@ -70,3 +70,4 @@ std_dev_scale_in_per_host_sec: 1
 starting_resource_port: 9007
 num_resource_ports: 4096
 use_real_gpus: false
+assign_kernel_debug_ports: false

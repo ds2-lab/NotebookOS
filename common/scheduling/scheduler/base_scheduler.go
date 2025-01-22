@@ -400,7 +400,9 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		hosts       []scheduling.Host
 	)
 
-	maxAttempts := 6
+	// TODO: How many times should we really retry here? If we fail, try to scale out, and fail again,
+	// 		 then shouldn't we just give up and leave it to the client to resubmit?
+	maxAttempts := 3
 	retryParameters := wait.Backoff{
 		Duration: time.Second * 2,
 		Factor:   1.5,

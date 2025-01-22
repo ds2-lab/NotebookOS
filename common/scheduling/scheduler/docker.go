@@ -35,6 +35,10 @@ type DockerScheduler struct {
 
 	// Used in Docker mode. Assigned to individual kernel replicas, incremented after each assignment.
 	dockerModeKernelDebugPort atomic.Int32
+
+	// AssignKernelDebugPorts is a flag that, when true, directs the DockerScheduler to assign "debug ports" to
+	// kernel containers that will be passed to their Golang backend to start a net/pprof debug server.
+	AssignKernelDebugPorts bool
 }
 
 // newDockerScheduler is called internally by "constructors" of other schedulers that "extend" DockerScheduler.
@@ -56,7 +60,8 @@ func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 		WithOptions(opts).Build()
 
 	dockerScheduler := &DockerScheduler{
-		BaseScheduler: baseScheduler,
+		BaseScheduler:          baseScheduler,
+		AssignKernelDebugPorts: opts.AssignKernelDebugPorts,
 	}
 
 	dockerScheduler.dockerModeKernelDebugPort.Store(DockerKernelDebugPortDefault)
@@ -241,8 +246,15 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 			replicaSpec.ReplicaId, kernelId, targetHost.GetID())
 	}
 
-	// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
-	if replicaSpec.DockerModeKernelDebugPort <= 1023 {
+	// Check if we're supposed to assign "debug ports" to kernels.
+	// If so, then we'll check if one has already been assigned (somehow), and if not, then we'll assign one.
+	//
+	// If we're NOT supposed to assign "debug ports", then we'll explicitly assign -1, which will
+	// ensure that the Local Daemon that creates the kernel container does not bind a port for this purpose.
+	if !s.AssignKernelDebugPorts {
+		replicaSpec.DockerModeKernelDebugPort = -1
+	} else if replicaSpec.DockerModeKernelDebugPort <= 1023 {
+		// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
 		replicaSpec.DockerModeKernelDebugPort = s.dockerModeKernelDebugPort.Add(1)
 
 		s.log.Debug("Assigned docker mode kernel replica debug port to %d for replica %d of kernel %s.",
