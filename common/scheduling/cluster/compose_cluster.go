@@ -141,13 +141,13 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
 //
-// Important: this should be called with the Cluster's hostMutex already acquired.
-func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func() {
+// Important: this should be called with the Cluster's scalingMutex already acquired.
+func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}, scaleOpId string) func() {
 	return func() {
 		currentScale := c.Len()
 		numNewNodesRequired := targetScale - int32(currentScale)
-		c.log.Debug("Scaling out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d.",
-			targetScale, currentScale, numNewNodesRequired, c.DisabledHosts.Len())
+		c.log.Debug("Scaling out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d. ScaleOpId: %s.",
+			targetScale, currentScale, numNewNodesRequired, c.DisabledHosts.Len(), scaleOpId)
 
 		numDisabledHostsUsed := 0
 		if c.DisabledHosts.Len() > 0 {
@@ -156,26 +156,29 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 			c.DisabledHosts.Range(func(hostId string, host scheduling.Host) (contd bool) {
 				err := host.Enable(true)
 				if err != nil {
-					c.log.Error("Failed to re-enable host %s because: %v", hostId, err)
+					c.log.Error("Failed to re-enable host %s (ID=%s) during scale-out %s because: %v",
+						host.GetNodeName(), hostId, scaleOpId, err)
+
 					// For now, we panic, as we don't expect there to be a "valid" reason to fail to enable a host.
 					// Later on, we may find that there are valid reasons, in which case we'd just handle the
 					// error in whatever way is appropriate, such as by skipping this host and trying the next one.
 					panic(err)
 				}
 
-				c.log.Debug("Using disabled host %s in scale-out operation.", hostId)
+				c.log.Debug("Using disabled host %s (ID=%s) in scale-out operation %s.",
+					host.GetNodeName(), hostId, scaleOpId)
 
 				scaleOutDurationSec := (rand.NormFloat64() * c.StdDevScaleOutPerHost.Seconds()) + c.MeanScaleOutPerHost.Seconds()
 				scaleOutDuration := time.Duration(scaleOutDurationSec) * time.Second
-				c.log.Debug("Simulating scale-out with duration %v", scaleOutDuration)
+				c.log.Debug("Simulating scale-out for host %s (ID=%s) during operation %s. Duration: %v",
+					host.GetNodeName(), hostId, scaleOpId, scaleOutDuration)
 				time.Sleep(scaleOutDuration)
 
 				// This will add the host back to the Cluster.
 				err = c.NewHostAddedOrConnected(host)
 				if err != nil {
-					c.log.Error("Error adding newly-connected host %s (ID=%s) to cluster: %v",
-						host.GetNodeName(), host.GetID(), err)
-					// TODO: Need to handle this error...
+					c.log.Error("Error adding newly-connected host %s (ID=%s) to cluster during scale-out %s: %v",
+						host.GetNodeName(), hostId, scaleOpId, err)
 				}
 
 				enabledHosts = append(enabledHosts, host)
@@ -183,13 +186,19 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 				numDisabledHostsUsed += 1
 
 				// If we have already satisfied the scale-out requirement, then we'll stop iterating.
-				return numNewNodesRequired != 0
+				// So, return true (i.e., continue iterating) if numNewNodesRequired > 0.
+				// Otherwise, return false (i.e., stop iterating).
+				return numNewNodesRequired > 0
 			})
+
+			c.log.Debug("Removing %d host(s) from DisabledHosts after simulating scale-out operation %s",
+				len(enabledHosts), scaleOpId)
 
 			// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the
 			// "disabled hosts" mapping.
 			for _, host := range enabledHosts {
 				_, loaded := c.DisabledHosts.LoadAndDelete(host.GetID())
+				c.log.Debug("Removed host %s (ID=%s) from DisabledHosts", host.GetNodeName(), host.GetID())
 				if !loaded {
 					c.log.Error("Failed to find host %s in DisabledHosts map after using it in scale-out operation.",
 						host.GetID())
@@ -215,30 +224,6 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 
 		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker compose clusters",
 			scheduling.ErrUnsupportedOperation)
-
-		//c.log.Debug("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.",
-		//	targetScale)
-		//c.log.Debug("Number of disabled nodes used: %d. Number of additional nodes required: %d.",
-		//	numDisabledHostsUsed, numNewNodesRequired)
-		//
-		//// TODO: This doesn't seem to work if executed from within the container.
-		//// TODO: Specifically, the volumes don't get bound correctly, and the new scheduler cannot do anything.
-		//app := "docker"
-		//argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetScale)
-		//args := strings.Split(argString, " ")
-		//
-		//cmd := exec.Command(app, args...)
-		//stdout, err := cmd.CombinedOutput()
-		//
-		//if err != nil {
-		//	c.log.Error("Failed to scale-out to %d node because: %v", targetScale, err)
-		//	c.log.Error("Output from failed attempt at scaling-out to %d nodes:\n%s", targetScale, string(stdout))
-		//	coreLogicDoneChan <- err
-		//} else {
-		//	c.log.Debug("Output from scaling-out to %d nodes:\n%s", targetScale, string(stdout))
-		//
-		//	coreLogicDoneChan <- struct{}{}
-		//}
 	}
 }
 

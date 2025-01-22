@@ -123,7 +123,7 @@ type ScalingManager interface {
 	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
 	//
 	// IMPORTANT: this method should be called while the hostMutex is already held.
-	GetScaleOutCommand(targetNumNodes int32, coreLogicDoneChan chan interface{}) func()
+	GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}, scaleOpId string) func()
 
 	// CanPossiblyScaleOut returns true if the Cluster could possibly scale-out.
 	// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,

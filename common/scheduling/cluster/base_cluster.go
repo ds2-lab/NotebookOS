@@ -521,48 +521,6 @@ func (c *BaseCluster) Len() int {
 	return c.hosts.Len()
 }
 
-// RegisterScaleOperation registers a non-specific type of ScaleOperation.
-// Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation
-// depends on how the target node count compares to the current node count.
-//
-// If the target node count is greater than the current node count, then a ScaleOutOperation is created,
-// registered, and returned.
-//
-// Alternatively, if the target node count is less than the current node count, then a ScaleInOperation is created,
-// registered, and returned.
-func (c *BaseCluster) registerScaleOperation(operationId string, targetClusterSize int32) (*scheduler.ScaleOperation, error) {
-	c.scalingOpMutex.Lock()
-	defer c.scalingOpMutex.Unlock()
-
-	if c.activeScaleOperation != nil {
-		opType := c.activeScaleOperation.OperationType
-		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", opType.String())
-		return nil, fmt.Errorf("%w: %s", scheduling.ErrScalingActive, opType.String())
-	}
-
-	var (
-		currentClusterSize = int32(c.Len())
-		scaleOperation     *scheduler.ScaleOperation
-		err                error
-	)
-	if targetClusterSize > currentClusterSize {
-		scaleOperation, err = scheduler.NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
-	} else {
-		scaleOperation, err = scheduler.NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	if scaleOperation.OperationType != scheduler.ScaleOutOperation {
-		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", scheduler.ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
-	}
-
-	c.activeScaleOperation = scaleOperation
-	return scaleOperation, nil
-}
-
 // unregisterActiveScaleOp unregisters the current active ScaleOperation and returns a boolean indicating whether
 // a ScaleOperation was in fact unregistered.
 //
@@ -1154,8 +1112,8 @@ func (c *BaseCluster) GetHost(hostId string) (scheduling.Host, bool) {
 // targetNumNodes specifies the desired size of the Cluster.
 //
 // resultChan is used to notify a waiting goroutine that the scale-out operation has finished.
-func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
-	return c.instance.GetScaleOutCommand(targetNumNodes, resultChan)
+func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}, scaleOpId string) func() {
+	return c.instance.GetScaleOutCommand(targetNumNodes, resultChan, scaleOpId)
 }
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.

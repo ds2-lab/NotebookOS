@@ -137,7 +137,7 @@ func (c *DockerSwarmCluster) unsafeEnableHost(id string) error {
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
 //
 // Important: this should be called with the Cluster's hostMutex already acquired.
-func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func() {
+func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}, scaleOpId string) func() {
 	return func() {
 		currentScale := c.Len()
 		numNewNodesRequired := targetScale - int32(currentScale)

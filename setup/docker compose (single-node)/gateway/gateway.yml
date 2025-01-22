@@ -14,7 +14,7 @@ iosub-port: 9005
 ack-port: 9006
 starting-resource-port: 9007
 debug_port: 9996
-num-resource-ports: 256
+num-resource-ports: 4096
 provisioner: "gateway:8081"
 remote-storage-endpoint: host.docker.internal:10000
 debug: true

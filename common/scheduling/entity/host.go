@@ -902,7 +902,7 @@ func (h *Host) Enable(includeInScheduling bool) error {
 			_ = h.IncludeForScheduling()
 		}
 
-		return fmt.Errorf("%w: host \"%s\" is already enabled", scheduling.ErrInvalidHost, h.ID)
+		return fmt.Errorf("%w (host %s): %w", scheduling.ErrInvalidHost, h.ID, scheduling.ErrHostAlreadyEnabled)
 	}
 
 	h.enabled = true
@@ -918,7 +918,7 @@ func (h *Host) Enable(includeInScheduling bool) error {
 // If the Host is already disabled, then this returns an error.
 func (h *Host) Disable() error {
 	if !h.enabled {
-		return fmt.Errorf("%w: host \"%s\" is already disabled", scheduling.ErrInvalidHost, h.ID)
+		return fmt.Errorf("%w (host %s): %w", scheduling.ErrInvalidHost, h.ID, scheduling.ErrHostAlreadyDisabled)
 	}
 
 	h.enabled = false

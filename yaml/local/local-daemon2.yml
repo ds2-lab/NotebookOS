@@ -23,7 +23,7 @@ ipython-config-path: /home/jovyan/.ipython/profile_default/ipython_config.json
 smr-port: 48080
 kube-namespace: default
 starting-resource-port: 49007
-num-resource-ports: 256
+num-resource-ports: 4096
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter

@@ -98,7 +98,7 @@ func (c *KubernetesCluster) HandleScaleOutOperation(_ *scheduler.ScaleOperation)
 }
 
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
-func (c *KubernetesCluster) GetScaleOutCommand(_ int32, _ chan interface{}) func() {
+func (c *KubernetesCluster) GetScaleOutCommand(_ int32, _ chan interface{}, _ string) func() {
 	panic(fmt.Errorf("%w: KubernetesCluster::GetScaleOutCommand", scheduling.ErrNotImplementedYet))
 }
 
