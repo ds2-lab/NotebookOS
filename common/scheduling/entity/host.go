@@ -144,7 +144,10 @@ type Host struct {
 	penalties         []cachedPenalty
 	penaltyValidity   bool
 	schedulerPoolType scheduling.SchedulerPoolType
-	heapIndex         int
+
+	HeapIndexes      map[types.HeapElementMetadataKey]int
+	heapIndexesMutex sync.Mutex
+	// heapIndex         int
 }
 
 // newHostForRestoration creates and returns a new Host to be used only for restoring an existing Host.
@@ -423,13 +426,36 @@ func (h *Host) SetSchedulerPoolType(schedulerPoolType scheduling.SchedulerPoolTy
 }
 
 // SetIdx is part of the HeapElement implementation.
-func (h *Host) SetIdx(idx int) {
-	h.heapIndex = idx
+func (h *Host) SetIdx(key types.HeapElementMetadataKey, idx int) {
+	h.heapIndexesMutex.Lock()
+	defer h.heapIndexesMutex.Unlock()
+
+	if h.HeapIndexes == nil {
+		h.HeapIndexes = make(map[types.HeapElementMetadataKey]int)
+	}
+
+	h.HeapIndexes[key] = idx
+
+	//h.heapIndex = idx
 }
 
 // GetIdx returns the target Host's heapIndex.
-func (h *Host) GetIdx() int {
-	return h.heapIndex
+func (h *Host) GetIdx(key types.HeapElementMetadataKey) int {
+	h.heapIndexesMutex.Lock()
+	defer h.heapIndexesMutex.Unlock()
+
+	if h.HeapIndexes == nil {
+		h.HeapIndexes = make(map[types.HeapElementMetadataKey]int)
+		return -1
+	}
+
+	idx, loaded := h.HeapIndexes[key]
+	if loaded {
+		return idx
+	}
+
+	return -1
+	//return h.heapIndex
 }
 
 func (h *Host) Compare(h2 interface{}) float64 {
@@ -1100,7 +1126,10 @@ func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string,
 		return err
 	}
 
-	h.indexUpdater.UpdateIndex(h)
+	err = h.indexUpdater.UpdateIndex(h)
+	if err != nil {
+		return err
+	}
 
 	delete(h.kernelsWithCommittedResources, kernelId)
 	return nil

@@ -73,7 +73,7 @@ func (index *LeastLoadedIndex) Add(host scheduling.Host) {
 
 func (index *LeastLoadedIndex) unsafeAdd(host scheduling.Host) {
 	heap.Push(index.hosts, host)
-	idx := host.GetIdx()
+	idx := host.GetIdx(LeastLoadedIndexMetadataKey)
 
 	host.SetMeta(LeastLoadedIndexMetadataKey, int32(idx))
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
@@ -88,7 +88,7 @@ func (index *LeastLoadedIndex) unsafeAdd(host scheduling.Host) {
 
 func (index *LeastLoadedIndex) unsafeAddBack(host scheduling.Host) {
 	heap.Push(index.hosts, host)
-	idx := host.GetIdx()
+	idx := host.GetIdx(LeastLoadedIndexMetadataKey)
 	host.SetMeta(LeastLoadedIndexMetadataKey, int32(idx))
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
@@ -97,9 +97,9 @@ func (index *LeastLoadedIndex) unsafeAddBack(host scheduling.Host) {
 
 // Update is not thread-safe.
 func (index *LeastLoadedIndex) Update(host scheduling.Host) {
-	oldIdx := host.GetIdx()
+	oldIdx := host.GetIdx(LeastLoadedIndexMetadataKey)
 	heap.Fix(index.hosts, oldIdx)
-	newIdx := host.GetIdx()
+	newIdx := host.GetIdx(LeastLoadedIndexMetadataKey)
 
 	host.SetMeta(LeastLoadedIndexMetadataKey, int32(newIdx))
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
@@ -118,7 +118,7 @@ func (index *LeastLoadedIndex) UpdateMultiple(hosts []scheduling.Host) {
 	heap.Init(index.hosts)
 
 	for _, host := range hosts {
-		host.SetMeta(LeastLoadedIndexMetadataKey, int32(host.GetIdx()))
+		host.SetMeta(LeastLoadedIndexMetadataKey, int32(host.GetIdx(LeastLoadedIndexMetadataKey)))
 		host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 		host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
 
@@ -300,7 +300,7 @@ func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteria
 		// its current index is.
 		//
 		// We only have to do this if we're going to keep searching.
-		heap.Remove(index.hosts, candidateHost.GetIdx())
+		heap.Remove(index.hosts, candidateHost.GetIdx(LeastLoadedIndexMetadataKey))
 
 		// Take note that we need to add the host back.
 		hostsToBeAddedBack[candidateHost.GetID()] = candidateHost

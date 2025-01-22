@@ -1268,6 +1268,8 @@ func (s *BaseScheduler) validate() {
 	}
 }
 
+var IdleHostMetadataKey types.HeapElementMetadataKey = "idle_host_metadata_key"
+
 type idleSortedHost struct {
 	scheduling.Host
 }
@@ -1283,8 +1285,12 @@ func (h *idleSortedHost) Compare(other interface{}) float64 {
 	}
 }
 
-func (h *idleSortedHost) SetIdx(idx int) {
-	h.Host.SetIdx(idx)
+func (h *idleSortedHost) SetIdx(key types.HeapElementMetadataKey, idx int) {
+	h.Host.SetIdx(key, idx)
+}
+
+func (h *idleSortedHost) GetIdx(key types.HeapElementMetadataKey) int {
+	return h.Host.GetIdx(key)
 }
 
 // migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.

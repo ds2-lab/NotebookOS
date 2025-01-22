@@ -210,17 +210,17 @@ func (mr *MockClusterMockRecorder) GetScaleInCommand(targetNumNodes, targetHosts
 }
 
 // GetScaleOutCommand mocks base method.
-func (m *MockCluster) GetScaleOutCommand(targetNumNodes int32, coreLogicDoneChan chan any) func() {
+func (m *MockCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan any, scaleOpId string) func() {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetScaleOutCommand", targetNumNodes, coreLogicDoneChan)
+	ret := m.ctrl.Call(m, "GetScaleOutCommand", targetScale, coreLogicDoneChan, scaleOpId)
 	ret0, _ := ret[0].(func())
 	return ret0
 }
 
 // GetScaleOutCommand indicates an expected call of GetScaleOutCommand.
-func (mr *MockClusterMockRecorder) GetScaleOutCommand(targetNumNodes, coreLogicDoneChan any) *gomock.Call {
+func (mr *MockClusterMockRecorder) GetScaleOutCommand(targetScale, coreLogicDoneChan, scaleOpId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScaleOutCommand", reflect.TypeOf((*MockCluster)(nil).GetScaleOutCommand), targetNumNodes, coreLogicDoneChan)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScaleOutCommand", reflect.TypeOf((*MockCluster)(nil).GetScaleOutCommand), targetScale, coreLogicDoneChan, scaleOpId)
 }
 
 // GetSession mocks base method.
@@ -250,6 +250,34 @@ func (m *MockCluster) Len() int {
 func (mr *MockClusterMockRecorder) Len() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Len", reflect.TypeOf((*MockCluster)(nil).Len))
+}
+
+// MeanScaleInTime mocks base method.
+func (m *MockCluster) MeanScaleInTime() time.Duration {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MeanScaleInTime")
+	ret0, _ := ret[0].(time.Duration)
+	return ret0
+}
+
+// MeanScaleInTime indicates an expected call of MeanScaleInTime.
+func (mr *MockClusterMockRecorder) MeanScaleInTime() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MeanScaleInTime", reflect.TypeOf((*MockCluster)(nil).MeanScaleInTime))
+}
+
+// MeanScaleOutTime mocks base method.
+func (m *MockCluster) MeanScaleOutTime() time.Duration {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MeanScaleOutTime")
+	ret0, _ := ret[0].(time.Duration)
+	return ret0
+}
+
+// MeanScaleOutTime indicates an expected call of MeanScaleOutTime.
+func (mr *MockClusterMockRecorder) MeanScaleOutTime() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MeanScaleOutTime", reflect.TypeOf((*MockCluster)(nil).MeanScaleOutTime))
 }
 
 // MetricsProvider mocks base method.
@@ -630,6 +658,34 @@ func (m *MockCluster) Sessions() hashmap.HashMap[string, scheduling.UserSession]
 func (mr *MockClusterMockRecorder) Sessions() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sessions", reflect.TypeOf((*MockCluster)(nil).Sessions))
+}
+
+// StdDevScaleInTime mocks base method.
+func (m *MockCluster) StdDevScaleInTime() time.Duration {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StdDevScaleInTime")
+	ret0, _ := ret[0].(time.Duration)
+	return ret0
+}
+
+// StdDevScaleInTime indicates an expected call of StdDevScaleInTime.
+func (mr *MockClusterMockRecorder) StdDevScaleInTime() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StdDevScaleInTime", reflect.TypeOf((*MockCluster)(nil).StdDevScaleInTime))
+}
+
+// StdDevScaleOutTime mocks base method.
+func (m *MockCluster) StdDevScaleOutTime() time.Duration {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StdDevScaleOutTime")
+	ret0, _ := ret[0].(time.Duration)
+	return ret0
+}
+
+// StdDevScaleOutTime indicates an expected call of StdDevScaleOutTime.
+func (mr *MockClusterMockRecorder) StdDevScaleOutTime() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StdDevScaleOutTime", reflect.TypeOf((*MockCluster)(nil).StdDevScaleOutTime))
 }
 
 // SubscriptionRatio mocks base method.
@@ -2021,17 +2077,17 @@ func (mr *MockHostMockRecorder) GetID() *gomock.Call {
 }
 
 // GetIdx mocks base method.
-func (m *MockHost) GetIdx() int {
+func (m *MockHost) GetIdx(arg0 types.HeapElementMetadataKey) int {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetIdx")
+	ret := m.ctrl.Call(m, "GetIdx", arg0)
 	ret0, _ := ret[0].(int)
 	return ret0
 }
 
 // GetIdx indicates an expected call of GetIdx.
-func (mr *MockHostMockRecorder) GetIdx() *gomock.Call {
+func (mr *MockHostMockRecorder) GetIdx(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIdx", reflect.TypeOf((*MockHost)(nil).GetIdx))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIdx", reflect.TypeOf((*MockHost)(nil).GetIdx), arg0)
 }
 
 // GetKernelStatus mocks base method.
@@ -2935,15 +2991,15 @@ func (mr *MockHostMockRecorder) SetID(ctx, in any, opts ...any) *gomock.Call {
 }
 
 // SetIdx mocks base method.
-func (m *MockHost) SetIdx(idx int) {
+func (m *MockHost) SetIdx(arg0 types.HeapElementMetadataKey, arg1 int) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetIdx", idx)
+	m.ctrl.Call(m, "SetIdx", arg0, arg1)
 }
 
 // SetIdx indicates an expected call of SetIdx.
-func (mr *MockHostMockRecorder) SetIdx(idx any) *gomock.Call {
+func (mr *MockHostMockRecorder) SetIdx(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIdx", reflect.TypeOf((*MockHost)(nil).SetIdx), idx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIdx", reflect.TypeOf((*MockHost)(nil).SetIdx), arg0, arg1)
 }
 
 // SetMeta mocks base method.
@@ -6687,6 +6743,21 @@ func (mr *MockPolicyMockRecorder) ScalingConfiguration() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScalingConfiguration", reflect.TypeOf((*MockPolicy)(nil).ScalingConfiguration))
 }
 
+// SelectReplicaForMigration mocks base method.
+func (m *MockPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectReplicaForMigration", kernel)
+	ret0, _ := ret[0].(scheduling.KernelReplica)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectReplicaForMigration indicates an expected call of SelectReplicaForMigration.
+func (mr *MockPolicyMockRecorder) SelectReplicaForMigration(kernel any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectReplicaForMigration", reflect.TypeOf((*MockPolicy)(nil).SelectReplicaForMigration), kernel)
+}
+
 // SmrEnabled mocks base method.
 func (m *MockPolicy) SmrEnabled() bool {
 	m.ctrl.T.Helper()
@@ -6699,4 +6770,18 @@ func (m *MockPolicy) SmrEnabled() bool {
 func (mr *MockPolicyMockRecorder) SmrEnabled() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SmrEnabled", reflect.TypeOf((*MockPolicy)(nil).SmrEnabled))
+}
+
+// SupportsMigration mocks base method.
+func (m *MockPolicy) SupportsMigration() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SupportsMigration")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// SupportsMigration indicates an expected call of SupportsMigration.
+func (mr *MockPolicyMockRecorder) SupportsMigration() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SupportsMigration", reflect.TypeOf((*MockPolicy)(nil).SupportsMigration))
 }

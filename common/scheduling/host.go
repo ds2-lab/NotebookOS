@@ -49,9 +49,8 @@ type Host interface {
 	IsProperlyInitialized() bool
 	GetLatestGpuInfo() *proto.GpuInfo
 	SetSchedulerPoolType(schedulerPoolType SchedulerPoolType)
-	SetIdx(idx int)
-	// GetIdx returns the target Host's heapIndex.
-	GetIdx() int
+	SetIdx(types.HeapElementMetadataKey, int)
+	GetIdx(types.HeapElementMetadataKey) int
 	Compare(h2 interface{}) float64
 	RecomputeSubscribedRatio() decimal.Decimal
 	LastResourcesSnapshot() types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]

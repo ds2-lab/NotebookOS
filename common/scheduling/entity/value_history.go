@@ -7,20 +7,6 @@ import (
 	"time"
 )
 
-type Comparable[T any] interface {
-	// Compare compares the object with specified object.
-	// Returns negative, 0, positive if the object is smaller than, equal to, or larger than specified object respectively.
-	Compare(T) int
-}
-
-type HeapElement[T any] interface {
-	Comparable[T]
-
-	SetIdx(int)
-
-	String() string
-}
-
 type ValueHeap[T any] []*ValueEntry[T]
 
 func (h ValueHeap[T]) Len() int {
@@ -91,7 +77,8 @@ func (h ValueHeap[T]) SeekFrom(target *ValueEntry[T], idx int, exclude bool) *Va
 type ValueEntry[T any] struct {
 	Value     T         `json:"value"`
 	Timestamp time.Time `json:"timestamp"`
-	Index     int       `json:"index"`
+
+	Index int `json:"index"`
 }
 
 // GetIdx returns the Index of the ValueEntry.
