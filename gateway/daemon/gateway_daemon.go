@@ -3620,7 +3620,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		}
 
 		var targetReplicaId int32
-		targetReplicaId, err = d.tryPerformMigration(kernel, jMsg)
+		targetReplicaId, err = d.tryPerformMigration(kernel, msg)
 		if err != nil {
 			return nil, err
 		}
