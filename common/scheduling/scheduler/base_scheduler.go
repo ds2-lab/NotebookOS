@@ -383,6 +383,12 @@ func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, black
 	return s.findViableHostForReplica(replica, blacklistedHosts, forTraining)
 }
 
+// FindReadyContainer selects one of the scheduling.KernelContainer instances of the specified scheduling.UserSession
+// to handle a training event.
+func (s *BaseScheduler) FindReadyContainer(session scheduling.UserSession) scheduling.KernelContainer {
+	return nil
+}
+
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //

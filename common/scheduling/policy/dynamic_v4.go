@@ -10,7 +10,7 @@ type DynamicV4Policy struct {
 }
 
 func NewDynamicV4Policy(opts *scheduling.SchedulerOptions) (*DynamicV4Policy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
 	if err != nil {
 		return nil, err
 	}

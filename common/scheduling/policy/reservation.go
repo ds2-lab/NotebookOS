@@ -16,7 +16,7 @@ type ReservationPolicy struct {
 }
 
 func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, false)
 	if err != nil {
 		return nil, err
 	}

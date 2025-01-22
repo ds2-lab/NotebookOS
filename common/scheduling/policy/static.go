@@ -11,7 +11,7 @@ type StaticPolicy struct {
 }
 
 func NewStaticPolicy(opts *scheduling.SchedulerOptions) (*StaticPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
 	if err != nil {
 		return nil, err
 	}

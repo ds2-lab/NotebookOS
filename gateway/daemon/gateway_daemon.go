@@ -3325,8 +3325,6 @@ func (d *ClusterGatewayImpl) broadcastExecuteRequestToAllReplicas(jMsg *messagin
 // "execute_request" messages. It first calls processExecuteRequest before forwarding the "execute_request"
 // to the replicas (well, to the Local Schedulers first).
 func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMsg *messaging.JupyterMessage) error {
-	// TODO: Will this cause problems when using non-static policy, since we don't call to check if all replicas
-	//       are scheduled here?
 	if _, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage); err != nil {
 		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
 			kernel.ID(), jMsg.JupyterMessageType(), err)
@@ -3532,9 +3530,10 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	kernelId := kernel.ID()
 	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg.StringFormatted())
 
-	// activeExecution := scheduling.NewActiveExecution(kernelId, 1, kernel.Size(), msg)
+	// Register the execution with the kernel.
 	_ = kernel.EnqueueActiveExecution(1, msg)
 
+	// Get the session associated with the kernel.
 	session, ok := d.cluster.GetSession(kernelId)
 	if !ok {
 		d.log.Error("Could not find scheduling.Session associated with kernel \"%s\"...", kernelId)
@@ -3542,22 +3541,23 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		return nil, fmt.Errorf("%w: kernelID=\"%s\"", ErrSessionNotFound, kernelId)
 	}
 
+	// Verify that the session isn't already training.
 	if session.IsTraining() {
 		d.log.Debug("Session %s is already training.", session.ID())
 		msg.IsFailedExecuteRequest = true
 		return nil, fmt.Errorf("session \"%s\" is already training", kernel.ID())
 	}
 
-	// TODO: If Session is already training, then this will fail, and that's okay!
-	p := session.SetExpectingTraining()
-	err = p.Error()
+	// Transition the session to the "expecting to start training soon" state.
+	err = session.SetExpectingTraining().Error()
 	if err != nil {
 		d.notifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
 		msg.IsFailedExecuteRequest = true
 		return nil, err
 	}
 
-	// The return value will be nil if nothing bad happened in call to processExecuteRequestMetadata.
+	// Update the kernel's resource request (for replica-based policies) if there's an updated
+	// resource request in the metadata of the "execute_request" message.
 	err = d.processExecuteRequestMetadata(msg, kernel)
 	if err != nil {
 		msg.IsFailedExecuteRequest = true
@@ -3612,39 +3612,25 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		}
 	}
 
+	// If no replicas can handle the code execution request, then we'll either initiate a migration
+	// or we'll return an error, depending on what the scheduling policy allows us to do.
 	if len(ineligibleReplicas) == len(kernel.Replicas()) {
-		d.log.Debug("All replicas of kernel \"%s\" are ineligible to execute code due to insufficient resource availability. Initiating migration now.", kernel.ID())
-
-		targetReplica := rand.Intn(kernel.Size()) + 1
-		d.log.Debug(utils.LightBlueStyle.Render("Preemptively migrating replica %d of kernel %s now."),
-			targetReplica, kernel.ID())
-		req := &proto.MigrationRequest{
-			TargetReplica: &proto.ReplicaInfo{
-				KernelId:     kernel.ID(),
-				ReplicaId:    int32(targetReplica),
-				PersistentId: kernel.PersistentID(),
-			},
-			ForTraining:  true,
-			TargetNodeId: nil,
+		if !d.Scheduler().Policy().SupportsMigration() {
+			return nil, scheduling.ErrInsufficientHostsAvailable
 		}
 
-		resp, migrationError := d.MigrateKernelReplica(context.Background(), req)
-		if migrationError != nil {
-			d.log.Warn("Failed to preemptively migrate replica %d of kernel \"%s\": %v",
-				targetReplica, kernel.ID(), migrationError)
-			msg.IsFailedExecuteRequest = true
-			return nil, migrationError
+		var targetReplicaId int32
+		targetReplicaId, err = d.tryPerformMigration(kernel, msg)
+		if err != nil {
+			return nil, err
 		}
-
-		d.log.Debug("Successfully, preemptively migrated replica %d of kernel \"%s\" to host \"%s\"",
-			targetReplica, kernel.ID(), resp.NewNodeId)
 
 		// Recreate the ineligibleReplicas slice, populating it with just the replicas that weren't migrated.
 		// The migrated replica is the only eligible replica, and so it'll be targeted explicitly when we go to
 		// forward the "execute_request" after returning from processExecuteRequest.
 		ineligibleReplicas = make(map[int32]scheduling.KernelReplica, 2)
 		for _, replica := range kernel.Replicas() {
-			if replica.ReplicaID() == int32(targetReplica) {
+			if replica.ReplicaID() == int32(targetReplicaId) {
 				continue
 			}
 
@@ -3656,6 +3642,39 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		len(ineligibleReplicas), msg.JupyterMessageId(), kernel.ID())
 
 	return ineligibleReplicas, nil
+}
+
+// tryPerformMigration attempts to migrate one of the replicas of the specified kernel during the handling of
+// a code execution request. If successful, tryPerformMigration will return the ID of the migrated replica.
+func (d *ClusterGatewayImpl) tryPerformMigration(kernel scheduling.Kernel, msg *messaging.JupyterMessage) (int32, error) {
+	d.log.Debug("All %d replicas of kernel \"%s\" are ineligible to execute code. Initiating migration.",
+		kernel.ID(), len(kernel.Replicas()))
+
+	targetReplica := int32(rand.Intn(kernel.Size()) + 1)
+	d.log.Debug(utils.LightBlueStyle.Render("Preemptively migrating replica %d of kernel %s now."),
+		targetReplica, kernel.ID())
+	req := &proto.MigrationRequest{
+		TargetReplica: &proto.ReplicaInfo{
+			KernelId:     kernel.ID(),
+			ReplicaId:    targetReplica,
+			PersistentId: kernel.PersistentID(),
+		},
+		ForTraining:  true,
+		TargetNodeId: nil,
+	}
+
+	resp, migrationError := d.MigrateKernelReplica(context.Background(), req)
+	if migrationError != nil {
+		d.log.Warn("Failed to preemptively migrate replica %d of kernel \"%s\": %v",
+			targetReplica, kernel.ID(), migrationError)
+		msg.IsFailedExecuteRequest = true
+		return -1, migrationError
+	}
+
+	d.log.Debug("Successfully, preemptively migrated replica %d of kernel \"%s\" to host \"%s\"",
+		targetReplica, kernel.ID(), resp.NewNodeId)
+
+	return targetReplica, nil
 }
 
 // processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.
