@@ -67,6 +67,16 @@ func (p *DynamicV4Policy) ScalingConfiguration() *scheduling.ScalingConfiguratio
 	return p.scalingConfiguration
 }
 
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (p *DynamicV4Policy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	if !p.SupportsMigration() {
+		panic("DynamicV4Policy is supposed to support migration, yet apparently it doesn't?")
+	}
+
+	// TODO: Implement me.
+	panic("Not implemented.")
+}
+
 //////////////////////////////////
 // ScalingPolicy implementation //
 //////////////////////////////////

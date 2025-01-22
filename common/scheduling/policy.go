@@ -107,6 +107,9 @@ type Policy interface {
 	// If SupportsMigration returns false, then it is up to the client to resubmit the request.
 	SupportsMigration() bool
 
+	// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+	SelectReplicaForMigration(kernel Kernel) (KernelReplica, error)
+
 	// ContainerLifetime returns the ContainerLifetime of KernelContainer instances created under the target Policy.
 	ContainerLifetime() ContainerLifetime
 

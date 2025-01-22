@@ -63,6 +63,16 @@ func (p *GandivaPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider)
 	return placer.NewGandivaPlacer(metricsProvider, p.NumReplicas(), p)
 }
 
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (p *GandivaPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	if !p.SupportsMigration() {
+		panic("GandivaPolicy is supposed to support migration, yet apparently it doesn't?")
+	}
+
+	// There should only be one replica, so return the one replica.
+	return kernel.GetReplicaByID(1) // IDs start at 1.
+}
+
 //////////////////////////////////////////
 // ResourceScalingPolicy implementation //
 //////////////////////////////////////////

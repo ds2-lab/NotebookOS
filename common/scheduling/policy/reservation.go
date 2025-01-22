@@ -28,6 +28,15 @@ func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy
 	return policy, nil
 }
 
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (p *ReservationPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	if p.SupportsMigration() {
+		panic("ReservationPolicy isn't supposed to support migration, yet apparently it does?")
+	}
+
+	return nil
+}
+
 func (p *ReservationPolicy) PolicyKey() scheduling.PolicyKey {
 	return scheduling.Reservation
 }

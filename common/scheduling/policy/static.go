@@ -4,6 +4,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"math/rand"
 )
 
 type StaticPolicy struct {
@@ -62,6 +63,18 @@ func (p *StaticPolicy) SmrEnabled() bool {
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *StaticPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
 	return placer.NewBasicPlacerWithSpecificIndex[*index.StaticIndex](metricsProvider, p.NumReplicas(), p, index.NewStaticIndex), nil
+}
+
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	if !p.SupportsMigration() {
+		panic("StaticPolicy is supposed to support migration, yet apparently it doesn't?")
+	}
+
+	// Select a replica at random.
+	targetReplicaId := int32(rand.Intn(kernel.Size()) + 1 /* IDs start at 1.  */)
+
+	return kernel.GetReplicaByID(targetReplicaId)
 }
 
 //////////////////////////////////////////

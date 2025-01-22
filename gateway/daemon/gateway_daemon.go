@@ -3620,7 +3620,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		}
 
 		var targetReplicaId int32
-		targetReplicaId, err = d.tryPerformMigration(kernel, msg)
+		targetReplicaId, err = d.tryPerformMigration(kernel, jMsg)
 		if err != nil {
 			return nil, err
 		}
@@ -3650,13 +3650,17 @@ func (d *ClusterGatewayImpl) tryPerformMigration(kernel scheduling.Kernel, msg *
 	d.log.Debug("All %d replicas of kernel \"%s\" are ineligible to execute code. Initiating migration.",
 		kernel.ID(), len(kernel.Replicas()))
 
-	targetReplica := int32(rand.Intn(kernel.Size()) + 1)
+	targetReplica, err := d.Scheduler().Policy().SelectReplicaForMigration(kernel)
+	if targetReplica == nil {
+		return -1, fmt.Errorf("could not identify replica eligible for migration because: %w", err)
+	}
+
 	d.log.Debug(utils.LightBlueStyle.Render("Preemptively migrating replica %d of kernel %s now."),
 		targetReplica, kernel.ID())
 	req := &proto.MigrationRequest{
 		TargetReplica: &proto.ReplicaInfo{
 			KernelId:     kernel.ID(),
-			ReplicaId:    targetReplica,
+			ReplicaId:    targetReplica.ReplicaID(),
 			PersistentId: kernel.PersistentID(),
 		},
 		ForTraining:  true,
@@ -3666,15 +3670,15 @@ func (d *ClusterGatewayImpl) tryPerformMigration(kernel scheduling.Kernel, msg *
 	resp, migrationError := d.MigrateKernelReplica(context.Background(), req)
 	if migrationError != nil {
 		d.log.Warn("Failed to preemptively migrate replica %d of kernel \"%s\": %v",
-			targetReplica, kernel.ID(), migrationError)
+			targetReplica.ReplicaID(), kernel.ID(), migrationError)
 		msg.IsFailedExecuteRequest = true
 		return -1, migrationError
 	}
 
 	d.log.Debug("Successfully, preemptively migrated replica %d of kernel \"%s\" to host \"%s\"",
-		targetReplica, kernel.ID(), resp.NewNodeId)
+		targetReplica.ReplicaID(), kernel.ID(), resp.NewNodeId)
 
-	return targetReplica, nil
+	return targetReplica.ReplicaID(), nil
 }
 
 // processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.
