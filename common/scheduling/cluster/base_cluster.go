@@ -666,6 +666,28 @@ func (c *BaseCluster) registerScaleInOperation(operationId string, targetCluster
 	return scaleOperation, nil
 }
 
+// MeanScaleOutTime returns the average time to scale-out and add a Host to the Cluster.
+func (c *BaseCluster) MeanScaleOutTime() time.Duration {
+	return c.MeanScaleOutPerHost
+}
+
+// StdDevScaleOutTime returns the standard deviation of the time it takes to scale-out
+// and add a Host to the Cluster.
+func (c *BaseCluster) StdDevScaleOutTime() time.Duration {
+	return c.StdDevScaleOutPerHost
+}
+
+// MeanScaleInTime returns the average time to scale-in and remove a Host from the Cluster.
+func (c *BaseCluster) MeanScaleInTime() time.Duration {
+	return c.MeanScaleInPerHost
+}
+
+// StdDevScaleInTime returns the standard deviation of the time it takes to scale-in
+// and remove a Host from the Cluster.
+func (c *BaseCluster) StdDevScaleInTime() time.Duration {
+	return c.StdDevScaleInPerHost
+}
+
 // RequestHosts requests n Host instances to be launched and added to the Cluster, where n >= 1.
 //
 // If n is 0, then this returns immediately.

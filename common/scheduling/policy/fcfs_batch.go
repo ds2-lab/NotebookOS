@@ -36,7 +36,7 @@ func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.
 		panic("FcfsBatchSchedulingPolicy isn't supposed to support migration, yet apparently it does?")
 	}
 
-	return nil
+	return nil, ErrMigrationNotSupported
 }
 
 func (p *FcfsBatchSchedulingPolicy) SmrEnabled() bool {

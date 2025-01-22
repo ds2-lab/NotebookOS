@@ -34,7 +34,7 @@ func (p *ReservationPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) 
 		panic("ReservationPolicy isn't supposed to support migration, yet apparently it does?")
 	}
 
-	return nil
+	return nil, ErrMigrationNotSupported
 }
 
 func (p *ReservationPolicy) PolicyKey() scheduling.PolicyKey {

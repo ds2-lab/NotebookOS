@@ -1,6 +1,15 @@
 package policy
 
-import "github.com/scusemua/distributed-notebook/common/scheduling"
+import (
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
+	"github.com/pkg/errors"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+)
+
+var (
+	ErrMigrationNotSupported = errors.New("migration is not supported by this scheduling policy")
+)
 
 type baseSchedulingPolicy struct {
 	scalingConfiguration         *scheduling.ScalingConfiguration
@@ -11,6 +20,8 @@ type baseSchedulingPolicy struct {
 
 	// GpusPerHost is the number of GPUs available on each host.
 	GpusPerHost int
+
+	log logger.Logger
 }
 
 func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnabled bool, supportsMigration bool) (*baseSchedulingPolicy, error) {
@@ -26,6 +37,8 @@ func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnable
 		GpusPerHost:                  opts.GpusPerHost,
 		supportsMigration:            supportsMigration,
 	}
+
+	config.InitLogger(&basePolicy.log, basePolicy)
 
 	return basePolicy, nil
 }

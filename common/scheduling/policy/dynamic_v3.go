@@ -73,6 +73,46 @@ func (p *DynamicV3Policy) SelectReplicaForMigration(kernel scheduling.Kernel) (s
 		panic("DynamicV3Policy is supposed to support migration, yet apparently it doesn't?")
 	}
 
+	// Identify containers that are eligible for preemption.
+	//penalties := &scheduling.PenaltyContainers{}
+	//maxBenefit := 0.0
+	//preemptionBuffer := make(scheduling.ContainerList, p.GpusPerHost)
+	//requiredGPUs := kernel.ResourceSpec().GPU()
+	//replicas := kernel.Replicas()
+	//
+	//var candidate scheduling.KernelContainer
+	//for _, replica := range replicas {
+	//	pp, pl, err := replica.Host().Penalty(requiredGPUs)
+	//	if err != nil {
+	//		p.log.Debug("%v: required %f GPUs, found %v", err, requiredGPUs, pl)
+	//		continue
+	//	}
+	//
+	//	container := replica.Container()
+	//	ip := container.InteractivePriority()
+	//	benefit := ip - pp
+	//
+	//	p.log.Debug("Got benefit of preempting from %v: %f = %f(%s) - %f(%v)", container.ContainerID(), benefit,
+	//		ip, container.Explain(scheduling.ExplainInteractivePriority), pp, pl)
+	//
+	//	if benefit > maxBenefit {
+	//		maxBenefit = benefit
+	//		preemptionBuffer = preemptionBuffer[:len(pl.Candidates())]
+	//		// make a copy to avoid changes due to preemption
+	//		copy(preemptionBuffer, pl.Candidates())
+	//		candidate = container
+	//	}
+	//}
+	//
+	//// TODO: The logic here -- from dynamic_v3 FindReadyContainer -- is also identifying co-located containers
+	//// to migrate (colocated with one of the replicas).
+	//
+	//if len(preemptionBuffer) == 0 {
+	//	return nil, fmt.Errorf("could not find eligible replica for preemption/migration")
+	//}
+	//
+	//penalties.ContainerList = preemptionBuffer
+
 	// TODO: Implement me.
 	panic("Not implemented.")
 }

@@ -3630,7 +3630,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		// forward the "execute_request" after returning from processExecuteRequest.
 		ineligibleReplicas = make(map[int32]scheduling.KernelReplica, 2)
 		for _, replica := range kernel.Replicas() {
-			if replica.ReplicaID() == int32(targetReplicaId) {
+			if replica.ReplicaID() == targetReplicaId {
 				continue
 			}
 

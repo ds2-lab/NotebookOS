@@ -408,13 +408,13 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 
 	// TODO: How many times should we really retry here? If we fail, try to scale out, and fail again,
 	// 		 then shouldn't we just give up and leave it to the client to resubmit?
-	maxAttempts := 3
+	maxAttempts := 5
 	retryParameters := wait.Backoff{
-		Duration: time.Second * 2,
-		Factor:   1.5,
+		Duration: time.Duration(float64(s.cluster.MeanScaleOutTime()) * 0.75),
+		Factor:   1.25,
 		Jitter:   1.125,
 		Steps:    maxAttempts,
-		Cap:      time.Second * time.Duration(30),
+		Cap:      time.Duration(float64(s.cluster.MeanScaleOutTime()) * 1.50),
 	}
 
 	for retryParameters.Steps > 0 && len(hosts) < s.schedulingPolicy.NumReplicas() {
@@ -446,8 +446,8 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 			p := s.cluster.RequestHosts(ctx, int32(numHostsRequired))
 			if err := p.Error(); err != nil {
 				if errors.Is(err, scheduling.ErrScalingActive) {
-					s.log.Debug("Could not register new scale-out operation as there is already an active scale-out operation.",
-						numHostsRequired, kernelSpec.Id, err)
+					s.log.Debug("Cannot register scale-out operation for kernel %s: there is already an active scale-out operation.",
+						kernelSpec.Id)
 				} else {
 					s.log.Error("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
 						numHostsRequired, kernelSpec.Id, err)
@@ -459,6 +459,8 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 			}
 
 			sleepInterval := retryParameters.Step()
+			s.log.Debug("Sleeping for %v before retrying to find %d candidate host(s) for replica(s) of kernel %s.",
+				sleepInterval, numHostsRequired, kernelSpec.Id)
 			time.Sleep(sleepInterval)
 
 			continue
@@ -472,7 +474,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 	// If not, then we need to release any hosts we did reserve.
 	if len(hosts) < s.schedulingPolicy.NumReplicas() {
 		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...",
-			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, retryParameters.Steps-maxAttempts+1)
+			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
 
 		// Release any resource reservations that we created, since we're aborting the scheduling
 		// of the replicas of the kernel.

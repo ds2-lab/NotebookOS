@@ -6,6 +6,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"golang.org/x/net/context"
+	"time"
 )
 
 var (
@@ -136,6 +137,20 @@ type ScalingManager interface {
 	// EnableScalingOut modifies the scaling policy to enable scaling-out, even if the policy isn't
 	// supposed to support scaling out. This is only intended to be used for unit tests.
 	EnableScalingOut()
+
+	// MeanScaleOutTime returns the average time to scale-out and add a Host to the Cluster.
+	MeanScaleOutTime() time.Duration
+
+	// StdDevScaleOutTime returns the standard deviation of the time it takes to scale-out
+	// and add a Host to the Cluster.
+	StdDevScaleOutTime() time.Duration
+
+	// MeanScaleInTime returns the average time to scale-in and remove a Host from the Cluster.
+	MeanScaleInTime() time.Duration
+
+	// StdDevScaleInTime returns the standard deviation of the time it takes to scale-in
+	// and remove a Host from the Cluster.
+	StdDevScaleInTime() time.Duration
 }
 
 type ScalingMetricsManager interface {

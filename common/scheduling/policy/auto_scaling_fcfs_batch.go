@@ -31,12 +31,12 @@ func NewAutoScalingFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) 
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
-func (p *AutoScalingFcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+func (p *AutoScalingFcfsBatchSchedulingPolicy) SelectReplicaForMigration(_ scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if p.SupportsMigration() {
 		panic("AutoScalingFcfsBatchSchedulingPolicy isn't supposed to support migration, yet apparently it does?")
 	}
 
-	return nil
+	return nil, ErrMigrationNotSupported
 }
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
