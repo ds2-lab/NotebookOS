@@ -215,6 +215,8 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 		c.log.Debug("Number of disabled nodes used: %d. Number of additional nodes required: %d.",
 			numDisabledHostsUsed, numNewNodesRequired)
 
+		// TODO: This doesn't seem to work if executed from within the container.
+		// TODO: Specifically, the volumes don't get bound correctly, and the new scheduler cannot do anything.
 		app := "docker"
 		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetScale)
 		args := strings.Split(argString, " ")
