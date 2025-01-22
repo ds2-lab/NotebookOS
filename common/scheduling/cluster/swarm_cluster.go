@@ -203,9 +203,11 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 		}
 
 		c.log.Warn("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.", targetScale)
-		c.log.Warn("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.", numDisabledHostsUsed, targetScale-int32(currentScale))
+		c.log.Warn("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.",
+			numDisabledHostsUsed, targetScale-int32(currentScale))
 
-		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker swarm clusters", scheduling.ErrUnsupportedOperation)
+		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker swarm clusters",
+			scheduling.ErrUnsupportedOperation)
 	}
 }
 

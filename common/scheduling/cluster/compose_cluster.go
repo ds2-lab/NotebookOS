@@ -8,7 +8,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"math/rand"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -210,29 +209,36 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 			return
 		}
 
-		c.log.Debug("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.",
-			targetScale)
-		c.log.Debug("Number of disabled nodes used: %d. Number of additional nodes required: %d.",
-			numDisabledHostsUsed, numNewNodesRequired)
+		c.log.Warn("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.", targetScale)
+		c.log.Warn("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.",
+			numDisabledHostsUsed, targetScale-int32(currentScale))
 
-		// TODO: This doesn't seem to work if executed from within the container.
-		// TODO: Specifically, the volumes don't get bound correctly, and the new scheduler cannot do anything.
-		app := "docker"
-		argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetScale)
-		args := strings.Split(argString, " ")
+		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker compose clusters",
+			scheduling.ErrUnsupportedOperation)
 
-		cmd := exec.Command(app, args...)
-		stdout, err := cmd.CombinedOutput()
-
-		if err != nil {
-			c.log.Error("Failed to scale-out to %d node because: %v", targetScale, err)
-			c.log.Error("Output from failed attempt at scaling-out to %d nodes:\n%s", targetScale, string(stdout))
-			coreLogicDoneChan <- err
-		} else {
-			c.log.Debug("Output from scaling-out to %d nodes:\n%s", targetScale, string(stdout))
-
-			coreLogicDoneChan <- struct{}{}
-		}
+		//c.log.Debug("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.",
+		//	targetScale)
+		//c.log.Debug("Number of disabled nodes used: %d. Number of additional nodes required: %d.",
+		//	numDisabledHostsUsed, numNewNodesRequired)
+		//
+		//// TODO: This doesn't seem to work if executed from within the container.
+		//// TODO: Specifically, the volumes don't get bound correctly, and the new scheduler cannot do anything.
+		//app := "docker"
+		//argString := fmt.Sprintf("compose up -d --scale daemon=%d --no-deps --no-recreate", targetScale)
+		//args := strings.Split(argString, " ")
+		//
+		//cmd := exec.Command(app, args...)
+		//stdout, err := cmd.CombinedOutput()
+		//
+		//if err != nil {
+		//	c.log.Error("Failed to scale-out to %d node because: %v", targetScale, err)
+		//	c.log.Error("Output from failed attempt at scaling-out to %d nodes:\n%s", targetScale, string(stdout))
+		//	coreLogicDoneChan <- err
+		//} else {
+		//	c.log.Debug("Output from scaling-out to %d nodes:\n%s", targetScale, string(stdout))
+		//
+		//	coreLogicDoneChan <- struct{}{}
+		//}
 	}
 }
 
