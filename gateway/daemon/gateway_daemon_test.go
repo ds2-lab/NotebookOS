@@ -1797,6 +1797,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedKernel.EXPECT().ReplicasAreScheduled().AnyTimes().Return(true)
 			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
+			mockedKernel.EXPECT().AddDestFrameIfNecessary(gomock.Any()).Times(1).DoAndReturn(func(msg *messaging.JupyterMessage) *messaging.JupyterMessage {
+				return msg
+			})
 
 			mockedSession.EXPECT().IsTraining().Times(1).Return(false)
 			mockedSession.EXPECT().SetExpectingTraining().Times(1).Return(promise.Resolved(nil))
