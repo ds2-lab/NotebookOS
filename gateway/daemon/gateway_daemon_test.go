@@ -42,7 +42,7 @@ const (
 )
 
 var (
-	persistentId string = "a45e4331-8fdc-4143-aac8-00d3e9df54fa"
+	persistentId = "a45e4331-8fdc-4143-aac8-00d3e9df54fa"
 
 	GatewayOptsAsJsonString = `{
 	"logger_options": {
@@ -258,11 +258,12 @@ func prepareMockedGatewayForStartKernel(localGatewayClient *mock_proto.MockLocal
 
 var _ = Describe("Cluster Gateway Tests", func() {
 	var (
-		clusterGateway *ClusterGatewayImpl
-		abstractServer *server.AbstractServer
-		session        *mock_scheduling.MockUserSession
-		mockCtrl       *gomock.Controller
-		kernelKey      = "23d90942-8c3de3a713a5c3611792b7a5"
+		clusterGateway          *ClusterGatewayImpl
+		abstractServer          *server.AbstractServer
+		session                 *mock_scheduling.MockUserSession
+		mockCtrl                *gomock.Controller
+		kernelKey               = "23d90942-8c3de3a713a5c3611792b7a5"
+		jupyterExecuteRequestId = "c7074e5b-b90f-44f8-af5d-63201ec3a527"
 	)
 
 	BeforeEach(func() {
@@ -534,7 +535,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			cluster.EXPECT().GetSession(kernelId).Return(session, true).AnyTimes()
 
 			header = &messaging.MessageHeader{
-				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
+				MsgID:    jupyterExecuteRequestId,
 				Username: "",
 				Session:  kernelId,
 				Date:     "2024-04-03T22:55:52.605Z",
@@ -724,17 +725,48 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			kernel.EXPECT().ReplicasAreScheduled().AnyTimes().Return(true)
 			kernel.EXPECT().DebugMode().AnyTimes().Return(true)
 
+			targetKernelIndex := 2
+
 			mockScheduler.EXPECT().FindReadyReplica(kernel, jMsg.JupyterMessageId()).Times(1).DoAndReturn(func(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
-				selectedReplica := replicas[2]
+				selectedReplica := replicas[targetKernelIndex]
 
 				return selectedReplica, nil
 			})
 
 			cluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
 
+			jupyterMessagesChan := make(chan []*messaging.JupyterMessage)
+
+			kernel.EXPECT().RequestWithHandlerAndReplicas(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+				gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, typ messaging.MessageType,
+				jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
+
+				jupyterMessagesChan <- jupyterMessages
+
+				return nil
+			})
+
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
-			err = clusterGateway.executeRequestHandler(kernel, jMsg)
-			Expect(err).To(BeNil())
+			go func() {
+				err = clusterGateway.executeRequestHandler(kernel, jMsg)
+				Expect(err).To(BeNil())
+			}()
+
+			jupyterMessages := <-jupyterMessagesChan
+
+			Expect(jupyterMessages).ToNot(BeNil())
+			Expect(len(jupyterMessages)).To(Equal(3))
+
+			for idx, msg := range jupyterMessages {
+				Expect(msg.JupyterMessageId()).To(Equal(jupyterExecuteRequestId))
+
+				if idx == targetKernelIndex {
+					Expect(msg.JupyterMessageType()).To(Equal(messaging.ShellExecuteRequest))
+				} else {
+					Expect(msg.JupyterMessageType()).To(Equal(messaging.ShellYieldRequest))
+				}
+			}
+
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
 		})
 
@@ -897,7 +929,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			cluster.EXPECT().GetSession(kernelId).Return(session, true).AnyTimes()
 
 			header = &messaging.MessageHeader{
-				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
+				MsgID:    jupyterExecuteRequestId,
 				Username: "",
 				Session:  kernelId,
 				Date:     "2024-04-03T22:55:52.605Z",
@@ -943,7 +975,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			// We'll just call this multiple times.
 			requestTraceHelper := func(trace *proto.RequestTrace) {
-				Expect(trace.MessageId).To(Equal("c7074e5b-b90f-44f8-af5d-63201ec3a527"))
+				Expect(trace.MessageId).To(Equal(jupyterExecuteRequestId))
 				Expect(trace.MessageType).To(Equal(messaging.ShellExecuteRequest))
 				Expect(trace.KernelId).To(Equal(kernelId))
 
@@ -1743,10 +1775,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
 
-			executeRequestJupyterMessageId := "c7074e5b-b90f-44f8-af5d-63201ec3a527"
-
 			executeRequestMessageHeader := &messaging.MessageHeader{
-				MsgID:    executeRequestJupyterMessageId,
+				MsgID:    jupyterExecuteRequestId,
 				Username: kernelId,
 				Session:  kernelId,
 				Date:     "2024-04-03T22:55:52.605Z",
@@ -1863,10 +1893,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
 
-			executeRequestJupyterMessageId := "c7074e5b-b90f-44f8-af5d-63201ec3a527"
-
 			executeRequestMessageHeader := &messaging.MessageHeader{
-				MsgID:    executeRequestJupyterMessageId,
+				MsgID:    jupyterExecuteRequestId,
 				Username: kernelId,
 				Session:  kernelId,
 				Date:     "2024-04-03T22:55:52.605Z",
@@ -1972,7 +2000,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				GinkgoWriter.Printf("Generated Jupyter \"execute_reply\" message:\n%s\n", jMsg.StringFormatted())
 
-				Expect(jMsg.JupyterParentMessageId()).To(Equal(executeRequestJupyterMessageId))
+				Expect(jMsg.JupyterParentMessageId()).To(Equal(jupyterExecuteRequestId))
 				Expect(jMsg.JupyterMessageId()).To(Equal(executeReplyJupterMessageId))
 
 				return jMsg
@@ -1998,7 +2026,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				YieldReason: "N/A",
 			}
 
-			mockedKernel.EXPECT().GetActiveExecution(executeRequestJupyterMessageId).Times(3).Return(activeExecution)
+			mockedKernel.EXPECT().GetActiveExecution(jupyterExecuteRequestId).Times(3).Return(activeExecution)
 			mockedKernel.EXPECT().CurrentActiveExecution().Times(3).Return(activeExecution)
 
 			preparedReplicaIdChan := make(chan int32, 1)
