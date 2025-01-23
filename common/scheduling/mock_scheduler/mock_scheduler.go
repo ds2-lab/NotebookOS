@@ -181,18 +181,18 @@ func (mr *MockSchedulingPolicyMockRecorder) ContainerLifetime() *gomock.Call {
 }
 
 // FindReadyReplica mocks base method.
-func (m *MockSchedulingPolicy) FindReadyReplica(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+func (m *MockSchedulingPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindReadyReplica", kernel)
+	ret := m.ctrl.Call(m, "FindReadyReplica", kernel, executionId)
 	ret0, _ := ret[0].(scheduling.KernelReplica)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindReadyReplica indicates an expected call of FindReadyReplica.
-func (mr *MockSchedulingPolicyMockRecorder) FindReadyReplica(kernel any) *gomock.Call {
+func (mr *MockSchedulingPolicyMockRecorder) FindReadyReplica(kernel, executionId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindReadyReplica", reflect.TypeOf((*MockSchedulingPolicy)(nil).FindReadyReplica), kernel)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindReadyReplica", reflect.TypeOf((*MockSchedulingPolicy)(nil).FindReadyReplica), kernel, executionId)
 }
 
 // GetGpusPerHost mocks base method.

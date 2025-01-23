@@ -1951,7 +1951,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	if !ok {
 		errorMessage := fmt.Sprintf("Could not find scheduling.Session with ID \"%s\"...", in.SessionId)
 		d.log.Error(errorMessage)
-		go d.notifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
+		d.notifyDashboardOfError("Failed to Find scheduling.Session", errorMessage)
 		panic(errorMessage)
 	}
 
@@ -3555,7 +3555,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 
 	// Find a "ready" replica to handle this execution request.
 	var targetReplica scheduling.KernelReplica
-	targetReplica, err = d.Scheduler().FindReadyReplica(kernel)
+	targetReplica, err = d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
 	if err != nil {
 		// If an error is returned, then we should return the error here so that we send an
 		// error message back to the client.
@@ -4076,7 +4076,7 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 	if isShellExecuteReply {
 		err := d.processExecuteReply(from.ID(), msg)
 		if err != nil {
-			go d.notifyDashboardOfError("Error While Processing \"execute_reply\" Message", err.Error())
+			d.notifyDashboardOfError("Error While Processing \"execute_reply\" Message", err.Error())
 			panic(err)
 		}
 	}

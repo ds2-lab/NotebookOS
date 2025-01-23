@@ -39,7 +39,7 @@ type SchedulingPolicy interface {
 	// selecting a replica now depends upon the kernel's resource request correctly specifying
 	// the requirements. If the requirements were to change after selection a replica, then
 	// that could invalidate the selection.
-	FindReadyReplica(kernel scheduling.Kernel) (scheduling.KernelReplica, error)
+	FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error)
 }
 
 // GetSchedulingPolicy returns the appropriate scheduling policy based on the provided configuration.

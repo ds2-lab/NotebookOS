@@ -8,7 +8,7 @@ import (
 
 // checkSingleReplica provides a common implementation of FindReadyReplica for scheduling.Policy instances
 // that use just a single kernel replica.
-func checkSingleReplica(kernel scheduling.Kernel, migrationAllowed bool) (scheduling.KernelReplica, error) {
+func checkSingleReplica(kernel scheduling.Kernel, migrationAllowed bool, executionId string) (scheduling.KernelReplica, error) {
 	// Sanity check: make sure there's only one replica.
 	if len(kernel.Replicas()) > 1 {
 		panic(fmt.Sprintf("checkSingleReplica called for kernel with more than one replica: %d replicas, kernel %s",
@@ -19,7 +19,7 @@ func checkSingleReplica(kernel scheduling.Kernel, migrationAllowed bool) (schedu
 	replica := kernel.Replicas()[0]
 
 	// Attempt to pre-allocate resources to the kernel.
-	allocationError := replica.Host().PreCommitResources(replica.Container())
+	allocationError := replica.Host().PreCommitResources(replica.Container(), executionId)
 	if allocationError != nil {
 		// If migration is allowed by the scheduling policy that invoked this method,
 		// then we will NOT return an error.

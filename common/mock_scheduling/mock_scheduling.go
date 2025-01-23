@@ -755,18 +755,18 @@ func (mr *MockSchedulerMockRecorder) DeployKernelReplicas(ctx, kernelSpec, black
 }
 
 // FindReadyReplica mocks base method.
-func (m *MockScheduler) FindReadyReplica(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+func (m *MockScheduler) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindReadyReplica", kernel)
+	ret := m.ctrl.Call(m, "FindReadyReplica", kernel, executionId)
 	ret0, _ := ret[0].(scheduling.KernelReplica)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindReadyReplica indicates an expected call of FindReadyReplica.
-func (mr *MockSchedulerMockRecorder) FindReadyReplica(kernel any) *gomock.Call {
+func (mr *MockSchedulerMockRecorder) FindReadyReplica(kernel, executionId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindReadyReplica", reflect.TypeOf((*MockScheduler)(nil).FindReadyReplica), kernel)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindReadyReplica", reflect.TypeOf((*MockScheduler)(nil).FindReadyReplica), kernel, executionId)
 }
 
 // GetActiveAddReplicaOperationsForKernel mocks base method.
@@ -2756,17 +2756,17 @@ func (mr *MockHostMockRecorder) PlacedMemoryMB() *gomock.Call {
 }
 
 // PreCommitResources mocks base method.
-func (m *MockHost) PreCommitResources(container scheduling.KernelContainer) error {
+func (m *MockHost) PreCommitResources(container scheduling.KernelContainer, executionId string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PreCommitResources", container)
+	ret := m.ctrl.Call(m, "PreCommitResources", container, executionId)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // PreCommitResources indicates an expected call of PreCommitResources.
-func (mr *MockHostMockRecorder) PreCommitResources(container any) *gomock.Call {
+func (mr *MockHostMockRecorder) PreCommitResources(container, executionId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockHost)(nil).PreCommitResources), container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockHost)(nil).PreCommitResources), container, executionId)
 }
 
 // PrepareToMigrate mocks base method.
@@ -2838,17 +2838,17 @@ func (mr *MockHostMockRecorder) ReconnectToGateway(ctx, in any, opts ...any) *go
 }
 
 // ReleasePreCommitedResources mocks base method.
-func (m *MockHost) ReleasePreCommitedResources(container scheduling.KernelContainer) error {
+func (m *MockHost) ReleasePreCommitedResources(container scheduling.KernelContainer, executionId string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReleasePreCommitedResources", container)
+	ret := m.ctrl.Call(m, "ReleasePreCommitedResources", container, executionId)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ReleasePreCommitedResources indicates an expected call of ReleasePreCommitedResources.
-func (mr *MockHostMockRecorder) ReleasePreCommitedResources(container any) *gomock.Call {
+func (mr *MockHostMockRecorder) ReleasePreCommitedResources(container, executionId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleasePreCommitedResources", reflect.TypeOf((*MockHost)(nil).ReleasePreCommitedResources), container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleasePreCommitedResources", reflect.TypeOf((*MockHost)(nil).ReleasePreCommitedResources), container, executionId)
 }
 
 // ReleaseReservation mocks base method.
@@ -4217,20 +4217,6 @@ func (m *MockKernel) ActiveExecution() *scheduling.ActiveExecution {
 func (mr *MockKernelMockRecorder) ActiveExecution() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveExecution", reflect.TypeOf((*MockKernel)(nil).ActiveExecution))
-}
-
-// AddDestFrameIfNecessary mocks base method.
-func (m *MockKernel) AddDestFrameIfNecessary(jMsg *messaging.JupyterMessage) *messaging.JupyterMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddDestFrameIfNecessary", jMsg)
-	ret0, _ := ret[0].(*messaging.JupyterMessage)
-	return ret0
-}
-
-// AddDestFrameIfNecessary indicates an expected call of AddDestFrameIfNecessary.
-func (mr *MockKernelMockRecorder) AddDestFrameIfNecessary(jMsg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddDestFrameIfNecessary", reflect.TypeOf((*MockKernel)(nil).AddDestFrameIfNecessary), jMsg)
 }
 
 // AddOperationCompleted mocks base method.

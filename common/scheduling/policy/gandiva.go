@@ -86,8 +86,8 @@ func (p *GandivaPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (sch
 //
 // FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
 // been ruled out.
-func (p *GandivaPolicy) FindReadyReplica(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
-	return checkSingleReplica(kernel, p.supportsMigration)
+func (p *GandivaPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+	return checkSingleReplica(kernel, p.supportsMigration, executionId)
 }
 
 //////////////////////////////////////////

@@ -92,45 +92,58 @@ func unsafeApplyResourceSnapshotToHost(h *Host, snapshot types.HostResourceSnaps
 	return nil
 }
 
+// containerWithPreCommittedResources encapsulates a scheduling.KernelContainer and the "msg_id" of the Jupyter
+// "execute_request" message that contained the user-submitted code associated with this pre-allocation.
+type containerWithPreCommittedResources struct {
+	scheduling.KernelContainer
+
+	// ExecutionId is the "msg_id" of the Jupyter "execute_request" message that contained the
+	// user-submitted code associated with this pre-allocation.
+	ExecutionId string
+}
+
 type Host struct {
 	proto.LocalGatewayClient
 
 	log logger.Logger
 
-	latestGpuInfo                       *proto.GpuInfo                                      // latestGpuInfo is the latest GPU info of this host scheduler.
-	syncMutex                           sync.Mutex                                          // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
-	schedulingMutex                     sync.Mutex                                          // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
-	meta                                hashmap.HashMap[string, interface{}]                // meta is a map of metadata.
-	conn                                *grpc.ClientConn                                    // conn is the gRPC connection to the Host.
-	Addr                                string                                              // Addr is the Host's address.
-	NodeName                            string                                              // NodeName is the Host's name (for printing/logging).
-	metricsProvider                     scheduling.MetricsProvider                          // Provides access to metrics relevant to the Host.
-	ID                                  string                                              // ID is the unique ID of this host.
-	containers                          hashmap.HashMap[string, scheduling.KernelContainer] // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
-	reservations                        hashmap.HashMap[string, *Reservation]               // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
-	trainingContainers                  []scheduling.KernelContainer                        // trainingContainers are the actively-training kernel replicas.
-	seenSessions                        []string                                            // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec                        *types.DecimalSpec                                  // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
-	lastReschedule                      types.StatFloat64                                   // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	errorCallback                       scheduling.ErrorCallback                            // errorCallback is a function to be called if a Host appears to be dead.
-	pendingContainers                   types.StatInt32                                     // pendingContainers is the number of Containers that are scheduled on the host.
-	enabled                             bool                                                // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
-	excludedFromScheduling              bool                                                // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
-	isBeingConsideredForScheduling      atomic.Int32                                        // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
-	CreatedAt                           time.Time                                           // CreatedAt is the time at which the Host was created.
-	resourceManager                     *resource.Manager                                   // resourcesWrapper wraps all the Host's HostResources.
-	LastRemoteSync                      time.Time                                           // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
-	isContainedWithinIndex              bool                                                // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
-	ProperlyInitialized                 bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
-	numReplicasPerKernel                int                                                 // The number of replicas per kernel.
-	resourceBindingMode                 scheduling.ResourceBindingMode                      // resourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly when they are uncommitted from containers as well.
-	kernelsWithCommittedResources       map[string]int32                                    // Map from Kernel ID to int32. Values are replica IDs who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID). In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
-	containersWithPreCommittedResources map[string]scheduling.KernelContainer               // containersWithPreCommittedResources keeps track of kernels for which resources were specifically pre-commited. Keys are container IDs.
+	latestGpuInfo                  *proto.GpuInfo                                      // latestGpuInfo is the latest GPU info of this host scheduler.
+	syncMutex                      sync.Mutex                                          // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
+	schedulingMutex                sync.Mutex                                          // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
+	meta                           hashmap.HashMap[string, interface{}]                // meta is a map of metadata.
+	conn                           *grpc.ClientConn                                    // conn is the gRPC connection to the Host.
+	Addr                           string                                              // Addr is the Host's address.
+	NodeName                       string                                              // NodeName is the Host's name (for printing/logging).
+	metricsProvider                scheduling.MetricsProvider                          // Provides access to metrics relevant to the Host.
+	ID                             string                                              // ID is the unique ID of this host.
+	containers                     hashmap.HashMap[string, scheduling.KernelContainer] // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
+	reservations                   hashmap.HashMap[string, *Reservation]               // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
+	trainingContainers             []scheduling.KernelContainer                        // trainingContainers are the actively-training kernel replicas.
+	seenSessions                   []string                                            // seenSessions are the sessions that have been scheduled onto this host at least once.
+	resourceSpec                   *types.DecimalSpec                                  // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
+	lastReschedule                 types.StatFloat64                                   // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	errorCallback                  scheduling.ErrorCallback                            // errorCallback is a function to be called if a Host appears to be dead.
+	pendingContainers              types.StatInt32                                     // pendingContainers is the number of Containers that are scheduled on the host.
+	enabled                        bool                                                // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
+	excludedFromScheduling         bool                                                // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
+	isBeingConsideredForScheduling atomic.Int32                                        // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
+	CreatedAt                      time.Time                                           // CreatedAt is the time at which the Host was created.
+	resourceManager                *resource.Manager                                   // resourcesWrapper wraps all the Host's HostResources.
+	LastRemoteSync                 time.Time                                           // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
+	isContainedWithinIndex         bool                                                // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
+	ProperlyInitialized            bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
+	numReplicasPerKernel           int                                                 // The number of replicas per kernel.
+	resourceBindingMode            scheduling.ResourceBindingMode                      // resourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly when they are uncommitted from containers as well.
+	kernelsWithCommittedResources  map[string]int32                                    // Map from Kernel ID to int32. Values are replica IDs who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID). In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
+
+	// containersWithPreCommittedResources keeps track of kernels for which resources were specifically pre-commited
+	// along with the IDs of the associated "execute_request" messages. Keys are container IDs.
+	containersWithPreCommittedResources map[string]*containerWithPreCommittedResources
 
 	// lastSnapshot is the last HostResourceSnapshot to have been applied successfully to this Host.
 	lastSnapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
 
-	// SubscriptionQuerier is used to query the oversubscription factor given the host's
+	// SubscriptionQuerier is used to query the over-subscription factor given the host's
 	// subscription ratio and the Cluster's subscription ratio.
 	SubscriptionQuerier SubscriptionQuerier
 
@@ -276,7 +289,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		CreatedAt:                           time.Now(),
 		SubscriptionQuerier:                 querier,
 		kernelsWithCommittedResources:       make(map[string]int32),
-		containersWithPreCommittedResources: make(map[string]scheduling.KernelContainer),
+		containersWithPreCommittedResources: make(map[string]*containerWithPreCommittedResources),
 		indexUpdater:                        indexUpdater,
 		ProperlyInitialized:                 true,
 	}
@@ -1023,9 +1036,10 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 				spec.String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
 		}
 
+		// TODO: Check against execute request ID.
 		if _, loaded := h.containersWithPreCommittedResources[container.ContainerID()]; loaded {
-			h.log.Debug("Removing 'pre-committed resources' record for replica %d of kernel \"%s\" now that it is done training.",
-				container.ReplicaId(), container.KernelID())
+			h.log.Debug("Removing 'pre-committed resources' record for replica %d of kernel \"%s\" "+
+				"now that it is done training.", container.ReplicaId(), container.KernelID())
 
 			delete(h.containersWithPreCommittedResources, container.ContainerID())
 		}
@@ -1173,40 +1187,94 @@ func (h *Host) unsafeUncommitResourcesOld(spec *types.DecimalSpec, kernelId stri
 // particular KernelReplica yielded, or after the KernelContainer finishes executing the code in the event that
 // it wins its leader election.
 //
+// The executionId parameter is used to ensure that, if messages are received out-of-order, that we do not
+// pre-release resources when we shouldn't have.
+//
+// For example, let's say we submit EXECUTION_1 to a Kernel. We received the main execute_reply from the leader,
+// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the Kernel.
+// EXECUTION_2 required we pre-allocate some resources again. Now if we receive the delayed replies to EXECUTION_1,
+// we may release the pre-committed resources for EXECUTION_2.
+//
+// By passing the executionId, which is stored with the pre-committed resource allocation, we can simply ignore
+// the de-allocation request if it is outdated.
+//
 // PreCommitResources is the inverse/counterpart to ReleasePreCommitedResources.
-func (h *Host) PreCommitResources(container scheduling.KernelContainer) error {
+func (h *Host) PreCommitResources(container scheduling.KernelContainer, executionId string) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
+	kernelId := container.KernelID()
+	replicaId := container.ReplicaId()
+
+	// Sanity check. Ensure that the container is actually scheduled onto this node.
 	if _, loaded := h.containers.Load(container.ContainerID()); !loaded {
-		h.log.Error("Cannot pre-commit resources to container of replica %d of kernel \"%s\"; that container is not scheduled onto this node.",
-			container.ReplicaId(), container.KernelID())
+		h.log.Error("Cannot pre-commit resources to container of replica %d of kernel \"%s\" for execution \"%s\"; "+
+			"that container is not scheduled onto this node.", replicaId, kernelId, executionId)
 		return ErrInvalidContainer
 	}
 
-	if _, loaded := h.kernelsWithCommittedResources[container.KernelID()]; loaded {
-		h.log.Debug("Resources are already commited to replica %d of kernel \"%s\". No need to pre-commit them.",
-			container.ReplicaId(), container.KernelID())
+	// Check if we've already committed resources to this container.
+	// TODO: Is this susceptible to out-of-order message issues too?
+	if _, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
+		h.log.Debug("Resources are already commited to replica %d of kernel \"%s\" for execution \"%s\". "+
+			"No need to pre-commit them.", replicaId, kernelId, executionId)
 		return nil
 	}
 
-	if _, loaded := h.containersWithPreCommittedResources[container.ContainerID()]; loaded {
-		h.log.Debug("Resources are already pre-commited to replica %d of kernel \"%s\". No need to pre-commit them.",
-			container.ReplicaId(), container.KernelID())
+	// Check if we've already pre-committed resources to this container.
+	containerWithPreCommittedRes, loaded := h.containersWithPreCommittedResources[container.ContainerID()]
+	if loaded && containerWithPreCommittedRes.ExecutionId == executionId {
+		// Already pre-committed for the same execution. No need to do anything here.
+		h.log.Debug("Resources are already pre-commited to replica %d of kernel \"%s\" for execution \"%s\". "+
+			"No need to pre-commit them.", replicaId, kernelId, executionId)
 		return nil
+	} else if loaded && containerWithPreCommittedRes.ExecutionId != executionId {
+		// Already pre-committed but for a different execution.
+		// We'll assume that the existing pre-committed resources are now old/out-of-date.
+		// We'll replace the existing allocation with the new one that is being requested now.
+		previousExecutionId := containerWithPreCommittedRes.ExecutionId
+
+		h.log.Warn("Resources were already pre-committed to replica %d of kernel \"%s\" for execution \"%s\".",
+			replicaId, kernelId, previousExecutionId)
+		h.log.Warn("However, we're supposed to pre-commit resources to replica %d of kernel \"%s\" for a new "+
+			"execution with ID=\"%s\".", replicaId, kernelId, executionId)
+		h.log.Warn("Will replace pre-commitment for execution \"%s\" with pre-commitment for execution \"%s\" "+
+			"(for replica %d of kernel \"%s\")", previousExecutionId, executionId, replicaId, kernelId)
+
+		// Remove the entry from the containersWithPreCommittedResources map.
+		// TODO: If the below call to 'unsafeReleasePreCommitedResources' fails,
+		// 		 is there any scenario in which it's bad that we'll have already
+		//	     deleted the entry from the containersWithPreCommittedResources map?
+		delete(h.containersWithPreCommittedResources, container.ContainerID())
+
+		// Release the old pre-committed resources (for the previous execution ID).
+		// We hold the schedulingMutex right now, so this is all occurring atomically.
+		// We'll create the new pre-committed resource reservation down below.
+		err := h.unsafeReleasePreCommitedResources(container, previousExecutionId)
+		if err != nil {
+			h.log.Error("Failed to release pre-committed resources for replica %d of kernel \"%s\" during "+
+				"replacement of pre-commitment for execution \"%s\" with pre-commitment for execution \"%s\": %v",
+				replicaId, kernelId, previousExecutionId, executionId)
+			return err
+		}
 	}
 
-	h.log.Debug("Pre-Committing resources [%v] to replica %d of kernel \"%s\" so that it can potentially train.",
-		container.ResourceSpec().String(), container.ReplicaId(), container.KernelID())
+	spec := container.ResourceSpec()
+	h.log.Debug("Pre-Committing resources [%v] to replica %d of kernel \"%s\" for execution \"%s\" "+
+		"so that it can potentially train.", spec.String(), replicaId, kernelId, executionId)
 
-	err := h.unsafeCommitResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId(), true)
+	err := h.unsafeCommitResources(spec, kernelId, replicaId, true)
 	if err != nil {
 		return err
 	}
 
-	h.containersWithPreCommittedResources[container.ContainerID()] = container
+	h.containersWithPreCommittedResources[container.ContainerID()] = &containerWithPreCommittedResources{
+		KernelContainer: container,
+		ExecutionId:     executionId,
+	}
+
 	h.log.Debug("Pre-Committed the following resources to replica %d of kernel \"%s\": %s. Updated resources on host: %s.",
-		container.ReplicaId(), container.KernelID(), container.ResourceSpec().String(), h.GetResourceCountsAsString())
+		replicaId, kernelId, spec.String(), h.GetResourceCountsAsString())
 	return nil
 }
 
@@ -1218,14 +1286,45 @@ func (h *Host) GetResourceCountsAsString() string {
 // ReleasePreCommitedResources releases resources that were pre-committed to the given KernelContainer.
 //
 // ReleasePreCommitedResources is the inverse/counterpart to PreCommitResources.
-func (h *Host) ReleasePreCommitedResources(container scheduling.KernelContainer) error {
+//
+// The executionId parameter is used to ensure that, if messages are received out-of-order, that we do not
+// pre-release resources when we shouldn't have.
+//
+// For example, let's say we submit EXECUTION_1 to a Kernel. We received the main execute_reply from the leader,
+// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the Kernel.
+// EXECUTION_2 required we pre-allocate some resources again. Now if we receive the delayed replies to EXECUTION_1,
+// we may release the pre-committed resources for EXECUTION_2.
+//
+// By passing the executionId, which is stored with the pre-committed resource allocation, we can simply ignore
+// the de-allocation request if it is outdated.
+func (h *Host) ReleasePreCommitedResources(container scheduling.KernelContainer, executionId string) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	if _, loaded := h.containersWithPreCommittedResources[container.ContainerID()]; !loaded {
-		h.log.Warn("Resources were not pre-commited to replica %d of kernel \"%s\".",
+	return h.unsafeReleasePreCommitedResources(container, executionId)
+}
+
+// unsafeReleasePreCommitedResources does the work of ReleasePreCommitedResources but does not acquire any
+// mutexes itself.
+//
+// unsafeReleasePreCommitedResources should only be called if the Host's schedulingMutex is already held.
+func (h *Host) unsafeReleasePreCommitedResources(container scheduling.KernelContainer, executionId string) error {
+	containerWithPreCommittedRes, loaded := h.containersWithPreCommittedResources[container.ContainerID()]
+
+	if !loaded {
+		h.log.Warn("Resources are not pre-commited to replica %d of kernel \"%s\" in any capacity.",
 			container.ReplicaId(), container.KernelID())
 		return ErrInvalidContainer
+	}
+
+	// We know we found a pre-committed resource allocation.
+	// Let's check if the execution ID matches.
+	// If not, we'll assume that we already released it and just return.
+	if containerWithPreCommittedRes.ExecutionId != executionId {
+		h.log.Warn("Resources are pre-committed to replica %dof kernel \"%s\" for execution \"%s\", not execution \"%s\"",
+			container.ReplicaId(), container.KernelID(), containerWithPreCommittedRes.ExecutionId, executionId)
+
+		return nil
 	}
 
 	spec := container.ResourceSpec()
@@ -1243,14 +1342,14 @@ func (h *Host) ReleasePreCommitedResources(container scheduling.KernelContainer)
 	return nil
 }
 
-func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, replicaId int32, decrementPending bool) (err error) {
+func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, replicaId int32, decrementPending bool) error {
 	if existingReplicaId, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
 		h.log.Error("Attempting to commit resources [%s] to replica %d of kernel %s, but we've already committed resources to replica %d of kernel %s.",
 			spec.String(), replicaId, kernelId, existingReplicaId)
 		return fmt.Errorf("%w (replica %d of kernel \"%s\")", ErrResourcesAlreadyCommitted, existingReplicaId, kernelId)
 	}
 
-	err = h.resourceManager.RunTransaction(func(state *transaction.State) {
+	err := h.resourceManager.RunTransaction(func(state *transaction.State) {
 		state.CommittedResources().Add(spec)
 
 		if decrementPending {
@@ -1263,13 +1362,18 @@ func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, r
 	if err != nil {
 		h.log.Warn("Failed to commit resources [%s] to replica %d of kernel %s: %v",
 			spec.String(), replicaId, kernelId, err)
-		return
+		return err
 	}
 
-	h.indexUpdater.UpdateIndex(h)
+	err = h.indexUpdater.UpdateIndex(h)
+	if err != nil {
+		h.log.Error("Failed to update index for host %s after committing resources to replica %d of kernel %s: %v",
+			h.NodeName, replicaId, kernelId, err)
+		// Ignore error for now...
+	}
 
 	h.kernelsWithCommittedResources[kernelId] = replicaId
-	return
+	return nil
 }
 
 // ContainerRemoved is to be called when a Container is stopped and removed from the Host.

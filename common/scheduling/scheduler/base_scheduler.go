@@ -1427,7 +1427,7 @@ func (s *BaseScheduler) SelectReplicaForMigration(kernel scheduling.Kernel) (sch
 // selecting a replica now depends upon the kernel's resource request correctly specifying
 // the requirements. If the requirements were to change after selection a replica, then
 // that could invalidate the selection.
-func (s *BaseScheduler) FindReadyReplica(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+func (s *BaseScheduler) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
 	s.replicaSelectionMutex.Lock()
 	defer s.replicaSelectionMutex.Unlock()
 
@@ -1438,5 +1438,5 @@ func (s *BaseScheduler) FindReadyReplica(kernel scheduling.Kernel) (scheduling.K
 		defer s.candidateHostMutex.Unlock() // Pushed onto stack.
 	}
 
-	return s.schedulingPolicy.FindReadyReplica(kernel)
+	return s.schedulingPolicy.FindReadyReplica(kernel, executionId)
 }

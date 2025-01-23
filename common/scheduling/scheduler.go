@@ -88,7 +88,7 @@ type KernelScheduler interface {
 	// selecting a replica now depends upon the kernel's resource request correctly specifying
 	// the requirements. If the requirements were to change after selection a replica, then
 	// that could invalidate the selection.
-	FindReadyReplica(kernel Kernel) (KernelReplica, error)
+	FindReadyReplica(kernel Kernel, executionId string) (KernelReplica, error)
 }
 
 type HostScheduler interface {

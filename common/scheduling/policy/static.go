@@ -103,7 +103,7 @@ func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (sche
 //
 // This method will only ever be called by one of the scheduling.Scheduler implementations, and they will
 // always use a lock around the call to SelectReadyReplica, so the execution of this method is atomic.
-func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
 	replicas := kernel.Replicas()
 
 	// Sort the replicas from most to least idle GPUs available on each replica's respective host.
@@ -119,7 +119,7 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel) (scheduling.Ke
 	// For each replica (in order of most to least idle GPUs available on the host)...
 	for _, candidateReplica := range replicas {
 		// Try to commit resources to the candidateReplica replica.
-		allocationError := candidateReplica.Host().PreCommitResources(candidateReplica.Container())
+		allocationError := candidateReplica.Host().PreCommitResources(candidateReplica.Container(), executionId)
 		if allocationError != nil {
 			// Failed to commit resources. Continue.
 			continue
