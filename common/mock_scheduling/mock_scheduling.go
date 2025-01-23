@@ -754,6 +754,21 @@ func (mr *MockSchedulerMockRecorder) DeployKernelReplicas(ctx, kernelSpec, black
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployKernelReplicas", reflect.TypeOf((*MockScheduler)(nil).DeployKernelReplicas), ctx, kernelSpec, blacklistedHosts)
 }
 
+// FindReadyReplica mocks base method.
+func (m *MockScheduler) FindReadyReplica(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindReadyReplica", kernel)
+	ret0, _ := ret[0].(scheduling.KernelReplica)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindReadyReplica indicates an expected call of FindReadyReplica.
+func (mr *MockSchedulerMockRecorder) FindReadyReplica(kernel any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindReadyReplica", reflect.TypeOf((*MockScheduler)(nil).FindReadyReplica), kernel)
+}
+
 // GetActiveAddReplicaOperationsForKernel mocks base method.
 func (m *MockScheduler) GetActiveAddReplicaOperationsForKernel(kernelId string) (*orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation], bool) {
 	m.ctrl.T.Helper()
@@ -994,6 +1009,21 @@ func (m *MockScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSp
 func (mr *MockSchedulerMockRecorder) ScheduleKernelReplica(replicaSpec, targetHost, blacklistedHosts, forTraining any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScheduleKernelReplica", reflect.TypeOf((*MockScheduler)(nil).ScheduleKernelReplica), replicaSpec, targetHost, blacklistedHosts, forTraining)
+}
+
+// SelectReplicaForMigration mocks base method.
+func (m *MockScheduler) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectReplicaForMigration", kernel)
+	ret0, _ := ret[0].(scheduling.KernelReplica)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectReplicaForMigration indicates an expected call of SelectReplicaForMigration.
+func (mr *MockSchedulerMockRecorder) SelectReplicaForMigration(kernel any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectReplicaForMigration", reflect.TypeOf((*MockScheduler)(nil).SelectReplicaForMigration), kernel)
 }
 
 // SubscriptionRatio mocks base method.
@@ -6741,21 +6771,6 @@ func (m *MockPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 func (mr *MockPolicyMockRecorder) ScalingConfiguration() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScalingConfiguration", reflect.TypeOf((*MockPolicy)(nil).ScalingConfiguration))
-}
-
-// SelectReplicaForMigration mocks base method.
-func (m *MockPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SelectReplicaForMigration", kernel)
-	ret0, _ := ret[0].(scheduling.KernelReplica)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// SelectReplicaForMigration indicates an expected call of SelectReplicaForMigration.
-func (mr *MockPolicyMockRecorder) SelectReplicaForMigration(kernel any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectReplicaForMigration", reflect.TypeOf((*MockPolicy)(nil).SelectReplicaForMigration), kernel)
 }
 
 // SmrEnabled mocks base method.
