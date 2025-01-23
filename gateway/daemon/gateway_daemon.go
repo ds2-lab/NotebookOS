@@ -3310,11 +3310,19 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 				_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
 				return err
 			}
+
+			d.log.Debug("Converted \"execute_request\" \"%s\" to a \"yield_request\" message for replica %d of kernel \"%s\"",
+				jMsg.JupyterMessageId(), replica.ReplicaID(), replica.ID())
 		} else {
 			jupyterMessage = getMsgForTargetReplica()
 		}
 
 		jupyterMessages = append(jupyterMessages, jupyterMessage)
+	}
+
+	for idx, msg := range jupyterMessages {
+		d.log.Debug("Execution request \"%s\" targeting replica %d of kernel \"%s\" is a(n) \"%s\" message.",
+			msg.JupyterMessageId(), idx+1, kernel.ID(), msg.JupyterMessageType())
 	}
 
 	// We'll call RequestWithHandlerAndReplicas instead of RequestWithHandler.
@@ -3344,6 +3352,11 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 		// Send a response with the error as the content.
 		_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
 		return err
+	}
+
+	if targetReplica != nil {
+		d.log.Debug("Identified target replica %d of kernel '%s' to lead \"execute_request\" \"%s\"",
+			targetReplica.ReplicaID(), targetReplica.ID(), jMsg.JupyterMessageId())
 	}
 
 	// Broadcast an "execute_request" to all eligible replicas and a "yield_request" to all ineligible replicas.

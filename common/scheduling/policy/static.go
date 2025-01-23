@@ -120,6 +120,8 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 
 	// For each replica (in order of most to least idle GPUs available on the host)...
 	for _, candidateReplica := range replicas {
+		p.log.Debug("Attempting to pre-commit resources to replica %d of kernel %s whose host has %d idle GPUs",
+			candidateReplica.ReplicaID(), candidateReplica.ID(), int(candidateReplica.Host().IdleGPUs()))
 		// Try to commit resources to the candidateReplica replica.
 		allocationError := candidateReplica.Host().PreCommitResources(candidateReplica.Container(), executionId)
 		if allocationError != nil {
