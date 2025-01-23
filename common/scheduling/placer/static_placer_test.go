@@ -187,7 +187,7 @@ var _ = Describe("Static Placer Tests", func() {
 			Expect(staticPlacer).ToNot(BeNil())
 
 			dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, staticPlacer, mockedHostMapper,
-				mockedKernelProvider, nil, nil, schedulingPolicy,
+				mockedKernelProvider, nil, nil, schedulingPolicy.(scheduler.SchedulingPolicy), // TODO: Fix these messy types
 				func(f func(stats *statistics.ClusterStatistics)) {}, &opts.SchedulerOptions)
 
 			var ok bool

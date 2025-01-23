@@ -630,9 +630,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			host3.EXPECT().PreCommitResources(container3).Times(1).Return(nil)
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
-			ineligibleReplicas, err := clusterGateway.processExecuteRequest(jMsg, kernel)
-			Expect(ineligibleReplicas).ToNot(BeNil())
-			Expect(len(ineligibleReplicas)).To(Equal(0))
+			targetReplica, err := clusterGateway.processExecuteRequest(jMsg, kernel)
+			Expect(targetReplica).ToNot(BeNil())
 			Expect(err).To(BeNil())
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
 		})
@@ -728,9 +727,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			host3.EXPECT().PreCommitResources(container3).Times(1).Return(nil)
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
-			ineligibleReplicas, err := clusterGateway.processExecuteRequest(jMsg, kernel)
-			Expect(ineligibleReplicas).ToNot(BeNil())
-			Expect(len(ineligibleReplicas)).To(Equal(0))
+			targetReplica, err := clusterGateway.processExecuteRequest(jMsg, kernel)
+			Expect(targetReplica).ToNot(BeNil())
 			Expect(err).To(BeNil())
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
 		})

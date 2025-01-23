@@ -202,7 +202,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		Expect(gandivaPlacer).ToNot(BeNil())
 
 		dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, gandivaPlacer, mockedHostMapper,
-			mockedKernelProvider, nil, nil, schedulingPolicy,
+			mockedKernelProvider, nil, nil, schedulingPolicy.(scheduler.SchedulingPolicy), // TODO: Fix these messy types
 			func(f func(stats *statistics.ClusterStatistics)) {}, &opts.SchedulerOptions)
 
 		dockerScheduler, ok = dockerSwarmCluster.Scheduler().(*scheduler.DockerScheduler)
