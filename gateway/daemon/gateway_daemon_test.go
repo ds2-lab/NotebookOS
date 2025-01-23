@@ -878,14 +878,17 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(targetReplicaHost.CommittedGPUs()).To(Equal(float64(committedGpus[selectedReplica.ReplicaID()-1].Load())))
 
 			for idx, host := range hosts {
-				if int32(idx+1) == selectedReplica.ReplicaID() {
+				if replicas[idx].ReplicaID() == selectedReplica.ReplicaID() {
 					// The host of the target replica should have changed resource values.
-					Expect(host.IdleGPUs()).To(Equal(float64(initialIdleGpuValues[selectedReplica.ReplicaID()])))
-					Expect(host.CommittedGPUs()).To(Equal(float64(initialCommittedGpuValues[selectedReplica.ReplicaID()])))
+					Expect(host.IdleGPUs()).ToNot(Equal(float64(initialIdleGpuValues[replicas[idx].ReplicaID()])))
+					Expect(host.CommittedGPUs()).ToNot(Equal(float64(initialCommittedGpuValues[replicas[idx].ReplicaID()])))
+
+					Expect(host.IdleGPUs()).ToNot(Equal(float64(initialIdleGpuValues[selectedReplica.ReplicaID()])))
+					Expect(host.CommittedGPUs()).ToNot(Equal(float64(initialCommittedGpuValues[selectedReplica.ReplicaID()])))
 				} else {
 					// The other two hosts should not have changed resources values.
-					Expect(host.IdleGPUs()).To(Equal(float64(initialIdleGpuValues[selectedReplica.ReplicaID()])))
-					Expect(host.CommittedGPUs()).To(Equal(float64(initialCommittedGpuValues[selectedReplica.ReplicaID()])))
+					Expect(host.IdleGPUs()).To(Equal(float64(initialIdleGpuValues[replicas[idx].ReplicaID()])))
+					Expect(host.CommittedGPUs()).To(Equal(float64(initialCommittedGpuValues[replicas[idx].ReplicaID()])))
 				}
 			}
 		})
