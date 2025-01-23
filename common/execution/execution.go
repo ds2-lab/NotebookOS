@@ -1,10 +1,8 @@
-package scheduling
+package execution
 
 import (
-	"errors"
 	"fmt"
 	"github.com/go-viper/mapstructure/v2"
-	"github.com/goccy/go-json"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -15,65 +13,8 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	// Proposal keys:
-
-	//KeyVote  = "VOTE"
-
-	KeyYield = "YIELD"
-	KeyLead  = "LEAD"
-)
-
-var (
-	ErrProposalAlreadyReceived = errors.New("we already received a proposal from that replica")
-)
-
-type proposal struct {
-	Key    string `json:"key"`
-	Reason string `json:"reason"`
-}
-
-func newProposal(k string, r string) *proposal {
-	return &proposal{
-		Key:    k,
-		Reason: r,
-	}
-}
-
-func (p *proposal) GetKey() string {
-	return p.Key
-}
-
-func (p *proposal) GetReason() string {
-	return p.Reason
-}
-
-func (p *proposal) IsYield() bool {
-	return p.Key == KeyYield
-}
-
-func (p *proposal) IsLead() bool {
-	return p.Key == KeyLead
-}
-
-func (p *proposal) String() string {
-	m, err := json.Marshal(p)
-	if err != nil {
-		panic(err)
-	}
-
-	return string(m)
-}
-
-type ElectionProposal interface {
-	GetKey() string
-	GetReason() string
-	IsYield() bool
-	IsLead() bool
-}
-
 // ActiveExecution encapsulates the submission of a single 'execute_request' message for a particular kernel.
-// We observe the results of the SMR proposal protocol and take action accordingly, depending upon the results.
+// We observe the results of the SMR Proposal protocol and take action accordingly, depending upon the results.
 // For example, if all replicas of the kernel issue 'YIELD' roles, then we will need to perform some sort of
 // scheduling action, depending upon what scheduling policy we're using.
 //
@@ -89,7 +30,7 @@ type ActiveExecution struct {
 	NumReplicas             int                                               // The number of replicas that the kernel had with the execution request was originally received.
 	numLeadRoles            int                                               // Number of 'LEAD' roles issued.
 	numYieldRoles           int                                               // Number of 'YIELD' roles issued.
-	roles                   map[int32]ElectionProposal                        // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
+	roles                   map[int32]*Proposal                               // Map from replica ID to what it proposed ('YIELD' or 'LEAD')
 	nextAttempt             *ActiveExecution                                  // If we initiate a retry due to timeouts, then we link this attempt to the retry attempt.
 	previousAttempt         *ActiveExecution                                  // The retry that preceded this one, if this is not the first attempt.
 	msg                     *messaging.JupyterMessage                         // The original 'execute_request' message.
@@ -105,7 +46,7 @@ type ActiveExecution struct {
 
 	// activeReplica is the Kernel connected to the replica of the kernel that is actually
 	// executing the user-submitted code.
-	ActiveReplica KernelReplica
+	ActiveReplica ActiveReplica
 
 	// WorkloadId can be retrieved from the metadata dictionary of the Jupyter messages if the sender
 	// was a Golang Jupyter client.
@@ -130,11 +71,11 @@ func (e *ActiveExecution) GetNumReplicas() int {
 	return e.NumReplicas
 }
 
-func (e *ActiveExecution) SetActiveReplica(replica KernelReplica) {
+func (e *ActiveExecution) SetActiveReplica(replica ActiveReplica) {
 	e.ActiveReplica = replica
 }
 
-func (e *ActiveExecution) GetActiveReplica() KernelReplica {
+func (e *ActiveExecution) GetActiveReplica() ActiveReplica {
 	return e.ActiveReplica
 }
 
@@ -155,7 +96,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *me
 		ExecutionId:             uuid.NewString(),
 		SessionId:               msg.JupyterSession(),
 		AttemptId:               attemptId,
-		roles:                   make(map[int32]ElectionProposal, 3),
+		roles:                   make(map[int32]*Proposal, numReplicas),
 		KernelId:                kernelId,
 		NumReplicas:             numReplicas,
 		Replies:                 hashmap.NewCornelkMap[int32, *messaging.JupyterMessage](numReplicas),
@@ -313,7 +254,7 @@ func (e *ActiveExecution) ReceivedLeadNotification(smrNodeId int32) error {
 		return ErrProposalAlreadyReceived
 	}
 
-	e.roles[smrNodeId] = newProposal(KeyLead, "")
+	e.roles[smrNodeId] = NewProposal(LeadProposal, "")
 	e.numLeadRoles += 1
 
 	return nil
@@ -325,7 +266,7 @@ func (e *ActiveExecution) ReceivedYieldNotification(smrNodeId int32, yieldReason
 		return ErrProposalAlreadyReceived
 	}
 
-	e.roles[smrNodeId] = newProposal(KeyYield, yieldReason)
+	e.roles[smrNodeId] = NewProposal(YieldProposal, yieldReason)
 	e.numYieldRoles += 1
 
 	if e.numYieldRoles == e.NumReplicas {
@@ -336,7 +277,7 @@ func (e *ActiveExecution) ReceivedYieldNotification(smrNodeId int32, yieldReason
 }
 
 // NumRolesReceived does not count duplicate roles received multiple times from the same node.
-// It's more like the number of unique replicas from which we've received a proposal.
+// It's more like the number of unique replicas from which we've received a Proposal.
 func (e *ActiveExecution) NumRolesReceived() int {
 	return e.numLeadRoles + e.numYieldRoles
 }
@@ -351,7 +292,7 @@ func (e *ActiveExecution) NumYieldReceived() int {
 	return e.numYieldRoles
 }
 
-func (e *ActiveExecution) RangeRoles(rangeFunc func(int32, ElectionProposal) bool) {
+func (e *ActiveExecution) RangeRoles(rangeFunc func(int32, *Proposal) bool) {
 	for smrNodeId, role := range e.roles {
 		shouldContinue := rangeFunc(smrNodeId, role)
 

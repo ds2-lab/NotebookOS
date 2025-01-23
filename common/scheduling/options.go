@@ -14,9 +14,9 @@ const (
 )
 
 var (
-	DefaultStaticSchedulerOptions *SchedulerOptions = &SchedulerOptions{
+	DefaultStaticSchedulerOptions = &SchedulerOptions{
 		CommonOptions: configuration.CommonOptions{
-			GpusPerHost:                        3,
+			GpusPerHost:                        8,
 			DeploymentMode:                     "docker-swarm",
 			DockerAppName:                      "distributed_notebook",
 			DockerNetworkName:                  "distributed_cluster_default",
@@ -59,9 +59,9 @@ var (
 		AssignKernelDebugPorts:        false,
 	}
 
-	DefaultFcfsSchedulerOptions *SchedulerOptions = &SchedulerOptions{
+	DefaultFcfsSchedulerOptions = &SchedulerOptions{
 		CommonOptions: configuration.CommonOptions{
-			GpusPerHost:                        1,
+			GpusPerHost:                        8,
 			DeploymentMode:                     "docker-swarm",
 			DockerAppName:                      "distributed_notebook",
 			DockerNetworkName:                  "distributed_cluster_default",

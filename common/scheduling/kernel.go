@@ -2,6 +2,7 @@ package scheduling
 
 import (
 	"context"
+	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
@@ -76,16 +77,16 @@ type Kernel interface {
 	GetContainers() []KernelContainer
 	ShellListenPort() int
 	IOPubListenPort() int
-	ActiveExecution() *ActiveExecution
-	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*ActiveExecution, bool)
+	ActiveExecution() *execution.ActiveExecution
+	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*execution.ActiveExecution, bool)
 	// GetActiveExecution returns the *scheduling.ActiveExecution associated with the given "execute_request" message ID.
-	GetActiveExecution(msgId string) *ActiveExecution
-	CurrentActiveExecution() *ActiveExecution
+	GetActiveExecution(msgId string) *execution.ActiveExecution
+	CurrentActiveExecution() *execution.ActiveExecution
 	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
-	SetActiveExecution(activeExecution *ActiveExecution)
+	SetActiveExecution(activeExecution *execution.ActiveExecution)
 	ExecutionComplete(msg *messaging.JupyterMessage) (bool, error)
-	EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *ActiveExecution
+	EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *execution.ActiveExecution
 	ResetID(id string)
 	PersistentID() string
 	String() string

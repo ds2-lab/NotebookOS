@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
+	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/metrics"
@@ -2043,13 +2044,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			var wg sync.WaitGroup
 			wg.Add(1)
 
-			var activeExecution *scheduling.ActiveExecution
-			mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
+			var activeExecution *execution.ActiveExecution
+			mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *execution.ActiveExecution {
 				Expect(attemptId).To(Equal(1))
 				Expect(msg).ToNot(BeNil())
 				Expect(msg).To(Equal(jMsg))
 
-				activeExecution = scheduling.NewActiveExecution(kernelId, attemptId, 3, msg)
+				activeExecution = execution.NewActiveExecution(kernelId, attemptId, 3, msg)
 				wg.Done()
 
 				return activeExecution

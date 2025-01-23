@@ -62,7 +62,8 @@ func GetSchedulingPolicy(opts *scheduling.SchedulerOptions) (SchedulingPolicy, e
 		}
 	case string(scheduling.AutoScalingFcfsBatch):
 		{
-			return policy.NewAutoScalingFcfsBatchSchedulingPolicy(opts)
+			panic("Auto-Scaling FCFS Batch is no longer supported (at least for the time being.")
+			// return policy.NewAutoScalingFcfsBatchSchedulingPolicy(opts)
 		}
 	case string(scheduling.Static):
 		{

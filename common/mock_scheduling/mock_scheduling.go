@@ -11,6 +11,7 @@ package mock_scheduling
 
 import (
 	context "context"
+	"github.com/scusemua/distributed-notebook/common/execution"
 	reflect "reflect"
 	time "time"
 
@@ -4206,10 +4207,10 @@ func (m *MockKernel) EXPECT() *MockKernelMockRecorder {
 }
 
 // ActiveExecution mocks base method.
-func (m *MockKernel) ActiveExecution() *scheduling.ActiveExecution {
+func (m *MockKernel) ActiveExecution() *execution.ActiveExecution {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ActiveExecution")
-	ret0, _ := ret[0].(*scheduling.ActiveExecution)
+	ret0, _ := ret[0].(*execution.ActiveExecution)
 	return ret0
 }
 
@@ -4350,10 +4351,10 @@ func (mr *MockKernelMockRecorder) Context() *gomock.Call {
 }
 
 // CurrentActiveExecution mocks base method.
-func (m *MockKernel) CurrentActiveExecution() *scheduling.ActiveExecution {
+func (m *MockKernel) CurrentActiveExecution() *execution.ActiveExecution {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CurrentActiveExecution")
-	ret0, _ := ret[0].(*scheduling.ActiveExecution)
+	ret0, _ := ret[0].(*execution.ActiveExecution)
 	return ret0
 }
 
@@ -4378,10 +4379,10 @@ func (mr *MockKernelMockRecorder) DebugMode() *gomock.Call {
 }
 
 // EnqueueActiveExecution mocks base method.
-func (m *MockKernel) EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
+func (m *MockKernel) EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *execution.ActiveExecution {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "EnqueueActiveExecution", attemptId, msg)
-	ret0, _ := ret[0].(*scheduling.ActiveExecution)
+	ret0, _ := ret[0].(*execution.ActiveExecution)
 	return ret0
 }
 
@@ -4421,10 +4422,10 @@ func (mr *MockKernelMockRecorder) ExecutionFailedCallback() *gomock.Call {
 }
 
 // GetActiveExecution mocks base method.
-func (m *MockKernel) GetActiveExecution(msgId string) *scheduling.ActiveExecution {
+func (m *MockKernel) GetActiveExecution(msgId string) *execution.ActiveExecution {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetActiveExecution", msgId)
-	ret0, _ := ret[0].(*scheduling.ActiveExecution)
+	ret0, _ := ret[0].(*execution.ActiveExecution)
 	return ret0
 }
 
@@ -4435,10 +4436,10 @@ func (mr *MockKernelMockRecorder) GetActiveExecution(msgId any) *gomock.Call {
 }
 
 // GetActiveExecutionByExecuteRequestMsgId mocks base method.
-func (m *MockKernel) GetActiveExecutionByExecuteRequestMsgId(msgId string) (*scheduling.ActiveExecution, bool) {
+func (m *MockKernel) GetActiveExecutionByExecuteRequestMsgId(msgId string) (*execution.ActiveExecution, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetActiveExecutionByExecuteRequestMsgId", msgId)
-	ret0, _ := ret[0].(*scheduling.ActiveExecution)
+	ret0, _ := ret[0].(*execution.ActiveExecution)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -4910,7 +4911,7 @@ func (mr *MockKernelMockRecorder) Sessions() *gomock.Call {
 }
 
 // SetActiveExecution mocks base method.
-func (m *MockKernel) SetActiveExecution(activeExecution *scheduling.ActiveExecution) {
+func (m *MockKernel) SetActiveExecution(activeExecution *execution.ActiveExecution) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetActiveExecution", activeExecution)
 }

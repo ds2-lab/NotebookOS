@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
@@ -4679,7 +4680,7 @@ func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduli
 		replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, associatedActiveExecution.NumRolesReceived(), associatedActiveExecution.GetNumReplicas(), replica.ID())
 
 	// If we have a non-nil error, and it isn't just that all the replicas proposed YIELD, then return it directly.
-	if err != nil && !errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
+	if err != nil && !errors.Is(err, execution.ErrExecutionFailedAllYielded) {
 		d.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for %s ActiveExecution associated with \"execute_request\" \"%s\": %v",
 			replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, err)
 
@@ -4687,7 +4688,7 @@ func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduli
 	}
 
 	// If we have a non-nil error, and it's just that all replicas proposed YIELD, then we'll call the handler.
-	if errors.Is(err, scheduling.ErrExecutionFailedAllYielded) {
+	if errors.Is(err, execution.ErrExecutionFailedAllYielded) {
 		if currentStatus != "current" {
 			// This just really shouldn't happen...
 			log.Fatalf(utils.RedStyle.Render("[ERROR] All replicas have proposed 'YIELD' for non-current ActiveExecution associated with \"execute_request\" \"%s\"...\n"), targetExecuteRequestId)
@@ -4696,7 +4697,7 @@ func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduli
 		// Concatenate all the yield reasons. We'll return them along with the error returned by
 		// handleFailedExecutionAllYielded if handleFailedExecutionAllYielded returns a non-nil error.
 		yieldErrors := make([]error, 0, 4)
-		associatedActiveExecution.RangeRoles(func(i int32, proposal scheduling.ElectionProposal) bool {
+		associatedActiveExecution.RangeRoles(func(i int32, proposal *execution.Proposal) bool {
 			yieldError := fmt.Errorf("replica %d proposed \"YIELD\" because: %s", i, proposal.GetReason())
 			yieldErrors = append(yieldErrors, yieldError)
 			return true

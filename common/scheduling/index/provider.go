@@ -12,7 +12,7 @@ import (
 // The numPools parameter is used when the scheduling policy indicates that a MultiIndex should be returned.
 func GetIndex(policyKey scheduling.PolicyKey, numPools int) scheduling.ClusterIndex {
 	var index scheduling.ClusterIndex
-	if policyKey == scheduling.FcfsBatch || policyKey == scheduling.AutoScalingFcfsBatch || policyKey == scheduling.Reservation {
+	if policyKey == scheduling.FcfsBatch || policyKey == scheduling.Reservation { // policyKey == scheduling.AutoScalingFcfsBatch
 		index = NewRandomClusterIndex(16)
 	} else if policyKey == scheduling.Static {
 		index = NewStaticIndex(int32(numPools)) // TODO: Need to make sure this is passed as the number of GPUs

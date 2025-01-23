@@ -22,7 +22,6 @@ var (
 	ErrOldSnapshot                         = errors.New("the given snapshot is older than the last snapshot applied to the target host")
 	ErrNotImplementedYet                   = errors.New("this method has not yet been implemented")
 	ErrInvalidStateTransition              = errors.New("invalid session state transition requested")
-	ErrExecutionFailedAllYielded           = errors.New("an execution failed; all replicas proposed 'YIELD'")
 	ErrScalingProhibitedBySchedulingPolicy = status.Error(codes.FailedPrecondition, "scaling is not supported under the configured scheduling policy")
 	ErrDynamicResourceAdjustmentProhibited = errors.New("dynamically adjusting resources is disabled by the configured scheduling policy")
 	ErrInvalidSchedulingPolicy             = errors.New("unknown, unspecified, or invalid scheduling policy")
