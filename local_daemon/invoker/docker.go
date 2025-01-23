@@ -142,11 +142,6 @@ type DockerInvokerOptions struct {
 	// DockerStorageBase is the base directory in which the persistent store data is stored when running in docker mode.
 	DockerStorageBase string
 
-	// UsingWSL indicates whether we're running within WSL (Windows Subsystem for Linux).
-	// If we are, then there is some additional configuration required for the kernel containers in order for
-	// them to be able to connect to remote storage running in the host (WSL).
-	UsingWSL bool
-
 	// RunKernelsInGdb specifies that, if true, then the kernels will be run in GDB.
 	RunKernelsInGdb bool `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
 

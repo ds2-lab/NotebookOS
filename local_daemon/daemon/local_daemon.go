@@ -225,11 +225,6 @@ type SchedulerDaemonImpl struct {
 	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
 	MessageAcknowledgementsEnabled bool
 
-	// Indicates whether we're running within WSL (Windows Subsystem for Linux).
-	// If we are, then there is some additional configuration required for the kernel containers in order for
-	// them to be able to connect to remote storage running in the host (WSL).
-	usingWSL bool
-
 	// If true, then the kernels will be executed within GDB.
 	runKernelsInGdb bool
 
@@ -303,7 +298,6 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		remoteStorageEndpoint:              localDaemonOptions.RemoteStorageEndpoint,
 		remoteStorage:                      localDaemonOptions.RemoteStorage,
 		dockerStorageBase:                  localDaemonOptions.DockerStorageBase,
-		usingWSL:                           localDaemonOptions.UsingWSL,
 		DebugMode:                          localDaemonOptions.CommonOptions.DebugMode,
 		prometheusInterval:                 time.Second * time.Duration(localDaemonOptions.PrometheusInterval),
 		prometheusPort:                     localDaemonOptions.PrometheusPort,
@@ -1045,7 +1039,6 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 			RemoteStorage:                        d.remoteStorage,
 			KernelDebugPort:                      -1,
 			DockerStorageBase:                    d.dockerStorageBase,
-			UsingWSL:                             d.usingWSL,
 			RunKernelsInGdb:                      d.runKernelsInGdb,
 			IsInDockerSwarm:                      d.DockerSwarmMode(),
 			PrometheusMetricsPort:                d.prometheusPort,
@@ -1898,7 +1891,6 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			RemoteStorage:                        d.remoteStorage,
 			KernelDebugPort:                      int(in.DockerModeKernelDebugPort),
 			DockerStorageBase:                    d.dockerStorageBase,
-			UsingWSL:                             d.usingWSL,
 			RunKernelsInGdb:                      d.runKernelsInGdb,
 			SimulateCheckpointingLatency:         d.SimulateCheckpointingLatency,
 			IsInDockerSwarm:                      d.DockerSwarmMode(),
