@@ -755,12 +755,23 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			var host1CommittedGpus, host2CommittedGpus, host3CommittedGpus atomic.Int64
 
 			// We'll artificially say that Host 3 has 8 idle GPUs, whereas hosts 1 and 2 have less.
-			host1IdleGpus.Store(6)
-			host2IdleGpus.Store(7)
-			host3IdleGpus.Store(8)
-			host1CommittedGpus.Store(2)
-			host2CommittedGpus.Store(1)
-			host3CommittedGpus.Store(0)
+			initialIdleGpuValues := map[int32]int64{
+				1: 6,
+				2: 7,
+				3: 8,
+			}
+			initialCommittedGpuValues := map[int32]int64{
+				1: 2,
+				2: 1,
+				3: 0,
+			}
+
+			host1IdleGpus.Store(initialIdleGpuValues[int32(1)])
+			host2IdleGpus.Store(initialIdleGpuValues[int32(2)])
+			host3IdleGpus.Store(initialIdleGpuValues[int32(3)])
+			host1CommittedGpus.Store(initialCommittedGpuValues[int32(1)])
+			host2CommittedGpus.Store(initialCommittedGpuValues[int32(2)])
+			host3CommittedGpus.Store(initialCommittedGpuValues[int32(3)])
 
 			idleGpus := []*atomic.Int64{&host1IdleGpus, &host2IdleGpus, &host3IdleGpus}
 			committedGpus := []*atomic.Int64{&host1CommittedGpus, &host2CommittedGpus, &host3CommittedGpus}
@@ -836,7 +847,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			selectedReplica := <-selectedReplicaChan
 
-			GinkgoWriter.Printf("Selected replica %d on host %s (ID=%s)\n", selectedReplica.ReplicaID(),
+			GinkgoWriter.Printf("Selected replica %d on targetReplicaHost %s (ID=%s)\n", selectedReplica.ReplicaID(),
 				selectedReplica.Host().GetNodeName(), selectedReplica.Host().GetID())
 
 			Expect(selectedReplica.ReplicaID()).To(Equal(int32(3)))
@@ -859,6 +870,24 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
+
+			targetReplicaHost := hosts[selectedReplica.ReplicaID()-1]
+
+			// Check that the resources were updated correctly on the targetReplicaHost of the selected/target replica.
+			Expect(targetReplicaHost.IdleGPUs()).To(Equal(float64(idleGpus[selectedReplica.ReplicaID()-1].Load())))
+			Expect(targetReplicaHost.CommittedGPUs()).To(Equal(float64(committedGpus[selectedReplica.ReplicaID()-1].Load())))
+
+			for idx, host := range hosts {
+				if int32(idx+1) == selectedReplica.ReplicaID() {
+					// The host of the target replica should have changed resource values.
+					Expect(host.IdleGPUs()).To(Equal(float64(initialIdleGpuValues[selectedReplica.ReplicaID()])))
+					Expect(host.CommittedGPUs()).To(Equal(float64(initialCommittedGpuValues[selectedReplica.ReplicaID()])))
+				} else {
+					// The other two hosts should not have changed resources values.
+					Expect(host.IdleGPUs()).To(Equal(float64(initialIdleGpuValues[selectedReplica.ReplicaID()])))
+					Expect(host.CommittedGPUs()).To(Equal(float64(initialCommittedGpuValues[selectedReplica.ReplicaID()])))
+				}
+			}
 		})
 
 		It("should correctly handle execute_request messages with an offset", func() {
