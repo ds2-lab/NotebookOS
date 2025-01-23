@@ -18,7 +18,7 @@ import (
 
 var (
 	ErrInvalidExplanationRequested = errors.New("invalid explanation requested")
-	ErrInvalidContainer            = errors.New("the specified or provided container is invalid")
+	ErrInvalidContainer            = errors.New("the container is invalid")
 	ErrMissingTrainingContainer    = errors.New("session is training, but its \"training container\" is nil")
 )
 
@@ -350,6 +350,13 @@ func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) p
 
 	if container == nil {
 		s.log.Error("Specified container for training is nil.")
+
+		// Try to go back to idle...
+		err := s.transition(scheduling.SessionStateIdle)
+		if err != nil {
+			s.log.Error("Failed to revert back to idle state after failing to start training: %v", err)
+		}
+
 		return promise.Resolved(s.instance, fmt.Errorf("%w: container is nil", ErrInvalidContainer))
 	}
 
@@ -365,6 +372,13 @@ func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) p
 	// If the specified Container is NOT one of our replica containers, then we'll resolve with an error.
 	if !found {
 		s.log.Error("Specified container for training is not found in replicas: %v", container)
+
+		// Try to go back to idle...
+		err := s.transition(scheduling.SessionStateIdle)
+		if err != nil {
+			s.log.Error("Failed to revert back to idle state after failing to start training: %v", err)
+		}
+
 		return promise.Resolved(s.instance,
 			fmt.Errorf("%w: container not in session's replicas (container=%v)", ErrInvalidContainer, container))
 	}
@@ -372,6 +386,13 @@ func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) p
 	s.trainingContainer = container
 	if err := s.trainingContainer.TrainingStartedInContainer(); err != nil {
 		s.log.Error("Failed to start training in container %s: %v", container.String(), err)
+
+		// Try to go back to idle...
+		err := s.transition(scheduling.SessionStateIdle)
+		if err != nil {
+			s.log.Error("Failed to revert back to idle state after failing to start training: %v", err)
+		}
+
 		return promise.Resolved(s.instance, err)
 	}
 

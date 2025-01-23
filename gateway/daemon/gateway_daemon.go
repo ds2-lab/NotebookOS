@@ -1293,7 +1293,7 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 func (d *ClusterGatewayImpl) executionFailed(c scheduling.Kernel, msg *messaging.JupyterMessage) error {
 	execution := c.ActiveExecution()
 	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.",
-		execution.GetExecuteRequestMessageId(), execution.GetAttemptId(), c.ID())
+		execution.ExecuteRequestMessageId, execution.AttemptNumber, c.ID())
 
 	return d.executionFailedCallback(c, msg)
 }
@@ -3469,17 +3469,17 @@ func (d *ClusterGatewayImpl) processExecuteReply(kernelId string, msg *messaging
 	}
 
 	activeExecution := kernel.ActiveExecution()
-	if activeExecution != nil && activeExecution.GetExecuteRequestMessageId() != msg.JupyterParentMessageId() {
+	if activeExecution != nil && activeExecution.ExecuteRequestMessageId != msg.JupyterParentMessageId() {
 		// It's possible that we receive an "execute_reply" for execution i AFTER the "smr_lead_task" message for
 		// execution i+1 (i.e., out of order). When this happens, we just stop the current training upon receiving
 		// the "smr_lead_task" message for execution i+1. If and when we receive the "execute_reply" message for
 		// execution i (after we've already moved on to execution i+1), we discard the "old" "execute_reply" message.
 		d.log.Warn(utils.OrangeStyle.Render("Received \"execute_reply\" for \"execute_request\" \"%s\"; however, current execution is for \"execute_request\" \"%s\"."),
-			msg.JupyterParentMessageId(), activeExecution.GetExecuteRequestMessageId())
+			msg.JupyterParentMessageId(), activeExecution.ExecuteRequestMessageId)
 
 		oldActiveExecution, loaded := kernel.GetActiveExecutionByExecuteRequestMsgId(msg.JupyterParentMessageId())
 		if !loaded {
-			d.log.Error(utils.RedStyle.Render("Could not find old ActiveExecution associated with \"execute_request\" \"%s\"..."), msg.JupyterParentMessageId())
+			d.log.Error(utils.RedStyle.Render("Could not find old Execution associated with \"execute_request\" \"%s\"..."), msg.JupyterParentMessageId())
 		} else if oldActiveExecution.OriginalTimestampOrCreatedAt().After(kernel.ActiveExecution().OriginalTimestampOrCreatedAt()) {
 			// If the "old" active execution -- the one associated with the Jupyter message ID of the "execute_request"
 			// for which we just received the subsequent/complementary "execute_reply -- has an original send timestamp
@@ -4638,7 +4638,7 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 }
 
 // handleExecutionYieldedNotification is called when we receive a 'YIELD' proposal from a replica of a kernel.
-// handleExecutionYieldedNotification registers the 'yield' proposal with the kernel's current scheduling.ActiveExecution
+// handleExecutionYieldedNotification registers the 'yield' proposal with the kernel's current scheduling.Execution
 // struct. If we find that we've received all three proposals, and they were ALL 'yield', then we'll handle the situation
 // according to the scheduling policy that we've been configured to use.
 func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduling.KernelReplica, msgErr *messaging.MessageErrorWithYieldReason, msg *messaging.JupyterMessage) error {
@@ -4657,17 +4657,17 @@ func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduli
 	// with the 'YIELD' proposal that we just received.
 	targetExecuteRequestId := msg.JupyterParentMessageId()
 
-	// It's possible we received a 'YIELD' proposal for an ActiveExecution different from the current one.
-	// So, retrieve the ActiveExecution associated with the 'YIELD' proposal (using the "execute_request" message IDs).
+	// It's possible we received a 'YIELD' proposal for an Execution different from the current one.
+	// So, retrieve the Execution associated with the 'YIELD' proposal (using the "execute_request" message IDs).
 	associatedActiveExecution := kernel.GetActiveExecution(targetExecuteRequestId)
 
 	// If we couldn't find the associated active execution at all, then we should panic. That's bad.
 	if associatedActiveExecution == nil {
-		log.Fatalf(utils.RedStyle.Render("Received 'YIELD' proposal from replica %d of kernel %s targeting unknown ActiveExecution associated with an \"execute_request\" message with msg_id=\"%s\"..."),
+		log.Fatalf(utils.RedStyle.Render("Received 'YIELD' proposal from replica %d of kernel %s targeting unknown Execution associated with an \"execute_request\" message with msg_id=\"%s\"..."),
 			replica.ReplicaID(), replica.ID(), targetExecuteRequestId)
 	}
 
-	// Mark that we received the 'YIELD' proposal for the associated ActiveExecution.
+	// Mark that we received the 'YIELD' proposal for the associated Execution.
 	err := associatedActiveExecution.ReceivedYieldNotification(replica.ReplicaID(), msgErr.YieldReason)
 
 	var currentStatus string
@@ -4676,12 +4676,12 @@ func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduli
 	} else {
 		currentStatus = "non-current"
 	}
-	d.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for %s ActiveExecution associated with \"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
+	d.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for %s Execution associated with \"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
 		replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, associatedActiveExecution.NumRolesReceived(), associatedActiveExecution.GetNumReplicas(), replica.ID())
 
 	// If we have a non-nil error, and it isn't just that all the replicas proposed YIELD, then return it directly.
 	if err != nil && !errors.Is(err, execution.ErrExecutionFailedAllYielded) {
-		d.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for %s ActiveExecution associated with \"execute_request\" \"%s\": %v",
+		d.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for %s Execution associated with \"execute_request\" \"%s\": %v",
 			replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, err)
 
 		return err
@@ -4691,7 +4691,7 @@ func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduli
 	if errors.Is(err, execution.ErrExecutionFailedAllYielded) {
 		if currentStatus != "current" {
 			// This just really shouldn't happen...
-			log.Fatalf(utils.RedStyle.Render("[ERROR] All replicas have proposed 'YIELD' for non-current ActiveExecution associated with \"execute_request\" \"%s\"...\n"), targetExecuteRequestId)
+			log.Fatalf(utils.RedStyle.Render("[ERROR] All replicas have proposed 'YIELD' for non-current Execution associated with \"execute_request\" \"%s\"...\n"), targetExecuteRequestId)
 		}
 
 		// Concatenate all the yield reasons. We'll return them along with the error returned by

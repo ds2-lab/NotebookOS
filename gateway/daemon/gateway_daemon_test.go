@@ -2044,8 +2044,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			var wg sync.WaitGroup
 			wg.Add(1)
 
-			var activeExecution *execution.ActiveExecution
-			mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *execution.ActiveExecution {
+			var activeExecution *execution.Execution
+			mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *execution.Execution {
 				Expect(attemptId).To(Equal(1))
 				Expect(msg).ToNot(BeNil())
 				Expect(msg).To(Equal(jMsg))

@@ -276,7 +276,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		resourceSpec:                        resourceSpec,
 		numReplicasPerKernel:                numReplicasPerKernel,
 		metricsProvider:                     metricsProvider,
-		log:                                 config.GetLogger(fmt.Sprintf("Host %s ", id)),
+		log:                                 config.GetLogger(fmt.Sprintf("Host %s ", confirmedId.NodeName)),
 		containers:                          hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
 		reservations:                        hashmap.NewCornelkMap[string, *Reservation](5),
 		trainingContainers:                  make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
@@ -1010,7 +1010,8 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 	if _, ok := h.containers.Load(container.ContainerID()); !ok {
 		h.log.Error("Cannot find container for replica %d of kernel %s on host %s (ID=%s).",
 			container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
-		return ErrInvalidContainer
+		return fmt.Errorf("%w: cannot find container for replica %d of kernel %s on host %s (ID=%s)",
+			ErrInvalidContainer, container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
 	}
 
 	// If the resource binding mode is instead BindResourcesWhenContainerScheduled, then we do not
@@ -1094,7 +1095,8 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	if _, ok := h.containers.Load(container.ContainerID()); !ok {
 		h.log.Error("Cannot find container for replica %d of kernel %s on host %s (ID=%s).",
 			container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
-		return ErrInvalidContainer
+		return fmt.Errorf("%w: cannot find container for replica %d of kernel %s on host %s (ID=%s)",
+			ErrInvalidContainer, container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
 	}
 
 	// If the resource binding mode is instead BindResourcesWhenContainerScheduled, then they're already
@@ -1155,7 +1157,8 @@ func (h *Host) unsafeUncommitResourcesOld(spec *types.DecimalSpec, kernelId stri
 	if _, loaded := h.kernelsWithCommittedResources[kernelId]; !loaded {
 		h.log.Error("Cannot release committed resources from replica of kernel \"%s\". No replica of kernel \"%s\" has resources committed to it. (Requested to release: %s)",
 			kernelId, kernelId, spec.String())
-		return ErrInvalidContainer
+		return fmt.Errorf("%w: cannot release pre-committed resources from replica of kernel %s on host %s (ID=%s)",
+			ErrInvalidContainer, kernelId, h.NodeName, h.ID)
 	}
 
 	if err := h.resourceManager.CommittedResources().Subtract(spec); err != nil {
@@ -1314,7 +1317,8 @@ func (h *Host) unsafeReleasePreCommitedResources(container scheduling.KernelCont
 	if !loaded {
 		h.log.Warn("Resources are not pre-commited to replica %d of kernel \"%s\" in any capacity.",
 			container.ReplicaId(), container.KernelID())
-		return ErrInvalidContainer
+		return fmt.Errorf("%w: resources are not pre-committed to container for replica %d of kernel %s on host %s (ID=%s)",
+			ErrInvalidContainer, container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
 	}
 
 	// We know we found a pre-committed resource allocation.
@@ -1383,7 +1387,8 @@ func (h *Host) ContainerRemoved(container scheduling.KernelContainer) error {
 
 	if _, ok := h.containers.Load(container.ContainerID()); !ok {
 		h.log.Error("Cannot remove specified Container from Host. Container is not on specified Host.")
-		return ErrInvalidContainer
+		return fmt.Errorf("%w: cannot find container for replica %d of kernel %s on host %s (ID=%s) for removal",
+			ErrInvalidContainer, container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
 	}
 
 	h.containers.Delete(container.ContainerID())

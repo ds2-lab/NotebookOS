@@ -5,6 +5,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"math/rand"
 	"slices"
 )
@@ -126,25 +127,29 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 
 	// For each replica (in order of most to least idle GPUs available on the host)...
 	for _, candidateReplica := range replicas {
-		p.log.Debug("Attempting to pre-commit resources to replica %d of kernel %s whose host has %d idle GPUs",
-			candidateReplica.ReplicaID(), candidateReplica.ID(), int(candidateReplica.Host().IdleGPUs()))
+		p.log.Debug("Try pre-commit resources %v to replica %d of kernel %s whose host has %d idle GPUs",
+			candidateReplica.ResourceSpec(), candidateReplica.ReplicaID(), candidateReplica.ID(),
+			int(candidateReplica.Host().IdleGPUs()))
 		// Try to commit resources to the candidateReplica replica.
 		allocationError := candidateReplica.Host().PreCommitResources(candidateReplica.Container(), executionId)
 		if allocationError != nil {
 			// Failed to commit resources. Continue.
+			p.log.Debug("Resource pre-commitment %s. Replica %d of kernel %s is not viable for execution \"%s\".",
+				utils.LightOrangeStyle.Render("failed"), candidateReplica.ReplicaID(), kernel.ID(), executionId)
 			continue
 		}
 
-		// Successfully committed resources.
-		p.log.Debug("Identified viable candidate replica of kernel %s with resource request %v: replica %d.",
-			kernel.ID(), kernel.ResourceSpec().String(), candidateReplica.ReplicaID())
+		p.log.Debug(
+			utils.LightGreenStyle.Render(
+				"Resource pre-commitment %s. Identified viable replica %d of kernel %s for execution \"%s\"."),
+			candidateReplica.ReplicaID(), kernel.ID(), executionId)
 
 		return candidateReplica, nil // Migration is permitted, so we never return an error.
 	}
 
 	// If we've made it to this point, then we tried all replicas and none of them worked.
 	// (That is, we were unable to commit resources to any of the replicas.)
-	p.log.Debug("Could not find eligible replica of kernel %s with resource request %v.",
+	p.log.Debug(utils.YellowStyle.Render("Could not find eligible replica of kernel %s with resource request %v."),
 		kernel.ID(), kernel.ResourceSpec().String())
 
 	return nil, nil // Migration is permitted, so we never return an error.

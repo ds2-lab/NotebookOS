@@ -53,7 +53,7 @@ type SessionManager interface {
 
 // ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
 // When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
-// the DistributedKernelClient will check if its ActiveExecution struct has the original "sent-at" timestamp
+// the DistributedKernelClient will check if its Execution struct has the original "sent-at" timestamp
 // of the original "execute_request". If it does, then it can calculate the latency between submission and when
 // the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
 // so that a relevant Prometheus metric can be updated.
@@ -77,16 +77,16 @@ type Kernel interface {
 	GetContainers() []KernelContainer
 	ShellListenPort() int
 	IOPubListenPort() int
-	ActiveExecution() *execution.ActiveExecution
-	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*execution.ActiveExecution, bool)
-	// GetActiveExecution returns the *scheduling.ActiveExecution associated with the given "execute_request" message ID.
-	GetActiveExecution(msgId string) *execution.ActiveExecution
-	CurrentActiveExecution() *execution.ActiveExecution
+	ActiveExecution() *execution.Execution
+	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*execution.Execution, bool)
+	// GetActiveExecution returns the *scheduling.Execution associated with the given "execute_request" message ID.
+	GetActiveExecution(msgId string) *execution.Execution
+	CurrentActiveExecution() *execution.Execution
 	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
-	SetActiveExecution(activeExecution *execution.ActiveExecution)
+	SetActiveExecution(activeExecution *execution.Execution)
 	ExecutionComplete(msg *messaging.JupyterMessage) (bool, error)
-	EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *execution.ActiveExecution
+	EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *execution.Execution
 	ResetID(id string)
 	PersistentID() string
 	String() string
@@ -97,7 +97,7 @@ type Kernel interface {
 	// UpdateResourceSpec updates the ResourceSpec of the Kernel, all of its KernelReplica instances, the UserSession
 	// of each KernelReplica, and the KernelContainer of each KernelReplica.
 	//
-	// It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/KernelReplica.
+	// It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/Replica.
 	UpdateResourceSpec(spec types.Spec) error
 	KernelSpec() *proto.KernelSpec
 	ConnectionInfo() *jupyter.ConnectionInfo

@@ -33,8 +33,8 @@ device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter
 notebook-image-tag: latest
 idle-session-reclamation-policy: none
-# scheduling-policy: static
-scheduling-policy: fcfs-batch
+scheduling-policy: static
+# scheduling-policy: fcfs-batch
 # subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.05
@@ -43,8 +43,8 @@ scaling-limit: 1.1
 scaling-in-limit: 2
 predictive_autoscaling: false
 scaling-buffer-size: 3
-min_cluster_nodes: 4
-max_cluster_nodes: 32
+min_cluster_nodes: 12
+max_cluster_nodes: 48
 gpus-per-host: 8
 local_mode: false
 deployment_mode: "docker-compose"
@@ -59,7 +59,7 @@ num_resend_attempts: 1
 acks_enabled: false
 checkpointing_enabled: true
 remote-docker-event-aggregator-port: 5821
-initial-cluster-size: 4
+initial-cluster-size: 12
 initial-connection-period: 60
 election_timeout_seconds: 3
 simulate_checkpointing_latency: true
