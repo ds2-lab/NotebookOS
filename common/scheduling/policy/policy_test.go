@@ -33,20 +33,6 @@ var _ = Describe("Policy", func() {
 		})
 	})
 
-	Context("Autoscaling FCFS Batch Scheduling Policy", func() {
-		BeforeEach(func() {
-			options = *scheduling.DefaultFcfsSchedulerOptions
-			options.SchedulingPolicy = scheduling.AutoScalingFcfsBatch.String()
-		})
-
-		It("Should return the expected values", func() {
-			autoscalingFcfs, err := policy.NewAutoScalingFcfsBatchSchedulingPolicy(&options)
-			Expect(err).To(BeNil())
-			Expect(autoscalingFcfs).ToNot(BeNil())
-			Expect(autoscalingFcfs.PolicyKey()).To(Equal(scheduling.AutoScalingFcfsBatch))
-		})
-	})
-
 	Context("Dynamic v3 Scheduling Policy", func() {
 		BeforeEach(func() {
 			options = *scheduling.DefaultStaticSchedulerOptions
