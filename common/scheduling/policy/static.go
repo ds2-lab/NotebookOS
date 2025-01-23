@@ -78,7 +78,7 @@ func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (sche
 	return kernel.GetReplicaByID(targetReplicaId)
 }
 
-// SelectReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
 // pre-designated as the leader of a code execution.
 //
 // If the returned KernelReplica is nil and the returned error is nil, then that indicates
@@ -89,13 +89,21 @@ func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (sche
 // forwarded to that KernelReplica's peers should first be converted to "yield_request"
 // messages, thereby ensuring that the selected KernelReplica becomes the leader.
 //
+// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+// been ruled out.
+//
 // PRECONDITION: The resource spec of the specified scheduling.Kernel should already be
 // updated (in cases where dynamic resource requests are supported) such that the current
 // resource spec reflects the requirements for this code execution. That is, the logic of
 // selecting a replica now depends upon the kernel's resource request correctly specifying
 // the requirements. If the requirements were to change after selection a replica, then
 // that could invalidate the selection.
-func (p *StaticPolicy) SelectReadyReplica(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+//
+// IMPORTANT NOTE:
+//
+// This method will only ever be called by one of the scheduling.Scheduler implementations, and they will
+// always use a lock around the call to SelectReadyReplica, so the execution of this method is atomic.
+func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	replicas := kernel.Replicas()
 
 	// Sort the replicas from most to least idle GPUs available on each replica's respective host.
@@ -108,26 +116,28 @@ func (p *StaticPolicy) SelectReadyReplica(kernel scheduling.Kernel) (scheduling.
 		return int(r1.Host().IdleGPUs() - r2.Host().IdleGPUs())
 	})
 
-	// Check if first replica in the slice, which will now be the one whose Host has
-	// the most idle GPUs, is able to serve as the leader for this code execution.
-	//
-	// If so, then we'll return this replica.
-	//
-	// TODO: This needs to be performed atomically.
-	candidate := replicas[0]
+	// For each replica (in order of most to least idle GPUs available on the host)...
+	for _, candidateReplica := range replicas {
+		// Try to commit resources to the candidateReplica replica.
+		allocationError := candidateReplica.Host().PreCommitResources(candidateReplica.Container())
+		if allocationError != nil {
+			// Failed to commit resources. Continue.
+			continue
+		}
 
-	// TODO: This step needs to be performed atomically.
-	if candidate.Host().CanCommitResources(candidate.ResourceSpec()) {
-		return candidate, nil
+		// Successfully committed resources.
+		p.log.Debug("Identified viable candidate replica of kernel %s with resource request %v: replica %d.",
+			kernel.ID(), kernel.ResourceSpec().String(), candidateReplica.ReplicaID())
+
+		return candidateReplica, nil // Migration is permitted, so we never return an error.
 	}
 
-	// TODO: If we know that the replica on the least-loaded host cannot acquire the
-	// 		 resources that it needs to begin training, then we should take action
-	// 		 at this point to either migrate one of replicas of the specified kernel
-	//		 OR preempt [actively-training] containers on the hosts of one of the
-	// 		 replicas of the target kernel so that there are sufficient resources
-	//		 available for the associated replica of the target kernel to begin training.
-	return nil, nil
+	// If we've made it to this point, then we tried all replicas and none of them worked.
+	// (That is, we were unable to commit resources to any of the replicas.)
+	p.log.Debug("Could not find eligible replica of kernel %s with resource request %v.",
+		kernel.ID(), kernel.ResourceSpec().String())
+
+	return nil, nil // Migration is permitted, so we never return an error.
 }
 
 //////////////////////////////////////////

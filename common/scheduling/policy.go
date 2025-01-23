@@ -107,28 +107,6 @@ type Policy interface {
 	// If SupportsMigration returns false, then it is up to the client to resubmit the request.
 	SupportsMigration() bool
 
-	// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
-	SelectReplicaForMigration(kernel Kernel) (KernelReplica, error)
-
-	// SelectReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
-	// pre-designated as the leader of a code execution.
-	//
-	// If the returned KernelReplica is nil and the returned error is nil, then that indicates
-	// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
-	// will fight amongst themselves to determine the leader.
-	//
-	// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
-	// forwarded to that KernelReplica's peers should first be converted to "yield_request"
-	// messages, thereby ensuring that the selected KernelReplica becomes the leader.
-	//
-	// PRECONDITION: The resource spec of the specified scheduling.Kernel should already be
-	// updated (in cases where dynamic resource requests are supported) such that the current
-	// resource spec reflects the requirements for this code execution. That is, the logic of
-	// selecting a replica now depends upon the kernel's resource request correctly specifying
-	// the requirements. If the requirements were to change after selection a replica, then
-	// that could invalidate the selection.
-	SelectReadyReplica(kernel Kernel) (KernelReplica, error)
-
 	// ContainerLifetime returns the ContainerLifetime of KernelContainer instances created under the target Policy.
 	ContainerLifetime() ContainerLifetime
 

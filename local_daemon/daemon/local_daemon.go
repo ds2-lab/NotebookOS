@@ -15,8 +15,8 @@ import (
 	"github.com/scusemua/distributed-notebook/common/docker_events/observer"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
-	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"log"
@@ -393,7 +393,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		panic("remote storage endpoint is empty.")
 	}
 
-	schedulingPolicy, err := policy.GetSchedulingPolicy(&localDaemonOptions.SchedulerOptions)
+	schedulingPolicy, err := scheduler.GetSchedulingPolicy(&localDaemonOptions.SchedulerOptions)
 	if err != nil {
 		panic(err)
 	}

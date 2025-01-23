@@ -17,7 +17,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/scheduling/mock_scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
-	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
@@ -175,7 +174,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			// notificationBroker = mock_scheduler.NewMockNotificationBroker(mockCtrl)
 
 			opts.SchedulingPolicy = string(scheduling.Static) // Should already be set to static, but just to be sure.
-			schedulingPolicy, err := policy.GetSchedulingPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err := scheduler.GetSchedulingPolicy(&opts.SchedulerOptions)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(3))
@@ -1281,7 +1280,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			hostMapper = mock_scheduler.NewMockHostMapper(mockCtrl)
 
 			opts.SchedulingPolicy = string(scheduling.Reservation)
-			schedulingPolicy, err := policy.GetSchedulingPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err := scheduler.GetSchedulingPolicy(&opts.SchedulerOptions)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
@@ -1576,7 +1575,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			hostMapper = mock_scheduler.NewMockHostMapper(mockCtrl)
 
 			opts.SchedulingPolicy = string(scheduling.FcfsBatch)
-			schedulingPolicy, err := policy.GetSchedulingPolicy(&opts.SchedulerOptions)
+			schedulingPolicy, err := scheduler.GetSchedulingPolicy(&opts.SchedulerOptions)
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(1))

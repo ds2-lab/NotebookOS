@@ -11,77 +11,77 @@ var (
 	ErrInvalidIdleSessionTimeoutInterval = errors.New("invalid idle session timeout interval specified")
 )
 
-// noIdleSessionReclamationPolicy defines a scheduling.IdleSessionReclamationPolicy for which the reclamation
+// NoIdleSessionReclamationPolicy defines a scheduling.IdleSessionReclamationPolicy for which the reclamation
 // of idle sessions is entirely disabled.
-type noIdleSessionReclamationPolicy struct {
-	opts *scheduling.SchedulerOptions
+type NoIdleSessionReclamationPolicy struct {
+	Opts *scheduling.SchedulerOptions
 }
 
-func (n noIdleSessionReclamationPolicy) IdleSessionReclamationEnabled() bool {
+func (n NoIdleSessionReclamationPolicy) IdleSessionReclamationEnabled() bool {
 	return false
 }
 
-func (n noIdleSessionReclamationPolicy) ReclaimedSessionsMustReplayAllCells() bool {
+func (n NoIdleSessionReclamationPolicy) ReclaimedSessionsMustReplayAllCells() bool {
 	return false
 }
 
-func (n noIdleSessionReclamationPolicy) IdleSessionReclamationInterval() time.Duration {
+func (n NoIdleSessionReclamationPolicy) IdleSessionReclamationInterval() time.Duration {
 	return time.Hour * 87600 // 10 years
 }
 
-// adobeSenseiReclamationPolicy defines a scheduling.IdleSessionReclamationPolicy modeled after
+// AdobeSenseiReclamationPolicy defines a scheduling.IdleSessionReclamationPolicy modeled after
 // [Adobe Sensei's session reclamation policy], which (by default) has session timeout configured to 30 minutes.
 //
 // [Adobe Sensei's session reclamation policy]: https://helpx.adobe.com/adobe-connect/installconfigure/configuring-session-timeout-value.html
-type adobeSenseiReclamationPolicy struct {
-	opts *scheduling.SchedulerOptions
+type AdobeSenseiReclamationPolicy struct {
+	Opts *scheduling.SchedulerOptions
 }
 
-func (n adobeSenseiReclamationPolicy) IdleSessionReclamationEnabled() bool {
+func (n AdobeSenseiReclamationPolicy) IdleSessionReclamationEnabled() bool {
 	return true
 }
 
-func (n adobeSenseiReclamationPolicy) ReclaimedSessionsMustReplayAllCells() bool {
+func (n AdobeSenseiReclamationPolicy) ReclaimedSessionsMustReplayAllCells() bool {
 	return true
 }
 
-func (n adobeSenseiReclamationPolicy) IdleSessionReclamationInterval() time.Duration {
+func (n AdobeSenseiReclamationPolicy) IdleSessionReclamationInterval() time.Duration {
 	// https://helpx.adobe.com/adobe-connect/installconfigure/configuring-session-timeout-value.html
 	return time.Minute * 30
 }
 
-// googleColabReclamationPolicy defines a scheduling.IdleSessionReclamationPolicy modeled after
+// GoogleColabReclamationPolicy defines a scheduling.IdleSessionReclamationPolicy modeled after
 // [Google Colab's session reclamation policy], which (by default) has session timeout configured to 90 minutes.
 //
 // [Google Colab's session reclamation policy]: https://cloud.google.com/colab/docs/idle-shutdown
-type googleColabReclamationPolicy struct {
-	opts *scheduling.SchedulerOptions
+type GoogleColabReclamationPolicy struct {
+	Opts *scheduling.SchedulerOptions
 }
 
-func (n googleColabReclamationPolicy) IdleSessionReclamationEnabled() bool {
+func (n GoogleColabReclamationPolicy) IdleSessionReclamationEnabled() bool {
 	return true
 }
 
-func (n googleColabReclamationPolicy) ReclaimedSessionsMustReplayAllCells() bool {
+func (n GoogleColabReclamationPolicy) ReclaimedSessionsMustReplayAllCells() bool {
 	return true
 }
 
-func (n googleColabReclamationPolicy) IdleSessionReclamationInterval() time.Duration {
+func (n GoogleColabReclamationPolicy) IdleSessionReclamationInterval() time.Duration {
 	// https://cloud.google.com/colab/docs/idle-shutdown
 	return time.Minute * 180
 }
 
-type customColabReclamationPolicy struct {
-	opts *scheduling.SchedulerOptions
+type CustomColabReclamationPolicy struct {
+	Opts *scheduling.SchedulerOptions
 
 	timeoutInterval time.Duration
 
 	replayAllCells bool
 }
 
-func newCustomColabReclamationPolicy(opts *scheduling.SchedulerOptions) (*customColabReclamationPolicy, error) {
-	policy := &customColabReclamationPolicy{
-		opts:            opts,
+func NewCustomColabReclamationPolicy(opts *scheduling.SchedulerOptions) (*CustomColabReclamationPolicy, error) {
+	policy := &CustomColabReclamationPolicy{
+		Opts:            opts,
 		replayAllCells:  opts.CustomIdleSessionReclamationOptions.ReplayAllCells,
 		timeoutInterval: time.Second * time.Duration(opts.CustomIdleSessionReclamationOptions.TimeoutIntervalSec),
 	}
@@ -93,14 +93,14 @@ func newCustomColabReclamationPolicy(opts *scheduling.SchedulerOptions) (*custom
 	return policy, nil
 }
 
-func (n customColabReclamationPolicy) IdleSessionReclamationEnabled() bool {
+func (n CustomColabReclamationPolicy) IdleSessionReclamationEnabled() bool {
 	return true
 }
 
-func (n customColabReclamationPolicy) ReclaimedSessionsMustReplayAllCells() bool {
+func (n CustomColabReclamationPolicy) ReclaimedSessionsMustReplayAllCells() bool {
 	panic("Not implemented")
 }
 
-func (n customColabReclamationPolicy) IdleSessionReclamationInterval() time.Duration {
+func (n CustomColabReclamationPolicy) IdleSessionReclamationInterval() time.Duration {
 	panic("Not implemented")
 }

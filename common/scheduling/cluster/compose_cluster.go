@@ -26,7 +26,7 @@ type DockerComposeCluster struct {
 // by the Cluster for scheduling decisions.
 func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker,
-	schedulingPolicy scheduling.Policy, statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
+	schedulingPolicy internalSchedulingPolicy, statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
 	opts *scheduling.SchedulerOptions) *DockerComposeCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerComposeCluster", statisticsUpdaterProvider)

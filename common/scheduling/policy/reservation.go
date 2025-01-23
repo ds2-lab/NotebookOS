@@ -78,7 +78,7 @@ func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvi
 	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p), nil
 }
 
-// SelectReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
 // pre-designated as the leader of a code execution.
 //
 // If the returned KernelReplica is nil and the returned error is nil, then that indicates
@@ -88,12 +88,11 @@ func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvi
 // If a non-nil KernelReplica is returned, then the "execute_request" messages that are
 // forwarded to that KernelReplica's peers should first be converted to "yield_request"
 // messages, thereby ensuring that the selected KernelReplica becomes the leader.
-func (p *ReservationPolicy) SelectReadyReplica(_ scheduling.Kernel) (scheduling.KernelReplica, error) {
-	// There will only be one replica under ReservationPolicy.
-	// Rather than return that replica, ReservationPolicy simply returns nil.
-	// The default behavior will just be to forward the "execute_request" to all replicas,
-	// or in this case, the single replica of the specified scheduling.Kernel.
-	return nil, nil
+//
+// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+// been ruled out.
+func (p *ReservationPolicy) FindReadyReplica(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	return checkSingleReplica(kernel, p.supportsMigration)
 }
 
 //////////////////////////////////

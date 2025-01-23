@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/pkg/errors"
@@ -10,6 +11,37 @@ import (
 var (
 	ErrMigrationNotSupported = errors.New("migration is not supported by this scheduling policy")
 )
+
+// GetIdleSessionReclamationPolicy returns the configured scheduling.IdleSessionReclamationPolicy, based on the
+// associated parameter in the specified scheduling.SchedulerOptions struct.
+//
+// This is just used internally by the "constructors" of the various policy structs.
+func GetIdleSessionReclamationPolicy(opts *scheduling.SchedulerOptions) (scheduling.IdleSessionReclamationPolicy, error) {
+	if opts.IdleSessionReclamationPolicy == "" {
+		return nil, fmt.Errorf("%w: unspecified (you did not specify one)", scheduling.ErrInvalidIdleSessionReclamationPolicy)
+	}
+
+	switch opts.IdleSessionReclamationPolicy {
+	case string(scheduling.NoIdleSessionReclamation):
+		{
+			return &NoIdleSessionReclamationPolicy{Opts: opts}, nil
+		}
+	case string(scheduling.GoogleColabIdleSessionReclamationPolicy):
+		{
+			return &GoogleColabReclamationPolicy{Opts: opts}, nil
+		}
+	case string(scheduling.AdobeSenseiIdleSessionReclamationPolicy):
+		{
+			return &AdobeSenseiReclamationPolicy{Opts: opts}, nil
+		}
+	case string(scheduling.CustomIdleSessionReclamationPolicy):
+		{
+			return NewCustomColabReclamationPolicy(opts)
+		}
+	}
+
+	return nil, fmt.Errorf("%w: \"%s\"", scheduling.ErrInvalidIdleSessionReclamationPolicy, opts.IdleSessionReclamationPolicy)
+}
 
 type baseSchedulingPolicy struct {
 	scalingConfiguration         *scheduling.ScalingConfiguration
@@ -25,7 +57,7 @@ type baseSchedulingPolicy struct {
 }
 
 func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnabled bool, supportsMigration bool) (*baseSchedulingPolicy, error) {
-	idleSessionReclamationPolicy, err := getIdleSessionReclamationPolicy(opts)
+	idleSessionReclamationPolicy, err := GetIdleSessionReclamationPolicy(opts)
 	if err != nil {
 		return nil, err
 	}

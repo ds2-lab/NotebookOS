@@ -13,7 +13,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
-	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/shopspring/decimal"
@@ -487,7 +486,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),
 	}
 
-	schedulingPolicy, policyError := policy.GetSchedulingPolicy(&clusterDaemonOptions.SchedulerOptions)
+	schedulingPolicy, policyError := scheduler.GetSchedulingPolicy(&clusterDaemonOptions.SchedulerOptions)
 	if policyError != nil {
 		panic(policyError)
 	}
@@ -3268,15 +3267,26 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 	return nil
 }
 
-// broadcastExecuteRequestToAllReplicas forwards the given "execute_request" message to all eligible replicas of the
+// forwardExecuteRequest forwards the given "execute_request" message to all eligible replicas of the
 // specified kernel and a converted "yield_request" to all ineligible replicas of the kernel.
-func (d *ClusterGatewayImpl) broadcastExecuteRequestToAllReplicas(jMsg *messaging.JupyterMessage, kernel scheduling.Kernel, ineligibleReplicas map[int32]scheduling.KernelReplica) error {
+func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessage, kernel scheduling.Kernel,
+	targetReplica scheduling.KernelReplica) error {
+
 	replicas := make([]scheduling.KernelReplica, 0, kernel.Size())
 	for _, replica := range kernel.Replicas() {
 		replicas = append(replicas, replica)
 	}
 
 	jMsg = kernel.AddDestFrameIfNecessary(jMsg)
+
+	// getMsgForTargetReplica returns the *messaging.JupyterMessage to be sent to the target replica.
+	getMsgForTargetReplica := func() *messaging.JupyterMessage {
+		if kernel.DebugMode() {
+			return jMsg.Clone()
+		}
+
+		return jMsg
+	}
 
 	jupyterMessages := make([]*messaging.JupyterMessage, 0, kernel.Size())
 	for _, replica := range replicas {
@@ -3285,7 +3295,7 @@ func (d *ClusterGatewayImpl) broadcastExecuteRequestToAllReplicas(jMsg *messagin
 			err            error
 		)
 
-		if _, loaded := ineligibleReplicas[replica.ReplicaID()]; loaded {
+		if replica.ReplicaID() != targetReplica.ReplicaID() {
 			// Convert the "execute_request" message to a "yield_request" message.
 			// The returned message is initially created as a clone of the target message.
 			jupyterMessage, err = jMsg.CreateAndReturnYieldRequestMessage()
@@ -3300,13 +3310,8 @@ func (d *ClusterGatewayImpl) broadcastExecuteRequestToAllReplicas(jMsg *messagin
 				_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
 				return err
 			}
-		} else if kernel.DebugMode() {
-			// Clone the message because each replica will be adding its own request trace.
-			jupyterMessage = jMsg.Clone()
 		} else {
-			// Not in debug mode, so no request traces to worry about, and if any other replicas are ineligible,
-			// then they'll clone the message, so we can just reuse the original.
-			jupyterMessage = jMsg
+			jupyterMessage = getMsgForTargetReplica()
 		}
 
 		jupyterMessages = append(jupyterMessages, jupyterMessage)
@@ -3334,31 +3339,15 @@ func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMs
 		return err
 	}
 
-	ineligibleReplicas, err := d.processExecuteRequest(jMsg, kernel)
+	targetReplica, err := d.processExecuteRequest(jMsg, kernel)
 	if err != nil {
 		// Send a response with the error as the content.
 		_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
 		return err
 	}
 
-	// If all replicas were eligible, then just use the standard path of sending via forwardRequest.
-	if ineligibleReplicas == nil || len(ineligibleReplicas) == 0 {
-		d.log.Debug("All replicas of kernel \"%s\" are eligible to handle 'execute_request' \"%s\"",
-			kernel.ID(), jMsg.JupyterMessageId())
-		err = d.forwardRequest(kernel, messaging.ShellMessage, jMsg)
-
-		if err != nil {
-			_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
-		}
-
-		return err // Will be nil on success.
-	}
-
-	d.log.Debug("Only %d/%d replicas of kernel \"%s\" are eligible to handle 'execute_request' \"%s\"",
-		len(ineligibleReplicas), kernel.Size(), kernel.ID(), jMsg.JupyterMessageId())
-
 	// Broadcast an "execute_request" to all eligible replicas and a "yield_request" to all ineligible replicas.
-	err = d.broadcastExecuteRequestToAllReplicas(jMsg, kernel, ineligibleReplicas)
+	err = d.forwardExecuteRequest(jMsg, kernel, targetReplica)
 	if err != nil {
 		_ = d.sendErrorResponse(kernel, jMsg, err, messaging.ShellMessage)
 	}
@@ -3526,7 +3515,7 @@ func (d *ClusterGatewayImpl) processExecuteReply(kernelId string, msg *messaging
 // processExecuteRequest is an important step of the path of handling an "execute_request".
 //
 // processExecuteRequest handles pre-committing resources, migrating a replica if no replicas are viable, etc.
-func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.Kernel) (ineligibleReplicas map[int32]scheduling.KernelReplica, err error) {
+func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	kernelId := kernel.ID()
 	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg.StringFormatted())
 
@@ -3549,7 +3538,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	}
 
 	// Transition the session to the "expecting to start training soon" state.
-	err = session.SetExpectingTraining().Error()
+	err := session.SetExpectingTraining().Error()
 	if err != nil {
 		d.notifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
 		msg.IsFailedExecuteRequest = true
@@ -3564,95 +3553,44 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		return nil, err
 	}
 
-	ineligibleReplicas = make(map[int32]scheduling.KernelReplica)
-
-	// Attempt to commit resources for each replica.
-	// If we can't, then we'll convert the request to a yield_request immediately.
-	// Resources will be released if and when the replica loses its leader election.
-	for idx, replica := range kernel.Replicas() {
-		if replica == nil {
-			err = fmt.Errorf("replica %d is nil while processing \"execute_request\" \"%s\" targeting kernel \"%s\"",
-				idx+1, msg.JupyterMessageId(), kernel.ID())
-			d.log.Error(err.Error())
-			go d.notifyDashboardOfError(fmt.Sprintf("Missing Replica (%d) of Kernel \"%s\"",
-				idx+1, kernel.ID()), err.Error())
-			msg.IsFailedExecuteRequest = true
-			return nil, err
-		}
-
-		container := replica.Container()
-		if container == nil {
-			err = fmt.Errorf("container for non-nil replica %d of kernel \"%s\" is nil while processing \"execute_request\" \"%s\"",
-				replica.ReplicaID(), kernel.ID(), msg.JupyterMessageId())
-			d.log.Error(err.Error())
-			go d.notifyDashboardOfError(fmt.Sprintf("Missing Container for Replica (%d) of Kernel \"%s\"",
-				replica.ReplicaID(), kernel.ID()), err.Error())
-			msg.IsFailedExecuteRequest = true
-			return nil, err
-		}
-
-		host := container.Host()
-		if host == nil {
-			err = fmt.Errorf("host of container for (non-nil) replica %d of kernel \"%s\" is nil while processing \"execute_request\" \"%s\"",
-				replica.ReplicaID(), kernel.ID(), msg.JupyterMessageId())
-			d.log.Error(err.Error())
-			go d.notifyDashboardOfError(fmt.Sprintf("Missing Host for Container of replica (%d) of Kernel \"%s\"",
-				replica.ReplicaID(), kernel.ID()), err.Error())
-			msg.IsFailedExecuteRequest = true
-			return nil, err
-		}
-
-		err = host.PreCommitResources(container)
-		if err != nil {
-			d.log.Debug("Failed to pre-commit resources to replica %d of kernel \"%s\". Replica %d will not be eligible to lead its leader election.",
-				container.ReplicaId(), container.KernelID(), container.ReplicaId())
-
-			// TODO: Need to send "yield_request" to this kernel replica.
-			ineligibleReplicas[replica.ReplicaID()] = replica
-		}
+	// Find a "ready" replica to handle this execution request.
+	var targetReplica scheduling.KernelReplica
+	targetReplica, err = d.Scheduler().FindReadyReplica(kernel)
+	if err != nil {
+		// If an error is returned, then we should return the error here so that we send an
+		// error message back to the client.
+		// TODO: This definitely sends an error message back to the client, right?
+		d.log.Error("Error while searching for ready replica of kernel '%s': %v", kernel.ID(), err)
+		msg.IsFailedExecuteRequest = true
+		return nil, err
 	}
 
-	// If no replicas can handle the code execution request, then we'll either initiate a migration
-	// or we'll return an error, depending on what the scheduling policy allows us to do.
-	if len(ineligibleReplicas) == len(kernel.Replicas()) {
-		if !d.Scheduler().Policy().SupportsMigration() {
-			return nil, scheduling.ErrInsufficientHostsAvailable
-		}
-
-		var targetReplicaId int32
-		targetReplicaId, err = d.tryPerformMigration(kernel, msg)
-		if err != nil {
-			return nil, err
-		}
-
-		// Recreate the ineligibleReplicas slice, populating it with just the replicas that weren't migrated.
-		// The migrated replica is the only eligible replica, and so it'll be targeted explicitly when we go to
-		// forward the "execute_request" after returning from processExecuteRequest.
-		ineligibleReplicas = make(map[int32]scheduling.KernelReplica, 2)
-		for _, replica := range kernel.Replicas() {
-			if replica.ReplicaID() == targetReplicaId {
-				continue
-			}
-
-			ineligibleReplicas[replica.ReplicaID()] = replica
-		}
+	// If the target replica is non-nil at this point, then we can just return it.
+	if targetReplica != nil {
+		return targetReplica, nil
 	}
 
-	d.log.Debug("Returning %d ineligible replica(s) after processing \"execute_request\" \"%s\" targeting kernel \"%s\"",
-		len(ineligibleReplicas), msg.JupyterMessageId(), kernel.ID())
+	// TODO: Update this code.
+	// 		 Specifically, the dynamic policies should return a list of replicas to migrate.
+	targetReplica, err = d.tryPerformMigration(kernel, msg)
+	if err != nil {
+		return nil, err
+	}
 
-	return ineligibleReplicas, nil
+	d.log.Debug("Returning eligible replica %d of kernel '%s' for \"execute_request\" message %s.",
+		targetReplica.ReplicaID(), kernel.ID(), msg.JupyterMessageId())
+	return targetReplica, nil
 }
 
 // tryPerformMigration attempts to migrate one of the replicas of the specified kernel during the handling of
 // a code execution request. If successful, tryPerformMigration will return the ID of the migrated replica.
-func (d *ClusterGatewayImpl) tryPerformMigration(kernel scheduling.Kernel, msg *messaging.JupyterMessage) (int32, error) {
+func (d *ClusterGatewayImpl) tryPerformMigration(kernel scheduling.Kernel, msg *messaging.JupyterMessage) (scheduling.KernelReplica, error) {
 	d.log.Debug("All %d replicas of kernel \"%s\" are ineligible to execute code. Initiating migration.",
 		kernel.ID(), len(kernel.Replicas()))
 
-	targetReplica, err := d.Scheduler().Policy().SelectReplicaForMigration(kernel)
+	targetReplica, err := d.Scheduler().SelectReplicaForMigration(kernel)
 	if targetReplica == nil {
-		return -1, fmt.Errorf("could not identify replica eligible for migration because: %w", err)
+		return nil, fmt.Errorf("could not identify replica eligible for migration because: %w", err)
 	}
 
 	d.log.Debug(utils.LightBlueStyle.Render("Preemptively migrating replica %d of kernel %s now."),
@@ -3672,13 +3610,13 @@ func (d *ClusterGatewayImpl) tryPerformMigration(kernel scheduling.Kernel, msg *
 		d.log.Warn("Failed to preemptively migrate replica %d of kernel \"%s\": %v",
 			targetReplica.ReplicaID(), kernel.ID(), migrationError)
 		msg.IsFailedExecuteRequest = true
-		return -1, migrationError
+		return nil, migrationError
 	}
 
 	d.log.Debug("Successfully, preemptively migrated replica %d of kernel \"%s\" to host \"%s\"",
 		targetReplica.ReplicaID(), kernel.ID(), resp.NewNodeId)
 
-	return targetReplica.ReplicaID(), nil
+	return targetReplica, nil
 }
 
 // processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.

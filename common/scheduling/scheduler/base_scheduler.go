@@ -10,7 +10,6 @@ import (
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -69,7 +68,7 @@ type baseSchedulerBuilder struct {
 	hostSpec           types.Spec
 	kernelProvider     KernelProvider
 	notificationBroker NotificationBroker
-	schedulingPolicy   scheduling.Policy // Optional, will be extracted from Options if not specified.
+	schedulingPolicy   SchedulingPolicy // Optional, will be extracted from Options if not specified.
 	options            *scheduling.SchedulerOptions
 }
 
@@ -97,7 +96,7 @@ func (b *baseSchedulerBuilder) WithHostSpec(hostSpec types.Spec) *baseSchedulerB
 	return b
 }
 
-func (b *baseSchedulerBuilder) WithSchedulingPolicy(schedulingPolicy scheduling.Policy) *baseSchedulerBuilder {
+func (b *baseSchedulerBuilder) WithSchedulingPolicy(schedulingPolicy SchedulingPolicy) *baseSchedulerBuilder {
 	b.schedulingPolicy = schedulingPolicy
 	return b
 }
@@ -124,12 +123,12 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 	}
 
 	if b.schedulingPolicy == nil {
-		schedulingPolicy, err := policy.GetSchedulingPolicy(b.options)
+		schedulingPolicy, err := GetSchedulingPolicy(b.options)
 		if err != nil {
 			panic(err)
 		}
 
-		b.schedulingPolicy = schedulingPolicy
+		b.schedulingPolicy = schedulingPolicy.(SchedulingPolicy)
 	}
 
 	clusterScheduler := &BaseScheduler{
@@ -208,6 +207,12 @@ type BaseScheduler struct {
 	// by multiple concurrent RPC requests).
 	addReplicaMutex sync.Mutex
 
+	// candidateHostMutex enables atomic access to the FindCandidateHosts method.
+	candidateHostMutex sync.Mutex
+
+	// replicaSelectionMutex enables synchronous execution of FindReadyReplica and SelectReplicaForMigration.
+	replicaSelectionMutex sync.Mutex
+
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
 	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]]
 
@@ -221,13 +226,11 @@ type BaseScheduler struct {
 	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
 	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *scheduling.AddReplicaOperation]
 
-	candidateHostMutex sync.Mutex
-
 	// resourceBindingMode describes when resources are committed and uncommitted from Containers.
 	resourceBindingMode scheduling.ResourceBindingMode
 
 	// schedulingPolicy specifies the scheduling behavior for the scheduling.Cluster and scheduling.Scheduler.
-	schedulingPolicy scheduling.Policy
+	schedulingPolicy SchedulingPolicy
 
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
@@ -498,8 +501,8 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 	return hosts, nil
 }
 
-// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
+// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
+func (s *BaseScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	return s.instance.DeployKernelReplicas(ctx, in, blacklistedHosts)
 }
 
@@ -1390,4 +1393,50 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	}
 
 	return released, nil
+}
+
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (s *BaseScheduler) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	s.replicaSelectionMutex.Lock()
+	defer s.replicaSelectionMutex.Unlock()
+
+	// If under the configured scheduling policy, we bind and commit resources as soon as
+	// the container is scheduled, then we also need to acquire the candidateHostMutex.
+	if s.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
+		s.candidateHostMutex.Lock()
+		defer s.candidateHostMutex.Unlock() // Pushed onto stack.
+	}
+
+	return s.schedulingPolicy.SelectReplicaForMigration(kernel)
+}
+
+// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// pre-designated as the leader of a code execution.
+//
+// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+// will fight amongst themselves to determine the leader.
+//
+// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+//
+// PRECONDITION: The resource spec of the specified scheduling.Kernel should already be
+// updated (in cases where dynamic resource requests are supported) such that the current
+// resource spec reflects the requirements for this code execution. That is, the logic of
+// selecting a replica now depends upon the kernel's resource request correctly specifying
+// the requirements. If the requirements were to change after selection a replica, then
+// that could invalidate the selection.
+func (s *BaseScheduler) FindReadyReplica(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	s.replicaSelectionMutex.Lock()
+	defer s.replicaSelectionMutex.Unlock()
+
+	// If under the configured scheduling policy, we bind and commit resources as soon as
+	// the container is scheduled, then we also need to acquire the candidateHostMutex.
+	if s.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
+		s.candidateHostMutex.Lock()
+		defer s.candidateHostMutex.Unlock() // Pushed onto stack.
+	}
+
+	return s.schedulingPolicy.FindReadyReplica(kernel)
 }

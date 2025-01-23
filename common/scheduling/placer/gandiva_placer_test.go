@@ -12,7 +12,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/mock_scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
-	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/testing"
@@ -188,7 +187,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 
 		hostSpec = types.NewDecimalSpec(64000, 128000, float64(opts.SchedulerOptions.GpusPerHost), 40)
 
-		schedulingPolicy, err = policy.GetSchedulingPolicy(&opts.SchedulerOptions)
+		schedulingPolicy, err = scheduler.GetSchedulingPolicy(&opts.SchedulerOptions)
 		Expect(err).To(BeNil())
 		Expect(schedulingPolicy).ToNot(BeNil())
 		Expect(schedulingPolicy.NumReplicas()).To(Equal(1))

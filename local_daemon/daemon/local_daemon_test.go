@@ -8,8 +8,8 @@ import (
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/test_utils"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -158,7 +158,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		//kernel3Replica3 = createKernelReplica(mockCtrl, kernel3Id, kernel3Key, workloadId, 3, kernel3Spec, kernel3ResourceSpec)
 		resourceManager = resource.NewAllocationManager(hostSpec)
 
-		schedulingPolicy, err := policy.GetSchedulingPolicy(&scheduling.SchedulerOptions{
+		schedulingPolicy, err := scheduler.GetSchedulingPolicy(&scheduling.SchedulerOptions{
 			CommonOptions: configuration.CommonOptions{
 				SchedulingPolicy:             string(scheduling.Static),
 				IdleSessionReclamationPolicy: string(scheduling.NoIdleSessionReclamation),

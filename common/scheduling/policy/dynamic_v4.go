@@ -68,7 +68,7 @@ func (p *DynamicV4Policy) ScalingConfiguration() *scheduling.ScalingConfiguratio
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
-func (p *DynamicV4Policy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+func (p *DynamicV4Policy) SelectReplicaForMigration(_ scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if !p.SupportsMigration() {
 		panic("DynamicV4Policy is supposed to support migration, yet apparently it doesn't?")
 	}
@@ -77,7 +77,7 @@ func (p *DynamicV4Policy) SelectReplicaForMigration(kernel scheduling.Kernel) (s
 	panic("Not implemented.")
 }
 
-// SelectReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
 // pre-designated as the leader of a code execution.
 //
 // If the returned KernelReplica is nil and the returned error is nil, then that indicates
@@ -88,13 +88,16 @@ func (p *DynamicV4Policy) SelectReplicaForMigration(kernel scheduling.Kernel) (s
 // forwarded to that KernelReplica's peers should first be converted to "yield_request"
 // messages, thereby ensuring that the selected KernelReplica becomes the leader.
 //
+// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+// been ruled out.
+//
 // PRECONDITION: The resource spec of the specified scheduling.Kernel should already be
 // updated (in cases where dynamic resource requests are supported) such that the current
 // resource spec reflects the requirements for this code execution. That is, the logic of
 // selecting a replica now depends upon the kernel's resource request correctly specifying
 // the requirements. If the requirements were to change after selection a replica, then
 // that could invalidate the selection.
-func (p *DynamicV4Policy) SelectReadyReplica(_ scheduling.Kernel) (scheduling.KernelReplica, error) {
+func (p *DynamicV4Policy) FindReadyReplica(_ scheduling.Kernel) (scheduling.KernelReplica, error) {
 	// TODO: Implement me.
 	panic("Not implemented.")
 }
