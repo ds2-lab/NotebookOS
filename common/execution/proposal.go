@@ -17,9 +17,14 @@ func (pk ProposalKey) String() string {
 	return string(pk)
 }
 
+// Proposal encapsulates a "YIELD" or "LEAD" proposal issued by a kernel replica
+// during the Raft-based "primary replica selection" protocol.
 type Proposal struct {
-	Key    ProposalKey `json:"key"`
-	Reason string      `json:"reason"`
+	// Key defines what type of Proposal this is -- either a YieldProposal or a LeadProposal.
+	Key ProposalKey `json:"key"`
+
+	// Reason provides an explanation for why the Key was proposed.
+	Reason string `json:"reason"`
 }
 
 // NewProposal creates a new Proposal struct and returns a pointer to it.
@@ -30,18 +35,12 @@ func NewProposal(key ProposalKey, reason string) *Proposal {
 	}
 }
 
-func (p *Proposal) GetKey() ProposalKey {
-	return p.Key
-}
-
-func (p *Proposal) GetReason() string {
-	return p.Reason
-}
-
+// IsYield returns true if the target Proposal is a YieldProposal.
 func (p *Proposal) IsYield() bool {
 	return p.Key == YieldProposal
 }
 
+// IsLead returns true if the target Proposal is a LeadProposal.
 func (p *Proposal) IsLead() bool {
 	return p.Key == LeadProposal
 }

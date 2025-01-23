@@ -4698,7 +4698,7 @@ func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduli
 		// handleFailedExecutionAllYielded if handleFailedExecutionAllYielded returns a non-nil error.
 		yieldErrors := make([]error, 0, 4)
 		associatedActiveExecution.RangeRoles(func(i int32, proposal *execution.Proposal) bool {
-			yieldError := fmt.Errorf("replica %d proposed \"YIELD\" because: %s", i, proposal.GetReason())
+			yieldError := fmt.Errorf("replica %d proposed \"YIELD\" because: %s", i, proposal.Reason)
 			yieldErrors = append(yieldErrors, yieldError)
 			return true
 		})
