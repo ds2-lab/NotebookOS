@@ -1,37 +1,25 @@
 package policy_test
 
 import (
-	"github.com/Scusemua/go-utils/config"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
-	"log"
-	"os"
 )
-
-func validateOptions(options *scheduling.SchedulerOptions) {
-	flags, err := config.ValidateOptions(options)
-	if errors.Is(err, config.ErrPrintUsage) {
-		flags.PrintDefaults()
-		os.Exit(0)
-	} else if err != nil {
-		log.Fatal(err)
-	}
-}
 
 var _ = Describe("Policy", func() {
 	var options *scheduling.SchedulerOptions
 
 	Context("FCFS Batch Scheduling Policy", func() {
 		BeforeEach(func() {
-
+			options = scheduling.DefaultFcfsSchedulerOptions
 		})
 
 		It("Should return the expected values", func() {
-			fcfs, err := policy.NewFcfsBatchSchedulingPolicy()
+			fcfs, err := policy.NewFcfsBatchSchedulingPolicy(options)
 			Expect(err).To(BeNil())
+			Expect(fcfs).ToNot(BeNil())
+			Expect(fcfs.PolicyKey()).To(Equal(scheduling.FcfsBatch))
 		})
 	})
 
@@ -66,8 +54,15 @@ var _ = Describe("Policy", func() {
 	})
 
 	Context("Static Scheduling Policy", func() {
-		It("Should return the expected values", func() {
+		BeforeEach(func() {
+			options = scheduling.DefaultStaticSchedulerOptions
+		})
 
+		It("Should return the expected values", func() {
+			static, err := policy.NewFcfsBatchSchedulingPolicy(options)
+			Expect(err).To(BeNil())
+			Expect(static).ToNot(BeNil())
+			Expect(static.PolicyKey()).To(Equal(scheduling.Static))
 		})
 	})
 })
