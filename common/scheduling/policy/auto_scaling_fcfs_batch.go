@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 )
@@ -25,6 +26,11 @@ func NewAutoScalingFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) 
 
 	policy := &AutoScalingFcfsBatchSchedulingPolicy{
 		FcfsBatchSchedulingPolicy: basePolicy,
+	}
+
+	if opts.SchedulingPolicy != scheduling.AutoScalingFcfsBatch.String() {
+		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of AutoScalingFcfsBatchSchedulingPolicy.",
+			opts.SchedulingPolicy))
 	}
 
 	return policy, nil

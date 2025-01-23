@@ -59,7 +59,7 @@ var _ = Describe("Policy", func() {
 		})
 
 		It("Should return the expected values", func() {
-			static, err := policy.NewFcfsBatchSchedulingPolicy(options)
+			static, err := policy.NewStaticPolicy(options)
 			Expect(err).To(BeNil())
 			Expect(static).ToNot(BeNil())
 			Expect(static.PolicyKey()).To(Equal(scheduling.Static))

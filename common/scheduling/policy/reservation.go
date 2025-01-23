@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 )
@@ -23,6 +24,11 @@ func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy
 
 	policy := &ReservationPolicy{
 		baseSchedulingPolicy: basePolicy,
+	}
+
+	if opts.SchedulingPolicy != scheduling.Reservation.String() {
+		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of ReservationPolicy.",
+			opts.SchedulingPolicy))
 	}
 
 	return policy, nil

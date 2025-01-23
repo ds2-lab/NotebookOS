@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 )
@@ -17,6 +18,11 @@ func NewGandivaPolicy(opts *scheduling.SchedulerOptions) (*GandivaPolicy, error)
 
 	policy := &GandivaPolicy{
 		baseSchedulingPolicy: basePolicy,
+	}
+
+	if opts.SchedulingPolicy != scheduling.Gandiva.String() {
+		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of GandivaPolicy.",
+			opts.SchedulingPolicy))
 	}
 
 	return policy, nil

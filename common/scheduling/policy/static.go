@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
@@ -20,6 +21,11 @@ func NewStaticPolicy(opts *scheduling.SchedulerOptions) (*StaticPolicy, error) {
 
 	policy := &StaticPolicy{
 		baseSchedulingPolicy: basePolicy,
+	}
+
+	if opts.SchedulingPolicy != scheduling.Static.String() {
+		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of StaticPolicy.",
+			opts.SchedulingPolicy))
 	}
 
 	return policy, nil

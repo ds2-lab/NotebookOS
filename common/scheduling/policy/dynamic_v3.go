@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 )
@@ -17,6 +18,11 @@ func NewDynamicV3Policy(opts *scheduling.SchedulerOptions) (*DynamicV3Policy, er
 
 	policy := &DynamicV3Policy{
 		baseSchedulingPolicy: basePolicy,
+	}
+
+	if opts.SchedulingPolicy != scheduling.DynamicV3.String() {
+		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of DynamicV3Policy.",
+			opts.SchedulingPolicy))
 	}
 
 	return policy, nil
