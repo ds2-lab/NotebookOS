@@ -39,6 +39,24 @@ func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.
 	return nil, ErrMigrationNotSupported
 }
 
+// SelectReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// pre-designated as the leader of a code execution.
+//
+// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+// will fight amongst themselves to determine the leader.
+//
+// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+func (p *FcfsBatchSchedulingPolicy) SelectReadyReplica(_ scheduling.Kernel) (scheduling.KernelReplica, error) {
+	// There will only be one replica under FcfsBatchSchedulingPolicy.
+	// Rather than return that replica, FcfsBatchSchedulingPolicy simply returns nil.
+	// The default behavior will just be to forward the "execute_request" to all replicas,
+	// or in this case, the single replica of the specified scheduling.Kernel.
+	return nil, nil
+}
+
 func (p *FcfsBatchSchedulingPolicy) SmrEnabled() bool {
 	return false
 }

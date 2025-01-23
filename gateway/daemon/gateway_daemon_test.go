@@ -31,7 +31,7 @@ import (
 	"github.com/go-zeromq/zmq4"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	jupyter "github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"go.uber.org/mock/gomock"
 )
 
