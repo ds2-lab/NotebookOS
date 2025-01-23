@@ -1292,7 +1292,7 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 func (d *ClusterGatewayImpl) executionFailed(c scheduling.Kernel, msg *messaging.JupyterMessage) error {
 	execution := c.ActiveExecution()
 	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.",
-		execution.GetExecutionId(), execution.GetAttemptId(), c.ID())
+		execution.GetExecuteRequestMessageId(), execution.GetAttemptId(), c.ID())
 
 	return d.executionFailedCallback(c, msg)
 }
@@ -3277,7 +3277,7 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 		replicas = append(replicas, replica)
 	}
 
-	jMsg = kernel.AddDestFrameIfNecessary(jMsg)
+	jMsg.AddDestFrameIfNecessary(kernel.ID())
 
 	// getMsgForTargetReplica returns the *messaging.JupyterMessage to be sent to the target replica.
 	getMsgForTargetReplica := func() *messaging.JupyterMessage {

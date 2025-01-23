@@ -132,9 +132,6 @@ type Kernel interface {
 	WaitClosed() jupyter.KernelStatus
 	DebugMode() bool
 
-	// AddDestFrameIfNecessary adds the destination frame to the specified Jupyter message if it isn't already present.
-	AddDestFrameIfNecessary(jMsg *messaging.JupyterMessage) *messaging.JupyterMessage
-
 	// SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the DistributedKernelClient.
 	SetKernelKey(string)
 

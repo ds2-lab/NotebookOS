@@ -584,6 +584,16 @@ func cloneMap(src map[string]interface{}, dst map[string]interface{}) {
 	}
 }
 
+// AddDestFrameIfNecessary adds the destination frame to the specified Jupyter message if it isn't already present.
+func (m *JupyterMessage) AddDestFrameIfNecessary(dstId string) {
+	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at
+	// the same time, leading to multiple dest frames.
+	_, reqId, _ := m.JupyterFrames.ExtractDestFrame(true)
+	if reqId == "" {
+		m.AddDestinationId(dstId)
+	}
+}
+
 func (m *JupyterMessage) Clone() *JupyterMessage {
 	var clonedHeader *MessageHeader
 	if m.headerDecoded {

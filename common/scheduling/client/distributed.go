@@ -910,21 +910,6 @@ func (c *DistributedKernelClient) IsReplicaReady(replicaId int32) (bool, error) 
 	return replica.IsReady(), nil
 }
 
-// AddDestFrameIfNecessary adds the destination frame to the specified Jupyter message if it isn't already present.
-func (c *DistributedKernelClient) AddDestFrameIfNecessary(jMsg *messaging.JupyterMessage) *messaging.JupyterMessage {
-	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at the same time, leading to multiple dest frames.
-	_, reqId, jOffset := jMsg.JupyterFrames.ExtractDestFrame(true)
-	if reqId == "" {
-		c.log.Debug("Adding destination '%s' to frames now. Old frames (%d): %v.",
-			c.id, jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.String())
-		jMsg.AddDestinationId(c.id)
-		c.log.Debug("Added destination '%s' to frames at offset %d. New frames (%d): %v.",
-			c.id, jOffset, jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.String())
-	}
-
-	return jMsg
-}
-
 func (c *DistributedKernelClient) DebugMode() bool {
 	return c.debugMode
 }
@@ -937,7 +922,7 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 		replicas = append(replicas, replica)
 	}
 
-	jMsg = c.AddDestFrameIfNecessary(jMsg)
+	jMsg.AddDestFrameIfNecessary(c.id)
 
 	// We create a slice of JupyterMessages here, with length equal to the number of replicas that we have.
 	//
@@ -1029,10 +1014,10 @@ func (c *DistributedKernelClient) markExecutionAsComplete(execution *scheduling.
 	if execution.HasValidOriginalSentTimestamp() {
 		latency := time.Since(c.activeExecution.OriginalSentTimestamp())
 		c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d. Total time elapsed since submission: %v.",
-			execution.GetExecutionId(), c.id, replicaId, latency)
+			execution.GetExecuteRequestMessageId(), c.id, replicaId, latency)
 	} else {
 		c.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d.",
-			execution.GetExecutionId(), c.id, replicaId)
+			execution.GetExecuteRequestMessageId(), c.id, replicaId)
 	}
 
 	err := execution.ReceivedLeadNotification(replicaId)
