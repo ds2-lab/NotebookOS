@@ -113,7 +113,9 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 		// - r1 positive number when r1 > r2,
 		// - and zero when r1 == r2.
 
-		return int(r1.Host().IdleGPUs() - r2.Host().IdleGPUs())
+		// SortFunc sorts in ascending order. Normally, we'd do r1 - r2.
+		// But we want to sort largest to smallest, so we flip the variables and do r2 - r1.
+		return int(r2.Host().IdleGPUs() - r1.Host().IdleGPUs())
 	})
 
 	// For each replica (in order of most to least idle GPUs available on the host)...
