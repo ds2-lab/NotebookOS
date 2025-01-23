@@ -46,6 +46,10 @@ type SchedulerOptions struct {
 	AssignKernelDebugPorts bool `name:"assign_kernel_debug_ports" json:"assign_kernel_debug_ports" yaml:"assign_kernel_debug_ports" description:"If true, then assign debug ports to kernel containers that will be passed to their Golang backend to start a net/pprof debug server."`
 }
 
+func (opts *SchedulerOptions) Validate() error {
+	return nil
+}
+
 // GetGpusPerHost returns the number of allocatable GPUs on each entity.Host.
 func (opts *SchedulerOptions) GetGpusPerHost() int {
 	return opts.GpusPerHost

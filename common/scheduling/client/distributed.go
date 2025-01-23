@@ -351,6 +351,7 @@ func (c *DistributedKernelClient) ExecutionComplete(msg *messaging.JupyterMessag
 	if associatedExecution.GetActiveReplica() == nil {
 		c.log.Error(utils.RedStyle.Render("[ERROR] DistributedKernelClient %s has an active execution, but the active replica is nil: %v"),
 			c.id, c.activeExecution.String())
+		return false, fmt.Errorf("active execution is non-nil but has no active replica")
 	}
 
 	err := c.markExecutionAsComplete(associatedExecution, msg.ReplicaId)
