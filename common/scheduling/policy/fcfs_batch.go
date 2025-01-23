@@ -6,6 +6,31 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 )
 
+type internalPolicy interface {
+	scheduling.Policy
+	scheduling.PreExecutionStatePolicy
+	scheduling.PostExecutionStatePolicy
+	scheduling.ResourceScalingPolicy
+
+	// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+	SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error)
+
+	// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+	// pre-designated as the leader of a code execution.
+	//
+	// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+	// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+	// will fight amongst themselves to determine the leader.
+	//
+	// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+	// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+	// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+	//
+	// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+	// been ruled out.
+	FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error)
+}
+
 // FcfsBatchSchedulingPolicy is a scheduling.Policy modeled after Slurm-like first-come, first-serve batch schedulers.
 // FcfsBatchSchedulingPolicy uses short-lived scheduling.KernelContainer instances that are created reactively each
 // time a user submits a training task, and that are reclaimed when the training task finishes.
@@ -16,9 +41,13 @@ import (
 // management.
 type FcfsBatchSchedulingPolicy struct {
 	*baseSchedulingPolicy
+
+	instance internalPolicy
 }
 
-func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatchSchedulingPolicy, error) {
+// newFcfsBatchSchedulingPolicy is for internal use only by the auto-scaling variant of FCFS batch
+// to avoid the check against the configured scheduling policy.
+func newFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatchSchedulingPolicy, error) {
 	basePolicy, err := newBaseSchedulingPolicy(opts, true, false)
 	if err != nil {
 		return nil, err
@@ -26,6 +55,17 @@ func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatch
 
 	policy := &FcfsBatchSchedulingPolicy{
 		baseSchedulingPolicy: basePolicy,
+	}
+
+	policy.instance = policy
+
+	return policy, nil
+}
+
+func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatchSchedulingPolicy, error) {
+	policy, err := newFcfsBatchSchedulingPolicy(opts)
+	if err != nil {
+		return nil, err
 	}
 
 	if opts.SchedulingPolicy != scheduling.FcfsBatch.String() {
@@ -38,6 +78,10 @@ func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatch
 
 // SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
 func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	if p.instance != p {
+		return p.instance.SelectReplicaForMigration(kernel)
+	}
+
 	if p.SupportsMigration() {
 		panic("FcfsBatchSchedulingPolicy isn't supposed to support migration, yet apparently it does?")
 	}
@@ -59,46 +103,86 @@ func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.
 // FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
 // been ruled out.
 func (p *FcfsBatchSchedulingPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+	if p.instance != p {
+		return p.instance.FindReadyReplica(kernel, executionId)
+	}
+
 	return checkSingleReplica(kernel, p.supportsMigration, executionId)
 }
 
 func (p *FcfsBatchSchedulingPolicy) SmrEnabled() bool {
+	if p.instance != p {
+		return p.SmrEnabled()
+	}
+
 	return false
 }
 
 func (p *FcfsBatchSchedulingPolicy) PolicyKey() scheduling.PolicyKey {
+	if p.instance != p {
+		return p.PolicyKey()
+	}
+
 	return scheduling.FcfsBatch
 }
 
 func (p *FcfsBatchSchedulingPolicy) Name() string {
+	if p.instance != p {
+		return p.Name()
+	}
+
 	return "First-Come, First-Serve Batch Scheduling"
 }
 
 func (p *FcfsBatchSchedulingPolicy) NumReplicas() int {
+	if p.instance != p {
+		return p.NumReplicas()
+	}
+
 	return 1
 }
 
 func (p *FcfsBatchSchedulingPolicy) ResourceBindingMode() scheduling.ResourceBindingMode {
+	if p.instance != p {
+		return p.ResourceBindingMode()
+	}
+
 	return scheduling.BindResourcesWhenContainerScheduled
 }
 
 func (p *FcfsBatchSchedulingPolicy) ContainerLifetime() scheduling.ContainerLifetime {
+	if p.instance != p {
+		return p.ContainerLifetime()
+	}
+
 	return scheduling.SingleTrainingEvent
 }
 
 func (p *FcfsBatchSchedulingPolicy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
+	if p.instance != p {
+		return p.instance
+	}
+
 	// FcfsBatchSchedulingPolicy implements scheduling.PostExecutionStatePolicy directly, so we
 	// just return the target FcfsBatchSchedulingPolicy struct.
 	return p
 }
 
 func (p *FcfsBatchSchedulingPolicy) PreExecutionStatePolicy() scheduling.PreExecutionStatePolicy {
+	if p.instance != p {
+		return p.instance
+	}
+
 	// FcfsBatchSchedulingPolicy implements scheduling.PreExecutionStatePolicy directly, so we
 	// just return the target FcfsBatchSchedulingPolicy struct.
 	return p
 }
 
 func (p *FcfsBatchSchedulingPolicy) ResourceScalingPolicy() scheduling.ResourceScalingPolicy {
+	if p.instance != p {
+		return p.instance
+	}
+
 	// FcfsBatchSchedulingPolicy implements scheduling.ResourceScalingPolicy directly, so we
 	// just return the target FcfsBatchSchedulingPolicy struct.
 	return p
@@ -106,6 +190,10 @@ func (p *FcfsBatchSchedulingPolicy) ResourceScalingPolicy() scheduling.ResourceS
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *FcfsBatchSchedulingPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
+	if p.instance != p {
+		return p.GetNewPlacer(metricsProvider)
+	}
+
 	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p), nil
 }
 
@@ -122,6 +210,10 @@ func (p *FcfsBatchSchedulingPolicy) ScalingOutEnabled() bool {
 }
 
 func (p *FcfsBatchSchedulingPolicy) ScalingInEnabled() bool {
+	if p.instance != p {
+		return p.instance.ScalingInEnabled()
+	}
+
 	return true
 }
 
@@ -132,6 +224,10 @@ func (p *FcfsBatchSchedulingPolicy) ScalingInEnabled() bool {
 // ShouldPerformWriteOperation returns a bool flag indicating whether the kernel should perform a (simulated)
 // network write operation after a successful code execution.
 func (p *FcfsBatchSchedulingPolicy) ShouldPerformWriteOperation() bool {
+	if p.instance != p {
+		return p.instance.ShouldPerformWriteOperation()
+	}
+
 	return true
 }
 
@@ -141,6 +237,10 @@ func (p *FcfsBatchSchedulingPolicy) ShouldPerformWriteOperation() bool {
 // If the ShouldPerformWriteOperation method of the target PostExecutionStatePolicy returns false, then
 // the WriteOperationIsOnCriticalPath method will also return false.
 func (p *FcfsBatchSchedulingPolicy) WriteOperationIsOnCriticalPath() bool {
+	if p.instance != p {
+		return p.instance.WriteOperationIsOnCriticalPath()
+	}
+
 	return true
 }
 
@@ -154,6 +254,10 @@ func (p *FcfsBatchSchedulingPolicy) WriteOperationIsOnCriticalPath() bool {
 // Such a read operation would be to retrieve the current or latest model state/parameters and any required
 // training data.
 func (p *FcfsBatchSchedulingPolicy) ShouldPerformReadOperation() bool {
+	if p.instance != p {
+		return p.instance.ShouldPerformReadOperation()
+	}
+
 	return true
 }
 
@@ -163,5 +267,9 @@ func (p *FcfsBatchSchedulingPolicy) ShouldPerformReadOperation() bool {
 // If the ShouldPerformReadOperation method of the target PostExecutionStatePolicy returns false, then
 // the ReadOperationIsOnCriticalPath method will also return false.
 func (p *FcfsBatchSchedulingPolicy) ReadOperationIsOnCriticalPath() bool {
+	if p.instance != p {
+		return p.instance.ReadOperationIsOnCriticalPath()
+	}
+
 	return true
 }

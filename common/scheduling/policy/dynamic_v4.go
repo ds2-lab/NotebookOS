@@ -41,11 +41,11 @@ func (p *DynamicV4Policy) ResourceScalingPolicy() scheduling.ResourceScalingPoli
 }
 
 func (p *DynamicV4Policy) PolicyKey() scheduling.PolicyKey {
-	return scheduling.DynamicV3
+	return scheduling.DynamicV4
 }
 
 func (p *DynamicV4Policy) Name() string {
-	return "Dynamic Scheduling v3"
+	return "Dynamic Scheduling v4"
 }
 
 func (p *DynamicV4Policy) NumReplicas() int {

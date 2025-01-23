@@ -19,7 +19,7 @@ type AutoScalingFcfsBatchSchedulingPolicy struct {
 }
 
 func NewAutoScalingFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*AutoScalingFcfsBatchSchedulingPolicy, error) {
-	basePolicy, err := NewFcfsBatchSchedulingPolicy(opts)
+	basePolicy, err := newFcfsBatchSchedulingPolicy(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -28,12 +28,19 @@ func NewAutoScalingFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) 
 		FcfsBatchSchedulingPolicy: basePolicy,
 	}
 
+	policy.instance = policy
+	policy.FcfsBatchSchedulingPolicy.instance = policy
+
 	if opts.SchedulingPolicy != scheduling.AutoScalingFcfsBatch.String() {
 		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of AutoScalingFcfsBatchSchedulingPolicy.",
 			opts.SchedulingPolicy))
 	}
 
 	return policy, nil
+}
+
+func (p *AutoScalingFcfsBatchSchedulingPolicy) PolicyKey() scheduling.PolicyKey {
+	return scheduling.AutoScalingFcfsBatch
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
