@@ -485,11 +485,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		})
 	})
 
-	Context("Processing 'execute_request' messages", func() {
+	Context("Processing 'execute_request' messages under static scheduling", func() {
 		var (
-			kernel  *mock_scheduling.MockKernel
-			header  *messaging.MessageHeader
-			cluster *mock_scheduling.MockCluster
+			kernel        *mock_scheduling.MockKernel
+			header        *messaging.MessageHeader
+			cluster       *mock_scheduling.MockCluster
+			mockScheduler *mock_scheduling.MockScheduler
 		)
 
 		persistentId := uuid.NewString()
@@ -498,6 +499,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			kernel = mock_scheduling.NewMockKernel(mockCtrl)
 			cluster = mock_scheduling.NewMockCluster(mockCtrl)
 			session = mock_scheduling.NewMockUserSession(mockCtrl)
+			mockScheduler = mock_scheduling.NewMockScheduler(mockCtrl)
 			abstractServer = &server.AbstractServer{
 				DebugMode: true,
 				Log:       config.GetLogger("TestAbstractServer"),
@@ -582,7 +584,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			host3.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
 			host3.EXPECT().GetNodeName().AnyTimes().Return("MockedHost3")
 
-			addReplica := func(id int32, kernelId string, persistentId string, host scheduling.Host) (*mock_scheduling.MockKernelReplica, *mock_scheduling.MockKernelContainer) {
+			addReplica := func(id int32, kernelId string, persistentId string, host *mock_scheduling.MockHost) (*mock_scheduling.MockKernelReplica, *mock_scheduling.MockKernelContainer) {
 				kernelSpec := &proto.KernelSpec{
 					Id:              kernelId,
 					Session:         kernelId,
@@ -619,15 +621,20 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				return replica, container
 			}
 
-			replica1, container1 := addReplica(1, kernelId, persistentId, host1)
-			replica2, container2 := addReplica(2, kernelId, persistentId, host2)
-			replica3, container3 := addReplica(3, kernelId, persistentId, host3)
+			replica1, _ /* container1 */ := addReplica(1, kernelId, persistentId, host1)
+			replica2, _ /* container2 */ := addReplica(2, kernelId, persistentId, host2)
+			replica3, _ /* container3 */ := addReplica(3, kernelId, persistentId, host3)
 
-			kernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{replica1, replica2, replica3})
+			replicas := []*mock_scheduling.MockKernelReplica{replica1, replica2, replica3}
 
-			host1.EXPECT().PreCommitResources(container1).Times(1).Return(nil)
-			host2.EXPECT().PreCommitResources(container2).Times(1).Return(nil)
-			host3.EXPECT().PreCommitResources(container3).Times(1).Return(nil)
+			mockScheduler.EXPECT().FindReadyReplica(kernel).Times(1).DoAndReturn(func(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+				selectedReplicaIndex := rand.Intn(len(replicas))
+				selectedReplica := replicas[selectedReplicaIndex]
+
+				return selectedReplica, nil
+			})
+
+			cluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			targetReplica, err := clusterGateway.processExecuteRequest(jMsg, kernel)
@@ -637,6 +644,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		})
 
 		It("should correctly handle execute_request messages with an offset", func() {
+			cluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
+
 			reqId := uuid.NewString()
 			destReqFrame := fmt.Sprintf("dest.%s.req.%s", kernelId, reqId)
 
@@ -716,15 +725,21 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				return replica, container
 			}
 
-			replica1, container1 := addReplica(1, kernelId, persistentId, host1)
-			replica2, container2 := addReplica(2, kernelId, persistentId, host2)
-			replica3, container3 := addReplica(3, kernelId, persistentId, host3)
+			replica1, _ /* container1 */ := addReplica(1, kernelId, persistentId, host1)
+			replica2, _ /* container2 */ := addReplica(2, kernelId, persistentId, host2)
+			replica3, _ /* container3 */ := addReplica(3, kernelId, persistentId, host3)
 
-			kernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{replica1, replica2, replica3})
+			kernel.EXPECT().Replicas().AnyTimes().Return([]scheduling.KernelReplica{replica1, replica2, replica3})
 
-			host1.EXPECT().PreCommitResources(container1).Times(1).Return(nil)
-			host2.EXPECT().PreCommitResources(container2).Times(1).Return(nil)
-			host3.EXPECT().PreCommitResources(container3).Times(1).Return(nil)
+			mockScheduler.EXPECT().FindReadyReplica(kernel).Times(1).DoAndReturn(func(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+				replicas := kernel.Replicas()
+				selectedReplicaIndex := rand.Intn(len(replicas))
+				selectedReplica := replicas[selectedReplicaIndex]
+
+				return selectedReplica, nil
+			})
+
+			kernel.EXPECT().Replicas().AnyTimes().Return([]scheduling.KernelReplica{replica1, replica2, replica3})
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			targetReplica, err := clusterGateway.processExecuteRequest(jMsg, kernel)
@@ -1800,9 +1815,14 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedKernel.EXPECT().AddDestFrameIfNecessary(gomock.Any()).Times(1).DoAndReturn(func(msg *messaging.JupyterMessage) *messaging.JupyterMessage {
 				return msg
 			})
+			mockedKernel.EXPECT().DebugMode().Times(1).Return(true)
 
 			mockedSession.EXPECT().IsTraining().Times(1).Return(false)
 			mockedSession.EXPECT().SetExpectingTraining().Times(1).Return(promise.Resolved(nil))
+
+			// ctx, typ, jupyterMessages, handler, done any, replicas ...any
+			mockedKernel.EXPECT().RequestWithHandlerAndReplicas(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+				gomock.Any(), gomock.Any()).Times(1).Return(nil)
 
 			var shellHandlerWaitGroup sync.WaitGroup
 			shellHandlerWaitGroup.Add(1)
