@@ -850,7 +850,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				GinkgoWriter.Printf("Jupyter Message #%d:\n%v\n", idx, msg.StringFormatted())
 				Expect(msg.JupyterMessageId()).To(Equal(jupyterExecuteRequestId))
 
-				if int32(idx) == selectedReplica.ReplicaID() {
+				// We add 1 because replica IDs start at 1.
+				if int32(idx+1) == selectedReplica.ReplicaID() {
 					Expect(msg.JupyterMessageType()).To(Equal(messaging.ShellExecuteRequest))
 				} else {
 					Expect(msg.JupyterMessageType()).To(Equal(messaging.ShellYieldRequest))

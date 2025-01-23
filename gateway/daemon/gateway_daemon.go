@@ -3272,10 +3272,7 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessage, kernel scheduling.Kernel,
 	targetReplica scheduling.KernelReplica) error {
 
-	replicas := make([]scheduling.KernelReplica, 0, kernel.Size())
-	for _, replica := range kernel.Replicas() {
-		replicas = append(replicas, replica)
-	}
+	replicas := kernel.Replicas()
 
 	jMsg.AddDestFrameIfNecessary(kernel.ID())
 
@@ -3288,7 +3285,7 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 		return jMsg
 	}
 
-	jupyterMessages := make([]*messaging.JupyterMessage, 0, kernel.Size())
+	jupyterMessages := make([]*messaging.JupyterMessage, kernel.Size())
 	for _, replica := range replicas {
 		var (
 			jupyterMessage *messaging.JupyterMessage
@@ -3317,7 +3314,8 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 			jupyterMessage = getMsgForTargetReplica()
 		}
 
-		jupyterMessages = append(jupyterMessages, jupyterMessage)
+		// We subtract 1 because replica IDs start at 1.
+		jupyterMessages[replica.ReplicaID()-1] = jupyterMessage
 	}
 
 	for idx, msg := range jupyterMessages {
