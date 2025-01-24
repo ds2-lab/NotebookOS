@@ -28,6 +28,18 @@ func NewDynamicV3Policy(opts *scheduling.SchedulerOptions) (*DynamicV3Policy, er
 	return policy, nil
 }
 
+// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
+// Adjust the Cluster's capacity as directed by scaling policy.
+func (p *DynamicV3Policy) ValidateCapacity(cluster scheduling.Cluster) {
+	multiReplicaValidateCapacity(p, cluster, p.log)
+}
+
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *DynamicV3Policy) SupportsPredictiveAutoscaling() bool {
+	return true
+}
+
 func (p *DynamicV3Policy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
 	return p
 }

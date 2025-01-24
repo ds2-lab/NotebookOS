@@ -77,6 +77,18 @@ func (p *GandivaPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider)
 	return placer.NewGandivaPlacer(metricsProvider, p.NumReplicas(), p)
 }
 
+// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
+// Adjust the Cluster's capacity as directed by scaling policy.
+func (p *GandivaPolicy) ValidateCapacity(_ scheduling.Cluster) {
+	return // No-op, not supported
+}
+
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *GandivaPolicy) SupportsPredictiveAutoscaling() bool {
+	return false
+}
+
 // SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
 func (p *GandivaPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if !p.SupportsMigration() {

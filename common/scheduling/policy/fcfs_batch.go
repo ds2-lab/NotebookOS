@@ -82,6 +82,18 @@ func (p *FcfsBatchSchedulingPolicy) FindReadyReplica(kernel scheduling.Kernel, e
 	return checkSingleReplica(kernel, p.supportsMigration, executionId)
 }
 
+// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
+// Adjust the Cluster's capacity as directed by scaling policy.
+func (p *FcfsBatchSchedulingPolicy) ValidateCapacity(_ scheduling.Cluster) {
+	return // No-op, not supported
+}
+
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *FcfsBatchSchedulingPolicy) SupportsPredictiveAutoscaling() bool {
+	return false
+}
+
 // SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
 // resource request of an existing/scheduled kernel after it has already been created, or if the
 // initial resource request/allocation is static and cannot be changed after the kernel is created.

@@ -130,6 +130,14 @@ type Policy interface {
 	// ScalingConfiguration returns the ScalingConfiguration of the target AutoscalingPolicy.
 	ScalingConfiguration() *ScalingConfiguration
 
+	// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+	// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+	SupportsPredictiveAutoscaling() bool
+
+	// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
+	// Adjust the Cluster's capacity as directed by scaling policy.
+	ValidateCapacity(cluster Cluster)
+
 	// SmrEnabled returns a flag indicating whether the kernel containers should participate in SMR.
 	// This is generally only enabled for the static and dynamic policies.
 	SmrEnabled() bool
@@ -179,16 +187,16 @@ type ResourceScalingPolicy interface {
 
 // ScalingConfiguration encapsulates the various parameters related to auto-scaling.
 type ScalingConfiguration struct {
-	GpusPerHost                  int           // The number of virtual GPUs per host.
-	ScalingFactor                float64       // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
-	MaximumHostsToReleaseAtOnce  int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	ScalingIntervalSec           int32         // How often to call UpdateRatio in seconds.
-	ScalingInterval              time.Duration // How often to call UpdateRatio .
-	ScalingLimit                 float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
-	PredictiveAutoscalingEnabled bool          // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
-	ScalingBufferSize            int32         // How many extra hosts we provision so that we can quickly scale if needed.
-	MinimumCapacity              int32         // The minimum number of nodes we must have available at any time.
-	MaximumCapacity              int32         // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+	GpusPerHost                 int           // The number of virtual GPUs per host.
+	ScalingFactor               float64       // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	MaximumHostsToReleaseAtOnce int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	ScalingIntervalSec          int32         // How often to call UpdateRatio in seconds.
+	ScalingInterval             time.Duration // How often to call UpdateRatio .
+	ScalingLimit                float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
+	// PredictiveAutoscalingEnabled bool          // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
+	ScalingBufferSize int32 // How many extra hosts we provision so that we can quickly scale if needed.
+	MinimumCapacity   int32 // The minimum number of nodes we must have available at any time.
+	MaximumCapacity   int32 // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
 }
 
 // NewScalingConfiguration creates a new ScalingConfiguration struct, populating its field with the corresponding
@@ -212,16 +220,16 @@ func NewScalingConfiguration(opts *SchedulerOptions) *ScalingConfiguration {
 	}
 
 	return &ScalingConfiguration{
-		GpusPerHost:                  gpusPerHost,
-		ScalingFactor:                opts.ScalingFactor,
-		MaximumHostsToReleaseAtOnce:  int32(opts.MaximumHostsToReleaseAtOnce),
-		ScalingIntervalSec:           int32(opts.ScalingInterval),
-		ScalingInterval:              time.Second * time.Duration(opts.ScalingInterval),
-		ScalingLimit:                 opts.ScalingLimit,
-		PredictiveAutoscalingEnabled: opts.PredictiveAutoscalingEnabled,
-		ScalingBufferSize:            int32(opts.ScalingBufferSize),
-		MinimumCapacity:              int32(opts.MinimumNumNodes),
-		MaximumCapacity:              int32(opts.MaximumNumNodes),
+		GpusPerHost:                 gpusPerHost,
+		ScalingFactor:               opts.ScalingFactor,
+		MaximumHostsToReleaseAtOnce: int32(opts.MaximumHostsToReleaseAtOnce),
+		ScalingIntervalSec:          int32(opts.ScalingInterval),
+		ScalingInterval:             time.Second * time.Duration(opts.ScalingInterval),
+		ScalingLimit:                opts.ScalingLimit,
+		// PredictiveAutoscalingEnabled: opts.PredictiveAutoscalingEnabled,
+		ScalingBufferSize: int32(opts.ScalingBufferSize),
+		MinimumCapacity:   int32(opts.MinimumNumNodes),
+		MaximumCapacity:   int32(opts.MaximumNumNodes),
 	}
 }
 

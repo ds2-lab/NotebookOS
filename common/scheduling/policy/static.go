@@ -162,6 +162,18 @@ func (p *StaticPolicy) SupportsDynamicResourceAdjustments() bool {
 	return true
 }
 
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *StaticPolicy) SupportsPredictiveAutoscaling() bool {
+	return true
+}
+
+// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
+// Adjust the Cluster's capacity as directed by scaling policy.
+func (p *StaticPolicy) ValidateCapacity(cluster scheduling.Cluster) {
+	multiReplicaValidateCapacity(p, cluster, p.log)
+}
+
 //////////////////////////////////////////
 // ResourceScalingPolicy implementation //
 //////////////////////////////////////////

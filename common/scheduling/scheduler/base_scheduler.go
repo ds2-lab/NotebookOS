@@ -15,7 +15,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"math"
 	"sync"
 	"time"
 )
@@ -181,7 +180,7 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		clusterScheduler.log.Debug("ScalingInterval: %d",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec)
 		clusterScheduler.log.Debug("PredictiveAutoscalingEnabled: %v",
-			clusterScheduler.schedulingPolicy.ScalingConfiguration().PredictiveAutoscalingEnabled)
+			clusterScheduler.schedulingPolicy.SupportsPredictiveAutoscaling())
 		clusterScheduler.log.Debug("ScalingBufferSize: %d",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingBufferSize)
 		clusterScheduler.log.Debug("GPU Refresh Interval: %v",
@@ -735,7 +734,7 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 		s.rebalance(avg)
 
 		if !skipValidateCapacity && s.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec > 0 && time.Since(s.lastCapacityValidation) >= s.schedulingPolicy.ScalingConfiguration().ScalingInterval {
-			s.ValidateCapacity()
+			s.schedulingPolicy.ValidateCapacity(s.cluster)
 		}
 
 		return true
@@ -1118,128 +1117,14 @@ func (s *BaseScheduler) HostAdded(host scheduling.Host) {
 	s.instance.HostAdded(host)
 }
 
-// ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
-// Adjust the Cluster's capacity as directed by scaling policy.
-func (s *BaseScheduler) ValidateCapacity() {
-	var load int32
-	s.cluster.RangeOverHosts(func(_ string, host scheduling.Host) bool {
-		load += int32(host.CommittedGPUs())
-		return true
-	})
+// SetLastCapacityValidation is used to record that a capacity validation has occurred.
+func (s *BaseScheduler) SetLastCapacityValidation(ts time.Time) {
+	s.lastCapacityValidation = ts
+}
 
-	scalingFactor := s.schedulingPolicy.ScalingConfiguration().ScalingFactor
-	gpusPerHost := s.schedulingPolicy.ScalingConfiguration().GpusPerHost
-	scalingLimit := s.schedulingPolicy.ScalingConfiguration().ScalingLimit
-	scalingBufferSize := s.schedulingPolicy.ScalingConfiguration().ScalingBufferSize
-	predictiveAutoscalingEnabled := s.schedulingPolicy.ScalingConfiguration().PredictiveAutoscalingEnabled
-	maximumHostsToReleaseAtOnce := s.schedulingPolicy.ScalingConfiguration().MaximumHostsToReleaseAtOnce
-
-	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                      // The minimum number of hosts required to satisfy the Cluster's current committed GPUs.
-	minNumHosts := int32(s.schedulingPolicy.NumReplicas())
-	scaledOutNumHosts := int32(math.Ceil(float64(load) * scalingFactor / float64(gpusPerHost))) // The number of hosts we would scale-out to based on the configured scaling factor.
-	limit := int32(math.Ceil(float64(load) * scalingLimit / float64(gpusPerHost)))              // The maximum number of hosts we're permitted to scale-out to.
-
-	s.log.Debug("Validating Cluster Capacity. MinNumHosts: %d, ScaledOutNumHosts: %d, Limit: %d",
-		minNumHosts, scaledOutNumHosts, limit)
-
-	// Make some room for fluctuation.
-	//
-	// TODO(Ben): Is the minimum capacity of the host pool the right value to use here?
-	// Jingyuan's code uses the "min buffer size" (which is set within the `StaticPlacerBufferSize` constant in his code),
-	// so the minimum capacity of the host pool is the analogous value to use in my code. I'm just not sure if it will
-	// result in the intended behavior as I set the minimum capacity of the host pool more so from an economic standpoint
-	// to take advantage of reserved pricing.
-	if scaledOutNumHosts < (minNumHosts + scalingBufferSize) {
-		scaledOutNumHosts = minNumHosts + scalingBufferSize
-		s.log.Debug("Adjusted scaledOutNumHosts: %d.", scaledOutNumHosts)
-	}
-	if limit < minNumHosts+4 {
-		limit = minNumHosts + 4
-		s.log.Debug("Adjusted limit: %d.", limit)
-	}
-
-	if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-		s.log.Debug("Load (CommittedGPUs): %d. Current #Hosts: %d. Minimum #Hosts to Satisfy Load: %d. Target #Hosts: %d. Max Scaled-Out #Hosts: %d.",
-			load, s.cluster.Len(), minNumHosts, scaledOutNumHosts, limit)
-	}
-	oldNumHosts := int32(s.cluster.Len())
-	// Only scale-out if that feature is enabled.
-	if predictiveAutoscalingEnabled && s.cluster.CanPossiblyScaleOut() && oldNumHosts < scaledOutNumHosts {
-		// Scaling out
-		numProvisioned := 0
-		targetNumProvisioned := scaledOutNumHosts - oldNumHosts
-
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Scaling out by %d hosts (from %d to %d).", targetNumProvisioned, oldNumHosts, scaledOutNumHosts)
-		}
-
-		// This is such a minor optimization, but we cache the size of the active host pool locally so that we don't have to grab it everytime.
-		// The size of the pending host pool will grow each time we provision a new host.
-		numFailures := 0
-		for int32(s.cluster.Len()) < scaledOutNumHosts {
-			err := s.RequestNewHost()
-			if err != nil {
-				s.log.Error("Failed to add new host because: %v", err)
-				numFailures += 1
-
-				if numFailures > 3 {
-					s.log.Error("We've failed three times to provision a new host. Aborting automated operation.")
-					return
-				} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
-					s.log.Warn("Aborting scale-out operation as we lack sufficient disabled hosts to scale-out, and adding additional hosts directly is not supported by the current cluster type.")
-					return
-				} else {
-					continue
-				}
-			}
-
-			numProvisioned++
-		}
-
-		// If we provisioned any hosts -- or if we were supposed to provision at least one host -- then we'll
-		// print a message about how many we provisioned, and how many failures we encountered.
-		if (numProvisioned > 0 || targetNumProvisioned > 0) && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %d. Current #hosts: %d. #FailedProvisions: %d.", numProvisioned, load, oldNumHosts, s.cluster.Len(), numFailures)
-		}
-	} else if !s.cluster.CanPossiblyScaleOut() && oldNumHosts < scaledOutNumHosts { // If this was the reason the first if-statement evaluated to false, then we'll log a warning message.
-		s.log.Warn("Would like to scale out by %d hosts (from %d to %d); however, cluster cannot possibly scale-out right now.", scaledOutNumHosts-oldNumHosts, oldNumHosts, scaledOutNumHosts)
-	}
-
-	// Should we scale in?
-	if !s.canScaleIn || !predictiveAutoscalingEnabled || load <= limit {
-		return
-	}
-
-	// Scaling in.
-	// NOTE: Jingyuan's algorithm uses initial capacity here, rather than minimum capacity.
-	if limit < s.MinimumCapacity() {
-		limit = s.MinimumCapacity()
-	}
-
-	numToRelease := int32(s.cluster.Len()) - limit
-	if numToRelease > 0 {
-		if numToRelease > maximumHostsToReleaseAtOnce {
-			if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-				s.log.Debug("Decreased the number of idle hosts to release from %d to the maximum allowed value of %s.", numToRelease, maximumHostsToReleaseAtOnce)
-			}
-			numToRelease = maximumHostsToReleaseAtOnce
-		}
-
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Scaling in %d hosts", numToRelease)
-		}
-
-		numReleased, err := s.ReleaseIdleHosts(numToRelease)
-		if err != nil {
-			s.log.Error("Error while releasing idle hosts: %v", err)
-		}
-
-		if numReleased > 0 && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Released %d idle hosts based on #CommittedGPUs (%d). Prev #hosts: %s. New #hosts: %s.", numReleased, load, oldNumHosts, s.cluster.Len())
-		}
-	}
-
-	s.lastCapacityValidation = time.Now()
+// CanScaleIn returns true if scaling-in is possible now.
+func (s *BaseScheduler) CanScaleIn() bool {
+	return s.canScaleIn
 }
 
 // designateSubscriptionPoolType places the specified Host into the specified scheduler pool (i.e., oversubscribed

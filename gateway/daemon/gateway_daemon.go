@@ -4521,20 +4521,20 @@ func (d *ClusterGatewayImpl) IncrementResourceCountsForNewHost(host metrics.Host
 	d.clusterStatisticsMutex.Lock()
 	defer d.clusterStatisticsMutex.Unlock()
 
-	d.log.Debug("Incrementing idle and spec resource counts for newly-added host %s (ID=%s)",
-		host.GetNodeName(), host.GetID())
-	d.log.Debug("Current idle GPUs: %v", d.ClusterStatistics.IdleGPUs)
-	d.log.Debug("Current spec GPUs: %v", d.ClusterStatistics.SpecGPUs)
-	d.log.Debug("Current idle CPUs: %v", d.ClusterStatistics.IdleCPUs)
-	d.log.Debug("Current spec CPUs: %v", d.ClusterStatistics.SpecCPUs)
+	//d.log.Debug("Incrementing idle and spec resource counts for newly-added host %s (ID=%s)",
+	//	host.GetNodeName(), host.GetID())
+	//d.log.Debug("Current idle GPUs: %v", d.ClusterStatistics.IdleGPUs)
+	//d.log.Debug("Current spec GPUs: %v", d.ClusterStatistics.SpecGPUs)
+	//d.log.Debug("Current idle CPUs: %v", d.ClusterStatistics.IdleCPUs)
+	//d.log.Debug("Current spec CPUs: %v", d.ClusterStatistics.SpecCPUs)
 
 	d.incrIdleResourcesForHost(host)
 	d.incrSpecResourcesForHost(host)
 
-	d.log.Debug("Updated idle GPUs: %v", d.ClusterStatistics.IdleGPUs)
-	d.log.Debug("Updated spec GPUs: %v", d.ClusterStatistics.SpecGPUs)
-	d.log.Debug("Updated idle CPUs: %v", d.ClusterStatistics.IdleCPUs)
-	d.log.Debug("Updated spec CPUs: %v", d.ClusterStatistics.SpecCPUs)
+	//d.log.Debug("Updated idle GPUs: %v", d.ClusterStatistics.IdleGPUs)
+	//d.log.Debug("Updated spec GPUs: %v", d.ClusterStatistics.SpecGPUs)
+	//d.log.Debug("Updated idle CPUs: %v", d.ClusterStatistics.IdleCPUs)
+	//d.log.Debug("Updated spec CPUs: %v", d.ClusterStatistics.SpecCPUs)
 }
 
 // DecrementResourceCountsForRemovedHost is intended to be called when a Host is removed from the Cluster.
@@ -4544,8 +4544,8 @@ func (d *ClusterGatewayImpl) DecrementResourceCountsForRemovedHost(host metrics.
 	d.clusterStatisticsMutex.Lock()
 	defer d.clusterStatisticsMutex.Unlock()
 
-	d.log.Debug("Decrementing idle and spec resource counts for freshly-removed host %s (ID=%s)",
-		host.GetNodeName(), host.GetID())
+	//d.log.Debug("Decrementing idle and spec resource counts for freshly-removed host %s (ID=%s)",
+	//	host.GetNodeName(), host.GetID())
 
 	d.decrIdleResourcesForHost(host)
 	d.decrSpecResourcesForHost(host)

@@ -2391,6 +2391,60 @@ var _ = Describe("Cluster Gateway Tests", func() {
 	})
 
 	Context("DockerCluster", func() {
+		var (
+			lastSpecGpu  = 0.0
+			lastSpecCpu  = 0.0
+			lastSpecVram = 0.0
+			lastSpecMem  = 0.0
+		)
+
+		// This is used to check that the ClusterStatistics is reporting the correct resource counts.
+		assertClusterResourceCounts := func(stats *statistics.ClusterStatistics, expectDiff bool, clusterSize int) {
+			Expect(stats.IdleGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
+			Expect(stats.SpecGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
+			Expect(stats.PendingGPUs).To(Equal(0.0))
+			Expect(stats.CommittedGPUs).To(Equal(0.0))
+
+			Expect(stats.IdleCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
+			Expect(stats.SpecCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
+			Expect(stats.PendingCPUs).To(Equal(0.0))
+			Expect(stats.CommittedCPUs).To(Equal(0.0))
+
+			Expect(stats.IdleVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
+			Expect(stats.SpecVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
+			Expect(stats.PendingVRAM).To(Equal(0.0))
+			Expect(stats.CommittedVRAM).To(Equal(0.0))
+
+			Expect(stats.IdleMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
+			Expect(stats.SpecMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
+			Expect(stats.PendingMemory).To(Equal(0.0))
+			Expect(stats.CommittedMemory).To(Equal(0.0))
+
+			if expectDiff {
+				Expect(lastSpecCpu).ToNot(Equal(stats.SpecCPUs))
+				Expect(lastSpecMem).ToNot(Equal(stats.SpecMemory))
+				Expect(lastSpecGpu).ToNot(Equal(stats.SpecGPUs))
+				Expect(lastSpecVram).ToNot(Equal(stats.SpecVRAM))
+			} else {
+				Expect(lastSpecCpu).To(Equal(stats.SpecCPUs))
+				Expect(lastSpecMem).To(Equal(stats.SpecMemory))
+				Expect(lastSpecGpu).To(Equal(stats.SpecGPUs))
+				Expect(lastSpecVram).To(Equal(stats.SpecVRAM))
+			}
+
+			lastSpecCpu = stats.SpecCPUs
+			lastSpecMem = stats.SpecMemory
+			lastSpecGpu = stats.SpecGPUs
+			lastSpecVram = stats.SpecVRAM
+		}
+
+		BeforeEach(func() {
+			lastSpecGpu = 0.0
+			lastSpecCpu = 0.0
+			lastSpecVram = 0.0
+			lastSpecMem = 0.0
+		})
+
 		Context("Initial Connection Period", func() {
 			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
 			var options *domain.ClusterGatewayOptions
@@ -2455,53 +2509,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				clusterSize := 0
 
-				lastSpecGpu := -1.0
-				lastSpecCpu := -1.0
-				lastSpecVram := -1.0
-				lastSpecMem := -1.0
-
-				assertClusterResourceCounts := func(stats *statistics.ClusterStatistics, expectDiff bool) {
-					GinkgoWriter.Printf("float64(clusterSize) * hostSpec.GPU()) = %f\n",
-						float64(clusterSize)*hostSpec.GPU())
-					Expect(stats.IdleGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
-					Expect(stats.SpecGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
-					Expect(stats.PendingGPUs).To(Equal(0.0))
-					Expect(stats.CommittedGPUs).To(Equal(0.0))
-
-					Expect(stats.IdleCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
-					Expect(stats.SpecCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
-					Expect(stats.PendingCPUs).To(Equal(0.0))
-					Expect(stats.CommittedCPUs).To(Equal(0.0))
-
-					Expect(stats.IdleVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
-					Expect(stats.SpecVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
-					Expect(stats.PendingVRAM).To(Equal(0.0))
-					Expect(stats.CommittedVRAM).To(Equal(0.0))
-
-					Expect(stats.IdleMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
-					Expect(stats.SpecMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
-					Expect(stats.PendingMemory).To(Equal(0.0))
-					Expect(stats.CommittedMemory).To(Equal(0.0))
-
-					if expectDiff {
-						Expect(lastSpecCpu).ToNot(Equal(stats.SpecCPUs))
-						Expect(lastSpecMem).ToNot(Equal(stats.SpecMemory))
-						Expect(lastSpecGpu).ToNot(Equal(stats.SpecGPUs))
-						Expect(lastSpecVram).ToNot(Equal(stats.SpecVRAM))
-					} else {
-						Expect(lastSpecCpu).To(Equal(stats.SpecCPUs))
-						Expect(lastSpecMem).To(Equal(stats.SpecMemory))
-						Expect(lastSpecGpu).To(Equal(stats.SpecGPUs))
-						Expect(lastSpecVram).To(Equal(stats.SpecVRAM))
-					}
-
-					lastSpecCpu = stats.SpecCPUs
-					lastSpecMem = stats.SpecMemory
-					lastSpecGpu = stats.SpecGPUs
-					lastSpecVram = stats.SpecVRAM
-				}
-
-				assertClusterResourceCounts(clusterGateway.ClusterStatistics, true)
+				assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
 
 				for i := 0; i < InitialClusterSize; i++ {
 					hostId := uuid.NewString()
@@ -2523,7 +2531,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(cluster.NumDisabledHosts()).To(Equal(0))
 					Expect(host.Enabled()).To(Equal(true))
 
-					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true)
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true, clusterSize)
 				}
 
 				Expect(cluster.Len()).To(Equal(InitialClusterSize))
@@ -2551,7 +2559,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host.Enabled()).To(Equal(false))
 					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
 
-					assertClusterResourceCounts(clusterGateway.ClusterStatistics, false)
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
 				}
 
 				timeElapsed := time.Since(startTime)
@@ -2583,7 +2591,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
 					Expect(host.Enabled()).To(Equal(true))
 
-					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true)
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true, clusterSize)
 				}
 			})
 
