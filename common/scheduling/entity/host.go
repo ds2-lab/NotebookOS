@@ -1777,9 +1777,9 @@ func (h *Host) CommittedMemoryMb() float64 {
 	return h.resourceManager.CommittedResources().MemoryMB()
 }
 
-func (h *Host) IdleVRAM() float64 { return h.resourceManager.IdleResources().MemoryMB() }
+func (h *Host) IdleVRAM() float64 { return h.resourceManager.IdleResources().VRAM() }
 
-func (h *Host) PendingVRAM() float64 { return h.resourceManager.PendingResources().MemoryMB() }
+func (h *Host) PendingVRAM() float64 { return h.resourceManager.PendingResources().VRAM() }
 
 func (h *Host) CommittedVRAM() float64 { return h.resourceManager.CommittedResources().VRAM() }
 

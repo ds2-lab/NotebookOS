@@ -273,7 +273,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			GPUs:      decimal.NewFromFloat(8),
 			Millicpus: decimal.NewFromFloat(64000),
 			MemoryMb:  decimal.NewFromFloat(128000),
-			VRam:      decimal.NewFromFloat(32),
+			VRam:      decimal.NewFromFloat(40),
 		}
 	)
 
@@ -2422,6 +2422,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
 					srv.SetClusterOptions(&options.ClusterDaemonOptions.SchedulerOptions)
 					srv.SetDistributedClientProvider(mockedDistributedKernelClientProvider)
+					srv.(*ClusterGatewayImpl).hostSpec = hostSpec
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
@@ -2446,9 +2447,40 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(placer.NumHostsInIndex()).To(Equal(0))
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
 
+				// Make sure the metrics provider is non-nil.
+				Expect(cluster.MetricsProvider()).ToNot(BeNil())
+				Expect(cluster.MetricsProvider().GetClusterMetricsProvider()).ToNot(BeNil())
+
 				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
 
 				clusterSize := 0
+
+				assertClusterResourceCounts := func(stats *statistics.ClusterStatistics) {
+					GinkgoWriter.Printf("float64(clusterSize) * hostSpec.GPU()) = %f\n",
+						float64(clusterSize)*hostSpec.GPU())
+					Expect(stats.IdleGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
+					Expect(stats.SpecGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
+					Expect(stats.PendingGPUs).To(Equal(0.0))
+					Expect(stats.CommittedGPUs).To(Equal(0.0))
+
+					Expect(stats.IdleCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
+					Expect(stats.SpecCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
+					Expect(stats.PendingCPUs).To(Equal(0.0))
+					Expect(stats.CommittedCPUs).To(Equal(0.0))
+
+					Expect(stats.IdleVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
+					Expect(stats.SpecVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
+					Expect(stats.PendingVRAM).To(Equal(0.0))
+					Expect(stats.CommittedVRAM).To(Equal(0.0))
+
+					Expect(stats.IdleMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
+					Expect(stats.SpecMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
+					Expect(stats.PendingMemory).To(Equal(0.0))
+					Expect(stats.CommittedMemory).To(Equal(0.0))
+				}
+
+				assertClusterResourceCounts(clusterGateway.ClusterStatistics)
+
 				for i := 0; i < InitialClusterSize; i++ {
 					hostId := uuid.NewString()
 					hostName := fmt.Sprintf("TestHost%d", i)
@@ -2468,6 +2500,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
 					Expect(cluster.NumDisabledHosts()).To(Equal(0))
 					Expect(host.Enabled()).To(Equal(true))
+
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics)
 				}
 
 				Expect(cluster.Len()).To(Equal(InitialClusterSize))
@@ -2547,6 +2581,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
 				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(false))
+			})
+		})
+
+		Context("Autoscaling", func() {
+			It("Will correctly update the ClusterGateway's statistics based on the cluster's size", func() {
+
 			})
 		})
 

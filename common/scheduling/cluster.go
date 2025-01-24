@@ -89,6 +89,8 @@ type ClusterHostManager interface {
 	NumDisabledHosts() int
 
 	// Len returns the current size of the Cluster (i.e., the number of Host instances within the Cluster).
+	//
+	// Len does NOT include the number of disabled Host instances.
 	Len() int
 }
 

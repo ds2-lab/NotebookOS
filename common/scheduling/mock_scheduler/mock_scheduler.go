@@ -379,6 +379,20 @@ func (mr *MockSchedulingPolicyMockRecorder) SmrEnabled() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SmrEnabled", reflect.TypeOf((*MockSchedulingPolicy)(nil).SmrEnabled))
 }
 
+// SupportsDynamicResourceAdjustments mocks base method.
+func (m *MockSchedulingPolicy) SupportsDynamicResourceAdjustments() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SupportsDynamicResourceAdjustments")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// SupportsDynamicResourceAdjustments indicates an expected call of SupportsDynamicResourceAdjustments.
+func (mr *MockSchedulingPolicyMockRecorder) SupportsDynamicResourceAdjustments() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SupportsDynamicResourceAdjustments", reflect.TypeOf((*MockSchedulingPolicy)(nil).SupportsDynamicResourceAdjustments))
+}
+
 // SupportsMigration mocks base method.
 func (m *MockSchedulingPolicy) SupportsMigration() bool {
 	m.ctrl.T.Helper()

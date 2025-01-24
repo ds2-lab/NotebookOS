@@ -48,6 +48,13 @@ func (index *LeastLoadedIndex) Category() (string, interface{}) {
 }
 
 func (index *LeastLoadedIndex) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
+	if !host.Enabled() {
+		// If the host is not enabled, then it is ineligible to be added to the index.
+		// In general, disabled hosts will not be attempted to be added to the index,
+		// but if that happens, then we return scheduling.IndexUnqualified.
+		return expectedRandomIndex, scheduling.IndexUnqualified
+	}
+
 	val := host.GetMeta(LeastLoadedIndexMetadataKey)
 	if val == nil {
 		return "*", scheduling.IndexNewQualified

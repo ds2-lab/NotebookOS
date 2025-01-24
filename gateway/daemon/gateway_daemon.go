@@ -297,8 +297,13 @@ type ClusterGatewayImpl struct {
 	// gatewayPrometheusManager serves Prometheus metrics and responds to HTTP GET queries
 	// issued by Grafana to create Grafana Variables for use in creating Grafana Dashboards.
 	gatewayPrometheusManager *metrics.GatewayPrometheusManager
+
+	// metricsProvider provides all metrics to the members of the scheduling package.
+	metricsProvider *metrics.ClusterMetricsProvider
+
 	// Indicates that a goroutine has been started to publish metrics to Prometheus.
 	servingPrometheus atomic.Int32
+
 	// prometheusInterval is how often we publish metrics to Prometheus.
 	prometheusInterval time.Duration
 
@@ -396,7 +401,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	}
 
 	clusterGateway.router.SetComponentId(clusterGateway.id)
-	if clusterDaemonOptions.PrometheusPort > 0 {
+	if clusterDaemonOptions.PrometheusPort > 0 && clusterGateway.gatewayPrometheusManager != nil {
 		clusterGateway.router.AssignPrometheusManager(clusterGateway.gatewayPrometheusManager)
 
 		// Initial values for these metrics.
@@ -405,6 +410,11 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.gatewayPrometheusManager.DemandGpusGauge.Set(0)
 		clusterGateway.gatewayPrometheusManager.BusyGpusGauge.Set(0)
 	}
+
+	clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(
+		clusterGateway.gatewayPrometheusManager,
+		clusterGateway.IncrementResourceCountsForNewHost,
+		clusterGateway.DecrementResourceCountsForRemovedHost)
 
 	if clusterGateway.ip == "" {
 		ip, err := utils.GetIP()
@@ -480,11 +490,14 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.log.Debug("Successfully looked up the number of real/actual GPUs available on this node: %d", gpusPerHost)
 	}
 
-	clusterGateway.hostSpec = &types.DecimalSpec{
-		GPUs:      decimal.NewFromFloat(float64(gpusPerHost)),
-		VRam:      decimal.NewFromFloat(scheduling.VramPerHostGb),
-		Millicpus: decimal.NewFromFloat(scheduling.MillicpusPerHost),
-		MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),
+	// It's possible one of the config functions already set this, so check that it is nil first.
+	if clusterGateway.hostSpec == nil {
+		clusterGateway.hostSpec = &types.DecimalSpec{
+			GPUs:      decimal.NewFromFloat(float64(gpusPerHost)),
+			VRam:      decimal.NewFromFloat(scheduling.VramPerHostGb),
+			Millicpus: decimal.NewFromFloat(scheduling.MillicpusPerHost),
+			MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),
+		}
 	}
 
 	schedulingPolicy, policyError := scheduler.GetSchedulingPolicy(&clusterDaemonOptions.SchedulerOptions)
@@ -579,7 +592,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
-	clusterPlacer, err = schedulingPolicy.GetNewPlacer(clusterGateway.gatewayPrometheusManager)
+	clusterPlacer, err = schedulingPolicy.GetNewPlacer(clusterGateway.metricsProvider)
 	if err != nil {
 		clusterGateway.log.Error("Failed to create Random Placer: %v", err)
 		panic(err)
@@ -593,7 +606,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		WithSchedulingPolicy(schedulingPolicy).
 		WithHostMapper(clusterGateway).
 		WithKernelProvider(clusterGateway).
-		WithClusterMetricsProvider(clusterGateway.gatewayPrometheusManager).
+		WithClusterMetricsProvider(clusterGateway.metricsProvider).
 		WithNotificationBroker(clusterGateway).
 		WithStatisticsUpdateProvider(clusterGateway.updateClusterStatistics).
 		WithOptions(&clusterSchedulerOptions).
@@ -1081,7 +1094,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	// Create a host scheduler client and register it.
 	host, err := entity.NewHostWithConn(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
 		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, d.cluster.NumReplicas(), d.cluster, d.cluster,
-		d.gatewayPrometheusManager, gConn, d.Scheduler().Policy().ResourceBindingMode(), d.localDaemonDisconnected)
+		d.metricsProvider, gConn, d.Scheduler().Policy().ResourceBindingMode(), d.localDaemonDisconnected)
 
 	if err != nil {
 		if errors.Is(err, entity.ErrRestoreRequired) {
@@ -4501,6 +4514,265 @@ func (d *ClusterGatewayImpl) updateClusterStatistics(updaterFunc func(statistics
 	updaterFunc(d.ClusterStatistics)
 }
 
+// IncrementResourceCountsForNewHost is intended to be called when a Host is added to the Cluster.
+// IncrementResourceCountsForNewHost will increment the ClusterStatistics' resource counts
+// based on the resources available on the Host in question.
+func (d *ClusterGatewayImpl) IncrementResourceCountsForNewHost(host metrics.Host) {
+	d.clusterStatisticsMutex.Lock()
+	defer d.clusterStatisticsMutex.Unlock()
+
+	d.log.Debug("Incrementing idle and spec resource counts for newly-added host %s (ID=%s)",
+		host.GetNodeName(), host.GetID())
+	d.log.Debug("Current idle GPUs: %v", d.ClusterStatistics.IdleGPUs)
+	d.log.Debug("Current spec GPUs: %v", d.ClusterStatistics.SpecGPUs)
+	d.log.Debug("Current idle CPUs: %v", d.ClusterStatistics.IdleCPUs)
+	d.log.Debug("Current spec CPUs: %v", d.ClusterStatistics.SpecCPUs)
+
+	d.incrIdleResourcesForHost(host)
+	d.incrSpecResourcesForHost(host)
+
+	d.log.Debug("Updated idle GPUs: %v", d.ClusterStatistics.IdleGPUs)
+	d.log.Debug("Updated spec GPUs: %v", d.ClusterStatistics.SpecGPUs)
+	d.log.Debug("Updated idle CPUs: %v", d.ClusterStatistics.IdleCPUs)
+	d.log.Debug("Updated spec CPUs: %v", d.ClusterStatistics.SpecCPUs)
+}
+
+// DecrementResourceCountsForRemovedHost is intended to be called when a Host is removed from the Cluster.
+// DecrementResourceCountsForRemovedHost will decrement the ClusterStatistics' resource counts
+// based on the resources available on the Host in question.
+func (d *ClusterGatewayImpl) DecrementResourceCountsForRemovedHost(host metrics.Host) {
+	d.clusterStatisticsMutex.Lock()
+	defer d.clusterStatisticsMutex.Unlock()
+
+	d.log.Debug("Decrementing idle and spec resource counts for freshly-removed host %s (ID=%s)",
+		host.GetNodeName(), host.GetID())
+
+	d.decrIdleResourcesForHost(host)
+	d.decrSpecResourcesForHost(host)
+}
+
+// resetResourceCounts sets all resource counts in the ClusterStatistics to 0.
+//
+// Important: resetResourceCounts is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) resetResourceCounts() {
+	d.ClusterStatistics.IdleCPUs = 0
+	d.ClusterStatistics.IdleMemory = 0
+	d.ClusterStatistics.IdleGPUs = 0
+	d.ClusterStatistics.IdleVRAM = 0
+
+	d.ClusterStatistics.PendingCPUs = 0
+	d.ClusterStatistics.PendingMemory = 0
+	d.ClusterStatistics.PendingGPUs = 0
+	d.ClusterStatistics.PendingVRAM = 0
+
+	d.ClusterStatistics.CommittedCPUs = 0
+	d.ClusterStatistics.CommittedMemory = 0
+	d.ClusterStatistics.CommittedGPUs = 0
+	d.ClusterStatistics.CommittedVRAM = 0
+
+	d.ClusterStatistics.SpecCPUs = 0
+	d.ClusterStatistics.SpecMemory = 0
+	d.ClusterStatistics.SpecGPUs = 0
+	d.ClusterStatistics.SpecVRAM = 0
+}
+
+// incrIdleResourcesForHost increments the idle resource counts of the ClusterStatistics for a particular host.
+//
+// Important: incrIdleResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) incrIdleResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		d.log.Warn("Host %s (ID=%s) is not enabled. Will not be incrementing idle resource counts.",
+			host.GetNodeName(), host.GetID())
+		return
+	}
+
+	d.ClusterStatistics.IdleCPUs += host.IdleCPUs()
+	d.ClusterStatistics.IdleMemory += host.IdleMemoryMb()
+	d.ClusterStatistics.IdleGPUs += host.IdleGPUs()
+	d.ClusterStatistics.IdleVRAM += host.IdleVRAM()
+}
+
+// incrPendingResourcesForHost increments the pending resource counts of the ClusterStatistics for a particular host.
+//
+// Important: incrPendingResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) incrPendingResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		d.log.Warn("Host %s (ID=%s) is not enabled. Will not be incrementing pending resource counts.",
+			host.GetNodeName(), host.GetID())
+		return
+	}
+
+	d.ClusterStatistics.PendingCPUs += host.PendingCPUs()
+	d.ClusterStatistics.PendingMemory += host.PendingMemoryMb()
+	d.ClusterStatistics.PendingGPUs += host.PendingGPUs()
+	d.ClusterStatistics.PendingVRAM += host.PendingVRAM()
+}
+
+// incrCommittedResourcesForHost increments the committed resource counts of the ClusterStatistics for a particular host.
+//
+// Important: incrCommittedResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) incrCommittedResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		d.log.Warn("Host %s (ID=%s) is not enabled. Will not be incrementing committed resource counts.",
+			host.GetNodeName(), host.GetID())
+		return
+	}
+
+	d.ClusterStatistics.CommittedCPUs += host.CommittedCPUs()
+	d.ClusterStatistics.CommittedMemory += host.CommittedMemoryMb()
+	d.ClusterStatistics.CommittedGPUs += host.CommittedGPUs()
+	d.ClusterStatistics.CommittedVRAM += host.CommittedVRAM()
+}
+
+// incrSpecResourcesForHost increments the spec resource counts of the ClusterStatistics for a particular host.
+//
+// Important: incrSpecResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) incrSpecResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		d.log.Warn("Host %s (ID=%s) is not enabled. Will not be incrementing spec resource counts.",
+			host.GetNodeName(), host.GetID())
+		return
+	}
+
+	d.ClusterStatistics.SpecCPUs += host.ResourceSpec().CPU()
+	d.ClusterStatistics.SpecMemory += host.ResourceSpec().MemoryMB()
+	d.ClusterStatistics.SpecGPUs += host.ResourceSpec().GPU()
+	d.ClusterStatistics.SpecVRAM += host.ResourceSpec().VRAM()
+}
+
+// incrementResourceCountsForHost increments the resource counts of the ClusterStatistics for a particular host.
+//
+// Important: incrementResourceCountsForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) incrementResourceCountsForHost(host scheduling.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.incrIdleResourcesForHost(host)
+	d.incrPendingResourcesForHost(host)
+	d.incrCommittedResourcesForHost(host)
+	d.incrSpecResourcesForHost(host)
+}
+
+// decrIdleResourcesForHost decrements the idle resource counts of the ClusterStatistics for a particular host.
+//
+// Important: decrIdleResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) decrIdleResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.ClusterStatistics.IdleCPUs -= host.IdleCPUs()
+	d.ClusterStatistics.IdleMemory -= host.IdleMemoryMb()
+	d.ClusterStatistics.IdleGPUs -= host.IdleGPUs()
+	d.ClusterStatistics.IdleVRAM -= host.IdleVRAM()
+}
+
+// decrPendingResourcesForHost decrements the pending resource counts of the ClusterStatistics for a particular host.
+//
+// Important: decrPendingResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) decrPendingResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.ClusterStatistics.PendingCPUs -= host.PendingCPUs()
+	d.ClusterStatistics.PendingMemory -= host.PendingMemoryMb()
+	d.ClusterStatistics.PendingGPUs -= host.PendingGPUs()
+	d.ClusterStatistics.PendingVRAM -= host.PendingVRAM()
+}
+
+// decrCommittedResourcesForHost decrements the committed resource counts of the ClusterStatistics for a particular host.
+//
+// Important: decrCommittedResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) decrCommittedResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.ClusterStatistics.CommittedCPUs -= host.CommittedCPUs()
+	d.ClusterStatistics.CommittedMemory -= host.CommittedMemoryMb()
+	d.ClusterStatistics.CommittedGPUs -= host.CommittedGPUs()
+	d.ClusterStatistics.CommittedVRAM -= host.CommittedVRAM()
+}
+
+// decrSpecResourcesForHost decrements the spec resource counts of the ClusterStatistics for a particular host.
+//
+// Important: decrSpecResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) decrSpecResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.ClusterStatistics.SpecCPUs -= host.ResourceSpec().CPU()
+	d.ClusterStatistics.SpecMemory -= host.ResourceSpec().MemoryMB()
+	d.ClusterStatistics.SpecGPUs -= host.ResourceSpec().GPU()
+	d.ClusterStatistics.SpecVRAM -= host.ResourceSpec().VRAM()
+}
+
+// decrementResourceCountsForHost decrements the resource counts of the ClusterStatistics for a particular host.
+//
+// Important: decrementResourceCountsForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) decrementResourceCountsForHost(host scheduling.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.decrIdleResourcesForHost(host)
+	d.decrPendingResourcesForHost(host)
+	d.decrCommittedResourcesForHost(host)
+	d.decrSpecResourcesForHost(host)
+}
+
+// recomputeResourceCounts iterates over all the hosts in the cluster and updates the related resource count stats.
+//
+// Important: recomputeResourceCounts is NOT thread safe. The cluster statistics mutex must be acquired first.
+//
+// recomputeResourceCounts returns a tuple such that:
+// - 1st element is the number of non-empty hosts
+// - 2nd element is the number of empty hosts
+func (d *ClusterGatewayImpl) recomputeResourceCounts() (int, int) {
+	d.resetResourceCounts()
+
+	var numNonEmptyHosts, numEmptyHosts int
+
+	// The aggregate, cumulative lifetime of the hosts that are currently running.
+	var aggregateHostLifetimeOfRunningHosts float64
+
+	d.cluster.RangeOverHosts(func(_ string, host scheduling.Host) bool {
+		if !host.Enabled() {
+			// If the host is not enabled, then just continue to the next host.
+			return true
+		}
+
+		d.incrementResourceCountsForHost(host)
+
+		if host.NumContainers() == 0 {
+			numEmptyHosts += 1
+		} else {
+			numNonEmptyHosts += 1
+		}
+
+		aggregateHostLifetimeOfRunningHosts += time.Since(host.GetCreatedAt()).Seconds()
+
+		return true
+	})
+
+	d.ClusterStatistics.AggregateHostLifetimeOfRunningHosts = aggregateHostLifetimeOfRunningHosts
+
+	return numNonEmptyHosts, numEmptyHosts
+}
+
 // gatherClusterStatistics updates all the values in the ClusterStatistics field.
 //
 // gatherClusterStatistics is thread-safe.
@@ -4519,57 +4791,24 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 
 	d.log.Debug("Updating ClusterStatistics now.")
 
-	var idleCpu, idleMem, idleGpu, idleVram float64
-	var pendingCpu, pendingMem, pendingGpu, pendingVram float64
-	var committedCpu, committedMem, committedGpu, committedVram float64
-	var specCpu, specMem, specGpu, specVram float64
-
 	//var cpuUtil, gpuUtil, memUtil, vramUtil, demandGpus float64
 	var demandCpus, demandMem, demandGpus, demandVram float64
 
-	var numNonEmptyHosts, numEmptyHosts int
-
-	// The aggregate, cumulative lifetime of the hosts that are currently running.
-	var aggregateHostLifetimeOfRunningHosts float64
-
-	d.cluster.RangeOverHosts(func(_ string, host scheduling.Host) bool {
-		idleCpu += host.IdleCPUs()
-		idleMem += host.IdleMemoryMb()
-		idleGpu += host.IdleGPUs()
-		idleVram += host.IdleVRAM()
-
-		pendingCpu += host.PendingCPUs()
-		pendingMem += host.PendingMemoryMb()
-		pendingGpu += host.PendingGPUs()
-		pendingVram += host.PendingVRAM()
-
-		committedCpu += host.CommittedCPUs()
-		committedMem += host.CommittedMemoryMb()
-		committedGpu += host.CommittedGPUs()
-		committedVram += host.CommittedVRAM()
-
-		specCpu += host.ResourceSpec().CPU()
-		specMem += host.ResourceSpec().MemoryMB()
-		specGpu += host.ResourceSpec().GPU()
-		specVram += host.ResourceSpec().VRAM()
-
-		if host.NumContainers() == 0 {
-			numEmptyHosts += 1
-		} else {
-			numNonEmptyHosts += 1
-		}
-
-		aggregateHostLifetimeOfRunningHosts += time.Since(host.GetCreatedAt()).Seconds()
-
-		return true
-	})
+	numNonEmptyHosts, numEmptyHosts := d.recomputeResourceCounts()
 
 	activeTime := time.Since(lastTime) * time.Duration(numNonEmptyHosts)
 	idleTime := time.Since(lastTime) * time.Duration(numEmptyHosts)
 
+	///////////
+	// Hosts //
+	///////////
+
+	d.ClusterStatistics.Hosts = d.cluster.Len()
+	d.ClusterStatistics.NumDisabledHosts = d.cluster.NumDisabledHosts()
+	d.ClusterStatistics.NumEmptyHosts = numEmptyHosts
+
 	d.ClusterStatistics.CumulativeHostActiveTime += activeTime.Seconds()
 	d.ClusterStatistics.CumulativeHostIdleTime += idleTime.Seconds()
-	d.ClusterStatistics.AggregateHostLifetimeOfRunningHosts = aggregateHostLifetimeOfRunningHosts
 	d.ClusterStatistics.AggregateHostLifetime += time.Since(lastTime).Seconds() * float64(d.cluster.Len())
 
 	d.cluster.RangeOverSessions(func(key string, value scheduling.UserSession) bool {
@@ -4592,31 +4831,6 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 
 	d.ClusterStatistics.Hosts = d.cluster.Len()
 	d.ClusterStatistics.NumDisabledHosts = d.cluster.NumDisabledHosts()
-	d.ClusterStatistics.NumEmptyHosts = numEmptyHosts
-
-	///////////////
-	// Resources //
-	///////////////
-
-	d.ClusterStatistics.IdleCPUs = idleCpu
-	d.ClusterStatistics.IdleMemory = idleMem
-	d.ClusterStatistics.IdleGPUs = idleGpu
-	d.ClusterStatistics.IdleVRAM = idleVram
-
-	d.ClusterStatistics.PendingCPUs = pendingCpu
-	d.ClusterStatistics.PendingMemory = pendingMem
-	d.ClusterStatistics.PendingGPUs = pendingGpu
-	d.ClusterStatistics.PendingVRAM = pendingVram
-
-	d.ClusterStatistics.CommittedCPUs = committedCpu
-	d.ClusterStatistics.CommittedMemory = committedMem
-	d.ClusterStatistics.CommittedGPUs = committedGpu
-	d.ClusterStatistics.CommittedVRAM = committedVram
-
-	d.ClusterStatistics.SpecCPUs = specCpu
-	d.ClusterStatistics.SpecMemory = specMem
-	d.ClusterStatistics.SpecGPUs = specGpu
-	d.ClusterStatistics.SpecVRAM = specVram
 
 	/////////////////////////////////
 	// Static & Dynamic Scheduling //

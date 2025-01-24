@@ -1403,6 +1403,20 @@ func (m *MockMetricsProvider) EXPECT() *MockMetricsProviderMockRecorder {
 	return m.recorder
 }
 
+// GetClusterMetricsProvider mocks base method.
+func (m *MockMetricsProvider) GetClusterMetricsProvider() *metrics.ClusterMetricsProvider {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetClusterMetricsProvider")
+	ret0, _ := ret[0].(*metrics.ClusterMetricsProvider)
+	return ret0
+}
+
+// GetClusterMetricsProvider indicates an expected call of GetClusterMetricsProvider.
+func (mr *MockMetricsProviderMockRecorder) GetClusterMetricsProvider() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetClusterMetricsProvider", reflect.TypeOf((*MockMetricsProvider)(nil).GetClusterMetricsProvider))
+}
+
 // GetHostRemoteSyncLatencyMicrosecondsHistogram mocks base method.
 func (m *MockMetricsProvider) GetHostRemoteSyncLatencyMicrosecondsHistogram() prometheus.Histogram {
 	m.ctrl.T.Helper()
@@ -6717,6 +6731,20 @@ func (m *MockPolicy) SmrEnabled() bool {
 func (mr *MockPolicyMockRecorder) SmrEnabled() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SmrEnabled", reflect.TypeOf((*MockPolicy)(nil).SmrEnabled))
+}
+
+// SupportsDynamicResourceAdjustments mocks base method.
+func (m *MockPolicy) SupportsDynamicResourceAdjustments() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SupportsDynamicResourceAdjustments")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// SupportsDynamicResourceAdjustments indicates an expected call of SupportsDynamicResourceAdjustments.
+func (mr *MockPolicyMockRecorder) SupportsDynamicResourceAdjustments() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SupportsDynamicResourceAdjustments", reflect.TypeOf((*MockPolicy)(nil).SupportsDynamicResourceAdjustments))
 }
 
 // SupportsMigration mocks base method.

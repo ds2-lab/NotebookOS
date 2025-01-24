@@ -385,6 +385,8 @@ func (c *BaseCluster) onDisabledHostAdded(host scheduling.Host) error {
 }
 
 // onHostAdded is called when a host is added to the BaseCluster.
+//
+// onHostAdded must be called with the scalingOpMutex already held.
 func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 	c.scheduler.HostAdded(host)
 
@@ -409,12 +411,23 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 
 	c.unsafeCheckIfScaleOperationIsComplete(host)
 
-	if c.metricsProvider != nil && c.metricsProvider.GetNumHostsGauge() != nil {
-		c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+	if c.metricsProvider != nil {
+		clusterMetricsProvider := c.metricsProvider.GetClusterMetricsProvider()
+		if clusterMetricsProvider != nil {
+			clusterMetricsProvider.IncrementResourceCountsForNewHost(host)
+		}
+
+		if c.metricsProvider.GetNumHostsGauge() != nil {
+			c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+		}
 	}
 }
 
 // onHostRemoved is called when a host is deleted from the BaseCluster.
+//
+// onHostRemoved must NOT be called with the scalingOpMutex already held.
+// The scalingOpMutex will be acquired by onHostRemoved.
+// This differs from onHostAdded, which must be called with the scalingOpMutex already held.
 func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
 	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
 		if _, hostQualificationStatus := index.IsQualified(host); hostQualificationStatus != scheduling.IndexUnqualified {
@@ -424,11 +437,18 @@ func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
 	})
 
 	c.scalingOpMutex.Lock()
-	defer c.scalingOpMutex.Unlock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)
+	c.scalingOpMutex.Unlock()
 
-	if c.metricsProvider != nil && c.metricsProvider.GetNumHostsGauge() != nil {
-		c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+	if c.metricsProvider != nil {
+		clusterMetricsProvider := c.metricsProvider.GetClusterMetricsProvider()
+		if clusterMetricsProvider != nil {
+			clusterMetricsProvider.DecrementResourceCountsForRemovedHost(host)
+		}
+
+		if c.metricsProvider.GetNumHostsGauge() != nil {
+			c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+		}
 	}
 }
 
@@ -1095,7 +1115,8 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 
 	c.onHostAdded(host)
 
-	c.log.Debug("Finished handling scheduling.Cluster-level registration of newly-added host %s (ID=%s)", host.GetNodeName(), host.GetID())
+	c.log.Debug("Finished handling Cluster-level registration of newly-added host %s (ID=%s)",
+		host.GetNodeName(), host.GetID())
 
 	return nil
 }
