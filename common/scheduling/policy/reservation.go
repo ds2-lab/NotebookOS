@@ -17,7 +17,7 @@ type ReservationPolicy struct {
 }
 
 func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, false)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
 	if err != nil {
 		return nil, err
 	}
@@ -40,12 +40,14 @@ func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
-func (p *ReservationPolicy) SelectReplicaForMigration(_ scheduling.Kernel) (scheduling.KernelReplica, error) {
-	if p.SupportsMigration() {
-		panic("ReservationPolicy isn't supposed to support migration, yet apparently it does?")
+func (p *ReservationPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	replicas := kernel.Replicas()
+
+	if len(replicas) == 0 {
+		return nil, fmt.Errorf("kernel '%s' does not have a replica", kernel.ID())
 	}
 
-	return nil, ErrMigrationNotSupported
+	return replicas[0], nil
 }
 
 func (p *ReservationPolicy) PolicyKey() scheduling.PolicyKey {
