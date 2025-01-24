@@ -2455,7 +2455,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				clusterSize := 0
 
-				assertClusterResourceCounts := func(stats *statistics.ClusterStatistics) {
+				lastSpecGpu := -1.0
+				lastSpecCpu := -1.0
+				lastSpecVram := -1.0
+				lastSpecMem := -1.0
+
+				assertClusterResourceCounts := func(stats *statistics.ClusterStatistics, expectDiff bool) {
 					GinkgoWriter.Printf("float64(clusterSize) * hostSpec.GPU()) = %f\n",
 						float64(clusterSize)*hostSpec.GPU())
 					Expect(stats.IdleGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
@@ -2477,9 +2482,26 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(stats.SpecMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
 					Expect(stats.PendingMemory).To(Equal(0.0))
 					Expect(stats.CommittedMemory).To(Equal(0.0))
+
+					if expectDiff {
+						Expect(lastSpecCpu).ToNot(Equal(stats.SpecCPUs))
+						Expect(lastSpecMem).ToNot(Equal(stats.SpecMemory))
+						Expect(lastSpecGpu).ToNot(Equal(stats.SpecGPUs))
+						Expect(lastSpecVram).ToNot(Equal(stats.SpecVRAM))
+					} else {
+						Expect(lastSpecCpu).To(Equal(stats.SpecCPUs))
+						Expect(lastSpecMem).To(Equal(stats.SpecMemory))
+						Expect(lastSpecGpu).To(Equal(stats.SpecGPUs))
+						Expect(lastSpecVram).To(Equal(stats.SpecVRAM))
+					}
+
+					lastSpecCpu = stats.SpecCPUs
+					lastSpecMem = stats.SpecMemory
+					lastSpecGpu = stats.SpecGPUs
+					lastSpecVram = stats.SpecVRAM
 				}
 
-				assertClusterResourceCounts(clusterGateway.ClusterStatistics)
+				assertClusterResourceCounts(clusterGateway.ClusterStatistics, true)
 
 				for i := 0; i < InitialClusterSize; i++ {
 					hostId := uuid.NewString()
@@ -2501,7 +2523,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(cluster.NumDisabledHosts()).To(Equal(0))
 					Expect(host.Enabled()).To(Equal(true))
 
-					assertClusterResourceCounts(clusterGateway.ClusterStatistics)
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true)
 				}
 
 				Expect(cluster.Len()).To(Equal(InitialClusterSize))
@@ -2525,8 +2547,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					numDisabledHosts += 1
 
 					Expect(cluster.Len()).To(Equal(InitialClusterSize))
+					Expect(cluster.Len()).To(Equal(clusterSize))
 					Expect(host.Enabled()).To(Equal(false))
 					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
+
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, false)
 				}
 
 				timeElapsed := time.Since(startTime)
@@ -2557,6 +2582,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
 					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
 					Expect(host.Enabled()).To(Equal(true))
+
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true)
 				}
 			})
 
