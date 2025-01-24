@@ -1,16 +1,36 @@
-import multiprocessing
 import asyncio
 import logging
+from torch.multiprocessing import Process, set_start_method
+try:
+    set_start_method('spawn')
+except RuntimeError:
+    pass
+import os
+import sys
 import uuid
-from typing import Optional, Dict, Any, Type
+from collections import OrderedDict
+from typing import Optional, Dict, Any, Type, List
+from unittest import mock
+from itertools import islice
 
+import pytest
 import torch
+from ipykernel.control import ControlThread
 
-from distributed_notebook.deep_learning import DeepLearningModel, ResNet18, CIFAR10
+import distributed_notebook.sync.raft_log
+from distributed_notebook.deep_learning import ResNet18, CIFAR10, DeepLearningModel, VGG16, InceptionV3, VGG19, VGG13, \
+    VGG11, IMDbLargeMovieReviewTruncated, Bert, GPT2, DeepSpeech2, LibriSpeech, TinyImageNet, CoLA
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.kernel import DistributedKernel
-from distributed_notebook.sync.log import SynchronizedValue
-from .test_kernel import create_kernel, create_execution_request, propose_lead_and_win
+from distributed_notebook.sync import Synchronizer, RaftLog, SyncAST
+from distributed_notebook.sync.election import Election, ExecutionCompleted, AllReplicasProposedYield
+from distributed_notebook.sync.log import ElectionProposalKey, LeaderElectionProposal, \
+    LeaderElectionVote, Checkpointer, ExecutionCompleteNotification, SynchronizedValue
+from distributed_notebook.tests.test_kernel import mocked_serialize_and_append_value, create_kernel, \
+    create_execution_request, propose_lead_and_win
+from distributed_notebook.tests.utils.lognode import SpoofedLogNode
+from distributed_notebook.tests.utils.session import SpoofedSession
+from distributed_notebook.tests.utils.stream import SpoofedStream
 
 unit_test_logger = logging.getLogger(__name__)
 unit_test_logger.setLevel(logging.DEBUG)
@@ -35,6 +55,21 @@ FullFakePersistentStorePath: str = f"./store/{FakePersistentStorePath}"
 CommittedValues: list[SynchronizedValue] = []
 
 
+def perform_training_process(
+        process_identifier: int,
+        model_class: Type,
+        dataset_class: Type,
+        num_training_loops: int = 3,
+        target_training_duration_ms: float = 1000.0,
+):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(perform_training(process_identifier, model_class, dataset_class, num_training_loops, target_training_duration_ms))
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
+
 async def perform_training(
         process_identifier: int,
         model_class: Type,
@@ -53,6 +88,8 @@ async def perform_training(
     :param target_training_duration_ms: how long each execution should aim to last
     :return:
     """
+    print(f"Process {process_identifier} has started running.")
+
     kernel: DistributedKernel = await create_kernel(
         remote_storage_hostname=f"127.0.0.{process_identifier}:10000",
         kernel_id=DefaultKernelId,
@@ -88,7 +125,7 @@ async def perform_training(
         assert metadata is not None
         metadata["model"] = model_class.model_name()
         metadata["dataset"] = dataset_class.dataset_name()
-        metadata["gpu_device_ids"] = [0]
+        metadata["gpu_device_ids"] = [process_identifier]
 
         # Update request content (specifically the user-submitted code).
         content: Dict[str, Any] = execution_request["content"]
@@ -133,18 +170,23 @@ async def perform_training(
     kernel.shell.user_ns.clear()
 
 
+@mock.patch.object(distributed_notebook.sync.raft_log.RaftLog, "_serialize_and_append_value",
+                   mocked_serialize_and_append_value)
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires >= 2 torch.cuda.devices (i.e., 2+ GPUs)")
 def test_train_resnet_cifar10():
     """
     Create two processes, each of which houses a DistributedKernel that will train ResNet18 on CIFAR-10.
     """
 
-    p1_args = (1, ResNet18, CIFAR10)
-    kwargs = {
-        "num_training_loops": 5,
-        "target_training_duration_ms": 2250,
-    }
-    p1: multiprocessing.Process = multiprocessing.Process(target=perform_training, args = p1_args, kwargs=kwargs)
+    p1: Process = Process(target=perform_training_process, args=(0, ResNet18, CIFAR10, 3, 10000,))
+    p2: Process = Process(target=perform_training_process, args=(1, ResNet18, CIFAR10, 3, 10000,))
 
     p1.start()
+    print("Started process p1", flush = True)
+    p2.start()
+    print("Started process p2", flush = True)
 
     p1.join()
+    print("Joined process p1", flush = True)
+    p2.join()
+    print("Joined process p2", flush = True)
