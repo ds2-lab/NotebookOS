@@ -477,7 +477,9 @@ func (c *KernelReplicaClient) SentExecuteRequest(msg *messaging.JupyterMessage) 
 	defer c.pendingExecuteRequestIdsMutex.Unlock()
 
 	if msg.JupyterMessageType() != messaging.ShellExecuteRequest && msg.JupyterMessageType() != messaging.ShellYieldRequest {
-		log.Fatalf(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
+		// This really shouldn't happen.
+		c.log.Error(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
+		return
 	}
 
 	c.pendingExecuteRequestIds.Store(msg.JupyterMessageId(), msg)
@@ -507,7 +509,9 @@ func (c *KernelReplicaClient) ReceivedExecuteReply(msg *messaging.JupyterMessage
 	defer c.pendingExecuteRequestIdsMutex.Unlock()
 
 	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
-		log.Fatalf(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
+		// This really shouldn't happen.
+		c.log.Error(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
+		return
 	}
 
 	_, found := c.pendingExecuteRequestIds.LoadAndDelete(msg.JupyterParentMessageId())

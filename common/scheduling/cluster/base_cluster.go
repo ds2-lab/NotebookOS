@@ -593,7 +593,7 @@ func (c *BaseCluster) registerScaleOutOperation(operationId string, targetCluste
 	defer c.scalingOpMutex.Unlock()
 
 	if c.activeScaleOperation != nil {
-		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
+		c.log.Debug("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
 		return nil, scheduling.ErrScalingActive
 	}
 
@@ -620,7 +620,7 @@ func (c *BaseCluster) registerScaleInOperation(operationId string, targetCluster
 	defer c.scalingOpMutex.Unlock()
 
 	if c.activeScaleOperation != nil {
-		c.log.Error("Cannot register new ScaleInOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
+		c.log.Debug("Cannot register new ScaleInOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
 		return nil, scheduling.ErrScalingActive
 	}
 

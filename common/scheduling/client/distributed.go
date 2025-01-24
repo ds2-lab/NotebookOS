@@ -896,7 +896,7 @@ func (c *DistributedKernelClient) getRequestContext(ctx context.Context, typ mes
 // each replica will want to add its own unique request trace to the messaging.JupyterMessage.
 func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targetReplica scheduling.KernelReplica,
 	jupyterMessage *messaging.JupyterMessage, typ messaging.MessageType, responseReceivedWg *sync.WaitGroup, numResponsesSoFar *atomic.Int32,
-	responseHandler scheduling.KernelReplicaMessageHandler) {
+	responseHandler scheduling.KernelReplicaMessageHandler) error {
 
 	if jupyterMessage.JupyterMessageType() == messaging.ShellExecuteRequest || jupyterMessage.JupyterMessageType() == messaging.ShellYieldRequest {
 		targetReplica.SentExecuteRequest(jupyterMessage)
@@ -906,14 +906,22 @@ func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targ
 	// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
 	// to be cleared after the context ends; we just do it on ACK timeout.
 	err := targetReplica.RequestWithHandlerAndWaitOptionGetter(ctx, typ, jupyterMessage, responseHandler, c.getWaitResponseOption, func() {
-		responseReceivedWg.Done()
-		numResponsesSoFar.Add(1)
+		if responseReceivedWg != nil {
+			responseReceivedWg.Done()
+		}
+
+		if numResponsesSoFar != nil {
+			numResponsesSoFar.Add(1)
+		}
 	})
 
 	if err != nil {
 		c.log.Error("Error while issuing %s '%s' request to targetReplica %s: %v",
 			typ, jupyterMessage.JupyterMessageType(), c.id, err)
+		return err
 	}
+
+	return nil
 }
 
 // replaceResponseContentWithErrorMessage replaces the content of the given messaging.JupyterMessage with an
@@ -1052,7 +1060,8 @@ func (c *DistributedKernelClient) getResponseForwarder(handler scheduling.Kernel
 // This "response forwarder" function contains additional logic, such as for handling "execute_reply" and "yield"
 // messages/notifications from kernel replicas.
 func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType,
-	jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
+	jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(),
+	replicas ...scheduling.KernelReplica) error {
 
 	once := sync.Once{}
 	replicaCtx, cancel := c.getRequestContext(ctx, typ)
@@ -1065,7 +1074,17 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 	// If there's just a single replica, then send the message to that one replica.
 	if len(replicas) == 1 {
-		return replicas[0].RequestWithHandlerAndWaitOptionGetter(replicaCtx, typ, jupyterMessages[0], responseHandler, c.getWaitResponseOption, done)
+		//jMsg := jupyterMessages[0]
+		//msgType := jMsg.JupyterMessageType()
+		//if msgType == messaging.ShellExecuteRequest || msgType == messaging.ShellYieldRequest {
+		//	replicas[0].SentExecuteRequest(jMsg)
+		//}
+		//
+		//return replicas[0].RequestWithHandlerAndWaitOptionGetter(replicaCtx, typ, jMsg, responseHandler,
+		//	c.getWaitResponseOption, done)
+
+		return c.sendRequestToReplica(replicaCtx, replicas[0], jupyterMessages[0], typ,
+			nil, nil, responseHandler)
 	}
 
 	// Note: we do NOT need to create a barrier where the replicas all wait until they've each clone the
@@ -1075,6 +1094,8 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	var responseReceivedWg sync.WaitGroup
 	numResponsesExpected := 0
 	numResponsesSoFar := atomic.Int32{}
+
+	errorChannel := make(chan interface{}, len(replicas))
 
 	// Iterate over each replica and forward the request to that kernel replica's Local Daemon,
 	// which will then route the request to the kernel replica itself.
@@ -1092,12 +1113,63 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 		c.log.Debug("Sending %v '%s' message '%s' to replica %d of kernel '%s' now.",
 			typ.String(), msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), c.id)
 
-		go c.sendRequestToReplica(replicaCtx, replica, msg, typ, &responseReceivedWg, &numResponsesSoFar, responseHandler)
+		go func() {
+			err := c.sendRequestToReplica(replicaCtx, replica, msg, typ, &responseReceivedWg, &numResponsesSoFar,
+				responseHandler)
+
+			if err != nil {
+				errorChannel <- err
+			} else {
+				errorChannel <- struct{}{}
+			}
+		}()
 	}
 
 	if done != nil {
 		// If a `done` callback function was given to us, then we'll create a goroutine to handle it.
 		go c.handleDoneCallbackForRequest(done, &responseReceivedWg, typ, jupyterMessages[0], &numResponsesSoFar, numResponsesExpected)
+	}
+
+	// We'll wait at most 1 second to see if any of these send attempts immediately return an error.
+	// If they do, then we'll receive the error and return it.
+	waitContext, waitCancel := context.WithTimeout(context.Background(), time.Second*1)
+	defer waitCancel()
+
+	numNotifications := 0
+	select {
+	case errOrOk := <-errorChannel:
+		{
+			// We got a value. It's either an error or a struct{}.
+			// If it's an error, then we'll just return it. We may have received other errors
+			// from the other replicas -- whatever, we'll just return the first error.
+			//
+			// Alternatively, if it's a struct{}, then that means the send went fine for whatever
+			// replica, and we can just increment the numNotifications counter and possibly return.
+			switch errOrOk.(type) {
+			case error:
+				{
+					// It's an error. Whoops.
+					// Return the error.
+					return errOrOk.(error)
+				}
+			default:
+				{
+					// The send went fine. Just increment the counter.
+					numNotifications += 1
+
+					// Can we return yet? If we got replies from all replicas, we can.
+					if numNotifications >= len(replicas) {
+						return nil
+					}
+				}
+			}
+		}
+	case <-waitContext.Done():
+		{
+			// Timed-out. That's fine. Just return.
+			// We used to not return anything ever.
+			return nil
+		}
 	}
 
 	return nil
