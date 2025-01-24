@@ -524,10 +524,14 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.PolicyKey()).To(Equal(scheduling.Static))
 
+			mockScheduler.EXPECT().Policy().Return(schedulingPolicy).AnyTimes()
+			mockScheduler.EXPECT().PolicyKey().Return(scheduling.Static).AnyTimes()
+
 			clusterGateway = &ClusterGatewayImpl{
 				cluster:                  cluster,
 				RequestLog:               metrics.NewRequestLog(),
 				gatewayPrometheusManager: nil,
+				ClusterStatistics:        statistics.NewClusterStatistics(),
 			}
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
