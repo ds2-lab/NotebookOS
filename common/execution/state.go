@@ -1,10 +1,11 @@
 package execution
 
 var (
-	Pending State = "pending"
-	Running State = "running"
-	Erred   State = "erred"
-	Unknown State = "unknown"
+	Pending   State = "pending"
+	Running   State = "running"
+	Completed State = "completed"
+	Erred     State = "erred"
+	Unknown   State = "unknown"
 )
 
 type State string

@@ -1290,10 +1290,13 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 	d.notifyDashboardOfError("Connection to Kernel Lost, Reconnection Succeeded, but Request Resubmission Failed", errorMessage)
 }
 
+// executionFailed is a callback to be executed if all replicas propose "YIELD".
+//
+// The passed message is the "execute_reply" or "yield_reply".
 func (d *ClusterGatewayImpl) executionFailed(c scheduling.Kernel, msg *messaging.JupyterMessage) error {
-	execution := c.ActiveExecution()
+	activeExecution := c.GetActiveExecution(msg.JupyterParentMessageId())
 	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.",
-		execution.ExecuteRequestMessageId, execution.AttemptNumber, c.ID())
+		activeExecution.ExecuteRequestMessageId, activeExecution.AttemptNumber, c.ID())
 
 	return d.executionFailedCallback(c, msg)
 }
@@ -3442,14 +3445,8 @@ func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request
 	return d.forwardResponse(kernel, typ, request)
 }
 
-// processExecuteReply handles the scheduling and resource allocation/de-allocation logic required when a
-// kernel finishes executing user-submitted code.
-//
-// TODO: Will there be race conditions here if we've sent multiple "execute_request" messages to the kernel?
-// TODO: Could we receive a notification that a subsequent training has started before getting the reply that the last train completed?
-// TODO: If so, how can we handle these out-of-order requests? We can associate trainings with Jupyter message IDs so that, if we get a >>
-// TODO: >> training stopped notification, then it needs to match up with the current training, maybe in a queue structure, so that out-of-order >>
-// TODO: >> messages can be handled properly.
+// processExecuteReply handles the scheduling and resource allocation/de-allocation logic required when a kernel
+// finishes executing user-submitted code.
 func (d *ClusterGatewayImpl) processExecuteReply(kernelId string, msg *messaging.JupyterMessage) error {
 	d.log.Debug("Received \"execute_reply\" with JupyterID=\"%s\" from kernel %s.", msg.JupyterMessageId(), kernelId)
 
@@ -3468,51 +3465,12 @@ func (d *ClusterGatewayImpl) processExecuteReply(kernelId string, msg *messaging
 		return types.ErrKernelNotFound
 	}
 
-	activeExecution := kernel.ActiveExecution()
-	if activeExecution != nil && activeExecution.ExecuteRequestMessageId != msg.JupyterParentMessageId() {
-		// It's possible that we receive an "execute_reply" for execution i AFTER the "smr_lead_task" message for
-		// execution i+1 (i.e., out of order). When this happens, we just stop the current training upon receiving
-		// the "smr_lead_task" message for execution i+1. If and when we receive the "execute_reply" message for
-		// execution i (after we've already moved on to execution i+1), we discard the "old" "execute_reply" message.
-		d.log.Warn(utils.OrangeStyle.Render("Received \"execute_reply\" for \"execute_request\" \"%s\"; however, current execution is for \"execute_request\" \"%s\"."),
-			msg.JupyterParentMessageId(), activeExecution.ExecuteRequestMessageId)
-
-		oldActiveExecution, loaded := kernel.GetActiveExecutionByExecuteRequestMsgId(msg.JupyterParentMessageId())
-		if !loaded {
-			d.log.Error(utils.RedStyle.Render("Could not find old Execution associated with \"execute_request\" \"%s\"..."), msg.JupyterParentMessageId())
-		} else if oldActiveExecution.OriginalTimestampOrCreatedAt().After(kernel.ActiveExecution().OriginalTimestampOrCreatedAt()) {
-			// If the "old" active execution -- the one associated with the Jupyter message ID of the "execute_request"
-			// for which we just received the subsequent/complementary "execute_reply -- has an original send timestamp
-			// (or was simply created) after the kernel's current active execution, then that indicates that we are in
-			// an error state.
-			//
-			// Specifically, we should conceivably be receiving an "execute_reply" message out-of-order here. That is,
-			// we received the "smr_lead_task" message for the next execution BEFORE receiving the "execute_reply"
-			// message for the last execution. Upon receiving the "smr_lead_task" message, we ended the last execution
-			// and began processing the next execution.
-			//
-			// So, what we'd like to do here is just discard/ignore the "execute_reply", as we received it late, and
-			// we already did the processing that is required. However, if the current execution is actually older than
-			// the execution associated with the "execute_reply" that we just received, then our assumptions are wrong!
-			errorMessage := fmt.Sprintf("Thought we received out-of-order \"smr_lead_task\" and \"execute_reply\" " +
-				"messages for execution i+1 and i respectively, but current execution is actually older than execution " +
-				"associated with the \"execute_reply\" message that we just received...")
-			d.notifyDashboardOfError("Old Active Execution Isn't Actually Old...", errorMessage)
-			d.log.Error(errorMessage)
-			d.log.Error(utils.RedStyle.Render("Old active execution isn't actually old. Current execution: %v. \"Old\" execution: %v.\n"),
-				activeExecution.String(), oldActiveExecution.String())
-			d.log.Error(utils.RedStyle.Render("Received out of order \"smr_lead_task\" and \"execute_reply\" messages from kernel %s.\n"), kernelId)
-		}
-	} else if activeExecution == nil {
-		d.log.Error("No active execution registered for kernel %s...", kernelId)
-	}
-
 	if d.gatewayPrometheusManager != nil && d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec != nil {
 		d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
 			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
 	}
 
-	if _, err := kernel.ExecutionComplete(msg); err != nil {
+	if err := kernel.ExecutionComplete(msg); err != nil {
 		return err
 	}
 
@@ -3532,7 +3490,12 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg.StringFormatted())
 
 	// Register the execution with the kernel.
-	_ = kernel.EnqueueActiveExecution(1, msg)
+	_, err := kernel.RegisterActiveExecution(msg)
+	if err != nil {
+		d.log.Error("Failed to register new active execution \"%s\" targeting kernel \"%s\": %v",
+			msg.JupyterMessageId(), kernel.ID(), err)
+		return nil, err
+	}
 
 	// Get the session associated with the kernel.
 	session, ok := d.cluster.GetSession(kernelId)
@@ -3550,7 +3513,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	}
 
 	// Transition the session to the "expecting to start training soon" state.
-	err := session.SetExpectingTraining().Error()
+	err = session.SetExpectingTraining().Error()
 	if err != nil {
 		d.notifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
 		msg.IsFailedExecuteRequest = true
@@ -4638,7 +4601,7 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 }
 
 // handleExecutionYieldedNotification is called when we receive a 'YIELD' proposal from a replica of a kernel.
-// handleExecutionYieldedNotification registers the 'yield' proposal with the kernel's current scheduling.Execution
+// handleExecutionYieldedNotification registers the 'yield' proposal with the kernel's current execution.Execution
 // struct. If we find that we've received all three proposals, and they were ALL 'yield', then we'll handle the situation
 // according to the scheduling policy that we've been configured to use.
 func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduling.KernelReplica, msgErr *messaging.MessageErrorWithYieldReason, msg *messaging.JupyterMessage) error {
@@ -4670,30 +4633,19 @@ func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduli
 	// Mark that we received the 'YIELD' proposal for the associated Execution.
 	err := associatedActiveExecution.ReceivedYieldNotification(replica.ReplicaID(), msgErr.YieldReason)
 
-	var currentStatus string
-	if associatedActiveExecution == kernel.CurrentActiveExecution() {
-		currentStatus = "current"
-	} else {
-		currentStatus = "non-current"
-	}
-	d.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for %s Execution associated with \"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
-		replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, associatedActiveExecution.NumRolesReceived(), associatedActiveExecution.GetNumReplicas(), replica.ID())
+	d.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for Execution associated with \"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
+		replica.ReplicaID(), replica.ID(), targetExecuteRequestId, associatedActiveExecution.NumRolesReceived(), associatedActiveExecution.NumReplicas, replica.ID())
 
 	// If we have a non-nil error, and it isn't just that all the replicas proposed YIELD, then return it directly.
 	if err != nil && !errors.Is(err, execution.ErrExecutionFailedAllYielded) {
-		d.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for %s Execution associated with \"execute_request\" \"%s\": %v",
-			replica.ReplicaID(), replica.ID(), currentStatus, targetExecuteRequestId, err)
+		d.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for Execution associated with \"execute_request\" \"%s\": %v",
+			replica.ReplicaID(), replica.ID(), targetExecuteRequestId, err)
 
 		return err
 	}
 
 	// If we have a non-nil error, and it's just that all replicas proposed YIELD, then we'll call the handler.
 	if errors.Is(err, execution.ErrExecutionFailedAllYielded) {
-		if currentStatus != "current" {
-			// This just really shouldn't happen...
-			log.Fatalf(utils.RedStyle.Render("[ERROR] All replicas have proposed 'YIELD' for non-current Execution associated with \"execute_request\" \"%s\"...\n"), targetExecuteRequestId)
-		}
-
 		// Concatenate all the yield reasons. We'll return them along with the error returned by
 		// handleFailedExecutionAllYielded if handleFailedExecutionAllYielded returns a non-nil error.
 		yieldErrors := make([]error, 0, 4)

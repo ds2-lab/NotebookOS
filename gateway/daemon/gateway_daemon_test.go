@@ -2087,8 +2087,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			wg.Wait()
 			Expect(activeExecution).ToNot(BeNil())
 
-			mockedKernel.EXPECT().ActiveExecution().MaxTimes(3).Return(activeExecution)
-			mockedKernel.EXPECT().GetActiveExecutionByExecuteRequestMsgId("c7074e5b-b90f-44f8-af5d-63201ec3a528").MaxTimes(3).Return(activeExecution, true)
+			mockedKernel.EXPECT().GetActiveExecution("c7074e5b-b90f-44f8-af5d-63201ec3a528").MaxTimes(3).Return(activeExecution, true)
 
 			getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
 				unsignedExecuteReplyFrames := [][]byte{
@@ -2151,7 +2150,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 
 			mockedKernel.EXPECT().GetActiveExecution(jupyterExecuteRequestId).Times(3).Return(activeExecution)
-			mockedKernel.EXPECT().CurrentActiveExecution().Times(3).Return(activeExecution)
 
 			preparedReplicaIdChan := make(chan int32, 1)
 

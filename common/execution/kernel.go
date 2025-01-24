@@ -4,9 +4,6 @@ package execution
 type Kernel interface {
 	// ID returns the kernel's ID.
 	ID() string
-
-	// Replicas returns the Replica instances associated with the Kernel.
-	Replicas() []Replica
 }
 
 // Replica is analogous to scheduling.KernelReplica.

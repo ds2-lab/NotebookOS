@@ -61,11 +61,11 @@ type Execution struct {
 	// replyMutex ensures atomicity of the RegisterReply method.
 	replyMutex sync.Mutex
 
-	// originallySentAt is the time at which the "execute_request" message associated with this Execution
+	// OriginallySentAt is the time at which the "execute_request" message associated with this Execution
 	// was actually sent by the Jupyter client. We can only recover this if the client is an instance of our
 	// Go-implemented Jupyter client, as those clients embed the unix milliseconds at which the message was
 	// created and subsequently sent within the metadata field of the message.
-	originallySentAt        time.Time
+	OriginallySentAt        time.Time
 	originallySentAtDecoded bool
 
 	// activeReplica is the Kernel connected to the replica of the kernel that is actually
@@ -77,7 +77,7 @@ type Execution struct {
 	WorkloadId    string
 	workloadIdSet bool
 
-	executed bool
+	State State
 }
 
 func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *messaging.JupyterMessage) *Execution {
@@ -94,6 +94,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *me
 		ExecuteRequestMessageId: msg.JupyterMessageId(),
 		originallySentAtDecoded: false,
 		CreatedAt:               time.Now(),
+		State:                   Pending,
 	}
 
 	var metadataDict map[string]interface{}
@@ -104,7 +105,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *me
 		err = mapstructure.Decode(metadataDict, &requestMetadata)
 		if err == nil {
 			if requestMetadata.SentAtUnixTimestamp != nil {
-				activeExecution.originallySentAt = time.UnixMilli(int64(*requestMetadata.SentAtUnixTimestamp))
+				activeExecution.OriginallySentAt = time.UnixMilli(int64(*requestMetadata.SentAtUnixTimestamp))
 				activeExecution.originallySentAtDecoded = true
 			}
 
@@ -120,7 +121,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *me
 			sentAtVal, ok := metadataDict["send_timestamp_unix_milli"]
 			if ok {
 				unixTimestamp := sentAtVal.(float64)
-				activeExecution.originallySentAt = time.UnixMilli(int64(unixTimestamp))
+				activeExecution.OriginallySentAt = time.UnixMilli(int64(unixTimestamp))
 				activeExecution.originallySentAtDecoded = true
 			}
 
@@ -190,24 +191,12 @@ func (e *Execution) HasValidOriginalSentTimestamp() bool {
 	return e.originallySentAtDecoded
 }
 
-// OriginalSentTimestamp returns the time at which the associated "execute_request" message was sent
-// by the Jupyter client that initiated the execution request. If we were able to decode/retrieve this
-// value when we first created the Execution struct, then the value returned by OriginalSentTimestamp
-// will be meaningless.
-//
-// To check if we were able to decode/retrieve the "send timestamp", use the HasValidOriginalSentTimestamp method.
-// If the "sent at" timestamp is "invalid", then the OriginalSentTimestamp method simply returns the default
-// value of a time.Time struct.
-func (e *Execution) OriginalSentTimestamp() time.Time {
-	return e.originallySentAt
-}
-
 // OriginalTimestampOrCreatedAt returns the original timestamp at which the associated "execute_request" message
 // was sent, if this Execution has that information. If that information is presently unavailable, then
 // OriginalTimestampOrCreatedAt will simply return the timestamp at which this Execution struct was created.
 func (e *Execution) OriginalTimestampOrCreatedAt() time.Time {
 	if e.HasValidOriginalSentTimestamp() {
-		return e.originallySentAt
+		return e.OriginallySentAt
 	} else {
 		return e.CreatedAt
 	}
@@ -218,20 +207,20 @@ func (e *Execution) Msg() *messaging.JupyterMessage {
 }
 
 func (e *Execution) HasExecuted() bool {
-	return e.executed
+	return e.IsCompleted()
 }
 
 func (e *Execution) SetExecuted() {
-	e.executed = true
+	e.State = Completed
 }
 
 func (e *Execution) String() string {
-	return fmt.Sprintf("Execution[ExecuteRequestMsgId=%s,Kernel=%s,Session=%s,Attempt=%d,NumReplicas=%d,"+
+	return fmt.Sprintf("Execution[ExecuteRequestMsgId=%s,Kernel=%s,Session=%s,State=%s,Attempt=%d,NumReplicas=%d,"+
 		"NumLeadProposals=%d,NumYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v,OriginalSendTimestamp=%v,"+
-		"CreatedAtTimestamp=%v,Executed=%v]",
-		e.ExecuteRequestMessageId, e.KernelId, e.SessionId, e.AttemptNumber, e.NumReplicas,
+		"CreatedAtTimestamp=%v]",
+		e.ExecuteRequestMessageId, e.KernelId, e.SessionId, e.State.String(), e.AttemptNumber, e.NumReplicas,
 		e.NumLeadProposals, e.NumYieldProposals, e.NextAttempt == nil, e.PreviousAttempt == nil,
-		e.originallySentAt, e.CreatedAt, e.executed)
+		e.OriginallySentAt, e.CreatedAt)
 }
 
 // ReceivedLeadNotification records that the specified kernel replica lead the election and executed the code.
@@ -288,10 +277,18 @@ func (e *Execution) RangeRoles(rangeFunc func(int32, *Proposal) bool) {
 	}
 }
 
-//func (e *Execution) LinkPreviousAttempt(PreviousAttempt *Execution) {
-//	e.PreviousAttempt = PreviousAttempt
-//}
-//
-//func (e *Execution) LinkNextAttempt(NextAttempt *Execution) {
-//	e.NextAttempt = NextAttempt
-//}
+func (e *Execution) IsRunning() bool {
+	return e.State == Running
+}
+
+func (e *Execution) IsPending() bool {
+	return e.State == Pending
+}
+
+func (e *Execution) IsCompleted() bool {
+	return e.State == Completed
+}
+
+func (e *Execution) IsErred() bool {
+	return e.State == Erred
+}

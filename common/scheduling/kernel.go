@@ -77,16 +77,13 @@ type Kernel interface {
 	GetContainers() []KernelContainer
 	ShellListenPort() int
 	IOPubListenPort() int
-	ActiveExecution() *execution.Execution
-	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*execution.Execution, bool)
-	// GetActiveExecution returns the *scheduling.Execution associated with the given "execute_request" message ID.
+	// GetActiveExecution returns a pointer to the Execution struct identified by the given message ID,
+	// or nil if no such Execution exists.
 	GetActiveExecution(msgId string) *execution.Execution
-	CurrentActiveExecution() *execution.Execution
 	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
-	SetActiveExecution(activeExecution *execution.Execution)
-	ExecutionComplete(msg *messaging.JupyterMessage) (bool, error)
-	EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *execution.Execution
+	ExecutionComplete(msg *messaging.JupyterMessage) error
+	RegisterActiveExecution(msg *messaging.JupyterMessage) (*execution.Execution, error)
 	ResetID(id string)
 	PersistentID() string
 	String() string
@@ -155,6 +152,7 @@ type Kernel interface {
 }
 
 type KernelReplica interface {
+	execution.Replica
 	types.Contextable
 	SessionManager
 	Server
@@ -171,7 +169,6 @@ type KernelReplica interface {
 	NumPendingExecuteRequests() int
 	SentExecuteRequest(msg *messaging.JupyterMessage)
 	ReceivedExecuteReply(msg *messaging.JupyterMessage)
-	KernelStoppedTraining(reason string) error
 	TrainingStartedAt() time.Time
 	WorkloadId() string
 	SetWorkloadId(workloadId string)
@@ -187,9 +184,7 @@ type KernelReplica interface {
 	InitializeIOForwarder() (*messaging.Socket, error)
 	YieldedNextExecutionRequest()
 	SupposedToYieldNextExecutionRequest() bool
-	ID() string
 	SourceKernelID() string
-	ReplicaID() int32
 	SetReplicaID(replicaId int32)
 	SetPersistentID(persistentId string)
 	PersistentID() string
