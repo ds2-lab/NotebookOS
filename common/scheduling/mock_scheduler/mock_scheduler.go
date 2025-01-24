@@ -406,3 +406,29 @@ func (mr *MockSchedulingPolicyMockRecorder) SupportsMigration() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SupportsMigration", reflect.TypeOf((*MockSchedulingPolicy)(nil).SupportsMigration))
 }
+
+// SupportsPredictiveAutoscaling mocks base method.
+func (m *MockSchedulingPolicy) SupportsPredictiveAutoscaling() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SupportsPredictiveAutoscaling")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// SupportsPredictiveAutoscaling indicates an expected call of SupportsPredictiveAutoscaling.
+func (mr *MockSchedulingPolicyMockRecorder) SupportsPredictiveAutoscaling() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SupportsPredictiveAutoscaling", reflect.TypeOf((*MockSchedulingPolicy)(nil).SupportsPredictiveAutoscaling))
+}
+
+// ValidateCapacity mocks base method.
+func (m *MockSchedulingPolicy) ValidateCapacity(cluster scheduling.Cluster) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ValidateCapacity", cluster)
+}
+
+// ValidateCapacity indicates an expected call of ValidateCapacity.
+func (mr *MockSchedulingPolicyMockRecorder) ValidateCapacity(cluster any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ValidateCapacity", reflect.TypeOf((*MockSchedulingPolicy)(nil).ValidateCapacity), cluster)
+}
