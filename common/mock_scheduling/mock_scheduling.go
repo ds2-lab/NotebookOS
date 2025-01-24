@@ -17,6 +17,7 @@ import (
 	promise "github.com/Scusemua/go-utils/promise"
 	orderedmap "github.com/elliotchance/orderedmap/v2"
 	prometheus "github.com/prometheus/client_golang/prometheus"
+	execution "github.com/scusemua/distributed-notebook/common/execution"
 	jupyter "github.com/scusemua/distributed-notebook/common/jupyter"
 	messaging "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	server "github.com/scusemua/distributed-notebook/common/jupyter/server"
@@ -210,17 +211,17 @@ func (mr *MockClusterMockRecorder) GetScaleInCommand(targetNumNodes, targetHosts
 }
 
 // GetScaleOutCommand mocks base method.
-func (m *MockCluster) GetScaleOutCommand(targetNumNodes int32, coreLogicDoneChan chan any) func() {
+func (m *MockCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan any, scaleOpId string) func() {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetScaleOutCommand", targetNumNodes, coreLogicDoneChan)
+	ret := m.ctrl.Call(m, "GetScaleOutCommand", targetScale, coreLogicDoneChan, scaleOpId)
 	ret0, _ := ret[0].(func())
 	return ret0
 }
 
 // GetScaleOutCommand indicates an expected call of GetScaleOutCommand.
-func (mr *MockClusterMockRecorder) GetScaleOutCommand(targetNumNodes, coreLogicDoneChan any) *gomock.Call {
+func (mr *MockClusterMockRecorder) GetScaleOutCommand(targetScale, coreLogicDoneChan, scaleOpId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScaleOutCommand", reflect.TypeOf((*MockCluster)(nil).GetScaleOutCommand), targetNumNodes, coreLogicDoneChan)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetScaleOutCommand", reflect.TypeOf((*MockCluster)(nil).GetScaleOutCommand), targetScale, coreLogicDoneChan, scaleOpId)
 }
 
 // GetSession mocks base method.
@@ -250,6 +251,34 @@ func (m *MockCluster) Len() int {
 func (mr *MockClusterMockRecorder) Len() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Len", reflect.TypeOf((*MockCluster)(nil).Len))
+}
+
+// MeanScaleInTime mocks base method.
+func (m *MockCluster) MeanScaleInTime() time.Duration {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MeanScaleInTime")
+	ret0, _ := ret[0].(time.Duration)
+	return ret0
+}
+
+// MeanScaleInTime indicates an expected call of MeanScaleInTime.
+func (mr *MockClusterMockRecorder) MeanScaleInTime() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MeanScaleInTime", reflect.TypeOf((*MockCluster)(nil).MeanScaleInTime))
+}
+
+// MeanScaleOutTime mocks base method.
+func (m *MockCluster) MeanScaleOutTime() time.Duration {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MeanScaleOutTime")
+	ret0, _ := ret[0].(time.Duration)
+	return ret0
+}
+
+// MeanScaleOutTime indicates an expected call of MeanScaleOutTime.
+func (mr *MockClusterMockRecorder) MeanScaleOutTime() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MeanScaleOutTime", reflect.TypeOf((*MockCluster)(nil).MeanScaleOutTime))
 }
 
 // MetricsProvider mocks base method.
@@ -632,6 +661,34 @@ func (mr *MockClusterMockRecorder) Sessions() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sessions", reflect.TypeOf((*MockCluster)(nil).Sessions))
 }
 
+// StdDevScaleInTime mocks base method.
+func (m *MockCluster) StdDevScaleInTime() time.Duration {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StdDevScaleInTime")
+	ret0, _ := ret[0].(time.Duration)
+	return ret0
+}
+
+// StdDevScaleInTime indicates an expected call of StdDevScaleInTime.
+func (mr *MockClusterMockRecorder) StdDevScaleInTime() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StdDevScaleInTime", reflect.TypeOf((*MockCluster)(nil).StdDevScaleInTime))
+}
+
+// StdDevScaleOutTime mocks base method.
+func (m *MockCluster) StdDevScaleOutTime() time.Duration {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StdDevScaleOutTime")
+	ret0, _ := ret[0].(time.Duration)
+	return ret0
+}
+
+// StdDevScaleOutTime indicates an expected call of StdDevScaleOutTime.
+func (mr *MockClusterMockRecorder) StdDevScaleOutTime() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StdDevScaleOutTime", reflect.TypeOf((*MockCluster)(nil).StdDevScaleOutTime))
+}
+
 // SubscriptionRatio mocks base method.
 func (m *MockCluster) SubscriptionRatio() float64 {
 	m.ctrl.T.Helper()
@@ -696,6 +753,21 @@ func (m *MockScheduler) DeployKernelReplicas(ctx context.Context, kernelSpec *pr
 func (mr *MockSchedulerMockRecorder) DeployKernelReplicas(ctx, kernelSpec, blacklistedHosts any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployKernelReplicas", reflect.TypeOf((*MockScheduler)(nil).DeployKernelReplicas), ctx, kernelSpec, blacklistedHosts)
+}
+
+// FindReadyReplica mocks base method.
+func (m *MockScheduler) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindReadyReplica", kernel, executionId)
+	ret0, _ := ret[0].(scheduling.KernelReplica)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindReadyReplica indicates an expected call of FindReadyReplica.
+func (mr *MockSchedulerMockRecorder) FindReadyReplica(kernel, executionId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindReadyReplica", reflect.TypeOf((*MockScheduler)(nil).FindReadyReplica), kernel, executionId)
 }
 
 // GetActiveAddReplicaOperationsForKernel mocks base method.
@@ -938,6 +1010,21 @@ func (m *MockScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSp
 func (mr *MockSchedulerMockRecorder) ScheduleKernelReplica(replicaSpec, targetHost, blacklistedHosts, forTraining any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ScheduleKernelReplica", reflect.TypeOf((*MockScheduler)(nil).ScheduleKernelReplica), replicaSpec, targetHost, blacklistedHosts, forTraining)
+}
+
+// SelectReplicaForMigration mocks base method.
+func (m *MockScheduler) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SelectReplicaForMigration", kernel)
+	ret0, _ := ret[0].(scheduling.KernelReplica)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SelectReplicaForMigration indicates an expected call of SelectReplicaForMigration.
+func (mr *MockSchedulerMockRecorder) SelectReplicaForMigration(kernel any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SelectReplicaForMigration", reflect.TypeOf((*MockScheduler)(nil).SelectReplicaForMigration), kernel)
 }
 
 // SubscriptionRatio mocks base method.
@@ -1425,11 +1512,12 @@ func (m *MockPlacer) EXPECT() *MockPlacerMockRecorder {
 }
 
 // FindHost mocks base method.
-func (m *MockPlacer) FindHost(blacklist []any, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
+func (m *MockPlacer) FindHost(blacklist []any, kernelSpec *proto.KernelSpec, forTraining bool) (scheduling.Host, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindHost", blacklist, kernelSpec, forTraining)
 	ret0, _ := ret[0].(scheduling.Host)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // FindHost indicates an expected call of FindHost.
@@ -1439,11 +1527,12 @@ func (mr *MockPlacerMockRecorder) FindHost(blacklist, kernelSpec, forTraining an
 }
 
 // FindHosts mocks base method.
-func (m *MockPlacer) FindHosts(blacklist []any, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) []scheduling.Host {
+func (m *MockPlacer) FindHosts(blacklist []any, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) ([]scheduling.Host, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindHosts", blacklist, kernelSpec, numHosts, forTraining)
 	ret0, _ := ret[0].([]scheduling.Host)
-	return ret0
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // FindHosts indicates an expected call of FindHosts.
@@ -2019,17 +2108,17 @@ func (mr *MockHostMockRecorder) GetID() *gomock.Call {
 }
 
 // GetIdx mocks base method.
-func (m *MockHost) GetIdx() int {
+func (m *MockHost) GetIdx(arg0 types.HeapElementMetadataKey) int {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetIdx")
+	ret := m.ctrl.Call(m, "GetIdx", arg0)
 	ret0, _ := ret[0].(int)
 	return ret0
 }
 
 // GetIdx indicates an expected call of GetIdx.
-func (mr *MockHostMockRecorder) GetIdx() *gomock.Call {
+func (mr *MockHostMockRecorder) GetIdx(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIdx", reflect.TypeOf((*MockHost)(nil).GetIdx))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetIdx", reflect.TypeOf((*MockHost)(nil).GetIdx), arg0)
 }
 
 // GetKernelStatus mocks base method.
@@ -2668,17 +2757,17 @@ func (mr *MockHostMockRecorder) PlacedMemoryMB() *gomock.Call {
 }
 
 // PreCommitResources mocks base method.
-func (m *MockHost) PreCommitResources(container scheduling.KernelContainer) error {
+func (m *MockHost) PreCommitResources(container scheduling.KernelContainer, executionId string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PreCommitResources", container)
+	ret := m.ctrl.Call(m, "PreCommitResources", container, executionId)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // PreCommitResources indicates an expected call of PreCommitResources.
-func (mr *MockHostMockRecorder) PreCommitResources(container any) *gomock.Call {
+func (mr *MockHostMockRecorder) PreCommitResources(container, executionId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockHost)(nil).PreCommitResources), container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResources", reflect.TypeOf((*MockHost)(nil).PreCommitResources), container, executionId)
 }
 
 // PrepareToMigrate mocks base method.
@@ -2750,17 +2839,17 @@ func (mr *MockHostMockRecorder) ReconnectToGateway(ctx, in any, opts ...any) *go
 }
 
 // ReleasePreCommitedResources mocks base method.
-func (m *MockHost) ReleasePreCommitedResources(container scheduling.KernelContainer) error {
+func (m *MockHost) ReleasePreCommitedResources(container scheduling.KernelContainer, executionId string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReleasePreCommitedResources", container)
+	ret := m.ctrl.Call(m, "ReleasePreCommitedResources", container, executionId)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ReleasePreCommitedResources indicates an expected call of ReleasePreCommitedResources.
-func (mr *MockHostMockRecorder) ReleasePreCommitedResources(container any) *gomock.Call {
+func (mr *MockHostMockRecorder) ReleasePreCommitedResources(container, executionId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleasePreCommitedResources", reflect.TypeOf((*MockHost)(nil).ReleasePreCommitedResources), container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleasePreCommitedResources", reflect.TypeOf((*MockHost)(nil).ReleasePreCommitedResources), container, executionId)
 }
 
 // ReleaseReservation mocks base method.
@@ -2933,15 +3022,15 @@ func (mr *MockHostMockRecorder) SetID(ctx, in any, opts ...any) *gomock.Call {
 }
 
 // SetIdx mocks base method.
-func (m *MockHost) SetIdx(idx int) {
+func (m *MockHost) SetIdx(arg0 types.HeapElementMetadataKey, arg1 int) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetIdx", idx)
+	m.ctrl.Call(m, "SetIdx", arg0, arg1)
 }
 
 // SetIdx indicates an expected call of SetIdx.
-func (mr *MockHostMockRecorder) SetIdx(idx any) *gomock.Call {
+func (mr *MockHostMockRecorder) SetIdx(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIdx", reflect.TypeOf((*MockHost)(nil).SetIdx), idx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIdx", reflect.TypeOf((*MockHost)(nil).SetIdx), arg0, arg1)
 }
 
 // SetMeta mocks base method.
@@ -3313,6 +3402,20 @@ func (mr *MockClusterIndexMockRecorder) GetMetrics(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetrics", reflect.TypeOf((*MockClusterIndex)(nil).GetMetrics), arg0)
 }
 
+// Identifier mocks base method.
+func (m *MockClusterIndex) Identifier() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Identifier")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// Identifier indicates an expected call of Identifier.
+func (mr *MockClusterIndexMockRecorder) Identifier() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Identifier", reflect.TypeOf((*MockClusterIndex)(nil).Identifier))
+}
+
 // IsQualified mocks base method.
 func (m *MockClusterIndex) IsQualified(arg0 scheduling.Host) (any, scheduling.IndexQualification) {
 	m.ctrl.T.Helper()
@@ -3355,7 +3458,7 @@ func (mr *MockClusterIndexMockRecorder) Remove(arg0 any) *gomock.Call {
 }
 
 // Seek mocks base method.
-func (m *MockClusterIndex) Seek(blacklist []any, metrics ...[]float64) (scheduling.Host, any) {
+func (m *MockClusterIndex) Seek(blacklist []any, metrics ...[]float64) (scheduling.Host, any, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{blacklist}
 	for _, a := range metrics {
@@ -3364,7 +3467,8 @@ func (m *MockClusterIndex) Seek(blacklist []any, metrics ...[]float64) (scheduli
 	ret := m.ctrl.Call(m, "Seek", varargs...)
 	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(any)
-	return ret0, ret1
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // Seek indicates an expected call of Seek.
@@ -3375,7 +3479,7 @@ func (mr *MockClusterIndexMockRecorder) Seek(blacklist any, metrics ...any) *gom
 }
 
 // SeekMultipleFrom mocks base method.
-func (m *MockClusterIndex) SeekMultipleFrom(pos any, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []any, metrics ...[]float64) ([]scheduling.Host, any) {
+func (m *MockClusterIndex) SeekMultipleFrom(pos any, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []any, metrics ...[]float64) ([]scheduling.Host, any, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{pos, n, criteriaFunc, blacklist}
 	for _, a := range metrics {
@@ -3384,7 +3488,8 @@ func (m *MockClusterIndex) SeekMultipleFrom(pos any, n int, criteriaFunc schedul
 	ret := m.ctrl.Call(m, "SeekMultipleFrom", varargs...)
 	ret0, _ := ret[0].([]scheduling.Host)
 	ret1, _ := ret[1].(any)
-	return ret0, ret1
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // SeekMultipleFrom indicates an expected call of SeekMultipleFrom.
@@ -4101,34 +4206,6 @@ func (m *MockKernel) EXPECT() *MockKernelMockRecorder {
 	return m.recorder
 }
 
-// ActiveExecution mocks base method.
-func (m *MockKernel) ActiveExecution() *scheduling.ActiveExecution {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ActiveExecution")
-	ret0, _ := ret[0].(*scheduling.ActiveExecution)
-	return ret0
-}
-
-// ActiveExecution indicates an expected call of ActiveExecution.
-func (mr *MockKernelMockRecorder) ActiveExecution() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActiveExecution", reflect.TypeOf((*MockKernel)(nil).ActiveExecution))
-}
-
-// AddDestFrameIfNecessary mocks base method.
-func (m *MockKernel) AddDestFrameIfNecessary(jMsg *messaging.JupyterMessage) *messaging.JupyterMessage {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddDestFrameIfNecessary", jMsg)
-	ret0, _ := ret[0].(*messaging.JupyterMessage)
-	return ret0
-}
-
-// AddDestFrameIfNecessary indicates an expected call of AddDestFrameIfNecessary.
-func (mr *MockKernelMockRecorder) AddDestFrameIfNecessary(jMsg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddDestFrameIfNecessary", reflect.TypeOf((*MockKernel)(nil).AddDestFrameIfNecessary), jMsg)
-}
-
 // AddOperationCompleted mocks base method.
 func (m *MockKernel) AddOperationCompleted() {
 	m.ctrl.T.Helper()
@@ -4259,20 +4336,6 @@ func (mr *MockKernelMockRecorder) Context() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Context", reflect.TypeOf((*MockKernel)(nil).Context))
 }
 
-// CurrentActiveExecution mocks base method.
-func (m *MockKernel) CurrentActiveExecution() *scheduling.ActiveExecution {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CurrentActiveExecution")
-	ret0, _ := ret[0].(*scheduling.ActiveExecution)
-	return ret0
-}
-
-// CurrentActiveExecution indicates an expected call of CurrentActiveExecution.
-func (mr *MockKernelMockRecorder) CurrentActiveExecution() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CurrentActiveExecution", reflect.TypeOf((*MockKernel)(nil).CurrentActiveExecution))
-}
-
 // DebugMode mocks base method.
 func (m *MockKernel) DebugMode() bool {
 	m.ctrl.T.Helper()
@@ -4287,27 +4350,12 @@ func (mr *MockKernelMockRecorder) DebugMode() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DebugMode", reflect.TypeOf((*MockKernel)(nil).DebugMode))
 }
 
-// EnqueueActiveExecution mocks base method.
-func (m *MockKernel) EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "EnqueueActiveExecution", attemptId, msg)
-	ret0, _ := ret[0].(*scheduling.ActiveExecution)
-	return ret0
-}
-
-// EnqueueActiveExecution indicates an expected call of EnqueueActiveExecution.
-func (mr *MockKernelMockRecorder) EnqueueActiveExecution(attemptId, msg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EnqueueActiveExecution", reflect.TypeOf((*MockKernel)(nil).EnqueueActiveExecution), attemptId, msg)
-}
-
 // ExecutionComplete mocks base method.
-func (m *MockKernel) ExecutionComplete(msg *messaging.JupyterMessage) (bool, error) {
+func (m *MockKernel) ExecutionComplete(msg *messaging.JupyterMessage) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ExecutionComplete", msg)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // ExecutionComplete indicates an expected call of ExecutionComplete.
@@ -4331,10 +4379,10 @@ func (mr *MockKernelMockRecorder) ExecutionFailedCallback() *gomock.Call {
 }
 
 // GetActiveExecution mocks base method.
-func (m *MockKernel) GetActiveExecution(msgId string) *scheduling.ActiveExecution {
+func (m *MockKernel) GetActiveExecution(msgId string) *execution.Execution {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetActiveExecution", msgId)
-	ret0, _ := ret[0].(*scheduling.ActiveExecution)
+	ret0, _ := ret[0].(*execution.Execution)
 	return ret0
 }
 
@@ -4342,21 +4390,6 @@ func (m *MockKernel) GetActiveExecution(msgId string) *scheduling.ActiveExecutio
 func (mr *MockKernelMockRecorder) GetActiveExecution(msgId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveExecution", reflect.TypeOf((*MockKernel)(nil).GetActiveExecution), msgId)
-}
-
-// GetActiveExecutionByExecuteRequestMsgId mocks base method.
-func (m *MockKernel) GetActiveExecutionByExecuteRequestMsgId(msgId string) (*scheduling.ActiveExecution, bool) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetActiveExecutionByExecuteRequestMsgId", msgId)
-	ret0, _ := ret[0].(*scheduling.ActiveExecution)
-	ret1, _ := ret[1].(bool)
-	return ret0, ret1
-}
-
-// GetActiveExecutionByExecuteRequestMsgId indicates an expected call of GetActiveExecutionByExecuteRequestMsgId.
-func (mr *MockKernelMockRecorder) GetActiveExecutionByExecuteRequestMsgId(msgId any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveExecutionByExecuteRequestMsgId", reflect.TypeOf((*MockKernel)(nil).GetActiveExecutionByExecuteRequestMsgId), msgId)
 }
 
 // GetContainers mocks base method.
@@ -4646,6 +4679,21 @@ func (mr *MockKernelMockRecorder) RegisterAckForRequest(req any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterAckForRequest", reflect.TypeOf((*MockKernel)(nil).RegisterAckForRequest), req)
 }
 
+// RegisterActiveExecution mocks base method.
+func (m *MockKernel) RegisterActiveExecution(msg *messaging.JupyterMessage) (*execution.Execution, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RegisterActiveExecution", msg)
+	ret0, _ := ret[0].(*execution.Execution)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RegisterActiveExecution indicates an expected call of RegisterActiveExecution.
+func (mr *MockKernelMockRecorder) RegisterActiveExecution(msg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterActiveExecution", reflect.TypeOf((*MockKernel)(nil).RegisterActiveExecution), msg)
+}
+
 // ReleasePreCommitedResourcesFromReplica mocks base method.
 func (m *MockKernel) ReleasePreCommitedResourcesFromReplica(replica scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
 	m.ctrl.T.Helper()
@@ -4817,18 +4865,6 @@ func (m *MockKernel) Sessions() []string {
 func (mr *MockKernelMockRecorder) Sessions() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sessions", reflect.TypeOf((*MockKernel)(nil).Sessions))
-}
-
-// SetActiveExecution mocks base method.
-func (m *MockKernel) SetActiveExecution(activeExecution *scheduling.ActiveExecution) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetActiveExecution", activeExecution)
-}
-
-// SetActiveExecution indicates an expected call of SetActiveExecution.
-func (mr *MockKernelMockRecorder) SetActiveExecution(activeExecution any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetActiveExecution", reflect.TypeOf((*MockKernel)(nil).SetActiveExecution), activeExecution)
 }
 
 // SetComponentId mocks base method.
@@ -6681,4 +6717,18 @@ func (m *MockPolicy) SmrEnabled() bool {
 func (mr *MockPolicyMockRecorder) SmrEnabled() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SmrEnabled", reflect.TypeOf((*MockPolicy)(nil).SmrEnabled))
+}
+
+// SupportsMigration mocks base method.
+func (m *MockPolicy) SupportsMigration() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SupportsMigration")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// SupportsMigration indicates an expected call of SupportsMigration.
+func (mr *MockPolicyMockRecorder) SupportsMigration() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SupportsMigration", reflect.TypeOf((*MockPolicy)(nil).SupportsMigration))
 }

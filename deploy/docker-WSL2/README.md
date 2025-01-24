@@ -1,4 +1,4 @@
-# Deploying via Docker
+# Deploying via Docker Compose
 This directory contains the files necessary to deploy the Distributed Jupyter Cluster using `docker compose`. 
 
 Simply execute the following command:
@@ -34,4 +34,32 @@ docker run -d --name watchtower -v /var/run/docker.sock:/var/run/docker.sock con
 You can render the dashboard by issuing the HTTP requests of the following form:
 ```shell
 http://localhost:3000/render/d/ddx4gnyl0cmbka/distributed-cluster?scale=4&height=3200&from=now-105m&to=now&timezone=browser&var-local_daemon_id=$__all&refresh=5s
+```
+
+## Configuration
+
+The most important configuration files are `deploy/docker-WSL2/local_daemon/daemon.yml` and `deploy/docker-WSL2/gateway/gateway.yml`. In general, it's important that the configurations specified in these two files remain consistent.
+
+We provide several scripts to (ever so slightly) simplify the task of updating certain values found in these configurations. These scripts are `set_scheduling_policy.sh` and `toggle_real_gpus.sh`.
+
+### The `toggle_real_gpus.sh` Script
+This script can be used to set the value of the `use_real_gpus` flag in the two aforementioned configuration files. To use the script, simply run it and pass either `true` or `false` as the first (and only) command line argument:
+``` shell
+./toggle_real_gpus.sh <true|false>
+```
+
+For example, to set the `use_real_gpus` flag to `false`, you would simply run the following:
+``` shell 
+./toggle_real_gpus.sh false 
+```
+
+### The `set_scheduling_policy.sh` Script
+This script can be used to set the value of the `scheduling-policy` property in the two aforementioned configuration files. To use the script, simply run it and pass one of the valid scheduling policies as the first (and only) command line argument:
+``` shell
+./set_scheduling_policy.sh <default|static|dynamic-v3|dynamic-v4|fcfs-batch|auto-scaling-fcfs-batch|reservation|gandiva>
+```
+
+For example, you can set the `scheduling-policy` property to `static` by running the following:
+``` shell 
+./set_scheduling_policy.sh static 
 ```

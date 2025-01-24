@@ -10,11 +10,11 @@ import (
 	"github.com/elliotchance/orderedmap/v2"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"math"
 	"sync"
 	"time"
@@ -68,7 +68,7 @@ type baseSchedulerBuilder struct {
 	hostSpec           types.Spec
 	kernelProvider     KernelProvider
 	notificationBroker NotificationBroker
-	schedulingPolicy   scheduling.Policy // Optional, will be extracted from Options if not specified.
+	schedulingPolicy   SchedulingPolicy // Optional, will be extracted from Options if not specified.
 	options            *scheduling.SchedulerOptions
 }
 
@@ -96,7 +96,7 @@ func (b *baseSchedulerBuilder) WithHostSpec(hostSpec types.Spec) *baseSchedulerB
 	return b
 }
 
-func (b *baseSchedulerBuilder) WithSchedulingPolicy(schedulingPolicy scheduling.Policy) *baseSchedulerBuilder {
+func (b *baseSchedulerBuilder) WithSchedulingPolicy(schedulingPolicy SchedulingPolicy) *baseSchedulerBuilder {
 	b.schedulingPolicy = schedulingPolicy
 	return b
 }
@@ -123,12 +123,12 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 	}
 
 	if b.schedulingPolicy == nil {
-		schedulingPolicy, err := policy.GetSchedulingPolicy(b.options)
+		schedulingPolicy, err := GetSchedulingPolicy(b.options)
 		if err != nil {
 			panic(err)
 		}
 
-		b.schedulingPolicy = schedulingPolicy
+		b.schedulingPolicy = schedulingPolicy.(SchedulingPolicy)
 	}
 
 	clusterScheduler := &BaseScheduler{
@@ -207,6 +207,12 @@ type BaseScheduler struct {
 	// by multiple concurrent RPC requests).
 	addReplicaMutex sync.Mutex
 
+	// candidateHostMutex enables atomic access to the FindCandidateHosts method.
+	candidateHostMutex sync.Mutex
+
+	// replicaSelectionMutex enables synchronous execution of FindReadyReplica and SelectReplicaForMigration.
+	replicaSelectionMutex sync.Mutex
+
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
 	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]]
 
@@ -220,13 +226,11 @@ type BaseScheduler struct {
 	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
 	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *scheduling.AddReplicaOperation]
 
-	candidateHostMutex sync.Mutex
-
 	// resourceBindingMode describes when resources are committed and uncommitted from Containers.
 	resourceBindingMode scheduling.ResourceBindingMode
 
 	// schedulingPolicy specifies the scheduling behavior for the scheduling.Cluster and scheduling.Scheduler.
-	schedulingPolicy scheduling.Policy
+	schedulingPolicy SchedulingPolicy
 
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
@@ -332,16 +336,12 @@ func (s *BaseScheduler) setInstance(instance clusterSchedulerInternal) {
 // FindCandidateHosts performs a single attempt/pass of searching for candidate Host instances.
 //
 // FindCandidateHosts is exported so that it can be unit tested.
-func (s *BaseScheduler) FindCandidateHosts(numHosts int, kernelSpec *proto.KernelSpec) []scheduling.Host {
+//
+// If FindCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
+func (s *BaseScheduler) FindCandidateHosts(numHosts int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
 	s.candidateHostMutex.Lock()
-	hostBatch := s.instance.findCandidateHosts(numHosts, kernelSpec)
-	s.candidateHostMutex.Unlock()
-
-	if hostBatch == nil {
-		hostBatch = make([]scheduling.Host, 0)
-	}
-
-	return hostBatch
+	defer s.candidateHostMutex.Unlock()
+	return s.instance.findCandidateHosts(numHosts, kernelSpec)
 }
 
 // isScalingOutEnabled returns true if the scheduling.ResourceScalingPolicy of the configured scheduling.Policy permits
@@ -386,6 +386,12 @@ func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, black
 	return s.findViableHostForReplica(replica, blacklistedHosts, forTraining)
 }
 
+// FindReadyContainer selects one of the scheduling.KernelContainer instances of the specified scheduling.UserSession
+// to handle a training event.
+func (s *BaseScheduler) FindReadyContainer(session scheduling.UserSession) scheduling.KernelContainer {
+	return nil
+}
+
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -399,16 +405,32 @@ func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, black
 // This function is NOT idempotent. This locks the Hosts that are returned.
 func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
 	var (
-		numTries    = 0
-		maxAttempts = 3
 		bestAttempt = 0
 		hosts       []scheduling.Host
 	)
-	for numTries < maxAttempts && len(hosts) < s.schedulingPolicy.NumReplicas() {
+
+	// TODO: How many times should we really retry here? If we fail, try to scale out, and fail again,
+	// 		 then shouldn't we just give up and leave it to the client to resubmit?
+	maxAttempts := 5
+	retryParameters := wait.Backoff{
+		Duration: time.Duration(float64(s.cluster.MeanScaleOutTime()) * 0.75),
+		Factor:   1.25,
+		Jitter:   1.125,
+		Steps:    maxAttempts,
+		Cap:      time.Duration(float64(s.cluster.MeanScaleOutTime()) * 1.50),
+	}
+
+	for retryParameters.Steps > 0 && len(hosts) < s.schedulingPolicy.NumReplicas() {
 		numHostsRequired := s.schedulingPolicy.NumReplicas() - len(hosts)
 		s.log.Debug("Searching for %d candidate host(s) for kernel %s. Have identified %d candidate host(s) so far.",
 			numHostsRequired, kernelSpec.Id, len(hosts))
-		hostBatch := s.FindCandidateHosts(numHostsRequired, kernelSpec) // note: this function executes atomically.
+		hostBatch, err := s.FindCandidateHosts(numHostsRequired, kernelSpec) // note: this function executes atomically.
+		if err != nil {
+			s.log.Error("Error while searching for %d candidate host(s) for kernel %s: %v",
+				numHostsRequired, kernelSpec.Id, err)
+			return nil, err
+		}
+
 		hosts = append(hosts, hostBatch...)
 
 		if len(hosts) < s.schedulingPolicy.NumReplicas() {
@@ -426,21 +448,23 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 
 			p := s.cluster.RequestHosts(ctx, int32(numHostsRequired))
 			if err := p.Error(); err != nil {
-				s.log.Error("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
-					numHostsRequired, kernelSpec.Id, err)
+				if errors.Is(err, scheduling.ErrScalingActive) {
+					s.log.Debug("Cannot register scale-out operation for kernel %s: there is already an active scale-out operation.",
+						kernelSpec.Id)
+				} else {
+					s.log.Error("Cluster failed to provision %d additional host(s) for us (for kernel %s) because: %v",
+						numHostsRequired, kernelSpec.Id, err)
+				}
 			}
-
-			numTries += 1
 
 			if len(hosts) > bestAttempt {
 				bestAttempt = len(hosts)
 			}
 
-			if (numTries + 1) < maxAttempts {
-				// Don't want to print this if we've just used up our last try, so to speak.
-				s.log.Debug("Trying again to find %d hosts to serve replicas of kernel %s.",
-					s.schedulingPolicy.NumReplicas(), kernelSpec.Id)
-			}
+			sleepInterval := retryParameters.Step()
+			s.log.Debug("Sleeping for %v before retrying to find %d candidate host(s) for replica(s) of kernel %s.",
+				sleepInterval, numHostsRequired, kernelSpec.Id)
+			time.Sleep(sleepInterval)
 
 			continue
 		}
@@ -453,7 +477,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 	// If not, then we need to release any hosts we did reserve.
 	if len(hosts) < s.schedulingPolicy.NumReplicas() {
 		s.log.Warn("Failed to find %d hosts to serve replicas of kernel %s after %d tries...",
-			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, numTries)
+			s.schedulingPolicy.NumReplicas(), kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
 
 		// Release any resource reservations that we created, since we're aborting the scheduling
 		// of the replicas of the kernel.
@@ -464,7 +488,11 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 					kernelSpec.Id, host.GetNodeName(), host.GetID(), err)
 			}
 
-			s.cluster.UpdateIndex(host)
+			err = s.cluster.UpdateIndex(host)
+			if err != nil {
+				s.log.Error("Error while attempting to update index of host %s (ID=%s): %v",
+					host.GetNodeName(), host.GetID(), err)
+			}
 		}
 
 		return nil, scheduling.ErrInsufficientHostsAvailable
@@ -473,8 +501,8 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 	return hosts, nil
 }
 
-// DeployNewKernel is responsible for scheduling the replicas of a new kernel onto Host instances.
-func (s *BaseScheduler) DeployNewKernel(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
+// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
+func (s *BaseScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	return s.instance.DeployKernelReplicas(ctx, in, blacklistedHosts)
 }
 
@@ -1243,6 +1271,8 @@ func (s *BaseScheduler) validate() {
 	}
 }
 
+var IdleHostMetadataKey types.HeapElementMetadataKey = "idle_host_metadata_key"
+
 type idleSortedHost struct {
 	scheduling.Host
 }
@@ -1258,8 +1288,12 @@ func (h *idleSortedHost) Compare(other interface{}) float64 {
 	}
 }
 
-func (h *idleSortedHost) SetIdx(idx int) {
-	h.Host.SetIdx(idx)
+func (h *idleSortedHost) SetIdx(key types.HeapElementMetadataKey, idx int) {
+	h.Host.SetIdx(key, idx)
+}
+
+func (h *idleSortedHost) GetIdx(key types.HeapElementMetadataKey) int {
+	return h.Host.GetIdx(key)
 }
 
 // migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
@@ -1359,4 +1393,50 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	}
 
 	return released, nil
+}
+
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (s *BaseScheduler) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	s.replicaSelectionMutex.Lock()
+	defer s.replicaSelectionMutex.Unlock()
+
+	// If under the configured scheduling policy, we bind and commit resources as soon as
+	// the container is scheduled, then we also need to acquire the candidateHostMutex.
+	if s.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
+		s.candidateHostMutex.Lock()
+		defer s.candidateHostMutex.Unlock() // Pushed onto stack.
+	}
+
+	return s.schedulingPolicy.SelectReplicaForMigration(kernel)
+}
+
+// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// pre-designated as the leader of a code execution.
+//
+// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+// will fight amongst themselves to determine the leader.
+//
+// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+//
+// PRECONDITION: The resource spec of the specified scheduling.Kernel should already be
+// updated (in cases where dynamic resource requests are supported) such that the current
+// resource spec reflects the requirements for this code execution. That is, the logic of
+// selecting a replica now depends upon the kernel's resource request correctly specifying
+// the requirements. If the requirements were to change after selection a replica, then
+// that could invalidate the selection.
+func (s *BaseScheduler) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+	s.replicaSelectionMutex.Lock()
+	defer s.replicaSelectionMutex.Unlock()
+
+	// If under the configured scheduling policy, we bind and commit resources as soon as
+	// the container is scheduled, then we also need to acquire the candidateHostMutex.
+	if s.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
+		s.candidateHostMutex.Lock()
+		defer s.candidateHostMutex.Unlock() // Pushed onto stack.
+	}
+
+	return s.schedulingPolicy.FindReadyReplica(kernel, executionId)
 }

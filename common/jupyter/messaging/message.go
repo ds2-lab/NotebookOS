@@ -584,6 +584,16 @@ func cloneMap(src map[string]interface{}, dst map[string]interface{}) {
 	}
 }
 
+// AddDestFrameIfNecessary adds the destination frame to the specified Jupyter message if it isn't already present.
+func (m *JupyterMessage) AddDestFrameIfNecessary(dstId string) {
+	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at
+	// the same time, leading to multiple dest frames.
+	_, reqId, _ := m.JupyterFrames.ExtractDestFrame(true)
+	if reqId == "" {
+		m.AddDestinationId(dstId)
+	}
+}
+
 func (m *JupyterMessage) Clone() *JupyterMessage {
 	var clonedHeader *MessageHeader
 	if m.headerDecoded {
@@ -1016,9 +1026,10 @@ func (m *JupyterMessage) StringFormatted() string {
 // PRECONDITION: The given message must be an "execute_request" message.
 // This function will NOT check this. It should be checked before calling this function.
 func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, error) {
-	// If the message is already a yield request, then just return it.
+	// If the message is already a yield request, then just return a copy of it,
+	// as the expectation is that the returned message from this method will be a clone/copy.
 	if m.JupyterMessageType() == ShellYieldRequest {
-		return m, nil
+		return m.Clone(), nil
 	}
 
 	if m.JupyterMessageType() != ShellExecuteRequest {
@@ -1049,8 +1060,8 @@ func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, 
 		return nil, err
 	}
 
-	// Replace the frames of the cloned message. I don't think this is really necessary, as we do this automatically,
-	// but whatever.
+	// Replace the frames of the cloned ZMQ message with the new JupyterMessage's frames.
+	// I don't think this is really necessary, as we do this automatically, but whatever.
 	newMessage.Frames = jMsg.JupyterFrames.Frames
 
 	return jMsg, nil

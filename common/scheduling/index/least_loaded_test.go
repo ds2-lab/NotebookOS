@@ -83,19 +83,22 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 				leastLoadedIndex.Add(host1)
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
-				ret, _ := leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err := leastLoadedIndex.Seek(make([]interface{}, 0))
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
+				Expect(err).To(BeNil())
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
 				By("Succeeding during consecutive calls to Seek")
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err = leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err = leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
@@ -109,7 +112,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 				leastLoadedIndex.Add(host1)
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
-				ret, _ := leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err := leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
@@ -117,7 +121,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 				leastLoadedIndex.Remove(host1)
 				Expect(leastLoadedIndex.Len()).To(Equal(0))
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err = leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).To(BeNil())
 			})
 
@@ -133,7 +138,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 				Expect(meta).ToNot(BeNil())
 				Expect(meta.(int32)).To(Equal(int32(0)))
 
-				ret, _ := leastLoadedIndex.Seek([]interface{}{})
+				ret, _, err := leastLoadedIndex.Seek([]interface{}{})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
@@ -146,19 +152,22 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 				Expect(meta).ToNot(BeNil())
 				Expect(meta.(int32)).To(Equal(int32(1)))
 
-				ret, _ = leastLoadedIndex.Seek([]interface{}{})
+				ret, _, err = leastLoadedIndex.Seek([]interface{}{})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(2))
 
 				By("Succeeding during consecutive calls to Seek")
 
-				ret, _ = leastLoadedIndex.Seek([]interface{}{})
+				ret, _, err = leastLoadedIndex.Seek([]interface{}{})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(2))
 
-				ret, _ = leastLoadedIndex.Seek([]interface{}{})
+				ret, _, err = leastLoadedIndex.Seek([]interface{}{})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(2))
@@ -168,7 +177,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 				leastLoadedIndex.Remove(host1)
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
-				ret, _ = leastLoadedIndex.Seek([]interface{}{})
+				ret, _, err = leastLoadedIndex.Seek([]interface{}{})
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host2))
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
@@ -183,7 +193,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 				leastLoadedIndex.Remove(host2)
 				Expect(leastLoadedIndex.Len()).To(Equal(0))
 
-				ret, _ = leastLoadedIndex.Seek([]interface{}{})
+				ret, _, err = leastLoadedIndex.Seek([]interface{}{})
+				Expect(err).To(BeNil())
 				Expect(ret).To(BeNil())
 			})
 		})
@@ -230,7 +241,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 
 				By("Correctly returning the least-loaded host")
 
-				ret, _ := leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err := leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(3))
@@ -242,7 +254,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 
 				By("Correctly returning the 'new' least-loaded host")
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err = leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host2))
 				Expect(leastLoadedIndex.Len()).To(Equal(2))
@@ -254,7 +267,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 
 				By("Correctly returning the 'new' least-loaded host")
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err = leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host3))
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
@@ -266,7 +280,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 
 				By("Correctly returning no hosts because the index is empty")
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err = leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).To(BeNil())
 				Expect(leastLoadedIndex.Len()).To(Equal(0))
 			})
@@ -286,7 +301,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 
 				leastLoadedIndex.Update(host1)
 
-				ret, _ := leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err := leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(3))
@@ -300,7 +316,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 
 				leastLoadedIndex.Update(host1)
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err = leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host2))
 				Expect(leastLoadedIndex.Len()).To(Equal(3))
@@ -314,7 +331,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 
 				leastLoadedIndex.Update(host1)
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err = leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(3))
@@ -328,7 +346,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 
 				leastLoadedIndex.Update(host1)
 
-				ret, _ = leastLoadedIndex.Seek(make([]interface{}, 0))
+				ret, _, err = leastLoadedIndex.Seek(make([]interface{}, 0))
+				Expect(err).To(BeNil())
 				Expect(ret).ToNot(BeNil())
 				Expect(ret).To(Equal(host3))
 				Expect(leastLoadedIndex.Len()).To(Equal(3))

@@ -17,9 +17,10 @@ const (
 	HostMetaStaticIndex types.HeapElementMetadataKey = "static_index_pos"
 )
 
-// StaticClusterIndex is a simple Cluster that seeks hosts randomly.
-// StaticClusterIndex uses CategoryClusterIndex and all hosts are qualified.
-type StaticClusterIndex struct {
+// OldStaticClusterIndex implements the logic of the static scheduling policy.
+//
+// OldStaticClusterIndex uses CategoryClusterIndex and all hosts are qualified.
+type OldStaticClusterIndex struct {
 	*CallbackManager
 	hosts     []scheduling.Host // The Host instances in the index.
 	length    int               // The number of Host instances in the index.
@@ -30,8 +31,8 @@ type StaticClusterIndex struct {
 	log logger.Logger
 }
 
-func NewStaticClusterIndex(initialSize int) *StaticClusterIndex {
-	index := &StaticClusterIndex{
+func NewOldStaticClusterIndex(initialSize int) *OldStaticClusterIndex {
+	index := &OldStaticClusterIndex{
 		CallbackManager: NewCallbackManager(),
 		hosts:           make([]scheduling.Host, 0, initialSize),
 		length:          0,
@@ -48,13 +49,13 @@ func NewStaticClusterIndex(initialSize int) *StaticClusterIndex {
 // // // // // // // // // // // // // //
 
 // Category returns the category of the index and the expected value.
-func (index *StaticClusterIndex) Category() (category string, expected interface{}) {
+func (index *OldStaticClusterIndex) Category() (category string, expected interface{}) {
 	return scheduling.CategoryClusterIndex, expectedStaticIndex
 }
 
 // IsQualified returns the actual value according to the index category and whether the host is qualified.
 // An index provider must be able to track indexed hosts and indicate disqualification.
-func (index *StaticClusterIndex) IsQualified(host scheduling.Host) (actual interface{}, qualified scheduling.IndexQualification) {
+func (index *OldStaticClusterIndex) IsQualified(host scheduling.Host) (actual interface{}, qualified scheduling.IndexQualification) {
 	// Since all hosts are qualified, we check if the host is in the index only.
 	if _, ok := host.GetMeta(HostMetaStaticIndex).(int32); ok {
 		return expectedStaticIndex, scheduling.IndexQualified
@@ -64,12 +65,12 @@ func (index *StaticClusterIndex) IsQualified(host scheduling.Host) (actual inter
 }
 
 // Len returns the number of hosts in the index.
-func (index *StaticClusterIndex) Len() int {
+func (index *OldStaticClusterIndex) Len() int {
 	return index.length
 }
 
 // Add adds a host to the index.
-func (index *StaticClusterIndex) Add(host scheduling.Host) {
+func (index *OldStaticClusterIndex) Add(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -101,7 +102,7 @@ func (index *StaticClusterIndex) Add(host scheduling.Host) {
 
 // sortIndex sorts the Host instances in the index by their number of idle GPUs.
 // Host instances with more idle GPUs available appear first in the index.
-func (index *StaticClusterIndex) sortIndex() {
+func (index *OldStaticClusterIndex) sortIndex() {
 	slices.SortFunc(index.hosts, func(a, b scheduling.Host) int {
 		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
 		// with the Hosts with the most idle GPUs appearing first.
@@ -124,13 +125,13 @@ func (index *StaticClusterIndex) sortIndex() {
 	}
 }
 
-func (index *StaticClusterIndex) Update(host scheduling.Host) {
+func (index *OldStaticClusterIndex) Update(host scheduling.Host) {
 	index.sortIndex()
 
 	index.InvokeHostUpdatedCallbacks(host)
 }
 
-func (index *StaticClusterIndex) UpdateMultiple(hosts []scheduling.Host) {
+func (index *OldStaticClusterIndex) UpdateMultiple(hosts []scheduling.Host) {
 	index.sortIndex()
 
 	for _, host := range hosts {
@@ -138,13 +139,13 @@ func (index *StaticClusterIndex) UpdateMultiple(hosts []scheduling.Host) {
 	}
 }
 
-func (index *StaticClusterIndex) Remove(host scheduling.Host) {
+func (index *OldStaticClusterIndex) Remove(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
 	i, ok := host.GetMeta(HostMetaStaticIndex).(int32)
 	if !ok {
-		index.log.Warn("Cannot remove host %s; it is not present within StaticClusterIndex", host.GetID())
+		index.log.Warn("Cannot remove host %s; it is not present within OldStaticClusterIndex", host.GetID())
 		return
 	}
 
@@ -153,14 +154,14 @@ func (index *StaticClusterIndex) Remove(host scheduling.Host) {
 			"however, its \"%s\" metadata has a non-nil value (%d).\n", host.GetID(), HostMetaStaticIndex, i)
 	}
 
-	index.log.Debug("Removing host %s from StaticClusterIndex, position=%d", host.GetID(), i)
+	index.log.Debug("Removing host %s from OldStaticClusterIndex, position=%d", host.GetID(), i)
 
 	if i > int32(len(index.hosts)) {
-		log.Fatalf("Index %d is out of range for StaticClusterIndex of length %d...\n", i, len(index.hosts))
+		log.Fatalf("Index %d is out of range for OldStaticClusterIndex of length %d...\n", i, len(index.hosts))
 	}
 
 	if index.hosts[i] == nil {
-		index.log.Error("There is no host at index %d of StaticClusterIndex (i.e., hosts[%d] is nil).", i, i)
+		index.log.Error("There is no host at index %d of OldStaticClusterIndex (i.e., hosts[%d] is nil).", i, i)
 		for idx := 0; idx < cap(index.hosts); idx++ {
 			if index.hosts[idx] != nil {
 				index.log.Error("index.hosts[%d] = %v", idx, index.hosts[idx])
@@ -169,11 +170,11 @@ func (index *StaticClusterIndex) Remove(host scheduling.Host) {
 			}
 		}
 
-		log.Fatalf("There is no host at index %d of StaticClusterIndex (i.e., hosts[%d] is nil.\n", i, i)
+		log.Fatalf("There is no host at index %d of OldStaticClusterIndex (i.e., hosts[%d] is nil.\n", i, i)
 	}
 
 	if index.hosts[i].GetID() != host.GetID() {
-		log.Fatalf("Host at index %d of StaticClusterIndex is Host %s; however, we're supposed to remove Host %s...\n",
+		log.Fatalf("Host at index %d of OldStaticClusterIndex is Host %s; however, we're supposed to remove Host %s...\n",
 			i, index.hosts[i].GetID(), host.GetID())
 	}
 
@@ -197,7 +198,7 @@ func (index *StaticClusterIndex) Remove(host scheduling.Host) {
 // compact compacts the index by calling compactLocked.
 //
 // This will acquire the index's lock before calling compactLocked.
-func (index *StaticClusterIndex) compact(from int32) {
+func (index *OldStaticClusterIndex) compact(from int32) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -207,7 +208,7 @@ func (index *StaticClusterIndex) compact(from int32) {
 // compactLocked compacts the index.
 //
 // Important: this function is expected to be called with the index's lock.
-func (index *StaticClusterIndex) compactLocked(from int32) {
+func (index *OldStaticClusterIndex) compactLocked(from int32) {
 	frontier := int(from)
 	for i := frontier + 1; i < len(index.hosts); i++ {
 		if index.hosts[i] != nil {
@@ -222,7 +223,7 @@ func (index *StaticClusterIndex) compactLocked(from int32) {
 }
 
 // GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.
-func (index *StaticClusterIndex) GetMetrics(scheduling.Host) (metrics []float64) {
+func (index *OldStaticClusterIndex) GetMetrics(scheduling.Host) (metrics []float64) {
 	return nil
 }
 
@@ -231,7 +232,7 @@ func (index *StaticClusterIndex) GetMetrics(scheduling.Host) (metrics []float64)
 // // // // // // // // // // // // // //
 
 // Seek returns the host specified by the metrics.
-func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret scheduling.Host, pos interface{}) {
+func (index *OldStaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret scheduling.Host, pos interface{}) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -259,13 +260,13 @@ func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]floa
 	return index.seekInternal(blacklist, metrics...)
 }
 
-func (index *StaticClusterIndex) Identifier() string {
-	return fmt.Sprintf("StaticClusterIndex[%d]", index.Len())
+func (index *OldStaticClusterIndex) Identifier() string {
+	return fmt.Sprintf("OldStaticClusterIndex[%d]", index.Len())
 }
 
 // seekInternal does the actual work of the Seek method.
 // seekInternal does not acquire the mutex. It should be called from a function that has already acquired the mutex.
-func (index *StaticClusterIndex) seekInternal(blacklistArg []interface{}, _ ...[]float64) (scheduling.Host, int32) {
+func (index *OldStaticClusterIndex) seekInternal(blacklistArg []interface{}, _ ...[]float64) (scheduling.Host, int32) {
 	if len(index.hosts) == 0 {
 		return nil, 0
 	}
@@ -297,7 +298,7 @@ func (index *StaticClusterIndex) seekInternal(blacklistArg []interface{}, _ ...[
 	return host, index.seekStart
 }
 
-func (index *StaticClusterIndex) SeekMultipleFrom(_ interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+func (index *OldStaticClusterIndex) SeekMultipleFrom(_ interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 

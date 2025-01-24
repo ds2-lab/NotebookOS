@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 )
@@ -16,7 +17,7 @@ type ReservationPolicy struct {
 }
 
 func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, false)
 	if err != nil {
 		return nil, err
 	}
@@ -25,7 +26,21 @@ func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy
 		baseSchedulingPolicy: basePolicy,
 	}
 
+	if opts.SchedulingPolicy != scheduling.Reservation.String() {
+		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of ReservationPolicy.",
+			opts.SchedulingPolicy))
+	}
+
 	return policy, nil
+}
+
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (p *ReservationPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	if p.SupportsMigration() {
+		panic("ReservationPolicy isn't supposed to support migration, yet apparently it does?")
+	}
+
+	return nil, ErrMigrationNotSupported
 }
 
 func (p *ReservationPolicy) PolicyKey() scheduling.PolicyKey {
@@ -66,7 +81,24 @@ func (p *ReservationPolicy) SmrEnabled() bool {
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
-	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p)
+	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p), nil
+}
+
+// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// pre-designated as the leader of a code execution.
+//
+// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+// will fight amongst themselves to determine the leader.
+//
+// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+//
+// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+// been ruled out.
+func (p *ReservationPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+	return checkSingleReplica(kernel, p.supportsMigration, executionId)
 }
 
 //////////////////////////////////

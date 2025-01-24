@@ -141,7 +141,7 @@ func (c *Container) Host() scheduling.Host {
 
 func (c *Container) getInteractivePriority() float64 {
 	c.interactivePriority.Validator(time.Now())
-	required := float64(c.session.ResourceSpec().GPU())
+	required := c.session.ResourceSpec().GPU()
 	idleGPUs := c.host.Stats().IdleGPUs()
 	extras := 0.0
 	extraExplain := "0.0"
@@ -153,7 +153,6 @@ func (c *Container) getInteractivePriority() float64 {
 	stats := c.session.SessionStatistics()
 	interactivePriority := stats.InteractivePriority() * (extras + 1)
 	c.interactivePriorityExplanation = fmt.Sprintf("%s( * (1 + %s))", stats.Explain(scheduling.ExplainInteractivePriority), extraExplain)
-	// log.Printf("%v: updated cached interactivePriority %f, container:%v, potentials: %f, pending containers: %d\n", ClockTime, interactivePriority, c.session, extras+1, c.host.Stats().PendingContainers().Load())
 	return interactivePriority
 }
 

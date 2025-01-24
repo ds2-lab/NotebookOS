@@ -27,6 +27,11 @@ type LeastLoadedIndex struct {
 	log   logger.Logger
 }
 
+// NewLeastLoadedIndexWrapper satisfies the index.Provider definition.
+func NewLeastLoadedIndexWrapper(_ int32) *LeastLoadedIndex {
+	return NewLeastLoadedIndex()
+}
+
 func NewLeastLoadedIndex() *LeastLoadedIndex {
 	index := &LeastLoadedIndex{
 		CallbackManager: NewCallbackManager(),
@@ -68,14 +73,14 @@ func (index *LeastLoadedIndex) Add(host scheduling.Host) {
 
 func (index *LeastLoadedIndex) unsafeAdd(host scheduling.Host) {
 	heap.Push(index.hosts, host)
-	idx := host.GetIdx()
+	idx := host.GetIdx(LeastLoadedIndexMetadataKey)
 
 	host.SetMeta(LeastLoadedIndexMetadataKey, int32(idx))
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
 	host.SetContainedWithinIndex(true)
-	index.log.Debug("Added Host %s (ID=%s) to LeastLoadedIndex at position %d.",
-		host.GetNodeName(), host.GetID(), idx)
+	index.log.Debug("Added Host %s (ID=%s) to LeastLoadedIndex at position %d. Index length: %d.",
+		host.GetNodeName(), host.GetID(), idx, index.Len())
 
 	// Invoke callback.
 	index.InvokeHostAddedCallbacks(host)
@@ -83,7 +88,7 @@ func (index *LeastLoadedIndex) unsafeAdd(host scheduling.Host) {
 
 func (index *LeastLoadedIndex) unsafeAddBack(host scheduling.Host) {
 	heap.Push(index.hosts, host)
-	idx := host.GetIdx()
+	idx := host.GetIdx(LeastLoadedIndexMetadataKey)
 	host.SetMeta(LeastLoadedIndexMetadataKey, int32(idx))
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
@@ -92,9 +97,9 @@ func (index *LeastLoadedIndex) unsafeAddBack(host scheduling.Host) {
 
 // Update is not thread-safe.
 func (index *LeastLoadedIndex) Update(host scheduling.Host) {
-	oldIdx := host.GetIdx()
+	oldIdx := host.GetIdx(LeastLoadedIndexMetadataKey)
 	heap.Fix(index.hosts, oldIdx)
-	newIdx := host.GetIdx()
+	newIdx := host.GetIdx(LeastLoadedIndexMetadataKey)
 
 	host.SetMeta(LeastLoadedIndexMetadataKey, int32(newIdx))
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
@@ -113,7 +118,7 @@ func (index *LeastLoadedIndex) UpdateMultiple(hosts []scheduling.Host) {
 	heap.Init(index.hosts)
 
 	for _, host := range hosts {
-		host.SetMeta(LeastLoadedIndexMetadataKey, int32(host.GetIdx()))
+		host.SetMeta(LeastLoadedIndexMetadataKey, int32(host.GetIdx(LeastLoadedIndexMetadataKey)))
 		host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 		host.SetMeta(scheduling.HostIndexKeyMetadata, expectedLeastLoadedIndex)
 
@@ -213,7 +218,7 @@ func (index *LeastLoadedIndex) unsafeSeek(blacklistArg []interface{}) scheduling
 	return host
 }
 
-func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}) {
+func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}, error) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -223,7 +228,7 @@ func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float6
 	//	return nil, -1
 	//}
 
-	return host, -1
+	return host, -1, nil
 }
 
 // SeekMultipleFrom seeks n Host instances from a random permutation of the index.
@@ -231,7 +236,7 @@ func (index *LeastLoadedIndex) Seek(blacklist []interface{}, metrics ...[]float6
 //
 // This entire method is thread-safe. The index is locked until this method returns.
 func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction,
-	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}, error) {
 	index.mu.Lock()
 
 	hostsToBeAddedBack := make(map[string]scheduling.Host)
@@ -295,7 +300,7 @@ func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteria
 		// its current index is.
 		//
 		// We only have to do this if we're going to keep searching.
-		heap.Remove(index.hosts, candidateHost.GetIdx())
+		heap.Remove(index.hosts, candidateHost.GetIdx(LeastLoadedIndexMetadataKey))
 
 		// Take note that we need to add the host back.
 		hostsToBeAddedBack[candidateHost.GetID()] = candidateHost
@@ -315,5 +320,5 @@ func (index *LeastLoadedIndex) SeekMultipleFrom(pos interface{}, n int, criteria
 	// Note: we deferred two things up above:
 	// - adding back any hosts we removed from the index
 	// - unlocking the index
-	return hosts, -1
+	return hosts, -1, nil
 }

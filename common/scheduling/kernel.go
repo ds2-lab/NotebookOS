@@ -2,6 +2,7 @@ package scheduling
 
 import (
 	"context"
+	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
@@ -52,7 +53,7 @@ type SessionManager interface {
 
 // ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
 // When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
-// the DistributedKernelClient will check if its ActiveExecution struct has the original "sent-at" timestamp
+// the DistributedKernelClient will check if its Execution struct has the original "sent-at" timestamp
 // of the original "execute_request". If it does, then it can calculate the latency between submission and when
 // the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
 // so that a relevant Prometheus metric can be updated.
@@ -76,16 +77,13 @@ type Kernel interface {
 	GetContainers() []KernelContainer
 	ShellListenPort() int
 	IOPubListenPort() int
-	ActiveExecution() *ActiveExecution
-	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*ActiveExecution, bool)
-	// GetActiveExecution returns the *scheduling.ActiveExecution associated with the given "execute_request" message ID.
-	GetActiveExecution(msgId string) *ActiveExecution
-	CurrentActiveExecution() *ActiveExecution
+	// GetActiveExecution returns a pointer to the Execution struct identified by the given message ID,
+	// or nil if no such Execution exists.
+	GetActiveExecution(msgId string) *execution.Execution
 	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
-	SetActiveExecution(activeExecution *ActiveExecution)
-	ExecutionComplete(msg *messaging.JupyterMessage) (bool, error)
-	EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *ActiveExecution
+	ExecutionComplete(msg *messaging.JupyterMessage) error
+	RegisterActiveExecution(msg *messaging.JupyterMessage) (*execution.Execution, error)
 	ResetID(id string)
 	PersistentID() string
 	String() string
@@ -96,7 +94,7 @@ type Kernel interface {
 	// UpdateResourceSpec updates the ResourceSpec of the Kernel, all of its KernelReplica instances, the UserSession
 	// of each KernelReplica, and the KernelContainer of each KernelReplica.
 	//
-	// It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/KernelReplica.
+	// It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/Replica.
 	UpdateResourceSpec(spec types.Spec) error
 	KernelSpec() *proto.KernelSpec
 	ConnectionInfo() *jupyter.ConnectionInfo
@@ -132,9 +130,6 @@ type Kernel interface {
 	WaitClosed() jupyter.KernelStatus
 	DebugMode() bool
 
-	// AddDestFrameIfNecessary adds the destination frame to the specified Jupyter message if it isn't already present.
-	AddDestFrameIfNecessary(jMsg *messaging.JupyterMessage) *messaging.JupyterMessage
-
 	// SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the DistributedKernelClient.
 	SetKernelKey(string)
 
@@ -157,6 +152,7 @@ type Kernel interface {
 }
 
 type KernelReplica interface {
+	execution.Replica
 	types.Contextable
 	SessionManager
 	Server
@@ -173,7 +169,6 @@ type KernelReplica interface {
 	NumPendingExecuteRequests() int
 	SentExecuteRequest(msg *messaging.JupyterMessage)
 	ReceivedExecuteReply(msg *messaging.JupyterMessage)
-	KernelStoppedTraining(reason string) error
 	TrainingStartedAt() time.Time
 	WorkloadId() string
 	SetWorkloadId(workloadId string)
@@ -189,9 +184,7 @@ type KernelReplica interface {
 	InitializeIOForwarder() (*messaging.Socket, error)
 	YieldedNextExecutionRequest()
 	SupposedToYieldNextExecutionRequest() bool
-	ID() string
 	SourceKernelID() string
-	ReplicaID() int32
 	SetReplicaID(replicaId int32)
 	SetPersistentID(persistentId string)
 	PersistentID() string

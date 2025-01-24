@@ -13,6 +13,98 @@ const (
 	DefaultMaxSubscribedRatio     = 7.0
 )
 
+var (
+	DefaultStaticSchedulerOptions = &SchedulerOptions{
+		CommonOptions: configuration.CommonOptions{
+			GpusPerHost:                        8,
+			DeploymentMode:                     "docker-swarm",
+			DockerAppName:                      "distributed_notebook",
+			DockerNetworkName:                  "distributed_cluster_default",
+			PrometheusInterval:                 15,
+			PrometheusPort:                     8089,
+			NumResendAttempts:                  1,
+			MessageAcknowledgementsEnabled:     false,
+			SchedulingPolicy:                   "static",
+			IdleSessionReclamationPolicy:       "none",
+			RemoteStorageEndpoint:              "redis:6379",
+			RemoteStorage:                      "redis",
+			SMRPort:                            8080,
+			DebugMode:                          true,
+			DebugPort:                          9996,
+			SimulateCheckpointingLatency:       true,
+			DisablePrometheusMetricsPublishing: true,
+			ElectionTimeoutSeconds:             3,
+			UseRealGPUs:                        false,
+			BindDebugPyPort:                    false,
+			SaveStoppedKernelContainers:        false,
+		},
+		SubscribedRatioUpdateInterval: 1,
+		ScalingFactor:                 1.05,
+		ScalingInterval:               30,
+		ScalingLimit:                  1.1,
+		MaximumHostsToReleaseAtOnce:   2,
+		PredictiveAutoscalingEnabled:  true,
+		ScalingBufferSize:             3,
+		MinimumNumNodes:               12,
+		MaximumNumNodes:               48,
+		GpuPollIntervalSeconds:        5,
+		MaxSubscribedRatio:            7.0,
+		ExecutionTimeSamplingWindow:   10,
+		MigrationTimeSamplingWindow:   10,
+		SchedulerHttpPort:             8078,
+		MeanScaleOutPerHostSec:        15,
+		StdDevScaleOutPerHostSec:      2,
+		MeanScaleInPerHostSec:         10,
+		StdDevScaleInPerHostSec:       1,
+		AssignKernelDebugPorts:        false,
+	}
+
+	DefaultFcfsSchedulerOptions = &SchedulerOptions{
+		CommonOptions: configuration.CommonOptions{
+			GpusPerHost:                        8,
+			DeploymentMode:                     "docker-swarm",
+			DockerAppName:                      "distributed_notebook",
+			DockerNetworkName:                  "distributed_cluster_default",
+			PrometheusInterval:                 15,
+			PrometheusPort:                     8089,
+			NumResendAttempts:                  1,
+			MessageAcknowledgementsEnabled:     false,
+			SchedulingPolicy:                   "fcfs-batch",
+			IdleSessionReclamationPolicy:       "none",
+			RemoteStorageEndpoint:              "redis:6379",
+			RemoteStorage:                      "redis",
+			SMRPort:                            8080,
+			DebugMode:                          true,
+			DebugPort:                          9996,
+			SimulateCheckpointingLatency:       true,
+			DisablePrometheusMetricsPublishing: true,
+			ElectionTimeoutSeconds:             3,
+			UseRealGPUs:                        false,
+			BindDebugPyPort:                    false,
+			SaveStoppedKernelContainers:        false,
+		},
+		SubscribedRatioUpdateInterval: 1,
+		ScalingFactor:                 1.05,
+		ScalingInterval:               30,
+		ScalingLimit:                  1.1,
+		MaximumHostsToReleaseAtOnce:   2,
+		PredictiveAutoscalingEnabled:  true,
+		ScalingBufferSize:             3,
+		MinimumNumNodes:               12,
+		MaximumNumNodes:               48,
+		GpuPollIntervalSeconds:        5,
+		MaxSubscribedRatio:            7.0,
+		ExecutionTimeSamplingWindow:   10,
+		MigrationTimeSamplingWindow:   10,
+		SchedulerHttpPort:             8078,
+		MeanScaleOutPerHostSec:        15,
+		StdDevScaleOutPerHostSec:      2,
+		MeanScaleInPerHostSec:         10,
+		StdDevScaleInPerHostSec:       1,
+		AssignKernelDebugPorts:        false,
+	}
+)
+
 // CustomIdleSessionReclamationOptions defines options that apply only when using the CustomIdleSessionReclamationPolicy
 // (i.e., "custom") IdleSessionReclamationPolicy. These options will NOT be used if a different policy is being used.
 type CustomIdleSessionReclamationOptions struct {
@@ -41,6 +133,13 @@ type SchedulerOptions struct {
 	StdDevScaleOutPerHostSec            int     `name:"std_dev_scale_out_per_host_sec" json:"std_dev_scale_out_per_host_sec" yaml:"std_dev_scale_out_per_host_sec"`
 	MeanScaleInPerHostSec               int     `name:"mean_scale_in_per_host_sec" json:"mean_scale_in_per_host_sec" yaml:"mean_scale_in_per_host_sec"`
 	StdDevScaleInPerHostSec             int     `name:"std_dev_scale_in_per_host_sec" json:"std_dev_scale_in_per_host_sec" yaml:"std_dev_scale_in_per_host_sec"`
+
+	// If true, then assign debug ports to kernel containers that will be passed to their Golang backend to start a net/pprof debug server.
+	AssignKernelDebugPorts bool `name:"assign_kernel_debug_ports" json:"assign_kernel_debug_ports" yaml:"assign_kernel_debug_ports" description:"If true, then assign debug ports to kernel containers that will be passed to their Golang backend to start a net/pprof debug server."`
+}
+
+func (opts *SchedulerOptions) Validate() error {
+	return nil
 }
 
 // GetGpusPerHost returns the number of allocatable GPUs on each entity.Host.
@@ -66,6 +165,11 @@ func (opts *SchedulerOptions) PrettyString(indentSize int) string {
 	}
 
 	return string(m)
+}
+
+func (opts *SchedulerOptions) Clone() *SchedulerOptions {
+	clone := *opts
+	return &clone
 }
 
 func (opts *SchedulerOptions) String() string {

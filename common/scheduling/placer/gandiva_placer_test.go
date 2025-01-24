@@ -12,7 +12,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/mock_scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
-	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/testing"
@@ -188,7 +187,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 
 		hostSpec = types.NewDecimalSpec(64000, 128000, float64(opts.SchedulerOptions.GpusPerHost), 40)
 
-		schedulingPolicy, err = policy.GetSchedulingPolicy(&opts.SchedulerOptions)
+		schedulingPolicy, err = scheduler.GetSchedulingPolicy(&opts.SchedulerOptions)
 		Expect(err).To(BeNil())
 		Expect(schedulingPolicy).ToNot(BeNil())
 		Expect(schedulingPolicy.NumReplicas()).To(Equal(1))
@@ -203,7 +202,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		Expect(gandivaPlacer).ToNot(BeNil())
 
 		dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, gandivaPlacer, mockedHostMapper,
-			mockedKernelProvider, nil, nil, schedulingPolicy,
+			mockedKernelProvider, nil, nil, schedulingPolicy.(scheduler.SchedulingPolicy), // TODO: Fix these messy types
 			func(f func(stats *statistics.ClusterStatistics)) {}, &opts.SchedulerOptions)
 
 		dockerScheduler, ok = dockerSwarmCluster.Scheduler().(*scheduler.DockerScheduler)
@@ -229,7 +228,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 			hostPool, loaded := gandivaPlacer.GetHostPool(i)
 			Expect(loaded).To(BeTrue())
 			Expect(hostPool).ToNot(BeNil())
-			Expect(hostPool.NumGPUs).To(Equal(i))
+			Expect(hostPool.PoolNumber).To(Equal(i))
 			Expect(hostPool.Len()).To(Equal(0))
 			Expect(hostPool.Size()).To(Equal(0))
 
@@ -259,12 +258,14 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		kernel1Spec := createKernelSpec(kernelResourceSpec)
 		kernel2Spec := createKernelSpec(kernelResourceSpec)
 
-		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+		candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+		Expect(err).To(BeNil())
 		Expect(len(candidateHosts)).To(Equal(1))
 		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 		//Expect(candidateHosts[0]).To(Equal(host1))
 
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+		Expect(err).To(BeNil())
 		Expect(len(candidateHosts)).To(Equal(1))
 		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 		//Expect(candidateHosts[0]).To(Equal(host2))
@@ -284,7 +285,8 @@ var _ = Describe("Gandiva Placer Tests", func() {
 			ResourceSpec:    resourceSpec,
 		}
 
-		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
 		Expect(len(candidateHosts)).To(Equal(0))
 	})
 
@@ -305,7 +307,8 @@ var _ = Describe("Gandiva Placer Tests", func() {
 
 		By("Returning the only available host when finding a candidate")
 
-		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+		candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+		Expect(err).To(BeNil())
 		Expect(len(candidateHosts)).To(Equal(1))
 		Expect(candidateHosts[0]).To(Equal(host1))
 
@@ -324,7 +327,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		hostPool, loaded := gandivaPlacer.GetHostPool(2)
 		Expect(loaded).To(BeTrue())
 		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(2)))
+		Expect(hostPool.PoolNumber).To(Equal(int32(2)))
 		Expect(hostPool.Len()).To(Equal(1))
 		Expect(hostPool.Size()).To(Equal(1))
 
@@ -333,7 +336,8 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		kernel2ResourceSpec := types.NewDecimalSpec(128, 128, 2, 2)
 		kernel2Spec := createKernelSpec(kernel2ResourceSpec)
 
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+		Expect(err).To(BeNil())
 		Expect(len(candidateHosts)).To(Equal(1))
 		Expect(candidateHosts[0]).To(Equal(host1))
 
@@ -352,7 +356,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		hostPool, loaded = gandivaPlacer.GetHostPool(2)
 		Expect(loaded).To(BeTrue())
 		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(2)))
+		Expect(hostPool.PoolNumber).To(Equal(int32(2)))
 		Expect(hostPool.Len()).To(Equal(1))
 		Expect(hostPool.Size()).To(Equal(1))
 	})
@@ -390,10 +394,12 @@ var _ = Describe("Gandiva Placer Tests", func() {
 
 		By("Returning an available host when finding a candidate")
 
-		candidateHosts := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+		candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernel1Spec)
+		Expect(err).To(BeNil())
 		Expect(len(candidateHosts)).To(Equal(1))
 		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 		Expect(candidateHosts[0]).To(Equal(host1))
+		Expect(candidateHosts[0].CommittedResources().Equals(kernel1Spec.ResourceSpec)).To(BeTrue())
 
 		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(1))
 
@@ -410,7 +416,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		hostPool, loaded := gandivaPlacer.GetHostPool(5)
 		Expect(loaded).To(BeTrue())
 		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+		Expect(hostPool.PoolNumber).To(Equal(int32(5)))
 		Expect(hostPool.Len()).To(Equal(1))
 		Expect(hostPool.Size()).To(Equal(1))
 
@@ -430,7 +436,8 @@ var _ = Describe("Gandiva Placer Tests", func() {
 			ResourceSpec:    resourceSpec,
 		}
 
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel2Spec)
+		Expect(err).To(BeNil())
 		Expect(len(candidateHosts)).To(Equal(1))
 		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 		Expect(candidateHosts[0]).To(Equal(host2))
@@ -452,7 +459,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		hostPool, loaded = gandivaPlacer.GetHostPool(5)
 		Expect(loaded).To(BeTrue())
 		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+		Expect(hostPool.PoolNumber).To(Equal(int32(5)))
 		Expect(hostPool.Len()).To(Equal(2))
 		Expect(hostPool.Size()).To(Equal(2))
 
@@ -472,7 +479,8 @@ var _ = Describe("Gandiva Placer Tests", func() {
 			ResourceSpec:    resourceSpec,
 		}
 
-		candidateHosts = dockerScheduler.FindCandidateHosts(1, kernel3Spec)
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernel3Spec)
+		Expect(err).To(BeNil())
 		Expect(len(candidateHosts)).To(Equal(1))
 		GinkgoWriter.Printf("Candidate host name: \"%s\"\n", candidateHosts[0].GetNodeName())
 		Expect(candidateHosts[0]).To(Equal(host1))
@@ -492,8 +500,328 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		hostPool, loaded = gandivaPlacer.GetHostPool(5)
 		Expect(loaded).To(BeTrue())
 		Expect(hostPool).ToNot(BeNil())
-		Expect(hostPool.NumGPUs).To(Equal(int32(5)))
+		Expect(hostPool.PoolNumber).To(Equal(int32(5)))
 		Expect(hostPool.Len()).To(Equal(2))
 		Expect(hostPool.Size()).To(Equal(2))
+	})
+
+	It("Will correctly allocate jobs with different GPU requirements to different pools", func() {
+		clusterPlacer := dockerScheduler.Placer()
+		Expect(clusterPlacer).ToNot(BeNil())
+
+		gandivaPlacer, ok := clusterPlacer.(*placer.GandivaPlacer)
+		Expect(ok).To(BeTrue())
+		Expect(gandivaPlacer).ToNot(BeNil())
+
+		numHosts := 8
+		hosts := make([]scheduling.Host, 0, numHosts)
+
+		expectedHostPoolSizes := []int{0, 0, 0, 0, 0, 0, 0, 0, 0}
+		for i := 0; i < numHosts; i++ {
+			host, _ := createHost(1)
+			hosts = append(hosts, host)
+		}
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts))
+
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
+
+		numGpusPerSession := []float64{1, 2, 4, 8, 4, 2, 1, 8, 2, 2, 2}
+		numSessions := len(numGpusPerSession)
+		kernelSpecs := make([]*proto.KernelSpec, 0, numSessions)
+
+		for i := 0; i < numSessions; i++ {
+			numGpus := numGpusPerSession[i]
+			vramGb := numGpus * 2
+
+			kernelResourceSpec := types.NewDecimalSpec(128, 128, numGpus, vramGb)
+			kernelSpec := createKernelSpec(kernelResourceSpec)
+
+			kernelSpecs = append(kernelSpecs, kernelSpec)
+		}
+
+		//
+		//
+		By("Adding a host to the 1-GPU host pool")
+
+		sessionIndex := 0
+		kernelSpec := kernelSpecs[sessionIndex]
+		candidateHosts, err := dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
+		Expect(len(candidateHosts)).To(Equal(1))
+
+		candidateHost := candidateHosts[0]
+		Expect(candidateHost).To(Equal(hosts[0]))
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts - 1))
+
+		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+		expectedHostPoolSizes[1] = 1
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
+
+		//
+		//
+		By("Adding a host to the 2-GPU host pool")
+
+		sessionIndex = 1
+		kernelSpec = kernelSpecs[sessionIndex]
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
+		Expect(len(candidateHosts)).To(Equal(1))
+
+		candidateHost = candidateHosts[0]
+		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+		Expect(candidateHost).To(Equal(hosts[1]))
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts - 2))
+
+		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+		expectedHostPoolSizes[2] = 1
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
+
+		//
+		//
+		By("Adding a host to the 4-GPU host pool")
+
+		sessionIndex = 2
+		kernelSpec = kernelSpecs[sessionIndex]
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
+		Expect(len(candidateHosts)).To(Equal(1))
+
+		candidateHost = candidateHosts[0]
+		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+		Expect(candidateHost).To(Equal(hosts[2]))
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts - 3))
+
+		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+		expectedHostPoolSizes[4] = 1
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
+
+		//
+		//
+		By("Adding a host to the 8-GPU host pool")
+
+		sessionIndex = 3
+		kernelSpec = kernelSpecs[sessionIndex]
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
+		Expect(len(candidateHosts)).To(Equal(1))
+
+		candidateHost = candidateHosts[0]
+		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+		Expect(candidateHost).To(Equal(hosts[3]))
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts - 4))
+
+		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+		expectedHostPoolSizes[8] = 1
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
+
+		//
+		//
+		//
+		By("Not adding a host to the 4-GPU host pool as the current host can be used")
+
+		sessionIndex = 4
+		kernelSpec = kernelSpecs[sessionIndex]
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
+		Expect(len(candidateHosts)).To(Equal(1))
+
+		candidateHost = candidateHosts[0]
+		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+		Expect(candidateHost).To(Equal(hosts[2]))
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
+
+		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+		combinedSpec := kernelSpecs[2].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+		Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
+
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
+
+		//
+		// 2, 1, 8
+		By("Not adding a host to the 2-GPU host pool as the current host can be used")
+
+		sessionIndex = 5
+		kernelSpec = kernelSpecs[sessionIndex]
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
+		Expect(len(candidateHosts)).To(Equal(1))
+
+		candidateHost = candidateHosts[0]
+		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+		Expect(candidateHost).To(Equal(hosts[1]))
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
+
+		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+		combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+		Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
+
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
+
+		//
+		// 1, 8
+		By("Not adding a host to the 1-GPU host pool as the current host can be used")
+
+		sessionIndex = 6
+		kernelSpec = kernelSpecs[sessionIndex]
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
+		Expect(len(candidateHosts)).To(Equal(1))
+
+		candidateHost = candidateHosts[0]
+		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+		Expect(candidateHost).To(Equal(hosts[0]))
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
+
+		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+		combinedSpec = kernelSpecs[0].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+		Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
+
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
+
+		//
+		// 8
+		By("Adding a host to the 8-GPU host pool as the current host cannot be used")
+
+		sessionIndex = 7
+		kernelSpec = kernelSpecs[sessionIndex]
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
+		Expect(len(candidateHosts)).To(Equal(1))
+
+		candidateHost = candidateHosts[0]
+		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+		Expect(candidateHost).To(Equal(hosts[4]))
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // One less than before
+
+		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+		expectedHostPoolSizes[8] = 2
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
+
+		//
+		//
+		// 2, 2, 2
+		By("Not yet adding a host to the 2-GPU host pool as the current host can be used")
+
+		sessionIndex = 8
+		kernelSpec = kernelSpecs[sessionIndex]
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
+		Expect(len(candidateHosts)).To(Equal(1))
+
+		candidateHost = candidateHosts[0]
+		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+		Expect(candidateHost).To(Equal(hosts[1]))
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // Same as before
+
+		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+		combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().Add(kernelSpecs[5].ResourceSpec.ToDecimalSpec()).Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+		Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
+
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
+
+		//
+		//
+		// 2, 2
+		By("Not yet adding a host to the 2-GPU host pool as the current host can be used")
+
+		sessionIndex = 9
+		kernelSpec = kernelSpecs[sessionIndex]
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
+		Expect(len(candidateHosts)).To(Equal(1))
+
+		candidateHost = candidateHosts[0]
+		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+		Expect(candidateHost).To(Equal(hosts[1]))
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // Same as before
+
+		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+		combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().
+			Add(kernelSpecs[5].ResourceSpec.ToDecimalSpec()).
+			Add(kernelSpecs[8].ResourceSpec.ToDecimalSpec()).
+			Add(kernelSpec.ResourceSpec.ToDecimalSpec())
+		Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
+
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
+
+		//
+		//
+		// 2
+		By("Adding a host to the 2-GPU host pool as the current host cannot be used")
+
+		sessionIndex = 10
+		kernelSpec = kernelSpecs[sessionIndex]
+		candidateHosts, err = dockerScheduler.FindCandidateHosts(1, kernelSpec)
+		Expect(err).To(BeNil())
+		Expect(len(candidateHosts)).To(Equal(1))
+
+		candidateHost = candidateHosts[0]
+		GinkgoWriter.Printf("Candidate host: Host %s (ID=%s)\n", candidateHost.GetNodeName(), candidateHost.GetID())
+		Expect(candidateHost).To(Equal(hosts[5]))
+
+		Expect(gandivaPlacer.NumFreeHosts()).To(Equal(numHosts - 6)) // One less than before
+
+		GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+		Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
+
+		expectedHostPoolSizes[2] = 2
+		for numGpus, expectedHostPoolSize := range expectedHostPoolSizes {
+			Expect(gandivaPlacer.HasHostPool(int32(numGpus))).To(BeTrue())
+			Expect(gandivaPlacer.NumHostsInPool(int32(numGpus))).To(Equal(expectedHostPoolSize))
+		}
 	})
 })

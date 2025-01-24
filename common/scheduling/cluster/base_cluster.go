@@ -398,10 +398,11 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 		} else if qualificationStatus == scheduling.IndexDisqualified {
 			c.log.Debug("Removing existing host from index %s in onHostAdded: %v", indexKey, host)
 			index.Remove(host)
-		} // else unqualified
-
-		c.log.Debug("Host %s (ID=%s) is not qualified to be added to index '%s'.",
-			host.GetNodeName(), host.GetID(), index.Identifier())
+		} else {
+			// Log level is set to warn because, as of right now, there are never any actual qualifications.
+			c.log.Warn("Host %s (ID=%s) is not qualified to be added to index '%s'.",
+				host.GetNodeName(), host.GetID(), index.Identifier())
+		}
 
 		return true
 	})
@@ -520,47 +521,6 @@ func (c *BaseCluster) Len() int {
 	return c.hosts.Len()
 }
 
-// RegisterScaleOperation registers a non-specific type of ScaleOperation.
-// Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation
-// depends on how the target node count compares to the current node count.
-//
-// If the target node count is greater than the current node count, then a ScaleOutOperation is created,
-// registered, and returned.
-//
-// Alternatively, if the target node count is less than the current node count, then a ScaleInOperation is created,
-// registered, and returned.
-func (c *BaseCluster) registerScaleOperation(operationId string, targetClusterSize int32) (*scheduler.ScaleOperation, error) {
-	c.scalingOpMutex.Lock()
-	defer c.scalingOpMutex.Unlock()
-
-	if c.activeScaleOperation != nil {
-		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, ErrScalingActive
-	}
-
-	var (
-		currentClusterSize = int32(c.Len())
-		scaleOperation     *scheduler.ScaleOperation
-		err                error
-	)
-	if targetClusterSize > currentClusterSize {
-		scaleOperation, err = scheduler.NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
-	} else {
-		scaleOperation, err = scheduler.NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	if scaleOperation.OperationType != scheduler.ScaleOutOperation {
-		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", scheduler.ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
-	}
-
-	c.activeScaleOperation = scaleOperation
-	return scaleOperation, nil
-}
-
 // unregisterActiveScaleOp unregisters the current active ScaleOperation and returns a boolean indicating whether
 // a ScaleOperation was in fact unregistered.
 //
@@ -609,7 +569,7 @@ func (c *BaseCluster) registerScaleOutOperation(operationId string, targetCluste
 
 	if c.activeScaleOperation != nil {
 		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, ErrScalingActive
+		return nil, scheduling.ErrScalingActive
 	}
 
 	currentClusterSize := int32(c.Len())
@@ -636,7 +596,7 @@ func (c *BaseCluster) registerScaleInOperation(operationId string, targetCluster
 
 	if c.activeScaleOperation != nil {
 		c.log.Error("Cannot register new ScaleInOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, ErrScalingActive
+		return nil, scheduling.ErrScalingActive
 	}
 
 	var (
@@ -662,6 +622,28 @@ func (c *BaseCluster) registerScaleInOperation(operationId string, targetCluster
 
 	c.activeScaleOperation = scaleOperation
 	return scaleOperation, nil
+}
+
+// MeanScaleOutTime returns the average time to scale-out and add a Host to the Cluster.
+func (c *BaseCluster) MeanScaleOutTime() time.Duration {
+	return c.MeanScaleOutPerHost
+}
+
+// StdDevScaleOutTime returns the standard deviation of the time it takes to scale-out
+// and add a Host to the Cluster.
+func (c *BaseCluster) StdDevScaleOutTime() time.Duration {
+	return c.StdDevScaleOutPerHost
+}
+
+// MeanScaleInTime returns the average time to scale-in and remove a Host from the Cluster.
+func (c *BaseCluster) MeanScaleInTime() time.Duration {
+	return c.MeanScaleInPerHost
+}
+
+// StdDevScaleInTime returns the standard deviation of the time it takes to scale-in
+// and remove a Host from the Cluster.
+func (c *BaseCluster) StdDevScaleInTime() time.Duration {
+	return c.StdDevScaleInPerHost
 }
 
 // RequestHosts requests n Host instances to be launched and added to the Cluster, where n >= 1.
@@ -1090,17 +1072,21 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	defer c.scalingOpMutex.Unlock()
 
 	if !host.Enabled() {
-		c.log.Debug("Attempting to add disabled host %s (ID=%s) to the cluster now.", host.GetNodeName(), host.GetID())
+		c.log.Debug("Attempting to add disabled host %s (ID=%s) to the cluster now.",
+			host.GetNodeName(), host.GetID())
 		err := c.onDisabledHostAdded(host)
 		if err != nil {
-			c.log.Error("Failed to add disabled Host %s (ID=%s) to cluster because: %v", host.GetNodeName(), host.GetID(), err)
+			c.log.Error("Failed to add disabled Host %s (ID=%s) to cluster because: %v",
+				host.GetNodeName(), host.GetID(), err)
 			return err
 		}
-		c.log.Debug("Successfully added disabled host %s (ID=%s) to the cluster.", host.GetNodeName(), host.GetID())
+		c.log.Debug("Successfully added disabled host %s (ID=%s) to the cluster. Number of disabled hosts: %d.",
+			host.GetNodeName(), host.GetID(), c.DisabledHosts.Len())
 		return nil
 	}
 
-	c.log.Debug("Host %s (ID=%s) has just connected to the Cluster or is being re-enabled", host.GetNodeName(), host.GetID())
+	c.log.Debug("Host %s (ID=%s) has just connected to the Cluster or is being re-enabled",
+		host.GetNodeName(), host.GetID())
 
 	c.hostMutex.Lock()
 	// The host mutex is already locked if we're performing a scaling operation.
@@ -1126,8 +1112,8 @@ func (c *BaseCluster) GetHost(hostId string) (scheduling.Host, bool) {
 // targetNumNodes specifies the desired size of the Cluster.
 //
 // resultChan is used to notify a waiting goroutine that the scale-out operation has finished.
-func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
-	return c.instance.GetScaleOutCommand(targetNumNodes, resultChan)
+func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}, scaleOpId string) func() {
+	return c.instance.GetScaleOutCommand(targetNumNodes, resultChan, scaleOpId)
 }
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.

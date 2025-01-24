@@ -6,6 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/queue"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"slices"
 	"sync"
 )
 
@@ -15,21 +16,21 @@ const (
 
 type HostPool[T scheduling.ClusterIndex] struct {
 	Pool       T
-	NumGPUs    int32
+	PoolNumber int32
 	Identifier string
 }
 
-func NewHostPool[T scheduling.ClusterIndex](pool T, gpus int32) *HostPool[T] {
+func NewHostPool[T scheduling.ClusterIndex](pool T, poolNumber int32) *HostPool[T] {
 	return &HostPool[T]{
 		Pool:       pool,
-		NumGPUs:    gpus,
-		Identifier: fmt.Sprintf("%d-GPU Pool", gpus),
+		PoolNumber: poolNumber,
+		Identifier: fmt.Sprintf("HostPool-%d", poolNumber),
 	}
 }
 
 // SeekMultipleFrom simply forwards the call to the target HostPool's Pool field (which is a scheduling.ClusterIndex).
 func (p *HostPool[T]) SeekMultipleFrom(pos interface{}, numHosts int, criteria scheduling.HostCriteriaFunction,
-	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}, error) {
 	return p.Pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist, metrics...)
 }
 
@@ -54,13 +55,41 @@ func (p *HostPool[T]) AddHost(host scheduling.Host) {
 	p.Pool.Add(host)
 }
 
-// MultiIndexProvider provides the individual indices used by a MultiIndex.
-type MultiIndexProvider[T scheduling.ClusterIndex] func() T
+// Provider provides the individual indices used by a MultiIndex.
+//
+// The parameter n is used by the scheduling.ClusterIndex function to instantiate the index.
+// The parameter is often the number of GPU pools, or the quantity used by the index to
+// determine how many pools there should be.
+type Provider[T scheduling.ClusterIndex] func(n int32) T
 
-// MultiIndex manages a collection of sub-indices organized by number of GPUs.
+// MultiIndexProvider creates and return MultiIndex structs backed by indices of the type parameter T.
+//
+// The parameter n is used by the scheduling.ClusterIndex function to instantiate the index.
+// The parameter is often the number of GPU pools, or the quantity used by the index to
+// determine how many pools there should be.
+type MultiIndexProvider[T scheduling.ClusterIndex] func(n int32) *MultiIndex[T]
+
+// HostPoolInitializer is used to initialize the host pools of a MultiIndex.
+type HostPoolInitializer[T scheduling.ClusterIndex] func(numPools int32, indexProvider Provider[T]) map[int32]*HostPool[T]
+
+// initializeHostPoolsDefault creates all the HostPool instances to be managed by the target MultiIndex.
+//
+// It uses the given IndexProvider to create each of the "sub-indices"/HostPool instances.
+func initializeHostPoolsDefault[T scheduling.ClusterIndex](numPools int32, indexProvider Provider[T]) map[int32]*HostPool[T] {
+	pools := make(map[int32]*HostPool[T])
+
+	var poolNumber int32
+	for poolNumber = 0; poolNumber < numPools; poolNumber++ {
+		pools[poolNumber] = NewHostPool(indexProvider(poolNumber), poolNumber)
+	}
+
+	return pools
+}
+
+// MultiIndex manages a collection of sub-indices organized by some numerical quantity, such as the number of GPUs.
 //
 // The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
-// For example, LeastLoadedIndex, StaticClusterIndex, RandomClusterIndex, etc.
+// For example, LeastLoadedIndex, StaticIndex, RandomClusterIndex, etc.
 type MultiIndex[T scheduling.ClusterIndex] struct {
 	// FreeHosts are scheduling.Host instances that have not been placed into a particular HostPool yet.
 	FreeHosts *queue.Fifo[scheduling.Host]
@@ -68,12 +97,11 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 	// FreeHostsMap is used to keep track of the scheduling.Host instances that are in the FreeHosts queue.
 	FreeHostsMap map[string]scheduling.Host
 
-	// HostPools is a map from GPUs to a scheduling.ClusterIndex containing scheduling.Host instances
-	// that serve sessions/kernels that require that number of GPUs.
+	// HostPools is a map from pool index to a scheduling.ClusterIndex.
 	HostPools map[int32]*HostPool[T]
 
 	// IndexProvider provides the individual indices used by a MultiIndex.
-	IndexProvider MultiIndexProvider[T]
+	IndexProvider Provider[T]
 
 	// HostGroupsInitialized indicates whether the host pools have been initialized.
 	HostGroupsInitialized bool
@@ -81,7 +109,7 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 	// HostIdToHostPool is a mapping from Host ID to the Host Pool in which the Host is contained.
 	HostIdToHostPool map[string]*HostPool[T]
 
-	// Size encodes the total number of scheduling.Host instances contained within this MutliIndex.
+	// Size encodes the total number of scheduling.Host instances contained within this MultiIndex.
 	// Size includes scheduling.Host instances in FreeHosts as well as those in the HostPools.
 	Size int
 
@@ -89,16 +117,16 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 	mu  sync.Mutex
 }
 
-// NewMultiIndex creates and returns a new MultiIndex.
+// NewMultiIndexWithHostPoolInitializer creates and returns a new MultiIndex.
 //
 // The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
 //
-// The MultiIndexProvider is a function that returns concrete instantiations of the type parameter.
+// The IndexProvider is a function that returns concrete instantiations of the type parameter.
 // It will typically just be the "constructor" (i.e., the NewX function, such as NewLeastLoadedIndex).
 //
 // If the constructor accepts parameters, then a closure of the constructor could be passed, assuming the
-// values of those parameters can accetably remain the same for the program's execution.
-func NewMultiIndex[T scheduling.ClusterIndex](maxGpus int32, provider MultiIndexProvider[T]) (*MultiIndex[T], error) {
+// values of those parameters can acceptably remain the same for the program's execution.
+func NewMultiIndexWithHostPoolInitializer[T scheduling.ClusterIndex](numPools int32, provider Provider[T], initializer HostPoolInitializer[T]) *MultiIndex[T] {
 	index := &MultiIndex[T]{
 		FreeHosts:        queue.NewFifo[scheduling.Host](16),
 		FreeHostsMap:     make(map[string]scheduling.Host),
@@ -108,37 +136,24 @@ func NewMultiIndex[T scheduling.ClusterIndex](maxGpus int32, provider MultiIndex
 		Size:             0,
 	}
 
-	config.InitLogger(&index.log, fmt.Sprintf("MultiIndex[%d] ", maxGpus))
+	config.InitLogger(&index.log, fmt.Sprintf("MultiIndex[%d Pools] ", numPools))
 
-	err := index.initializeHostPools(maxGpus, provider)
-	if err != nil {
-		index.log.Error("Failed to initialize host pools: %v", err)
-		return nil, err
-	}
+	index.HostPools = initializer(numPools, provider)
 
-	return index, nil
+	return index
 }
 
-// initializeHostPools creates all the HostPool instances to be managed by the target MultiIndex.
+// NewMultiIndex creates and returns a new MultiIndex.
 //
-// It uses the given MultiIndexProvider to create each of the "sub-indices"/HostPool instances.
-func (index *MultiIndex[T]) initializeHostPools(maxGPUs int32, indexProvider MultiIndexProvider[T]) error {
-	index.mu.Lock()
-	defer index.mu.Unlock()
-
-	index.log.Debug("Initializing %d host pools now.", maxGPUs+1)
-
-	if index.HostGroupsInitialized {
-		return nil
-	}
-
-	var gpus int32
-	for gpus = 0; gpus <= maxGPUs; gpus++ {
-		index.HostPools[gpus] = NewHostPool(indexProvider(), gpus)
-		index.log.Debug("Initialized HostPool #%d: %d-GPU pool.", len(index.HostPools), gpus)
-	}
-
-	return nil
+// The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
+//
+// The IndexProvider is a function that returns concrete instantiations of the type parameter.
+// It will typically just be the "constructor" (i.e., the NewX function, such as NewLeastLoadedIndex).
+//
+// If the constructor accepts parameters, then a closure of the constructor could be passed, assuming the
+// values of those parameters can acceptably remain the same for the program's execution.
+func NewMultiIndex[T scheduling.ClusterIndex](numPools int32, provider Provider[T]) *MultiIndex[T] {
+	return NewMultiIndexWithHostPoolInitializer[T](numPools, provider, initializeHostPoolsDefault)
 }
 
 // NumFreeHosts returns the number of "free" scheduling.Host instances within the target MultiIndex.
@@ -148,14 +163,59 @@ func (index *MultiIndex[T]) NumFreeHosts() int {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
+	return index.unsafeNumFreeHosts()
+}
+
+// unsafeNumFreeHosts returns the number of "free" scheduling.Host instances within the target MultiIndex.
+//
+// "Free" hosts are those that have not been placed into a particular HostPool (yet).
+func (index *MultiIndex[T]) unsafeNumFreeHosts() int {
 	return index.FreeHosts.Len()
 }
 
+// HostPoolIDs returns the valid IDs of each HostPool managed by the target MultiIndex.
+//
+// The returned slice of HostPool IDs will be sorted in ascending order (i.e., smallest to largest).
+//
+// HostPoolIDs is thread safe.
+func (index *MultiIndex[T]) HostPoolIDs() []int32 {
+	index.mu.Lock()
+	defer index.mu.Unlock()
+
+	return index.unsafeHostPoolIDs()
+}
+
+// unsafeHostPoolIDs returns the valid IDs of each HostPool managed by the target MultiIndex.
+//
+// The returned slice of HostPool IDs will be sorted in ascending order (i.e., smallest to largest).
+//
+// unsafeHostPoolIDs is NOT thread safe.
+func (index *MultiIndex[T]) unsafeHostPoolIDs() []int32 {
+	ids := make([]int32, 0, len(index.HostPools))
+	for id, _ := range index.HostPools {
+		ids = append(ids, id)
+	}
+
+	slices.Sort(ids)
+	return ids
+}
+
+// NumHostPools returns the number of HostPools managed by the MultiPlacer.
+func (index *MultiIndex[T]) NumHostPools() int {
+	return len(index.HostPools)
+}
+
+// HasHostPool returns true if the MultiIndex has a host pool for the specified pool index.
+func (index *MultiIndex[T]) HasHostPool(poolNumber int32) bool {
+	_, loaded := index.HostPools[poolNumber]
+	return loaded
+}
+
 // NumHostsInPool returns the number of hosts in the specified host pool.
-func (index *MultiIndex[T]) NumHostsInPool(gpus int32) int {
-	pool, loaded := index.HostPools[gpus]
+func (index *MultiIndex[T]) NumHostsInPool(poolNumber int32) int {
+	pool, loaded := index.HostPools[poolNumber]
 	if !loaded {
-		index.log.Warn("Size of %d-GPU pool requested; however, no such pool exists...", gpus)
+		index.log.Warn("Size of pool %d requested; however, no such pool exists...", poolNumber)
 
 		return -1
 	}
@@ -163,12 +223,9 @@ func (index *MultiIndex[T]) NumHostsInPool(gpus int32) int {
 	return pool.Len()
 }
 
-// GetHostPool returns the HostPool for the specified number of GPUs.
-//
-// The HostPool will be the one responsible for containing Hosts that serve sessions/kernels/jobs
-// requiring `gpus` number of GPUs.
-func (index *MultiIndex[T]) GetHostPool(gpus int32) (*HostPool[T], bool) {
-	pool, loaded := index.HostPools[gpus]
+// GetHostPool returns the HostPool for the specified pool index.
+func (index *MultiIndex[T]) GetHostPool(poolNumber int32) (*HostPool[T], bool) {
+	pool, loaded := index.HostPools[poolNumber]
 	if loaded {
 		return pool, true
 	}
@@ -201,7 +258,7 @@ func (index *MultiIndex[T]) Add(host scheduling.Host) {
 func (index *MultiIndex[T]) Update(host scheduling.Host) {
 	hostPool, loaded := index.HostIdToHostPool[host.GetID()]
 	if !loaded {
-		index.log.Warn("Could not load GPU pool for host %s (ID=%s). Cannot update host.",
+		index.log.Warn("Could not load host pool for host %s (ID=%s). Cannot update host.",
 			host.GetNodeName(), host.GetID())
 		return
 	}
@@ -241,7 +298,7 @@ func (index *MultiIndex[T]) Remove(host scheduling.Host) {
 
 	hostPool, loaded := index.HostIdToHostPool[host.GetID()]
 	if !loaded {
-		index.log.Warn("Could not load GPU pool for host %s (ID=%s). Cannot remove host.",
+		index.log.Warn("Could not load host pool for host %s (ID=%s). Cannot remove host.",
 			host.GetNodeName(), host.GetID())
 		return
 	}
@@ -256,7 +313,7 @@ func (index *MultiIndex[T]) GetMetrics(host scheduling.Host) []float64 {
 
 	hostPool, loaded := index.HostIdToHostPool[host.GetID()]
 	if !loaded {
-		index.log.Warn("Could not load GPU pool for host %s (ID=%s). Cannot get metrics for host.",
+		index.log.Warn("Could not load host pool for host %s (ID=%s). Cannot get metrics for host.",
 			host.GetNodeName(), host.GetID())
 		return []float64{}
 	}
@@ -295,30 +352,35 @@ func (index *MultiIndex[T]) seekCriteria(_ scheduling.Host) bool {
 	return true
 }
 
-func (index *MultiIndex[T]) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}) {
+func (index *MultiIndex[T]) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}, error) {
 	if len(metrics) == 0 {
 		index.log.Warn("No metrics received in call to SeekMultipleFrom for Multi-Index...")
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	index.log.Debug("Seeking single host with metrics: %v", metrics)
 
-	hosts, _ := index.SeekMultipleFrom(nil, 1, index.seekCriteria, blacklist, metrics...)
+	hosts, _, err := index.SeekMultipleFrom(nil, 1, index.seekCriteria, blacklist, metrics...)
 
-	if hosts == nil || len(hosts) == 0 {
-		return nil, nil
+	if err != nil {
+		index.log.Error("Error occurred while seeking host: %v", err)
+		return nil, nil, err
 	}
 
-	return hosts[0], nil
+	if hosts == nil || len(hosts) == 0 {
+		return nil, nil, nil
+	}
+
+	return hosts[0], nil, nil
 }
 
 // logSeekMultiple simply logs a message about how many hosts were found during a part of findCandidateHosts.
-func (index *MultiIndex[T]) logSeekMultiple(numHosts int, numGpus int32, hosts []scheduling.Host) {
+func (index *MultiIndex[T]) logSeekMultiple(numHosts int, poolNumber int32, hosts []scheduling.Host) {
 	// We did not find all the hosts that we need.
 	if hosts == nil || len(hosts) == 0 {
-		index.log.Debug("Failed to find any candidate hosts from %d-GPU pool. We need %d host(s).", numGpus, numHosts)
+		index.log.Debug("Failed to find any candidate hosts from host pool %d. We need %d host(s).", poolNumber, numHosts)
 	} else {
-		index.log.Debug("Found %d/%d candidate hosts from %d-GPU pool.", len(hosts), numHosts, numGpus)
+		index.log.Debug("Found %d/%d candidate hosts from host pool %d.", len(hosts), numHosts, poolNumber)
 	}
 }
 
@@ -327,7 +389,7 @@ func (index *MultiIndex[T]) logSeekMultiple(numHosts int, numGpus int32, hosts [
 //
 // This entire method is thread-safe. The index is locked until this method returns.
 func (index *MultiIndex[T]) SeekMultipleFrom(pos interface{}, numHosts int, criteria scheduling.HostCriteriaFunction,
-	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}, error) {
 
 	index.mu.Lock()
 	defer index.mu.Unlock()
@@ -335,36 +397,45 @@ func (index *MultiIndex[T]) SeekMultipleFrom(pos interface{}, numHosts int, crit
 	// If for whatever reason, we were instructed to find zero hosts, then just return immediately.
 	if numHosts == 0 {
 		index.log.Warn("Instructed to find candidate hosts; however, NumHosts=%d...", numHosts)
-		return []scheduling.Host{}, nil
+		return []scheduling.Host{}, nil, nil
 	}
 
 	if len(metrics) == 0 {
 		panic("No metrics received in call to SeekMultipleFrom for MutliIndex...")
 	}
 
-	numGpus := int32(metrics[0][0])
-	pool := index.HostPools[numGpus]
+	poolNumber := int32(metrics[0][0])
+	pool := index.HostPools[poolNumber]
 	if pool == nil {
-		index.log.Error("No pool found for specified number of GPUs: %d", numGpus)
-		return []scheduling.Host{}, nil
+		index.log.Error("No pool found for specified pool index: %d", poolNumber)
+		index.log.Error("Valid pool indices are: %v", index.unsafeHostPoolIDs())
+		return []scheduling.Host{}, nil, nil
 	}
 
 	// If there is at least one valid host available, then we'll try to see if it is viable.
-	var hosts []scheduling.Host
+	var (
+		hosts []scheduling.Host
+		err   error
+	)
 	if pool.Len() > 0 {
 		// Attempt to find some candidate hosts.
-		hosts, _ = pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist)
+		hosts, _, err = pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist)
+
+		if err != nil {
+			index.log.Error("Error occurred while seeking %d host(s): %v", numHosts, err)
+			return nil, nil, err
+		}
 
 		// Check if we found all the hosts that we need.
 		if hosts != nil && len(hosts) == numHosts {
-			index.log.Debug("Successfully identified all %d required host(s) from %d-GPU pool.", numHosts, numGpus)
-			return hosts, nil
+			index.log.Debug("Successfully identified all %d required host(s) from %d-host pool.", numHosts, poolNumber)
+			return hosts, nil, nil
 		}
 
-		index.logSeekMultiple(numHosts, numGpus, hosts)
+		index.logSeekMultiple(numHosts, poolNumber, hosts)
 	} else {
 		// There were no viable hosts.
-		index.log.Debug("Need host from %d-GPU pool; however %d-GPU pool is empty.", numGpus, numGpus)
+		index.log.Debug("Need host from %d-host pool; however %d-host pool is empty.", poolNumber, poolNumber)
 	}
 
 	// Create the host slice if it has not already been created.
@@ -384,35 +455,48 @@ func (index *MultiIndex[T]) SeekMultipleFrom(pos interface{}, numHosts int, crit
 
 	if index.FreeHosts.Len() == 0 {
 		index.log.Debug("There are no unpooled nodes available. Cannot find %d remaining host(s).", numHosts)
-		return hosts, nil
+		return hosts, nil, nil
 	}
 
-	numHostsAddedToPool := index.unsafeUpdatePool(numHosts, numGpus)
+	// Keep trying to add free hosts until we either run out of free hosts,
+	// or we find enough hosts to fulfill/satisfy the request.
+	for index.unsafeNumFreeHosts() > 0 && numHosts > 0 {
+		numHostsAddedToPool := index.unsafeUpdatePool(numHosts, poolNumber)
 
-	if numHostsAddedToPool < numHosts {
-		index.log.Debug("Insufficient unpooled hosts available. Will only be able to find at most %d/%d host(s).",
-			numHostsAddedToPool, numHosts)
+		if numHostsAddedToPool < numHosts {
+			index.log.Debug("Insufficient unpooled hosts available. Will only be able to find at most %d/%d host(s).",
+				numHostsAddedToPool, numHosts)
+		}
+
+		hostBatch, _, err := pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist)
+
+		if err != nil {
+			index.log.Error("Error occurred while seeking %d host(s) after updating pool %d: %v",
+				numHosts, poolNumber, err)
+			return nil, nil, err
+		}
+
+		hosts = append(hosts, hostBatch...)
+
+		index.log.Debug("Found %d host(s) after adding %d host(s) to %d-host pool. Found total of %d/%d host(s).",
+			len(hostBatch), numHostsAddedToPool, poolNumber, len(hosts), numHosts)
+
+		numHosts -= len(hostBatch)
 	}
 
-	hostBatch, _ := pool.SeekMultipleFrom(pos, numHosts, criteria, blacklist)
-	hosts = append(hosts, hostBatch...)
-
-	index.log.Debug("Found %d host(s) after adding %d host(s) to %d-GPU pool. Found total of %d/%d host(s).",
-		len(hostBatch), numHostsAddedToPool, numGpus, len(hosts), numHosts)
-
-	return hosts, nil
+	return hosts, nil, nil
 }
 
 // unsafeUpdatePool attempts to add up to 'numHosts' scheduling.Host instances from
-// the unpooledHosts to the HostPool for the specified number of GPUs, 'numGPUs'.
+// the unpooledHosts to the HostPool with the specified pool index.
 //
 // unsafeUpdatePool returns the number of hosts that were added to the specified HostPool.
-func (index *MultiIndex[T]) unsafeUpdatePool(numHosts int, numGpus int32) int {
+func (index *MultiIndex[T]) unsafeUpdatePool(numHosts int, poolNumber int32) int {
 	// If we get to this point, then we did not find all the hosts that we need.
 	// Let's first see if we have any "free" hosts that we can allocate to the pool.
 	numHostsAddedToPool := 0
 
-	pool := index.HostPools[numGpus]
+	pool := index.HostPools[poolNumber]
 
 	// As long as we've not yet added enough new hosts to satisfy the request, and there are still unpooled hosts
 	// that we can add to the pool, continue adding unpooled hosts to the pool.
@@ -433,8 +517,8 @@ func (index *MultiIndex[T]) unsafeUpdatePool(numHosts int, numGpus int32) int {
 		numHostsAddedToPool += 1
 	}
 
-	index.log.Debug("Added %d/%d unpooled host(s) to the %d-GPU pool. Remaining free hosts: %d.",
-		numHostsAddedToPool, numHosts, numGpus, index.FreeHosts.Len())
+	index.log.Debug("Added %d/%d unpooled host(s) to the %d-host pool. Remaining free hosts: %d.",
+		numHostsAddedToPool, numHosts, poolNumber, index.FreeHosts.Len())
 
 	return numHostsAddedToPool
 }

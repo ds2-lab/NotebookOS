@@ -56,8 +56,8 @@ var _ = Describe("MultiIndex Tests", func() {
 			gomock.Any(),
 			&proto.Void{},
 		).Return(&proto.GpuInfo{
-			SpecGPUs:              int32(hostSpec.GPU()),
-			IdleGPUs:              int32(hostSpec.GPU()),
+			SpecGPUs:              int32(hostSpec.GPU() + 1),
+			IdleGPUs:              int32(hostSpec.GPU() + 1),
 			CommittedGPUs:         0,
 			PendingGPUs:           0,
 			NumPendingAllocations: 0,
@@ -81,85 +81,89 @@ var _ = Describe("MultiIndex Tests", func() {
 		Context("Adding and Removing Hosts", func() {
 			Context("Empty Hosts", func() {
 				It("Will handle a single add operation correctly", func() {
-					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
-					Expect(gandivaIndex).ToNot(BeNil())
-					Expect(err).To(BeNil())
+					multiIndex := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
+					Expect(multiIndex).ToNot(BeNil())
 
 					host1 := createHost(1)
-					gandivaIndex.Add(host1)
-					Expect(gandivaIndex.Len()).To(Equal(1))
+					multiIndex.Add(host1)
+					Expect(multiIndex.Len()).To(Equal(1))
 
-					ret, _ := gandivaIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err := multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
-					Expect(gandivaIndex.Len()).To(Equal(1))
+					Expect(multiIndex.Len()).To(Equal(1))
 
 					By("Succeeding during consecutive calls to Seek")
 
-					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
-					Expect(gandivaIndex.Len()).To(Equal(1))
+					Expect(multiIndex.Len()).To(Equal(1))
 
-					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
-					Expect(gandivaIndex.Len()).To(Equal(1))
+					Expect(multiIndex.Len()).To(Equal(1))
 				})
 
 				It("Will handle an add followed by a remove correctly", func() {
-					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
-					Expect(err).To(BeNil())
-					Expect(gandivaIndex).ToNot(BeNil())
+					multiIndex := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
+					Expect(multiIndex).ToNot(BeNil())
 
 					host1 := createHost(1)
-					gandivaIndex.Add(host1)
-					Expect(gandivaIndex.Len()).To(Equal(1))
+					multiIndex.Add(host1)
+					Expect(multiIndex.Len()).To(Equal(1))
 
-					ret, _ := gandivaIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err := multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
-					Expect(gandivaIndex.Len()).To(Equal(1))
+					Expect(multiIndex.Len()).To(Equal(1))
 
-					gandivaIndex.Remove(host1)
-					Expect(gandivaIndex.Len()).To(Equal(0))
+					multiIndex.Remove(host1)
+					Expect(multiIndex.Len()).To(Equal(0))
 
-					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
 					Expect(ret).To(BeNil())
 				})
 
 				It("Will handle multiple add and remove operations correctly", func() {
-					gandivaIndex, err := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
-					Expect(err).To(BeNil())
-					Expect(gandivaIndex).ToNot(BeNil())
+					multiIndex := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
+					Expect(multiIndex).ToNot(BeNil())
 
 					host1 := createHost(1)
-					gandivaIndex.Add(host1)
-					Expect(gandivaIndex.Len()).To(Equal(1))
+					multiIndex.Add(host1)
+					Expect(multiIndex.Len()).To(Equal(1))
 
 					meta := host1.GetMeta(index.LeastLoadedIndexMetadataKey)
 					Expect(meta).To(BeNil())
 
-					ret, _ := gandivaIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err := multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
-					Expect(gandivaIndex.Len()).To(Equal(1))
+					Expect(multiIndex.Len()).To(Equal(1))
 
 					meta = host1.GetMeta(index.LeastLoadedIndexMetadataKey)
 					Expect(meta).ToNot(BeNil())
 					Expect(meta.(int32)).To(Equal(int32(0)))
 
 					host2 := createHost(2)
-					gandivaIndex.Add(host2)
-					Expect(gandivaIndex.Len()).To(Equal(2))
+					multiIndex.Add(host2)
+					Expect(multiIndex.Len()).To(Equal(2))
 
 					meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
 					Expect(meta).To(BeNil())
 
-					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
-					Expect(gandivaIndex.Len()).To(Equal(2))
+					Expect(multiIndex.Len()).To(Equal(2))
 
 					meta = host1.GetMeta(index.LeastLoadedIndexMetadataKey)
 					Expect(meta).ToNot(BeNil())
@@ -170,25 +174,28 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Succeeding during consecutive calls to Seek")
 
-					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
-					Expect(gandivaIndex.Len()).To(Equal(2))
+					Expect(multiIndex.Len()).To(Equal(2))
 
-					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
-					Expect(gandivaIndex.Len()).To(Equal(2))
+					Expect(multiIndex.Len()).To(Equal(2))
 
 					By("Correctly removing one of the two hosts")
 
-					gandivaIndex.Remove(host1)
-					Expect(gandivaIndex.Len()).To(Equal(1))
+					multiIndex.Remove(host1)
+					Expect(multiIndex.Len()).To(Equal(1))
 
-					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host2))
-					Expect(gandivaIndex.Len()).To(Equal(1))
+					Expect(multiIndex.Len()).To(Equal(1))
 
 					By("Correctly removing the final host")
 
@@ -197,10 +204,10 @@ var _ = Describe("MultiIndex Tests", func() {
 					Expect(meta.(int32)).To(Equal(int32(0)))
 
 					fmt.Printf("Removing final host.")
-					gandivaIndex.Remove(host2)
-					Expect(gandivaIndex.Len()).To(Equal(0))
+					multiIndex.Remove(host2)
+					Expect(multiIndex.Len()).To(Equal(0))
 
-					ret, _ = gandivaIndex.Seek(emptyBlacklist, []float64{4})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{4})
 					Expect(ret).To(BeNil())
 				})
 			})
@@ -208,15 +215,13 @@ var _ = Describe("MultiIndex Tests", func() {
 			Context("Non-Empty Hosts", func() {
 				var (
 					multiIndex *index.MultiIndex[*index.LeastLoadedIndex]
-					err        error
 					host1      scheduling.Host
 					host2      scheduling.Host
 					host3      scheduling.Host
 				)
 
 				BeforeEach(func() {
-					multiIndex, err = index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()), index.NewLeastLoadedIndex)
-					Expect(err).To(BeNil())
+					multiIndex = index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(multiIndex).ToNot(BeNil())
 
 					host1 = createHost(1)
@@ -252,7 +257,8 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly returning the least-loaded host")
 
-					ret, _ := multiIndex.Seek(emptyBlacklist, []float64{2})
+					ret, _, err := multiIndex.Seek(emptyBlacklist, []float64{2})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host1))
 					Expect(multiIndex.Len()).To(Equal(3))
@@ -264,7 +270,8 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly returning the 'new' least-loaded host")
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{2})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{2})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host2))
 					Expect(multiIndex.Len()).To(Equal(2))
@@ -276,7 +283,8 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly returning the 'new' least-loaded host")
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{2})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{2})
+					Expect(err).To(BeNil())
 					Expect(ret).ToNot(BeNil())
 					Expect(ret).To(Equal(host3))
 					Expect(multiIndex.Len()).To(Equal(1))
@@ -288,7 +296,7 @@ var _ = Describe("MultiIndex Tests", func() {
 
 					By("Correctly returning no hosts because the index is empty")
 
-					ret, _ = multiIndex.Seek(emptyBlacklist, []float64{2})
+					ret, _, err = multiIndex.Seek(emptyBlacklist, []float64{2})
 					Expect(ret).To(BeNil())
 					Expect(multiIndex.Len()).To(Equal(0))
 				})

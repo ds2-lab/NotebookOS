@@ -15,8 +15,8 @@ import (
 	"github.com/scusemua/distributed-notebook/common/docker_events/observer"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
-	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"log"
@@ -225,11 +225,6 @@ type SchedulerDaemonImpl struct {
 	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
 	MessageAcknowledgementsEnabled bool
 
-	// Indicates whether we're running within WSL (Windows Subsystem for Linux).
-	// If we are, then there is some additional configuration required for the kernel containers in order for
-	// them to be able to connect to remote storage running in the host (WSL).
-	usingWSL bool
-
 	// If true, then the kernels will be executed within GDB.
 	runKernelsInGdb bool
 
@@ -241,6 +236,12 @@ type SchedulerDaemonImpl struct {
 
 	// useRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
 	useRealGpus bool
+
+	// bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy.
+	bindDebugpyPort bool
+
+	// If true, rename stopped kernel containers to save/persist them. Enables you to persist their state, logs, etc.
+	saveStoppedKernelContainers bool
 
 	// lifetime
 	closed  chan struct{}
@@ -297,7 +298,6 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		remoteStorageEndpoint:              localDaemonOptions.RemoteStorageEndpoint,
 		remoteStorage:                      localDaemonOptions.RemoteStorage,
 		dockerStorageBase:                  localDaemonOptions.DockerStorageBase,
-		usingWSL:                           localDaemonOptions.UsingWSL,
 		DebugMode:                          localDaemonOptions.CommonOptions.DebugMode,
 		prometheusInterval:                 time.Second * time.Duration(localDaemonOptions.PrometheusInterval),
 		prometheusPort:                     localDaemonOptions.PrometheusPort,
@@ -310,6 +310,8 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		SimulateCheckpointingLatency:       localDaemonOptions.SimulateCheckpointingLatency,
 		electionTimeoutSeconds:             localDaemonOptions.ElectionTimeoutSeconds,
 		useRealGpus:                        localDaemonOptions.UseRealGPUs,
+		bindDebugpyPort:                    localDaemonOptions.BindDebugPyPort,
+		saveStoppedKernelContainers:        localDaemonOptions.SaveStoppedKernelContainers,
 	}
 
 	for _, configFunc := range configs {
@@ -385,7 +387,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		panic("remote storage endpoint is empty.")
 	}
 
-	schedulingPolicy, err := policy.GetSchedulingPolicy(&localDaemonOptions.SchedulerOptions)
+	schedulingPolicy, err := scheduler.GetSchedulingPolicy(&localDaemonOptions.SchedulerOptions)
 	if err != nil {
 		panic(err)
 	}
@@ -1037,7 +1039,6 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 			RemoteStorage:                        d.remoteStorage,
 			KernelDebugPort:                      -1,
 			DockerStorageBase:                    d.dockerStorageBase,
-			UsingWSL:                             d.usingWSL,
 			RunKernelsInGdb:                      d.runKernelsInGdb,
 			IsInDockerSwarm:                      d.DockerSwarmMode(),
 			PrometheusMetricsPort:                d.prometheusPort,
@@ -1047,6 +1048,8 @@ func (d *SchedulerDaemonImpl) registerKernelReplica(_ context.Context, kernelReg
 			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
 			UseRealGpus:                          d.useRealGpus,
+			BindDebugpyPort:                      d.bindDebugpyPort,
+			SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
 		}
 
 		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1683,7 +1686,7 @@ func (d *SchedulerDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaIn
 	frames := messaging.NewJupyterFramesWithHeader(messaging.MessageTypeAddReplicaRequest, kernel.Sessions()[0])
 	if err := frames.EncodeContent(&messaging.MessageSMRAddOrUpdateReplicaRequest{
 		NodeID:  replicaId,
-		Address: hostname, // s.daemon.getInvoker(kernel).GetReplicaAddress(kernel.KernelSpec(), replicaId),
+		Address: hostname,
 	}); err != nil {
 		d.log.Error("Failed to encode content of \"MessageSMRAddOrUpdateReplicaRequest\" message: %v", err)
 		return nil, err
@@ -1855,7 +1858,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 	}
 
 	kernelId := in.Kernel.Id
-	d.log.Debug("SchedulerDaemonImpl::StartKernelReplica(\"%s\"). ResourceSpec: %v", kernelId, in.Kernel.ResourceSpec)
+	d.log.Debug("SchedulerDaemonImpl::StartKernelReplica(\"%s\"). Spec: %v.", kernelId, in)
 
 	if otherReplica, loaded := d.kernels.Load(kernelId); loaded {
 		d.log.Error("We already have a replica of kernel %s running locally (replica %d). Cannot launch new replica on this node.", kernelId, otherReplica.ReplicaID())
@@ -1888,7 +1891,6 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			RemoteStorage:                        d.remoteStorage,
 			KernelDebugPort:                      int(in.DockerModeKernelDebugPort),
 			DockerStorageBase:                    d.dockerStorageBase,
-			UsingWSL:                             d.usingWSL,
 			RunKernelsInGdb:                      d.runKernelsInGdb,
 			SimulateCheckpointingLatency:         d.SimulateCheckpointingLatency,
 			IsInDockerSwarm:                      d.DockerSwarmMode(),
@@ -1899,6 +1901,8 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			WorkloadId:                           in.WorkloadId,
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
 			UseRealGpus:                          d.useRealGpus,
+			BindDebugpyPort:                      d.bindDebugpyPort,
+			SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
 		// Note that we could pass d.prometheusManager directly in the call above.

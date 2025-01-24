@@ -49,9 +49,8 @@ type Host interface {
 	IsProperlyInitialized() bool
 	GetLatestGpuInfo() *proto.GpuInfo
 	SetSchedulerPoolType(schedulerPoolType SchedulerPoolType)
-	SetIdx(idx int)
-	// GetIdx returns the target Host's heapIndex.
-	GetIdx() int
+	SetIdx(types.HeapElementMetadataKey, int)
+	GetIdx(types.HeapElementMetadataKey) int
 	Compare(h2 interface{}) float64
 	RecomputeSubscribedRatio() decimal.Decimal
 	LastResourcesSnapshot() types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
@@ -107,13 +106,35 @@ type Host interface {
 	// particular KernelReplica yielded, or after the KernelContainer finishes executing the code in the event that
 	// it wins its leader election.
 	//
+	// The executionId parameter is used to ensure that, if messages are received out-of-order, that we do not
+	// pre-release resources when we shouldn't have.
+	//
+	// For example, let's say we submit EXECUTION_1 to a Kernel. We received the main execute_reply from the leader,
+	// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the Kernel.
+	// EXECUTION_2 required we pre-allocate some resources again. Now if we receive the delayed replies to EXECUTION_1,
+	// we may release the pre-committed resources for EXECUTION_2.
+	//
+	// By passing the executionId, which is stored with the pre-committed resource allocation, we can simply ignore
+	// the de-allocation request if it is outdated.
+	//
 	// PreCommitResources is the inverse/counterpart to ReleasePreCommitedResources.
-	PreCommitResources(container KernelContainer) error
+	PreCommitResources(container KernelContainer, executionId string) error
 
 	// ReleasePreCommitedResources releases resources that were pre-committed to the given KernelContainer.
 	//
 	// ReleasePreCommitedResources is the inverse/counterpart to PreCommitResources.
-	ReleasePreCommitedResources(container KernelContainer) error
+	//
+	// The executionId parameter is used to ensure that, if messages are received out-of-order, that we do not
+	// pre-release resources when we shouldn't have.
+	//
+	// For example, let's say we submit EXECUTION_1 to a Kernel. We received the main execute_reply from the leader,
+	// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the Kernel.
+	// EXECUTION_2 required we pre-allocate some resources again. Now if we receive the delayed replies to EXECUTION_1,
+	// we may release the pre-committed resources for EXECUTION_2.
+	//
+	// By passing the executionId, which is stored with the pre-committed resource allocation, we can simply ignore
+	// the de-allocation request if it is outdated.
+	ReleasePreCommitedResources(container KernelContainer, executionId string) error
 
 	// KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 	// Host is updated or changed. This ensures that the Host's resource counts are up to date.

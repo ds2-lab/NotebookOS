@@ -1,0 +1,343 @@
+package index_test
+
+import (
+	"fmt"
+	"github.com/google/uuid"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/scusemua/distributed-notebook/common/mock_proto"
+	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
+	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/index"
+	"github.com/scusemua/distributed-notebook/common/types"
+	"go.uber.org/mock/gomock"
+	"slices"
+)
+
+var _ = Describe("Static Index Tests", func() {
+	var (
+		mockCtrl    *gomock.Controller
+		mockCluster *mock_scheduling.MockCluster
+	)
+
+	hostSpec := types.NewDecimalSpec(64000, 128000, 8, 40)
+
+	BeforeEach(func() {
+		mockCtrl = gomock.NewController(GinkgoT())
+		mockCluster = mock_scheduling.NewMockCluster(mockCtrl)
+	})
+
+	AfterEach(func() {
+		mockCtrl.Finish()
+	})
+
+	createHost := func(idx int) scheduling.Host {
+		localGatewayClient := mock_proto.NewMockLocalGatewayClient(mockCtrl)
+
+		hostId := fmt.Sprintf("Host%d", idx)
+		nodeName := fmt.Sprintf("Host%d", idx)
+
+		localGatewayClient.EXPECT().SetID(
+			gomock.Any(),
+			&proto.HostId{
+				Id: hostId,
+			},
+		).Return(&proto.HostId{
+			Id:       hostId,
+			NodeName: nodeName,
+		}, nil)
+
+		localGatewayClient.EXPECT().GetActualGpuInfo(
+			gomock.Any(),
+			&proto.Void{},
+		).Return(&proto.GpuInfo{
+			SpecGPUs:              int32(hostSpec.GPU() + 1),
+			IdleGPUs:              int32(hostSpec.GPU() + 1),
+			CommittedGPUs:         0,
+			PendingGPUs:           0,
+			NumPendingAllocations: 0,
+			NumAllocations:        0,
+			GpuSchedulerID:        uuid.NewString(),
+			LocalDaemonID:         hostId,
+		}, nil)
+
+		host, err := entity.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
+			scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, 3, mockCluster, mockCluster,
+			nil, localGatewayClient, scheduling.BindResourcesWhenContainerScheduled,
+			func(_ string, _ string, _ string, _ string) error { return nil })
+
+		Expect(host).ToNot(BeNil())
+		Expect(err).To(BeNil())
+
+		return host
+	}
+
+	It("Will be instantiated correctly", func() {
+		staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
+		Expect(staticIndex).ToNot(BeNil())
+
+		expectedHostPoolIds := []int32{1, 2, 4, 8}
+
+		Expect(staticIndex.NumPools).To(Equal(int32(4)))
+		Expect(staticIndex.GetNumPools()).To(Equal(4))
+
+		actualHostPoolIds := staticIndex.HostPoolIDs()
+		Expect(actualHostPoolIds).ToNot(BeNil())
+		Expect(len(actualHostPoolIds)).To(Equal(len(expectedHostPoolIds)))
+
+		Expect(expectedHostPoolIds).To(Equal(actualHostPoolIds))
+		for _, expectedId := range expectedHostPoolIds {
+			Expect(slices.Contains(actualHostPoolIds, expectedId)).To(BeTrue())
+		}
+
+		for _, expectedId := range expectedHostPoolIds {
+			GinkgoWriter.Printf("Loading HostPool %d\n", expectedId)
+			pool, loaded := staticIndex.GetHostPoolByIndex(expectedId)
+			Expect(loaded).To(BeTrue())
+			Expect(pool).ToNot(BeNil())
+			Expect(pool.Len()).To(Equal(0))
+
+			Expect(staticIndex.NumHostsInPoolByIndex(expectedId)).To(Equal(0))
+		}
+	})
+
+	Context("Adding and Removing Hosts", func() {
+		Context("Empty Hosts", func() {
+			It("Will handle a single add operation correctly", func() {
+				staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
+				Expect(staticIndex).ToNot(BeNil())
+
+				host1 := createHost(1)
+				staticIndex.Add(host1)
+				Expect(staticIndex.Len()).To(Equal(1))
+
+				ret, _, err := staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host1))
+				Expect(staticIndex.Len()).To(Equal(1))
+
+				By("Succeeding during consecutive calls to Seek")
+
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host1))
+				Expect(staticIndex.Len()).To(Equal(1))
+
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host1))
+				Expect(staticIndex.Len()).To(Equal(1))
+			})
+
+			It("Will handle an add followed by a remove correctly", func() {
+				staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
+				Expect(staticIndex).ToNot(BeNil())
+
+				host1 := createHost(1)
+				staticIndex.Add(host1)
+				Expect(staticIndex.Len()).To(Equal(1))
+
+				ret, _, err := staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host1))
+				Expect(staticIndex.Len()).To(Equal(1))
+
+				staticIndex.Remove(host1)
+				Expect(staticIndex.Len()).To(Equal(0))
+
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(ret).To(BeNil())
+			})
+
+			It("Will handle multiple add and remove operations correctly", func() {
+				staticIndex := index.NewStaticIndex(int32(hostSpec.GPU()))
+				Expect(staticIndex).ToNot(BeNil())
+
+				host1 := createHost(1)
+				staticIndex.Add(host1)
+				Expect(staticIndex.Len()).To(Equal(1))
+
+				meta := host1.GetMeta(index.LeastLoadedIndexMetadataKey)
+				Expect(meta).To(BeNil())
+
+				ret, _, err := staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host1))
+				Expect(staticIndex.Len()).To(Equal(1))
+
+				meta = host1.GetMeta(index.LeastLoadedIndexMetadataKey)
+				Expect(meta).ToNot(BeNil())
+				Expect(meta.(int32)).To(Equal(int32(0)))
+
+				host2 := createHost(2)
+				staticIndex.Add(host2)
+				Expect(staticIndex.Len()).To(Equal(2))
+
+				meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
+				Expect(meta).To(BeNil())
+
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host1))
+				Expect(staticIndex.Len()).To(Equal(2))
+
+				meta = host1.GetMeta(index.LeastLoadedIndexMetadataKey)
+				Expect(meta).ToNot(BeNil())
+				Expect(meta.(int32)).To(Equal(int32(0)))
+
+				meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
+				Expect(meta).To(BeNil())
+
+				By("Succeeding during consecutive calls to Seek")
+
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host1))
+				Expect(staticIndex.Len()).To(Equal(2))
+
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host1))
+				Expect(staticIndex.Len()).To(Equal(2))
+
+				By("Correctly removing one of the two hosts")
+
+				staticIndex.Remove(host1)
+				Expect(staticIndex.Len()).To(Equal(1))
+
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host2))
+				Expect(staticIndex.Len()).To(Equal(1))
+
+				By("Correctly removing the final host")
+
+				meta = host2.GetMeta(index.LeastLoadedIndexMetadataKey)
+				Expect(meta).ToNot(BeNil())
+				Expect(meta.(int32)).To(Equal(int32(0)))
+
+				fmt.Printf("Removing final host.")
+				staticIndex.Remove(host2)
+				Expect(staticIndex.Len()).To(Equal(0))
+
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{4})
+				Expect(ret).To(BeNil())
+			})
+		})
+
+		It("Will correctly compute values GetStaticIndexBucket", func() {
+			gpusPerHost := int32(8)
+
+			Expect(index.GetStaticIndexBucket(0, gpusPerHost)).To(Equal(int32(8)))
+			Expect(index.GetStaticIndexBucket(1, gpusPerHost)).To(Equal(int32(8)))
+			Expect(index.GetStaticIndexBucket(2, gpusPerHost)).To(Equal(int32(4)))
+			Expect(index.GetStaticIndexBucket(3, gpusPerHost)).To(Equal(int32(2)))
+			Expect(index.GetStaticIndexBucket(4, gpusPerHost)).To(Equal(int32(2)))
+			Expect(index.GetStaticIndexBucket(5, gpusPerHost)).To(Equal(int32(1)))
+			Expect(index.GetStaticIndexBucket(6, gpusPerHost)).To(Equal(int32(1)))
+			Expect(index.GetStaticIndexBucket(7, gpusPerHost)).To(Equal(int32(1)))
+			Expect(index.GetStaticIndexBucket(8, gpusPerHost)).To(Equal(int32(1)))
+		})
+
+		Context("Non-Empty Hosts", func() {
+			var (
+				staticIndex *index.StaticIndex
+				host1       scheduling.Host
+				host2       scheduling.Host
+				host3       scheduling.Host
+			)
+
+			BeforeEach(func() {
+				staticIndex = index.NewStaticIndex(int32(hostSpec.GPU()))
+				Expect(staticIndex).ToNot(BeNil())
+
+				host1 = createHost(1)
+				host2 = createHost(2)
+				host3 = createHost(3)
+
+				err := host1.AddToCommittedResources(types.NewDecimalSpec(128, 256, 2, 2))
+				Expect(err).To(BeNil())
+				err = host1.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 2, 2))
+				Expect(err).To(BeNil())
+
+				err = host2.AddToCommittedResources(types.NewDecimalSpec(128, 256, 4, 2))
+				Expect(err).To(BeNil())
+				err = host2.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 4, 2))
+				Expect(err).To(BeNil())
+
+				err = host3.AddToCommittedResources(types.NewDecimalSpec(128, 256, 6, 2))
+				Expect(err).To(BeNil())
+				err = host3.SubtractFromIdleResources(types.NewDecimalSpec(128, 256, 6, 2))
+				Expect(err).To(BeNil())
+
+				staticIndex.Add(host1)
+				staticIndex.Add(host2)
+				staticIndex.Add(host3)
+
+				Expect(staticIndex.Len()).To(Equal(3))
+				Expect(staticIndex.NumFreeHosts()).To(Equal(3))
+			})
+
+			It("Will correctly handle multiple add and remove operations", func() {
+				By("Correctly handling the addition of 3 hosts")
+				Expect(staticIndex.Len()).To(Equal(3))
+
+				By("Correctly returning the least-loaded host")
+
+				ret, _, err := staticIndex.Seek(emptyBlacklist, []float64{2})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host1))
+				Expect(staticIndex.Len()).To(Equal(3))
+
+				By("Correctly handling the removal of the least-loaded host")
+
+				staticIndex.Remove(host1)
+				Expect(staticIndex.Len()).To(Equal(2))
+
+				By("Correctly returning the 'new' least-loaded host")
+
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{2})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host2))
+				Expect(staticIndex.Len()).To(Equal(2))
+
+				By("Correctly handling the removal of the least-loaded host")
+
+				staticIndex.Remove(host2)
+				Expect(staticIndex.Len()).To(Equal(1))
+
+				By("Correctly returning the 'new' least-loaded host")
+
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{2})
+				Expect(err).To(BeNil())
+				Expect(ret).ToNot(BeNil())
+				Expect(ret).To(Equal(host3))
+				Expect(staticIndex.Len()).To(Equal(1))
+
+				By("Correctly handling the removal of final remaining host")
+
+				staticIndex.Remove(host3)
+				Expect(staticIndex.Len()).To(Equal(0))
+
+				By("Correctly returning no hosts because the index is empty")
+
+				ret, _, err = staticIndex.Seek(emptyBlacklist, []float64{2})
+				Expect(ret).To(BeNil())
+				Expect(staticIndex.Len()).To(Equal(0))
+			})
+		})
+	})
+})

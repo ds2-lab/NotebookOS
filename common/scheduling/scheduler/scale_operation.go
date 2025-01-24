@@ -296,6 +296,8 @@ func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, 
 // Specifically, a tuple is returned, where the first element is a pointer to a new ScaleOperation struct, and
 // the second element is an error, if one occurred. If an error did occur, then the pointer to the ScaleOperation
 // struct will presumably be a null pointer.
+//
+// Important: this should be called with the Cluster's scalingMutex already acquired.
 func NewScaleOperation(operationId string, initialScale int32, targetScale int32, cluster scheduling.Cluster) (*ScaleOperation, error) {
 	if targetScale == initialScale {
 		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: current scale and initial scale are equal (%d)", ErrInvalidTargetScale, targetScale).Error())
@@ -326,9 +328,10 @@ func NewScaleOperation(operationId string, initialScale int32, targetScale int32
 		err           error
 	)
 	if scaleOperation.OperationType == ScaleInOperation {
-		executionFunc, err = cluster.GetScaleInCommand(targetScale, []string{} /* No specific hosts targeted */, scaleOperation.CoreLogicDoneChan)
+		/* No specific hosts targeted */
+		executionFunc, err = cluster.GetScaleInCommand(targetScale, []string{}, scaleOperation.CoreLogicDoneChan)
 	} else {
-		executionFunc = cluster.GetScaleOutCommand(targetScale, scaleOperation.CoreLogicDoneChan)
+		executionFunc = cluster.GetScaleOutCommand(targetScale, scaleOperation.CoreLogicDoneChan, operationId)
 	}
 
 	if err != nil {

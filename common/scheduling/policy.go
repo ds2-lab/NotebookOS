@@ -101,6 +101,12 @@ type Policy interface {
 	// GetNewPlacer returns a concrete Placer implementation based on the Policy.
 	GetNewPlacer(metricsProvider MetricsProvider) (Placer, error)
 
+	// SupportsMigration returns true if the Policy allows for the migration of one or more replicas of
+	// a kernel when no replicas are able to serve a code execution request.
+	//
+	// If SupportsMigration returns false, then it is up to the client to resubmit the request.
+	SupportsMigration() bool
+
 	// ContainerLifetime returns the ContainerLifetime of KernelContainer instances created under the target Policy.
 	ContainerLifetime() ContainerLifetime
 
