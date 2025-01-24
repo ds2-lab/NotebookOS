@@ -153,9 +153,9 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		//virtualGpusPerHost:                       int32(b.options.VirtualGpusPerHost),
 		//scalingFactor:                            b.options.ScalingFactor,
 		//scalingLimit:                             b.options.ScalingLimit,
-		//scalingInterval:                          time.Second * time.Duration(b.options.ScalingInterval),
+		//scalingInterval:                          time.Second * time.Duration(b.options.ScalingIntervalSec),
 		//maximumHostsToReleaseAtOnce:              int32(b.options.MaximumHostsToReleaseAtOnce),
-		//scalingIntervalSec:                       int32(b.options.ScalingInterval),
+		//scalingIntervalSec:                       int32(b.options.ScalingIntervalSec),
 		//predictiveAutoscalingEnabled:             b.options.PredictiveAutoscalingEnabled,
 		//scalingBufferSize:                        int32(b.options.ScalingBufferSize),
 		//maximumCapacity:                          int32(b.options.MaximumNumNodes),
@@ -177,7 +177,7 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingLimit)
 		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().MaximumHostsToReleaseAtOnce)
-		clusterScheduler.log.Debug("ScalingInterval: %d",
+		clusterScheduler.log.Debug("ScalingIntervalSec: %d",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec)
 		clusterScheduler.log.Debug("PredictiveAutoscalingEnabled: %v",
 			clusterScheduler.schedulingPolicy.SupportsPredictiveAutoscaling())
@@ -733,7 +733,9 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 		s.log.Debug("Recomputed subscription ratio as %s.", s.subscriptionRatio.StringFixed(4))
 		s.rebalance(avg)
 
-		if !skipValidateCapacity && s.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec > 0 && time.Since(s.lastCapacityValidation) >= s.schedulingPolicy.ScalingConfiguration().ScalingInterval {
+		if !skipValidateCapacity && s.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec > 0 &&
+			time.Since(s.lastCapacityValidation) >= s.schedulingPolicy.ScalingConfiguration().ScalingInterval {
+
 			s.schedulingPolicy.ValidateCapacity(s.cluster)
 		}
 

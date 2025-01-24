@@ -169,7 +169,7 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 					host.GetNodeName(), hostId, scaleOpId)
 
 				scaleOutDurationSec := (rand.NormFloat64() * c.StdDevScaleOutPerHost.Seconds()) + c.MeanScaleOutPerHost.Seconds()
-				scaleOutDuration := time.Duration(scaleOutDurationSec) * time.Second
+				scaleOutDuration := time.Duration(scaleOutDurationSec*1000) * time.Millisecond
 				c.log.Debug("Simulating scale-out for host %s (ID=%s) during operation %s. Duration: %v",
 					host.GetNodeName(), hostId, scaleOpId, scaleOutDuration)
 				time.Sleep(scaleOutDuration)

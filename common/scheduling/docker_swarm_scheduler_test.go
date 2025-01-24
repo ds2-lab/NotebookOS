@@ -56,7 +56,7 @@ var (
 			"num-virtual-gpus-per-node": 72,
 			"subscribed-ratio-update-interval": 1,
 			"scaling-factor": 1.05,
-			"scaling-interval": 30,
+			"scaling-interval": 15,
 			"scaling-limit": 1.1,
 			"scaling-in-limit": 2,
 			"predictive_autoscaling": false,

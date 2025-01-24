@@ -40,7 +40,7 @@ var (
 		},
 		SubscribedRatioUpdateInterval: 1,
 		ScalingFactor:                 1.05,
-		ScalingInterval:               30,
+		ScalingIntervalSec:            30,
 		ScalingLimit:                  1.1,
 		MaximumHostsToReleaseAtOnce:   2,
 		PredictiveAutoscalingEnabled:  true,
@@ -85,7 +85,7 @@ var (
 		},
 		SubscribedRatioUpdateInterval: 1,
 		ScalingFactor:                 1.05,
-		ScalingInterval:               30,
+		ScalingIntervalSec:            30,
 		ScalingLimit:                  1.1,
 		MaximumHostsToReleaseAtOnce:   2,
 		PredictiveAutoscalingEnabled:  true,
@@ -117,7 +117,7 @@ type SchedulerOptions struct {
 	CustomIdleSessionReclamationOptions `yaml:",inline" name:"custom_idle_session_reclamation_options" json:"custom_idle_session_reclamation_options"`
 	SubscribedRatioUpdateInterval       float64 `name:"subscribed-ratio-update-interval"  json:"subscribed-ratio-update-interval" yaml:"subscribed-ratio-update-interval"                        description:"The interval to update the subscribed ratio."`
 	ScalingFactor                       float64 `name:"scaling-factor"                    json:"scaling-factor"                   yaml:"scaling-factor"                        description:"Defines how many hosts the Cluster will provision based on busy Resources"`
-	ScalingInterval                     int     `name:"scaling-interval"                  json:"scaling-interval"                 yaml:"scaling-interval"                        description:"Interval to call validateCapacity, in seconds. Set to 0 to disable routing scaling."`
+	ScalingIntervalSec                  float64 `name:"scaling-interval"                  json:"scaling-interval"                 yaml:"scaling-interval"                        description:"Interval to call validateCapacity, in seconds. Set to 0 to disable routing scaling."`
 	ScalingLimit                        float64 `name:"scaling-limit"                     json:"scaling-limit"                    yaml:"scaling-limit"                        description:"Defines how many hosts the Cluster will provision at maximum based on busy Resources"`
 	MaximumHostsToReleaseAtOnce         int     `name:"scaling-in-limit"                  json:"scaling-in-limit"                 yaml:"scaling-in-limit"                        description:"Sort of the inverse of the ScalingLimit parameter (maybe?)"`
 	PredictiveAutoscalingEnabled        bool    `name:"predictive_autoscaling"            json:"predictive_autoscaling"           yaml:"predictive_autoscaling"                        description:"If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the Cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation."`
@@ -129,10 +129,10 @@ type SchedulerOptions struct {
 	ExecutionTimeSamplingWindow         int64   `name:"execution-time-sampling-window"    json:"execution-time-sampling-window"   yaml:"execution-time-sampling-window"                        description:"Window size for moving average of training time. Specify a negative value to compute the average as the average of ALL execution times."`
 	MigrationTimeSamplingWindow         int64   `name:"migration-time-sampling-window"    json:"migration-time-sampling-window"   yaml:"migration-time-sampling-window"                        description:"Window size for moving average of migration time. Specify a negative value to compute the average as the average of ALL migration times."`
 	SchedulerHttpPort                   int     `name:"scheduler-http-port"               json:"scheduler-http-port"              yaml:"scheduler-http-port"                        description:"Port that the Cluster Gateway's kubernetes scheduler API server will listen on. This server is used to receive scheduling decision requests from the Kubernetes Scheduler Extender."`
-	MeanScaleOutPerHostSec              int     `name:"mean_scale_out_per_host_sec" json:"mean_scale_out_per_host_sec" yaml:"mean_scale_out_per_host_sec"`
-	StdDevScaleOutPerHostSec            int     `name:"std_dev_scale_out_per_host_sec" json:"std_dev_scale_out_per_host_sec" yaml:"std_dev_scale_out_per_host_sec"`
-	MeanScaleInPerHostSec               int     `name:"mean_scale_in_per_host_sec" json:"mean_scale_in_per_host_sec" yaml:"mean_scale_in_per_host_sec"`
-	StdDevScaleInPerHostSec             int     `name:"std_dev_scale_in_per_host_sec" json:"std_dev_scale_in_per_host_sec" yaml:"std_dev_scale_in_per_host_sec"`
+	MeanScaleOutPerHostSec              float64 `name:"mean_scale_out_per_host_sec" json:"mean_scale_out_per_host_sec" yaml:"mean_scale_out_per_host_sec"`
+	StdDevScaleOutPerHostSec            float64 `name:"std_dev_scale_out_per_host_sec" json:"std_dev_scale_out_per_host_sec" yaml:"std_dev_scale_out_per_host_sec"`
+	MeanScaleInPerHostSec               float64 `name:"mean_scale_in_per_host_sec" json:"mean_scale_in_per_host_sec" yaml:"mean_scale_in_per_host_sec"`
+	StdDevScaleInPerHostSec             float64 `name:"std_dev_scale_in_per_host_sec" json:"std_dev_scale_in_per_host_sec" yaml:"std_dev_scale_in_per_host_sec"`
 
 	// If true, then assign debug ports to kernel containers that will be passed to their Golang backend to start a net/pprof debug server.
 	AssignKernelDebugPorts bool `name:"assign_kernel_debug_ports" json:"assign_kernel_debug_ports" yaml:"assign_kernel_debug_ports" description:"If true, then assign debug ports to kernel containers that will be passed to their Golang backend to start a net/pprof debug server."`
@@ -147,9 +147,9 @@ func (opts *SchedulerOptions) GetGpusPerHost() int {
 	return opts.GpusPerHost
 }
 
-// GetScalingInterval returns the interval at which the Cluster will attempt to auto-scale.
-func (opts *SchedulerOptions) GetScalingInterval() int {
-	return opts.ScalingInterval
+// GetScalingIntervalSec returns the interval at which the Cluster will attempt to auto-scale.
+func (opts *SchedulerOptions) GetScalingIntervalSec() float64 {
+	return opts.ScalingIntervalSec
 }
 
 // PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
@@ -218,9 +218,9 @@ func (opts *SchedulerOptions) ValidateClusterSchedulerOptions() {
 	}
 
 	// Validate the scaling interval, which must be strictly positive
-	if opts.ScalingInterval <= 0 {
+	if opts.ScalingIntervalSec <= 0 {
 		log.Printf("[WARNING] Invalid scaling interval specified: %d. Defaulting to every %d seconds.",
-			opts.ScalingInterval, DefaultScalingIntervalSeconds)
-		opts.ScalingInterval = DefaultScalingIntervalSeconds
+			opts.ScalingIntervalSec, DefaultScalingIntervalSeconds)
+		opts.ScalingIntervalSec = DefaultScalingIntervalSeconds
 	}
 }

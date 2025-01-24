@@ -73,7 +73,7 @@ var (
 			"num-virtual-gpus-per-node": 72,
 			"subscribed-ratio-update-interval": 1,
 			"scaling-factor": 1.05,
-			"scaling-interval": 30,
+			"scaling-interval": 15,
 			"scaling-limit": 1.1,
 			"scaling-in-limit": 2,
 			"predictive_autoscaling": false,
@@ -2636,12 +2636,24 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			})
 
 			It("Will correctly and automatically scale-out", func() {
-				InitialClusterSize := 3
-				InitialConnectionTimeSeconds := 3
+				MinimumNumNodes := 4
+				ScalingBufferSize := 3
+				InitialClusterSize := 4
+				NumHostsToCreate := 10
+				InitialConnectionTimeSeconds := 2
 				InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
 
+				// Relatively quick, but long enough that we can see individual scale-outs.
+				MeanScaleInPerHostSec := 1.5
+				MeanScaleOutPerHostSec := 1.5
+
+				options.ScalingIntervalSec = 1 // Set it very low.
 				options.InitialClusterSize = InitialClusterSize
 				options.InitialClusterConnectionPeriodSec = InitialConnectionTimeSeconds
+				options.MinimumNumNodes = MinimumNumNodes
+				options.ScalingBufferSize = ScalingBufferSize
+				options.MeanScaleInPerHostSec = MeanScaleInPerHostSec
+				options.MeanScaleOutPerHostSec = MeanScaleOutPerHostSec
 
 				mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
 
@@ -2681,10 +2693,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
 
 				clusterSize := 0
+				numDisabledHosts := 0
 
 				assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
 
-				for i := 0; i < InitialClusterSize; i++ {
+				createHost := func(i int) scheduling.Host {
 					hostId := uuid.NewString()
 					hostName := fmt.Sprintf("TestHost%d", i)
 					hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
@@ -2695,23 +2708,79 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					err = clusterGateway.registerNewHost(host)
 					Expect(err).To(BeNil())
+
+					return host
+				}
+
+				By("Creating all of the initial-size hosts")
+
+				for i := 0; i < InitialClusterSize; i++ {
+					host := createHost(i)
 					clusterSize += 1
 
 					Expect(cluster.Len()).To(Equal(clusterSize))
 					Expect(index.Len()).To(Equal(clusterSize))
 					Expect(placer.NumHostsInIndex()).To(Equal(clusterSize))
 					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
-					Expect(cluster.NumDisabledHosts()).To(Equal(0))
+					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
 					Expect(host.Enabled()).To(Equal(true))
 
 					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true, clusterSize)
 				}
 
+				By("Creating additional hosts that are added as disabled hosts")
+
+				for i := InitialClusterSize; i < NumHostsToCreate; i++ {
+					host := createHost(i)
+					numDisabledHosts += 1
+
+					Expect(cluster.Len()).To(Equal(clusterSize))
+					Expect(index.Len()).To(Equal(clusterSize))
+					Expect(placer.NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
+					Expect(host.Enabled()).To(Equal(false))
+
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
+				}
+
 				// The initial connection period should elapse.
 				Eventually(func() bool {
 					return clusterGateway.inInitialConnectionPeriod.Load()
-				}, time.Duration(float64(time.Millisecond*InitialConnectionTime)*1.25), time.Millisecond*100).
+				}, time.Duration(float64(time.Millisecond*InitialConnectionTime)*1.25), time.Millisecond*50).
 					Should(BeFalse())
+
+				Expect(cluster.MeanScaleOutTime()).To(Equal(time.Millisecond * time.Duration(MeanScaleOutPerHostSec*1000)))
+				Expect(cluster.MeanScaleInTime()).To(Equal(time.Millisecond * time.Duration(MeanScaleInPerHostSec*1000)))
+
+				Expect(cluster.Scheduler().MinimumCapacity()).To(Equal(int32(MinimumNumNodes)))
+				Expect(cluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize).To(Equal(int32(ScalingBufferSize)))
+				Expect(cluster.Len()).To(Equal(clusterSize))
+				Expect(cluster.Len()).To(Equal(InitialClusterSize))
+
+				// Now, we should scale out. The minimum cluster size is set to 4,
+				// and the scaling buffer is set to 3, so the minimum number of hosts
+				// that we should have is 7. We only have 4 right now.
+				Eventually(func() int {
+					return cluster.Len()
+				}, time.Second*5, time.Millisecond*50).
+					Should(Equal(clusterSize + 1))
+
+				clusterSize += 1
+				Expect(cluster.Len()).To(Equal(InitialClusterSize + 1))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 1))
+
+				// We should scale out again. The minimum cluster size is set to 4,
+				// and the scaling buffer is set to 3, so the minimum number of hosts
+				// that we should have is 7. We only have 5 right now.
+				Eventually(func() int {
+					return cluster.Len()
+				}, time.Second*5, time.Millisecond*50).
+					Should(Equal(clusterSize + 1))
+
+				clusterSize += 1
+				Expect(cluster.Len()).To(Equal(InitialClusterSize + 2))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 2))
 			})
 		})
 
