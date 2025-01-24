@@ -44,6 +44,7 @@ if ! command python3 --version &> /dev/null; then
     printf "\n[WARNING] Python%s is not installed. Installing it now...\n" $PYTHON_VERSION
 
     sudo apt-get update
+    
     sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev libgdbm-dev libgdbm-compat-dev uuid-dev lzma lzma-dev liblzma-dev
 
     cd /tmp/
@@ -55,7 +56,7 @@ if ! command python3 --version &> /dev/null; then
 
     # ../configure --enable-optimizations --with-pydebug --enable-shared --with-ensurepip=install && make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG" && sudo make altinstall
     ../configure --enable-optimizations --with-pydebug --enable-shared --with-ensurepip=install
-    make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG" 
+    make -j$(nproc) EXTRA_CFLAGS="-DPy_REF_DEBUG"
     sudo make altinstall
 
     if ! command python$PYTHON_MAJOR_VERSION --version &> /dev/null; then
