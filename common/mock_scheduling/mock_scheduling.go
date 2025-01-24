@@ -239,6 +239,20 @@ func (mr *MockClusterMockRecorder) GetSession(sessionID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSession", reflect.TypeOf((*MockCluster)(nil).GetSession), sessionID)
 }
 
+// HasActiveScalingOperation mocks base method.
+func (m *MockCluster) HasActiveScalingOperation() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasActiveScalingOperation")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasActiveScalingOperation indicates an expected call of HasActiveScalingOperation.
+func (mr *MockClusterMockRecorder) HasActiveScalingOperation() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasActiveScalingOperation", reflect.TypeOf((*MockCluster)(nil).HasActiveScalingOperation))
+}
+
 // Len mocks base method.
 func (m *MockCluster) Len() int {
 	m.ctrl.T.Helper()

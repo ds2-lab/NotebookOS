@@ -462,6 +462,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.log.Debug("Using the 'FCFS Batch' scheduling policy.")
 			clusterGateway.executionFailedCallback = clusterGateway.fcfsBatchSchedulingFailureHandler
 		}
+	case string(scheduling.Reservation):
+		{
+			clusterGateway.policyKey = scheduling.Reservation
+			clusterGateway.log.Debug("Using the 'Reservation' scheduling policy.")
+			clusterGateway.executionFailedCallback = clusterGateway.reservationSchedulingFailureHandler
+		}
 	default:
 		{
 			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", clusterDaemonOptions.SchedulingPolicy))
@@ -1322,6 +1328,11 @@ func (d *ClusterGatewayImpl) defaultFailureHandler(_ scheduling.Kernel, _ *messa
 func (d *ClusterGatewayImpl) fcfsBatchSchedulingFailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
 	d.log.Warn("There is no failure handler for the FCFS Batch scheduling policy.")
 	return fmt.Errorf("there is no failure handler for the FCFS Batch policy; cannot handle error")
+}
+
+func (d *ClusterGatewayImpl) reservationSchedulingFailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
+	d.log.Warn("There is no failure handler for the Reservation scheduling policy.")
+	return fmt.Errorf("there is no failure handler for the Reservation scheduling policy; cannot handle error")
 }
 
 func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ messaging.NotificationType) {

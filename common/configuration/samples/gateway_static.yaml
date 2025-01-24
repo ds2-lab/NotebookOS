@@ -33,9 +33,9 @@ notebook-image-tag: latest
 idle-session-reclamation-policy: none
 scheduling-policy: static
 num-virtual-gpus-per-node: 72
-scaling-factor: 1.05
+scaling-factor: 1.10
 scaling-interval: 15
-scaling-limit: 1.1
+scaling-limit: 1.15
 scaling-in-limit: 2
 predictive_autoscaling: false
 scaling-buffer-size: 3

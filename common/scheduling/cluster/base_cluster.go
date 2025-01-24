@@ -167,6 +167,11 @@ func (c *BaseCluster) NumScalingOperationsSucceeded() int {
 	return c.numSuccessfulScaleInOps + c.numSuccessfulScaleOutOps
 }
 
+// HasActiveScalingOperation returns true if there is an active scaling operation (of either kind).
+func (c *BaseCluster) HasActiveScalingOperation() bool {
+	return c.activeScaleOperation != nil
+}
+
 // NumScaleOutOperationsSucceeded returns the number of scale-out operations that have been
 // completed successfully.
 func (c *BaseCluster) NumScaleOutOperationsSucceeded() int {

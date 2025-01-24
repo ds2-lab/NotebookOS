@@ -61,6 +61,9 @@ type ClusterHostManager interface {
 	// task of locking the required structures during scaling operations.
 	NewHostAddedOrConnected(host Host) error
 
+	// HasActiveScalingOperation returns true if there is an active scaling operation (of either kind).
+	HasActiveScalingOperation() bool
+
 	// GetHost returns the Host with the given ID, if one exists.
 	GetHost(hostId string) (Host, bool)
 

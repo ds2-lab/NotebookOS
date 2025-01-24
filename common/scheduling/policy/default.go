@@ -67,6 +67,7 @@ func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.C
 	scalingLimit := policy.ScalingConfiguration().ScalingLimit
 	scalingBufferSize := policy.ScalingConfiguration().ScalingBufferSize
 	maximumHostsToReleaseAtOnce := policy.ScalingConfiguration().MaximumHostsToReleaseAtOnce
+	numReplicas := int32(policy.NumReplicas())
 
 	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                      // The minimum number of hosts required to satisfy the Cluster's current committed GPUs.
 	minNumHosts := policy.ScalingConfiguration().MinimumCapacity
@@ -87,8 +88,9 @@ func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.C
 		scaledOutNumHosts = minNumHosts + scalingBufferSize
 		log.Debug("Adjusted scaledOutNumHosts: %d.", scaledOutNumHosts)
 	}
-	if limit < minNumHosts+4 {
-		limit = minNumHosts + 4
+
+	if limit < minNumHosts+numReplicas { // Used to be minNumHosts + 4
+		limit = minNumHosts + numReplicas // Used to be minNumHosts + 4
 		log.Debug("Adjusted limit: %d.", limit)
 	}
 

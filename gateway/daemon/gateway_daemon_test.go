@@ -72,9 +72,9 @@ var (
 		"cluster_scheduler_options": {
 			"num-virtual-gpus-per-node": 72,
 			"subscribed-ratio-update-interval": 1,
-			"scaling-factor": 1.05,
+			"scaling-factor": 1.10,
 			"scaling-interval": 15,
-			"scaling-limit": 1.1,
+			"scaling-limit": 1.15,
 			"scaling-in-limit": 2,
 			"predictive_autoscaling": false,
 			"scaling-buffer-size": 3,
@@ -2670,25 +2670,25 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
 
-				cluster := clusterGateway.cluster
-				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+				dockerCluster := clusterGateway.cluster
+				index, ok := dockerCluster.GetIndex(scheduling.CategoryClusterIndex, "*")
 				Expect(ok).To(BeTrue())
 				Expect(index).ToNot(BeNil())
 
-				placer := cluster.Placer()
+				placer := dockerCluster.Placer()
 				Expect(placer).ToNot(BeNil())
 
-				scheduler := cluster.Scheduler()
-				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
+				scheduler := dockerCluster.Scheduler()
+				Expect(scheduler.Placer()).To(Equal(dockerCluster.Placer()))
 
-				Expect(cluster.Len()).To(Equal(0))
+				Expect(dockerCluster.Len()).To(Equal(0))
 				Expect(index.Len()).To(Equal(0))
 				Expect(placer.NumHostsInIndex()).To(Equal(0))
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
 
 				// Make sure the metrics provider is non-nil.
-				Expect(cluster.MetricsProvider()).ToNot(BeNil())
-				Expect(cluster.MetricsProvider().GetClusterMetricsProvider()).ToNot(BeNil())
+				Expect(dockerCluster.MetricsProvider()).ToNot(BeNil())
+				Expect(dockerCluster.MetricsProvider().GetClusterMetricsProvider()).ToNot(BeNil())
 
 				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
 
@@ -2701,7 +2701,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					hostId := uuid.NewString()
 					hostName := fmt.Sprintf("TestHost%d", i)
 					hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
-					host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, hostName, hostSpoofer)
+					host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, dockerCluster, hostId, hostName, hostSpoofer)
 					Expect(err).To(BeNil())
 					Expect(host).ToNot(BeNil())
 					Expect(localGatewayClient).ToNot(BeNil())
@@ -2718,11 +2718,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					host := createHost(i)
 					clusterSize += 1
 
-					Expect(cluster.Len()).To(Equal(clusterSize))
+					Expect(dockerCluster.Len()).To(Equal(clusterSize))
 					Expect(index.Len()).To(Equal(clusterSize))
 					Expect(placer.NumHostsInIndex()).To(Equal(clusterSize))
 					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
-					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
+					Expect(dockerCluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
 					Expect(host.Enabled()).To(Equal(true))
 
 					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true, clusterSize)
@@ -2734,11 +2734,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					host := createHost(i)
 					numDisabledHosts += 1
 
-					Expect(cluster.Len()).To(Equal(clusterSize))
+					Expect(dockerCluster.Len()).To(Equal(clusterSize))
 					Expect(index.Len()).To(Equal(clusterSize))
 					Expect(placer.NumHostsInIndex()).To(Equal(clusterSize))
 					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
-					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
+					Expect(dockerCluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
 					Expect(host.Enabled()).To(Equal(false))
 
 					assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
@@ -2750,65 +2750,127 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}, time.Duration(float64(time.Millisecond*InitialConnectionTime)*1.25), time.Millisecond*50).
 					Should(BeFalse())
 
-				Expect(cluster.MeanScaleOutTime()).To(Equal(time.Millisecond * time.Duration(MeanScaleOutPerHostSec*1000)))
-				Expect(cluster.MeanScaleInTime()).To(Equal(time.Millisecond * time.Duration(MeanScaleInPerHostSec*1000)))
+				Expect(dockerCluster.MeanScaleOutTime()).To(Equal(time.Millisecond * time.Duration(MeanScaleOutPerHostSec*1000)))
+				Expect(dockerCluster.MeanScaleInTime()).To(Equal(time.Millisecond * time.Duration(MeanScaleInPerHostSec*1000)))
 
-				Expect(cluster.Scheduler().MinimumCapacity()).To(Equal(int32(MinimumNumNodes)))
-				Expect(cluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize).To(Equal(int32(ScalingBufferSize)))
-				Expect(cluster.Len()).To(Equal(clusterSize))
-				Expect(cluster.Len()).To(Equal(InitialClusterSize))
+				Expect(dockerCluster.Scheduler().MinimumCapacity()).To(Equal(int32(MinimumNumNodes)))
+				Expect(dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize).To(Equal(int32(ScalingBufferSize)))
+				Expect(dockerCluster.Len()).To(Equal(clusterSize))
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize))
 
 				By("Scaling out")
 
-				// Now, we should scale out. The minimum cluster size is set to 4,
+				// Now, we should scale out. The minimum dockerCluster size is set to 4,
 				// and the scaling buffer is set to 3, so the minimum number of hosts
 				// that we should have is 7. We only have 4 right now.
 				Eventually(func() int {
-					return cluster.Len()
+					return dockerCluster.Len()
 				}, time.Second*time.Duration(5*MeanScaleOutPerHostSec), time.Millisecond*50).
 					Should(Equal(clusterSize + 1))
 
 				clusterSize += 1
-				Expect(cluster.Len()).To(Equal(InitialClusterSize + 1))
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 1))
 				Expect(clusterSize).To(Equal(InitialClusterSize + 1))
 
 				By("Scaling out again")
 
-				// We should scale out again. The minimum cluster size is set to 4,
+				// We should scale out again. The minimum dockerCluster size is set to 4,
 				// and the scaling buffer is set to 3, so the minimum number of hosts
 				// that we should have is 7. We only have 5 right now.
 				Eventually(func() int {
-					return cluster.Len()
+					return dockerCluster.Len()
 				}, time.Second*time.Duration(5*MeanScaleOutPerHostSec), time.Millisecond*50).
 					Should(Equal(clusterSize + 1))
 
 				clusterSize += 1
-				Expect(cluster.Len()).To(Equal(InitialClusterSize + 2))
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 2))
 				Expect(clusterSize).To(Equal(InitialClusterSize + 2))
 
 				By("Scaling out yet again")
 
-				// We should scale out again. The minimum cluster size is set to 4,
+				// We should scale out again. The minimum dockerCluster size is set to 4,
 				// and the scaling buffer is set to 3, so the minimum number of hosts
 				// that we should have is 7. We only have 6 right now.
 				Eventually(func() int {
-					return cluster.Len()
+					return dockerCluster.Len()
 				}, time.Second*time.Duration(5*MeanScaleOutPerHostSec), time.Millisecond*50).
 					Should(Equal(clusterSize + 1))
 
 				clusterSize += 1
-				Expect(cluster.Len()).To(Equal(InitialClusterSize + 3))
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 3))
 				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
 
 				By("Not scaling out again")
 
-				// Now we have 7 hosts, so we shouldn't scale-out again.agi
-				time.Sleep(time.Second * 5)
+				// Now we have 7 hosts, so we shouldn't scale-out again.
+				time.Sleep(time.Second * 3)
 
-				Expect(cluster.Len()).To(Equal(InitialClusterSize + 3))
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 3))
 				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
+				Expect(dockerCluster.HasActiveScalingOperation()).To(BeFalse())
 
-				fmt.Printf("Done\n\n\n\n")
+				// Now, let's artificially increase the number of committed GPUs on each host.
+				// The formula for scaling out is:
+				// <Scaled Out Number of Hosts> = ⌈ (<Cluster Committed GPUs> x <Scale Factor>) / <GPUs Per Host> ⌉
+				//
+				// We want <Scaled Out Number of Hosts> to equal 8.
+				//
+				// <Scale Factor> is set to 1.10 in the configuration and <GPUs Per Host> is 8.
+				//
+				// Therefore, we have:
+				// 8 = ⌈ 1.10x / 8 ⌉
+				//
+				// Which is actually an inequality:
+				//
+				// 7 < 1.10x / 8 <= 8
+				// 56 < 1.10x <= 64
+				// 50.9 < x <= 58.18
+				//
+				// So, we need at least 50.9 committed GPUs to trigger a scale-out to 8 nodes.
+
+				spec := types.NewDecimalSpec(0, 0, 7, 0)
+				var lastHost scheduling.Host
+				dockerCluster.RangeOverHosts(func(key string, host scheduling.Host) bool {
+					err := host.AddToCommittedResources(spec)
+					Expect(err).To(BeNil())
+
+					lastHost = host
+
+					return true
+				})
+
+				// Cluster GPU load is 49, which is less than 50.9.
+				// We still shouldn't scale out.
+				time.Sleep(time.Second * 3)
+
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 3))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
+				Expect(dockerCluster.HasActiveScalingOperation()).To(BeFalse())
+
+				err := lastHost.AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
+				Expect(err).To(BeNil())
+
+				// Cluster GPU load is 50, which is less than 50.9.
+				// We still shouldn't scale out.
+				time.Sleep(time.Second * 3)
+
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 3))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
+				Expect(dockerCluster.HasActiveScalingOperation()).To(BeFalse())
+
+				err = lastHost.AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
+				Expect(err).To(BeNil())
+
+				// Cluster GPU load is 51, which is greater than 50.9.
+				// We SHOULD scale out now.
+				Eventually(func() int {
+					return dockerCluster.Len()
+				}, time.Second*time.Duration(5*MeanScaleOutPerHostSec), time.Millisecond*50).
+					Should(Equal(clusterSize + 1))
+
+				clusterSize += 1
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 4))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 4))
 
 				time.Sleep(time.Second * 10)
 			})
