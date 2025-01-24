@@ -563,7 +563,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			kernel.EXPECT().Size().Return(3).AnyTimes()
 
-			setActiveCall := kernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any())
+			setActiveCall := kernel.EXPECT().RegisterActiveExecution(gomock.Any())
 			kernel.EXPECT().NumActiveExecutionOperations().Return(0).Times(1)
 			kernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).Times(1)
 		})
@@ -2045,12 +2045,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			wg.Add(1)
 
 			var activeExecution *execution.Execution
-			mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *execution.Execution {
-				Expect(attemptId).To(Equal(1))
+			mockedKernel.EXPECT().RegisterActiveExecution(gomock.Any()).DoAndReturn(func(msg *messaging.JupyterMessage) *execution.Execution {
 				Expect(msg).ToNot(BeNil())
 				Expect(msg).To(Equal(jMsg))
 
-				activeExecution = execution.NewActiveExecution(kernelId, attemptId, 3, msg)
+				// TODO: Create ExecutionManager and use that here.
+				activeExecution = execution.NewActiveExecution(kernelId, 1, 3, msg)
 				wg.Done()
 
 				return activeExecution
