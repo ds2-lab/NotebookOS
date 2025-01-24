@@ -1132,7 +1132,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 	// We'll wait at most 1 second to see if any of these send attempts immediately return an error.
 	// If they do, then we'll receive the error and return it.
-	waitContext, waitCancel := context.WithTimeout(context.Background(), time.Second*1)
+	waitContext, waitCancel := context.WithTimeout(context.Background(), time.Millisecond*250)
 	defer waitCancel()
 
 	numNotifications := 0
