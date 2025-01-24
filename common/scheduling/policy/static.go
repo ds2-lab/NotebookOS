@@ -24,6 +24,11 @@ func NewStaticPolicy(opts *scheduling.SchedulerOptions) (*StaticPolicy, error) {
 		baseSchedulingPolicy: basePolicy,
 	}
 
+	if opts.MinimumNumNodes < policy.NumReplicas() {
+		panic(fmt.Sprintf("Minimum number of nodes (%d) is incompatible with number of replicas (%d). Minimum number of nodes must be >= number of replicas.",
+			opts.MinimumNumNodes, policy.NumReplicas()))
+	}
+
 	if opts.SchedulingPolicy != scheduling.Static.String() {
 		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of StaticPolicy.",
 			opts.SchedulingPolicy))

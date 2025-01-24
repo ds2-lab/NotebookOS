@@ -69,7 +69,7 @@ func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.C
 	maximumHostsToReleaseAtOnce := policy.ScalingConfiguration().MaximumHostsToReleaseAtOnce
 
 	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                      // The minimum number of hosts required to satisfy the Cluster's current committed GPUs.
-	minNumHosts := int32(policy.NumReplicas())
+	minNumHosts := policy.ScalingConfiguration().MinimumCapacity
 	scaledOutNumHosts := int32(math.Ceil(float64(load) * scalingFactor / float64(gpusPerHost))) // The number of hosts we would scale-out to based on the configured scaling factor.
 	limit := int32(math.Ceil(float64(load) * scalingLimit / float64(gpusPerHost)))              // The maximum number of hosts we're permitted to scale-out to.
 

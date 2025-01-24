@@ -2644,10 +2644,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
 
 				// Relatively quick, but long enough that we can see individual scale-outs.
-				MeanScaleInPerHostSec := 1.5
-				MeanScaleOutPerHostSec := 1.5
+				MeanScaleInPerHostSec := 1.0
+				MeanScaleOutPerHostSec := 1.0
 
-				options.ScalingIntervalSec = 1 // Set it very low.
+				options.ScalingIntervalSec = 1
 				options.InitialClusterSize = InitialClusterSize
 				options.InitialClusterConnectionPeriodSec = InitialConnectionTimeSeconds
 				options.MinimumNumNodes = MinimumNumNodes
@@ -2758,29 +2758,59 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(cluster.Len()).To(Equal(clusterSize))
 				Expect(cluster.Len()).To(Equal(InitialClusterSize))
 
+				By("Scaling out")
+
 				// Now, we should scale out. The minimum cluster size is set to 4,
 				// and the scaling buffer is set to 3, so the minimum number of hosts
 				// that we should have is 7. We only have 4 right now.
 				Eventually(func() int {
 					return cluster.Len()
-				}, time.Second*5, time.Millisecond*50).
+				}, time.Second*time.Duration(5*MeanScaleOutPerHostSec), time.Millisecond*50).
 					Should(Equal(clusterSize + 1))
 
 				clusterSize += 1
 				Expect(cluster.Len()).To(Equal(InitialClusterSize + 1))
 				Expect(clusterSize).To(Equal(InitialClusterSize + 1))
 
+				By("Scaling out again")
+
 				// We should scale out again. The minimum cluster size is set to 4,
 				// and the scaling buffer is set to 3, so the minimum number of hosts
 				// that we should have is 7. We only have 5 right now.
 				Eventually(func() int {
 					return cluster.Len()
-				}, time.Second*5, time.Millisecond*50).
+				}, time.Second*time.Duration(5*MeanScaleOutPerHostSec), time.Millisecond*50).
 					Should(Equal(clusterSize + 1))
 
 				clusterSize += 1
 				Expect(cluster.Len()).To(Equal(InitialClusterSize + 2))
 				Expect(clusterSize).To(Equal(InitialClusterSize + 2))
+
+				By("Scaling out yet again")
+
+				// We should scale out again. The minimum cluster size is set to 4,
+				// and the scaling buffer is set to 3, so the minimum number of hosts
+				// that we should have is 7. We only have 6 right now.
+				Eventually(func() int {
+					return cluster.Len()
+				}, time.Second*time.Duration(5*MeanScaleOutPerHostSec), time.Millisecond*50).
+					Should(Equal(clusterSize + 1))
+
+				clusterSize += 1
+				Expect(cluster.Len()).To(Equal(InitialClusterSize + 3))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
+
+				By("Not scaling out again")
+
+				// Now we have 7 hosts, so we shouldn't scale-out again.agi
+				time.Sleep(time.Second * 5)
+
+				Expect(cluster.Len()).To(Equal(InitialClusterSize + 3))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
+
+				fmt.Printf("Done\n\n\n\n")
+
+				time.Sleep(time.Second * 10)
 			})
 		})
 

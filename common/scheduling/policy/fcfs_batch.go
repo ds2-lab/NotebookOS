@@ -6,26 +6,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 )
 
-type internalPolicy interface {
-	// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
-	SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error)
-
-	// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
-	// pre-designated as the leader of a code execution.
-	//
-	// If the returned KernelReplica is nil and the returned error is nil, then that indicates
-	// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
-	// will fight amongst themselves to determine the leader.
-	//
-	// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
-	// forwarded to that KernelReplica's peers should first be converted to "yield_request"
-	// messages, thereby ensuring that the selected KernelReplica becomes the leader.
-	//
-	// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
-	// been ruled out.
-	FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error)
-}
-
 // FcfsBatchSchedulingPolicy is a scheduling.Policy modeled after Slurm-like first-come, first-serve batch schedulers.
 // FcfsBatchSchedulingPolicy uses short-lived scheduling.KernelContainer instances that are created reactively each
 // time a user submits a training task, and that are reclaimed when the training task finishes.
@@ -46,6 +26,11 @@ func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatch
 
 	policy := &FcfsBatchSchedulingPolicy{
 		baseSchedulingPolicy: basePolicy,
+	}
+
+	if opts.MinimumNumNodes < policy.NumReplicas() {
+		panic(fmt.Sprintf("Minimum number of nodes (%d) is incompatible with number of replicas (%d). Minimum number of nodes must be >= number of replicas.",
+			opts.MinimumNumNodes, policy.NumReplicas()))
 	}
 
 	if opts.SchedulingPolicy != scheduling.FcfsBatch.String() {
