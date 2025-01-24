@@ -136,6 +136,11 @@ type Policy interface {
 
 	// IdleSessionReclamationPolicy returns the IdleSessionReclamationPolicy of the target Policy.
 	IdleSessionReclamationPolicy() IdleSessionReclamationPolicy
+
+	// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+	// resource request of an existing/scheduled kernel after it has already been created, or if the
+	// initial resource request/allocation is static and cannot be changed after the kernel is created.
+	SupportsDynamicResourceAdjustments() bool
 }
 
 // IdleSessionReclamationPolicy defines how the scheduling policy handles idle sessions.

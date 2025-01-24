@@ -82,6 +82,14 @@ func (p *FcfsBatchSchedulingPolicy) FindReadyReplica(kernel scheduling.Kernel, e
 	return checkSingleReplica(kernel, p.supportsMigration, executionId)
 }
 
+// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+// resource request of an existing/scheduled kernel after it has already been created, or if the
+// initial resource request/allocation is static and cannot be changed after the kernel is created.
+func (p *FcfsBatchSchedulingPolicy) SupportsDynamicResourceAdjustments() bool {
+	// TODO: Should this return true or false?
+	return true
+}
+
 func (p *FcfsBatchSchedulingPolicy) SmrEnabled() bool {
 	return false
 }

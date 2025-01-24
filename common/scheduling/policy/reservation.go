@@ -35,7 +35,7 @@ func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
-func (p *ReservationPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+func (p *ReservationPolicy) SelectReplicaForMigration(_ scheduling.Kernel) (scheduling.KernelReplica, error) {
 	if p.SupportsMigration() {
 		panic("ReservationPolicy isn't supposed to support migration, yet apparently it does?")
 	}
@@ -56,6 +56,8 @@ func (p *ReservationPolicy) NumReplicas() int {
 }
 
 func (p *ReservationPolicy) ResourceBindingMode() scheduling.ResourceBindingMode {
+	// The reservation-based policy uses a single long-running replica that remains scheduled for the
+	// duration of its lifetime.
 	return scheduling.BindResourcesWhenContainerScheduled
 }
 
@@ -82,6 +84,13 @@ func (p *ReservationPolicy) SmrEnabled() bool {
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
 	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p), nil
+}
+
+// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+// resource request of an existing/scheduled kernel after it has already been created, or if the
+// initial resource request/allocation is static and cannot be changed after the kernel is created.
+func (p *ReservationPolicy) SupportsDynamicResourceAdjustments() bool {
+	return false
 }
 
 // FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be

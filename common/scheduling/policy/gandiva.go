@@ -56,6 +56,14 @@ func (p *GandivaPolicy) ResourceBindingMode() scheduling.ResourceBindingMode {
 	return scheduling.BindResourcesWhenContainerScheduled
 }
 
+// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+// resource request of an existing/scheduled kernel after it has already been created, or if the
+// initial resource request/allocation is static and cannot be changed after the kernel is created.
+func (p *GandivaPolicy) SupportsDynamicResourceAdjustments() bool {
+	// TODO: Should this return true or false?
+	return true
+}
+
 func (p *GandivaPolicy) ContainerLifetime() scheduling.ContainerLifetime {
 	return scheduling.SingleTrainingEvent
 }

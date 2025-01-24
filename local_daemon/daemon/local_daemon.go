@@ -2621,7 +2621,7 @@ func (d *SchedulerDaemonImpl) updateKernelResourceSpec(kernel scheduling.KernelR
 // resourceRequestAdjustmentEnabled returns true if dynamically adjusting resource requests is enabled
 // based on the configured scheduling policy used by the cluster.
 func (d *SchedulerDaemonImpl) resourceRequestAdjustmentEnabled() bool {
-	return d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart
+	return d.schedulingPolicy.SupportsDynamicResourceAdjustments()
 }
 
 // processExecuteRequestMetadata processes the metadata frame of an "execute_request" message.

@@ -56,6 +56,13 @@ func (p *DynamicV4Policy) ResourceBindingMode() scheduling.ResourceBindingMode {
 	return scheduling.BindResourcesAtTrainingStart
 }
 
+// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+// resource request of an existing/scheduled kernel after it has already been created, or if the
+// initial resource request/allocation is static and cannot be changed after the kernel is created.
+func (p *DynamicV4Policy) SupportsDynamicResourceAdjustments() bool {
+	return true
+}
+
 func (p *DynamicV4Policy) SmrEnabled() bool {
 	return true
 }

@@ -3653,14 +3653,15 @@ func (d *ClusterGatewayImpl) processExecuteRequestMetadata(msg *messaging.Jupyte
 	}
 
 	// Are we permitted to dynamically change the resource request(s) of kernels? If not, then we'll just return.
-	if d.Scheduler().Policy().ResourceBindingMode() != scheduling.BindResourcesAtTrainingStart {
+	if !d.Scheduler().Policy().SupportsDynamicResourceAdjustments() {
 		return nil
 	}
 
 	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
 		kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
 
-	if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
+	err = d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest)
+	if err != nil {
 		d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
 		return err
 	}
@@ -3673,6 +3674,11 @@ func (d *ClusterGatewayImpl) processExecuteRequestMetadata(msg *messaging.Jupyte
 // updateKernelResourceSpec will return nil on success. updateKernelResourceSpec will return an error if the kernel
 // presently has resources committed to it, and the adjustment cannot occur due to resource contention.
 func (d *ClusterGatewayImpl) updateKernelResourceSpec(kernel scheduling.Kernel, newSpec types.Spec) error {
+	if !d.Scheduler().Policy().SupportsDynamicResourceAdjustments() {
+		d.log.Debug("Cannot update resource spec of kernel \"%s\" as \"%s\" scheduling policy prohibits this.",
+			kernel.ID(), d.Scheduler().Policy().Name())
+	}
+
 	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
 		d.log.Error("Requested updated resource spec for kernel %s is invalid, as one or more quantities are negative: %s",
 			kernel.ID(), newSpec.String())

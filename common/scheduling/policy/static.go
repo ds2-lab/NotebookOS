@@ -155,6 +155,13 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 	return nil, nil // Migration is permitted, so we never return an error.
 }
 
+// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+// resource request of an existing/scheduled kernel after it has already been created, or if the
+// initial resource request/allocation is static and cannot be changed after the kernel is created.
+func (p *StaticPolicy) SupportsDynamicResourceAdjustments() bool {
+	return true
+}
+
 //////////////////////////////////////////
 // ResourceScalingPolicy implementation //
 //////////////////////////////////////////

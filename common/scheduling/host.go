@@ -166,7 +166,9 @@ type Host interface {
 	Stats() HostStatistics
 	LastReschedule() types.StatFloat64Field
 	TimeSinceLastSynchronizationWithRemote() time.Duration
-	GetReservation(kernelId string) (ResourceReservation, bool) // GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
+
+	// GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
+	GetReservation(kernelId string) (ResourceReservation, bool)
 	GetMeta(key types.HeapElementMetadataKey) interface{}
 	Priority(session UserSession) float64
 
