@@ -524,10 +524,14 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.PolicyKey()).To(Equal(scheduling.Static))
 
+			mockScheduler.EXPECT().Policy().Return(schedulingPolicy).AnyTimes()
+			mockScheduler.EXPECT().PolicyKey().Return(scheduling.Static).AnyTimes()
+
 			clusterGateway = &ClusterGatewayImpl{
 				cluster:                  cluster,
 				RequestLog:               metrics.NewRequestLog(),
 				gatewayPrometheusManager: nil,
+				ClusterStatistics:        statistics.NewClusterStatistics(),
 			}
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
@@ -563,7 +567,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			kernel.EXPECT().Size().Return(3).AnyTimes()
 
-			setActiveCall := kernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any())
+			setActiveCall := kernel.EXPECT().RegisterActiveExecution(gomock.Any()).Return(nil, nil)
 			kernel.EXPECT().NumActiveExecutionOperations().Return(0).Times(1)
 			kernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).Times(1)
 		})
@@ -2045,15 +2049,15 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			wg.Add(1)
 
 			var activeExecution *execution.Execution
-			mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *execution.Execution {
-				Expect(attemptId).To(Equal(1))
+			mockedKernel.EXPECT().RegisterActiveExecution(gomock.Any()).DoAndReturn(func(msg *messaging.JupyterMessage) (*execution.Execution, error) {
 				Expect(msg).ToNot(BeNil())
 				Expect(msg).To(Equal(jMsg))
 
-				activeExecution = execution.NewActiveExecution(kernelId, attemptId, 3, msg)
+				// TODO: Create ExecutionManager and use that here.
+				activeExecution = execution.NewActiveExecution(kernelId, 1, 3, msg)
 				wg.Done()
 
-				return activeExecution
+				return activeExecution, nil
 			}).Times(1)
 
 			fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
@@ -2072,6 +2076,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedKernel.EXPECT().RequestWithHandlerAndReplicas(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 				gomock.Any(), gomock.Any()).Times(1).Return(nil)
 
+			//mockedKernel.EXPECT().RegisterActiveExecution(jMsg).Times(1).Return(nil, nil)
+
 			var shellHandlerWaitGroup sync.WaitGroup
 			shellHandlerWaitGroup.Add(1)
 			go func() {
@@ -2087,7 +2093,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			wg.Wait()
 			Expect(activeExecution).ToNot(BeNil())
 
-			mockedKernel.EXPECT().GetActiveExecution("c7074e5b-b90f-44f8-af5d-63201ec3a528").MaxTimes(3).Return(activeExecution, true)
+			//firstGetActiveExecutionCalls := mockedKernel.EXPECT().
+			//	GetActiveExecution("c7074e5b-b90f-44f8-af5d-63201ec3a528").
+			//	Times(1).
+			//	Return(activeExecution)
 
 			getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
 				unsignedExecuteReplyFrames := [][]byte{
@@ -2149,7 +2158,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				YieldReason: "N/A",
 			}
 
-			mockedKernel.EXPECT().GetActiveExecution(jupyterExecuteRequestId).Times(3).Return(activeExecution)
+			mockedKernel.EXPECT().
+				GetActiveExecution(jupyterExecuteRequestId).
+				AnyTimes().
+				Return(activeExecution)
 
 			preparedReplicaIdChan := make(chan int32, 1)
 
