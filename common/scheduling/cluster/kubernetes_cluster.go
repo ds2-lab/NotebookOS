@@ -41,7 +41,7 @@ func (c *KubernetesCluster) Scheduler() scheduling.Scheduler {
 // by the Cluster for scheduling decisions and to respond to scheduling requests by the Kubernetes Scheduler.
 func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec, placer scheduling.Placer,
 	hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
-	notificationBroker scheduler.NotificationBroker, schedulingPolicy scheduling.Policy,
+	notificationBroker scheduler.NotificationBroker, schedulingPolicy internalSchedulingPolicy,
 	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)), opts *scheduling.SchedulerOptions) *KubernetesCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "KubernetesCluster", statisticsUpdaterProvider)
@@ -98,7 +98,7 @@ func (c *KubernetesCluster) HandleScaleOutOperation(_ *scheduler.ScaleOperation)
 }
 
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
-func (c *KubernetesCluster) GetScaleOutCommand(_ int32, _ chan interface{}) func() {
+func (c *KubernetesCluster) GetScaleOutCommand(_ int32, _ chan interface{}, _ string) func() {
 	panic(fmt.Errorf("%w: KubernetesCluster::GetScaleOutCommand", scheduling.ErrNotImplementedYet))
 }
 

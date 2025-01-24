@@ -99,7 +99,8 @@ func (index *RandomClusterIndex) Add(host scheduling.Host) {
 	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
 	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedRandomIndex)
 	host.SetContainedWithinIndex(true)
-	index.log.Debug("Added Host %s to RandomClusterIndex at position %d.", host.GetID(), i)
+	index.log.Debug("Added Host %s to RandomClusterIndex at position %d. Index length: %d.",
+		host.GetID(), i, index.Len())
 	index.len += 1
 
 	// Invoke callback.
@@ -261,18 +262,22 @@ func (index *RandomClusterIndex) unsafeSeek(blacklistArg []interface{}, metrics 
 	return host, index.seekStart
 }
 
-func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret scheduling.Host, pos interface{}) {
+func (index *RandomClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret scheduling.Host, pos interface{}, err error) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
-	return index.unsafeSeek(blacklist, metrics...)
+	ret, pos = index.unsafeSeek(blacklist, metrics...)
+
+	return ret, pos, err
 }
 
 // SeekMultipleFrom seeks n Host instances from a random permutation of the index.
 // Pass nil as pos to reset the seek.
 //
 // This entire method is thread-safe. The index is locked until this method returns.
-func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
+func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction,
+	blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}, error) {
+
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
@@ -326,7 +331,7 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 
 		if candidateHost == nil {
 			index.log.Warn("Index returned nil host.")
-			return hosts, nextPos
+			return hosts, nextPos, nil
 		}
 
 		// In case we reshuffled, make sure we haven't already received this host.
@@ -360,5 +365,5 @@ func (index *RandomClusterIndex) SeekMultipleFrom(pos interface{}, n int, criter
 		index.log.Debug("Returning %d/%d candidateHost(s) from SeekMultipleFrom in %v.", len(hosts), n, time.Since(st))
 	}
 
-	return hosts, nextPos
+	return hosts, nextPos, nil
 }

@@ -8,7 +8,7 @@ import (
 
 func GetDockerComposeScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
 	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
-	schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) scheduling.Scheduler {
+	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) scheduling.Scheduler {
 
 	var (
 		clusterScheduler scheduling.Scheduler
@@ -27,7 +27,7 @@ func GetDockerComposeScheduler(cluster scheduling.Cluster, placer scheduling.Pla
 
 func GetDockerSwarmScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
 	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
-	schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) scheduling.Scheduler {
+	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) scheduling.Scheduler {
 
 	var (
 		clusterScheduler scheduling.Scheduler

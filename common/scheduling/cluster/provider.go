@@ -6,7 +6,6 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -42,7 +41,7 @@ type Provider struct {
 	ClusterMetricsProvider    scheduling.MetricsProvider                           // Optional.
 	NotificationBroker        scheduler.NotificationBroker                         // Optional.
 	Options                   *scheduling.SchedulerOptions                         // Required.
-	SchedulingPolicy          scheduling.Policy                                    // Optional, will be extracted from Options if not specified.
+	SchedulingPolicy          internalSchedulingPolicy                             // Optional, will be extracted from Options if not specified.
 	KubeClient                scheduling.KubeClient                                // Required for Kubernetes clusters. Ignored for others.
 	StatisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)) // Optional.
 
@@ -74,7 +73,7 @@ func (b *Provider) WithPlacer(sp scheduling.Placer) *Provider {
 	return b
 }
 
-func (b *Provider) WithSchedulingPolicy(sp scheduling.Policy) *Provider {
+func (b *Provider) WithSchedulingPolicy(sp internalSchedulingPolicy) *Provider {
 	b.SchedulingPolicy = sp
 	return b
 }
@@ -150,12 +149,12 @@ func (b *Provider) Validate() error {
 
 	// If unspecified, then we'll create it ourselves here.
 	if b.SchedulingPolicy == nil {
-		schedulingPolicy, err := policy.GetSchedulingPolicy(b.Options)
+		schedulingPolicy, err := scheduler.GetSchedulingPolicy(b.Options)
 		if err != nil {
 			return err
 		}
 
-		b.SchedulingPolicy = schedulingPolicy
+		b.SchedulingPolicy = schedulingPolicy.(internalSchedulingPolicy)
 	}
 
 	b.log.Debug("Successfully validated arguments for %s cluster.", b.ClusterType.String())

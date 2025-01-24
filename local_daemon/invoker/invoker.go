@@ -34,9 +34,6 @@ type KernelInvoker interface {
 	// The callback function is invocation specific and will be cleared after the kernel exits.
 	OnStatusChanged(StatucChangedHandler)
 
-	// GetReplicaAddress returns the address of the replica.
-	GetReplicaAddress(spec *proto.KernelSpec, replicaId int32) string
-
 	// KernelCreatedAt returns the time at which the KernelInvoker created the kernel.
 	KernelCreatedAt() (time.Time, bool)
 

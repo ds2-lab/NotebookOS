@@ -35,10 +35,44 @@ func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas i
 		schedulingPolicy: schedulingPolicy,
 	}
 
-	placer.resourceReserver = getResourceReserver(placer.reservationShouldUsePendingResources())
+	placer.resourceReserver = placer.getResourceReserver()
 
 	config.InitLogger(&placer.log, placer)
 	return placer
+}
+
+// getResourceReserver returns a resourceReserver based on the closure created by passing a value for
+// reservationShouldUsePendingResources, which may differ depending on the placer implementation and
+// configured scheduling policy.
+func (placer *AbstractPlacer) getResourceReserver() resourceReserver {
+	return func(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) bool {
+		var usePendingReservation bool
+
+		// If we are migrating a replica that needs to begin training right away,
+		// then we should not use a pending reservation.
+		//
+		// The container will need resources committed to it immediately.
+		//
+		// Alternatively, if we aren't going to be creating reservations for a kernel container that intends to
+		// begin training immediately upon being created, then we defer to the configured scheduling policy.
+		// To do this, we simply query the resource binding mode of the configured scheduling policy by calling
+		// the placer's 'reservationShouldUsePendingResources' method.
+		if forTraining {
+			usePendingReservation = false
+		} else {
+			usePendingReservation = placer.reservationShouldUsePendingResources()
+		}
+
+		reserved, err := candidateHost.ReserveResources(kernelSpec, usePendingReservation)
+		if err != nil {
+			// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
+			if reserved {
+				panic("We successfully reserved resources on a Host despite ReserveResources also returning an error...")
+			}
+		}
+
+		return reserved
+	}
 }
 
 // reservationShouldUsePendingResources returns true if resource reservations on candidate hosts should be made
@@ -55,7 +89,9 @@ func (placer *AbstractPlacer) reservationShouldUsePendingResources() bool {
 // The number of hosts returned is determined by the placer.
 //
 // The core logic of FindHosts is implemented by the AbstractPlacer's internalPlacer instance/field.
-func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) []scheduling.Host {
+//
+// If FindHosts returns nil (rather than an empty slice), then an error occurred.
+func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *proto.KernelSpec, numHosts int, forTraining bool) ([]scheduling.Host, error) {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 	st := time.Now()
@@ -69,7 +105,12 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 	}
 
 	// Invoke internalPlacer's implementation of the findHosts method for the core logic of FindHosts.
-	hosts := placer.instance.findHosts(blacklist, kernelSpec, numHosts, forTraining)
+	metrics := []float64{kernelSpec.ResourceSpec.GPU()}
+	hosts, err := placer.instance.findHosts(blacklist, kernelSpec, numHosts, forTraining, metrics)
+	if err != nil {
+		placer.log.Error("Error encountered while trying to find viable hosts for replica of kernel %s: %v",
+			kernelSpec.Id, err)
+	}
 
 	latency := time.Since(st)
 
@@ -89,18 +130,28 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 			With(prometheus.Labels{"successful": successLabel}).Observe(float64(latency.Microseconds()))
 	}
 
-	placer.instance.UpdateIndexMultiple(hosts)
-	return hosts
+	if hosts != nil {
+		placer.instance.UpdateIndexMultiple(hosts)
+	}
+
+	return hosts, err
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) scheduling.Host {
+func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) (scheduling.Host, error) {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 
 	st := time.Now()
+	metrics := []float64{kernelSpec.ResourceSpec.GPU()}
+
 	// Invoke internalPlacer's implementation of the findHost method for the core logic of FindHost.
-	host := placer.instance.findHost(blacklist, kernelSpec, forTraining)
+	host, err := placer.instance.findHost(blacklist, kernelSpec, forTraining, metrics)
+	if err != nil {
+		placer.log.Error("Error while finding host for replica of kernel %s: %v", kernelSpec.Id, err)
+		return nil, err
+	}
+
 	latency := time.Since(st)
 
 	if host == nil {
@@ -119,8 +170,10 @@ func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *prot
 		}
 	}
 
-	placer.instance.UpdateIndex(host)
-	return host
+	if host != nil {
+		placer.instance.UpdateIndex(host)
+	}
+	return host, nil
 }
 
 // Place atomically places a replica on a host.
@@ -156,8 +209,8 @@ func (placer *AbstractPlacer) Place(host scheduling.Host, in *proto.KernelReplic
 
 	placer.instance.UpdateIndex(host)
 
-	placer.log.Debug("Returning connection info for replica %d of kernel %s after placing it on Host %s: %v",
-		in.ReplicaId, in.Kernel.Id, host.GetID(), connInfo)
+	placer.log.Debug("Returning connection info for replica %d of kernel %s after placing it on Host %s (ID=%s): %v",
+		in.ReplicaId, in.Kernel.Id, host.GetNodeName(), host.GetID(), connInfo)
 
 	return connInfo, err
 }
@@ -172,7 +225,8 @@ func (placer *AbstractPlacer) Reclaim(host scheduling.Host, sess scheduling.User
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	placer.log.Debug("Calling StopKernel on kernel %s running on host %v.", sess.ID(), host)
+	placer.log.Debug("Calling StopKernel on kernel %s running on host %s (ID=%v).",
+		sess.ID(), host.GetNodeName(), host.GetID())
 	_, err := host.StopKernel(ctx, &proto.KernelId{Id: sess.ID()})
 
 	return err

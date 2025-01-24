@@ -26,7 +26,7 @@ ipython-config-path: /home/jovyan/.ipython/profile_default/ipython_config.json
 smr-port: {{ distributed_notebook_smr_port }}
 kube-namespace: default
 starting-resource-port: 9007
-num-resource-ports: 256
+num-resource-ports: 4096
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: {{ distributed_notebook_kernel_docker_image_name }}
@@ -70,3 +70,4 @@ std_dev_scale_in_per_host_sec: {{ distributed_notebook_std_dev_scale_in_per_host
 starting_resource_port: 16007
 num_resource_ports: 4096
 use_real_gpus: {{ distributed_notebook_use_real_gpus }}
+assign_kernel_debug_ports: {{ distributed_notebook_assign_kernel_debug_ports }}

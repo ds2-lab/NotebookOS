@@ -1,5 +1,6 @@
 from distributed_notebook.deep_learning import CIFAR10, TinyImageNet, VGG11, VGG13, VGG16, VGG19
 
+import torch
 
 def test_train_vgg11_on_cifar10():
     """
@@ -8,7 +9,9 @@ def test_train_vgg11_on_cifar10():
     dataset: CIFAR10 = CIFAR10(image_size = VGG11.expected_image_size())
     model: VGG11 = VGG11(created_for_first_time=True)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer
@@ -33,7 +36,9 @@ def test_train_vgg11_on_tiny_imagenet():
     dataset: TinyImageNet = TinyImageNet(image_size = VGG11.expected_image_size())
     model: VGG11 = VGG11(created_for_first_time=True, out_features = 200)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer
@@ -58,7 +63,9 @@ def test_train_vgg13_on_cifar10():
     dataset: CIFAR10 = CIFAR10(image_size = VGG13.expected_image_size())
     model: VGG13 = VGG13(created_for_first_time=True)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer
@@ -83,7 +90,9 @@ def test_train_vgg13_on_tiny_imagenet():
     dataset: TinyImageNet = TinyImageNet(image_size = VGG13.expected_image_size())
     model: VGG13 = VGG13(created_for_first_time=True, out_features = 200)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer
@@ -107,7 +116,9 @@ def test_train_vgg16_on_cifar10():
     dataset: CIFAR10 = CIFAR10(image_size = VGG16.expected_image_size())
     model: VGG16 = VGG16(created_for_first_time=True)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer
@@ -132,7 +143,9 @@ def test_train_vgg16_on_tiny_imagenet():
     dataset: TinyImageNet = TinyImageNet(image_size = VGG16.expected_image_size())
     model: VGG16 = VGG16(created_for_first_time=True, out_features = 200)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer
@@ -157,7 +170,9 @@ def test_train_vgg19_on_cifar10():
     dataset: CIFAR10 = CIFAR10(image_size = VGG19.expected_image_size())
     model: VGG19 = VGG19(created_for_first_time=True)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer
@@ -182,7 +197,9 @@ def test_train_vgg19_on_tiny_imagenet():
     dataset: TinyImageNet = TinyImageNet(image_size = VGG19.expected_image_size())
     model: VGG19 = VGG19(created_for_first_time=True, out_features = 200)
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Access the classification head (last layer)
     output_layer = model.output_layer

@@ -486,12 +486,12 @@ func (c *KernelReplicaClient) SentExecuteRequest(msg *messaging.JupyterMessage) 
 	if numOutstandingRequests > 1 {
 		// Print a warning, as we shouldn't be sending concurrent execute requests to the kernel, and we just recorded
 		// that an execute request has been resolved, yet there is still at least one outstanding "execute_request"...
-		c.log.Warn(utils.OrangeStyle.Render("Recorded that \"execute_request\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
-			"Updated number of outstanding \"execute_request\" messages: %d."),
+		c.log.Warn(utils.OrangeStyle.Render("Recorded that \"%s\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
+			"Updated number of outstanding \"execute_request\" messages: %d."), msg.JupyterMessageType(),
 			msg.JupyterMessageId(), c.id, c.pendingExecuteRequestIds.Len())
 	} else {
-		c.log.Debug("Recorded that \"execute_request\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
-			"Updated number of outstanding \"execute_request\" messages: %d.",
+		c.log.Debug("Recorded that \"%s\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
+			"Updated number of outstanding \"execute_request\" messages: %d.", msg.JupyterMessageType(),
 			msg.JupyterMessageId(), c.id, c.pendingExecuteRequestIds.Len())
 	}
 }

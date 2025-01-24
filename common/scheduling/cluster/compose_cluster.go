@@ -7,37 +7,35 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"log"
 	"math/rand"
 	"strings"
 	"time"
 )
 
-// DockerSwarmCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
+// DockerComposeCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
 // locally, and scaling-up and down sometimes involves simulation steps in which nodes are not actually deleted,
 // but simply toggled "off" and "on".
-type DockerSwarmCluster struct {
+type DockerComposeCluster struct {
 	*BaseCluster
 }
 
-// NewDockerSwarmCluster creates a new DockerSwarmCluster struct and returns a pointer to it.
+// NewDockerComposeCluster creates a new DockerComposeCluster struct and returns a pointer to it.
 //
-// NewDockerSwarmCluster should be used when the system is deployed in Docker Swarm mode.
-//
-// This function accepts parameters that are used to construct a DockerScheduler to be used internally by the
-// DockerSwarmCluster for scheduling decisions.
-func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper,
-	kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
-	notificationBroker scheduler.NotificationBroker, schedulingPolicy scheduling.Policy,
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)), opts *scheduling.SchedulerOptions) *DockerSwarmCluster {
+// NewDockerComposeCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
+// This function accepts parameters that are used to construct a DockerScheduler to be used internally
+// by the Cluster for scheduling decisions.
+func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
+	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker,
+	schedulingPolicy internalSchedulingPolicy, statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
+	opts *scheduling.SchedulerOptions) *DockerComposeCluster {
 
-	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerSwarmCluster", statisticsUpdaterProvider)
+	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerComposeCluster", statisticsUpdaterProvider)
 
-	dockerCluster := &DockerSwarmCluster{
+	dockerCluster := &DockerComposeCluster{
 		BaseCluster: baseCluster,
 	}
 
-	dockerCluster.scheduler = scheduler.GetDockerSwarmScheduler(dockerCluster, placer, hostMapper, hostSpec,
+	dockerCluster.scheduler = scheduler.GetDockerComposeScheduler(dockerCluster, placer, hostMapper, hostSpec,
 		kernelProvider, notificationBroker, schedulingPolicy, opts)
 	baseCluster.instance = dockerCluster
 	baseCluster.initRatioUpdater()
@@ -45,12 +43,19 @@ func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMa
 	return dockerCluster
 }
 
-func (c *DockerSwarmCluster) String() string {
+func (c *DockerComposeCluster) String() string {
 	return fmt.Sprintf("DockerComposeCluster[Size=%d,NumSessions=%d]", c.Len(), c.sessions.Len())
 }
 
+// CanPossiblyScaleOut returns true if the Cluster could possibly scale-out.
+// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
+// it is currently not supported unless there is at least one disabled host already within the cluster.
+func (c *DockerComposeCluster) CanPossiblyScaleOut() bool {
+	return true
+}
+
 // NodeType returns the type of node provisioned within the Cluster.
-func (c *DockerSwarmCluster) NodeType() string {
+func (c *DockerComposeCluster) NodeType() string {
 	return types.DockerNode
 }
 
@@ -58,8 +63,8 @@ func (c *DockerSwarmCluster) NodeType() string {
 //
 // If the Host does not exist or is not already disabled, then an error is returned.
 //
-// Important: this should be called with the DockerSwarmCluster's hostMutex already acquired.
-func (c *DockerSwarmCluster) unsafeDisableHost(id string) error {
+// Important: this should be called with the DockerComposeCluster's hostMutex already acquired.
+func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 
@@ -91,7 +96,7 @@ func (c *DockerSwarmCluster) unsafeDisableHost(id string) error {
 
 	c.onHostRemoved(host)
 
-	if c.metricsProvider != nil {
+	if c.metricsProvider != nil && c.metricsProvider.GetNumDisabledHostsGauge() != nil {
 		c.metricsProvider.GetNumDisabledHostsGauge().Add(1)
 	}
 
@@ -102,8 +107,8 @@ func (c *DockerSwarmCluster) unsafeDisableHost(id string) error {
 //
 // If the Host does not exist or is not disabled, then an error is returned.
 //
-// Important: this should be called with the DockerSwarmCluster's hostMutex already acquired.
-func (c *DockerSwarmCluster) unsafeEnableHost(id string) error {
+// Important: this should be called with the DockerComposeCluster's hostMutex already acquired.
+func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 
@@ -127,7 +132,7 @@ func (c *DockerSwarmCluster) unsafeEnableHost(id string) error {
 	}
 	c.hosts.Store(id, disabledHost)
 
-	if c.metricsProvider != nil {
+	if c.metricsProvider != nil && c.metricsProvider.GetNumDisabledHostsGauge() != nil {
 		c.metricsProvider.GetNumDisabledHostsGauge().Sub(1)
 	}
 
@@ -136,13 +141,13 @@ func (c *DockerSwarmCluster) unsafeEnableHost(id string) error {
 
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
 //
-// Important: this should be called with the Cluster's hostMutex already acquired.
-func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}) func() {
+// Important: this should be called with the Cluster's scalingMutex already acquired.
+func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}, scaleOpId string) func() {
 	return func() {
 		currentScale := c.Len()
 		numNewNodesRequired := targetScale - int32(currentScale)
-		c.log.Debug("Scaling-out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d.",
-			targetScale, currentScale, numNewNodesRequired, c.DisabledHosts.Len())
+		c.log.Debug("Scaling out to %d nodes. CurrentSize: %d. #NewNodesRequired: %d. #DisabledNodes: %d. ScaleOpId: %s.",
+			targetScale, currentScale, numNewNodesRequired, c.DisabledHosts.Len(), scaleOpId)
 
 		numDisabledHostsUsed := 0
 		if c.DisabledHosts.Len() > 0 {
@@ -151,26 +156,29 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 			c.DisabledHosts.Range(func(hostId string, host scheduling.Host) (contd bool) {
 				err := host.Enable(true)
 				if err != nil {
-					c.log.Error("Failed to re-enable host %s because: %v", hostId, err)
+					c.log.Error("Failed to re-enable host %s (ID=%s) during scale-out %s because: %v",
+						host.GetNodeName(), hostId, scaleOpId, err)
+
 					// For now, we panic, as we don't expect there to be a "valid" reason to fail to enable a host.
 					// Later on, we may find that there are valid reasons, in which case we'd just handle the
 					// error in whatever way is appropriate, such as by skipping this host and trying the next one.
 					panic(err)
 				}
 
-				c.log.Debug("Using disabled host %s in scale-out operation.", hostId)
+				c.log.Debug("Using disabled host %s (ID=%s) in scale-out operation %s.",
+					host.GetNodeName(), hostId, scaleOpId)
 
 				scaleOutDurationSec := (rand.NormFloat64() * c.StdDevScaleOutPerHost.Seconds()) + c.MeanScaleOutPerHost.Seconds()
 				scaleOutDuration := time.Duration(scaleOutDurationSec) * time.Second
-				c.log.Debug("Simulating scale-out with duration %v", scaleOutDuration)
+				c.log.Debug("Simulating scale-out for host %s (ID=%s) during operation %s. Duration: %v",
+					host.GetNodeName(), hostId, scaleOpId, scaleOutDuration)
 				time.Sleep(scaleOutDuration)
 
 				// This will add the host back to the Cluster.
 				err = c.NewHostAddedOrConnected(host)
 				if err != nil {
-					c.log.Error("Error adding newly-connected host %s (ID=%s) to cluster: %v",
-						host.GetNodeName(), host.GetID(), err)
-					// TODO: Need to handle this error...
+					c.log.Error("Error adding newly-connected host %s (ID=%s) to cluster during scale-out %s: %v",
+						host.GetNodeName(), hostId, scaleOpId, err)
 				}
 
 				enabledHosts = append(enabledHosts, host)
@@ -178,14 +186,22 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 				numDisabledHostsUsed += 1
 
 				// If we have already satisfied the scale-out requirement, then we'll stop iterating.
-				return numNewNodesRequired != 0
+				// So, return true (i.e., continue iterating) if numNewNodesRequired > 0.
+				// Otherwise, return false (i.e., stop iterating).
+				return numNewNodesRequired > 0
 			})
 
-			// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the "disabled hosts" mapping.
+			c.log.Debug("Removing %d host(s) from DisabledHosts after simulating scale-out operation %s",
+				len(enabledHosts), scaleOpId)
+
+			// Remove all the previously-disabled hosts (that we used in the scale-out operation) from the
+			// "disabled hosts" mapping.
 			for _, host := range enabledHosts {
 				_, loaded := c.DisabledHosts.LoadAndDelete(host.GetID())
+				c.log.Debug("Removed host %s (ID=%s) from DisabledHosts", host.GetNodeName(), host.GetID())
 				if !loaded {
-					log.Fatalf("Failed to find host %s in DisabledHosts map after using it in scale-out operation.", host.GetID())
+					c.log.Error("Failed to find host %s in DisabledHosts map after using it in scale-out operation.",
+						host.GetID())
 				}
 			}
 		}
@@ -203,23 +219,18 @@ func (c *DockerSwarmCluster) GetScaleOutCommand(targetScale int32, coreLogicDone
 		}
 
 		c.log.Warn("Could not satisfy scale-out request to %d nodes exclusively using disabled nodes.", targetScale)
-		c.log.Warn("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.", numDisabledHostsUsed, targetScale-int32(currentScale))
+		c.log.Warn("Used %d disabled host(s). Still need %d additional host(s) to satisfy request.",
+			numDisabledHostsUsed, targetScale-int32(currentScale))
 
-		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker swarm clusters", scheduling.ErrUnsupportedOperation)
+		coreLogicDoneChan <- fmt.Errorf("%w: adding additional nodes is not supported by docker compose clusters",
+			scheduling.ErrUnsupportedOperation)
 	}
-}
-
-// CanPossiblyScaleOut returns true if the Cluster could possibly scale-out.
-// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
-// it is currently not supported unless there is at least one disabled host already within the cluster.
-func (c *DockerSwarmCluster) CanPossiblyScaleOut() bool {
-	return c.DisabledHosts.Len() > 0
 }
 
 // unsafeGetTargetedScaleInCommand returns a function that, when executed, will terminate the hosts specified in the targetHosts parameter.
 //
 // Important: this should be called with the Cluster's hostMutex already acquired.
-func (c *DockerSwarmCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+func (c *DockerComposeCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
 	numAffectedNodes := int32(c.hosts.Len()) - targetScale
 	if numAffectedNodes != int32(len(targetHosts)) {
 		return nil, fmt.Errorf("inconsistent targetScale (%d) and length of hosts to remove (%d)", targetScale, len(targetHosts))
@@ -270,13 +281,13 @@ func (c *DockerSwarmCluster) unsafeGetTargetedScaleInCommand(targetScale int32, 
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
 //
-// DockerSwarmCluster scales-in by disabling Local Daemon nodes while leaving their containers active and running.
+// DockerComposeCluster scales-in by disabling Local Daemon nodes while leaving their containers active and running.
 //
 // This is because Docker Compose does not allow you to specify the container to be terminated when scaling-down
 // a docker compose service.
 //
 // Important: this should be called with the Cluster's hostMutex already acquired.
-func (c *DockerSwarmCluster) GetScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+func (c *DockerComposeCluster) GetScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
 	if len(targetHosts) > 0 {
 		return c.unsafeGetTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
 	}

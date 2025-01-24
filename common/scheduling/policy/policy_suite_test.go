@@ -1,4 +1,4 @@
-package server
+package policy_test
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestProxy(t *testing.T) {
+func TestPolicy(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Jupyter Server Test Suite")
+	RunSpecs(t, "Policy Suite")
 }

@@ -58,10 +58,10 @@ services:
       logging_jobname: "gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/bcarver2/gateway-runtime-state:/gateway-runtime-state
-      - /home/bcarver2/go/pkg/distributed-notebook/deploy/docker-WSL2/gateway/gateway.yml:/gateway.yml
-      - /home/bcarver2/go/pkg/distributed-notebook/deploy/docker-WSL2/local_daemon/daemon.yml:/local_daemon/daemon.yml
-      - /home/bcarver2/go/pkg/distributed-notebook/deploy/docker-WSL2/docker-compose.yml:/docker-compose.yml
+      - /home/scusemua/gateway-runtime-state:/gateway-runtime-state
+      - /home/scusemua/go/pkg/distributed-notebook/deploy/docker-WSL2/gateway/gateway.yml:/gateway.yml
+      - /home/scusemua/go/pkg/distributed-notebook/deploy/docker-WSL2/local_daemon/daemon.yml:/local_daemon/daemon.yml
+      - /home/scusemua/go/pkg/distributed-notebook/deploy/docker-WSL2/docker-compose.yml:/docker-compose.yml
     container_name: "gateway"
     restart: unless-stopped
     expose:
@@ -84,9 +84,9 @@ services:
     environment:
       - KERNEL_TEMP_BASE_IN_CONTAINER=/kernel_base
       - KERNEL_IMAGE=scusemua/jupyter-debug:latest
-      - HOST_MOUNT_DIR=/home/bcarver2/kernel_base
+      - HOST_MOUNT_DIR=/home/scusemua/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
-      - STORAGE=/home/bcarver2/kernel_storage
+      - STORAGE=/home/scusemua/kernel_storage
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
     image: scusemua/daemon:latest
@@ -97,8 +97,8 @@ services:
       logging_jobname: "local_daemon"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/bcarver2/kernel_base:/kernel_base
-      - /home/bcarver2/go/pkg/distributed-notebook/deploy/docker-WSL2/local_daemon/daemon.yml:/daemon.yml
+      - /home/scusemua/kernel_base:/kernel_base
+      - /home/scusemua/go/pkg/distributed-notebook/deploy/docker-WSL2/local_daemon/daemon.yml:/daemon.yml
     depends_on:
       - gateway
       - docker-hoster
@@ -141,6 +141,7 @@ services:
   loki:
     image: grafana/loki:3.2.0
     command: -config.file=/etc/loki/loki-config.yaml
+    container_name: loki
     ports:
       - "3100:3100"
     volumes:
@@ -158,16 +159,16 @@ services:
     depends_on:
       - loki
 
-  grafana-image-renderer:
-    image: grafana/grafana-image-renderer:latest
-    ports:
-      - 5555
-    environment:
-      - HTTP_PORT=5555
-      - RENDERING_VIEWPORT_MAX_HEIGHT=10000
-      - RENDERING_VIEWPORT_MAX_WIDTH=5000
-      - RENDERING_VIEWPORT_DEVICE_SCALE_FACTOR=2
-      - RENDERING_VIEWPORT_MAX_DEVICE_SCALE_FACTOR=8
+#  grafana-image-renderer:
+#    image: grafana/grafana-image-renderer:latest
+#    ports:
+#      - 5555
+#    environment:
+#      - HTTP_PORT=5555
+#      - RENDERING_VIEWPORT_MAX_HEIGHT=10000
+#      - RENDERING_VIEWPORT_MAX_WIDTH=5000
+#      - RENDERING_VIEWPORT_DEVICE_SCALE_FACTOR=2
+#      - RENDERING_VIEWPORT_MAX_DEVICE_SCALE_FACTOR=8
 
   grafana:
     platform: linux/amd64

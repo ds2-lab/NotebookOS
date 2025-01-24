@@ -18,7 +18,9 @@ def test_train_deep_speech2():
     model: DeepSpeech2 = DeepSpeech2()
     output_layer: torch.nn.Module = model.output_layer
 
-    training_duration_ms: int = 1000
+    training_duration_ms: int = 2000
+    if not torch.cuda.is_available():
+        training_duration_ms = 3250
 
     # Extract weights and biases
     prev_weights = output_layer.weight.detach().cpu()

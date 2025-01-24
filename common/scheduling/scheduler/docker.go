@@ -35,12 +35,16 @@ type DockerScheduler struct {
 
 	// Used in Docker mode. Assigned to individual kernel replicas, incremented after each assignment.
 	dockerModeKernelDebugPort atomic.Int32
+
+	// AssignKernelDebugPorts is a flag that, when true, directs the DockerScheduler to assign "debug ports" to
+	// kernel containers that will be passed to their Golang backend to start a net/pprof debug server.
+	AssignKernelDebugPorts bool
 }
 
 // newDockerScheduler is called internally by "constructors" of other schedulers that "extend" DockerScheduler.
 func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
 	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
-	schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
+	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
 	if cluster == nil {
 		panic("Cluster cannot be nil")
 	}
@@ -56,7 +60,8 @@ func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 		WithOptions(opts).Build()
 
 	dockerScheduler := &DockerScheduler{
-		BaseScheduler: baseScheduler,
+		BaseScheduler:          baseScheduler,
+		AssignKernelDebugPorts: opts.AssignKernelDebugPorts,
 	}
 
 	dockerScheduler.dockerModeKernelDebugPort.Store(DockerKernelDebugPortDefault)
@@ -71,7 +76,7 @@ func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 
 func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, hostMapper HostMapper,
 	hostSpec types.Spec, kernelProvider KernelProvider, notificationBroker NotificationBroker,
-	schedulingPolicy scheduling.Policy, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
+	schedulingPolicy SchedulingPolicy, opts *scheduling.SchedulerOptions) (*DockerScheduler, error) {
 
 	dockerScheduler, err := newDockerScheduler(cluster, placer, hostMapper, hostSpec, kernelProvider,
 		notificationBroker, schedulingPolicy, opts)
@@ -130,7 +135,14 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 		blacklist = append(blacklist, host)
 	}
 
-	host := s.placer.FindHost(blacklist, replicaSpec.Kernel, forTraining)
+	host, err := s.placer.FindHost(blacklist, replicaSpec.Kernel, forTraining)
+	if err != nil {
+		s.log.Error("Error while finding host for replica %d of kernel %s: %v",
+			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, err)
+
+		return nil, err
+	}
+
 	if host == nil {
 		return nil, scheduling.ErrInsufficientHostsAvailable
 	}
@@ -147,10 +159,11 @@ func (s *DockerScheduler) HostAdded(host scheduling.Host) {
 
 // findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.
 // DockerScheduler does not do anything special or fancy.
-func (s *DockerScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) []scheduling.Host {
+//
+// If findCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
+func (s *DockerScheduler) findCandidateHosts(numToFind int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
 	// Identify the hosts onto which we will place replicas of the kernel.
-	hostBatch := s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
-	return hostBatch
+	return s.placer.FindHosts([]interface{}{}, kernelSpec, numToFind, false)
 }
 
 // addReplicaSetup performs any platform-specific setup required when adding a new replica to a kernel.
@@ -233,8 +246,15 @@ func (s *DockerScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplica
 			replicaSpec.ReplicaId, kernelId, targetHost.GetID())
 	}
 
-	// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
-	if replicaSpec.DockerModeKernelDebugPort <= 1023 {
+	// Check if we're supposed to assign "debug ports" to kernels.
+	// If so, then we'll check if one has already been assigned (somehow), and if not, then we'll assign one.
+	//
+	// If we're NOT supposed to assign "debug ports", then we'll explicitly assign -1, which will
+	// ensure that the Local Daemon that creates the kernel container does not bind a port for this purpose.
+	if !s.AssignKernelDebugPorts {
+		replicaSpec.DockerModeKernelDebugPort = -1
+	} else if replicaSpec.DockerModeKernelDebugPort <= 1023 {
+		// Make sure to assign a value to DockerModeKernelDebugPort if one is not already set.
 		replicaSpec.DockerModeKernelDebugPort = s.dockerModeKernelDebugPort.Add(1)
 
 		s.log.Debug("Assigned docker mode kernel replica debug port to %d for replica %d of kernel %s.",
@@ -427,8 +447,9 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.Ke
 				}
 
 				responsesReceived = append(responsesReceived, notification)
-				s.log.Debug("Successfully scheduled replica %d of kernel %s on host %s. %d/%d replicas scheduled. Time elapsed: %v.",
-					notification.ReplicaId, in.Id, notification.Host.GetID(), len(responsesReceived), responsesRequired, time.Since(st))
+				s.log.Debug("Successfully scheduled replica %d of kernel %s on host %s (ID=%s). %d/%d replicas scheduled. Time elapsed: %v.",
+					notification.ReplicaId, in.Id, notification.Host.GetNodeName(), notification.Host.GetID(), len(responsesReceived),
+					responsesRequired, time.Since(st))
 			}
 		}
 	}

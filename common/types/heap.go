@@ -9,7 +9,9 @@ type Comparable interface {
 type HeapElement interface {
 	Comparable
 
-	SetIdx(int)
+	SetIdx(HeapElementMetadataKey, int)
+
+	GetIdx(HeapElementMetadataKey) int
 
 	String() string
 
@@ -45,8 +47,8 @@ func (h *Heap) Less(i, j int) bool {
 
 func (h *Heap) Swap(i, j int) {
 	// fmt.Printf("Swap %d, %d (%v, %v) of %d\n", i, j, h[i], h[j], len(h))
-	h.Elements[i].SetIdx(j)
-	h.Elements[j].SetIdx(i)
+	h.Elements[i].SetIdx(h.MetadataKey, j)
+	h.Elements[j].SetIdx(h.MetadataKey, i)
 
 	h.Elements[i].SetMeta(h.MetadataKey, int32(j))
 	h.Elements[j].SetMeta(h.MetadataKey, int32(i))
@@ -55,7 +57,7 @@ func (h *Heap) Swap(i, j int) {
 }
 
 func (h *Heap) Push(x interface{}) {
-	x.(HeapElement).SetIdx(len(h.Elements))
+	x.(HeapElement).SetIdx(h.MetadataKey, len(h.Elements))
 	x.(HeapElement).SetMeta(h.MetadataKey, int32(len(h.Elements)))
 	h.Elements = append(h.Elements, x.(HeapElement))
 }

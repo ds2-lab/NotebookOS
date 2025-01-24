@@ -1,9 +1,30 @@
 package policy
 
 import (
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 )
+
+type internalPolicy interface {
+	// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+	SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error)
+
+	// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+	// pre-designated as the leader of a code execution.
+	//
+	// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+	// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+	// will fight amongst themselves to determine the leader.
+	//
+	// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+	// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+	// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+	//
+	// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+	// been ruled out.
+	FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error)
+}
 
 // FcfsBatchSchedulingPolicy is a scheduling.Policy modeled after Slurm-like first-come, first-serve batch schedulers.
 // FcfsBatchSchedulingPolicy uses short-lived scheduling.KernelContainer instances that are created reactively each
@@ -18,7 +39,7 @@ type FcfsBatchSchedulingPolicy struct {
 }
 
 func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatchSchedulingPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, false)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +48,38 @@ func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatch
 		baseSchedulingPolicy: basePolicy,
 	}
 
+	if opts.SchedulingPolicy != scheduling.FcfsBatch.String() {
+		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of FcfsBatchSchedulingPolicy.",
+			opts.SchedulingPolicy))
+	}
+
 	return policy, nil
+}
+
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	if p.SupportsMigration() {
+		panic("FcfsBatchSchedulingPolicy isn't supposed to support migration, yet apparently it does?")
+	}
+
+	return nil, ErrMigrationNotSupported
+}
+
+// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// pre-designated as the leader of a code execution.
+//
+// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+// will fight amongst themselves to determine the leader.
+//
+// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+//
+// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+// been ruled out.
+func (p *FcfsBatchSchedulingPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+	return checkSingleReplica(kernel, p.supportsMigration, executionId)
 }
 
 func (p *FcfsBatchSchedulingPolicy) SmrEnabled() bool {
@@ -47,7 +99,7 @@ func (p *FcfsBatchSchedulingPolicy) NumReplicas() int {
 }
 
 func (p *FcfsBatchSchedulingPolicy) ResourceBindingMode() scheduling.ResourceBindingMode {
-	return scheduling.BindResourcesAtTrainingStart
+	return scheduling.BindResourcesWhenContainerScheduled
 }
 
 func (p *FcfsBatchSchedulingPolicy) ContainerLifetime() scheduling.ContainerLifetime {
@@ -74,7 +126,7 @@ func (p *FcfsBatchSchedulingPolicy) ResourceScalingPolicy() scheduling.ResourceS
 
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *FcfsBatchSchedulingPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
-	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p)
+	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p), nil
 }
 
 func (p *FcfsBatchSchedulingPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
