@@ -2620,8 +2620,98 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		})
 
 		Context("Autoscaling", func() {
-			It("Will correctly update the ClusterGateway's statistics based on the cluster's size", func() {
+			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
+			var options *domain.ClusterGatewayOptions
 
+			BeforeEach(func() {
+				abstractServer = &server.AbstractServer{
+					DebugMode: true,
+					Log:       config.GetLogger("TestAbstractServer"),
+				}
+
+				err := json.Unmarshal([]byte(GatewayOptsAsJsonString), &options)
+				if err != nil {
+					panic(err)
+				}
+			})
+
+			It("Will correctly and automatically scale-out", func() {
+				InitialClusterSize := 3
+				InitialConnectionTimeSeconds := 3
+				InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
+
+				options.InitialClusterSize = InitialClusterSize
+				options.InitialClusterConnectionPeriodSec = InitialConnectionTimeSeconds
+
+				mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
+
+				clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
+					globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
+					srv.SetClusterOptions(&options.ClusterDaemonOptions.SchedulerOptions)
+					srv.SetDistributedClientProvider(mockedDistributedKernelClientProvider)
+					srv.(*ClusterGatewayImpl).hostSpec = hostSpec
+				})
+				config.InitLogger(&clusterGateway.log, clusterGateway)
+
+				Expect(clusterGateway.gatewayPrometheusManager).To(BeNil())
+				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
+				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
+				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
+
+				cluster := clusterGateway.cluster
+				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+				Expect(ok).To(BeTrue())
+				Expect(index).ToNot(BeNil())
+
+				placer := cluster.Placer()
+				Expect(placer).ToNot(BeNil())
+
+				scheduler := cluster.Scheduler()
+				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
+
+				Expect(cluster.Len()).To(Equal(0))
+				Expect(index.Len()).To(Equal(0))
+				Expect(placer.NumHostsInIndex()).To(Equal(0))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
+
+				// Make sure the metrics provider is non-nil.
+				Expect(cluster.MetricsProvider()).ToNot(BeNil())
+				Expect(cluster.MetricsProvider().GetClusterMetricsProvider()).ToNot(BeNil())
+
+				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
+
+				clusterSize := 0
+
+				assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
+
+				for i := 0; i < InitialClusterSize; i++ {
+					hostId := uuid.NewString()
+					hostName := fmt.Sprintf("TestHost%d", i)
+					hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
+					host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, hostName, hostSpoofer)
+					Expect(err).To(BeNil())
+					Expect(host).ToNot(BeNil())
+					Expect(localGatewayClient).ToNot(BeNil())
+
+					err = clusterGateway.registerNewHost(host)
+					Expect(err).To(BeNil())
+					clusterSize += 1
+
+					Expect(cluster.Len()).To(Equal(clusterSize))
+					Expect(index.Len()).To(Equal(clusterSize))
+					Expect(placer.NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(cluster.NumDisabledHosts()).To(Equal(0))
+					Expect(host.Enabled()).To(Equal(true))
+
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true, clusterSize)
+				}
+
+				// The initial connection period should elapse.
+				Eventually(func() bool {
+					return clusterGateway.inInitialConnectionPeriod.Load()
+				}, time.Duration(float64(time.Millisecond*InitialConnectionTime)*1.25), time.Millisecond*100).
+					Should(BeFalse())
 			})
 		})
 

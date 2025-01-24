@@ -43,6 +43,9 @@ func checkSingleReplica(kernel scheduling.Kernel, migrationAllowed bool, executi
 }
 
 // multiReplicaValidateCapacity validates the Cluster's capacity for static and dynamic policies.
+//
+// This function exists so that it can be reused by Static, DynamicV3, and DynamicV4, as they all
+// operate identically with respect to capacity validation.
 func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.Cluster, log logger.Logger) {
 	if !policy.SupportsPredictiveAutoscaling() {
 		return
