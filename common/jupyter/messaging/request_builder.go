@@ -334,10 +334,10 @@ func (b *RequestBuilder) BuildRequest() (*BasicRequest, error) {
 	//
 	// In this case, it's the sender's responsibility to manually/explicitly resubmit the message if they don't
 	// hear back (but the replica may just be training, and that's why the sender isn't hearing back).
-	if (b.messageType == ShellMessage || b.messageType == ControlMessage) && !b.requiresAck {
-		b.log.Warn("Request is of type %v; however, requiresACK is false.", b.messageType)
-		// return nil, fmt.Errorf("%w: Request is of type %v; however, requiresACK is false", errInvalidParameter, b.messageType)
-	}
+	//if (b.messageType == ShellMessage || b.messageType == ControlMessage) && !b.requiresAck {
+	//	b.log.Warn("Request is of type %v; however, requiresACK is false.", b.messageType)
+	//	// return nil, fmt.Errorf("%w: Request is of type %v; however, requiresACK is false", errInvalidParameter, b.messageType)
+	//}
 
 	req := &BasicRequest{
 		liveRequestState: &liveRequestState{

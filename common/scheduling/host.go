@@ -3,6 +3,7 @@ package scheduling
 import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
@@ -11,10 +12,13 @@ import (
 	"time"
 )
 
+const (
+	HostIndexCategoryMetadata types.HeapElementMetadataKey = "index_category"
+	HostIndexKeyMetadata      types.HeapElementMetadataKey = "index_key"
+)
+
 // ErrorCallback defines a function to be called if a Host appears to be dead.
 type ErrorCallback func(localDaemonId string, nodeName string, errorName string, errorMessage string) error
-
-type HostMetaKey string
 
 type PreemptionInfo interface {
 	fmt.Stringer
@@ -24,9 +28,11 @@ type PreemptionInfo interface {
 }
 
 type Host interface {
+	types.HeapElement
+
 	proto.LocalGatewayClient
 
-	// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote DefaultSchedulingPolicy Daemon.
+	// GetGrpcConnection returns the underlying grpc.ClientConn used to communicate with the remote Local Daemon.
 	GetGrpcConnection() *grpc.ClientConn
 	GetLocalGatewayClient() proto.LocalGatewayClient
 	GetNodeName() string
@@ -43,7 +49,8 @@ type Host interface {
 	IsProperlyInitialized() bool
 	GetLatestGpuInfo() *proto.GpuInfo
 	SetSchedulerPoolType(schedulerPoolType SchedulerPoolType)
-	SetIdx(idx int)
+	SetIdx(types.HeapElementMetadataKey, int)
+	GetIdx(types.HeapElementMetadataKey) int
 	Compare(h2 interface{}) float64
 	RecomputeSubscribedRatio() decimal.Decimal
 	LastResourcesSnapshot() types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
@@ -58,11 +65,86 @@ type Host interface {
 	PlacedGPUs() decimal.Decimal
 	PlacedCPUs() decimal.Decimal
 	WillBecomeTooOversubscribed(resourceRequest types.Spec) bool
+
+	// CanServeContainerWithError returns nil if the target Host can serve the resource request.
+	//
+	// This method only checks against the Host's "spec" (i.e., the total HostResources available on the Host,
+	// not taking into account current resource allocations).
 	CanServeContainerWithError(resourceRequest types.Spec) (bool, error)
+
+	// CanServeContainer returns a boolean indicating whether this Host could serve a kernel replica with the given
+	// resource requirements / resource request. This method only checks against the Host's "spec" (i.e., the total
+	// HostResources available on the Host, not taking into account current resource allocations).
+	//
+	// CanServeContainer returns true when the Host could serve the hypothetical kernel and false when the Host could not.
 	CanServeContainer(resourceRequest types.Spec) bool
+
+	// CanCommitResources returns a boolean indicating whether this Host could commit the specified resource request
+	// to a kernel scheduled onto the Host right now. Commiting resource requires having sufficiently many idle HostResources
+	// available.
+	//
+	// CanCommitResources returns true if the Host could commit/reserve the given HostResources right now.
+	// Otherwise, CanCommitResources returns false.
 	CanCommitResources(resourceRequest types.Spec) bool
 	ReleaseReservation(spec *proto.KernelSpec) error
+
+	// ReserveResources attempts to reserve the resources required by the specified kernel, returning
+	// a boolean flag indicating whether the resource reservation was completed successfully.
+	//
+	// If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
 	ReserveResources(spec *proto.KernelSpec, usePendingResources bool) (bool, error)
+
+	// PreCommitResources pre-commits resources to the given KernelContainer.
+	//
+	// The specified KernelContainer must already be scheduled on the Host.
+	//
+	// This method is intended to be used when processing an "execute_request" that is about to be forwarded to
+	// the Local Schedulers of the kernel replicas. The resources need to be pre-allocated to the KernelContainer
+	// instances in case one of them wins.
+	//
+	// The resources will be released from the KernelContainer upon receiving an "execute_reply" indicating that a
+	// particular KernelReplica yielded, or after the KernelContainer finishes executing the code in the event that
+	// it wins its leader election.
+	//
+	// The executionId parameter is used to ensure that, if messages are received out-of-order, that we do not
+	// pre-release resources when we shouldn't have.
+	//
+	// For example, let's say we submit EXECUTION_1 to a Kernel. We received the main execute_reply from the leader,
+	// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the Kernel.
+	// EXECUTION_2 required we pre-allocate some resources again. Now if we receive the delayed replies to EXECUTION_1,
+	// we may release the pre-committed resources for EXECUTION_2.
+	//
+	// By passing the executionId, which is stored with the pre-committed resource allocation, we can simply ignore
+	// the de-allocation request if it is outdated.
+	//
+	// PreCommitResources is the inverse/counterpart to ReleasePreCommitedResources.
+	PreCommitResources(container KernelContainer, executionId string) error
+
+	// ReleasePreCommitedResources releases resources that were pre-committed to the given KernelContainer.
+	//
+	// ReleasePreCommitedResources is the inverse/counterpart to PreCommitResources.
+	//
+	// The executionId parameter is used to ensure that, if messages are received out-of-order, that we do not
+	// pre-release resources when we shouldn't have.
+	//
+	// For example, let's say we submit EXECUTION_1 to a Kernel. We received the main execute_reply from the leader,
+	// but there's a delay for the replies from the followers. In the meantime, we submit EXECUTION_2 to the Kernel.
+	// EXECUTION_2 required we pre-allocate some resources again. Now if we receive the delayed replies to EXECUTION_1,
+	// we may release the pre-committed resources for EXECUTION_2.
+	//
+	// By passing the executionId, which is stored with the pre-committed resource allocation, we can simply ignore
+	// the de-allocation request if it is outdated.
+	ReleasePreCommitedResources(container KernelContainer, executionId string) error
+
+	// KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
+	// Host is updated or changed. This ensures that the Host's resource counts are up to date.
+	KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer) error
+
+	// KernelAdjustedItsResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
+	// this Host is updated or changed. This ensures that the Host's resource counts are up to date.
+	//
+	// This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
+	KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error
 	Restore(restoreFrom Host, callback ErrorCallback) error
 	Enabled() bool
 	Enable(includeInScheduling bool) error
@@ -75,6 +157,7 @@ type Host interface {
 	SetErrorCallback(callback ErrorCallback)
 	Penalty(gpus float64) (float64, PreemptionInfo, error)
 	HasAnyReplicaOfKernel(kernelId string) bool
+	HasReservationForKernel(kernelId string) bool
 	HasSpecificReplicaOfKernel(kernelId string, replicaId int32) bool
 	GetAnyReplicaOfKernel(kernelId string) KernelContainer
 	GetSpecificReplicaOfKernel(kernelId string, replicaId int32) KernelContainer
@@ -83,10 +166,10 @@ type Host interface {
 	Stats() HostStatistics
 	LastReschedule() types.StatFloat64Field
 	TimeSinceLastSynchronizationWithRemote() time.Duration
-	SetMeta(key HostMetaKey, value interface{})
 	GetReservation(kernelId string) (ResourceReservation, bool) // GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
-	GetMeta(key HostMetaKey) interface{}
+	GetMeta(key types.HeapElementMetadataKey) interface{}
 	Priority(session UserSession) float64
+
 	IdleGPUs() float64
 	PendingGPUs() float64
 	CommittedGPUs() float64
@@ -105,15 +188,24 @@ type Host interface {
 	PendingResources() *types.DecimalSpec
 	CommittedResources() *types.DecimalSpec
 	ScaleInPriority() float64
-	AddToPendingResources(spec *types.DecimalSpec) error
-	AddToIdleResources(spec *types.DecimalSpec) error
-	AddToCommittedResources(spec *types.DecimalSpec) error
-	SubtractFromPendingResources(spec *types.DecimalSpec) error
-	SubtractFromIdleResources(spec *types.DecimalSpec) error
-	SubtractFromCommittedResources(spec *types.DecimalSpec) error
 	IsContainedWithinIndex() bool
 	SetContainedWithinIndex(bool)
 	GetLastRemoteSync() time.Time
+	GetCreatedAt() time.Time // GetCreatedAt returns the time at which the Host was created.
+
+	// GetResourceCountsAsString returns the current resource counts of the Host as a string and is useful for printing.
+	GetResourceCountsAsString() string
+
+	// AddToPendingResources is only meant to be used during unit tests.
+	AddToPendingResources(spec *types.DecimalSpec) error
+	// AddToCommittedResources is only intended to be used during unit tests.
+	AddToCommittedResources(spec *types.DecimalSpec) error
+	// SubtractFromIdleResources is only intended to be used during unit tests.
+	SubtractFromIdleResources(spec *types.DecimalSpec) error
+	// SubtractFromCommittedResources is only intended to be used during unit tests.
+	SubtractFromCommittedResources(spec *types.DecimalSpec) error
+	// AddToIdleResources is only intended to be used during unit tests.
+	AddToIdleResources(spec *types.DecimalSpec) error
 }
 
 type HostStatistics interface {
@@ -148,7 +240,7 @@ type HostStatistics interface {
 	IdleMemoryMb() float64
 
 	// PendingMemoryMb returns the amount of memory, in megabytes (MB), that is oversubscribed by Containers scheduled on the Host.
-	// Pending MemoryMb are NOT actively bound to any
+	// Pending Memory are NOT actively bound to any
 	PendingMemoryMb() float64
 
 	// CommittedMemoryMb returns the amount of memory, in megabytes (MB), that is actively bound to Containers scheduled on the Host.
@@ -158,7 +250,7 @@ type HostStatistics interface {
 	IdleVRAM() float64
 
 	// PendingVRAM returns the amount of memory, in gigabytes (GB), that is oversubscribed by Containers scheduled on the Host.
-	// Pending MemoryMb are NOT actively bound to any
+	// Pending Memory are NOT actively bound to any
 	PendingVRAM() float64
 
 	// CommittedVRAM returns the amount of memory, in gigabytes (GB), that is actively bound to Containers scheduled on the Host.

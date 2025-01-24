@@ -1,6 +1,10 @@
 package scheduling
 
-import "time"
+import (
+	"fmt"
+	"github.com/scusemua/distributed-notebook/common/utils"
+	"time"
+)
 
 const (
 	DefaultSchedulingPolicy PolicyKey = "default"
@@ -10,6 +14,12 @@ const (
 	FcfsBatch               PolicyKey = "fcfs-batch"
 	AutoScalingFcfsBatch    PolicyKey = "auto-scaling-fcfs-batch"
 	Reservation             PolicyKey = "reservation"
+	Gandiva                 PolicyKey = "gandiva"
+
+	NoIdleSessionReclamation                IdleSessionReclamationPolicyKey = "none"
+	GoogleColabIdleSessionReclamationPolicy IdleSessionReclamationPolicyKey = "google-colab"
+	AdobeSenseiIdleSessionReclamationPolicy IdleSessionReclamationPolicyKey = "adobe-sensei"
+	CustomIdleSessionReclamationPolicy      IdleSessionReclamationPolicyKey = "custom"
 
 	// BindResourcesAtTrainingStart indicates that resources are to be committed when training begins and
 	// uncommitted when training ends.
@@ -30,6 +40,17 @@ const (
 // PolicyKey indicates the scheduling policy/methodology/algorithm that the internalCluster Gateway is configured to use.
 type PolicyKey string
 
+func (k PolicyKey) String() string {
+	return string(k)
+}
+
+// IdleSessionReclamationPolicyKey indicates the IdleSessionReclamationPolicy that should be used.
+type IdleSessionReclamationPolicyKey string
+
+func (k IdleSessionReclamationPolicyKey) String() string {
+	return string(k)
+}
+
 // ResourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly
 // when they are uncommitted from containers as well.
 //
@@ -38,9 +59,17 @@ type PolicyKey string
 // lifetime of the associated UserSession.
 type ResourceBindingMode string
 
+func (rbm ResourceBindingMode) String() string {
+	return string(rbm)
+}
+
 // ContainerLifetime defines how long containers of a kernel live. Options include for the duration of a single
 // training event or long-running.
 type ContainerLifetime string
+
+func (cl ContainerLifetime) String() string {
+	return string(cl)
+}
 
 // Policy defines a high-level scheduling policy.
 //
@@ -56,6 +85,9 @@ type Policy interface {
 	// and/or displaying to users.
 	Name() string
 
+	// GetGpusPerHost returns the number of GPUs available on each host.
+	GetGpusPerHost() int
+
 	// NumReplicas returns the number of replicas that each kernel should have under the target scheduling Policy.
 	NumReplicas() int
 
@@ -65,6 +97,15 @@ type Policy interface {
 	// resource management/allocation or whether resources are instead statically bound to KernelContainer instances
 	// for the lifetime of the associated UserSession.
 	ResourceBindingMode() ResourceBindingMode
+
+	// GetNewPlacer returns a concrete Placer implementation based on the Policy.
+	GetNewPlacer(metricsProvider MetricsProvider) (Placer, error)
+
+	// SupportsMigration returns true if the Policy allows for the migration of one or more replicas of
+	// a kernel when no replicas are able to serve a code execution request.
+	//
+	// If SupportsMigration returns false, then it is up to the client to resubmit the request.
+	SupportsMigration() bool
 
 	// ContainerLifetime returns the ContainerLifetime of KernelContainer instances created under the target Policy.
 	ContainerLifetime() ContainerLifetime
@@ -88,16 +129,47 @@ type Policy interface {
 
 	// ScalingConfiguration returns the ScalingConfiguration of the target AutoscalingPolicy.
 	ScalingConfiguration() *ScalingConfiguration
+
+	// SmrEnabled returns a flag indicating whether the kernel containers should participate in SMR.
+	// This is generally only enabled for the static and dynamic policies.
+	SmrEnabled() bool
+
+	// IdleSessionReclamationPolicy returns the IdleSessionReclamationPolicy of the target Policy.
+	IdleSessionReclamationPolicy() IdleSessionReclamationPolicy
+}
+
+// IdleSessionReclamationPolicy defines how the scheduling policy handles idle sessions.
+type IdleSessionReclamationPolicy interface {
+	// IdleSessionReclamationEnabled returns a flag indicating whether the reclamation of idle sessions is enabled.
+	IdleSessionReclamationEnabled() bool
+
+	// ReclaimedSessionsMustReplayAllCells returns a flag indicating whether reclaimed sessions that receive a new
+	// "execute_request" message must replay all previous cells before handling the new execution request.
+	ReclaimedSessionsMustReplayAllCells() bool
+
+	// IdleSessionReclamationInterval returns a time.Duration encoding the amount of time that a session must remain
+	// idle before it is eligible for idle reclamation.
+	IdleSessionReclamationInterval() time.Duration
 }
 
 // ResourceScalingPolicy defines the configuration of resource scaling (i.e., adding and/or removing Host instances ),
 // as well as the configuration parameters that tune the scaling behavior.
 type ResourceScalingPolicy interface {
-	// AutoscalingPolicy returns the AutoscalingPolicy of the target scheduling Policy.
-	AutoscalingPolicy() AutoscalingPolicy
+	// ScalingOutEnabled returns a bool indicating whether the Cluster can add additional Host instances if
+	// manually/explicitly instructed to do so.
+	ScalingOutEnabled() bool
 
-	// ManualScalingPolicy returns the ManualScalingPolicy of the target scheduling Policy.
-	ManualScalingPolicy() ManualScalingPolicy
+	// ScalingInEnabled returns a bool indicating whether the Cluster can remove Host instances if manually/explicitly
+	// instructed to do so.
+	ScalingInEnabled() bool
+
+	// DisableScalingOut modifies the scaling policy to disallow scaling-out, even if the policy isn't
+	// supposed to support scaling out. This is only intended to be used for unit tests.
+	DisableScalingOut()
+
+	// EnableScalingOut modifies the scaling policy to enable scaling-out, even if the policy isn't
+	// supposed to support scaling out. This is only intended to be used for unit tests.
+	EnableScalingOut()
 }
 
 // ScalingConfiguration encapsulates the various parameters related to auto-scaling.
@@ -121,8 +193,21 @@ func NewScalingConfiguration(opts *SchedulerOptions) *ScalingConfiguration {
 		panic("SchedulerOptions cannot be nil when creating a new ScalingConfiguration struct")
 	}
 
+	gpusPerHost := opts.GpusPerHost
+	if gpusPerHost == -1 {
+		if !opts.UseRealGPUs {
+			panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d", gpusPerHost))
+		}
+
+		var err error
+		gpusPerHost, err = utils.GetNumberOfActualGPUs()
+		if err != nil {
+			panic(err)
+		}
+	}
+
 	return &ScalingConfiguration{
-		GpusPerHost:                  opts.GpusPerHost,
+		GpusPerHost:                  gpusPerHost,
 		ScalingFactor:                opts.ScalingFactor,
 		MaximumHostsToReleaseAtOnce:  int32(opts.MaximumHostsToReleaseAtOnce),
 		ScalingIntervalSec:           int32(opts.ScalingInterval),
@@ -133,28 +218,6 @@ func NewScalingConfiguration(opts *SchedulerOptions) *ScalingConfiguration {
 		MinimumCapacity:              int32(opts.MinimumNumNodes),
 		MaximumCapacity:              int32(opts.MaximumNumNodes),
 	}
-}
-
-// AutoscalingPolicy defines the auto-scaling configuration (i.e., automatically adding or removing Host instances
-// to/from the Cluster).
-type AutoscalingPolicy interface {
-	// AutomaticScalingOutEnabled returns a bool indicating whether the Cluster can automatically add additional Host instances.
-	AutomaticScalingOutEnabled() bool
-
-	// AutomaticScalingInEnabled returns a flag indicating whether the Cluster can automatically remove Host instances.
-	AutomaticScalingInEnabled() bool
-}
-
-// ManualScalingPolicy defines the configuration of manually-triggered scaling (i.e., manually adding or removing
-// Host instances to/from the Cluster).
-type ManualScalingPolicy interface {
-	// ManualScalingOutEnabled returns a bool indicating whether the Cluster can add additional Host instances if
-	// manually/explicitly instructed to do so.
-	ManualScalingOutEnabled() bool
-
-	// ManualScalingInEnabled returns a bool indicating whether the Cluster can reove Host instances if manually/explicitly
-	// instructed to do so.
-	ManualScalingInEnabled() bool
 }
 
 // PostExecutionStatePolicy defines the behavior of a kernel after completing an execution of user code.

@@ -1,15 +1,31 @@
 package policy
 
-import "github.com/scusemua/distributed-notebook/common/scheduling"
+import (
+	"fmt"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+)
 
 type DynamicV3Policy struct {
-	scalingConfiguration *scheduling.ScalingConfiguration
+	*baseSchedulingPolicy
 }
 
-func NewDynamicV3Policy(opts *scheduling.SchedulerOptions) *DynamicV3Policy {
-	return &DynamicV3Policy{
-		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+func NewDynamicV3Policy(opts *scheduling.SchedulerOptions) (*DynamicV3Policy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
+	if err != nil {
+		return nil, err
 	}
+
+	policy := &DynamicV3Policy{
+		baseSchedulingPolicy: basePolicy,
+	}
+
+	if opts.SchedulingPolicy != scheduling.DynamicV3.String() {
+		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of DynamicV3Policy.",
+			opts.SchedulingPolicy))
+	}
+
+	return policy, nil
 }
 
 func (p *DynamicV3Policy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
@@ -44,44 +60,104 @@ func (p *DynamicV3Policy) ContainerLifetime() scheduling.ContainerLifetime {
 	return scheduling.LongRunning
 }
 
-//////////////////////////////////////////
-// ResourceScalingPolicy implementation //
-//////////////////////////////////////////
-
-func (p *DynamicV3Policy) AutoscalingPolicy() scheduling.AutoscalingPolicy {
-	return p
-}
-
-func (p *DynamicV3Policy) ManualScalingPolicy() scheduling.ManualScalingPolicy {
-	return p
-}
-
-//////////////////////////////////////
-// AutoscalingPolicy implementation //
-//////////////////////////////////////
-
-func (p *DynamicV3Policy) AutomaticScalingOutEnabled() bool {
+func (p *DynamicV3Policy) SmrEnabled() bool {
 	return true
 }
 
-func (p *DynamicV3Policy) AutomaticScalingInEnabled() bool {
-	return true
+// GetNewPlacer returns a concrete Placer implementation based on the Policy.
+func (p *DynamicV3Policy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
+	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p), nil
 }
 
 func (p *DynamicV3Policy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	return p.scalingConfiguration
 }
 
-////////////////////////////////////////
-// ManualScalingPolicy implementation //
-////////////////////////////////////////
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (p *DynamicV3Policy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	if !p.SupportsMigration() {
+		panic("DynamicV3Policy is supposed to support migration, yet apparently it doesn't?")
+	}
 
-func (p *DynamicV3Policy) ManualScalingOutEnabled() bool {
-	return true
+	// Identify containers that are eligible for preemption.
+	//penalties := &scheduling.PenaltyContainers{}
+	//maxBenefit := 0.0
+	//preemptionBuffer := make(scheduling.ContainerList, p.GpusPerHost)
+	//requiredGPUs := kernel.ResourceSpec().GPU()
+	//replicas := kernel.Replicas()
+	//
+	//var candidate scheduling.KernelContainer
+	//for _, replica := range replicas {
+	//	pp, pl, err := replica.Host().Penalty(requiredGPUs)
+	//	if err != nil {
+	//		p.log.Debug("%v: required %f GPUs, found %v", err, requiredGPUs, pl)
+	//		continue
+	//	}
+	//
+	//	container := replica.Container()
+	//	ip := container.InteractivePriority()
+	//	benefit := ip - pp
+	//
+	//	p.log.Debug("Got benefit of preempting from %v: %f = %f(%s) - %f(%v)", container.ContainerID(), benefit,
+	//		ip, container.Explain(scheduling.ExplainInteractivePriority), pp, pl)
+	//
+	//	if benefit > maxBenefit {
+	//		maxBenefit = benefit
+	//		preemptionBuffer = preemptionBuffer[:len(pl.Candidates())]
+	//		// make a copy to avoid changes due to preemption
+	//		copy(preemptionBuffer, pl.Candidates())
+	//		candidate = container
+	//	}
+	//}
+	//
+	//// TODO: The logic here -- from dynamic_v3 FindReadyContainer -- is also identifying co-located containers
+	//// to migrate (colocated with one of the replicas).
+	//
+	//if len(preemptionBuffer) == 0 {
+	//	return nil, fmt.Errorf("could not find eligible replica for preemption/migration")
+	//}
+	//
+	//penalties.ContainerList = preemptionBuffer
+
+	// TODO: Implement me.
+	panic("Not implemented.")
 }
 
-func (p *DynamicV3Policy) ManualScalingInEnabled() bool {
-	return true
+// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// pre-designated as the leader of a code execution.
+//
+// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+// will fight amongst themselves to determine the leader.
+//
+// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+//
+// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+// been ruled out.
+//
+// PRECONDITION: The resource spec of the specified scheduling.Kernel should already be
+// updated (in cases where dynamic resource requests are supported) such that the current
+// resource spec reflects the requirements for this code execution. That is, the logic of
+// selecting a replica now depends upon the kernel's resource request correctly specifying
+// the requirements. If the requirements were to change after selection a replica, then
+// that could invalidate the selection.
+func (p *DynamicV3Policy) FindReadyReplica(_ scheduling.Kernel, _ string) (scheduling.KernelReplica, error) {
+	// TODO: Implement me.
+	panic("Not implemented.")
+}
+
+//////////////////////////////////
+// ScalingPolicy implementation //
+//////////////////////////////////
+
+func (p *DynamicV3Policy) ScalingOutEnabled() bool {
+	return p.scalingOutEnabled
+}
+
+func (p *DynamicV3Policy) ScalingInEnabled() bool {
+	return p.scalingOutEnabled
 }
 
 /////////////////////////////////////////////

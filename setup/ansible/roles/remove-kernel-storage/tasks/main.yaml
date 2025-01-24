@@ -1,0 +1,10 @@
+- name: Ensure the kernel storage directory exists
+  ansible.builtin.file:
+    path: "{{ kernel_storage_directory }}"
+    state: directory
+
+- name: Delete all contents of the kernel storage directory
+  ansible.builtin.shell: |
+    rm -rf {{ kernel_storage_directory }}/*
+    rm -rf {{ kernel_storage_directory }}/.[!.]*
+  when: ansible_os_family != 'Windows'

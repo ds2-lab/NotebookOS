@@ -2,7 +2,7 @@ import io
 import logging
 import uuid
 
-from ..logging import ColoredLogFormatter
+from ..logs import ColoredLogFormatter
 from ..smr.smr import NewBytes, ReadCloser
 
 # TODO: Debug why, when reading from a read closer and we get to the end, it automatically loops back to the beginning.
@@ -21,6 +21,7 @@ class readCloser(io.IOBase):
     self.data_size:int = size 
 
     self.logger: logging.Logger = logging.getLogger(__class__.__name__ + "-" + str(uuid.uuid4())[0:5])
+    self.logger.handlers.clear()
 
     self.logger.setLevel(logging.DEBUG)
     ch = logging.StreamHandler()
@@ -54,18 +55,18 @@ class readCloser(io.IOBase):
     if size is None:
       size = -1
     
-    self.logger.debug(f"reading data from readCloser now. size={size}")
+    # self.logger.debug(f"reading data from readCloser now. size={size}")
     
     ret = bytearray()
     while size < 0 or len(ret) < size:
       read = self.read1(len(self.buf) if size < 0 else size - len(ret))
       if len(read) == 0:
-        self.logger.debug(f"read 0 bytes from readCloser.")
+        # self.logger.debug(f"read 0 bytes from readCloser.")
         break
 
       ret.extend(read)
   
-    self.logger.debug(f"returning {len(ret)} byte(s) from readCloser: {bytes(ret)}")
+    # self.logger.debug(f"returning {len(ret)} byte(s) from readCloser: {bytes(ret)}")
     return bytes(ret)
 
   def readall(self) -> bytes:
@@ -77,11 +78,11 @@ class readCloser(io.IOBase):
     if size < 0:
       size = len(self.buf)
     
-    self.logger.debug(f"Preparing to read buffer with size={size}, self.r={self.r}, self.w={self.w}, self.w - self.r = {self.w-self.r}, and len(self.buf)={len(self.buf)}")
+    # self.logger.debug(f"Preparing to read buffer with size={size}, self.r={self.r}, self.w={self.w}, self.w - self.r = {self.w-self.r}, and len(self.buf)={len(self.buf)}")
     
     n = self.require(size)
     
-    self.logger.debug(f"Reading buffer[{self.r}: {self.r + n}]; r = {self.r}, n = {n}.")
+    # self.logger.debug(f"Reading buffer[{self.r}: {self.r + n}]; r = {self.r}, n = {n}.")
 
     if n == 0:
       return b''
@@ -92,7 +93,7 @@ class readCloser(io.IOBase):
 
   # require ensures that sz bytes are buffered
   def require(self, sz) -> int:
-    self.logger.debug(f"require called with sz={sz}, self.r={self.r}, self.w={self.w}, self.w - self.r = {self.w-self.r}, len(self.buf)={len(self.buf)}, self.buffered = {self.buffered()}, and extra = {sz - self.buffered()}")
+    # self.logger.debug(f"require called with sz={sz}, self.r={self.r}, self.w={self.w}, self.w - self.r = {self.w-self.r}, len(self.buf)={len(self.buf)}, self.buffered = {self.buffered()}, and extra = {sz - self.buffered()}")
     extra = sz - self.buffered()
     if extra < 1:
       return sz
@@ -102,7 +103,7 @@ class readCloser(io.IOBase):
     # compact first
     self.compact()
     
-    self.logger.debug(f"Buffering {sz} bytes now self.w={self.w}, self.r={self.r}.")
+    # self.logger.debug(f"Buffering {sz} bytes now self.w={self.w}, self.r={self.r}.")
  
     # read data into buffer
     # this will modify self.buf 
@@ -110,7 +111,7 @@ class readCloser(io.IOBase):
     ret = self.rd.Read(NewBytes(buf))
     self.w += ret.N
     
-    self.logger.debug(f"Added {ret.N} to self.w; self.w is now = {self.w}, self.buffered()={self.buffered()}, sz={sz}")
+    # self.logger.debug(f"Added {ret.N} to self.w; self.w is now = {self.w}, self.buffered()={self.buffered()}, sz={sz}")
 
     # print("before release sub buffer")
     # buf.release()
@@ -119,11 +120,11 @@ class readCloser(io.IOBase):
   # compact moves the unread chunk to the beginning of the buffer
   def compact(self):
     if self.r > 0:
-      self.logger.debug(f"Compacting buffer. Moving self.buf[{self.r}:{self.w}] to self.buf[:{self.buffered()}].")
+      # self.logger.debug(f"Compacting buffer. Moving self.buf[{self.r}:{self.w}] to self.buf[:{self.buffered()}].")
       self.buf[:self.buffered()] = self.buf[self.r:self.w]
       self.w -= self.r
       self.r = 0
-      self.logger.debug(f"After compaction, self.w={self.w}, and self.r={self.r}")
+      # self.logger.debug(f"After compaction, self.w={self.w}, and self.r={self.r}")
 
   def close(self):
     self.buf.release()

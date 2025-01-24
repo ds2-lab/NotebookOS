@@ -9,13 +9,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,9 +27,12 @@ type BaseCluster struct {
 
 	// hosts is a map from host ID to *entity.Host containing all the Host instances provisioned within the Cluster.
 	hosts hashmap.HashMap[string, scheduling.Host]
+	// hostMutex controls external access to the internal Host mapping.
+	hostMutex sync.RWMutex
 
 	// sessions is a map of Sessions.
-	sessions hashmap.HashMap[string, scheduling.UserSession]
+	sessions      hashmap.HashMap[string, scheduling.UserSession]
+	sessionsMutex sync.RWMutex
 
 	// indexes is a map from index key to IndexProvider containing all the indexes in the Cluster.
 	indexes hashmap.BaseHashMap[string, scheduling.IndexProvider]
@@ -52,9 +54,6 @@ type BaseCluster struct {
 	// scheduler is the scheduling.Scheduler for the Cluster.
 	scheduler scheduling.Scheduler
 
-	// placer is the Placer for the Cluster.
-	placer scheduling.Placer
-
 	log logger.Logger
 
 	// minimumCapacity is the minimum number of nodes we must have available at any time.
@@ -73,34 +72,50 @@ type BaseCluster struct {
 	// scalingOpMutex is also used as the sync.Locker for the scaleOperationCond.
 	scalingOpMutex sync.Mutex
 
-	// hostMutex controls external access to the internal Host mapping.
-	hostMutex sync.RWMutex
-
 	// validateCapacityInterval is how frequently the Cluster should validate its capacity,
 	// scaling-in or scaling-out depending on the current load and whatnot.
 	validateCapacityInterval time.Duration
+
+	// statisticsUpdaterProvider is used to update metrics/statistics.
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))
+
+	MeanScaleOutPerHost   time.Duration
+	StdDevScaleOutPerHost time.Duration
+
+	MeanScaleInPerHost   time.Duration
+	StdDevScaleInPerHost time.Duration
+
+	closed atomic.Bool
 
 	opts *scheduling.SchedulerOptions
 }
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.
 // This function is for package-internal or file-internal use only.
-func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer, clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string) *BaseCluster {
+func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
+	clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string,
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))) *BaseCluster {
+
 	cluster := &BaseCluster{
-		opts:                     opts,
-		gpusPerHost:              opts.GetGpusPerHost(),
-		metricsProvider:          clusterMetricsProvider,
-		hosts:                    hashmap.NewConcurrentMap[scheduling.Host](256),
-		sessions:                 hashmap.NewCornelkMap[string, scheduling.UserSession](128),
-		indexes:                  hashmap.NewSyncMap[string, scheduling.IndexProvider](),
-		validateCapacityInterval: time.Second * time.Duration(opts.GetScalingInterval()),
-		DisabledHosts:            hashmap.NewConcurrentMap[scheduling.Host](256),
-		placer:                   placer,
-		numFailedScaleInOps:      0,
-		numFailedScaleOutOps:     0,
-		numSuccessfulScaleInOps:  0,
-		numSuccessfulScaleOutOps: 0,
+		opts:                      opts,
+		gpusPerHost:               opts.GetGpusPerHost(),
+		metricsProvider:           clusterMetricsProvider,
+		hosts:                     hashmap.NewConcurrentMap[scheduling.Host](256),
+		sessions:                  hashmap.NewCornelkMap[string, scheduling.UserSession](128),
+		indexes:                   hashmap.NewSyncMap[string, scheduling.IndexProvider](),
+		validateCapacityInterval:  time.Second * time.Duration(opts.GetScalingInterval()),
+		DisabledHosts:             hashmap.NewConcurrentMap[scheduling.Host](256),
+		statisticsUpdaterProvider: statisticsUpdaterProvider,
+		numFailedScaleInOps:       0,
+		numFailedScaleOutOps:      0,
+		numSuccessfulScaleInOps:   0,
+		numSuccessfulScaleOutOps:  0,
+		MeanScaleOutPerHost:       time.Second * time.Duration(opts.MeanScaleOutPerHostSec),
+		StdDevScaleOutPerHost:     time.Second * time.Duration(opts.StdDevScaleOutPerHostSec),
+		MeanScaleInPerHost:        time.Second * time.Duration(opts.MeanScaleInPerHostSec),
+		StdDevScaleInPerHost:      time.Second * time.Duration(opts.StdDevScaleInPerHostSec),
 	}
+	cluster.closed.Store(false)
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
 
 	if loggerPrefix == "" {
@@ -121,23 +136,29 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		config.InitLogger(&cluster.log, loggerPrefix)
 	}
 
-	go func() {
-		cluster.log.Debug("Sleeping for %v before periodically validating Cluster capacity.", cluster.validateCapacityInterval)
-
-		// We wait for `validateCapacityInterval` before the first call to UpdateRatio (which calls ValidateCapacity).
-		time.Sleep(cluster.validateCapacityInterval)
-
-		for {
-			cluster.scheduler.UpdateRatio(false)
-			time.Sleep(cluster.validateCapacityInterval)
-		}
-	}()
-
 	if err := cluster.AddIndex(placer.GetIndex()); err != nil {
 		panic(err)
 	}
 
 	return cluster
+}
+
+func (c *BaseCluster) initRatioUpdater() {
+	go func() {
+		c.log.Debug("Sleeping for %v before periodically validating Cluster capacity.", c.validateCapacityInterval)
+
+		// We wait for `validateCapacityInterval` before the first call to UpdateRatio (which calls ValidateCapacity).
+		time.Sleep(c.validateCapacityInterval)
+
+		for !c.closed.Load() {
+			c.scheduler.UpdateRatio(false)
+			time.Sleep(c.validateCapacityInterval)
+		}
+	}()
+}
+
+func (c *BaseCluster) Close() {
+	c.closed.Store(true)
 }
 
 // NumScalingOperationsSucceeded returns the number of scale-in and scale-out operations that have been
@@ -200,7 +221,19 @@ func (c *BaseCluster) GetSession(sessionID string) (scheduling.UserSession, bool
 
 // AddSession adds a Session to the Cluster.
 func (c *BaseCluster) AddSession(sessionId string, session scheduling.UserSession) {
+	c.sessionsMutex.Lock()
+	defer c.sessionsMutex.Unlock()
+
 	c.sessions.Store(sessionId, session)
+}
+
+// RemoveSession removes and returns a UserSession.
+func (c *BaseCluster) RemoveSession(sessionId string) scheduling.UserSession {
+	c.sessionsMutex.Lock()
+	defer c.sessionsMutex.Unlock()
+
+	session, _ := c.sessions.LoadAndDelete(sessionId)
+	return session
 }
 
 // Sessions returns a mapping from session ID to Session.
@@ -230,7 +263,7 @@ func (c *BaseCluster) SubscriptionRatio() float64 {
 
 // Placer returns the Placer used by the Cluster.
 func (c *BaseCluster) Placer() scheduling.Placer {
-	return c.placer
+	return c.scheduler.Placer()
 }
 
 // ReadLockHosts locks the underlying host manager such that no Host instances can be added or removed.
@@ -263,6 +296,36 @@ func (c *BaseCluster) AddIndex(index scheduling.IndexProvider) error {
 	}
 
 	c.indexes.Store(key, index)
+
+	c.log.Debug("Added index under key '%s'", key)
+
+	return nil
+}
+
+// UpdateIndex updates the ClusterIndex that contains the specified Host.
+func (c *BaseCluster) UpdateIndex(host scheduling.Host) error {
+	categoryMetadata := host.GetMeta(scheduling.HostIndexCategoryMetadata)
+	if categoryMetadata == nil {
+		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexCategoryMetadata ('%s') metadata entry",
+			host.GetNodeName(), host.GetID(), scheduling.HostIndexCategoryMetadata)
+	}
+
+	keyMetadata := host.GetMeta(scheduling.HostIndexKeyMetadata)
+	if keyMetadata == nil {
+		return fmt.Errorf("host %s (ID=%s) does not have a HostIndexKeyMetadata ('%s') metadata entry",
+			host.GetNodeName(), host.GetID(), scheduling.HostIndexKeyMetadata)
+	}
+
+	key := fmt.Sprintf("%s:%v", categoryMetadata, keyMetadata.(string))
+	clusterIndex, loaded := c.indexes.Load(key)
+
+	if !loaded || clusterIndex == nil {
+		return fmt.Errorf("could not find cluster index with category '%s' and key '%s'",
+			categoryMetadata, keyMetadata.(string))
+	}
+
+	c.log.Debug("Updating index %s for host %s (id=%s)", key, host.GetNodeName(), host.GetID())
+	clusterIndex.Update(host)
 	return nil
 }
 
@@ -323,17 +386,24 @@ func (c *BaseCluster) onDisabledHostAdded(host scheduling.Host) error {
 
 // onHostAdded is called when a host is added to the BaseCluster.
 func (c *BaseCluster) onHostAdded(host scheduling.Host) {
-	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
+	c.scheduler.HostAdded(host)
+
+	c.indexes.Range(func(indexKey string, index scheduling.IndexProvider) bool {
 		if _, qualificationStatus := index.IsQualified(host); qualificationStatus == scheduling.IndexNewQualified {
-			c.log.Debug("Adding new host to index: %v", host)
+			c.log.Debug("Adding new host to index %s: %v", indexKey, host)
 			index.Add(host)
 		} else if qualificationStatus == scheduling.IndexQualified {
-			c.log.Debug("Updating existing host within index: %v", host)
+			c.log.Debug("Updating existing host within index %s: %v", indexKey, host)
 			index.Update(host)
 		} else if qualificationStatus == scheduling.IndexDisqualified {
-			c.log.Debug("Removing existing host from index in onHostAdded: %v", host)
+			c.log.Debug("Removing existing host from index %s in onHostAdded: %v", indexKey, host)
 			index.Remove(host)
-		} // else unqualified
+		} else {
+			// Log level is set to warn because, as of right now, there are never any actual qualifications.
+			c.log.Warn("Host %s (ID=%s) is not qualified to be added to index '%s'.",
+				host.GetNodeName(), host.GetID(), index.Identifier())
+		}
+
 		return true
 	})
 
@@ -364,6 +434,9 @@ func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
 
 // BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
 func (c *BaseCluster) BusyGPUs() float64 {
+	c.hostMutex.RLock()
+	defer c.hostMutex.RUnlock()
+
 	busyGPUs := 0.0
 	c.hosts.Range(func(_ string, host scheduling.Host) (contd bool) {
 		busyGPUs += host.CommittedGPUs()
@@ -375,6 +448,9 @@ func (c *BaseCluster) BusyGPUs() float64 {
 
 // DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
 func (c *BaseCluster) DemandGPUs() float64 {
+	c.sessionsMutex.RLock()
+	defer c.sessionsMutex.RUnlock()
+
 	demandGPUs := 0.0
 	c.sessions.Range(func(_ string, session scheduling.UserSession) (contd bool) {
 		if session.IsIdle() || session.IsTraining() {
@@ -394,10 +470,19 @@ func (c *BaseCluster) NumReplicas() int {
 }
 
 // RangeOverHosts executes the provided function on each Host in the Cluster.
-//
-// Importantly, this function does NOT lock the hostsMutex.
 func (c *BaseCluster) RangeOverHosts(f func(key string, value scheduling.Host) bool) {
+	c.hostMutex.RLock()
+	defer c.hostMutex.RUnlock()
+
 	c.hosts.Range(f)
+}
+
+// RangeOverSessions executes the provided function on each UserSession in the Cluster.
+func (c *BaseCluster) RangeOverSessions(f func(key string, value scheduling.UserSession) bool) {
+	c.sessionsMutex.RLock()
+	defer c.sessionsMutex.RUnlock()
+
+	c.sessions.Range(f)
 }
 
 // RangeOverDisabledHosts executes the provided function on each disabled Host in the Cluster.
@@ -434,47 +519,6 @@ func (c *BaseCluster) Len() int {
 	}
 
 	return c.hosts.Len()
-}
-
-// RegisterScaleOperation registers a non-specific type of ScaleOperation.
-// Specifically, whether the resulting scheduling.ScaleOperation is a ScaleOutOperation or a ScaleInOperation
-// depends on how the target node count compares to the current node count.
-//
-// If the target node count is greater than the current node count, then a ScaleOutOperation is created,
-// registered, and returned.
-//
-// Alternatively, if the target node count is less than the current node count, then a ScaleInOperation is created,
-// registered, and returned.
-func (c *BaseCluster) registerScaleOperation(operationId string, targetClusterSize int32) (*scheduler.ScaleOperation, error) {
-	c.scalingOpMutex.Lock()
-	defer c.scalingOpMutex.Unlock()
-
-	if c.activeScaleOperation != nil {
-		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, ErrScalingActive
-	}
-
-	var (
-		currentClusterSize = int32(c.Len())
-		scaleOperation     *scheduler.ScaleOperation
-		err                error
-	)
-	if targetClusterSize > currentClusterSize {
-		scaleOperation, err = scheduler.NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
-	} else {
-		scaleOperation, err = scheduler.NewScaleOperation(operationId, currentClusterSize, targetClusterSize, c.instance)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	if scaleOperation.OperationType != scheduler.ScaleOutOperation {
-		return nil, fmt.Errorf("%w: Cluster is currently of size %d, and scale-out operation is requesting target scale of %d", scheduler.ErrInvalidTargetScale, currentClusterSize, targetClusterSize)
-	}
-
-	c.activeScaleOperation = scaleOperation
-	return scaleOperation, nil
 }
 
 // unregisterActiveScaleOp unregisters the current active ScaleOperation and returns a boolean indicating whether
@@ -525,7 +569,7 @@ func (c *BaseCluster) registerScaleOutOperation(operationId string, targetCluste
 
 	if c.activeScaleOperation != nil {
 		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, ErrScalingActive
+		return nil, scheduling.ErrScalingActive
 	}
 
 	currentClusterSize := int32(c.Len())
@@ -552,7 +596,7 @@ func (c *BaseCluster) registerScaleInOperation(operationId string, targetCluster
 
 	if c.activeScaleOperation != nil {
 		c.log.Error("Cannot register new ScaleInOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
-		return nil, ErrScalingActive
+		return nil, scheduling.ErrScalingActive
 	}
 
 	var (
@@ -580,6 +624,28 @@ func (c *BaseCluster) registerScaleInOperation(operationId string, targetCluster
 	return scaleOperation, nil
 }
 
+// MeanScaleOutTime returns the average time to scale-out and add a Host to the Cluster.
+func (c *BaseCluster) MeanScaleOutTime() time.Duration {
+	return c.MeanScaleOutPerHost
+}
+
+// StdDevScaleOutTime returns the standard deviation of the time it takes to scale-out
+// and add a Host to the Cluster.
+func (c *BaseCluster) StdDevScaleOutTime() time.Duration {
+	return c.StdDevScaleOutPerHost
+}
+
+// MeanScaleInTime returns the average time to scale-in and remove a Host from the Cluster.
+func (c *BaseCluster) MeanScaleInTime() time.Duration {
+	return c.MeanScaleInPerHost
+}
+
+// StdDevScaleInTime returns the standard deviation of the time it takes to scale-in
+// and remove a Host from the Cluster.
+func (c *BaseCluster) StdDevScaleInTime() time.Duration {
+	return c.StdDevScaleInPerHost
+}
+
 // RequestHosts requests n Host instances to be launched and added to the Cluster, where n >= 1.
 //
 // If n is 0, then this returns immediately.
@@ -590,9 +656,9 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	targetNumNodes := n + currentNumNodes
 
 	if targetNumNodes < c.maximumCapacity {
-		c.log.Error("Cannot add %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster, "+
+		c.log.Error("Cannot add %d Local Daemon Docker node(s) from the Cluster, "+
 			"as doing so would violate the Cluster's maximum capacity constraint of %d.", n, c.maximumCapacity)
-		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: "+
 			"adding %d nodes would violate maximum capacity constraint of %d",
 			scheduling.ErrInvalidTargetNumHosts, n, c.maximumCapacity))
@@ -611,25 +677,94 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 		return promise.Resolved(nil, err)
 	}
 
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleOutStarted,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Metadata: map[string]interface{}{
+					"initial_scale": currentNumNodes,
+					"target_scale":  targetNumNodes,
+					"operation_id":  scaleOp.OperationId,
+				},
+			})
+
+			stats.NumActiveScaleOutEvents += 1
+		})
+	}
+
 	c.log.Debug("Beginning scale-out from %d nodes to %d nodes.", scaleOp.InitialScale, scaleOp.TargetScale)
 
 	// Start the operation.
 	result, err := scaleOp.Start(ctx)
 	if err != nil {
-		c.log.Debug("Scale-out from %d nodes to %d nodes failed because: %v",
+		c.log.Warn("Scale-out from %d nodes to %d nodes failed because: %v",
 			scaleOp.InitialScale, scaleOp.TargetScale, err)
 
 		// Unregister the failed scale-out operation.
 		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+			c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 		}
 
-		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
+		return promise.Resolved(nil, err) // status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-out from %d nodes to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+	}
+
+	numProvisioned := c.Len() - int(scaleOp.InitialScale)
+	if numProvisioned > 0 && c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
+
+		})
+	}
+
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			var operationStatus string
+			if numProvisioned > 0 {
+				stats.NumSuccessfulScaleOutEvents += 1
+				stats.CumulativeNumHostsProvisioned += numProvisioned
+
+				if int32(c.Len()) == targetNumNodes {
+					operationStatus = "complete_success"
+				} else {
+					operationStatus = "partial_success"
+				}
+			} else {
+				stats.NumFailedScaleOutEvents += 1
+				operationStatus = "total_failure"
+			}
+
+			duration, _ := scaleOp.GetDuration()
+			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleOutEnded,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Duration:            duration,
+				DurationMillis:      duration.Milliseconds(),
+				Metadata: map[string]interface{}{
+					"initial_scale":   currentNumNodes,
+					"target_scale":    targetNumNodes,
+					"resulting_scale": c.Len(),
+					"operationStatus": operationStatus,
+					"operation_id":    scaleOp.OperationId,
+				},
+			})
+
+			stats.NumActiveScaleOutEvents -= 1
+		})
 	}
 
 	return promise.Resolved(result)
@@ -642,17 +777,17 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	targetNumNodes := currentNumNodes - n
 
 	if targetNumNodes < c.minimumCapacity {
-		c.log.Error("Cannot remove %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster, "+
+		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the Cluster, "+
 			"as doing so would violate the Cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
-		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: "+
 			"removing %d nodes would violate minimum capacity constraint of %d",
 			scheduling.ErrInvalidTargetNumHosts, n, c.minimumCapacity))
 	}
 
 	if targetNumNodes < int32(c.NumReplicas()) {
-		c.log.Error("Cannot remove %d specific DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster", n)
-		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Cannot remove %d specific Local Daemon Docker node(s) from the Cluster", n)
+		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, scheduling.ErrInvalidTargetNumHosts)
 	}
 
@@ -666,6 +801,27 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
 	}
 
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			stats.NumActiveScaleInEvents += 1
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleInStarted,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Metadata: map[string]interface{}{
+					"initial_scale": currentNumNodes,
+					"target_scale":  targetNumNodes,
+					"operation_id":  scaleOp.OperationId,
+					"target_nodes":  ids,
+				},
+			})
+		})
+	}
+
 	// Start the operation.
 	result, err := scaleOp.Start(ctx)
 	if err != nil {
@@ -674,16 +830,60 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 
 		// Unregister the failed scale-in operation.
 		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+			c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 		}
 
-		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
+		return promise.Resolved(nil, err) // status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-in from %d nodes down to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
+
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			numReleased := currentNumNodes - int32(c.Len())
+			var operationStatus string
+			if numReleased > 0 {
+				stats.NumSuccessfulScaleInEvents += 1
+				stats.CumulativeNumHostsReleased += int(numReleased)
+
+				if int32(c.Len()) == targetNumNodes {
+					operationStatus = "complete_success"
+				} else {
+					operationStatus = "partial_success"
+				}
+			} else {
+				stats.NumFailedScaleInEvents += 1
+				operationStatus = "total_failure"
+			}
+
+			duration, _ := scaleOp.GetDuration()
+			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleInEnded,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Duration:            duration,
+				DurationMillis:      duration.Milliseconds(),
+				Metadata: map[string]interface{}{
+					"initial_scale":   currentNumNodes,
+					"target_scale":    targetNumNodes,
+					"resulting_scale": c.Len(),
+					"operationStatus": operationStatus,
+					"operation_id":    scaleOp.OperationId,
+				},
+			})
+
+			stats.NumActiveScaleInEvents -= 1
+		})
+	}
+
 	return promise.Resolved(result)
 }
 
@@ -697,15 +897,15 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	targetNumNodes := currentNumNodes - n
 
 	if targetNumNodes < int32(c.NumReplicas()) {
-		c.log.Error("Cannot remove %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster", n)
-		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the Cluster", n)
+		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, scheduling.ErrInvalidTargetNumHosts)
 	}
 
 	if targetNumNodes < c.minimumCapacity {
-		c.log.Error("Cannot remove %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster, "+
+		c.log.Error("Cannot remove %d Local Daemon Docker node(s) from the Cluster, "+
 			"as doing so would violate the Cluster's minimum capacity constraint of %d.", n, c.minimumCapacity)
-		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: "+
 			"removing %d nodes would violate minimum capacity constraint of %d",
 			scheduling.ErrInvalidTargetNumHosts, n, c.minimumCapacity))
@@ -724,6 +924,26 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 		return promise.Resolved(nil, err) // This error should already be gRPC compatible...
 	}
 
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			stats.NumActiveScaleInEvents += 1
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleInStarted,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Metadata: map[string]interface{}{
+					"initial_scale": currentNumNodes,
+					"target_scale":  targetNumNodes,
+					"operation_id":  scaleOp.OperationId,
+				},
+			})
+		})
+	}
+
 	// Start the operation.
 	result, err := scaleOp.Start(ctx)
 	if err != nil {
@@ -732,39 +952,85 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 
 		// Unregister the failed scale-in operation.
 		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-			log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+			c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 		}
 
-		return promise.Resolved(nil, status.Error(codes.Internal, err.Error()))
+		return promise.Resolved(nil, err) // status.Error(codes.Internal, err.Error()))
 	}
 
 	c.log.Debug("Scale-in from %d nodes to %d nodes has succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
-		log.Fatalf("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+		c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
+	}
+
+	if c.statisticsUpdaterProvider != nil {
+		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+			numReleased := currentNumNodes - int32(c.Len())
+			var operationStatus string
+			if numReleased > 0 {
+				stats.NumSuccessfulScaleInEvents += 1
+				stats.CumulativeNumHostsReleased += int(numReleased)
+
+				if int32(c.Len()) == targetNumNodes {
+					operationStatus = "complete_success"
+				} else {
+					operationStatus = "partial_success"
+				}
+			} else {
+				stats.NumFailedScaleInEvents += 1
+				operationStatus = "total_failure"
+			}
+
+			duration, _ := scaleOp.GetDuration()
+			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
+
+			now := time.Now()
+			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				Name:                statistics.ScaleInEnded,
+				KernelId:            "-",
+				ReplicaId:           -1,
+				Timestamp:           now,
+				TimestampUnixMillis: now.UnixMilli(),
+				Duration:            duration,
+				DurationMillis:      duration.Milliseconds(),
+				Metadata: map[string]interface{}{
+					"initial_scale":   currentNumNodes,
+					"target_scale":    targetNumNodes,
+					"resulting_scale": c.Len(),
+					"operationStatus": operationStatus,
+					"operation_id":    scaleOp.OperationId,
+				},
+			})
+
+			stats.NumActiveScaleInEvents -= 1
+		})
 	}
 
 	return promise.Resolved(result)
 }
 
-func (c *BaseCluster) isScalingEnabled() bool {
-	// If we're using FCFS Batch Scheduling, then we cannot scale in or out.
-	return c.scheduler.PolicyKey() != scheduling.FcfsBatch
+// DisableScalingOut modifies the scaling policy to disallow scaling-out, even if the policy isn't
+// supposed to support scaling out. This is only intended to be used for unit tests.
+func (c *BaseCluster) DisableScalingOut() {
+	c.scheduler.Policy().ResourceScalingPolicy().DisableScalingOut()
+}
+
+// EnableScalingOut modifies the scaling policy to enable scaling-out, even if the policy isn't
+// supposed to support scaling out. This is only intended to be used for unit tests.
+func (c *BaseCluster) EnableScalingOut() {
+	c.scheduler.Policy().ResourceScalingPolicy().EnableScalingOut()
 }
 
 // ScaleToSize scales the Cluster to the specified number of Host instances.
 //
 // If n <= NUM_REPLICAS, then ScaleToSize returns with an error.
 func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise {
-	if !c.isScalingEnabled() {
-		return promise.Resolved(nil, scheduling.ErrSchedulingProhibitedBySchedulingPolicy)
-	}
-
 	currentNumNodes := int32(c.Len())
 
 	// Are we trying to scale-down below the minimum cluster size? If so, return an error.
 	if targetNumNodes < int32(c.NumReplicas()) {
-		c.log.Error("Cannot scale to size of %d DefaultSchedulingPolicy Daemon Docker node(s) from the Cluster", targetNumNodes)
-		c.log.Error("Current number of DefaultSchedulingPolicy Daemon Docker nodes: %d", currentNumNodes)
+		c.log.Error("Cannot scale to size of %d Local Daemon Docker node(s) from the Cluster", targetNumNodes)
+		c.log.Error("Current number of Local Daemon Docker nodes: %d", currentNumNodes)
 		return promise.Resolved(nil, fmt.Errorf("%w: targetNumNodes=%d", scheduling.ErrInvalidTargetNumHosts, targetNumNodes))
 	}
 
@@ -776,8 +1042,16 @@ func (c *BaseCluster) ScaleToSize(ctx context.Context, targetNumNodes int32) pro
 
 	// Scale out (i.e., add hosts)?
 	if targetNumNodes > currentNumNodes {
+		if !c.scheduler.Policy().ResourceScalingPolicy().ScalingOutEnabled() {
+			return promise.Resolved(nil, scheduling.ErrScalingProhibitedBySchedulingPolicy)
+		}
+
 		c.log.Debug("Requesting %d additional host(s) in order to scale-out to target size of %d.", targetNumNodes-currentNumNodes, targetNumNodes)
 		return c.RequestHosts(ctx, targetNumNodes-currentNumNodes)
+	}
+
+	if !c.scheduler.Policy().ResourceScalingPolicy().ScalingInEnabled() {
+		return promise.Resolved(nil, scheduling.ErrScalingProhibitedBySchedulingPolicy)
 	}
 
 	// Scale in (i.e., remove hosts).
@@ -798,17 +1072,21 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 	defer c.scalingOpMutex.Unlock()
 
 	if !host.Enabled() {
-		c.log.Debug("Attempting to add disabled host %s (ID=%s) to the cluster now.", host.GetNodeName(), host.GetID())
+		c.log.Debug("Attempting to add disabled host %s (ID=%s) to the cluster now.",
+			host.GetNodeName(), host.GetID())
 		err := c.onDisabledHostAdded(host)
 		if err != nil {
-			c.log.Error("Failed to add disabled Host %s (ID=%s) to cluster because: %v", host.GetNodeName(), host.GetID(), err)
+			c.log.Error("Failed to add disabled Host %s (ID=%s) to cluster because: %v",
+				host.GetNodeName(), host.GetID(), err)
 			return err
 		}
-		c.log.Debug("Successfully added disabled host %s (ID=%s) to the cluster.", host.GetNodeName(), host.GetID())
+		c.log.Debug("Successfully added disabled host %s (ID=%s) to the cluster. Number of disabled hosts: %d.",
+			host.GetNodeName(), host.GetID(), c.DisabledHosts.Len())
 		return nil
 	}
 
-	c.log.Debug("Host %s (ID=%s) has just connected to the Cluster or is being re-enabled", host.GetNodeName(), host.GetID())
+	c.log.Debug("Host %s (ID=%s) has just connected to the Cluster or is being re-enabled",
+		host.GetNodeName(), host.GetID())
 
 	c.hostMutex.Lock()
 	// The host mutex is already locked if we're performing a scaling operation.
@@ -834,8 +1112,8 @@ func (c *BaseCluster) GetHost(hostId string) (scheduling.Host, bool) {
 // targetNumNodes specifies the desired size of the Cluster.
 //
 // resultChan is used to notify a waiting goroutine that the scale-out operation has finished.
-func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}) func() {
-	return c.instance.GetScaleOutCommand(targetNumNodes, resultChan)
+func (c *BaseCluster) GetScaleOutCommand(targetNumNodes int32, resultChan chan interface{}, scaleOpId string) func() {
+	return c.instance.GetScaleOutCommand(targetNumNodes, resultChan, scaleOpId)
 }
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.

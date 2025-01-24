@@ -1,6 +1,10 @@
 package policy
 
-import "github.com/scusemua/distributed-notebook/common/scheduling"
+import (
+	"fmt"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+)
 
 // ReservationPolicy represents a very simple reservation-based scheduling policy that uses long-running
 // scheduling.KernelContainer instances.
@@ -9,13 +13,34 @@ import "github.com/scusemua/distributed-notebook/common/scheduling"
 // Under ReservationPolicy, resources are bound to scheduling.KernelContainer instances for the duration of the
 // lifetime of the associated scheduling.UserSession.
 type ReservationPolicy struct {
-	scalingConfiguration *scheduling.ScalingConfiguration
+	*baseSchedulingPolicy
 }
 
-func NewReservationPolicy(opts *scheduling.SchedulerOptions) *ReservationPolicy {
-	return &ReservationPolicy{
-		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, false)
+	if err != nil {
+		return nil, err
 	}
+
+	policy := &ReservationPolicy{
+		baseSchedulingPolicy: basePolicy,
+	}
+
+	if opts.SchedulingPolicy != scheduling.Reservation.String() {
+		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of ReservationPolicy.",
+			opts.SchedulingPolicy))
+	}
+
+	return policy, nil
+}
+
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (p *ReservationPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	if p.SupportsMigration() {
+		panic("ReservationPolicy isn't supposed to support migration, yet apparently it does?")
+	}
+
+	return nil, ErrMigrationNotSupported
 }
 
 func (p *ReservationPolicy) PolicyKey() scheduling.PolicyKey {
@@ -23,7 +48,7 @@ func (p *ReservationPolicy) PolicyKey() scheduling.PolicyKey {
 }
 
 func (p *ReservationPolicy) Name() string {
-	return "Reservation"
+	return "Reservation-Based"
 }
 
 func (p *ReservationPolicy) NumReplicas() int {
@@ -50,44 +75,46 @@ func (p *ReservationPolicy) ResourceScalingPolicy() scheduling.ResourceScalingPo
 	return p
 }
 
-////////////////////////////////////////
-// ManualScalingPolicy implementation //
-////////////////////////////////////////
-
-func (p *ReservationPolicy) ManualScalingOutEnabled() bool {
-	return true
+func (p *ReservationPolicy) SmrEnabled() bool {
+	return false
 }
 
-func (p *ReservationPolicy) ManualScalingInEnabled() bool {
-	return true
+// GetNewPlacer returns a concrete Placer implementation based on the Policy.
+func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
+	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p), nil
 }
 
-//////////////////////////////////////
-// AutoscalingPolicy implementation //
-//////////////////////////////////////
-
-func (p *ReservationPolicy) AutomaticScalingOutEnabled() bool {
-	return true
+// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// pre-designated as the leader of a code execution.
+//
+// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+// will fight amongst themselves to determine the leader.
+//
+// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+//
+// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+// been ruled out.
+func (p *ReservationPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+	return checkSingleReplica(kernel, p.supportsMigration, executionId)
 }
 
-func (p *ReservationPolicy) AutomaticScalingInEnabled() bool {
+//////////////////////////////////
+// ScalingPolicy implementation //
+//////////////////////////////////
+
+func (p *ReservationPolicy) ScalingOutEnabled() bool {
+	return p.scalingOutEnabled
+}
+
+func (p *ReservationPolicy) ScalingInEnabled() bool {
 	return true
 }
 
 func (p *ReservationPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	return p.scalingConfiguration
-}
-
-//////////////////////////////////////////
-// ResourceScalingPolicy implementation //
-//////////////////////////////////////////
-
-func (p *ReservationPolicy) AutoscalingPolicy() scheduling.AutoscalingPolicy {
-	return p
-}
-
-func (p *ReservationPolicy) ManualScalingPolicy() scheduling.ManualScalingPolicy {
-	return p
 }
 
 /////////////////////////////////////////////

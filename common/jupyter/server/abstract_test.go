@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/Scusemua/go-utils/config"
-	"github.com/Scusemua/go-utils/logger"
 	"github.com/go-zeromq/zmq4"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -36,6 +35,10 @@ type wrappedServer struct {
 
 	shellPort int
 	id        string
+}
+
+func (s *wrappedServer) ID() string {
+	return s.id
 }
 
 // SourceKernelID implements SourceKernel.
@@ -65,8 +68,6 @@ var _ = Describe("AbstractServer", func() {
 
 	serverName := "TestServer"
 	clientName := "TestClient"
-
-	config.LogLevel = logger.LOG_LEVEL_ALL
 
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
@@ -153,7 +154,7 @@ var _ = Describe("AbstractServer", func() {
 					[]byte(""))
 				_, err = messaging.NewJupyterFramesFromBytes(ackResponse.Frames).Sign(signatureScheme, []byte(kernelKey))
 
-				server.Log.Info("Responding to message with ACK: %v", ackResponse)
+				server.Log.Debug("Responding to message with ACK: %v", ackResponse)
 
 				time.Sleep(time.Millisecond * 5)
 
@@ -183,7 +184,7 @@ var _ = Describe("AbstractServer", func() {
 				jMsg := messaging.NewJupyterMessage(&actualResponse)
 				_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 				Expect(err).To(BeNil())
-				requestTrace, added, reqErr := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, time.Now(), server.Log)
+				requestTrace, added, reqErr := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, time.Now(), server.Log)
 				Expect(added).To(BeFalse())
 				GinkgoWriter.Printf("reqErr: %v\n", reqErr)
 				Expect(reqErr).To(BeNil())
@@ -241,7 +242,7 @@ var _ = Describe("AbstractServer", func() {
 			requestReceivedByGateway := time.Now()
 			jMsg := messaging.NewJupyterMessage(&msg)
 			fmt.Printf("msg.JupyterFrames.LenWithoutIdentitiesFrame: %d\nMsg.Frames length: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), len(msg.Frames))
-			requestTrace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestReceivedByGateway, client.Log)
+			requestTrace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, requestReceivedByGateway, client.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeTrue())
 			Expect(err).To(BeNil())
@@ -381,7 +382,7 @@ var _ = Describe("AbstractServer", func() {
 					[]byte(""),
 					[]byte(""))
 
-				server.Log.Info("Responding to message with ACK: %v", ackResponse)
+				server.Log.Debug("Responding to message with ACK: %v", ackResponse)
 
 				time.Sleep(time.Millisecond * 5)
 
@@ -414,7 +415,7 @@ var _ = Describe("AbstractServer", func() {
 				jMsg := messaging.NewJupyterMessage(&actualResponse)
 				_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 				Expect(err).To(BeNil())
-				requestTrace, added, reqErr := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, time.Now(), server.Log) // Simulate send
+				requestTrace, added, reqErr := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, time.Now(), server.Log) // Simulate send
 				server.Log.Debug(utils.LightBlueStyle.Render("RequestTrace: %s"), requestTrace.String())
 				Expect(added).To(BeFalse())
 				GinkgoWriter.Printf("reqErr: %v\n", reqErr)
@@ -470,8 +471,8 @@ var _ = Describe("AbstractServer", func() {
 			jMsg := messaging.NewJupyterMessage(&msg)
 			_, err = jMsg.JupyterFrames.Sign(signatureScheme, []byte(kernelKey))
 			Expect(err).To(BeNil())
-			fmt.Printf("[a] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
-			requestTrace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, now, client.Log) // Simulate recv
+			//fmt.Printf("[a] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
+			requestTrace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, now, client.Log) // Simulate recv
 			client.Log.Debug(utils.LightBlueStyle.Render("RequestTrace: %s"), requestTrace.String())
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeTrue())
@@ -481,7 +482,7 @@ var _ = Describe("AbstractServer", func() {
 			Expect(jMsg.JupyterFrames.Len()).To(Equal(8))
 			Expect(jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false)).To(Equal(7))
 
-			fmt.Printf("[b] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
+			//fmt.Printf("[b] jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false): %d\njMsg.JupyterFrames.Len(): %d\nOffset: %d\n\n", jMsg.JupyterFrames.LenWithoutIdentitiesFrame(false), jMsg.JupyterFrames.Len(), jMsg.JupyterFrames.Offset)
 
 			Expect(requestTrace.MessageId).To(Equal(msgId))
 			Expect(requestTrace.MessageType).To(Equal(messaging.KernelInfoRequest))

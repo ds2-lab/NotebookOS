@@ -791,7 +791,7 @@ c.Session.debug = True
 
 # execution key, for signing messages.
 #  Default: b''
-# c.Session.key = b''
+c.Session.key = b''
 
 # path to file containing execution key.
 #  Default: ''

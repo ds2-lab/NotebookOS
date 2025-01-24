@@ -1,15 +1,31 @@
 package policy
 
-import "github.com/scusemua/distributed-notebook/common/scheduling"
+import (
+	"fmt"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+)
 
 type DynamicV4Policy struct {
-	scalingConfiguration *scheduling.ScalingConfiguration
+	*baseSchedulingPolicy
 }
 
-func NewDynamicV4Policy(opts *scheduling.SchedulerOptions) *DynamicV4Policy {
-	return &DynamicV4Policy{
-		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+func NewDynamicV4Policy(opts *scheduling.SchedulerOptions) (*DynamicV4Policy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
+	if err != nil {
+		return nil, err
 	}
+
+	policy := &DynamicV4Policy{
+		baseSchedulingPolicy: basePolicy,
+	}
+
+	if opts.SchedulingPolicy != scheduling.DynamicV4.String() {
+		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of DynamicV4Policy.",
+			opts.SchedulingPolicy))
+	}
+
+	return policy, nil
 }
 
 func (p *DynamicV4Policy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
@@ -25,11 +41,11 @@ func (p *DynamicV4Policy) ResourceScalingPolicy() scheduling.ResourceScalingPoli
 }
 
 func (p *DynamicV4Policy) PolicyKey() scheduling.PolicyKey {
-	return scheduling.DynamicV3
+	return scheduling.DynamicV4
 }
 
 func (p *DynamicV4Policy) Name() string {
-	return "Dynamic Scheduling v3"
+	return "Dynamic Scheduling v4"
 }
 
 func (p *DynamicV4Policy) NumReplicas() int {
@@ -40,47 +56,67 @@ func (p *DynamicV4Policy) ResourceBindingMode() scheduling.ResourceBindingMode {
 	return scheduling.BindResourcesAtTrainingStart
 }
 
+func (p *DynamicV4Policy) SmrEnabled() bool {
+	return true
+}
+
 func (p *DynamicV4Policy) ContainerLifetime() scheduling.ContainerLifetime {
 	return scheduling.LongRunning
 }
 
-//////////////////////////////////////////
-// ResourceScalingPolicy implementation //
-//////////////////////////////////////////
-
-func (p *DynamicV4Policy) AutoscalingPolicy() scheduling.AutoscalingPolicy {
-	return p
-}
-
-func (p *DynamicV4Policy) ManualScalingPolicy() scheduling.ManualScalingPolicy {
-	return p
-}
-
-//////////////////////////////////////
-// AutoscalingPolicy implementation //
-//////////////////////////////////////
-
-func (p *DynamicV4Policy) AutomaticScalingOutEnabled() bool {
-	return true
-}
-
-func (p *DynamicV4Policy) AutomaticScalingInEnabled() bool {
-	return true
+// GetNewPlacer returns a concrete Placer implementation based on the Policy.
+func (p *DynamicV4Policy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
+	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p), nil
 }
 
 func (p *DynamicV4Policy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	return p.scalingConfiguration
 }
 
-////////////////////////////////////////
-// ManualScalingPolicy implementation //
-////////////////////////////////////////
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (p *DynamicV4Policy) SelectReplicaForMigration(_ scheduling.Kernel) (scheduling.KernelReplica, error) {
+	if !p.SupportsMigration() {
+		panic("DynamicV4Policy is supposed to support migration, yet apparently it doesn't?")
+	}
 
-func (p *DynamicV4Policy) ManualScalingOutEnabled() bool {
-	return true
+	// TODO: Implement me.
+	panic("Not implemented.")
 }
 
-func (p *DynamicV4Policy) ManualScalingInEnabled() bool {
+// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// pre-designated as the leader of a code execution.
+//
+// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+// will fight amongst themselves to determine the leader.
+//
+// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+//
+// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+// been ruled out.
+//
+// PRECONDITION: The resource spec of the specified scheduling.Kernel should already be
+// updated (in cases where dynamic resource requests are supported) such that the current
+// resource spec reflects the requirements for this code execution. That is, the logic of
+// selecting a replica now depends upon the kernel's resource request correctly specifying
+// the requirements. If the requirements were to change after selection a replica, then
+// that could invalidate the selection.
+func (p *DynamicV4Policy) FindReadyReplica(_ scheduling.Kernel, _ string) (scheduling.KernelReplica, error) {
+	// TODO: Implement me.
+	panic("Not implemented.")
+}
+
+//////////////////////////////////
+// ScalingPolicy implementation //
+//////////////////////////////////
+
+func (p *DynamicV4Policy) ScalingOutEnabled() bool {
+	return p.scalingOutEnabled
+}
+
+func (p *DynamicV4Policy) ScalingInEnabled() bool {
 	return true
 }
 

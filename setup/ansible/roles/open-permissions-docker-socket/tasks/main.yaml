@@ -1,0 +1,3 @@
+- name: Open up the permissions on /var/run/docker.sock so that we can mount it to the Local Daemon containers
+  shell: chmod -R 777 /var/run/docker.sock
+  become: true

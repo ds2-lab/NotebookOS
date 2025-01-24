@@ -104,7 +104,7 @@ func (s *ResourceSpec) Equals(other types.Spec) bool {
 func (x *KernelReplicaSpec) FullSpecFromKernelReplicaSpec() *types.Float64Spec {
 	return &types.Float64Spec{
 		Millicpus: float64(x.Kernel.ResourceSpec.Cpu),
-		MemoryMb:  float64(x.Kernel.ResourceSpec.Memory),
+		Memory:    float64(x.Kernel.ResourceSpec.Memory),
 		GPUs:      float64(x.Kernel.ResourceSpec.Gpu),
 		VRam:      float64(x.Kernel.ResourceSpec.Vram),
 	}

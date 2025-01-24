@@ -1,0 +1,294 @@
+package execution
+
+import (
+	"fmt"
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/utils"
+	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
+	"log"
+	"sync"
+	"time"
+)
+
+// Execution encapsulates the submission of a single 'execute_request' message for a particular kernel.
+// We observe the results of the SMR Proposal protocol and take action accordingly, depending upon the results.
+// For example, if all replicas of the kernel issue 'YIELD' Proposals, then we will need to perform some sort of
+// scheduling action, depending upon what scheduling policy we're using.
+//
+// Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
+// Alternatively, under 'dynamic' scheduling, we migrate existing replicas to another node to handle the request.
+type Execution struct {
+	// The Jupyter message ID of the associated Jupyter "execute_request" ZMQ message.
+	ExecuteRequestMessageId string
+
+	// Beginning at 1, identifies the "attempt number", in case we have to retry due to timeouts.
+	AttemptNumber int
+
+	// The ID of the Jupyter session that initiated the request.
+	SessionId string
+
+	// ID of the associated kernel.
+	KernelId string
+
+	// The time at which this Execution was created.
+	CreatedAt time.Time
+
+	// The number of replicas that the kernel had with the execution request was originally received.
+	NumReplicas int
+
+	// Number of 'LEAD' Proposals issued.
+	NumLeadProposals int
+
+	// Number of 'YIELD' Proposals issued.
+	NumYieldProposals int
+
+	// Map from replica ID to what it proposed ('YIELD' or 'LEAD')
+	Proposals map[int32]*Proposal
+
+	// NextAttempt is the Execution attempt that occurred after this one.
+	NextAttempt *Execution
+
+	// PreviousAttempt is the Execution attempt that preceded this one, if this is not the first attempt.
+	PreviousAttempt *Execution
+
+	// JupyterMessage is the original 'execute_request' message.
+	JupyterMessage *messaging.JupyterMessage
+
+	// Replies is a map of the responses from each replica. Note that replies are only saved if debug mode is enabled.
+	Replies hashmap.HashMap[int32, *messaging.JupyterMessage]
+
+	// replyMutex ensures atomicity of the RegisterReply method.
+	replyMutex sync.Mutex
+
+	// OriginallySentAt is the time at which the "execute_request" message associated with this Execution
+	// was actually sent by the Jupyter client. We can only recover this if the client is an instance of our
+	// Go-implemented Jupyter client, as those clients embed the unix milliseconds at which the message was
+	// created and subsequently sent within the metadata field of the message.
+	OriginallySentAt        time.Time
+	originallySentAtDecoded bool
+
+	// activeReplica is the Kernel connected to the replica of the kernel that is actually
+	// executing the user-submitted code.
+	ActiveReplica Replica
+
+	// WorkloadId can be retrieved from the metadata dictionary of the Jupyter messages if the sender
+	// was a Golang Jupyter client.
+	WorkloadId    string
+	workloadIdSet bool
+
+	State State
+}
+
+func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *messaging.JupyterMessage) *Execution {
+	activeExecution := &Execution{
+		SessionId:               msg.JupyterSession(),
+		AttemptNumber:           attemptId,
+		Proposals:               make(map[int32]*Proposal, numReplicas),
+		KernelId:                kernelId,
+		NumReplicas:             numReplicas,
+		Replies:                 hashmap.NewCornelkMap[int32, *messaging.JupyterMessage](numReplicas),
+		NextAttempt:             nil,
+		PreviousAttempt:         nil,
+		JupyterMessage:          msg,
+		ExecuteRequestMessageId: msg.JupyterMessageId(),
+		originallySentAtDecoded: false,
+		CreatedAt:               time.Now(),
+		State:                   Pending,
+	}
+
+	var metadataDict map[string]interface{}
+	err := msg.JupyterFrames.DecodeMetadata(&metadataDict)
+	if err == nil {
+		// Attempt to decode it this way.
+		var requestMetadata *messaging.ExecuteRequestMetadata
+		err = mapstructure.Decode(metadataDict, &requestMetadata)
+		if err == nil {
+			if requestMetadata.SentAtUnixTimestamp != nil {
+				activeExecution.OriginallySentAt = time.UnixMilli(int64(*requestMetadata.SentAtUnixTimestamp))
+				activeExecution.originallySentAtDecoded = true
+			}
+
+			if requestMetadata.WorkloadId != nil {
+				workloadId := *requestMetadata.WorkloadId
+				activeExecution.WorkloadId = workloadId
+				activeExecution.workloadIdSet = true
+			}
+		} else {
+			// Fallback if the mapstructure way is broken.
+			log.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode request metadata via mapstructure: %v\n"), err)
+
+			sentAtVal, ok := metadataDict["send_timestamp_unix_milli"]
+			if ok {
+				unixTimestamp := sentAtVal.(float64)
+				activeExecution.OriginallySentAt = time.UnixMilli(int64(unixTimestamp))
+				activeExecution.originallySentAtDecoded = true
+			}
+
+			workloadIdVal, ok := metadataDict["workload_id"]
+			if ok {
+				workloadId := workloadIdVal.(string)
+				activeExecution.WorkloadId = workloadId
+				activeExecution.workloadIdSet = true
+			}
+		}
+	}
+
+	return activeExecution
+}
+
+func (e *Execution) LinkPreviousAttempt(previousAttempt *Execution) {
+	e.PreviousAttempt = previousAttempt
+}
+
+func (e *Execution) LinkNextAttempt(nextAttempt *Execution) {
+	e.NextAttempt = nextAttempt
+}
+
+func (e *Execution) SetActiveReplica(replica Replica) {
+	e.ActiveReplica = replica
+}
+
+// RegisterReply saves an "execute_reply" *messaging.JupyterMessage from one of the replicas of the kernel
+// associated with the target Execution.
+//
+// NOTE: Replies are only saved if debug mode is enabled.
+//
+// This will return an error if the given *messaging.JupyterMessage is not of type "execute_request".
+//
+// This will return an error if the 'overwrite' parameter is false, and we've already registered a response
+// from the specified kernel replica. (The replica is specified via the 'replicaId' parameter.)
+//
+// This method is thread safe.
+func (e *Execution) RegisterReply(replicaId int32, response *messaging.JupyterMessage, overwrite bool) error {
+	e.replyMutex.Lock()
+	defer e.replyMutex.Unlock()
+
+	if response.JupyterMessageType() != messaging.ShellExecuteReply {
+		return fmt.Errorf("illegal Jupyter message type of response: \"%s\"", messaging.ShellExecuteReply)
+	}
+
+	// If overwrite is false, then we return an error if we already have a response registered for the specified replica.
+	if _, loaded := e.Replies.LoadOrStore(replicaId, response); loaded && !overwrite {
+		return fmt.Errorf("already have response from replica %d", replicaId)
+	}
+
+	// This will overwrite the existing value if there is one.
+	e.Replies.Store(replicaId, response)
+
+	return nil
+}
+
+// HasValidWorkloadId returns true if we were able to extract the associated workload ID from the metadata
+// of the "execute_request" message that submitted the code associated with this Execution struct.
+func (e *Execution) HasValidWorkloadId() bool {
+	return e.workloadIdSet
+}
+
+// HasValidOriginalSentTimestamp returns true if we were able to decode the timestamp at which the
+// associated "execute_request" message was sent when we first created the Execution struct.
+func (e *Execution) HasValidOriginalSentTimestamp() bool {
+	return e.originallySentAtDecoded
+}
+
+// OriginalTimestampOrCreatedAt returns the original timestamp at which the associated "execute_request" message
+// was sent, if this Execution has that information. If that information is presently unavailable, then
+// OriginalTimestampOrCreatedAt will simply return the timestamp at which this Execution struct was created.
+func (e *Execution) OriginalTimestampOrCreatedAt() time.Time {
+	if e.HasValidOriginalSentTimestamp() {
+		return e.OriginallySentAt
+	} else {
+		return e.CreatedAt
+	}
+}
+
+func (e *Execution) Msg() *messaging.JupyterMessage {
+	return e.JupyterMessage
+}
+
+func (e *Execution) HasExecuted() bool {
+	return e.IsCompleted()
+}
+
+func (e *Execution) SetExecuted() {
+	e.State = Completed
+}
+
+func (e *Execution) String() string {
+	return fmt.Sprintf("Execution[ExecuteRequestMsgId=%s,Kernel=%s,Session=%s,State=%s,Attempt=%d,NumReplicas=%d,"+
+		"NumLeadProposals=%d,NumYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v,OriginalSendTimestamp=%v,"+
+		"CreatedAtTimestamp=%v]",
+		e.ExecuteRequestMessageId, e.KernelId, e.SessionId, e.State.String(), e.AttemptNumber, e.NumReplicas,
+		e.NumLeadProposals, e.NumYieldProposals, e.NextAttempt == nil, e.PreviousAttempt == nil,
+		e.OriginallySentAt, e.CreatedAt)
+}
+
+// ReceivedLeadNotification records that the specified kernel replica lead the election and executed the code.
+func (e *Execution) ReceivedLeadNotification(smrNodeId int32) error {
+	if _, ok := e.Proposals[smrNodeId]; ok {
+		return ErrProposalAlreadyReceived
+	}
+
+	e.Proposals[smrNodeId] = NewProposal(LeadProposal, "")
+	e.NumLeadProposals += 1
+
+	return nil
+}
+
+// ReceivedYieldNotification records that the specified replica ultimately yielded and did not lead the election.
+func (e *Execution) ReceivedYieldNotification(smrNodeId int32, yieldReason string) error {
+	if _, ok := e.Proposals[smrNodeId]; ok {
+		return ErrProposalAlreadyReceived
+	}
+
+	e.Proposals[smrNodeId] = NewProposal(YieldProposal, yieldReason)
+	e.NumYieldProposals += 1
+
+	if e.NumYieldProposals == e.NumReplicas {
+		return ErrExecutionFailedAllYielded
+	}
+
+	return nil
+}
+
+// NumRolesReceived does not count duplicate Proposals received multiple times from the same node.
+// It's more like the number of unique replicas from which we've received a Proposal.
+func (e *Execution) NumRolesReceived() int {
+	return e.NumLeadProposals + e.NumYieldProposals
+}
+
+// NumLeadReceived returns the number of 'lead' notifications received.
+func (e *Execution) NumLeadReceived() int {
+	return e.NumLeadProposals
+}
+
+// NumYieldReceived returns the number of 'yield' notifications received.
+func (e *Execution) NumYieldReceived() int {
+	return e.NumYieldProposals
+}
+
+func (e *Execution) RangeRoles(rangeFunc func(int32, *Proposal) bool) {
+	for smrNodeId, role := range e.Proposals {
+		shouldContinue := rangeFunc(smrNodeId, role)
+
+		if !shouldContinue {
+			return
+		}
+	}
+}
+
+func (e *Execution) IsRunning() bool {
+	return e.State == Running
+}
+
+func (e *Execution) IsPending() bool {
+	return e.State == Pending
+}
+
+func (e *Execution) IsCompleted() bool {
+	return e.State == Completed
+}
+
+func (e *Execution) IsErred() bool {
+	return e.State == Erred
+}

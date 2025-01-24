@@ -336,13 +336,15 @@ func extractRequestTraceFromJupyterMessage(msg *JupyterMessage, logger logger.Lo
 //
 // If there is an error decoding or encoding the metadata frame of the jupyter.JupyterMessage, then an error is
 // returned, and the boolean returned along with the error is always false.
-func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket, timestamp time.Time, logger logger.Logger) (*proto.RequestTrace, bool, error) {
+func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, timestamp time.Time, logger logger.Logger) (*proto.RequestTrace, bool, error) {
 	var (
 		wrapper      *proto.JupyterRequestTraceFrame
 		requestTrace *proto.RequestTrace
 		added        bool
 		err          error
 	)
+
+	//logger.Debug("Attempting to add or update RequestTrace to/in Jupyter %s \"%s\" request.", msg.JupyterMessageType())
 
 	// Check if the message has enough frames to have a RequestTrace in it (i.e., if there are buffers frames or not).
 	// If not, then we'll assume that the message does not have a buffers frame/RequestTrace (as there aren't enough
@@ -359,13 +361,8 @@ func AddOrUpdateRequestTraceToJupyterMessage(msg *JupyterMessage, socket *Socket
 
 		// The metadata did not already contain a RequestTrace.
 		// Let's first create one.
-		requestTrace = proto.NewRequestTrace()
+		requestTrace = proto.NewRequestTrace(msg.JupyterSession(), msg.JupyterMessageType(), msg.JupyterMessageId())
 		added = true
-
-		// Then we'll populate the sort of metadata fields of the RequestTrace.
-		requestTrace.MessageId = msg.JupyterMessageId()
-		requestTrace.MessageType = msg.JupyterMessageType()
-		requestTrace.KernelId = msg.JupyterSession()
 
 		// Create the wrapper/frame itself.
 		wrapper = &proto.JupyterRequestTraceFrame{RequestTrace: requestTrace}
@@ -436,22 +433,22 @@ type ElectionVoteProposalMetadata struct {
 // ElectionMetadata is metadata from the Python Election that took place to determine which
 // replica would execute the code. This is only sent on the return (i.e., "execute_reply").
 type ElectionMetadata struct {
-	TermNumber                int                                     `json:"term_number"`
-	ElectionState             int                                     `json:"election_state"`
-	ElectionStateString       int                                     `json:"election_state_string"`
-	WinnerSelected            bool                                    `json:"winner_selected"`
-	WinnerID                  int                                     `json:"winner_id"`
-	Proposals                 map[int]*ElectionLeaderProposalMetadata `json:"proposals"`
-	VoteProposals             map[int]*ElectionVoteProposalMetadata   `json:"vote_proposals"`
-	DiscardedProposals        map[int]*ElectionLeaderProposalMetadata `json:"discarded_proposals"`
-	NumDiscardedProposals     int                                     `json:"num_discarded_proposals"`
-	NumDiscardedVoteProposals int                                     `json:"num_discarded_vote_proposals"`
-	NumLeadProposalsReceived  int                                     `json:"num_lead_proposals_received"`
-	NumYieldProposalsReceived int                                     `json:"num_yield_proposals_received"`
-	NumRestarts               int                                     `json:"num_restarts"`
-	CurrentAttemptNumber      int                                     `json:"current_attempt_number"`
-	CompletionReason          string                                  `json:"completion_reason"`
-	MissingProposals          []int                                   `json:"missing_proposals"`
+	TermNumber                int                                     `json:"term_number" mapstructure:"term_number"`
+	ElectionState             int                                     `json:"election_state" mapstructure:"election_state"`
+	ElectionStateString       int                                     `json:"election_state_string" mapstructure:"election_state_string"`
+	WinnerSelected            bool                                    `json:"winner_selected" mapstructure:"winner_selected"`
+	WinnerID                  int                                     `json:"winner_id" mapstructure:"winner_id"`
+	Proposals                 map[int]*ElectionLeaderProposalMetadata `json:"proposals" mapstructure:"proposals"`
+	VoteProposals             map[int]*ElectionVoteProposalMetadata   `json:"vote_proposals" mapstructure:"vote_proposals"`
+	DiscardedProposals        map[int]*ElectionLeaderProposalMetadata `json:"discarded_proposals" mapstructure:"discarded_proposals"`
+	NumDiscardedProposals     int                                     `json:"num_discarded_proposals" mapstructure:"num_discarded_proposals"`
+	NumDiscardedVoteProposals int                                     `json:"num_discarded_vote_proposals" mapstructure:"num_discarded_vote_proposals"`
+	NumLeadProposalsReceived  int                                     `json:"num_lead_proposals_received" mapstructure:"num_lead_proposals_received"`
+	NumYieldProposalsReceived int                                     `json:"num_yield_proposals_received" mapstructure:"num_yield_proposals_received"`
+	NumRestarts               int                                     `json:"num_restarts" mapstructure:"num_restarts"`
+	CurrentAttemptNumber      int                                     `json:"current_attempt_number" mapstructure:"current_attempt_number"`
+	CompletionReason          string                                  `json:"completion_reason" mapstructure:"completion_reason"`
+	MissingProposals          []int                                   `json:"missing_proposals" mapstructure:"missing_proposals"`
 }
 
 // ExecuteRequestMetadata includes all the metadata entries we might expect to find in the metadata frame
@@ -486,6 +483,9 @@ type ExecuteRequestMetadata struct {
 	// checkpointing its state.
 	RemoteStorageDefinition *proto.RemoteStorageDefinition `json:"remote_storage_definition" mapstructure:"remote_storage_definition"`
 
+	// GpuDeviceIds are the GPU device IDs allocated to the replica.
+	GpuDeviceIds []int `json:"gpu_device_ids" mapstructure:"gpu_device_ids"`
+
 	// OtherMetadata contains any other entries in the metadata frame that aren't explicitly listed above.
 	// OtherMetadata will only be populated if the metadata frame is decoded using the mapstructure library.
 	OtherMetadata map[string]interface{} `mapstructure:",remain"`
@@ -517,7 +517,8 @@ type JupyterMessage struct {
 	RequestId     string
 	DestinationId string
 
-	RequestTrace *proto.RequestTrace
+	RequestTraceUpdated *proto.RequestTraceUpdated
+	RequestTrace        *proto.RequestTrace
 
 	header       *MessageHeader
 	parentHeader *MessageHeader
@@ -580,6 +581,16 @@ func cloneMap(src map[string]interface{}, dst map[string]interface{}) {
 		} else {
 			dst[k] = v
 		}
+	}
+}
+
+// AddDestFrameIfNecessary adds the destination frame to the specified Jupyter message if it isn't already present.
+func (m *JupyterMessage) AddDestFrameIfNecessary(dstId string) {
+	// Add the dest frame here, as there can be a race condition where multiple replicas will add the dest frame at
+	// the same time, leading to multiple dest frames.
+	_, reqId, _ := m.JupyterFrames.ExtractDestFrame(true)
+	if reqId == "" {
+		m.AddDestinationId(dstId)
 	}
 }
 
@@ -690,6 +701,7 @@ func (m *JupyterMessage) EncodeMetadata(metadata map[string]interface{}) (err er
 	err = m.JupyterFrames.EncodeMetadata(metadata)
 	if err == nil {
 		m.metadata = metadata
+		m.metadataDecoded = true
 		return nil
 	}
 
@@ -798,9 +810,18 @@ func (m *JupyterMessage) GetParentHeader() *MessageHeader {
 		return nil
 	}
 
+	if len(m.JupyterFrames.Frames[JupyterFrameParentHeader]) == 0 {
+		m.parentHeader = &parentHeader
+		m.parentHeaderDecoded = true
+
+		return m.parentHeader
+	}
+
 	if err := m.JupyterFrames.DecodeParentHeader(&parentHeader); err != nil {
-		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode parent header from frame \"%v\" because: %v\n"), string(m.JupyterFrames.Frames[JupyterFrameHeader]), err)
-		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Message frames (for which we failed to decode parent header): %s\n"), m.msg.String())
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Failed to decode parent header from frame \"%v\" because: %v\n"),
+			string(m.JupyterFrames.Frames[JupyterFrameParentHeader]), err)
+		fmt.Printf(utils.OrangeStyle.Render("[WARNING] Message frames (for which we failed to decode parent header): %s\n"),
+			m.msg.String())
 	}
 
 	m.parentHeader = &parentHeader
@@ -856,7 +877,7 @@ func (m *JupyterMessage) Validate() error {
 	return nil
 }
 
-func (m *JupyterMessage) SetMessageType(typ JupyterMessageType) {
+func (m *JupyterMessage) SetMessageType(typ JupyterMessageType, reEncode bool) error {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
 		debug.PrintStack()
@@ -864,9 +885,15 @@ func (m *JupyterMessage) SetMessageType(typ JupyterMessageType) {
 	}
 	header.MsgType = typ
 	m.header = header
+
+	if reEncode {
+		return m.EncodeMessageHeader(m.header)
+	}
+
+	return nil
 }
 
-func (m *JupyterMessage) SetMessageId(msgId string) {
+func (m *JupyterMessage) SetMessageId(msgId string, reEncode bool) error {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
 		debug.PrintStack()
@@ -874,9 +901,15 @@ func (m *JupyterMessage) SetMessageId(msgId string) {
 	}
 	header.MsgID = msgId
 	m.header = header
+
+	if reEncode {
+		return m.EncodeMessageHeader(m.header)
+	}
+
+	return nil
 }
 
-func (m *JupyterMessage) SetDate(date string) {
+func (m *JupyterMessage) SetDate(date string, reEncode bool) error {
 	header, err := m.GetHeader() // Instantiate the header in case it isn't already.
 	if header == nil || err != nil {
 		debug.PrintStack()
@@ -884,6 +917,12 @@ func (m *JupyterMessage) SetDate(date string) {
 	}
 	header.Date = date
 	m.header = header
+
+	if reEncode {
+		return m.EncodeMessageHeader(m.header)
+	}
+
+	return nil
 }
 
 // JupyterMessageType is a convenience/utility method for retrieving the Jupyter message type from the Jupyter message header.
@@ -973,4 +1012,57 @@ func (m *JupyterMessage) String() string {
 
 func (m *JupyterMessage) StringFormatted() string {
 	return fmt.Sprintf("JupyterMessage[ReqId=%s,DestId=%s,Offset=%d]; JupyterMessage's JupyterFrames=%s", m.RequestId, m.DestinationId, m.Offset, m.JupyterFrames.StringFormatted())
+}
+
+// CreateAndReturnYieldRequestMessage creates a "yield_request" message from the target JupyterMessage.
+//
+// If the target JupyterMessage is already a "yield_request" message, then the target JupyterMessage is simply returned.
+//
+// If the target message is not of type "execute_request", then an error is returned.
+//
+// This will return a COPY of the original message with the type field modified to contact "yield_request" instead of "execute_request".
+// On success, the returned error will be nil. If an error occurs, then the returned message will be nil, and the error will be non-nil.
+//
+// PRECONDITION: The given message must be an "execute_request" message.
+// This function will NOT check this. It should be checked before calling this function.
+func (m *JupyterMessage) CreateAndReturnYieldRequestMessage() (*JupyterMessage, error) {
+	// If the message is already a yield request, then just return a copy of it,
+	// as the expectation is that the returned message from this method will be a clone/copy.
+	if m.JupyterMessageType() == ShellYieldRequest {
+		return m.Clone(), nil
+	}
+
+	if m.JupyterMessageType() != ShellExecuteRequest {
+		return nil, fmt.Errorf("%w: message is of type \"%s\", not \"%s\"", ErrInvalidJupyterMessage, m.JupyterMessageType(), ShellExecuteRequest)
+	}
+
+	// Clone the original message.
+	var newMessage = m.GetZmqMsg().Clone()
+	jMsg := NewJupyterMessage(&newMessage)
+
+	// Change the message header.
+	_ = jMsg.SetMessageType(ShellYieldRequest, false)
+
+	// Create a JupyterFrames struct by wrapping with the message's frames.
+	if err := jMsg.Validate(); err != nil {
+		// m.notifyClusterGatewayAndPanic("Failed to Validate \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
+		return nil, err
+	}
+
+	// Replace the header with the new header (that has the 'yield_request' MsgType).
+	header, err := jMsg.GetHeader()
+	if err != nil {
+		return nil, err
+	}
+
+	if err = jMsg.JupyterFrames.EncodeHeader(&header); err != nil {
+		// m.notifyClusterGatewayAndPanic("Failed to Encode Header for \"yield_request\" Message", err.Error(), err) // TODO(Ben): Handle this error more gracefully.
+		return nil, err
+	}
+
+	// Replace the frames of the cloned ZMQ message with the new JupyterMessage's frames.
+	// I don't think this is really necessary, as we do this automatically, but whatever.
+	newMessage.Frames = jMsg.JupyterFrames.Frames
+
+	return jMsg, nil
 }

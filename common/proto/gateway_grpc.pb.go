@@ -438,6 +438,8 @@ const (
 	DistributedCluster_GetLocalDaemonNodeIDs_FullMethodName       = "/gateway.DistributedCluster/GetLocalDaemonNodeIDs"
 	DistributedCluster_QueryMessage_FullMethodName                = "/gateway.DistributedCluster/QueryMessage"
 	DistributedCluster_ForceLocalDaemonToReconnect_FullMethodName = "/gateway.DistributedCluster/ForceLocalDaemonToReconnect"
+	DistributedCluster_ClusterStatistics_FullMethodName           = "/gateway.DistributedCluster/ClusterStatistics"
+	DistributedCluster_ClearClusterStatistics_FullMethodName      = "/gateway.DistributedCluster/ClearClusterStatistics"
 )
 
 // DistributedClusterClient is the client API for DistributedCluster service.
@@ -526,6 +528,12 @@ type DistributedClusterClient interface {
 	// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
 	// This is mostly used for testing/debugging the reconnection process.
 	ForceLocalDaemonToReconnect(ctx context.Context, in *ForceLocalDaemonToReconnectRequest, opts ...grpc.CallOption) (*Void, error)
+	// ClusterStatistics is used to request a serialized ClusterStatistics struct.
+	ClusterStatistics(ctx context.Context, in *ClusterStatisticsRequest, opts ...grpc.CallOption) (*ClusterStatisticsResponse, error)
+	// ClearClusterStatistics clears the current ClusterStatistics struct.
+	//
+	// ClearClusterStatistics returns the serialized ClusterStatistics struct before it was cleared.
+	ClearClusterStatistics(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterStatisticsResponse, error)
 }
 
 type distributedClusterClient struct {
@@ -766,6 +774,26 @@ func (c *distributedClusterClient) ForceLocalDaemonToReconnect(ctx context.Conte
 	return out, nil
 }
 
+func (c *distributedClusterClient) ClusterStatistics(ctx context.Context, in *ClusterStatisticsRequest, opts ...grpc.CallOption) (*ClusterStatisticsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterStatisticsResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_ClusterStatistics_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *distributedClusterClient) ClearClusterStatistics(ctx context.Context, in *Void, opts ...grpc.CallOption) (*ClusterStatisticsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClusterStatisticsResponse)
+	err := c.cc.Invoke(ctx, DistributedCluster_ClearClusterStatistics_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DistributedClusterServer is the server API for DistributedCluster service.
 // All implementations must embed UnimplementedDistributedClusterServer
 // for forward compatibility.
@@ -852,6 +880,12 @@ type DistributedClusterServer interface {
 	// ForceLocalDaemonToReconnect is used to tell a Local Daemon to reconnect to the Cluster Gateway.
 	// This is mostly used for testing/debugging the reconnection process.
 	ForceLocalDaemonToReconnect(context.Context, *ForceLocalDaemonToReconnectRequest) (*Void, error)
+	// ClusterStatistics is used to request a serialized ClusterStatistics struct.
+	ClusterStatistics(context.Context, *ClusterStatisticsRequest) (*ClusterStatisticsResponse, error)
+	// ClearClusterStatistics clears the current ClusterStatistics struct.
+	//
+	// ClearClusterStatistics returns the serialized ClusterStatistics struct before it was cleared.
+	ClearClusterStatistics(context.Context, *Void) (*ClusterStatisticsResponse, error)
 	mustEmbedUnimplementedDistributedClusterServer()
 }
 
@@ -930,6 +964,12 @@ func (UnimplementedDistributedClusterServer) QueryMessage(context.Context, *Quer
 }
 func (UnimplementedDistributedClusterServer) ForceLocalDaemonToReconnect(context.Context, *ForceLocalDaemonToReconnectRequest) (*Void, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ForceLocalDaemonToReconnect not implemented")
+}
+func (UnimplementedDistributedClusterServer) ClusterStatistics(context.Context, *ClusterStatisticsRequest) (*ClusterStatisticsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClusterStatistics not implemented")
+}
+func (UnimplementedDistributedClusterServer) ClearClusterStatistics(context.Context, *Void) (*ClusterStatisticsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClearClusterStatistics not implemented")
 }
 func (UnimplementedDistributedClusterServer) mustEmbedUnimplementedDistributedClusterServer() {}
 func (UnimplementedDistributedClusterServer) testEmbeddedByValue()                            {}
@@ -1366,6 +1406,42 @@ func _DistributedCluster_ForceLocalDaemonToReconnect_Handler(srv interface{}, ct
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DistributedCluster_ClusterStatistics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClusterStatisticsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).ClusterStatistics(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_ClusterStatistics_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).ClusterStatistics(ctx, req.(*ClusterStatisticsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DistributedCluster_ClearClusterStatistics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DistributedClusterServer).ClearClusterStatistics(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DistributedCluster_ClearClusterStatistics_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DistributedClusterServer).ClearClusterStatistics(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DistributedCluster_ServiceDesc is the grpc.ServiceDesc for DistributedCluster service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1464,6 +1540,14 @@ var DistributedCluster_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ForceLocalDaemonToReconnect",
 			Handler:    _DistributedCluster_ForceLocalDaemonToReconnect_Handler,
+		},
+		{
+			MethodName: "ClusterStatistics",
+			Handler:    _DistributedCluster_ClusterStatistics_Handler,
+		},
+		{
+			MethodName: "ClearClusterStatistics",
+			Handler:    _DistributedCluster_ClearClusterStatistics_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

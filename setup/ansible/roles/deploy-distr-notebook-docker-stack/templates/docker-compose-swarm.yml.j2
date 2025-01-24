@@ -18,6 +18,9 @@ services:
       - "prometheus.metrics.port=8888"
       - "prometheus.metrics.basepath=/jupyter"
     deploy:
+      placement:
+        constraints:
+          - "node.labels.swarm_role == swarm-leader"
       restart_policy:
         condition: any
       endpoint_mode: dnsrr
@@ -57,6 +60,9 @@ services:
       - "prometheus.metrics.port={{ distributed_notebook_prometheus_port }}"
       - "prometheus-metrics-provider=true"
     deploy:
+      placement:
+        constraints:
+          - "node.labels.swarm_role == swarm-leader"
       restart_policy:
         condition: any
       endpoint_mode: dnsrr
@@ -214,6 +220,7 @@ services:
       - ./grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini
       - grafana_data:/var/lib/grafana
+    user: ":"
     deploy:
       restart_policy:
         condition: on-failure
@@ -244,6 +251,9 @@ services:
       - "logging_jobname=notebook_dashboard"
       - "prometheus.metrics.port={{ distributed_notebook_prometheus_port }}"
     deploy:
+      placement:
+        constraints:
+         - "node.labels.swarm_role == swarm-leader"
       restart_policy:
         condition: on-failure
       endpoint_mode: dnsrr

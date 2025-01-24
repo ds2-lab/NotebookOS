@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -33,9 +34,13 @@ func (f *JupyterRequestTraceFrame) String() string {
 // NewRequestTrace creates a new RequestTrace and returns a pointer to it.
 //
 // The RequestTrace struct has all of its timing fields initialized to -1.
-func NewRequestTrace() *RequestTrace {
+func NewRequestTrace(kernelId string, messageType string, messageId string) *RequestTrace {
 	return &RequestTrace{
 		ReplicaId:                      -1,
+		KernelId:                       kernelId,
+		MessageType:                    messageType,
+		MessageId:                      messageId,
+		RequestTraceUuid:               uuid.NewString(),
 		RequestReceivedByGateway:       DefaultTraceTimingValue,
 		RequestSentByGateway:           DefaultTraceTimingValue,
 		RequestReceivedByLocalDaemon:   DefaultTraceTimingValue,
@@ -46,29 +51,33 @@ func NewRequestTrace() *RequestTrace {
 		ReplyReceivedByGateway:         DefaultTraceTimingValue,
 		ReplySentByLocalDaemon:         DefaultTraceTimingValue,
 		ReplyReceivedByLocalDaemon:     DefaultTraceTimingValue,
-		RequestTraceUuid:               uuid.NewString(),
 	}
 }
 
 // Clone creates a copy of RequestTrace with a DIFFERENT UUID.
 func (x *RequestTrace) Clone() *RequestTrace {
-	return &RequestTrace{
-		MessageId:                      x.MessageId,
-		MessageType:                    x.MessageType,
-		KernelId:                       x.KernelId,
-		ReplicaId:                      x.ReplicaId,
-		RequestReceivedByGateway:       x.RequestReceivedByGateway,
-		RequestSentByGateway:           x.RequestSentByGateway,
-		RequestReceivedByLocalDaemon:   x.RequestReceivedByLocalDaemon,
-		RequestSentByLocalDaemon:       x.RequestSentByLocalDaemon,
-		RequestReceivedByKernelReplica: x.RequestReceivedByKernelReplica,
-		ReplySentByKernelReplica:       x.ReplySentByKernelReplica,
-		ReplyReceivedByLocalDaemon:     x.ReplyReceivedByLocalDaemon,
-		ReplySentByLocalDaemon:         x.ReplySentByLocalDaemon,
-		ReplyReceivedByGateway:         x.ReplyReceivedByGateway,
-		ReplySentByGateway:             x.ReplySentByGateway,
-		RequestTraceUuid:               uuid.NewString(),
-	}
+	//return &RequestTrace{
+	//	MessageId:                      x.MessageId,
+	//	MessageType:                    x.MessageType,
+	//	KernelId:                       x.KernelId,
+	//	ReplicaId:                      x.ReplicaId,
+	//	RequestReceivedByGateway:       x.RequestReceivedByGateway,
+	//	RequestSentByGateway:           x.RequestSentByGateway,
+	//	RequestReceivedByLocalDaemon:   x.RequestReceivedByLocalDaemon,
+	//	RequestSentByLocalDaemon:       x.RequestSentByLocalDaemon,
+	//	RequestReceivedByKernelReplica: x.RequestReceivedByKernelReplica,
+	//	ReplySentByKernelReplica:       x.ReplySentByKernelReplica,
+	//	ReplyReceivedByLocalDaemon:     x.ReplyReceivedByLocalDaemon,
+	//	ReplySentByLocalDaemon:         x.ReplySentByLocalDaemon,
+	//	ReplyReceivedByGateway:         x.ReplyReceivedByGateway,
+	//	ReplySentByGateway:             x.ReplySentByGateway,
+	//	RequestTraceUuid:               uuid.NewString(),
+	//}
+	return proto.Clone(x).(*RequestTrace)
+}
+
+func (x *RequestTraceUpdated) Clone() *RequestTraceUpdated {
+	return proto.Clone(x).(*RequestTraceUpdated)
 }
 
 // PopulateNextField populates the next field with the given unix milliseconds timestamp and returns true.
@@ -98,53 +107,53 @@ func (x *RequestTrace) Clone() *RequestTrace {
 func (x *RequestTrace) PopulateNextField(unixMilliseconds int64, log logger.Logger) bool {
 	if x.RequestReceivedByGateway == DefaultTraceTimingValue {
 		x.RequestReceivedByGateway = unixMilliseconds
-		log.Debug("Assigned value to \"RequestReceivedByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-			x.MessageType, x.MessageId, x.KernelId)
+		//log.Debug("Assigned value to \"RequestReceivedByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
+		//	x.MessageType, x.MessageId, x.KernelId)
 		return true
 	} else if x.RequestSentByGateway == DefaultTraceTimingValue {
 		x.RequestSentByGateway = unixMilliseconds
-		log.Debug("Assigned value to \"RequestSentByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-			x.MessageType, x.MessageId, x.KernelId)
+		//log.Debug("Assigned value to \"RequestSentByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
+		//	x.MessageType, x.MessageId, x.KernelId)
 		return true
 	} else if x.RequestReceivedByLocalDaemon == DefaultTraceTimingValue {
 		x.RequestReceivedByLocalDaemon = unixMilliseconds
-		log.Debug("Assigned value to \"RequestReceivedByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-			x.MessageType, x.MessageId, x.KernelId)
+		//log.Debug("Assigned value to \"RequestReceivedByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
+		//	x.MessageType, x.MessageId, x.KernelId)
 		return true
 	} else if x.RequestSentByLocalDaemon == DefaultTraceTimingValue {
 		x.RequestSentByLocalDaemon = unixMilliseconds
-		log.Debug("Assigned value to \"RequestSentByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-			x.MessageType, x.MessageId, x.KernelId)
+		//log.Debug("Assigned value to \"RequestSentByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
+		//	x.MessageType, x.MessageId, x.KernelId)
 		return true
 	} else if x.RequestReceivedByKernelReplica == DefaultTraceTimingValue {
 		x.RequestReceivedByKernelReplica = unixMilliseconds
-		log.Debug("Assigned value to \"RequestReceivedByKernelReplica\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-			x.MessageType, x.MessageId, x.KernelId)
+		//log.Debug("Assigned value to \"RequestReceivedByKernelReplica\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
+		//	x.MessageType, x.MessageId, x.KernelId)
 		return true
 	} else if x.ReplySentByKernelReplica == DefaultTraceTimingValue {
 		x.ReplySentByKernelReplica = unixMilliseconds
-		log.Debug("Assigned value to \"ReplySentByKernelReplica\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-			x.MessageType, x.MessageId, x.KernelId)
+		//log.Debug("Assigned value to \"ReplySentByKernelReplica\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
+		//	x.MessageType, x.MessageId, x.KernelId)
 		return true
 	} else if x.ReplyReceivedByLocalDaemon == DefaultTraceTimingValue {
 		x.ReplyReceivedByLocalDaemon = unixMilliseconds
-		log.Debug("Assigned value to \"ReplyReceivedByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-			x.MessageType, x.MessageId, x.KernelId)
+		//log.Debug("Assigned value to \"ReplyReceivedByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
+		//	x.MessageType, x.MessageId, x.KernelId)
 		return true
 	} else if x.ReplySentByLocalDaemon == DefaultTraceTimingValue {
 		x.ReplySentByLocalDaemon = unixMilliseconds
-		log.Debug("Assigned value to \"ReplySentByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-			x.MessageType, x.MessageId, x.KernelId)
+		//log.Debug("Assigned value to \"ReplySentByLocalDaemon\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
+		//	x.MessageType, x.MessageId, x.KernelId)
 		return true
 	} else if x.ReplyReceivedByGateway == DefaultTraceTimingValue {
 		x.ReplyReceivedByGateway = unixMilliseconds
-		log.Debug("Assigned value to \"ReplyReceivedByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-			x.MessageType, x.MessageId, x.KernelId)
+		//log.Debug("Assigned value to \"ReplyReceivedByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
+		//	x.MessageType, x.MessageId, x.KernelId)
 		return true
 	} else if x.ReplySentByGateway == DefaultTraceTimingValue {
 		x.ReplySentByGateway = unixMilliseconds
-		log.Debug("Assigned value to \"ReplySentByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
-			x.MessageType, x.MessageId, x.KernelId)
+		//log.Debug("Assigned value to \"ReplySentByGateway\" field of request trace for \"%s\" message \"%s\" targeting kernel \"%s\"",
+		//	x.MessageType, x.MessageId, x.KernelId)
 		return true
 	} else {
 		return false

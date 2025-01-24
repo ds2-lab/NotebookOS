@@ -57,7 +57,7 @@ class DistributedKernelManager(AsyncMappingKernelManager, ServerKernelManager):
 
         For use in representing kernels in the JSON APIs.
         """
-        self.log.info("Returning kernel model for kernel %s" % kernel_id)
+        # self.log.info("Returning kernel model for kernel %s" % kernel_id)
         
         self._check_kernel_id(kernel_id)
         kernel = self._kernels[kernel_id]

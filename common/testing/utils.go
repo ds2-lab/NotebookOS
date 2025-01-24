@@ -21,7 +21,9 @@ func ContainsOffendingResourceKind(lst []resource.Kind, target resource.Kind) bo
 }
 
 // NewHostWithSpoofedGRPC creates a new scheduling.Host struct with a spoofed proto.LocalGatewayClient.
-func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string, resourceSpoofer *ResourceSpoofer) (scheduling.Host, *mock_proto.MockLocalGatewayClient, error) {
+func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string,
+	resourceSpoofer *ResourceSpoofer) (scheduling.Host, *mock_proto.MockLocalGatewayClient, error) {
+	
 	gpuSchedulerId := uuid.NewString()
 
 	localGatewayClient := mock_proto.NewMockLocalGatewayClient(ctrl)
@@ -56,7 +58,8 @@ func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster,
 	).DoAndReturn(resourceSpoofer.ResourcesSnapshot).AnyTimes()
 
 	host, err := entity.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
-		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, 3, cluster, nil, localGatewayClient,
+		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, 3, cluster, cluster, nil,
+		localGatewayClient, cluster.Scheduler().Policy().ResourceBindingMode(),
 		func(_ string, _ string, _ string, _ string) error { return nil })
 
 	return host, localGatewayClient, err

@@ -2,10 +2,13 @@ package scheduling
 
 import (
 	"context"
+	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
+	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"time"
 )
@@ -50,14 +53,19 @@ type SessionManager interface {
 
 // ExecutionLatencyCallback is provided by the internalCluster Gateway to each DistributedKernelClient.
 // When a DistributedKernelClient receives a notification that a kernel has started execution user-submitted code,
-// the DistributedKernelClient will check if its ActiveExecution struct has the original "sent-at" timestamp
+// the DistributedKernelClient will check if its Execution struct has the original "sent-at" timestamp
 // of the original "execute_request". If it does, then it can calculate the latency between submission and when
 // the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
 // so that a relevant Prometheus metric can be updated.
 type ExecutionLatencyCallback func(latency time.Duration, workloadId string, kernelId string)
 
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
-type ExecutionFailedCallback func(c Kernel) error
+type ExecutionFailedCallback func(c Kernel, msg *messaging.JupyterMessage) error
+
+// YieldNotificationHandler is called when a YIELD notification is received.
+type YieldNotificationHandler func(replica KernelReplica, msgErr *messaging.MessageErrorWithYieldReason, msg *messaging.JupyterMessage) error
+
+type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
 type Kernel interface {
 	types.Contextable
@@ -69,18 +77,25 @@ type Kernel interface {
 	GetContainers() []KernelContainer
 	ShellListenPort() int
 	IOPubListenPort() int
-	ActiveExecution() *ActiveExecution
-	GetActiveExecutionByExecuteRequestMsgId(msgId string) (*ActiveExecution, bool)
+	// GetActiveExecution returns a pointer to the Execution struct identified by the given message ID,
+	// or nil if no such Execution exists.
+	GetActiveExecution(msgId string) *execution.Execution
+	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
-	SetActiveExecution(activeExecution *ActiveExecution)
-	ExecutionComplete(msg *messaging.JupyterMessage) (bool, error)
-	EnqueueActiveExecution(attemptId int, msg *messaging.JupyterMessage) *ActiveExecution
+	ExecutionComplete(msg *messaging.JupyterMessage) error
+	RegisterActiveExecution(msg *messaging.JupyterMessage) (*execution.Execution, error)
 	ResetID(id string)
 	PersistentID() string
 	String() string
 	ID() string
 	SourceKernelID() string
 	ResourceSpec() *types.DecimalSpec
+
+	// UpdateResourceSpec updates the ResourceSpec of the Kernel, all of its KernelReplica instances, the UserSession
+	// of each KernelReplica, and the KernelContainer of each KernelReplica.
+	//
+	// It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/Replica.
+	UpdateResourceSpec(spec types.Spec) error
 	KernelSpec() *proto.KernelSpec
 	ConnectionInfo() *jupyter.ConnectionInfo
 	Status() jupyter.KernelStatus
@@ -100,6 +115,7 @@ type Kernel interface {
 	RemoveReplica(r KernelReplica, remover ReplicaRemover, noop bool) (Host, error)
 	GetReplicaByID(id int32) (KernelReplica, error)
 	RemoveReplicaByID(id int32, remover ReplicaRemover, noop bool) (Host, error)
+	RemoveAllReplicas(remover ReplicaRemover, noop bool) error
 	Validate() error
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
 	InitializeIOForwarder() (*messaging.Socket, error)
@@ -109,9 +125,10 @@ type Kernel interface {
 	GetSocketPort(typ messaging.MessageType) int
 	IsReplicaReady(replicaId int32) (bool, error)
 	RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
-	RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType, jMsg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func(), replicas ...KernelReplica) error
+	RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType, jupyterMessages []*messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func(), replicas ...KernelReplica) error
 	Shutdown(remover ReplicaRemover, restart bool) error
 	WaitClosed() jupyter.KernelStatus
+	DebugMode() bool
 
 	// SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the DistributedKernelClient.
 	SetKernelKey(string)
@@ -135,11 +152,13 @@ type Kernel interface {
 }
 
 type KernelReplica interface {
+	execution.Replica
 	types.Contextable
 	SessionManager
 	Server
 
 	Container() KernelContainer
+	Host() Host
 	SetContainer(container KernelContainer)
 	IsTraining() bool
 	WaitForTrainingToStop()
@@ -150,7 +169,6 @@ type KernelReplica interface {
 	NumPendingExecuteRequests() int
 	SentExecuteRequest(msg *messaging.JupyterMessage)
 	ReceivedExecuteReply(msg *messaging.JupyterMessage)
-	KernelStoppedTraining() error
 	TrainingStartedAt() time.Time
 	WorkloadId() string
 	SetWorkloadId(workloadId string)
@@ -166,18 +184,34 @@ type KernelReplica interface {
 	InitializeIOForwarder() (*messaging.Socket, error)
 	YieldedNextExecutionRequest()
 	SupposedToYieldNextExecutionRequest() bool
-	ID() string
 	SourceKernelID() string
-	ReplicaID() int32
 	SetReplicaID(replicaId int32)
 	SetPersistentID(persistentId string)
 	PersistentID() string
 	ResourceSpec() *types.DecimalSpec
-	SetResourceSpec(spec *proto.ResourceSpec)
+
+	// InitializeResourceSpec sets the ResourceSpec of the KernelReplica.
+	//
+	// This does NOT propagate the updated spec to any UserSession or KernelContainer or Host.
+	// As such, SetReplicaSpec should only be called when instantiating/initializing a new KernelReplica.
+	//
+	// If you wish to update the ResourceSpec of an existing KernelReplica, then you should use the
+	// UpdateResourceSpec method.
+	InitializeResourceSpec(spec *proto.ResourceSpec)
+
+	// UpdateResourceSpec updates the ResourceSpec of the KernelReplica, the UserSession of the KernelReplica, and the
+	// KernelContainer of the KernelReplica.
+	//
+	// It also ensures that the updated ResourceSpec is propagated to the Host of the KernelContainer / KernelReplica.
+	//
+	// UpdateResourceSpec should only be used to update the ResourceSpec of an existing KernelReplica. When
+	// instantiating/initializing (the ResourceSpec of) a new KernelReplica, you should use the InitializeResourceSpec
+	// method instead of UpdateResourceSpec.
+	UpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error
 	KernelSpec() *proto.KernelSpec
+	KernelReplicaSpec() *proto.KernelReplicaSpec
 	Address() string
 	String() string
-	UpdateResourceSpec(types.Spec) error
 	IsReady() bool
 	HostId() string
 	SetReady()
@@ -191,7 +225,7 @@ type KernelReplica interface {
 	InitializeShellForwarder(handler KernelMessageHandler) (*messaging.Socket, error)
 	AddIOHandler(topic string, handler MessageBrokerHandler[KernelReplica, *messaging.JupyterFrames, *messaging.JupyterMessage]) error
 	RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
-	GetHost() Host
-	SetHost(host Host)
+	RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error
 	InitializeIOSub(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error)
+	HandleIOKernelStatus(kernelReplica KernelReplica, frames *messaging.JupyterFrames, msg *messaging.JupyterMessage) error
 }

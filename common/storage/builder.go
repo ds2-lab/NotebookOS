@@ -63,12 +63,12 @@ func (b *RemoteStorageBuilder) WithWriteFailureChancePercentage(percent float32)
 // Build constructs and returns a RemoteStorage object.
 func (b *RemoteStorageBuilder) Build() *proto.RemoteStorageDefinition {
 	return &proto.RemoteStorageDefinition{
-		Name:                         b.name,
-		DownloadRate:                 b.downloadRate,
-		UploadRate:                   b.uploadRate,
-		DownloadVariancePercent:      b.downloadVariancePercent,
-		UploadVariancePercent:        b.uploadVariancePercent,
-		ReadFailureChancePercentage:  b.readFailureChancePercentage,
-		WriteFailureChancePercentage: b.writeFailureChancePercentage,
+		Name:                           b.name,
+		DownloadRate:                   b.downloadRate,
+		UploadRate:                     b.uploadRate,
+		DownloadRateVariancePercentage: b.downloadVariancePercent,
+		UploadRateVariancePercentage:   b.uploadVariancePercent,
+		ReadFailureChancePercentage:    b.readFailureChancePercentage,
+		WriteFailureChancePercentage:   b.writeFailureChancePercentage,
 	}
 }

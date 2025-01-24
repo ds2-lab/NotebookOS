@@ -31,7 +31,24 @@ dependencies = [
     "jupyter_server>=2.14.2",
     "requests",
     "docker",
-    "jsondiff"
+    "jsondiff",
+    "numpy",
+    "redis",
+    "boto3",
+    "omegaconf",
+    "torchmetrics",
+    "python-Levenshtein",
+    "wget",
+    "sox",
+    "librosa",
+    "torchdata==0.9.0",
+    "transformers",
+    "datasets",
+    "portalocker>=2.0.0",
+    "pytest",
+    "pytest-asyncio",
+    "torchaudio",
+    "torchvision"
 ]
 
 readme = "README.md"
@@ -69,3 +86,8 @@ py-modules = [
 
 [project.entry-points."jupyter_client.kernel_provisioners"]
 gateway-provisioner = "distributed_notebook.provisioner.gateway_provisioner:GatewayProvisioner"
+
+[tool.pytest.ini_options]
+asyncio_mode="auto"
+asyncio_default_fixture_loop_scope="function"
+testpaths=[ "distributed_notebook/tests", "distributed_notebook/model/tests" ]

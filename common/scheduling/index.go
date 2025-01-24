@@ -10,18 +10,19 @@ type HostCriteriaFunction func(Host) bool
 
 type ClusterIndexQuerier interface {
 	// Seek returns the host specified by the metrics.
-	Seek(blacklist []interface{}, metrics ...[]float64) (host Host, pos interface{})
+	Seek(blacklist []interface{}, metrics ...[]float64) (Host, interface{}, error)
 
 	// SeekFrom continues the seek from the position.
-	SeekFrom(start interface{}, metrics ...[]float64) (host Host, pos interface{})
+	// SeekFrom(start interface{}, metrics ...[]float64) (host Host, pos interface{})
 
 	// SeekMultipleFrom seeks n Host instances from a random permutation of the index.
 	// Pass nil as pos to reset the seek.
 	//
 	// This entire method is thread-safe. The index is locked until this method returns.
-	SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]Host, interface{})
-
-	GetMetadataKey() HostMetaKey
+	//
+	// If SeekMultipleFrom returns nil, then that indicates that there was an error.
+	// SeekMultipleFrom should return a non-nil, empty slice if no viable scheduling.Host instances are found.
+	SeekMultipleFrom(pos interface{}, n int, criteriaFunc HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]Host, interface{}, error)
 }
 
 type ClusterIndex interface {

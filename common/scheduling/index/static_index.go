@@ -1,247 +1,325 @@
 package index
 
 import (
+	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"slices"
-	"sync"
+	"math"
 )
 
-const (
-	expectedStaticIndex                        = "*"
-	HostMetaStaticIndex scheduling.HostMetaKey = "static_index"
+var (
+	ErrMissingMetrics = errors.New("cannot seek host(s) because one or more required metrics were not provided")
 )
 
-type StaticClusterIndex struct {
-	hosts     []scheduling.Host // The Host instances in the index.
-	length    int               // The number of Host instances in the index.
-	freeStart int32             // The first freed index.
-	seekStart int32             // The index at which we begin searching for a Host. For this index, its reset after every seek.
+// roundToLowestPowerOf2 rounds the given value (down) to the closest power of 2 (that is <= val).
+func roundToLowestPowerOf2(val float64) float64 {
+	// Special case for non-positive values.
+	if val <= 0 {
+		return 0
+	}
 
-	mu  sync.Mutex
+	// Find the exponent of the power of 2.
+	exponent := math.Floor(math.Log2(val))
+
+	// Calculate the power of 2.
+	result := math.Pow(2, exponent)
+
+	return result
+}
+
+// GetStaticIndexBucket returns the bucket number of the specified number of GPUs, given the number
+// of GPUs per host and the number of pools available in the StaticIndex.
+//
+// GetStaticIndexBucket will return -1 for an unknown or unexpected or unsupported set of inputs, such
+// as when gpus > gpusPerHost.
+func GetStaticIndexBucket(gpus int32, gpusPerHost int32) int32 {
+	if gpus == 0 {
+		gpus = 1
+	}
+
+	if gpus > gpusPerHost {
+		// panic(fmt.Sprintf("Requested %d GPUs, but there are only %d GPUs per host", gpus, gpusPerHost))
+		return -1
+	}
+
+	// First, divide the number of GPUs per host by the number of requested GPUs.
+	// Typically, there are 8 GPUs per host.
+	// So, we'll have:
+	// - 8 / 8 = 1
+	// - 8 / 4 = 2
+	// - 8 / 2 = 4
+	// - 8 / 1 = 8
+	//
+	// For non-standard/uncommon values (3, 5, 6, and 7), we'll round them to the nearest power of 2:
+	// - 8 / 3 = 2.6666... --> 2
+	// - 8 / 5 = 1.6 --> 1
+	// - 8 / 6 = 1.3333... -> 1
+	// - 8 / 7 = 1.1428... -> 1
+	_bucket := float64(gpusPerHost) / float64(gpus)
+	poolIndex := int32(roundToLowestPowerOf2(_bucket))
+
+	//fmt.Printf("NumGpus=%d, GpusPerHost=%d, NumPools=%d, _bucket=%f, poolIndex=%d\n",
+	//	gpus, gpusPerHost, numPools, _bucket, poolIndex)
+
+	return poolIndex
+}
+
+// StaticIndex is a struct that implements the scheduling.ClusterIndex interface
+// and provides support for the Static scheduling algorithm/policy.
+type StaticIndex struct {
+	MultiIndex *MultiIndex[*LeastLoadedIndex]
+
+	GpusPerHost int32
+	NumPools    int32
+
 	log logger.Logger
 }
 
-func NewStaticClusterIndex() *StaticClusterIndex {
-	index := &StaticClusterIndex{
-		hosts:     make([]scheduling.Host, 0),
-		length:    0,
-		freeStart: 0,
+// isPowerOf2 returns true if the given value is a power of 2.
+func isPowerOf2(n int32) bool {
+	return (n & (n - 1)) == 0
+}
+
+// staticIndexPoolInitializer satisfies the HostPoolInitializer type and is used to initialize the HostPool instances
+// of the MultiIndex that underlies a StaticIndex.
+func staticIndexPoolInitializer(numPools int32, indexProvider Provider[*LeastLoadedIndex]) map[int32]*HostPool[*LeastLoadedIndex] {
+	pools := make(map[int32]*HostPool[*LeastLoadedIndex], numPools)
+
+	poolNumber := int32(1)
+	for int32(len(pools)) < numPools {
+		pools[poolNumber] = NewHostPool(indexProvider(poolNumber), poolNumber)
+		fmt.Printf("Initialized HostPool %d/%d with ID=%d\n", len(pools), numPools, poolNumber)
+
+		poolNumber = poolNumber * 2
 	}
 
-	config.InitLogger(&index.log, index)
-
-	return index
+	return pools
 }
 
-// // // // // // // // // // // // // //
-// ClusterIndexProvider implementation //
-// // // // // // // // // // // // // //
-
-// Category returns the category of the index and the expected value.
-func (index *StaticClusterIndex) Category() (category string, expected interface{}) {
-	return scheduling.CategoryClusterIndex, expectedStaticIndex
-}
-
-func (index *StaticClusterIndex) GetMetadataKey() scheduling.HostMetaKey {
-	return HostMetaStaticIndex
-}
-
-// IsQualified returns the actual value according to the index category and whether the host is qualified.
-// An index provider must be able to track indexed hosts and indicate disqualification.
-func (index *StaticClusterIndex) IsQualified(host scheduling.Host) (actual interface{}, qualified scheduling.IndexQualification) {
-	// Since all hosts are qualified, we check if the host is in the index only.
-	if _, ok := host.GetMeta(HostMetaStaticIndex).(int32); ok {
-		return expectedStaticIndex, scheduling.IndexQualified
-	} else {
-		return expectedStaticIndex, scheduling.IndexNewQualified
-	}
-}
-
-// Len returns the number of hosts in the index.
-func (index *StaticClusterIndex) Len() int {
-	return index.length
-}
-
-// Add adds a host to the index.
-func (index *StaticClusterIndex) Add(host scheduling.Host) {
-	index.mu.Lock()
-	defer index.mu.Unlock()
-
-	i := index.freeStart
-	if i < int32(len(index.hosts)) {
-		index.hosts[i] = host
-		for j := i + 1; j < int32(len(index.hosts)); j++ {
-			if index.hosts[j] == nil {
-				index.freeStart = j
-				break
-			}
-		}
-	} else {
-		index.hosts = append(index.hosts, host)
-		i = index.freeStart // old len(index.hosts) or current len(index.hosts) - 1
-		index.freeStart += 1
-	}
-
-	host.SetMeta(HostMetaStaticIndex, i)
-	index.length += 1
-	index.sortIndex()
-}
-
-// Update updates a host in the index.
-// TODO: Call this when GPU amounts change.
-func (index *StaticClusterIndex) Update(host scheduling.Host) {
-	found := false
-	for i, h := range index.hosts {
-		if h.GetID() == host.GetID() {
-			index.hosts[i] = host
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return
-	}
-
-	index.sortIndex()
-}
-
-// Remove removes a host from the index.
-func (index *StaticClusterIndex) Remove(host scheduling.Host) {
-	index.mu.Lock()
-	defer index.mu.Unlock()
-
-	i, ok := host.GetMeta(HostMetaStaticIndex).(int32)
-	if !ok {
-		return
-	}
-	index.hosts[i] = nil
-	index.length -= 1
-
-	// Update freeStart.
-	if i < index.freeStart {
-		index.freeStart = i
-	}
-
-	// Compact the index.
-	if len(index.hosts)-index.length >= randomIndexGCThreshold {
-		index.compactLocked(index.freeStart)
-	}
-
-	slices.SortFunc(index.hosts, func(a, b scheduling.Host) int {
-		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
-		// with the Hosts with the most idle GPUs appearing first.
-		if a.IdleGPUs() > b.IdleGPUs() {
-			return -1
-		} else if a.IdleGPUs() < b.IdleGPUs() {
-			return 1
-		} else {
-			return 0
-		}
-	})
-}
-
-// sortIndex sorts the Host instances in the index by their number of idle GPUs.
-// Host instances with more idle GPUs available appear first in the index.
-func (index *StaticClusterIndex) sortIndex() {
-	slices.SortFunc(index.hosts, func(a, b scheduling.Host) int {
-		// Note: we flipped the order of the greater/less-than signs here so that it sorts in descending order,
-		// with the Hosts with the most idle GPUs appearing first.
-		if a.IdleGPUs() > b.IdleGPUs() {
-			return -1
-		} else if a.IdleGPUs() < b.IdleGPUs() {
-			return 1
-		} else {
-			return 0
-		}
-	})
-}
-
-// compact compacts the index by calling compactLocked.
+// NewStaticIndex creates and returns a pointer to a new StaticIndex struct.
 //
-// This will acquire the index's lock before calling compactLocked.
-func (index *StaticClusterIndex) compact(from int32) {
-	index.mu.Lock()
-	defer index.mu.Unlock()
-
-	index.compactLocked(from)
-}
-
-// compactLocked compacts the index.
-//
-// Important: this function is expected to be called with the index's lock.
-func (index *StaticClusterIndex) compactLocked(from int32) {
-	frontier := int(from)
-	for i := frontier + 1; i < len(index.hosts); i++ {
-		if index.hosts[i] != nil {
-			index.hosts[frontier], index.hosts[i] = index.hosts[i], nil
-			index.hosts[frontier].SetMeta(HostMetaStaticIndex, frontier)
-			frontier += 1
-		}
+// Important: the 'gpusPerHost' parameter is expected to be a power of 2. If it isn't, then NewStaticIndex will panic.
+func NewStaticIndex(gpusPerHost int32) *StaticIndex {
+	if !isPowerOf2(gpusPerHost) {
+		panic(fmt.Sprintf("GPUs per host is NOT a power of 2: %d", gpusPerHost))
 	}
-	index.freeStart = int32(frontier)
-	index.hosts = index.hosts[:frontier]
+
+	// Compute the number of pools.
+	numPools := int32(math.Log2(float64(gpusPerHost)) + 1)
+
+	multi := NewMultiIndexWithHostPoolInitializer[*LeastLoadedIndex](numPools, NewLeastLoadedIndexWrapper, staticIndexPoolInitializer)
+
+	// Reinitialize the logger with a different prefix.
+	config.InitLogger(&multi.log, fmt.Sprintf("StaticIndex[%d Pools] ", numPools))
+
+	staticIndex := &StaticIndex{
+		MultiIndex:  multi,
+		NumPools:    numPools,
+		GpusPerHost: gpusPerHost,
+	}
+
+	config.InitLogger(&staticIndex.log, fmt.Sprintf("StaticIndex[%d Pools] ", numPools))
+
+	return staticIndex
 }
 
-// GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.
-func (index *StaticClusterIndex) GetMetrics(scheduling.Host) (metrics []float64) {
-	return nil
+// GetNumPools is a convenience method to return index.NumPools as an int (rather than an int32).
+func (index *StaticIndex) GetNumPools() int {
+	return int(index.NumPools)
 }
 
-// // // // // // // // // // // // // //
-// ClusterIndexQuerier implementation  //
-// // // // // // // // // // // // // //
+// HostPoolIDs returns the valid IDs of each HostPool managed by the target StaticIndex.
+//
+// The returned slice of HostPool IDs will be sorted in ascending order (i.e., smallest to largest).
+func (index *StaticIndex) HostPoolIDs() []int32 {
+	return index.MultiIndex.HostPoolIDs()
+}
+
+// NumFreeHosts returns the number of "free" scheduling.Host instances within the target MultiIndex.
+//
+// "Free" hosts are those that have not been placed into a particular HostPool (yet).
+func (index *StaticIndex) NumFreeHosts() int {
+	index.MultiIndex.mu.Lock()
+	defer index.MultiIndex.mu.Unlock()
+
+	return index.MultiIndex.FreeHosts.Len()
+}
+
+// HasHostPool returns true if the MultiIndex has a host pool for the specified number of GPUs.
+// The gpus parameter is not treated directly as an index. Instead, it is first converted to a bucket.
+func (index *StaticIndex) HasHostPool(gpus int32) bool {
+	bucket := index.GetBucket(gpus)
+	_, loaded := index.MultiIndex.HostPools[bucket]
+	return loaded
+}
+
+// HasHostPoolByIndex returns true if the MultiIndex has a host pool for the specified pool index.
+func (index *StaticIndex) HasHostPoolByIndex(poolNumber int32) bool {
+	_, loaded := index.MultiIndex.HostPools[poolNumber]
+	return loaded
+}
+
+// NumHostsInPoolByIndex returns the number of hosts in the specified host pool.
+// The gpus parameter is not treated directly as an index. Instead, it is first converted to a bucket.
+func (index *StaticIndex) NumHostsInPoolByIndex(poolIndex int32) int {
+	pool, loaded := index.MultiIndex.HostPools[poolIndex]
+	if !loaded {
+		index.log.Warn("Size of pool with unknown index=%d requested.", poolIndex)
+
+		return -1
+	}
+
+	return pool.Len()
+}
+
+// NumHostsInPool returns the number of hosts in the specified host pool.
+// The gpus parameter is not treated directly as an index. Instead, it is first converted to a bucket.
+func (index *StaticIndex) NumHostsInPool(gpus int32) int {
+	bucket := index.GetBucket(gpus)
+	pool, loaded := index.MultiIndex.HostPools[bucket]
+	if !loaded {
+		index.log.Warn("Size of pool %d (gpus=%d) requested; however, no such pool exists...",
+			bucket, gpus)
+
+		return -1
+	}
+
+	return pool.Len()
+}
+
+// GetHostPoolByIndex returns the HostPool for the specified pool index.
+// GetHostPoolByIndex does not convert the given index to a bucket.
+func (index *StaticIndex) GetHostPoolByIndex(poolNumber int32) (*HostPool[*LeastLoadedIndex], bool) {
+	pool, loaded := index.MultiIndex.HostPools[poolNumber]
+	if loaded {
+		return pool, true
+	}
+
+	return nil, false
+}
+
+// GetHostPool returns the HostPool for the specified number of GPUs.
+// The gpus parameter is not treated directly as an index. Instead, it is first converted to a bucket.
+func (index *StaticIndex) GetHostPool(gpus int32) (*HostPool[*LeastLoadedIndex], bool) {
+	bucket := index.GetBucket(gpus)
+	pool, loaded := index.MultiIndex.HostPools[bucket]
+	if loaded {
+		return pool, true
+	}
+
+	return nil, false
+}
+
+// GetBucket returns the slot/pool that the kernel (replica) with the given spec should be placed into.
+//
+// If gpus is 0, then it is set to 1 for the purposes of bucket calculation.
+func (index *StaticIndex) GetBucket(gpus int32) int32 {
+	return GetStaticIndexBucket(gpus, index.GpusPerHost)
+}
 
 // Seek returns the host specified by the metrics.
-func (index *StaticClusterIndex) Seek(blacklist []interface{}, metrics ...[]float64) (ret scheduling.Host, pos interface{}) {
-	index.mu.Lock()
-	defer index.mu.Unlock()
+func (index *StaticIndex) Seek(blacklist []interface{}, metrics ...[]float64) (scheduling.Host, interface{}, error) {
+	if len(metrics) == 0 || len(metrics[0]) == 0 {
+		index.log.Error("StaticIndex::Seek is missing valid metrics.")
 
-	if index.length == 0 {
-		index.seekStart = 0 // Reset
-		return nil, nil
+		return nil, nil, fmt.Errorf("%w: gpus", ErrMissingMetrics)
 	}
 
-	// Convert the blacklist into a slice of a concrete type; in this case, []int32.
-	__blacklist := make([]int32, 0)
-	for i, meta := range blacklist {
-		if meta == nil {
-			index.log.Error("Blacklist contains nil entry at index %d.", i)
-			continue
-		}
+	numGpus := int32(metrics[0][0])
+	bucket := float64(index.GetBucket(numGpus))
 
-		__blacklist = append(__blacklist, meta.(int32))
-	}
+	index.log.Debug("Seeking host with numGPUs=%d, bucket=%d", numGpus, int32(bucket))
 
-	index.log.Debug("Searching for host. Len of blacklist: %d. Number of hosts in index: %d.", len(__blacklist), index.Len())
-
-	// Begin searching from `seekStart`, which is reset after every Seek operation.
-	for _, host := range index.hosts[index.seekStart:] {
-		// If the given host is blacklisted, then look for a different host.
-		if slices.Contains(__blacklist, host.GetMeta(HostMetaStaticIndex).(int32)) {
-			continue
-		}
-
-		ret = host
-	}
-
-	index.seekStart = 0 // Reset
-	return
+	return index.MultiIndex.Seek(blacklist, []float64{bucket})
 }
 
 // SeekFrom continues the seek from the position.
-func (index *StaticClusterIndex) SeekFrom(startIdx interface{}, metrics ...[]float64) (host scheduling.Host, pos interface{}) {
-	if start, ok := startIdx.(int32); ok {
-		index.seekStart = start
-	} else {
-		index.seekStart = 0
+// SeekFrom(start interface{}, metrics ...[]float64) (host scheduling.Host, pos interface{})
+
+// SeekMultipleFrom seeks n scheduling.Host instances from a random permutation of the index.
+// Pass nil as pos to reset the seek.
+//
+// This entire method is thread-safe. The index is locked until this method returns.
+func (index *StaticIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}, error) {
+	if len(metrics) == 0 || len(metrics[0]) == 0 {
+		index.log.Error("StaticIndex::SeekMultipleFrom is missing valid metrics.")
+		// panic("StaticIndex::SeekMultipleFrom requires a single valid metric to be passed in the form of the number of GPUs required for the host")
+
+		return make([]scheduling.Host, 0), nil, fmt.Errorf("%w: gpus", ErrMissingMetrics)
 	}
-	return index.Seek(make([]interface{}, 0), metrics...)
+
+	numGpus := int32(metrics[0][0])
+	bucket := float64(index.GetBucket(numGpus))
+
+	index.log.Debug("Seeking %d host(s) with numGPUs=%d, bucket=%d", n, numGpus, int32(bucket))
+
+	return index.MultiIndex.SeekMultipleFrom(pos, n, criteriaFunc, blacklist, []float64{bucket})
 }
 
-func (index *StaticClusterIndex) SeekMultipleFrom(pos interface{}, n int, criteriaFunc scheduling.HostCriteriaFunction, blacklist []interface{}, metrics ...[]float64) ([]scheduling.Host, interface{}) {
-	//TODO implement me
-	panic("implement me")
+// Category returns the category of the index and the expected value.
+func (index *StaticIndex) Category() (category string, expected interface{}) {
+	return scheduling.CategoryClusterIndex, "*"
+}
+
+// Identifier returns the index's identifier.
+func (index *StaticIndex) Identifier() string {
+	return fmt.Sprintf("StaticIndex[%d,%d]", len(index.MultiIndex.HostPools), index.MultiIndex.Len())
+}
+
+// IsQualified returns the actual value according to the index category and whether the scheduling.Host is qualified.
+// An index provider must be able to track indexed scheduling.Host instances and indicate disqualification.
+func (index *StaticIndex) IsQualified(host scheduling.Host) (actual interface{}, qualified scheduling.IndexQualification) {
+	// Since all hosts are qualified, we check if the host is in the index only.
+	_, hostIsFree := index.MultiIndex.FreeHostsMap[host.GetID()]
+	if hostIsFree {
+		// The host is already present in the index.
+		// It has not yet been assigned to a particular host pool.
+		return expectedMultiIndexValue, scheduling.IndexQualified
+	}
+
+	_, hostIsInPool := index.MultiIndex.HostIdToHostPool[host.GetID()]
+	if hostIsInPool {
+		// The host is already present in the index and has already been assigned to a particular host pool.
+		return expectedMultiIndexValue, scheduling.IndexQualified
+	}
+
+	return expectedMultiIndexValue, scheduling.IndexNewQualified
+}
+
+// Len returns the number of scheduling.Host instances in the index.
+func (index *StaticIndex) Len() int {
+	return index.MultiIndex.Len()
+}
+
+// Add adds a scheduling.Host to the index.
+func (index *StaticIndex) Add(host scheduling.Host) {
+	index.MultiIndex.mu.Lock()
+	defer index.MultiIndex.mu.Unlock()
+
+	index.MultiIndex.FreeHosts.Enqueue(host)
+	index.MultiIndex.FreeHostsMap[host.GetID()] = host
+
+	index.MultiIndex.Size += 1
+}
+
+// Update updates a scheduling.Host in the index.
+func (index *StaticIndex) Update(host scheduling.Host) {
+	index.MultiIndex.Update(host)
+}
+
+// UpdateMultiple updates multiple scheduling.Host instances in the index.
+func (index *StaticIndex) UpdateMultiple(hosts []scheduling.Host) {
+	index.MultiIndex.UpdateMultiple(hosts)
+}
+
+// Remove removes a scheduling.Host from the index.
+func (index *StaticIndex) Remove(host scheduling.Host) {
+	index.MultiIndex.Remove(host)
+}
+
+// GetMetrics returns the metrics implemented by the index. This is useful for reusing implemented indexes.
+func (index *StaticIndex) GetMetrics(host scheduling.Host) (metrics []float64) {
+	return index.MultiIndex.GetMetrics(host)
 }

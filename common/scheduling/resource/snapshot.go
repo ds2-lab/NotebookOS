@@ -148,7 +148,7 @@ func (s *ManagerSnapshot) GetSpecResources() types.ArbitraryResourceSnapshot {
 // fields so that it can be marshalled and unmarshalled to JSON.
 type ComputeResourceSnapshot struct {
 	ResourceStatus Status          `json:"resource_status"` // resourceStatus is the ResourceStatus represented/encoded by this struct.
-	Millicpus      decimal.Decimal `json:"millicpus"`       // millicpus is CPU in 1/1000th of CPU core.
+	Millicpus      decimal.Decimal `json:"cpus"`            // millicpus is CPU in 1/1000th of CPU core.
 	Gpus           decimal.Decimal `json:"gpus"`            // gpus is the number of GPUs.
 	VRamGB         decimal.Decimal `json:"vram"`            // VRamGB is the amount of VRAM (GPU memory) in GBs.
 	MemoryMB       decimal.Decimal `json:"memoryMB"`        // memoryMB is the amount of memory in MB.
@@ -187,8 +187,8 @@ func (s *ComputeResourceSnapshot) GetVramGb() float32 {
 // String returns a string representation of the target ComputeResourceSnapshot struct that is suitable for logging.
 func (s *ComputeResourceSnapshot) String() string {
 	return fmt.Sprintf("ComputeResourceSnapshot[Status=%s,Millicpus=%s,MemoryMB=%s,GPUs=%s,VRAM=%s",
-		s.ResourceStatus.String(), s.Millicpus.StringFixed(0), s.MemoryMB.StringFixed(4),
-		s.Gpus.StringFixed(0), s.VRamGB.StringFixed(4))
+		s.ResourceStatus.String(), s.Millicpus.StringFixed(4), s.MemoryMB.StringFixed(4),
+		s.Gpus.StringFixed(1), s.VRamGB.StringFixed(4))
 }
 
 func (s *ComputeResourceSnapshot) ToProtoResourcesSnapshot() *proto.ResourcesSnapshot {

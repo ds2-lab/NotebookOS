@@ -106,6 +106,9 @@ class SynchronizedValue(object):
     def set_key(self, key: str) -> None:
         self._key = key
 
+    def set_proposer_id(self, id: int) -> None:
+        self._proposer_id = id
+
     @property
     def should_end_execution(self) -> bool:
         return self._should_end_execution
@@ -186,6 +189,9 @@ class SynchronizedValue(object):
 
     def set_election_term(self, term) -> None:
         self._election_term = term
+
+    def set_attempt_number(self, attempt_number)->None:
+        self._attempt_number = attempt_number
 
     @property
     def attempt_number(self) -> int:
@@ -402,20 +408,25 @@ class SyncLog(Protocol):
         """Current term."""
 
     @property
-    def current_election(self):
+    def current_election(self)->Any:
         """
         :return: the current election, if one exists
         """
 
     @property
-    def created_first_election(self):
+    def created_first_election(self)->bool:
         """
         :return: return a boolean indicating whether we've created the first election yet.
         """
 
-    def get_election(self, term_number: int):
+    def get_election(self, term_number: int)->Any:
         """
         :return: the current election with the specified term number, if one exists.
+        """
+
+    def get_known_election_terms(self)->Optional[list[int]]:
+        """
+        :return: a list of term numbers for which we have an associated Election object
         """
 
     def start(self, handler):
@@ -449,6 +460,17 @@ class SyncLog(Protocol):
         or until we know that all replicas yielded.
 
         :param term_number: the term number of the election
+        """
+
+    async def append_execution_end_notification(self, notification: ExecutionCompleteNotification):
+        """
+        Explicitly propose and append (to the synchronized Raft log) a ExecutionCompleteNotification object to
+        signify that we've finished executing code in the current election.
+
+        This function exists so that we can mock proposals of ExecutionCompleteNotification objects specifically,
+        rather than mocking the more generic _serialize_and_append_value method.
+
+        :param notification: the notification to be appended to the sync log
         """
 
     async def notify_execution_complete(self, term_number: int):

@@ -51,8 +51,8 @@ class GatewayProvisioner(KernelProvisionerBase):
         try:
             if self.launched:
                 kernelId = gateway_pb2.KernelId(id=self._kernel_id)
-                self.log.info(
-                    f"Checking status of kernel {self._kernel_id} ({kernelId})")
+                # self.log.debug(
+                #     f"Checking status of kernel {self._kernel_id} ({kernelId})")
                 status = await self._get_stub().GetKernelStatus(kernelId)
 
                 if status.status < 0:
@@ -181,7 +181,8 @@ class GatewayProvisioner(KernelProvisionerBase):
         spec = gateway_pb2.ResourceSpec(
             cpu=resource_spec.get("cpu", 0),
             gpu=resource_spec.get("gpu", 0),
-            memory=resource_spec.get("memory", 0)
+            memory=resource_spec.get("memory", 0),
+            vram=resource_spec.get("vram", 0),
         )
 
         try:

@@ -626,7 +626,7 @@ func (r *BasicRequest) PrepareForResubmission() error {
 	modifiedDate := date.Add(time.Microsecond)
 
 	// Change the date in the header.
-	r.payload.SetDate(modifiedDate.Format(time.RFC3339Nano))
+	_ = r.payload.SetDate(modifiedDate.Format(time.RFC3339Nano), false)
 
 	// Re-encode the header.
 	header, err := r.payload.GetHeader()

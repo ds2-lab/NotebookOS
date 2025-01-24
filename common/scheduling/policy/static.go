@@ -1,15 +1,35 @@
 package policy
 
-import "github.com/scusemua/distributed-notebook/common/scheduling"
+import (
+	"fmt"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/index"
+	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
+	"github.com/scusemua/distributed-notebook/common/utils"
+	"math/rand"
+	"slices"
+)
 
 type StaticPolicy struct {
-	scalingConfiguration *scheduling.ScalingConfiguration
+	*baseSchedulingPolicy
 }
 
-func NewStaticPolicy(opts *scheduling.SchedulerOptions) *StaticPolicy {
-	return &StaticPolicy{
-		scalingConfiguration: scheduling.NewScalingConfiguration(opts),
+func NewStaticPolicy(opts *scheduling.SchedulerOptions) (*StaticPolicy, error) {
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
+	if err != nil {
+		return nil, err
 	}
+
+	policy := &StaticPolicy{
+		baseSchedulingPolicy: basePolicy,
+	}
+
+	if opts.SchedulingPolicy != scheduling.Static.String() {
+		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of StaticPolicy.",
+			opts.SchedulingPolicy))
+	}
+
+	return policy, nil
 }
 
 func (p *StaticPolicy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
@@ -44,43 +64,114 @@ func (p *StaticPolicy) ContainerLifetime() scheduling.ContainerLifetime {
 	return scheduling.LongRunning
 }
 
+func (p *StaticPolicy) SmrEnabled() bool {
+	return true
+}
+
+// GetNewPlacer returns a concrete Placer implementation based on the Policy.
+func (p *StaticPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
+	return placer.NewBasicPlacerWithSpecificIndex[*index.StaticIndex](metricsProvider, p.NumReplicas(), p, index.NewStaticIndex), nil
+}
+
+// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	if !p.SupportsMigration() {
+		panic("StaticPolicy is supposed to support migration, yet apparently it doesn't?")
+	}
+
+	// Select a replica at random.
+	targetReplicaId := int32(rand.Intn(kernel.Size()) + 1 /* IDs start at 1.  */)
+
+	return kernel.GetReplicaByID(targetReplicaId)
+}
+
+// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+// pre-designated as the leader of a code execution.
+//
+// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+// will fight amongst themselves to determine the leader.
+//
+// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+//
+// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+// been ruled out.
+//
+// PRECONDITION: The resource spec of the specified scheduling.Kernel should already be
+// updated (in cases where dynamic resource requests are supported) such that the current
+// resource spec reflects the requirements for this code execution. That is, the logic of
+// selecting a replica now depends upon the kernel's resource request correctly specifying
+// the requirements. If the requirements were to change after selection a replica, then
+// that could invalidate the selection.
+//
+// IMPORTANT NOTE:
+//
+// This method will only ever be called by one of the scheduling.Scheduler implementations, and they will
+// always use a lock around the call to SelectReadyReplica, so the execution of this method is atomic.
+func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+	replicas := kernel.Replicas()
+
+	// Sort the replicas from most to least idle GPUs available on each replica's respective host.
+	slices.SortFunc(replicas, func(r1, r2 scheduling.KernelReplica) int {
+		// cmp(r1, r2) should return:
+		// - r1 negative number when r1 < r2,
+		// - r1 positive number when r1 > r2,
+		// - and zero when r1 == r2.
+
+		// SortFunc sorts in ascending order. Normally, we'd do r1 - r2.
+		// But we want to sort largest to smallest, so we flip the variables and do r2 - r1.
+		return int(r2.Host().IdleGPUs() - r1.Host().IdleGPUs())
+	})
+
+	// For each replica (in order of most to least idle GPUs available on the host)...
+	for _, candidateReplica := range replicas {
+		p.log.Debug("Try pre-commit resources %v to replica %d of kernel %s whose host has %d idle GPUs",
+			candidateReplica.ResourceSpec(), candidateReplica.ReplicaID(), candidateReplica.ID(),
+			int(candidateReplica.Host().IdleGPUs()))
+		// Try to commit resources to the candidateReplica replica.
+		allocationError := candidateReplica.Host().PreCommitResources(candidateReplica.Container(), executionId)
+		if allocationError != nil {
+			// Failed to commit resources. Continue.
+			p.log.Debug("Resource pre-commitment %s. Replica %d of kernel %s is not viable for execution \"%s\".",
+				utils.LightOrangeStyle.Render("failed"), candidateReplica.ReplicaID(), kernel.ID(), executionId)
+			continue
+		}
+
+		p.log.Debug(
+			utils.LightGreenStyle.Render(
+				"Resource pre-commitment %s. Identified viable replica %d of kernel %s for execution \"%s\"."),
+			candidateReplica.ReplicaID(), kernel.ID(), executionId)
+
+		return candidateReplica, nil // Migration is permitted, so we never return an error.
+	}
+
+	// If we've made it to this point, then we tried all replicas and none of them worked.
+	// (That is, we were unable to commit resources to any of the replicas.)
+	p.log.Debug(utils.YellowStyle.Render("Could not find eligible replica of kernel %s with resource request %v."),
+		kernel.ID(), kernel.ResourceSpec().String())
+
+	return nil, nil // Migration is permitted, so we never return an error.
+}
+
 //////////////////////////////////////////
 // ResourceScalingPolicy implementation //
 //////////////////////////////////////////
-
-func (p *StaticPolicy) AutoscalingPolicy() scheduling.AutoscalingPolicy {
-	return p
-}
-
-func (p *StaticPolicy) ManualScalingPolicy() scheduling.ManualScalingPolicy {
-	return p
-}
 
 func (p *StaticPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	return p.scalingConfiguration
 }
 
-//////////////////////////////////////
-// AutoscalingPolicy implementation //
-//////////////////////////////////////
+//////////////////////////////////
+// ScalingPolicy implementation //
+//////////////////////////////////
 
-func (p *StaticPolicy) AutomaticScalingOutEnabled() bool {
-	return true
+func (p *StaticPolicy) ScalingOutEnabled() bool {
+	return p.scalingOutEnabled
 }
 
-func (p *StaticPolicy) AutomaticScalingInEnabled() bool {
-	return true
-}
-
-////////////////////////////////////////
-// ManualScalingPolicy implementation //
-////////////////////////////////////////
-
-func (p *StaticPolicy) ManualScalingOutEnabled() bool {
-	return true
-}
-
-func (p *StaticPolicy) ManualScalingInEnabled() bool {
+func (p *StaticPolicy) ScalingInEnabled() bool {
 	return true
 }
 

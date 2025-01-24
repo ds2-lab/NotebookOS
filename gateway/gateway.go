@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/gob"
 	"errors"
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -12,6 +14,7 @@ import (
 	"runtime/pprof"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/Scusemua/go-utils/config"
 	"github.com/charmbracelet/lipgloss"
@@ -35,6 +38,12 @@ func init() {
 	options.Port = 8080
 	options.ProvisionerPort = 8081
 	options.ConnectionInfo.Transport = "tcp"
+
+	gob.Register(statistics.ClusterStatistics{})
+	gob.Register(statistics.ClusterEvent{})
+	gob.Register(map[string]interface{}{})
+	gob.Register(time.Duration(0))
+	gob.Register(time.Time{})
 }
 
 // Create and run the debug HTTP server.

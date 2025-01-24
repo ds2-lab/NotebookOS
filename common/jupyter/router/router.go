@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"strings"
 	"time"
@@ -30,12 +32,14 @@ type Router struct {
 
 	name string // Identifies the router server.
 
+	log logger.Logger
+
 	// handlers
 	handlers []MessageHandler
 }
 
 func New(ctx context.Context, opts *jupyter.ConnectionInfo, provider Provider, messageAcknowledgementsEnabled bool,
-	name string, shouldAckMessages bool, nodeType metrics.NodeType, debugMode bool) *Router {
+	name string, shouldAckMessages bool, nodeType metrics.NodeType, debugMode bool, statisticsUpdater func(func(statistics *statistics.ClusterStatistics))) *Router {
 
 	router := &Router{
 		name: name,
@@ -60,6 +64,7 @@ func New(ctx context.Context, opts *jupyter.ConnectionInfo, provider Provider, m
 			s.ReconnectOnAckFailure = false
 			s.ShouldAckMessages = shouldAckMessages
 			s.DebugMode = debugMode
+			s.StatisticsUpdaterProvider = statisticsUpdater
 			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
 			s.Name = fmt.Sprintf("Router[%s] ", name)
 			config.InitLogger(&s.Log, s.Name)
@@ -73,6 +78,7 @@ func New(ctx context.Context, opts *jupyter.ConnectionInfo, provider Provider, m
 		router.AddHandler(messaging.StdinMessage, provider.StdinHandler)
 		router.AddHandler(messaging.HBMessage, provider.HBHandler)
 	}
+	config.InitLogger(&router.log, router.name)
 	return router
 }
 
@@ -159,6 +165,8 @@ func (g *Router) Start() error {
 	return nil
 }
 
+func (g *Router) ID() string { return g.Name() }
+
 func (g *Router) Name() string {
 	return g.name
 }
@@ -182,7 +190,11 @@ func (g *Router) AddHandler(typ messaging.MessageType, handler MessageHandler) {
 }
 
 func (g *Router) Close() error {
-	g.BaseServer.Close()
+	err := g.BaseServer.Close()
+	if err != nil {
+		g.log.Warn("Error while closing BaseServer of router '%s': %v", g.name, err)
+	}
+
 	// Sockets will be closed on Start() existing.
 	return nil
 }

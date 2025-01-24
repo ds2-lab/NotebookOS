@@ -6,8 +6,8 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 )
@@ -33,16 +33,17 @@ func (t Type) String() string {
 //
 // Provider validates that all required arguments are non-nil before creating the scheduling.Cluster.
 type Provider struct {
-	ClusterType            Type                         // Required.
-	HostSpec               types.Spec                   // Required.
-	Placer                 scheduling.Placer            // Required.
-	HostMapper             scheduler.HostMapper         // Required.
-	KernelProvider         scheduler.KernelProvider     // Required.
-	ClusterMetricsProvider scheduling.MetricsProvider   // Optional.
-	NotificationBroker     scheduler.NotificationBroker // Optional.
-	Options                *scheduling.SchedulerOptions // Required.
-	SchedulingPolicy       scheduling.Policy            // Optional, will be extracted from Options if not specified.
-	KubeClient             scheduling.KubeClient        // Required for Kubernetes clusters. Ignored for others.
+	ClusterType               Type                                                 // Required.
+	HostSpec                  types.Spec                                           // Required.
+	Placer                    scheduling.Placer                                    // Required.
+	HostMapper                scheduler.HostMapper                                 // Required.
+	KernelProvider            scheduler.KernelProvider                             // Required.
+	ClusterMetricsProvider    scheduling.MetricsProvider                           // Optional.
+	NotificationBroker        scheduler.NotificationBroker                         // Optional.
+	Options                   *scheduling.SchedulerOptions                         // Required.
+	SchedulingPolicy          internalSchedulingPolicy                             // Optional, will be extracted from Options if not specified.
+	KubeClient                scheduling.KubeClient                                // Required for Kubernetes clusters. Ignored for others.
+	StatisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)) // Optional.
 
 	log logger.Logger
 }
@@ -72,7 +73,7 @@ func (b *Provider) WithPlacer(sp scheduling.Placer) *Provider {
 	return b
 }
 
-func (b *Provider) WithSchedulingPolicy(sp scheduling.Policy) *Provider {
+func (b *Provider) WithSchedulingPolicy(sp internalSchedulingPolicy) *Provider {
 	b.SchedulingPolicy = sp
 	return b
 }
@@ -94,6 +95,11 @@ func (b *Provider) WithClusterMetricsProvider(mp scheduling.MetricsProvider) *Pr
 
 func (b *Provider) WithNotificationBroker(nb scheduler.NotificationBroker) *Provider {
 	b.NotificationBroker = nb
+	return b
+}
+
+func (b *Provider) WithStatisticsUpdateProvider(sup func(func(statistics *statistics.ClusterStatistics))) *Provider {
+	b.StatisticsUpdaterProvider = sup
 	return b
 }
 
@@ -143,12 +149,12 @@ func (b *Provider) Validate() error {
 
 	// If unspecified, then we'll create it ourselves here.
 	if b.SchedulingPolicy == nil {
-		schedulingPolicy, err := policy.GetSchedulingPolicy(b.Options)
+		schedulingPolicy, err := scheduler.GetSchedulingPolicy(b.Options)
 		if err != nil {
 			return err
 		}
 
-		b.SchedulingPolicy = schedulingPolicy
+		b.SchedulingPolicy = schedulingPolicy.(internalSchedulingPolicy)
 	}
 
 	b.log.Debug("Successfully validated arguments for %s cluster.", b.ClusterType.String())
@@ -168,19 +174,19 @@ func (b *Provider) BuildCluster() (scheduling.Cluster, error) {
 		{
 			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
 			return NewDockerSwarmCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.SchedulingPolicy, b.Options), nil
+				b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
 		}
 	case DockerCompose:
 		{
 			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
 			return NewDockerComposeCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.SchedulingPolicy, b.Options), nil
+				b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
 		}
 	case Kubernetes:
 		{
 			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
 			return NewKubernetesCluster(b.KubeClient, b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.SchedulingPolicy, b.Options), nil
+				b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
 		}
 	default:
 		b.log.Error("Unknown/unsupported cluster type: %v", b.ClusterType.String())

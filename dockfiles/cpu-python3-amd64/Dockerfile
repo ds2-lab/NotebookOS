@@ -33,8 +33,8 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vi
 #     && cd ./DistributedKernelFrontendExtension \
 #     && pip install .
 
-# RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
-# RUN chmod -R 777 /home/jovyan/datasets/*
+# RUN mkdir /home/jovyan/data && cd /home/jovyan/data && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
+# RUN chmod -R 777 /home/jovyan/data/*
 
 # Add files
 # ADD common/gateway /distributed_notebook/common/gateway

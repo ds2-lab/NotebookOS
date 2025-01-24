@@ -2,21 +2,30 @@ package scheduling
 
 import (
 	"github.com/Scusemua/go-utils/promise"
+	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"golang.org/x/net/context"
+	"time"
+)
+
+var (
+	ErrScalingActive = errors.New("there is already an active scaling operation taking place")
 )
 
 type ClusterSessionManager interface {
-	// Sessions returns a mapping from session ID to Session.
+	// Sessions returns a mapping from UserSession ID to UserSession.
 	Sessions() hashmap.HashMap[string, UserSession]
 
-	// AddSession adds a Session to the Cluster.
+	// AddSession adds a UserSession to the Cluster.
 	AddSession(sessionId string, session UserSession)
 
-	// GetSession returns the Session with the specified ID.
+	// RemoveSession removes and returns a UserSession.
+	RemoveSession(sessionId string) UserSession
+
+	// GetSession returns the UserSession with the specified ID.
 	//
-	// We return the UserSession so that we can use this in unit tests with a mocked Session.
+	// We return the UserSession so that we can use this in unit tests with a mocked UserSession.
 	GetSession(sessionID string) (UserSession, bool)
 }
 
@@ -44,7 +53,7 @@ type ClusterHostManager interface {
 	ScaleToSize(ctx context.Context, targetNumNodes int32) promise.Promise
 
 	// RemoveHost removes the Host with the specified ID.
-	// This is called when a DefaultSchedulingPolicy Daemon loses connection.
+	// This is called when a Local Daemon loses connection.
 	RemoveHost(hostId string)
 
 	// NewHostAddedOrConnected should be called by an external entity when a new Host connects to the Cluster Gateway.
@@ -59,6 +68,11 @@ type ClusterHostManager interface {
 	//
 	// Importantly, this function does NOT lock the hostsMutex.
 	RangeOverHosts(f func(key string, value Host) bool)
+
+	// RangeOverSessions executes the provided function on each enabled UserSession in the Cluster.
+	//
+	// Importantly, this function does NOT lock the hostsMutex.
+	RangeOverSessions(f func(key string, value UserSession) bool)
 
 	// RangeOverDisabledHosts executes the provided function on each disabled Host in the Cluster.
 	//
@@ -109,12 +123,34 @@ type ScalingManager interface {
 	// If it succeeds, then you send a struct{}{} indicating that the core logic has finished.
 	//
 	// IMPORTANT: this method should be called while the hostMutex is already held.
-	GetScaleOutCommand(targetNumNodes int32, coreLogicDoneChan chan interface{}) func()
+	GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}, scaleOpId string) func()
 
 	// CanPossiblyScaleOut returns true if the Cluster could possibly scale-out.
 	// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
 	// it is currently not supported unless there is at least one disabled host already within the cluster.
 	CanPossiblyScaleOut() bool
+
+	// DisableScalingOut modifies the scaling policy to disallow scaling-out, even if the policy isn't
+	// supposed to support scaling out. This is only intended to be used for unit tests.
+	DisableScalingOut()
+
+	// EnableScalingOut modifies the scaling policy to enable scaling-out, even if the policy isn't
+	// supposed to support scaling out. This is only intended to be used for unit tests.
+	EnableScalingOut()
+
+	// MeanScaleOutTime returns the average time to scale-out and add a Host to the Cluster.
+	MeanScaleOutTime() time.Duration
+
+	// StdDevScaleOutTime returns the standard deviation of the time it takes to scale-out
+	// and add a Host to the Cluster.
+	StdDevScaleOutTime() time.Duration
+
+	// MeanScaleInTime returns the average time to scale-in and remove a Host from the Cluster.
+	MeanScaleInTime() time.Duration
+
+	// StdDevScaleInTime returns the standard deviation of the time it takes to scale-in
+	// and remove a Host from the Cluster.
+	StdDevScaleInTime() time.Duration
 }
 
 type ScalingMetricsManager interface {
@@ -159,6 +195,9 @@ type IndexManager interface {
 
 	// AddIndex adds an index to the BaseCluster. For each category and expected value, there can be only one index.
 	AddIndex(index IndexProvider) error
+
+	// UpdateIndex updates the ClusterIndex that contains the specified Host.
+	UpdateIndex(host Host) error
 }
 
 type ClusterMetricsManager interface {

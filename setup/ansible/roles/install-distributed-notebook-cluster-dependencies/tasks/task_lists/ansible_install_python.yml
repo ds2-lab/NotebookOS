@@ -23,6 +23,9 @@
       - libsqlite3-dev
       - wget
       - libbz2-dev
+      - lzma
+      - lzma-dev
+      - liblzma-dev
     state: present
     update_cache: yes
   when: python_check.rc != 0 or python_check.failed == true

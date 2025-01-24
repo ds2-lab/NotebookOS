@@ -43,8 +43,12 @@ func (e *ErrorDuringScheduling) String() string {
 
 type KernelScheduler interface {
 	// MigrateKernelReplica tries to migrate the given KernelReplica to another Host.
-	// Flag indicates whether we're allowed to create a new host for the container (if necessary).
-	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, canCreateNewHost bool) (*proto.MigrateKernelResponse, error)
+	//
+	// The first error that is returned (i.e., 'reason') does not indicate that an actual error occurred.
+	// It simply provides an explanation for why the migration failed.
+	//
+	// The second error that is returned (i.e., 'err') indicates that an actual error occurs.
+	MigrateKernelReplica(kernelReplica KernelReplica, targetHostId string, forTraining bool) (resp *proto.MigrateKernelResponse, reason error, err error)
 
 	// DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
 	DeployKernelReplicas(ctx context.Context, kernelSpec *proto.KernelSpec, blacklistedHosts []Host) error
@@ -52,7 +56,7 @@ type KernelScheduler interface {
 	// ScheduleKernelReplica schedules a particular replica onto the given Host.
 	//
 	// If targetHost is nil, then a candidate host is identified automatically by the Scheduler.
-	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host) error
+	ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost Host, blacklistedHosts []Host, forTraining bool) error
 
 	// RemoveReplicaFromHost removes the specified replica from its Host.
 	RemoveReplicaFromHost(kernelReplica KernelReplica) error
@@ -60,16 +64,44 @@ type KernelScheduler interface {
 	GetAddReplicaOperationManager() hashmap.HashMap[string, *AddReplicaOperation]
 
 	GetActiveAddReplicaOperationsForKernel(kernelId string) (*orderedmap.OrderedMap[string, *AddReplicaOperation], bool)
+
+	// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
+	SelectReplicaForMigration(kernel Kernel) (KernelReplica, error)
+
+	// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
+	// pre-designated as the leader of a code execution.
+	//
+	// If the returned KernelReplica is nil and the returned error is nil, then that indicates
+	// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
+	// will fight amongst themselves to determine the leader.
+	//
+	// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
+	// forwarded to that KernelReplica's peers should first be converted to "yield_request"
+	// messages, thereby ensuring that the selected KernelReplica becomes the leader.
+	//
+	// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
+	// been ruled out.
+	//
+	// PRECONDITION: The resource spec of the specified scheduling.Kernel should already be
+	// updated (in cases where dynamic resource requests are supported) such that the current
+	// resource spec reflects the requirements for this code execution. That is, the logic of
+	// selecting a replica now depends upon the kernel's resource request correctly specifying
+	// the requirements. If the requirements were to change after selection a replica, then
+	// that could invalidate the selection.
+	FindReadyReplica(kernel Kernel, executionId string) (KernelReplica, error)
 }
 
 type HostScheduler interface {
-	// AddHost adds a new Host to the Cluster.
+	// RequestNewHost adds a new Host to the Cluster.
 	// We simulate this using node taints.
-	AddHost() error
+	RequestNewHost() error
 
 	// RemoveHost removes a Host from the Cluster.
 	// We simulate this using node taints.
 	RemoveHost(hostId string) error
+
+	// HostAdded is called by the Cluster when a new Host connects to the Cluster.
+	HostAdded(host Host)
 
 	// ReleaseIdleHosts Tries to release n idle hosts. Return the number of hosts that were actually released.
 	// Error will be nil on success and non-nil if some sort of failure is encountered.
@@ -78,6 +110,17 @@ type HostScheduler interface {
 	// GetCandidateHosts identifies candidate hosts for a particular kernel, reserving resources on hosts
 	// before returning them.
 	GetCandidateHosts(ctx context.Context, kernelSpec *proto.KernelSpec) ([]Host, error)
+
+	// GetCandidateHost identifies a single candidate host for a particular kernel replica, reserving resources on hosts
+	// before returning them.
+	//
+	// If the specified replica's current scheduling.Host isn't already blacklisted, then GetCandidateHost will add it
+	// to the blacklist.
+	GetCandidateHost(replica KernelReplica, blacklistedHosts []Host, forTraining bool) (Host, error)
+
+	// UpdateHostInIndex is a callback for schedulers that maintain their own placers, rather than using the single
+	// primary placer of the cluster.
+	// UpdateHostInIndex(host Host)
 }
 
 type SchedulerMetricsManager interface {

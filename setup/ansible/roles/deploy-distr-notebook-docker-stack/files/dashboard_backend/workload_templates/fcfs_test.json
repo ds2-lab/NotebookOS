@@ -26,7 +26,7 @@
           "duration_in_ticks": 6,
           "millicpus": 100,
           "mem_usage_mb": 0.25,
-          "vram_usage_gb": 0.125,
+          "vram": 0.125,
           "num_gpus": 8,
           "gpu_utilizations": [
             {
@@ -69,7 +69,7 @@
           "duration_in_ticks": 6,
           "millicpus": 100,
           "mem_usage_mb": 0.25,
-          "vram_usage_gb": 0.125,
+          "vram": 0.125,
           "num_gpus": 8,
           "gpu_utilizations": [
             {

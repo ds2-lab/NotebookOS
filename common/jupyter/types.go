@@ -161,9 +161,9 @@ type DistributedKernelConfig struct {
 	SimulateWriteAfterExec               bool                 `json:"simulate_write_after_execute"`                  // Simulate network write after executing code?
 	SimulateWriteAfterExecOnCriticalPath bool                 `json:"simulate_write_after_execute_on_critical_path"` // Should the simulated network write after executing code be on the critical path?
 	WorkloadId                           string               `json:"workload_id"`
-
-	// PrometheusServerPort is the port of the Prometheus metrics server on/in each kernel replica container.
-	PrometheusServerPort int `json:"prometheus_port"`
+	SmrEnabled                           bool                 `json:"smr_enabled"`
+	PrometheusServerPort                 int                  `json:"prometheus_port"` // PrometheusServerPort is the port of the Prometheus metrics server on/in each kernel replica container.
+	UseRealGpus                          bool                 `json:"use_real_gpus"`
 }
 
 func (c DistributedKernelConfig) String() string {

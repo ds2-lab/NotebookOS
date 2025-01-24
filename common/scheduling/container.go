@@ -32,7 +32,7 @@ type ContainerStatistics interface {
 }
 type KernelContainer interface {
 	Address() string
-	ContainedStopped() error
+	ContainerStopped() error
 	ContainerID() string
 	ContainerState() ContainerState
 	ContainerStatistics() ContainerStatistics
@@ -50,12 +50,19 @@ type KernelContainer interface {
 	PreemptionPriority() float64
 	ReplicaId() int32
 	ResourceSpec() *types.DecimalSpec
+	UpdateResourceSpec(spec *types.DecimalSpec)
 	ScaleOutPriority() float64
 	Session() UserSession
 	SetClient(client KernelReplica)
-	SetHost(Host)
 	StartedAt() time.Time
 	String() string
 	ToDockerContainer() *proto.DockerContainer
 	TrainingStartedInContainer() error
+
+	// SetHost sets the scheduling.Host of the Container.
+	SetHost(host Host)
+
+	// NumTrainingEventsProcessed returns the number of training events processed by this particular Container.
+	// This is NOT (necessarily) equal to the total number of training events processed by the UserSession.
+	NumTrainingEventsProcessed() int
 }

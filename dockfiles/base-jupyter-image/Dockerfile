@@ -13,9 +13,9 @@ ENV LANG=C.UTF-8 \
 # Switch to root to build debug-enabled version of python
 USER root:root
 
-RUN sudo apt-get update 
+RUN sudo apt-get update
 
-RUN sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev
+RUN sudo apt-get --assume-yes install build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev wget libbz2-dev lzma lzma-dev liblzma-dev
 
 WORKDIR /tmp 
 RUN wget https://www.python.org/ftp/python/3.12.6/Python-3.12.6.tgz 
@@ -38,7 +38,7 @@ ENV LD_LIBRARY_PATH=/home/jovyan/Python-3.12.6/debug
 # Install amd version of pytorch and torchvision
 # RUN python3 -m pip install torch torchvision
 # RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0 debugpy
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==5.28.1 grpcio==1.66.1 grpcio-tools==1.66.1 debugpy
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==5.28.1 grpcio==1.66.1 grpcio-tools==1.66.1 debugpy torch torchvision
 
 # Switch back to jovyan
 USER jovyan:users
@@ -53,7 +53,7 @@ USER root:root
 RUN mkdir -p /storage && chown jovyan:users /storage
 
 # For debugging.
-RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vim gdb screen -y
+RUN apt-get update && apt-get install iputils-ping dnsutils unzip vim gdb screen sox -y
 # RUN python3 -m pip install kubernetes 
 
 # Install frontend extension.
@@ -62,10 +62,10 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip python3-pip vi
 #     && cd ./DistributedKernelFrontendExtension \
 #     && pip install .
 
-# RUN mkdir /home/jovyan/datasets && cd /home/jovyan/datasets && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
-# RUN chmod -R 777 /home/jovyan/datasets/*
+# RUN mkdir /home/jovyan/data && cd /home/jovyan/data && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
+# RUN chmod -R 777 /home/jovyan/data/*
 
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch numpy pandas typing_extensions redis boto3 sox librosa
 RUN /home/jovyan/Python-3.12.6/debug/python -m pip install --upgrade ipyflow
 
 # Install Golang for debugging.

@@ -340,6 +340,12 @@ extern long long int smr_ReadCloser_Read(long long int _handle, long long int p)
 extern char* smr_WriteCloser_Close(long long int _handle);
 extern long long int smr_WriteCloser_Write(long long int _handle, long long int p);
 
+// --- wrapping struct: smr.SMRContext ---
+//
+extern long long int smr_SMRContext_CTor();
+extern char* smr_SMRContext_ID(long long int _handle);
+extern void smr_SMRContext_Cancel(long long int _handle, char goRun);
+
 // --- wrapping struct: smr.Bytes ---
 //
 extern long long int smr_Bytes_CTor();
@@ -391,12 +397,6 @@ extern long long int smr_LogNodeConfig_WithRestoreCallback(long long int _handle
 extern long long int smr_LogNodeConfig_WithShouldSnapshotCallback(long long int _handle, PyObject* cb);
 extern long long int smr_LogNodeConfig_WithSnapshotCallback(long long int _handle, PyObject* cb);
 extern char* smr_LogNodeConfig_String(long long int _handle);
-
-// --- wrapping struct: smr.SMRContext ---
-//
-extern long long int smr_SMRContext_CTor();
-extern char* smr_SMRContext_ID(long long int _handle);
-extern void smr_SMRContext_Cancel(long long int _handle, char goRun);
 extern long long int smr_NewLogNode(char* storePath, long long int id, char* remoteStorageHostname, char* remoteStorage, char shouldLoadDataFromRemoteStorage, long long int peerAddresses, long long int peerIDs, char join, long long int httpDebugPort, char* deploymentMode);
 extern long long int smr_NewConfig();
 extern long long int smr_CreateBytes(char len);

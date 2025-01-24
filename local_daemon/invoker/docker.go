@@ -45,24 +45,20 @@ const (
 	KernelSMRPort        = "SMR_PORT"
 	KernelSMRPortDefault = 8080
 
-	DockerKernelName                  = "kernel-%s"
-	VarContainerImage                 = "{image}"
-	VarConnectionFile                 = "{connection_file}"
-	VarContainerName                  = "{container_name}"
-	VarContainerNewName               = "{container_new_name}"
-	VarContainerNetwork               = "{network_name}"
-	VarStorageVolume                  = "{storage}"
-	VarConfigFile                     = "{config_file}"
-	VarKernelId                       = "{kernel_id}"
-	VarSessionId                      = "{session_id}"
-	VarDebugPort                      = "{kernel_debug_port}"
-	VarKernelDebugPyPort              = "{kernel_debugpy_port}"
-	VarMaybeFlags                     = "{maybe_flags}"
-	VarMaybeGdbFlag                   = "{maybe_gdb}"
-	VarMaybeSimCheckPtLatency         = "{maybe_sim_checkpoint_latency}"
-	VarMaybeDockerSwarmNodeConstraint = "{docker_swarm_node_constraint}"
-	HostMountDir                      = "{host_mount_dir}"
-	TargetMountDir                    = "{target_mount_dir}"
+	DockerKernelName     = "kernel-%s-%s"
+	VarContainerImage    = "{image}"
+	VarConnectionFile    = "{connection_file}"
+	VarContainerName     = "{container_name}"
+	VarContainerNewName  = "{container_new_name}"
+	VarContainerNetwork  = "{network_name}"
+	VarStorageVolume     = "{storage}"
+	VarConfigFile        = "{config_file}"
+	VarKernelId          = "{kernel_id}"
+	VarSessionId         = "{session_id}"
+	VarDebugPort         = "{kernel_debug_port}"
+	VarKernelDebugPyPort = "{kernel_debugpy_port}"
+	HostMountDir         = "{host_mount_dir}"
+	TargetMountDir       = "{target_mount_dir}"
 
 	dockerErrorPrefix = "docker: Error response from daemon: "
 )
@@ -72,10 +68,17 @@ var (
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} {image}"
 	// dockerInvokerCmd  = "docker run -d --name {container_name} -v {host_mount_dir}:{target_mount_dir} -v {storage}:/storage -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json --net {network} -e CONNECTION_FILE_PATH=\"{target_mount_dir}/{connection_file}\" -e IPYTHON_CONFIG_PATH=\"/home/jovyan/.ipython/profile_default/ipython_config.json\" {image}"
-	dockerMaybeFlags  = "{maybe_gdb}{maybe_sim_checkpoint_latency}{docker_swarm_node_constraint}"
-	dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} {maybe_flags} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label prometheus.metrics.port={prometheus_metrics_port} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster {image}"
+
+	// This version has debugpy.
+	// dockerInvokerCmd  = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -p {kernel_debug_port}:{kernel_debug_port} -p {kernel_debugpy_port}:{kernel_debugpy_port} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
+	dockerInvokerCmd = "docker run -d -t --name {container_name} --ulimit core=-1 --mount source=coredumps_volume,target=/cores --network-alias {container_name} --network {network_name} -v {storage}:/storage -v {host_mount_dir}/{connection_file}:{target_mount_dir}/{connection_file} -v {host_mount_dir}/{config_file}:/home/jovyan/.ipython/profile_default/ipython_config.json -e CONNECTION_FILE_PATH={target_mount_dir}/{connection_file} -e IPYTHON_CONFIG_PATH=/home/jovyan/.ipython/profile_default/ipython_config.json -e SESSION_ID={session_id} -e KERNEL_ID={kernel_id} --security-opt seccomp=unconfined --label component=kernel_replica --label kernel_id={kernel_id} --label logging=promtail --label logging_jobname={kernel_id} --label app=distributed_cluster"
+
+	// dockerShutdownCmd is used to shut down a running kernel container
 	dockerShutdownCmd = "docker stop {container_name}"
-	dockerRenameCmd   = "docker container rename {container_name} {container_new_name}"
+	// dockerRemoveCmd is used to fully remove a stopped kernel container
+	dockerRemoveCmd = "docker rm -f {container_name}"
+	// dockerRenameCmd is used to rename a stopped kernel container
+	dockerRenameCmd = "docker container rename {container_name} {container_new_name}"
 
 	ErrDockerContainerCreationFailed = errors.New("failed to create docker container for new kernel")
 	ErrUnexpectedReplicaExpression   = fmt.Errorf("unexpected replica expression, expected url")
@@ -91,6 +94,7 @@ type DockerInvoker struct {
 	targetMountDir                       string
 	invokerCmd                           string                           // Command used to create the Docker container.
 	containerName                        string                           // Name of the launched container; this is the empty string before the container is launched.
+	kernelId                             string                           // The ID of the target kernel.
 	dockerNetworkName                    string                           // The name of the Docker network that the Local Daemon container is running within.
 	smrPort                              int                              // Port used by the SMR cluster.
 	closing                              int32                            // Indicates whether the container is closing/shutting down.
@@ -109,7 +113,11 @@ type DockerInvoker struct {
 	prometheusMetricsPort                int                              // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
 	simulateWriteAfterExec               bool                             // Simulate network write after executing code?
 	simulateWriteAfterExecOnCriticalPath bool                             // Should the simulated network write after executing code be on the critical path?
+	useRealGpus                          bool                             // UseRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	bindDebugpyPort                      bool                             // bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
+	saveStoppedKernelContainers          bool                             // If true, then do not fully remove stopped kernel containers.
 	workloadId                           string
+	smrEnabled                           bool
 
 	// IsInDockerSwarm indicates whether we're running within a Docker Swarm cluster.
 	// If IsInDockerSwarm is false, then we're just a regular docker compose application.
@@ -133,11 +141,6 @@ type DockerInvokerOptions struct {
 
 	// DockerStorageBase is the base directory in which the persistent store data is stored when running in docker mode.
 	DockerStorageBase string
-
-	// UsingWSL indicates whether we're running within WSL (Windows Subsystem for Linux).
-	// If we are, then there is some additional configuration required for the kernel containers in order for
-	// them to be able to connect to remote storage running in the host (WSL).
-	UsingWSL bool
 
 	// RunKernelsInGdb specifies that, if true, then the kernels will be run in GDB.
 	RunKernelsInGdb bool `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
@@ -168,7 +171,18 @@ type DockerInvokerOptions struct {
 	// performing checkpointing after a migration (read) and after executing code (write).
 	SimulateCheckpointingLatency bool
 
+	SmrEnabled bool
+
 	WorkloadId string
+
+	// UseRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	UseRealGpus bool
+
+	// BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
+	BindDebugpyPort bool
+
+	// If true, then do not fully remove stopped kernel containers.
+	SaveStoppedKernelContainers bool
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider metrics.ContainerMetricsProvider) *DockerInvoker {
@@ -205,6 +219,10 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		simulateWriteAfterExec:               opts.SimulateWriteAfterExec,
 		simulateWriteAfterExecOnCriticalPath: opts.SimulateWriteAfterExecOnCriticalPath,
 		workloadId:                           opts.WorkloadId,
+		smrEnabled:                           opts.SmrEnabled,
+		useRealGpus:                          opts.UseRealGpus,
+		bindDebugpyPort:                      opts.BindDebugpyPort,
+		saveStoppedKernelContainers:          opts.SaveStoppedKernelContainers,
 	}
 
 	// This is a DockerInvoker, so it's one of these two.
@@ -215,19 +233,29 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	}
 
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
-	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
-	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerNetwork, utils.GetEnv(DockerNetworkNameEnv, DockerNetworkNameDefault))
+
+	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerNetwork, utils.GetEnv(DockerNetworkNameEnv, DockerNetworkNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarStorageVolume, utils.GetEnv(DockerStorageVolume, DockerStorageVolumeDefault))
 
-	maybeFlagCmd := dockerMaybeFlags
 	if invoker.runKernelsInGdb {
-		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeGdbFlag, "-e RUN_IN_GDB=1")
-	} else {
-		maybeFlagCmd = strings.ReplaceAll(maybeFlagCmd, VarMaybeGdbFlag, "")
+		invoker.invokerCmd += " -e RUN_IN_GDB=1"
 	}
 
-	maybeFlagCmd = strings.TrimSpace(maybeFlagCmd)
-	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarMaybeFlags, maybeFlagCmd)
+	if invoker.useRealGpus {
+		invoker.invokerCmd += " --gpus all"
+	}
+
+	if invoker.bindDebugpyPort {
+		debugpyPort := invoker.kernelDebugPort + 10000
+		invoker.invokerCmd += fmt.Sprintf(" -p %d:%d", debugpyPort, debugpyPort)
+	}
+
+	if invoker.kernelDebugPort > 1024 {
+		invoker.invokerCmd += fmt.Sprintf(" -p %d:%d", invoker.kernelDebugPort, invoker.kernelDebugPort)
+	}
+
+	invoker.invokerCmd += " {image}"
+	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
 
 	config.InitLogger(&invoker.log, invoker)
 
@@ -261,6 +289,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	ivk.closed = make(chan struct{})
 	ivk.spec = spec
 	ivk.status = jupyter.KernelStatusInitializing
+	ivk.kernelId = spec.Kernel.Id
 
 	ivk.log.Debug("[DockerInvoker] Invoking with context now.\n")
 
@@ -337,7 +366,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	cmd = strings.ReplaceAll(cmd, VarKernelId, spec.Kernel.Id)
 	cmd = strings.ReplaceAll(cmd, VarSessionId, spec.Kernel.Session)
 	cmd = strings.ReplaceAll(cmd, VarDebugPort, fmt.Sprintf("%d", ivk.kernelDebugPort))
-	cmd = strings.ReplaceAll(cmd, VarKernelDebugPyPort, fmt.Sprintf("%d", ivk.kernelDebugPort+1000))
+	// cmd = strings.ReplaceAll(cmd, VarKernelDebugPyPort, fmt.Sprintf("%d", ivk.kernelDebugPort+10000))
 
 	for i, arg := range spec.Kernel.Argv {
 		spec.Kernel.Argv[i] = strings.ReplaceAll(arg, VarConnectionFile, connectionFile)
@@ -438,9 +467,71 @@ func (ivk *DockerInvoker) Close() error {
 	// Status will not change anymore, reset the handler.
 	ivk.statusChanged = ivk.defaultStatusChangedHandler
 
+	if ivk.saveStoppedKernelContainers {
+		return ivk.renameStoppedContainer()
+	}
+
+	return ivk.removeStoppedContainer()
+}
+
+func (ivk *DockerInvoker) removeStoppedContainer() error {
+	removeCommandStr := strings.ReplaceAll(dockerRemoveCmd, VarContainerName, ivk.containerName)
+	removeCommandArgv := strings.Split(removeCommandStr, " ")
+
+	removeCommand := exec.CommandContext(context.Background(), removeCommandArgv[0], removeCommandArgv[1:]...)
+
+	var removeStdoutBuffer, removeStderrBuffer bytes.Buffer
+	removeCommand.Stdout = &removeStdoutBuffer
+	removeCommand.Stderr = &removeStderrBuffer
+
+	if err := removeCommand.Run(); err != nil {
+		errorMessage := removeStderrBuffer.String()
+		ivk.log.Warn("Failed to remove container %s: %v (%v)\n", ivk.containerName, errorMessage, err)
+
+		return errors.Join(err, fmt.Errorf(errorMessage))
+	}
+
+	return nil
+}
+
+// renameStoppedContainer will rename the stopped docker container with name <foo>
+// to a new name <foo>-old-<suffix>, where <suffix> is a
+func (ivk *DockerInvoker) renameStoppedContainer() error {
+	renameCmdStr := strings.ReplaceAll(dockerRenameCmd, VarContainerName, ivk.containerName)
+
+	// Generate a timestamp suffix at millisecond granularity
+	suffix := time.Now().Format("2006-01-02-15-04-05.000")
+
+	newName := fmt.Sprintf("%s-old-%s", ivk.containerName, suffix)
+
+	renameCmdStr = strings.ReplaceAll(renameCmdStr, VarContainerNewName, newName)
+
+	renameArgv := strings.Split(renameCmdStr, " ")
+
+	ivk.log.Debug("Renaming (stopped) container %s via %s.", ivk.containerName, renameArgv)
+
+	renameCmd := exec.CommandContext(context.Background(), renameArgv[0], renameArgv[1:]...)
+
+	var renameStdoutBuffer, renameStderrBuffer bytes.Buffer
+	renameCmd.Stdout = &renameStdoutBuffer
+	renameCmd.Stderr = &renameStderrBuffer
+
+	if err := renameCmd.Run(); err != nil {
+		errorMessage := renameStderrBuffer.String()
+		ivk.log.Warn("Failed to rename container %s: %v\n", ivk.containerName, errorMessage)
+
+		// Simply remove the container.
+		return ivk.removeStoppedContainer()
+	}
+
+	return nil
+}
+
+func (ivk *DockerInvoker) oldRenameStoppedContainer() error {
 	// Rename the stopped Container so that we can create a new one with the same name in its place.
 	idx := 0
-	for idx < 512 /* This is inefficient and will break if we migrate a container > 512 times. */ {
+
+	for idx < 8192 /* This is both very inefficient and will break if we migrate a container > 8192 times. */ {
 		renameCmdStr := strings.ReplaceAll(dockerRenameCmd, VarContainerName, ivk.containerName)
 		newName := fmt.Sprintf("%s-old-%d", ivk.containerName, idx)
 		renameCmdStr = strings.ReplaceAll(renameCmdStr, VarContainerNewName, newName)
@@ -485,16 +576,19 @@ func (ivk *DockerInvoker) Wait() (jupyter.KernelStatus, error) {
 		<-ivk.closed
 	}
 
-	ivk.closedAt = time.Time{} // Update closedAt to extend expriation time
+	ivk.closedAt = time.Time{} // Update closedAt to extend expiration time
 	return ivk.status, nil
 }
 
-func (ivk *DockerInvoker) GetReplicaAddress(kernel *proto.KernelSpec, replicaId int32) string {
-	return fmt.Sprintf("%s:%d", ivk.generateKernelName(kernel, replicaId), ivk.smrPort)
-}
+//func (ivk *DockerInvoker) GetReplicaAddress(kernel *proto.KernelSpec, replicaId int32) string {
+//	return fmt.Sprintf("%s:%d", ivk.generateKernelName(kernel, replicaId), ivk.smrPort)
+//}
 
-func (ivk *DockerInvoker) generateKernelName(kernel *proto.KernelSpec, replica_id int32) string {
-	return fmt.Sprintf(DockerKernelName, fmt.Sprintf("%s-%d", kernel.Id, replica_id))
+// generateKernelName generates and returns a name for the kernel container based on the kernel ID and replica ID.
+func (ivk *DockerInvoker) generateKernelName(kernel *proto.KernelSpec, replicaId int32) string {
+	// We append a string of random characters to the end of the name to help mitigate the risk of name collisions
+	// when re-running the same workload (with the same kernels/sessions) multiple times on the same cluster.
+	return fmt.Sprintf(DockerKernelName, fmt.Sprintf("%s-%d", kernel.Id, replicaId), utils.GenerateRandomString(8))
 }
 
 // extractKernelName extracts kernel name and port from the replica spec
@@ -556,6 +650,8 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			SimulateCheckpointingLatency: ivk.simulateCheckpointingLatency,
 			ElectionTimeoutSeconds:       ivk.electionTimeoutSeconds,
 			WorkloadId:                   ivk.workloadId,
+			SmrEnabled:                   ivk.smrEnabled,
+			UseRealGpus:                  ivk.useRealGpus,
 		},
 	}
 	if spec.PersistentId != nil {

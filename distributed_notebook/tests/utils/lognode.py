@@ -18,6 +18,7 @@ class SpoofedLogNode(object):
                 print(f"Failed to set \"{key}\" attribute because: {ex}")
 
         self.log = logging.getLogger(__class__.__name__)
+        self.log.handlers.clear()
         self.log.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
         fm = logging.Formatter(fmt = "%(asctime)s [%(levelname)s] %(name)s [%(threadName)s (%(thread)d)]: %(message)s ")
@@ -26,6 +27,11 @@ class SpoofedLogNode(object):
         self.log.addHandler(ch)
 
         self.log.debug(f"SpoofedLogNode::__init__ called with kwargs={kwargs}.")
+
+    def Propose(self, *args, **kwargs):
+        f_code: CodeType = inspect.currentframe().f_back.f_code
+        print(f"SpoofedLogNode::Propose called by function '{f_code.co_name}' from "
+              f"{extract_last_two_parts(f_code.co_filename)}::{f_code.co_firstlineno} with args {args} and kwargs {kwargs}.")
 
     # Upper-case because the real LogNode calls into Golang methods, which are upper-case.
     def RemoteStorageReadLatencyMilliseconds(self, *args, **kwargs) -> int:

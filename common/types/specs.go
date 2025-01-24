@@ -5,6 +5,10 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+var (
+	ZeroDecimalSpec = NewDecimalSpec(0, 0, 0, 0)
+)
+
 // CloneableSpec is a superset of the Spec interface with an additional Clone method.
 // The Clone method returns a new CloneableSpec instance with the same resource (cpu, gpu, memory) values.
 type CloneableSpec interface {
@@ -90,11 +94,13 @@ func ToDecimalSpec(spec Spec) *DecimalSpec {
 
 // DecimalSpec is a concrete implementation of the Spec interface that is backed by decimal.Decimal structs
 // for each resource value (Millicpus, GPUs, and memory).
+//
+// DecimalSpec is immutable (unless you explicitly modify the fields yourself).
 type DecimalSpec struct {
-	GPUs      decimal.Decimal `json:"gpus"`      // Number of vGPUs.
-	VRam      decimal.Decimal `json:"vram"`      // Amount of VRAM required in GB.
-	Millicpus decimal.Decimal `json:"cpus"`      // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU.
-	MemoryMb  decimal.Decimal `json:"memory_mb"` // Amount of memory in megabytes (MB).
+	GPUs      decimal.Decimal `json:"gpus"`   // Number of vGPUs.
+	VRam      decimal.Decimal `json:"vram"`   // Amount of VRAM required in GB.
+	Millicpus decimal.Decimal `json:"cpus"`   // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU.
+	MemoryMb  decimal.Decimal `json:"memory"` // Amount of memory in megabytes (MB).
 }
 
 // NewDecimalSpec creates a new DecimalSpec struct and returns a pointer to it.
@@ -104,6 +110,17 @@ func NewDecimalSpec(millicpus float64, memoryMb float64, gpus float64, vramGb fl
 		MemoryMb:  decimal.NewFromFloat(memoryMb),
 		GPUs:      decimal.NewFromFloat(gpus),
 		VRam:      decimal.NewFromFloat(vramGb),
+	}
+}
+
+// ToMap converts the target DecimalSpec to a map[string]interface{} with keys matching the JSON tags of
+// the DecimalSpec struct.
+func (d *DecimalSpec) ToMap() map[string]interface{} {
+	return map[string]interface{}{
+		"cpus":   d.Millicpus.InexactFloat64(),
+		"memory": d.MemoryMb.InexactFloat64(),
+		"gpus":   d.GPUs.InexactFloat64(),
+		"vram":   d.VRam.InexactFloat64(),
 	}
 }
 
@@ -123,6 +140,17 @@ func (d *DecimalSpec) Subtract(spec Spec) *DecimalSpec {
 }
 
 func (d *DecimalSpec) Add(other Spec) Spec {
+	d2 := ToDecimalSpec(other)
+
+	return &DecimalSpec{
+		GPUs:      d.GPUs.Add(d2.GPUs),
+		VRam:      d.VRam.Add(d2.VRam),
+		MemoryMb:  d.MemoryMb.Add(d2.MemoryMb),
+		Millicpus: d.Millicpus.Add(d2.Millicpus),
+	}
+}
+
+func (d *DecimalSpec) AddDecimal(other Spec) *DecimalSpec {
 	d2 := ToDecimalSpec(other)
 
 	return &DecimalSpec{
@@ -190,7 +218,7 @@ func (d *DecimalSpec) Validate(requirement Spec) bool {
 
 func (d *DecimalSpec) String() string {
 	return fmt.Sprintf("ResourceSpec[Millicpus: %s, Memory: %s MB, GPUs: %s, VRAM: %s GB]",
-		d.Millicpus.StringFixed(0), d.MemoryMb.StringFixed(4), d.GPUs.StringFixed(0), d.VRam.StringFixed(4))
+		d.Millicpus.StringFixed(4), d.MemoryMb.StringFixed(4), d.GPUs.StringFixed(1), d.VRam.StringFixed(4))
 }
 
 // CloneDecimalSpec returns a copy/clone of the target DecimalSpec as a *DecimalSpec.
@@ -211,10 +239,20 @@ func (d *DecimalSpec) Clone() CloneableSpec {
 // Float64Spec is a concrete implementation of the Spec interface that is backed by float64 variables for each
 // resource value (Millicpus, GPUs, and memory).
 type Float64Spec struct {
-	GPUs      float64 `json:"gpus"`      // Number of vGPUs.
-	VRam      float64 `json:"vram"`      // Amount of VRAM in GB.
-	Millicpus float64 `json:"cpus"`      // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU
-	MemoryMb  float64 `json:"memory_mb"` // Amount of memory in megabytes (MB).
+	Millicpus float64 `json:"cpus" mapstructure:"cpus"`     // Number of Millicpus in millicpus, where 1000 mCPU = 1 vCPU
+	Memory    float64 `json:"memory" mapstructure:"memory"` // Amount of memory in megabytes (MB).
+	GPUs      float64 `json:"gpus" mapstructure:"gpus"`     // Number of vGPUs.
+	VRam      float64 `json:"vram" mapstructure:"vram"`     // Amount of VRAM in GB.
+}
+
+// NewFloat64Spec creates a new Float64Spec struct and returns a pointer to it.
+func NewFloat64Spec(millicpus float64, memoryMb float64, gpus float64, vramGb float64) *Float64Spec {
+	return &Float64Spec{
+		Millicpus: millicpus,
+		Memory:    memoryMb,
+		GPUs:      gpus,
+		VRam:      vramGb,
+	}
 }
 
 // GPU returns the number of GPUs required.
@@ -239,7 +277,7 @@ func (s *Float64Spec) CPU() float64 {
 
 // MemoryMB returns the amount of memory in MB.
 func (s *Float64Spec) MemoryMB() float64 {
-	return s.MemoryMb
+	return s.Memory
 }
 
 // UpdateSpecGPUs can be used to update the number of GPUs.
@@ -250,7 +288,7 @@ func (s *Float64Spec) UpdateSpecGPUs(gpus float64) {
 func (s *Float64Spec) Add(other Spec) Spec {
 	return &Float64Spec{
 		Millicpus: s.Millicpus + other.CPU(),
-		MemoryMb:  s.MemoryMb + other.MemoryMB(),
+		Memory:    s.Memory + other.MemoryMB(),
 		GPUs:      s.GPUs + other.GPU(),
 		VRam:      s.VRam + other.VRAM(),
 	}
@@ -258,7 +296,7 @@ func (s *Float64Spec) Add(other Spec) Spec {
 
 // IsZero returns true of the resource quantities are all zero.
 func (s *Float64Spec) IsZero() bool {
-	return s.Millicpus == 0 && s.MemoryMb == 0 && s.GPUs == 0 && s.VRam == 0
+	return s.Millicpus == 0 && s.Memory == 0 && s.GPUs == 0 && s.VRam == 0
 }
 
 // UpdateSpecCPUs can be used to update the number of Millicpus.
@@ -268,11 +306,11 @@ func (s *Float64Spec) UpdateSpecCPUs(cpus float64) {
 
 // UpdateSpecMemoryMB can be used to update the amount of memory (in MB).
 func (s *Float64Spec) UpdateSpecMemoryMB(memory float64) {
-	s.MemoryMb = memory
+	s.Memory = memory
 }
 
 func (s *Float64Spec) String() string {
-	return fmt.Sprintf("ResourceSpec[Millicpus: %.0f, Memory: %.2f MB, GPUs: %.0f, VRAM: %.2f GB]", s.Millicpus, s.MemoryMb, s.GPUs, s.VRAM())
+	return fmt.Sprintf("ResourceSpec[Millicpus: %.0f, Memory: %.2f MB, GPUs: %.0f, VRAM: %.2f GB]", s.Millicpus, s.Memory, s.GPUs, s.VRAM())
 }
 
 func (s *Float64Spec) Equals(other Spec) bool {
@@ -298,7 +336,7 @@ func (s *Float64Spec) Clone() CloneableSpec {
 	return &Float64Spec{
 		GPUs:      s.GPUs,
 		Millicpus: s.Millicpus,
-		MemoryMb:  s.MemoryMb,
+		Memory:    s.Memory,
 	}
 }
 

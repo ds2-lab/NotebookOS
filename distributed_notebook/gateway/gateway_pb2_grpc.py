@@ -541,6 +541,16 @@ class DistributedClusterStub(object):
                 request_serializer=gateway__pb2.ForceLocalDaemonToReconnectRequest.SerializeToString,
                 response_deserializer=gateway__pb2.Void.FromString,
                 _registered_method=True)
+        self.ClusterStatistics = channel.unary_unary(
+                '/gateway.DistributedCluster/ClusterStatistics',
+                request_serializer=gateway__pb2.ClusterStatisticsRequest.SerializeToString,
+                response_deserializer=gateway__pb2.ClusterStatisticsResponse.FromString,
+                _registered_method=True)
+        self.ClearClusterStatistics = channel.unary_unary(
+                '/gateway.DistributedCluster/ClearClusterStatistics',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.ClusterStatisticsResponse.FromString,
+                _registered_method=True)
 
 
 class DistributedClusterServicer(object):
@@ -742,6 +752,22 @@ class DistributedClusterServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ClusterStatistics(self, request, context):
+        """ClusterStatistics is used to request a serialized ClusterStatistics struct.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ClearClusterStatistics(self, request, context):
+        """ClearClusterStatistics clears the current ClusterStatistics struct.
+
+        ClearClusterStatistics returns the serialized ClusterStatistics struct before it was cleared.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_DistributedClusterServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -859,6 +885,16 @@ def add_DistributedClusterServicer_to_server(servicer, server):
                     servicer.ForceLocalDaemonToReconnect,
                     request_deserializer=gateway__pb2.ForceLocalDaemonToReconnectRequest.FromString,
                     response_serializer=gateway__pb2.Void.SerializeToString,
+            ),
+            'ClusterStatistics': grpc.unary_unary_rpc_method_handler(
+                    servicer.ClusterStatistics,
+                    request_deserializer=gateway__pb2.ClusterStatisticsRequest.FromString,
+                    response_serializer=gateway__pb2.ClusterStatisticsResponse.SerializeToString,
+            ),
+            'ClearClusterStatistics': grpc.unary_unary_rpc_method_handler(
+                    servicer.ClearClusterStatistics,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.ClusterStatisticsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1484,6 +1520,60 @@ class DistributedCluster(object):
             '/gateway.DistributedCluster/ForceLocalDaemonToReconnect',
             gateway__pb2.ForceLocalDaemonToReconnectRequest.SerializeToString,
             gateway__pb2.Void.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ClusterStatistics(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/ClusterStatistics',
+            gateway__pb2.ClusterStatisticsRequest.SerializeToString,
+            gateway__pb2.ClusterStatisticsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ClearClusterStatistics(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.DistributedCluster/ClearClusterStatistics',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.ClusterStatisticsResponse.FromString,
             options,
             channel_credentials,
             insecure,

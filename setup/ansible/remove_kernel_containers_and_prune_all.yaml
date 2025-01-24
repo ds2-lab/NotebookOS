@@ -1,0 +1,21 @@
+- name: Remove any remaining kernel replica Docker containers
+  hosts: docker_swarm
+  roles:
+    - remove-kernel-replica-containers
+  tags:
+    - docker
+    - swarm
+    - kernel_replica
+
+- name: "Delete contents of the kernel storage directory {{ kernel_storage_directory }}"
+  hosts: docker_swarm
+  roles:
+    - remove-kernel-storage
+
+- name: Prune any stopped Docker containers within the Docker Swarm cluster
+  hosts: docker_swarm
+  roles:
+    - prune-docker-containers
+  tags:
+    - docker
+    - swarm

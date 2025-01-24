@@ -16,6 +16,9 @@ services:
     depends_on:
       - gateway
     deploy:
+      placement:
+        constraints:
+          - "node.labels.swarm_role == swarm-leader"
       restart_policy:
         condition: any
     extra_hosts:
@@ -36,6 +39,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./gateway/gateway.yml:/gateway.yml
     deploy:
+      placement:
+        constraints:
+          - "node.labels.swarm_role == swarm-leader"
       restart_policy:
         condition: any
     depends_on:
@@ -146,6 +152,9 @@ services:
       - "logging_jobname=notebook_dashboard"
       - "prometheus.metrics.port=8089"
     deploy:
+      placement:
+        constraints:
+          - "node.labels.swarm_role == swarm-leader"
       restart_policy:
         condition: on-failure
       endpoint_mode: dnsrr

@@ -3,10 +3,11 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/Scusemua/go-utils/logger"
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
+	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/metrics"
@@ -14,22 +15,27 @@ import (
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/client"
+	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
+	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
+	"github.com/scusemua/distributed-notebook/common/statistics"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"github.com/shopspring/decimal"
 	"log"
 	"math/rand"
+	"net"
 	"sync"
 	"sync/atomic"
-	"testing"
 	"time"
 
 	"github.com/Scusemua/go-utils/config"
 	"github.com/go-zeromq/zmq4"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	jupyter "github.com/scusemua/distributed-notebook/common/jupyter"
+	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"go.uber.org/mock/gomock"
 )
 
@@ -37,11 +43,11 @@ const (
 	signatureScheme string = "hmac-sha256"
 
 	kernelId string = "66902bac-9386-432e-b1b9-21ac853fa1c9"
-
-	persistentId string = "a45e4331-8fdc-4143-aac8-00d3e9df54fa"
 )
 
 var (
+	persistentId = "a45e4331-8fdc-4143-aac8-00d3e9df54fa"
+
 	GatewayOptsAsJsonString = `{
 	"logger_options": {
 		"Debug": true,
@@ -90,6 +96,7 @@ var (
 			"num_resend_attempts": 1,
 			"acks_enabled": false,
 			"scheduling-policy": "static",
+			"idle-session-reclamation-policy": "none",
 			"remote-storage-endpoint": "host.docker.internal:10000",
 			"smr-port": 8080,
 			"debug_mode": true,
@@ -117,11 +124,6 @@ var (
 	"consul_addr": ""
 }`
 )
-
-func TestProxy(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Daemon Suite")
-}
 
 type MockedDistributedKernelClientProvider struct {
 	ctrl *gomock.Controller
@@ -157,10 +159,12 @@ func (p *MockedDistributedKernelClientProvider) RegisterMockedDistributedKernel(
 	p.expectedKernels[kernelId] = kernel
 }
 
-func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
-	connectionInfo *jupyter.ConnectionInfo, shellListenPort int, iopubListenPort int, persistentId string,
-	debugMode bool, executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-	messagingMetricsProvider metrics.MessagingMetricsProvider) scheduling.Kernel {
+func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
+	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
+	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
+	handleExecuteYieldNotification scheduling.YieldNotificationHandler, messagingMetricsProvider metrics.MessagingMetricsProvider,
+	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
+	notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 	if kernel, ok := p.expectedKernels[spec.Id]; ok {
 		return kernel
@@ -258,11 +262,19 @@ func prepareMockedGatewayForStartKernel(localGatewayClient *mock_proto.MockLocal
 
 var _ = Describe("Cluster Gateway Tests", func() {
 	var (
-		clusterGateway *ClusterGatewayImpl
-		abstractServer *server.AbstractServer
-		session        *mock_scheduling.MockUserSession
-		mockCtrl       *gomock.Controller
-		kernelKey      = "23d90942-8c3de3a713a5c3611792b7a5"
+		clusterGateway          *ClusterGatewayImpl
+		abstractServer          *server.AbstractServer
+		session                 *mock_scheduling.MockUserSession
+		mockCtrl                *gomock.Controller
+		kernelKey               = "23d90942-8c3de3a713a5c3611792b7a5"
+		jupyterExecuteRequestId = "c7074e5b-b90f-44f8-af5d-63201ec3a527"
+
+		hostSpec = &types.DecimalSpec{
+			GPUs:      decimal.NewFromFloat(8),
+			Millicpus: decimal.NewFromFloat(64000),
+			MemoryMb:  decimal.NewFromFloat(128000),
+			VRam:      decimal.NewFromFloat(32),
+		}
 	)
 
 	BeforeEach(func() {
@@ -273,26 +285,253 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		mockCtrl.Finish()
 	})
 
-	Context("Processing 'execute_request' messages", func() {
+	Context("ZMQ4 Socket Connectivity Tests", func() {
+		It("Zmq4 Router Server, Dealer Client", func() {
+			serverCtx, serverCancel := context.WithCancel(context.Background())
+			defer serverCancel()
+
+			serverPortChan := make(chan int, 1)
+
+			serverFunc := func() {
+				// Create a ROUTER socket
+				server := zmq4.NewRouter(serverCtx, zmq4.WithID(zmq4.SocketIdentity("router")))
+				defer server.Close()
+
+				// Bind the server to an address
+				address := "tcp://localhost:0"
+				err := server.Listen(address)
+				Expect(err).To(BeNil())
+
+				serverPort := server.Addr().(*net.TCPAddr).Port
+				fmt.Printf("Server started on port %d, waiting for messages...\n", serverPort)
+
+				serverPortChan <- serverPort
+
+				for {
+					// Receive a message
+					msg, err := server.Recv()
+					if errors.Is(err, context.Canceled) {
+						fmt.Printf("Server context cancelled.\n")
+						return
+					}
+
+					if err != nil {
+						fmt.Printf("[ERROR] Failed to receive message from client: %v\n", err)
+					}
+
+					Expect(err).To(BeNil())
+
+					identity := msg.Frames[0]
+					content := msg.Frames[1]
+					fmt.Printf("Server received: [%s] %s\n", identity, content)
+
+					// Send a response back to the client
+					response := zmq4.NewMsgFrom([][]byte{
+						identity,                           // Identity frame
+						[]byte("Echo: " + string(content)), // Content frame
+					}...)
+
+					err = server.Send(response)
+					if err != nil {
+						fmt.Printf("[ERROR] Failed to send message back to client: %v\n", err)
+					}
+
+					Expect(err).To(BeNil())
+				}
+			}
+
+			go serverFunc()
+
+			// Create a ROUTER socket
+			client := zmq4.NewDealer(context.Background(), zmq4.WithID(zmq4.SocketIdentity("dealer")))
+			defer client.Close()
+
+			serverPort := <-serverPortChan
+
+			fmt.Printf("Received server port: %d\n", serverPort)
+
+			// Connect to the server
+			serverAddress := fmt.Sprintf("tcp://localhost:%d", serverPort)
+			err := client.Dial(serverAddress)
+
+			if err != nil {
+				fmt.Printf("[ERROR] Failed to connect to the server: %v\n", err)
+			}
+			Expect(err).To(BeNil())
+
+			fmt.Println("Client connected to server.")
+
+			for i := 0; i < 5; i++ {
+				// Send a message to the server
+				message := zmq4.NewMsgFrom([][]byte{
+					[]byte(fmt.Sprintf("Hello %d", i)), // Content frame
+				}...)
+				fmt.Printf("Client sending: %s\n", message.Frames[0])
+
+				err := client.Send(message)
+				if err != nil {
+					fmt.Printf("[ERROR] Failed to send message to server: %v\n", err)
+				}
+
+				Expect(err).To(BeNil())
+
+				fmt.Printf("Client sent: %s\n", message.Frames[0])
+
+				// Receive a response from the server
+				reply, err := client.Recv()
+				if err != nil {
+					fmt.Printf("[ERROR] Failed to receive reply from server: %v\n", err)
+				}
+
+				Expect(err).To(BeNil())
+				Expect(reply).ToNot(BeNil())
+
+				fmt.Printf("Client received: %s\n", reply.Frames[0])
+				time.Sleep(250 * time.Millisecond)
+			}
+		})
+
+		It("Zmq4 Router Server, Router Client", func() {
+			serverCtx, serverCancel := context.WithCancel(context.Background())
+			defer serverCancel()
+
+			serverPortChan := make(chan int, 1)
+
+			serverFunc := func() {
+				// Create a ROUTER socket
+				server := zmq4.NewRouter(serverCtx, zmq4.WithID(zmq4.SocketIdentity("server")))
+				defer server.Close()
+
+				// Bind the server to an address
+				address := "tcp://localhost:0"
+				err := server.Listen(address)
+				Expect(err).To(BeNil())
+
+				serverPort := server.Addr().(*net.TCPAddr).Port
+				fmt.Printf("Server started on port %d, waiting for messages...\n", serverPort)
+
+				serverPortChan <- serverPort
+
+				numReceived := 0
+
+				for numReceived < 5 {
+					// Receive a message
+					msg, err := server.Recv()
+					if err != nil {
+						fmt.Printf("[ERROR] Failed to receive message from client: %v\n", err)
+					}
+
+					Expect(err).To(BeNil())
+
+					identity := msg.Frames[0]
+					content := msg.Frames[1]
+					fmt.Printf("Server received: [%s] %s\n", identity, content)
+
+					// Send a response back to the client
+					response := zmq4.NewMsgFrom([][]byte{
+						identity,                           // Identity frame
+						[]byte("Echo: " + string(content)), // Content frame
+					}...)
+
+					err = server.Send(response)
+					if err != nil {
+						fmt.Printf("[ERROR] Failed to send message back to client: %v\n", err)
+					}
+
+					Expect(err).To(BeNil())
+
+					numReceived += 1
+				}
+			}
+
+			go serverFunc()
+
+			// Create a ROUTER socket
+			client := zmq4.NewRouter(context.Background(), zmq4.WithID(zmq4.SocketIdentity("client")))
+			defer client.Close()
+
+			serverPort := <-serverPortChan
+
+			fmt.Printf("Received server port: %d\n", serverPort)
+
+			// Connect to the server
+			serverAddress := fmt.Sprintf("tcp://localhost:%d", serverPort)
+			err := client.Dial(serverAddress)
+
+			if err != nil {
+				fmt.Printf("[ERROR] Failed to connect to the server: %v\n", err)
+			}
+			Expect(err).To(BeNil())
+
+			fmt.Println("Client connected to server.")
+
+			for i := 0; i < 5; i++ {
+				// Send a message to the server
+				message := zmq4.NewMsgFrom([][]byte{
+					[]byte("server"),                   // Identity frame
+					[]byte(fmt.Sprintf("Hello %d", i)), // Content frame
+				}...)
+				fmt.Printf("Client sending: %s\n", message.Frames[1])
+
+				err := client.Send(message)
+				if err != nil {
+					fmt.Printf("[ERROR] Failed to send message to server: %v\n", err)
+				}
+
+				Expect(err).To(BeNil())
+
+				fmt.Printf("Client sent: %s\n", message.Frames[1])
+
+				// Receive a response from the server
+				reply, err := client.Recv()
+				if err != nil {
+					fmt.Printf("[ERROR] Failed to receive reply from server: %v\n", err)
+				}
+
+				Expect(err).To(BeNil())
+				Expect(reply).ToNot(BeNil())
+
+				fmt.Printf("Client received: %s\n", reply.Frames[0])
+				time.Sleep(250 * time.Millisecond)
+			}
+		})
+	})
+
+	Context("Processing 'execute_request' messages under static scheduling", func() {
 		var (
-			kernel  *mock_scheduling.MockKernel
-			header  *messaging.MessageHeader
-			cluster *mock_scheduling.MockCluster
+			kernel           *mock_scheduling.MockKernel
+			header           *messaging.MessageHeader
+			cluster          *mock_scheduling.MockCluster
+			mockScheduler    *mock_scheduling.MockScheduler
+			schedulingPolicy scheduling.Policy
 		)
+
+		persistentId := uuid.NewString()
 
 		BeforeEach(func() {
 			kernel = mock_scheduling.NewMockKernel(mockCtrl)
 			cluster = mock_scheduling.NewMockCluster(mockCtrl)
 			session = mock_scheduling.NewMockUserSession(mockCtrl)
+			mockScheduler = mock_scheduling.NewMockScheduler(mockCtrl)
 			abstractServer = &server.AbstractServer{
 				DebugMode: true,
 				Log:       config.GetLogger("TestAbstractServer"),
 			}
 
+			var err error
+			schedulingPolicy, err = policy.NewStaticPolicy(scheduling.DefaultStaticSchedulerOptions)
+			Expect(err).To(BeNil())
+			Expect(schedulingPolicy).ToNot(BeNil())
+			Expect(schedulingPolicy.PolicyKey()).To(Equal(scheduling.Static))
+
+			mockScheduler.EXPECT().Policy().Return(schedulingPolicy).AnyTimes()
+			mockScheduler.EXPECT().PolicyKey().Return(scheduling.Static).AnyTimes()
+
 			clusterGateway = &ClusterGatewayImpl{
 				cluster:                  cluster,
 				RequestLog:               metrics.NewRequestLog(),
 				gatewayPrometheusManager: nil,
+				ClusterStatistics:        statistics.NewClusterStatistics(),
 			}
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
@@ -306,6 +545,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Gpu:    2,
 					Cpu:    100,
 					Memory: 1000,
+					Vram:   1,
 				},
 			}).AnyTimes()
 			kernel.EXPECT().ResourceSpec().Return(&types.DecimalSpec{
@@ -317,7 +557,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			cluster.EXPECT().GetSession(kernelId).Return(session, true).AnyTimes()
 
 			header = &messaging.MessageHeader{
-				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
+				MsgID:    jupyterExecuteRequestId,
 				Username: "",
 				Session:  kernelId,
 				Date:     "2024-04-03T22:55:52.605Z",
@@ -327,12 +567,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			kernel.EXPECT().Size().Return(3).AnyTimes()
 
-			setActiveCall := kernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any())
+			setActiveCall := kernel.EXPECT().RegisterActiveExecution(gomock.Any()).Return(nil, nil)
 			kernel.EXPECT().NumActiveExecutionOperations().Return(0).Times(1)
 			kernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).Times(1)
 		})
 
-		It("should correctly handle execute_request messages", func() {
+		It("should correctly handle execute_request messages via the processExecuteRequest method", func() {
 			encodedHeader, err := json.Marshal(header)
 			Expect(err).To(BeNil())
 
@@ -355,13 +595,312 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			session.EXPECT().IsTraining().Return(false).MaxTimes(1)
 			session.EXPECT().SetExpectingTraining().Return(promise.Resolved(nil)).MaxTimes(1)
 
+			host1 := mock_scheduling.NewMockHost(mockCtrl)
+			host1.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host1.EXPECT().GetNodeName().AnyTimes().Return("MockedHost1")
+
+			host2 := mock_scheduling.NewMockHost(mockCtrl)
+			host2.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host2.EXPECT().GetNodeName().AnyTimes().Return("MockedHost2")
+
+			host3 := mock_scheduling.NewMockHost(mockCtrl)
+			host3.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host3.EXPECT().GetNodeName().AnyTimes().Return("MockedHost3")
+
+			addReplica := func(id int32, kernelId string, persistentId string, host *mock_scheduling.MockHost) (*mock_scheduling.MockKernelReplica, *mock_scheduling.MockKernelContainer) {
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					SignatureScheme: signatureScheme,
+					Key:             "23d90942-8c3de3a713a5c3611792b7a5",
+					ResourceSpec: &proto.ResourceSpec{
+						Gpu:    2,
+						Cpu:    100,
+						Memory: 1000,
+						Vram:   1,
+					},
+				}
+
+				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				container.EXPECT().ReplicaId().Return(id).AnyTimes()
+				container.EXPECT().KernelID().Return(kernelId).AnyTimes()
+				container.EXPECT().ResourceSpec().Return(types.NewDecimalSpec(100, 1000, 2, 1)).AnyTimes()
+				container.EXPECT().Host().Return(host).AnyTimes()
+
+				replica := mock_scheduling.NewMockKernelReplica(mockCtrl)
+				replica.EXPECT().ReplicaID().Return(id).AnyTimes()
+				replica.EXPECT().ID().Return(kernelId).AnyTimes()
+				replica.EXPECT().Container().Return(container).AnyTimes()
+				replica.EXPECT().KernelSpec().Return(kernelSpec).AnyTimes()
+				replica.EXPECT().Host().Return(host).AnyTimes()
+				replica.EXPECT().KernelReplicaSpec().Return(&proto.KernelReplicaSpec{
+					Kernel:       kernelSpec,
+					NumReplicas:  3,
+					Join:         true,
+					PersistentId: &persistentId,
+					ReplicaId:    id,
+				}).AnyTimes()
+
+				return replica, container
+			}
+
+			replica1, _ /* container1 */ := addReplica(1, kernelId, persistentId, host1)
+			replica2, _ /* container2 */ := addReplica(2, kernelId, persistentId, host2)
+			replica3, _ /* container3 */ := addReplica(3, kernelId, persistentId, host3)
+
+			replicas := []*mock_scheduling.MockKernelReplica{replica1, replica2, replica3}
+
+			mockScheduler.EXPECT().FindReadyReplica(kernel, jMsg.JupyterMessageId()).Times(1).DoAndReturn(func(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+				selectedReplica := replicas[2]
+
+				return selectedReplica, nil
+			})
+
+			cluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
+
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
-			err = clusterGateway.processExecuteRequest(jMsg, kernel)
+			targetReplica, err := clusterGateway.processExecuteRequest(jMsg, kernel)
+			Expect(targetReplica).ToNot(BeNil())
+			Expect(targetReplica.ReplicaID()).To(Equal(int32(3)))
 			Expect(err).To(BeNil())
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
 		})
 
+		It("should correctly handle execute_request messages via the executeRequestHandler method", func() {
+			encodedHeader, err := json.Marshal(header)
+			Expect(err).To(BeNil())
+
+			unsignedFrames := [][]byte{
+				[]byte("<IDS|MSG>"),
+				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+				encodedHeader, /* Header */
+				[]byte(""),    /* Parent header*/
+				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
+				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+			}
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
+			msg := &zmq4.Msg{
+				Frames: frames,
+				Type:   zmq4.UsrMsg,
+			}
+			jMsg := messaging.NewJupyterMessage(msg)
+
+			session.EXPECT().IsTraining().Return(false).MaxTimes(1)
+			session.EXPECT().SetExpectingTraining().Return(promise.Resolved(nil)).MaxTimes(1)
+
+			host1 := mock_scheduling.NewMockHost(mockCtrl)
+			host1.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host1.EXPECT().GetNodeName().AnyTimes().Return("MockedHost1")
+			host1.EXPECT().ResourceSpec().AnyTimes().Return(hostSpec)
+
+			host2 := mock_scheduling.NewMockHost(mockCtrl)
+			host2.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host2.EXPECT().GetNodeName().AnyTimes().Return("MockedHost2")
+			host2.EXPECT().ResourceSpec().AnyTimes().Return(hostSpec)
+
+			host3 := mock_scheduling.NewMockHost(mockCtrl)
+			host3.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host3.EXPECT().GetNodeName().AnyTimes().Return("MockedHost3")
+			host3.EXPECT().ResourceSpec().AnyTimes().Return(hostSpec)
+
+			hosts := []*mock_scheduling.MockHost{host1, host2, host3}
+
+			addReplica := func(id int32, kernelId string, persistentId string, host *mock_scheduling.MockHost) (*mock_scheduling.MockKernelReplica, *mock_scheduling.MockKernelContainer) {
+				resourceSpec := &proto.ResourceSpec{
+					Gpu:    2,
+					Cpu:    100,
+					Memory: 1000,
+					Vram:   1,
+				}
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					SignatureScheme: signatureScheme,
+					Key:             "23d90942-8c3de3a713a5c3611792b7a5",
+					ResourceSpec:    resourceSpec,
+				}
+
+				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				container.EXPECT().ReplicaId().Return(id).AnyTimes()
+				container.EXPECT().KernelID().Return(kernelId).AnyTimes()
+				container.EXPECT().ResourceSpec().Return(resourceSpec.ToDecimalSpec()).AnyTimes()
+				container.EXPECT().Host().Return(host).AnyTimes()
+
+				replica := mock_scheduling.NewMockKernelReplica(mockCtrl)
+				replica.EXPECT().ReplicaID().Return(id).AnyTimes()
+				replica.EXPECT().ID().Return(kernelId).AnyTimes()
+				replica.EXPECT().Container().Return(container).AnyTimes()
+				replica.EXPECT().KernelSpec().Return(kernelSpec).AnyTimes()
+				replica.EXPECT().Host().Return(host).AnyTimes()
+				replica.EXPECT().ResourceSpec().Return(resourceSpec.ToDecimalSpec()).AnyTimes()
+				replica.EXPECT().KernelReplicaSpec().Return(&proto.KernelReplicaSpec{
+					Kernel:       kernelSpec,
+					NumReplicas:  3,
+					Join:         true,
+					PersistentId: &persistentId,
+					ReplicaId:    id,
+				}).AnyTimes()
+
+				return replica, container
+			}
+
+			replica1, _ /* container1 */ := addReplica(1, kernelId, persistentId, host1)
+			replica2, _ /* container2 */ := addReplica(2, kernelId, persistentId, host2)
+			replica3, _ /* container3 */ := addReplica(3, kernelId, persistentId, host3)
+
+			replicas := []scheduling.KernelReplica{replica1, replica2, replica3}
+			kernel.EXPECT().Replicas().AnyTimes().Return(replicas)
+			kernel.EXPECT().ReplicasAreScheduled().AnyTimes().Return(true)
+			kernel.EXPECT().DebugMode().AnyTimes().Return(true)
+
+			selectedReplicaChan := make(chan scheduling.KernelReplica)
+
+			var host1IdleGpus, host2IdleGpus, host3IdleGpus atomic.Int64
+			var host1CommittedGpus, host2CommittedGpus, host3CommittedGpus atomic.Int64
+
+			// We'll artificially say that Host 3 has 8 idle GPUs, whereas hosts 1 and 2 have less.
+			initialIdleGpuValues := map[int32]int64{
+				1: 6,
+				2: 7,
+				3: 8,
+			}
+			initialCommittedGpuValues := map[int32]int64{
+				1: 2,
+				2: 1,
+				3: 0,
+			}
+
+			host1IdleGpus.Store(initialIdleGpuValues[int32(1)])
+			host2IdleGpus.Store(initialIdleGpuValues[int32(2)])
+			host3IdleGpus.Store(initialIdleGpuValues[int32(3)])
+			host1CommittedGpus.Store(initialCommittedGpuValues[int32(1)])
+			host2CommittedGpus.Store(initialCommittedGpuValues[int32(2)])
+			host3CommittedGpus.Store(initialCommittedGpuValues[int32(3)])
+
+			idleGpus := []*atomic.Int64{&host1IdleGpus, &host2IdleGpus, &host3IdleGpus}
+			committedGpus := []*atomic.Int64{&host1CommittedGpus, &host2CommittedGpus, &host3CommittedGpus}
+
+			// Set up all the state management for the mocked hosts.
+			for i, host := range hosts {
+				hostIndex := i
+				host.EXPECT().CommittedGPUs().DoAndReturn(func() float64 {
+					hostCommittedGpus := committedGpus[hostIndex]
+					return float64(hostCommittedGpus.Load())
+				}).AnyTimes()
+
+				host.EXPECT().IdleGPUs().DoAndReturn(func() float64 {
+					hostIdleGpus := idleGpus[hostIndex]
+					return float64(hostIdleGpus.Load())
+				}).AnyTimes()
+
+				currReplica := replicas[hostIndex]
+				host.EXPECT().PreCommitResources(currReplica.Container(), jupyterExecuteRequestId).AnyTimes().DoAndReturn(func(container scheduling.KernelContainer, executeId string) error {
+					Expect(container.ReplicaId()).To(Equal(currReplica.ReplicaID()))
+					Expect(currReplica.Container()).To(Equal(container))
+
+					hostCommittedGpus := committedGpus[hostIndex]
+					committed := hostCommittedGpus.Load()
+					if committed+int64(container.ResourceSpec().GPU()) > int64(hostSpec.GPU()) {
+						return fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
+							transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
+					}
+
+					hostIdleGpus := idleGpus[hostIndex]
+					idle := hostIdleGpus.Load()
+					if idle-int64(container.ResourceSpec().GPU()) < 0 {
+						return fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
+							transaction.ErrNegativeResourceCount, idle)
+					}
+
+					hostCommittedGpus.Add(int64(container.ResourceSpec().GPU()))
+					hostIdleGpus.Add(int64(-1 * container.ResourceSpec().GPU()))
+
+					return nil
+				})
+			}
+
+			mockScheduler.EXPECT().FindReadyReplica(kernel, jMsg.JupyterMessageId()).Times(1).DoAndReturn(
+				func(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+					selectedReplica, err := schedulingPolicy.(scheduler.SchedulingPolicy).FindReadyReplica(kernel, executionId)
+					Expect(err).To(BeNil())
+					Expect(selectedReplica).ToNot(BeNil())
+
+					selectedReplicaChan <- selectedReplica
+
+					return selectedReplica, nil
+				})
+
+			cluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
+
+			jupyterMessagesChan := make(chan []*messaging.JupyterMessage)
+
+			kernel.EXPECT().RequestWithHandlerAndReplicas(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+				gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, typ messaging.MessageType,
+				jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
+
+				jupyterMessagesChan <- jupyterMessages
+
+				return nil
+			})
+
+			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
+			go func() {
+				err = clusterGateway.executeRequestHandler(kernel, jMsg)
+				Expect(err).To(BeNil())
+			}()
+
+			selectedReplica := <-selectedReplicaChan
+
+			GinkgoWriter.Printf("Selected replica %d on targetReplicaHost %s (ID=%s)\n", selectedReplica.ReplicaID(),
+				selectedReplica.Host().GetNodeName(), selectedReplica.Host().GetID())
+
+			Expect(selectedReplica.ReplicaID()).To(Equal(int32(3)))
+
+			jupyterMessages := <-jupyterMessagesChan
+
+			Expect(jupyterMessages).ToNot(BeNil())
+			Expect(len(jupyterMessages)).To(Equal(3))
+
+			for idx, msg := range jupyterMessages {
+				GinkgoWriter.Printf("Jupyter Message #%d:\n%v\n", idx, msg.StringFormatted())
+				Expect(msg.JupyterMessageId()).To(Equal(jupyterExecuteRequestId))
+
+				// We add 1 because replica IDs start at 1.
+				if int32(idx+1) == selectedReplica.ReplicaID() {
+					Expect(msg.JupyterMessageType()).To(Equal(messaging.ShellExecuteRequest))
+				} else {
+					Expect(msg.JupyterMessageType()).To(Equal(messaging.ShellYieldRequest))
+				}
+			}
+
+			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
+
+			targetReplicaHost := hosts[selectedReplica.ReplicaID()-1]
+
+			// Check that the resources were updated correctly on the targetReplicaHost of the selected/target replica.
+			Expect(targetReplicaHost.IdleGPUs()).To(Equal(float64(idleGpus[selectedReplica.ReplicaID()-1].Load())))
+			Expect(targetReplicaHost.CommittedGPUs()).To(Equal(float64(committedGpus[selectedReplica.ReplicaID()-1].Load())))
+
+			for idx, host := range hosts {
+				if replicas[idx].ReplicaID() == selectedReplica.ReplicaID() {
+					// The host of the target replica should have changed resource values.
+					Expect(host.IdleGPUs()).ToNot(Equal(float64(initialIdleGpuValues[replicas[idx].ReplicaID()])))
+					Expect(host.CommittedGPUs()).ToNot(Equal(float64(initialCommittedGpuValues[replicas[idx].ReplicaID()])))
+
+					Expect(host.IdleGPUs()).ToNot(Equal(float64(initialIdleGpuValues[selectedReplica.ReplicaID()])))
+					Expect(host.CommittedGPUs()).ToNot(Equal(float64(initialCommittedGpuValues[selectedReplica.ReplicaID()])))
+				} else {
+					// The other two hosts should not have changed resources values.
+					Expect(host.IdleGPUs()).To(Equal(float64(initialIdleGpuValues[replicas[idx].ReplicaID()])))
+					Expect(host.CommittedGPUs()).To(Equal(float64(initialCommittedGpuValues[replicas[idx].ReplicaID()])))
+				}
+			}
+		})
+
 		It("should correctly handle execute_request messages with an offset", func() {
+			cluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
+
 			reqId := uuid.NewString()
 			destReqFrame := fmt.Sprintf("dest.%s.req.%s", kernelId, reqId)
 
@@ -392,14 +931,85 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			session.EXPECT().IsTraining().Return(false).MaxTimes(1)
 			session.EXPECT().SetExpectingTraining().Return(promise.Resolved(nil)).MaxTimes(1)
 
+			host1 := mock_scheduling.NewMockHost(mockCtrl)
+			host1.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host1.EXPECT().GetNodeName().AnyTimes().Return("MockedHost1")
+
+			host2 := mock_scheduling.NewMockHost(mockCtrl)
+			host2.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host2.EXPECT().GetNodeName().AnyTimes().Return("MockedHost2")
+
+			host3 := mock_scheduling.NewMockHost(mockCtrl)
+			host3.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host3.EXPECT().GetNodeName().AnyTimes().Return("MockedHost3")
+
+			addReplica := func(id int32, kernelId string, persistentId string, host scheduling.Host) (*mock_scheduling.MockKernelReplica, *mock_scheduling.MockKernelContainer) {
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					SignatureScheme: signatureScheme,
+					Key:             "23d90942-8c3de3a713a5c3611792b7a5",
+					ResourceSpec: &proto.ResourceSpec{
+						Gpu:    2,
+						Cpu:    100,
+						Memory: 1000,
+						Vram:   1,
+					},
+				}
+
+				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				container.EXPECT().ReplicaId().Return(id).AnyTimes()
+				container.EXPECT().KernelID().Return(kernelId).AnyTimes()
+				container.EXPECT().ResourceSpec().Return(types.NewDecimalSpec(100, 1000, 2, 1)).AnyTimes()
+				container.EXPECT().Host().Return(host).AnyTimes()
+
+				replica := mock_scheduling.NewMockKernelReplica(mockCtrl)
+				replica.EXPECT().ReplicaID().Return(id).AnyTimes()
+				replica.EXPECT().ID().Return(kernelId).AnyTimes()
+				replica.EXPECT().Container().Return(container).AnyTimes()
+				replica.EXPECT().KernelSpec().Return(kernelSpec).AnyTimes()
+				replica.EXPECT().Host().Return(host).AnyTimes()
+				replica.EXPECT().KernelReplicaSpec().Return(&proto.KernelReplicaSpec{
+					Kernel:       kernelSpec,
+					NumReplicas:  3,
+					Join:         true,
+					PersistentId: &persistentId,
+					ReplicaId:    id,
+				}).AnyTimes()
+
+				return replica, container
+			}
+
+			replica1, _ /* container1 */ := addReplica(1, kernelId, persistentId, host1)
+			replica2, _ /* container2 */ := addReplica(2, kernelId, persistentId, host2)
+			replica3, _ /* container3 */ := addReplica(3, kernelId, persistentId, host3)
+
+			kernel.EXPECT().Replicas().AnyTimes().Return([]scheduling.KernelReplica{replica1, replica2, replica3})
+			kernel.EXPECT().ReplicasAreScheduled().Return(true).AnyTimes()
+
+			mockScheduler.EXPECT().FindReadyReplica(kernel, jMsg.JupyterMessageId()).Times(1).DoAndReturn(func(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+				replicas := kernel.Replicas()
+				selectedReplicaIndex := rand.Intn(len(replicas))
+				selectedReplica := replicas[selectedReplicaIndex]
+
+				return selectedReplica, nil
+			})
+
+			kernel.EXPECT().Replicas().AnyTimes().Return([]scheduling.KernelReplica{replica1, replica2, replica3})
+
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
-			err = clusterGateway.processExecuteRequest(jMsg, kernel)
+			targetReplica, err := clusterGateway.processExecuteRequest(jMsg, kernel)
+			Expect(targetReplica).ToNot(BeNil())
 			Expect(err).To(BeNil())
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
 		})
+
+		//It("should respond correctly upon receiving three YIELD notifications", func() {
+		//
+		//})
 	})
 
-	Context("ZMQ Messages", func() {
+	Context("Processing general ZMQ Messages", func() {
 		var (
 			kernel  *mock_scheduling.MockKernel
 			header  *messaging.MessageHeader
@@ -435,6 +1045,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Gpu:    2,
 					Cpu:    100,
 					Memory: 1000,
+					Vram:   1,
 				},
 			}).AnyTimes()
 			kernel.EXPECT().ResourceSpec().Return(&types.DecimalSpec{
@@ -446,7 +1057,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			cluster.EXPECT().GetSession(kernelId).Return(session, true).AnyTimes()
 
 			header = &messaging.MessageHeader{
-				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
+				MsgID:    jupyterExecuteRequestId,
 				Username: "",
 				Session:  kernelId,
 				Date:     "2024-04-03T22:55:52.605Z",
@@ -492,7 +1103,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			// We'll just call this multiple times.
 			requestTraceHelper := func(trace *proto.RequestTrace) {
-				Expect(trace.MessageId).To(Equal("c7074e5b-b90f-44f8-af5d-63201ec3a527"))
+				Expect(trace.MessageId).To(Equal(jupyterExecuteRequestId))
 				Expect(trace.MessageType).To(Equal(messaging.ShellExecuteRequest))
 				Expect(trace.KernelId).To(Equal(kernelId))
 
@@ -506,7 +1117,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestReceivedByGateway := int64(257894000000)
 			requestReceivedByGatewayTs := time.UnixMilli(requestReceivedByGateway) // 2009-11-10 23:00:00 +0000 UTC
-			requestTrace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestReceivedByGatewayTs, abstractServer.Log)
+			requestTrace, added, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, requestReceivedByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeTrue())
 			Expect(err).To(BeNil())
@@ -537,7 +1148,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestSentByGateway := requestReceivedByGateway + 1000
 			requestSentByGatewayTs := time.UnixMilli(requestSentByGateway)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestSentByGatewayTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, requestSentByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -560,7 +1171,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestReceivedByLocalDaemon := requestSentByGateway + 1000
 			requestReceivedByLocalDaemonTs := time.UnixMilli(requestReceivedByLocalDaemon)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestReceivedByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, requestReceivedByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -583,7 +1194,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestSentByLocalDaemon := requestSentByGateway + 1000
 			requestSentByLocalDaemonTs := time.UnixMilli(requestSentByLocalDaemon)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestSentByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, requestSentByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -606,7 +1217,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			requestReceivedByKernelReplica := requestSentByGateway + 1000
 			requestReceivedByKernelReplicaTs := time.UnixMilli(requestReceivedByKernelReplica)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, requestReceivedByKernelReplicaTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, requestReceivedByKernelReplicaTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -629,7 +1240,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replySentByKernelReplica := requestSentByGateway + 1000
 			replySentByKernelReplicaTs := time.UnixMilli(replySentByKernelReplica)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, replySentByKernelReplicaTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, replySentByKernelReplicaTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -652,7 +1263,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replyReceivedByLocalDaemon := requestSentByGateway + 1000
 			replyReceivedByLocalDaemonTs := time.UnixMilli(replyReceivedByLocalDaemon)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, replyReceivedByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, replyReceivedByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -675,7 +1286,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replySentByLocalDaemon := requestSentByGateway + 1000
 			replySentByLocalDaemonTs := time.UnixMilli(replySentByLocalDaemon)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, replySentByLocalDaemonTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, replySentByLocalDaemonTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -698,7 +1309,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replyReceivedByGateway := requestSentByGateway + 1000
 			replyReceivedByGatewayTs := time.UnixMilli(replyReceivedByGateway)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, replyReceivedByGatewayTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, replyReceivedByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -721,7 +1332,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			replySentByGateway := requestSentByGateway + 1000
 			replySentByGatewayTs := time.UnixMilli(replySentByGateway)
-			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, &messaging.Socket{Type: messaging.ShellMessage}, replySentByGatewayTs, abstractServer.Log)
+			requestTrace, added, err = messaging.AddOrUpdateRequestTraceToJupyterMessage(jMsg, replySentByGatewayTs, abstractServer.Log)
 			Expect(requestTrace).ToNot(BeNil())
 			Expect(added).To(BeFalse())
 			Expect(err).To(BeNil())
@@ -745,15 +1356,23 @@ var _ = Describe("Cluster Gateway Tests", func() {
 	})
 
 	Context("Migrating Kernels", func() {
-		var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
-		var kernelId string
-		var mockedKernelSpec *proto.KernelSpec
-		var mockedKernel *mock_scheduling.MockKernel
-		var resourceSpec *proto.ResourceSpec
+		var (
+			mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
+			kernelId                              string
+			mockedKernelSpec                      *proto.KernelSpec
+			mockedKernel                          *mock_scheduling.MockKernel
+			mockedKernelReplica1                  *mock_scheduling.MockKernelReplica
+			mockedKernelReplica2                  *mock_scheduling.MockKernelReplica
+			mockedKernelReplica3                  *mock_scheduling.MockKernelReplica
+			mockedSession                         *mock_scheduling.MockUserSession
+			resourceSpec                          *proto.ResourceSpec
+			host1, host2, host3, host4            scheduling.Host
+
+			host1Spoofer, host2Spoofer, host3Spoofer, host4Spoofer                             *distNbTesting.ResourceSpoofer
+			localGatewayClient1, localGatewayClient2, localGatewayClient3, localGatewayClient4 *mock_proto.MockLocalGatewayClient
+		)
 
 		BeforeEach(func() {
-			config.LogLevel = logger.LOG_LEVEL_ALL
-
 			abstractServer = &server.AbstractServer{
 				DebugMode: true,
 				Log:       config.GetLogger("TestAbstractServer"),
@@ -777,7 +1396,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			Expect(clusterGateway.cluster).ToNot(BeNil())
 
-			kernelId = uuid.NewString()
+			kernelId = "8247310f-7bb1-47ee-b234-a4529bab1274"
 
 			resourceSpec = &proto.ResourceSpec{
 				Gpu:    2,
@@ -795,16 +1414,19 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Session:         kernelId,
 				SignatureScheme: signatureScheme,
 				Key:             "23d90942-8c3de3a713a5c3611792b7a5",
+				WorkloadId:      "SpoofedWorkloadId",
 				ResourceSpec: &proto.ResourceSpec{
 					Gpu:    2,
-					Cpu:    100,
-					Memory: 1000,
+					Cpu:    1250,
+					Memory: 2048,
+					Vram:   2,
 				},
 			}).AnyTimes()
 			mockedKernel.EXPECT().ResourceSpec().Return(&types.DecimalSpec{
 				GPUs:      decimal.NewFromFloat(2),
-				Millicpus: decimal.NewFromFloat(100),
-				MemoryMb:  decimal.NewFromFloat(1000),
+				Millicpus: decimal.NewFromFloat(1250),
+				MemoryMb:  decimal.NewFromFloat(2048),
+				VRam:      decimal.NewFromFloat(2),
 			}).AnyTimes()
 			mockedKernel.EXPECT().ID().Return(kernelId).AnyTimes()
 			mockedKernel.EXPECT().RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(),
@@ -818,18 +1440,45 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			host1Id := uuid.NewString()
 			node1Name := "TestNode1"
-			host1Spoofer := distNbTesting.NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
-			host1, localGatewayClient1, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
+			host1Spoofer = distNbTesting.NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
+			host1, localGatewayClient1, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
 
 			host2Id := uuid.NewString()
 			node2Name := "TestNode2"
-			host2Spoofer := distNbTesting.NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
-			host2, localGatewayClient2, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
+			host2Spoofer = distNbTesting.NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
+			host2, localGatewayClient2, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
 
 			host3Id := uuid.NewString()
 			node3Name := "TestNode3"
-			host3Spoofer := distNbTesting.NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
-			host3, localGatewayClient3, _ := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
+			host3Spoofer = distNbTesting.NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
+			host3, localGatewayClient3, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
+
+			err = cluster.NewHostAddedOrConnected(host1)
+			Expect(err).To(BeNil())
+
+			err = cluster.NewHostAddedOrConnected(host2)
+			Expect(err).To(BeNil())
+
+			err = cluster.NewHostAddedOrConnected(host3)
+			Expect(err).To(BeNil())
+
+			localGatewayClient1.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any()).MaxTimes(1).Return(&proto.PrepareToMigrateResponse{
+				KernelId: kernelId,
+				Id:       1,
+				DataDir:  "./store",
+			}, nil)
+			localGatewayClient2.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any()).MaxTimes(1).Return(&proto.PrepareToMigrateResponse{
+				KernelId: kernelId,
+				Id:       2,
+				DataDir:  "./store",
+			}, nil)
+			localGatewayClient3.EXPECT().PrepareToMigrate(gomock.Any(), gomock.Any()).MaxTimes(1).Return(&proto.PrepareToMigrateResponse{
+				KernelId: kernelId,
+				Id:       3,
+				DataDir:  "./store",
+			}, nil)
+
+			hosts := []scheduling.Host{host1, host2, host3}
 
 			By("Correctly registering the first Host")
 
@@ -878,9 +1527,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				// defer GinkgoRecover()
 
-				err := host1Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				err := host2Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
-				err = host1Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				err = host2Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 
 				startKernelReplicaCalled.Done()
@@ -898,9 +1547,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				// defer GinkgoRecover()
 
-				err := host1Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				err := host3Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
-				err = host1Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				err = host3Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
 				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
 
 				startKernelReplicaCalled.Done()
@@ -932,7 +1581,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			select {
 			case <-ctx.Done():
-				GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on DefaultSchedulingPolicy Daemons by Placer.\n")
+				GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on Local Daemons by Placer.\n")
 				Expect(false).To(BeTrue())
 			case <-doneChan:
 				{
@@ -943,7 +1592,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			By("Correctly handling the KernelConnectionInfo")
 
 			startKernelReturnValChan1 <- &proto.KernelConnectionInfo{
-				Ip:              "0.0.0.0",
+				Ip:              "10.0.0.1",
 				Transport:       "tcp",
 				ControlPort:     9000,
 				ShellPort:       9001,
@@ -955,7 +1604,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Key:             kernelKey,
 			}
 			startKernelReturnValChan2 <- &proto.KernelConnectionInfo{
-				Ip:              "0.0.0.0",
+				Ip:              "10.0.0.2",
 				Transport:       "tcp",
 				ControlPort:     9000,
 				ShellPort:       9001,
@@ -967,7 +1616,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Key:             kernelKey,
 			}
 			startKernelReturnValChan3 <- &proto.KernelConnectionInfo{
-				Ip:              "0.0.0.0",
+				Ip:              "10.0.0.3",
 				Transport:       "tcp",
 				ControlPort:     9000,
 				ShellPort:       9001,
@@ -998,7 +1647,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				ctx := context.WithValue(context.Background(), SkipValidationKey, "true")
 				_, _ = clusterGateway.NotifyKernelRegistered(ctx, &proto.KernelRegistrationNotification{
 					ConnectionInfo: &proto.KernelConnectionInfo{
-						Ip:              "0.0.0.0",
+						Ip:              "10.0.0.1",
 						Transport:       "tcp",
 						ControlPort:     9000,
 						ShellPort:       9001,
@@ -1013,7 +1662,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					SessionId:          "N/A",
 					ReplicaId:          replicaId,
 					HostId:             targetHost.GetID(),
-					KernelIp:           "0.0.0.0",
+					KernelIp:           "10.0.0.1",
 					PodOrContainerName: "kernel1pod",
 					NodeName:           targetHost.GetNodeName(),
 					NotificationId:     uuid.NewString(),
@@ -1046,7 +1695,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					KernelId:     kernelId,
 					ReplicaId:    replicaId,
 					PersistentId: persistentId,
-					Address:      "0.0.0.0",
+					Address:      "10.0.0.1",
 				})
 
 				smrReadyCalled.Done()
@@ -1081,7 +1730,57 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}
 			}()
 
+			mockedKernelReplica1 = mock_scheduling.NewMockKernelReplica(mockCtrl)
+			mockedKernelReplica2 = mock_scheduling.NewMockKernelReplica(mockCtrl)
+			mockedKernelReplica3 = mock_scheduling.NewMockKernelReplica(mockCtrl)
+
+			mockedSession = mock_scheduling.NewMockUserSession(mockCtrl)
+			mockedSession.EXPECT().ID().AnyTimes().Return(kernelId)
+			mockedSession.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+
+			prepareReplica := func(replica *mock_scheduling.MockKernelReplica, replicaId int32) {
+				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				container.EXPECT().ReplicaId().AnyTimes().Return(replicaId)
+				container.EXPECT().KernelID().AnyTimes().Return(kernelId)
+				container.EXPECT().ContainerID().AnyTimes().Return(fmt.Sprintf("%s-%d", kernelId, replicaId))
+				container.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				container.EXPECT().String().AnyTimes().Return(fmt.Sprintf("MockedContainer-%d", replicaId))
+				container.EXPECT().Host().AnyTimes().Return(hosts[replicaId-1])
+				container.EXPECT().Session().AnyTimes().Return(mockedSession)
+
+				mockedSession.EXPECT().GetReplicaContainer(replicaId).AnyTimes().Return(container, true)
+				mockedSession.EXPECT().RemoveReplicaById(replicaId).MaxTimes(1).Return(nil)
+
+				shellSocket := messaging.NewSocket(zmq4.NewRouter(context.Background()), 0, messaging.ShellMessage, fmt.Sprintf("SpoofedSocket-Kernel-%s-Replica-%d", kernelId, replicaId))
+				replica.EXPECT().Socket(messaging.ShellMessage).AnyTimes().Return(shellSocket)
+				replica.EXPECT().KernelSpec().AnyTimes().Return(mockedKernelSpec)
+				replica.EXPECT().ReplicaID().AnyTimes().Return(replicaId)
+				replica.EXPECT().ID().AnyTimes().Return(kernelId)
+				replica.EXPECT().ResourceSpec().AnyTimes().Return(resourceSpec.ToDecimalSpec())
+				replica.EXPECT().Container().AnyTimes().Return(container)
+				replica.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
+				replica.EXPECT().String().AnyTimes().Return("MockedKernelReplica")
+				replica.EXPECT().Host().AnyTimes().Return(hosts[replicaId-1])
+				replica.EXPECT().ReplicaID().AnyTimes().Return(replicaId)
+				replica.EXPECT().PersistentID().AnyTimes().Return(persistentId)
+				replica.EXPECT().KernelReplicaSpec().AnyTimes().Return(&proto.KernelReplicaSpec{
+					Kernel:                    mockedKernelSpec,
+					NumReplicas:               3,
+					Join:                      true,
+					PersistentId:              &persistentId,
+					ReplicaId:                 replicaId,
+					DockerModeKernelDebugPort: -1,
+					WorkloadId:                "MockedWorkloadId",
+					Replicas:                  []string{"10.0.0.1:8000", "10.0.0.3:8000", "10.0.0.2:8000"},
+				})
+			}
+
+			prepareReplica(mockedKernelReplica1, 1)
+			prepareReplica(mockedKernelReplica2, 2)
+			prepareReplica(mockedKernelReplica3, 3)
+
 			mockedKernel.EXPECT().Status().AnyTimes().Return(jupyter.KernelStatusRunning)
+			mockedKernel.EXPECT().PersistentID().AnyTimes().Return(persistentId)
 		})
 
 		AfterEach(func() {
@@ -1097,7 +1796,104 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 		})
 
-		It("Will correctly migrate a kernel replica when using static scheduling", func() {
+		It("Will correctly return an error to the client when a migration fails and an 'execute_request' cannot be handled", func() {
+			clusterGateway.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
+			kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(), mockedKernelSpec, 3, clusterGateway.id,
+				clusterGateway.connectionOptions, uuid.NewString(), clusterGateway.DebugMode, clusterGateway.executionFailed, clusterGateway.executionLatencyCallback,
+				clusterGateway.handleExecutionYieldedNotification, clusterGateway.gatewayPrometheusManager, clusterGateway.updateClusterStatistics, clusterGateway.notifyDashboard)
+
+			shellSocket, err := kernel.InitializeShellForwarder(clusterGateway.kernelShellHandler)
+			Expect(err).To(BeNil())
+			Expect(shellSocket).ToNot(BeNil())
+
+			// Overwrite the mocked kernel entry.
+			clusterGateway.kernels.Store(kernelId, kernel)
+
+			var (
+				mockedKernelReplica1Context context.Context
+				mockedKernelReplica2Context context.Context
+				mockedKernelReplica3Context context.Context
+			)
+
+			// Initially, the replica's context is just a context.Background().
+			// But when adding replica to distributed kernel client, a new context will be assigned.
+			mockedKernelReplica1ContextCall1 := mockedKernelReplica1.EXPECT().Context().Times(1).Return(context.Background())
+			mockedKernelReplica2ContextCall1 := mockedKernelReplica2.EXPECT().Context().Times(1).Return(context.Background())
+			mockedKernelReplica3ContextCall1 := mockedKernelReplica3.EXPECT().Context().Times(1).Return(context.Background())
+
+			mockedKernelReplica1.EXPECT().SetContext(gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context) {
+				mockedKernelReplica1Context = ctx
+			})
+			mockedKernelReplica2.EXPECT().SetContext(gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context) {
+				mockedKernelReplica2Context = ctx
+			})
+			mockedKernelReplica3.EXPECT().SetContext(gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context) {
+				mockedKernelReplica3Context = ctx
+			})
+
+			mockedKernelReplica1.EXPECT().Context().AnyTimes().DoAndReturn(func() context.Context {
+				return mockedKernelReplica1Context
+			}).AnyTimes().After(mockedKernelReplica1ContextCall1)
+			mockedKernelReplica2.EXPECT().Context().AnyTimes().DoAndReturn(func() context.Context {
+				return mockedKernelReplica2Context
+			}).AnyTimes().After(mockedKernelReplica2ContextCall1)
+			mockedKernelReplica3.EXPECT().Context().AnyTimes().DoAndReturn(func() context.Context {
+				return mockedKernelReplica3Context
+			}).AnyTimes().After(mockedKernelReplica3ContextCall1)
+
+			mockedKernelReplica1.EXPECT().InitializeIOSub(gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error) {
+				// Handler is set, so server routing will be started on dialing.
+				socket := messaging.NewSocketWithHandler(zmq4.NewSub(mockedKernelReplica1Context), 0, messaging.IOMessage, fmt.Sprintf("K-Sub-IOSub[%s-%d]", kernelId, 1), handler)
+				err := socket.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
+				Expect(err).To(BeNil())
+
+				return socket, nil
+			}).Times(1)
+			err = kernel.AddReplica(mockedKernelReplica1, host1)
+			Expect(err).To(BeNil())
+
+			mockedKernelReplica2.EXPECT().InitializeIOSub(gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error) {
+				// Handler is set, so server routing will be started on dialing.
+				socket := messaging.NewSocketWithHandler(zmq4.NewSub(mockedKernelReplica2Context), 0, messaging.IOMessage, fmt.Sprintf("K-Sub-IOSub[%s-%d]", kernelId, 2), handler)
+				err := socket.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
+				Expect(err).To(BeNil())
+
+				return socket, nil
+			}).Times(1)
+			err = kernel.AddReplica(mockedKernelReplica2, host2)
+			Expect(err).To(BeNil())
+
+			mockedKernelReplica3.EXPECT().InitializeIOSub(gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(handler messaging.MessageHandler, subscriptionTopic string) (*messaging.Socket, error) {
+				// Handler is set, so server routing will be started on dialing.
+				socket := messaging.NewSocketWithHandler(zmq4.NewSub(mockedKernelReplica3Context), 0, messaging.IOMessage, fmt.Sprintf("K-Sub-IOSub[%s-%d]", kernelId, 3), handler)
+				err := socket.SetOption(zmq4.OptionSubscribe, subscriptionTopic)
+				Expect(err).To(BeNil())
+
+				return socket, nil
+			}).Times(1)
+			err = kernel.AddReplica(mockedKernelReplica3, host3)
+			Expect(err).To(BeNil())
+
+			clusterGateway.cluster.AddSession(kernelId, mockedSession)
+
+			clusterGateway.cluster.DisableScalingOut()
+
+			mockedSession.EXPECT().IsIdle().AnyTimes().Return(true)
+			mockedSession.EXPECT().IsTraining().AnyTimes().Return(false)
+
+			mockedSession.EXPECT().SetExpectingTraining().Times(1).Return(promise.Resolved(nil))
+
+			clientShellSocket := messaging.NewSocket(zmq4.NewDealer(context.Background()), 0, messaging.ShellMessage, "ClientShellSocket")
+
+			addressWithPort := fmt.Sprintf("tcp://localhost:%d", shellSocket.Port)
+			fmt.Printf("Dialing kernel shell socket at address \"%s\"\n", addressWithPort)
+			err = clientShellSocket.Socket.Dial(addressWithPort)
+			Expect(err).To(BeNil())
+
+			err = clientShellSocket.Listen("tcp://localhost:0")
+			Expect(err).To(BeNil())
+			clientShellSocket.Port = clientShellSocket.Addr().(*net.TCPAddr).Port
+
 			unsignedExecuteRequestFrames := [][]byte{
 				[]byte("<IDS|MSG>"),
 				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
@@ -1108,8 +1904,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 
 			executeRequestMessageHeader := &messaging.MessageHeader{
-				MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a527",
-				Username: "",
+				MsgID:    jupyterExecuteRequestId,
+				Username: kernelId,
 				Session:  kernelId,
 				Date:     "2024-04-03T22:55:52.605Z",
 				MsgType:  "execute_request",
@@ -1117,7 +1913,125 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 
 			jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteRequestFrames)
-			err := jFrames.EncodeHeader(executeRequestMessageHeader)
+			err = jFrames.EncodeHeader(executeRequestMessageHeader)
+			Expect(err).To(BeNil())
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
+			msg := &zmq4.Msg{
+				Frames: frames,
+				Type:   zmq4.UsrMsg,
+			}
+			jMsg := messaging.NewJupyterMessage(msg)
+
+			loadedKernel, loaded := clusterGateway.kernels.Load(kernelId)
+			Expect(loaded).To(BeTrue())
+			Expect(loadedKernel).ToNot(BeNil())
+			Expect(loadedKernel).To(Equal(kernel))
+
+			mockedKernelReplica1.EXPECT().SentExecuteRequest(gomock.Any()).MaxTimes(1)
+			mockedKernelReplica2.EXPECT().SentExecuteRequest(gomock.Any()).MaxTimes(1)
+			mockedKernelReplica3.EXPECT().SentExecuteRequest(gomock.Any()).MaxTimes(1)
+
+			mockedKernelReplica1.EXPECT().RequestWithHandlerAndWaitOptionGetter(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(1).Return(nil)
+			mockedKernelReplica2.EXPECT().RequestWithHandlerAndWaitOptionGetter(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(1).Return(nil)
+			mockedKernelReplica3.EXPECT().RequestWithHandlerAndWaitOptionGetter(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(1).Return(nil)
+
+			err = host1.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
+			Expect(err).To(BeNil())
+			err = host2.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
+			Expect(err).To(BeNil())
+			err = host3.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
+			Expect(err).To(BeNil())
+
+			fmt.Printf("[DEBUG] Sending 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
+			err = clientShellSocket.Send(*jMsg.GetZmqMsg())
+			Expect(err).To(BeNil())
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+			defer cancel()
+
+			respChan := make(chan interface{}, 1)
+
+			go func() {
+				zmqMsg, err := clientShellSocket.Recv()
+				if err != nil {
+					respChan <- err
+					return
+				}
+
+				respChan <- zmqMsg
+			}()
+
+			select {
+			case v := <-respChan:
+				{
+					switch v.(type) {
+					case error:
+						{
+							err = v.(error)
+							Fail(err.Error())
+						}
+					case zmq4.Msg:
+						{
+							zmqMsg, ok := v.(zmq4.Msg)
+							Expect(ok).To(BeTrue())
+							Expect(zmqMsg).ToNot(BeNil())
+
+							jMsg := messaging.NewJupyterMessage(&zmqMsg)
+
+							fmt.Printf("Received response to 'execute_request' message:\n%s\n", jMsg.StringFormatted())
+
+							Expect(jMsg.JupyterParentMessageType()).To(Equal(messaging.ShellExecuteRequest))
+							Expect(jMsg.JupyterMessageType()).To(Equal(messaging.ShellExecuteReply))
+						}
+					}
+				}
+			case <-ctx.Done():
+				{
+					Fail("Did not receive 'execute_reply' message in time")
+				}
+			}
+		})
+
+		It("Will correctly migrate a kernel replica when using static scheduling", func() {
+			hosts := []scheduling.Host{host1, host2, host3}
+
+			mockedKernel.EXPECT().RemoveReplicaByID(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
+				return hosts[id-1], nil
+			})
+
+			host4Id := uuid.NewString()
+			node4Name := "TestNode4"
+			host4Spoofer = distNbTesting.NewResourceSpoofer(node4Name, host4Id, clusterGateway.hostSpec)
+			host4, localGatewayClient4, _ = distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, clusterGateway.cluster, host4Id, node4Name, host4Spoofer)
+
+			err := clusterGateway.cluster.NewHostAddedOrConnected(host4)
+			Expect(err).To(BeNil())
+
+			mockedKernelReplicas := []*mock_scheduling.MockKernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3}
+			mockedGatewayClients := []*mock_proto.MockLocalGatewayClient{localGatewayClient1, localGatewayClient2, localGatewayClient3}
+
+			clusterGateway.cluster.AddSession(kernelId, mockedSession)
+
+			unsignedExecuteRequestFrames := [][]byte{
+				[]byte("<IDS|MSG>"),
+				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+				[]byte(""), /* Header */
+				[]byte(""), /* Parent executeRequestMessageHeader*/
+				[]byte(""), /* Metadata */
+				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+			}
+
+			executeRequestMessageHeader := &messaging.MessageHeader{
+				MsgID:    jupyterExecuteRequestId,
+				Username: kernelId,
+				Session:  kernelId,
+				Date:     "2024-04-03T22:55:52.605Z",
+				MsgType:  "execute_request",
+				Version:  "5.2",
+			}
+
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteRequestFrames)
+			err = jFrames.EncodeHeader(executeRequestMessageHeader)
 			Expect(err).To(BeNil())
 			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
 			msg := &zmq4.Msg{
@@ -1134,31 +2048,55 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			var wg sync.WaitGroup
 			wg.Add(1)
 
-			var activeExecution *scheduling.ActiveExecution
-			mockedKernel.EXPECT().EnqueueActiveExecution(gomock.Any(), gomock.Any()).DoAndReturn(func(attemptId int, msg *messaging.JupyterMessage) *scheduling.ActiveExecution {
-				Expect(attemptId).To(Equal(1))
+			var activeExecution *execution.Execution
+			mockedKernel.EXPECT().RegisterActiveExecution(gomock.Any()).DoAndReturn(func(msg *messaging.JupyterMessage) (*execution.Execution, error) {
 				Expect(msg).ToNot(BeNil())
 				Expect(msg).To(Equal(jMsg))
 
-				activeExecution = scheduling.NewActiveExecution(kernelId, attemptId, 3, msg)
+				// TODO: Create ExecutionManager and use that here.
+				activeExecution = execution.NewActiveExecution(kernelId, 1, 3, msg)
 				wg.Done()
 
-				return activeExecution
+				return activeExecution, nil
 			}).Times(1)
 
 			fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
 
+			mockedKernel.EXPECT().ReplicasAreScheduled().AnyTimes().Return(true)
+			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
+			//mockedKernel.EXPECT().AddDestFrameIfNecessary(gomock.Any()).Times(1).DoAndReturn(func(msg *messaging.JupyterMessage) *messaging.JupyterMessage {
+			//	return msg
+			//})
+			mockedKernel.EXPECT().DebugMode().Times(1).Return(true)
+
+			mockedSession.EXPECT().IsTraining().Times(1).Return(false)
+			mockedSession.EXPECT().SetExpectingTraining().Times(1).Return(promise.Resolved(nil))
+
+			// ctx, typ, jupyterMessages, handler, done any, replicas ...any
+			mockedKernel.EXPECT().RequestWithHandlerAndReplicas(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+				gomock.Any(), gomock.Any()).Times(1).Return(nil)
+
+			//mockedKernel.EXPECT().RegisterActiveExecution(jMsg).Times(1).Return(nil, nil)
+
 			var shellHandlerWaitGroup sync.WaitGroup
 			shellHandlerWaitGroup.Add(1)
 			go func() {
-				defer GinkgoRecover()
+				//defer GinkgoRecover()
+
+				fmt.Printf("[DEBUG] Calling shell handler for \"%s\" message now.", jMsg.JupyterMessageType())
 				err = clusterGateway.ShellHandler(nil, jMsg)
+				fmt.Printf("[DEBUG] Successfully called shell handler for \"%s\" message now.", jMsg.JupyterMessageType())
 				Expect(err).To(BeNil())
 				shellHandlerWaitGroup.Done()
 			}()
 
 			wg.Wait()
 			Expect(activeExecution).ToNot(BeNil())
+
+			//firstGetActiveExecutionCalls := mockedKernel.EXPECT().
+			//	GetActiveExecution("c7074e5b-b90f-44f8-af5d-63201ec3a528").
+			//	Times(1).
+			//	Return(activeExecution)
 
 			getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
 				unsignedExecuteReplyFrames := [][]byte{
@@ -1167,12 +2105,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					[]byte(""), /* Header */
 					[]byte(""), /* Parent executeReplyMessageHeader*/
 					[]byte(""), /* Metadata */
-					[]byte("{\"status\": \"error\", \"ename\": \"ExecutionYieldError\", \"evalue\": \"ExecutionYieldError\"}"),
+					[]byte("{\"status\": \"error\", \"ename\": \"ExecutionYieldError\", \"evalue\": \"kernel replica failed to lead the execution\"}"),
 				}
 
+				executeReplyJupterMessageId := "c7074e5b-b90f-44f8-af5d-63201ec3a528"
 				executeReplyMessageHeader := &messaging.MessageHeader{
-					MsgID:    "c7074e5b-b90f-44f8-af5d-63201ec3a528",
-					Username: "",
+					MsgID:    executeReplyJupterMessageId,
+					Username: kernelId,
 					Session:  kernelId,
 					Date:     "2024-04-03T22:56:52.605Z",
 					MsgType:  "execute_reply",
@@ -1180,7 +2119,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}
 
 				executeReplyJFrames := messaging.NewJupyterFramesFromBytes(unsignedExecuteReplyFrames)
-				err := jFrames.EncodeParentHeader(executeRequestMessageHeader)
+				err := executeReplyJFrames.EncodeParentHeader(executeRequestMessageHeader)
 				Expect(err).To(BeNil())
 				err = executeReplyJFrames.EncodeHeader(executeReplyMessageHeader)
 				Expect(err).To(BeNil())
@@ -1190,6 +2129,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Type:   zmq4.UsrMsg,
 				}
 				jMsg := messaging.NewJupyterMessage(msg)
+
+				GinkgoWriter.Printf("Generated Jupyter \"execute_reply\" message:\n%s\n", jMsg.StringFormatted())
+
+				Expect(jMsg.JupyterParentMessageId()).To(Equal(jupyterExecuteRequestId))
+				Expect(jMsg.JupyterMessageId()).To(Equal(executeReplyJupterMessageId))
 
 				return jMsg
 			}
@@ -1204,6 +2148,245 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(execReply3).ToNot(BeNil())
 
 			shellHandlerWaitGroup.Wait()
+
+			yieldReason := &messaging.MessageErrorWithYieldReason{
+				MessageError: &messaging.MessageError{
+					Status:   messaging.MessageStatusError,
+					ErrName:  messaging.MessageErrYieldExecution,
+					ErrValue: messaging.ErrExecutionYielded.Error(),
+				},
+				YieldReason: "N/A",
+			}
+
+			mockedKernel.EXPECT().
+				GetActiveExecution(jupyterExecuteRequestId).
+				AnyTimes().
+				Return(activeExecution)
+
+			preparedReplicaIdChan := make(chan int32, 1)
+
+			mockedKernel.EXPECT().GetReplicaByID(int32(1)).MaxTimes(1).Return(mockedKernelReplica1, nil)
+			mockedKernel.EXPECT().GetReplicaByID(int32(2)).MaxTimes(1).Return(mockedKernelReplica2, nil)
+			mockedKernel.EXPECT().GetReplicaByID(int32(3)).MaxTimes(1).Return(mockedKernelReplica3, nil)
+			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
+			mockedKernel.EXPECT().AddOperationStarted().Times(1)
+			mockedKernel.EXPECT().AddOperationCompleted().Times(1)
+			mockedKernel.EXPECT().PrepareNewReplica(persistentId, gomock.Any()).MaxTimes(1).DoAndReturn(func(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec {
+				preparedReplicaIdChan <- smrNodeId
+
+				return &proto.KernelReplicaSpec{
+					Kernel:       mockedKernel.KernelSpec(),
+					NumReplicas:  3,
+					Join:         true,
+					PersistentId: &persistentId,
+					ReplicaId:    smrNodeId,
+				}
+			}).Times(1)
+
+			var replicaStartedOnHost4WaitGroup sync.WaitGroup
+			replicaStartedOnHost4WaitGroup.Add(1)
+
+			startKernelReturnValChan4 := make(chan *proto.KernelConnectionInfo)
+			localGatewayClient4.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
+				GinkgoWriter.Printf("LocalGateway #4 has called spoofed StartKernelReplica\n")
+
+				err := host4Spoofer.Manager.IdleResources().Subtract(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after subtracting from idle resources: %v\n", err)
+				err = host4Spoofer.Manager.PendingResources().Add(resourceSpec.ToDecimalSpec())
+				GinkgoWriter.Printf("Error after adding to from pending resources: %v\n", err)
+
+				GinkgoWriter.Printf("Waiting for return value for spoofed StartKernelReplica call for mocked LocalGatewayClient #4 to be passed via channel.\n")
+				ret := <-startKernelReturnValChan4
+
+				GinkgoWriter.Printf("Returning value from spoofed StartKernelReplica call for mocked LocalGatewayClient #4: %v\n", ret)
+
+				replicaStartedOnHost4WaitGroup.Done()
+
+				return ret, nil
+			}).Times(1)
+
+			mockedKernelReplica1.EXPECT().ReceivedExecuteReply(execReply1).Times(1)
+			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica1, gomock.Any()).Times(1).Return(nil)
+			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica1, yieldReason, execReply1)
+			Expect(err).To(BeNil())
+
+			Expect(activeExecution.NumRolesReceived()).To(Equal(1))
+			Expect(activeExecution.NumYieldReceived()).To(Equal(1))
+			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
+
+			mockedKernelReplica2.EXPECT().ReceivedExecuteReply(execReply2).Times(1)
+			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica2, gomock.Any()).Times(1).Return(nil)
+			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica2, yieldReason, execReply2)
+			Expect(err).To(BeNil())
+
+			Expect(activeExecution.NumRolesReceived()).To(Equal(2))
+			Expect(activeExecution.NumYieldReceived()).To(Equal(2))
+			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
+
+			mockedKernelReplica3.EXPECT().ReceivedExecuteReply(execReply3).Times(1)
+			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica3, gomock.Any()).Times(1).Return(nil)
+			mockedKernel.EXPECT().NumActiveMigrationOperations().Times(1).Return(1)
+
+			var handledLastYieldNotificationWaitGroup sync.WaitGroup
+			handledLastYieldNotificationWaitGroup.Add(1)
+
+			go func(wg *sync.WaitGroup) {
+				err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica3, yieldReason, execReply3)
+				Expect(err).To(BeNil())
+
+				handledLastYieldNotificationWaitGroup.Done()
+			}(&handledLastYieldNotificationWaitGroup)
+
+			startKernelReturnValChan4 <- &proto.KernelConnectionInfo{
+				Ip:              "0.0.0.0",
+				Transport:       "tcp",
+				ControlPort:     9000,
+				ShellPort:       9001,
+				StdinPort:       9002,
+				HbPort:          9003,
+				IopubPort:       9004,
+				IosubPort:       9005,
+				SignatureScheme: messaging.JupyterSignatureScheme,
+				Key:             kernelKey,
+			}
+
+			replicaStartedOnHost4WaitGroup.Wait()
+
+			Expect(activeExecution.NumRolesReceived()).To(Equal(3))
+			Expect(activeExecution.NumYieldReceived()).To(Equal(3))
+			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
+
+			var notifyKernelRegisteredCalled sync.WaitGroup
+			notifyKernelRegisteredCalled.Add(1)
+
+			smrNodeIdOfMigratedReplica := <-preparedReplicaIdChan
+			Expect(smrNodeIdOfMigratedReplica >= 1 && smrNodeIdOfMigratedReplica <= 3).To(BeTrue())
+			replicaBeingMigrated := mockedKernelReplicas[smrNodeIdOfMigratedReplica-1]
+
+			mockedSession.EXPECT().AddReplica(gomock.Any()).Times(1).DoAndReturn(func(container scheduling.KernelContainer) error {
+				// Update the container that is returned for the associated mocked kernel replica.
+				replicaBeingMigrated.EXPECT().Container().Return(container).AnyTimes()
+
+				return nil
+			})
+
+			migratedReplicaChan := make(chan scheduling.KernelReplica, 1)
+			mockedKernel.EXPECT().AddReplica(gomock.Any(), host4).Times(1).DoAndReturn(func(r scheduling.KernelReplica, host scheduling.Host) error {
+				Expect(host).To(Equal(host4))
+				migratedReplicaChan <- r
+				return nil
+			})
+			mockedKernel.EXPECT().GetReadyReplica().Times(1).DoAndReturn(func() scheduling.KernelReplica {
+				// Return a mocked kernel replica that is NOT the one that is being migrated.
+				var i int32
+				for i = 1; i < 4; i++ {
+					if i == smrNodeIdOfMigratedReplica {
+						continue
+					}
+
+					replica := mockedKernelReplicas[i-1]
+					replica.EXPECT().IsReady().Times(1).Return(true)
+
+					mockedGatewayClient := mockedGatewayClients[i-1]
+					mockedGatewayClient.EXPECT().UpdateReplicaAddr(gomock.Any(), gomock.Any()).Times(1).Return(&proto.Void{}, nil)
+
+					return replica
+				}
+
+				panic("Failed to find ready replica of mocked kernel")
+			})
+
+			createSocketAndListen := func(name string, typ messaging.MessageType, smrNodeId int32) *messaging.Socket {
+				socketName := fmt.Sprintf("MigratedKernel-Router-%s[SmrNodeId=%d]", name, smrNodeId)
+				zmqSocket := zmq4.NewRouter(context.Background())
+				socket := messaging.NewSocket(zmqSocket, 0, typ, socketName)
+
+				err = socket.Listen(fmt.Sprintf("tcp://:%d", socket.Port))
+				Expect(err).To(BeNil())
+				socket.Port = socket.Addr().(*net.TCPAddr).Port
+
+				return socket
+			}
+
+			// Create sockets and call 'listen' so when Cluster Gateway tries to connect, it succeeds.
+			heartbeatSocket := createSocketAndListen("HB", messaging.HBMessage, smrNodeIdOfMigratedReplica)
+			controlSocket := createSocketAndListen("Ctrl", messaging.ControlMessage, smrNodeIdOfMigratedReplica)
+			shellSocket := createSocketAndListen("Shell", messaging.ShellMessage, smrNodeIdOfMigratedReplica)
+			stdinSocket := createSocketAndListen("Stdin", messaging.StdinMessage, smrNodeIdOfMigratedReplica)
+
+			notifyKernelRegistered := func(replicaId int32, targetHost scheduling.Host) {
+				log.Printf("Notifying Gateway that replica %d has registered.\n", replicaId)
+
+				time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25) /* 25 - 50 ms */)
+
+				ctx := context.WithValue(context.Background(), SkipValidationKey, "true")
+				resp, err := clusterGateway.NotifyKernelRegistered(ctx, &proto.KernelRegistrationNotification{
+					ConnectionInfo: &proto.KernelConnectionInfo{
+						Ip:              "localhost",
+						Transport:       "tcp",
+						ControlPort:     int32(controlSocket.Port),
+						ShellPort:       int32(shellSocket.Port),
+						StdinPort:       int32(stdinSocket.Port),
+						HbPort:          int32(heartbeatSocket.Port),
+						IopubPort:       9004,
+						IosubPort:       9005,
+						SignatureScheme: messaging.JupyterSignatureScheme,
+						Key:             kernelKey,
+					},
+					KernelId:           kernelId,
+					SessionId:          "N/A",
+					ReplicaId:          replicaId,
+					HostId:             targetHost.GetID(),
+					KernelIp:           "localhost",
+					PodOrContainerName: fmt.Sprintf("kernel1replica%dcontainer", replicaId),
+					DockerContainerId:  uuid.NewString(),
+					NodeName:           targetHost.GetNodeName(),
+					NotificationId:     uuid.NewString(),
+				})
+				Expect(resp).ToNot(BeNil())
+				Expect(err).To(BeNil())
+				Expect(resp.Id).To(Equal(replicaId))
+
+				notifyKernelRegisteredCalled.Done()
+			}
+
+			go notifyKernelRegistered(smrNodeIdOfMigratedReplica, host4)
+
+			notifyKernelRegisteredCalled.Wait()
+
+			migratedKernelReplica := <-migratedReplicaChan
+			mockedKernel.EXPECT().GetReplicaByID(smrNodeIdOfMigratedReplica).Times(1).Return(migratedKernelReplica, nil)
+
+			var smrReadyCalled sync.WaitGroup
+			smrReadyCalled.Add(1)
+			callSmrReady := func(replicaId int32) {
+				time.Sleep(time.Millisecond * time.Duration(rand.Intn(25)+25 /* 25 - 50 ms */))
+
+				_, err := clusterGateway.SmrReady(context.Background(), &proto.SmrReadyNotification{
+					KernelId:     kernelId,
+					ReplicaId:    replicaId,
+					PersistentId: persistentId,
+					Address:      "localhost",
+				})
+				Expect(err).To(BeNil())
+
+				smrReadyCalled.Done()
+			}
+
+			go func() {
+				callSmrReady(smrNodeIdOfMigratedReplica)
+			}()
+
+			smrReadyCalled.Wait()
+
+			handledLastYieldNotificationWaitGroup.Wait()
+
+			Expect(host4.NumContainers()).To(Equal(1))
+
+			_ = heartbeatSocket.Close()
+			_ = controlSocket.Close()
+			_ = shellSocket.Close()
+			_ = stdinSocket.Close()
 		})
 	})
 
@@ -1213,8 +2396,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			var options *domain.ClusterGatewayOptions
 
 			BeforeEach(func() {
-				config.LogLevel = logger.LOG_LEVEL_ALL
-
 				abstractServer = &server.AbstractServer{
 					DebugMode: true,
 					Log:       config.GetLogger("TestAbstractServer"),
@@ -1265,7 +2446,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(placer.NumHostsInIndex()).To(Equal(0))
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
 
-				By("Not disabling the first 'InitialClusterSize' DefaultSchedulingPolicy Daemons that connect to the Cluster Gateway.")
+				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
 
 				clusterSize := 0
 				for i := 0; i < InitialClusterSize; i++ {
@@ -1293,7 +2474,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(cluster.NumDisabledHosts()).To(Equal(0))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
 
-				By("Disabling any additional DefaultSchedulingPolicy Daemons that connect to the Cluster Gateway during the Initial Connection Period after the first 'InitialClusterSize' DefaultSchedulingPolicy Daemons have already connected.")
+				By("Disabling any additional Local Daemons that connect to the Cluster Gateway during the Initial Connection Period after the first 'InitialClusterSize' Local Daemons have already connected.")
 
 				numDisabledHosts := 0
 				for i := InitialClusterSize; i < InitialClusterSize*2; i++ {
@@ -1373,8 +2554,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
 
 			BeforeEach(func() {
-				config.LogLevel = logger.LOG_LEVEL_ALL
-
 				abstractServer = &server.AbstractServer{
 					DebugMode: true,
 					Log:       config.GetLogger("TestAbstractServer"),
@@ -1591,7 +2770,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				select {
 				case <-ctx.Done():
-					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on DefaultSchedulingPolicy Daemons by Placer.\n")
+					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on Local Daemons by Placer.\n")
 					Expect(false).To(BeTrue())
 				case <-doneChan:
 					{
@@ -1602,7 +2781,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly handling the KernelConnectionInfo")
 
 				startKernelReturnValChan1 <- &proto.KernelConnectionInfo{
-					Ip:              "0.0.0.0",
+					Ip:              "10.0.0.1",
 					Transport:       "tcp",
 					ControlPort:     9000,
 					ShellPort:       9001,
@@ -1614,7 +2793,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Key:             kernelKey,
 				}
 				startKernelReturnValChan2 <- &proto.KernelConnectionInfo{
-					Ip:              "0.0.0.0",
+					Ip:              "10.0.0.2",
 					Transport:       "tcp",
 					ControlPort:     9000,
 					ShellPort:       9001,
@@ -1626,7 +2805,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Key:             kernelKey,
 				}
 				startKernelReturnValChan3 <- &proto.KernelConnectionInfo{
-					Ip:              "0.0.0.0",
+					Ip:              "10.0.0.3",
 					Transport:       "tcp",
 					ControlPort:     9000,
 					ShellPort:       9001,
@@ -1884,7 +3063,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				select {
 				case <-ctx.Done():
-					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on DefaultSchedulingPolicy Daemons by Placer.\n")
+					GinkgoWriter.Printf("Timed-out waiting for StartKernelReplica to be called on Local Daemons by Placer.\n")
 					Expect(false).To(BeTrue())
 				case <-doneChan:
 					{

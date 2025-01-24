@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/queue"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
@@ -68,6 +70,9 @@ type AllocationManager struct {
 	// numCommittedAllocations is the number of active Allocation instances of type CommittedAllocation.
 	numCommittedAllocations types.StatInt32
 
+	// availableGpuDevices is a queue.Fifo containing GPU device IDs.
+	availableGpuDevices *queue.Fifo[int]
+
 	metricsManager *metrics.LocalDaemonPrometheusManager
 }
 
@@ -76,6 +81,11 @@ func NewAllocationManager(resourceSpec types.Spec) *AllocationManager {
 	manager := &AllocationManager{
 		ID:                         uuid.NewString(),
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, *Allocation](128),
+		availableGpuDevices:        queue.NewFifo[int](int(resourceSpec.GPU())),
+	}
+
+	for i := 0; i < int(resourceSpec.GPU()); i++ {
+		manager.availableGpuDevices.Enqueue(i)
 	}
 
 	manager.resourcesWrapper = NewManager(resourceSpec)
@@ -90,7 +100,7 @@ func NewAllocationManager(resourceSpec types.Spec) *AllocationManager {
 	return manager
 }
 
-// ResourcesSnapshot returns a *ManagerSnapshot encoding the current resource quantities
+// ResourcesSnapshot returns a *ManagerSnapshot encoding the working resource quantities
 // tracked by the AllocationManager. The ManagerSnapshot struct is JSON-serializable.
 // This method is intended to be used when the data will be transferred via JSON/ZMQ.
 //
@@ -140,7 +150,7 @@ func (m *AllocationManager) ResourcesSnapshot() *ManagerSnapshot {
 	return snapshot
 }
 
-// ProtoResourcesSnapshot returns a *proto.NodeResourcesSnapshot encoding the current resource quantities
+// ProtoResourcesSnapshot returns a *proto.NodeResourcesSnapshot encoding the working resource quantities
 // tracked by the AllocationManager. This method is intended to be used when the data will be transferred via gRPC.
 //
 // Important note: the *ManagerSnapshot structs created by the AllocationManager's ArbitraryResourceSnapshot method and
@@ -260,7 +270,7 @@ func (m *AllocationManager) SpecVRAM() decimal.Decimal {
 	return m.resourcesWrapper.SpecResources().VRAMAsDecimal().Copy()
 }
 
-// SpecResources returns a snapshot of the current quantities of spec HostResources available
+// SpecResources returns a snapshot of the working quantities of spec HostResources available
 // on this node at the time at which the SpecResources method is called.
 func (m *AllocationManager) SpecResources() *types.DecimalSpec {
 	return m.resourcesWrapper.specResources.ToDecimalSpec()
@@ -294,7 +304,7 @@ func (m *AllocationManager) IdleVRamGB() decimal.Decimal {
 	return m.resourcesWrapper.IdleResources().VRAMAsDecimal().Copy()
 }
 
-// IdleResources returns a snapshot of the current quantities of idle HostResources available
+// IdleResources returns a snapshot of the working quantities of idle HostResources available
 // on this node at the time at which the IdleResources method is called.
 func (m *AllocationManager) IdleResources() *types.DecimalSpec {
 	return m.resourcesWrapper.idleResources.ToDecimalSpec()
@@ -328,10 +338,24 @@ func (m *AllocationManager) CommittedVRamGB() decimal.Decimal {
 	return m.resourcesWrapper.CommittedResources().VRAMAsDecimal().Copy()
 }
 
-// CommittedResources returns a snapshot of the current quantities of committed HostResources available
+// CommittedResources returns a snapshot of the working quantities of committed HostResources available
 // on this node at the time at which the CommittedResources method is called.
 func (m *AllocationManager) CommittedResources() *types.DecimalSpec {
 	return m.resourcesWrapper.committedResources.ToDecimalSpec()
+}
+
+// NumAvailableGpuDevices returns the number of available (i.e., uncommitted/idle) GPU device IDs.
+//
+// NumAvailableGpuDevices is equal to the number of idle GPUs.
+func (m *AllocationManager) NumAvailableGpuDevices() int {
+	return m.availableGpuDevices.Len()
+}
+
+// NumCommittedGpuDevices returns the number of committed GPU device IDs.
+//
+// NumCommittedGpuDevices is equal to the number of committed GPUs.
+func (m *AllocationManager) NumCommittedGpuDevices() int {
+	return int(m.SpecResources().GPU()) - m.availableGpuDevices.Len()
 }
 
 // PendingGPUs returns the sum of the outstanding GPUs of all replicas scheduled onto this node.
@@ -375,7 +399,7 @@ func (m *AllocationManager) PendingVRAM() decimal.Decimal {
 	return m.resourcesWrapper.PendingResources().VRAMAsDecimal().Copy()
 }
 
-// PendingResources returns a snapshot of the current quantities of pending HostResources available
+// PendingResources returns a snapshot of the working quantities of pending HostResources available
 // on this node at the time at which the PendingResources method is called.
 func (m *AllocationManager) PendingResources() *types.DecimalSpec {
 	return m.resourcesWrapper.pendingResources.ToDecimalSpec()
@@ -393,14 +417,16 @@ func (m *AllocationManager) AdjustSpecGPUs(numGpus float64) error {
 
 	numGpusDecimal := decimal.NewFromFloat(numGpus)
 	if numGpusDecimal.LessThan(m.resourcesWrapper.committedResources.gpus) {
-		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s", ErrIllegalGpuAdjustment, m.CommittedGPUs().StringFixed(0), numGpusDecimal.StringFixed(0))
+		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s",
+			ErrIllegalGpuAdjustment, m.CommittedGPUs().StringFixed(1), numGpusDecimal.StringFixed(1))
 	}
 
 	difference := m.SpecGPUs().Sub(numGpusDecimal)
 
 	oldSpecGPUs := m.SpecGPUs()
 	m.resourcesWrapper.specResources.SetGpus(numGpusDecimal)
-	m.log.Debug("Adjusted Spec GPUs from %s to %s.", oldSpecGPUs.StringFixed(0), numGpusDecimal.StringFixed(0))
+	m.log.Debug("Adjusted Spec GPUs from %s to %s.",
+		oldSpecGPUs.StringFixed(1), numGpusDecimal.StringFixed(1))
 
 	// If ORIGINAL - NEW > 0, then we're decreasing the total number of GPUs available.
 	// So, we'll need to decrement the idle GPUs value.
@@ -507,6 +533,25 @@ func (m *AllocationManager) NumPendingAllocations() int {
 	return m.numPendingAllocations.LoadInt()
 }
 
+// GetAllocation returns the Allocation associated with the specific kernel repliac, if one exists.
+func (m *AllocationManager) GetAllocation(replicaId int32, kernelId string) (*Allocation, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var (
+		key              string
+		allocation       *Allocation
+		allocationExists bool
+	)
+
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		return nil, false
+	}
+
+	return allocation, true
+}
+
 // PromoteReservation should be called when a kernel replica has won its leader election and begins executing code.
 // This method simply records that the HostResources committed to the kernel are no longer "merely" a reservation.
 // Instead, the resource allocation will indicate that they committed HostResources are being used by a kernel replica
@@ -594,7 +639,7 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 		m.log.Error("Cannot adjust resources of replica %d of kernel %s, "+
 			"as resources are already committed to that kernel replica: %s", replicaId, kernelId, allocation.String())
 		return fmt.Errorf("%w: could not find existing pending resource allocation for replica %d of kernel %s",
-			ErrInvalidOperation, replicaId, kernelId)
+			scheduling.ErrInvalidOperation, replicaId, kernelId)
 	}
 
 	// First, release the original amount of pending resources.
@@ -628,6 +673,9 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 		return err
 	}
 
+	m.log.Debug("Successfully adjusting pending resource request for replica %d of kernel \"%s\" from %v to %v.",
+		replicaId, kernelId, originalAllocatedResources.String(), adjustedAllocation.ToSpecString())
+
 	return nil
 }
 
@@ -650,7 +698,7 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 //
 // This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
 // The sync.Mutex is released before the function returns.
-func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) error {
+func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) ([]int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -664,7 +712,7 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
 		m.log.Error("Cannot commit HostResources to replica %d of kernel %s: no existing resource allocation "+
 			"found for that kernel replica.", replicaId, kernelId)
-		return fmt.Errorf("%w: no resource allocation found for replica %d of kernel %s",
+		return nil, fmt.Errorf("%w: no resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
 	}
 
@@ -673,7 +721,7 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 		m.log.Error("Found existing resource allocation for replica %d of kernel %s; "+
 			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsReservation=true.",
 			replicaId, kernelId, allocation.AllocationType.String(), PendingResources.String())
-		return fmt.Errorf("%w: expected '%s', found '%s'",
+		return nil, fmt.Errorf("%w: expected '%s', found '%s'",
 			ErrInvalidAllocationType, PendingResources.String(), allocation.AllocationType.String())
 	}
 
@@ -692,40 +740,37 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 
 	// First, validate against this scheduling.Host's spec.
 	if err := m.resourcesWrapper.specResources.ValidateWithError(requestedResources); err != nil {
-		m.log.Error("Could not commit the following HostResources to replica %d of kernel %s due "+
+		m.log.Warn("Could not commit the following HostResources to replica %d of kernel %s due "+
 			"to insufficient host spec: %s. Specific reason for commitment failure: %v.",
 			replicaId, kernelId, requestedResources.String(), err)
-		return err
+		return nil, err
 	}
 
 	// Next, validate against our actual idle resource capacity.
 	if err := m.resourcesWrapper.idleResources.ValidateWithError(requestedResources); err != nil {
-		m.log.Error("Could not commit HostResources to replica %d of kernel %s: %s. "+
+		m.log.Warn("Could not commit HostResources to replica %d of kernel %s: %s. "+
 			"Reason for commitment failure: %v.", replicaId, kernelId, requestedResources.String(), err)
-		return err
+		return nil, err
 	}
+
+	m.log.Debug("Committing resources. Current resource counts: %s. Resources to be committed: %v.",
+		m.resourcesWrapper.GetResourceCountsAsString(), requestedResources.String())
 
 	// If we've gotten this far, then we have enough HostResources available to commit the requested HostResources
 	// to the specified kernel replica. So, let's do that now. First, we'll decrement the idle HostResources.
 	if err := m.resourcesWrapper.idleResources.Subtract(requestedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
+		return nil, err
 	}
 
 	// Next, we'll decrement the pending HostResources. We decrement because the HostResources are no longer "pending".
 	// Instead, they are actively bound/committed to the kernel replica.
 	if err := m.resourcesWrapper.pendingResources.Subtract(requestedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
+		return nil, err
 	}
 
 	// Next, we'll increment the committed HostResources.
 	if err := m.resourcesWrapper.committedResources.Add(requestedResources); err != nil {
-		// For now, let's panic, as this shouldn't happen. If there is an error, then it indicates that there's a bug,
-		// as we passed all the validation checks up above.
-		panic(err)
+		return nil, err
 	}
 
 	// Finally, we'll update the Allocation struct associated with this request.
@@ -740,12 +785,27 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	allocation.AllocationType = CommittedAllocation
 	allocation.IsReservation = isReservation
 
+	gpuDeviceIds := make([]int, 0, int(allocation.GPUs.InexactFloat64()))
+	for len(gpuDeviceIds) < int(allocation.GPUs.InexactFloat64()) {
+		gpuDeviceId, ok := m.availableGpuDevices.Dequeue()
+
+		if !ok {
+			panic("Received no GPU device ID when one should have been available.")
+		}
+
+		m.log.Debug("Allocating GPU #%d to replica %d of kernel '%s'.", gpuDeviceId, replicaId, kernelId)
+		gpuDeviceIds = append(gpuDeviceIds, gpuDeviceId)
+	}
+
+	allocation.GpuDeviceIds = gpuDeviceIds
+
 	// Update the pending/committed allocation counters.
 	m.numPendingAllocations.Decr()
 	m.numCommittedAllocations.Incr()
 
-	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isReservation=%v): %v",
-		replicaId, kernelId, isReservation, requestedResources.String())
+	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isReservation=%v): %v. GPUs reserved/allocated: %v.",
+		replicaId, kernelId, isReservation, requestedResources.String(), allocation.GpuDeviceIds)
+	m.log.Debug("Updated resource counts: %s.", m.resourcesWrapper.GetResourceCountsAsString())
 
 	// Update Prometheus metrics.
 	// m.resourceMetricsCallback(m.Manager)
@@ -755,10 +815,10 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	err := m.unsafePerformConsistencyCheck()
 	if err != nil {
 		m.log.Error("Discovered an inconsistency: %v", err)
-		return err
+		return nil, err
 	}
 
-	return nil
+	return gpuDeviceIds, nil
 }
 
 // ReleaseCommittedResources uncommits/unbinds HostResources from a particular kernel replica, such that the HostResources are made
@@ -803,10 +863,10 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 	// Perform the resource count adjustments, as we've validated that everything is correct/as it should be.
 	// We'll pass nil for the second argument as we don't need the *types.DecimalSpec anywhere else in
 	// the ReleaseCommittedResources method.
-	m.unsafeReleaseCommittedResources(allocation, nil)
+	m.unsafeReleaseCommittedResources(allocation, allocation.ToDecimalSpec())
 
-	m.log.Debug("Attempting to release the following committed HostResources from replica %d of kernel %s: %v. Current committed resource counts: %v.",
-		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.committedResources.String())
+	m.log.Debug("Attempting to release the following committed HostResources from replica %d of kernel %s: %v. Current resource counts: %v.",
+		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.GetResourceCountsAsString())
 
 	// Finally, we'll update the Allocation struct associated with this request.
 	// This involves updating its AllocationType field to be PendingAllocation.
@@ -815,8 +875,8 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 	// allocations.
 	m.unsafeDemoteCommittedAllocationToPendingAllocation(allocation)
 
-	m.log.Debug("Successfully released the following (previously) committed HostResources to replica %d of kernel %s: %v. Updated committed resource counts: %v.",
-		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.committedResources.String())
+	m.log.Debug("Successfully released the following (previously) committed HostResources to replica %d of kernel %s: %v. Updated resource counts: %v.",
+		replicaId, kernelId, allocation.ToSpecString(), m.resourcesWrapper.GetResourceCountsAsString())
 
 	// Update Prometheus metrics.
 	// m.resourceMetricsCallback(m.Manager)
@@ -970,6 +1030,27 @@ func (m *AllocationManager) HasSufficientIdleResourcesAvailable(spec types.Spec)
 	return m.resourcesWrapper.idleResources.Validate(spec)
 }
 
+func (m *AllocationManager) GetGpuDeviceIdsAssignedToReplica(replicaId int32, kernelId string) ([]int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var (
+		key              string
+		allocation       *Allocation
+		allocationExists bool
+	)
+
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		m.log.Error("Cannot retrieve GPU device IDs committed to replica %d of kernel %s: no existing resource "+
+			"allocation found for that kernel replica.", replicaId, kernelId)
+		return nil, fmt.Errorf("%w: no resource allocation found for replica %d of kernel %s",
+			ErrAllocationNotFound, replicaId, kernelId)
+	}
+
+	return allocation.GpuDeviceIds, nil
+}
+
 // HasSufficientIdleResourcesAvailableWithError returns true if there are sufficiently many idle HostResources available
 // on the node such that the requested HostResources could be commited to a locally-running kernel replica.
 //
@@ -1073,9 +1154,15 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 }
 
 func (m *AllocationManager) unsafeUnsubscribePendingResources(allocatedResources *types.DecimalSpec, key string) error {
+	m.log.Debug("Deallocating pending resources. Current resources: %v. Resources to be deallocated: %v",
+		m.resourcesWrapper.GetResourceCountsAsString(), allocatedResources.String())
+
 	if err := m.resourcesWrapper.pendingResources.Subtract(allocatedResources); err != nil {
 		return err
 	}
+
+	m.log.Debug("Deallocated pending resources. Updated pending resources: %v",
+		m.resourcesWrapper.pendingResources.String())
 
 	m.numPendingAllocations.Decr()
 
@@ -1095,11 +1182,15 @@ func (m *AllocationManager) unsafeUnsubscribePendingResources(allocatedResources
 func (m *AllocationManager) unsafeAllocatePendingResources(decimalSpec *types.DecimalSpec, allocation *Allocation, key string, replicaId int32, kernelId string) error {
 	// First, validate against this scheduling.Host's spec.
 	if err := m.resourcesWrapper.specResources.ValidateWithError(decimalSpec); err != nil {
-		m.log.Error("Could not subscribe the following pending HostResources to replica %d of kernel %s due "+
-			"to insufficient host spec: %s. Specific reason for subscription failure: %v.",
-			replicaId, kernelId, decimalSpec.String(), err)
+		m.log.Warn("Replica %d of kernel \"%s\" is requesting more resources [%v] than host has available [%v]. Specific reason for subscription failure: %v.",
+			replicaId, kernelId, decimalSpec.String(), m.resourcesWrapper.specResources.GetResourceCountsAsString(), err)
+
+		// TODO: Should this return an error? Shouldn't we just prohibit scheduling/allocating more resources than we can possibly provide?
 		return err
 	}
+
+	m.log.Debug("Allocating pending resources. Current resources: %s. Resources to be allocated: %v.",
+		m.resourcesWrapper.GetResourceCountsAsString(), decimalSpec.String())
 
 	// If we've gotten this far, then we have enough HostResources available to subscribe the requested HostResources
 	// to the specified kernel replica. So, let's do that now.
@@ -1108,6 +1199,9 @@ func (m *AllocationManager) unsafeAllocatePendingResources(decimalSpec *types.De
 		// as we passed all the validation checks up above.
 		return err
 	}
+
+	m.log.Debug("Allocated pending resources. New resource counts: %s.",
+		m.resourcesWrapper.GetResourceCountsAsString())
 
 	// Store the allocation in the mapping.
 	m.allocationKernelReplicaMap.Store(key, allocation)
@@ -1164,6 +1258,9 @@ func (m *AllocationManager) unsafeReleaseCommittedResources(allocation *Allocati
 		allocatedResources = allocation.ToDecimalSpec()
 	}
 
+	m.log.Debug("Releasing committed resources. Current resource counts: %s. Resources to be deallocated: %v.",
+		m.resourcesWrapper.GetResourceCountsAsString(), allocatedResources.String())
+
 	// If we've gotten this far, then we have enough HostResources available to commit the requested HostResources
 	// to the specified kernel replica. So, let's do that now. First, we'll increment the idle HostResources.
 	if err := m.resourcesWrapper.idleResources.Add(allocatedResources); err != nil {
@@ -1185,4 +1282,13 @@ func (m *AllocationManager) unsafeReleaseCommittedResources(allocation *Allocati
 		// as we passed all the validation checks up above.
 		panic(err)
 	}
+
+	for _, gpuDeviceId := range allocation.GpuDeviceIds {
+		m.availableGpuDevices.Enqueue(gpuDeviceId)
+	}
+
+	// Clear the GpuDeviceIds field of the allocation.
+	allocation.GpuDeviceIds = []int{}
+
+	m.log.Debug("Released committed resources. Updated resource counts: %s.", m.resourcesWrapper.GetResourceCountsAsString())
 }
