@@ -2038,7 +2038,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		SmrPort:                         int32(d.smrPort),
 	}
 
-	d.Unlock()
+	d.mu.Unlock()
 
 	d.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during AddOperation \"%s\".",
 		replicaSpec.ReplicaId, in.KernelId, addReplicaOp.OperationID())
@@ -2172,7 +2172,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	_, loaded := d.kernelRegisteredNotifications.LoadOrStore(in.NotificationId, in)
 	if loaded {
 		d.log.Warn("Received duplicate \"Kernel Registered\" notification with ID=%s", in.NotificationId)
-		d.Unlock()
+		d.mu.Unlock()
 		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
 	}
 
@@ -2302,7 +2302,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	// The replica is fully operational at this point, so record that it is ready.
 	replica.SetReady()
-	d.Unlock()
+	d.mu.Unlock()
 
 	waitGroup.SetReplica(replicaId, kernelIp)
 
