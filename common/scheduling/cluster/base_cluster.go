@@ -756,6 +756,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				EventId:             uuid.NewString(),
 				Name:                statistics.ScaleOutStarted,
 				KernelId:            "-",
 				ReplicaId:           -1,
@@ -822,6 +823,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				EventId:             uuid.NewString(),
 				Name:                statistics.ScaleOutEnded,
 				KernelId:            "-",
 				ReplicaId:           -1,
@@ -882,6 +884,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				EventId:             uuid.NewString(),
 				Name:                statistics.ScaleInStarted,
 				KernelId:            "-",
 				ReplicaId:           -1,
@@ -939,6 +942,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				EventId:             uuid.NewString(),
 				Name:                statistics.ScaleInEnded,
 				KernelId:            "-",
 				ReplicaId:           -1,
@@ -1005,6 +1009,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				EventId:             uuid.NewString(),
 				Name:                statistics.ScaleInStarted,
 				KernelId:            "-",
 				ReplicaId:           -1,
@@ -1061,6 +1066,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				EventId:             uuid.NewString(),
 				Name:                statistics.ScaleInEnded,
 				KernelId:            "-",
 				ReplicaId:           -1,

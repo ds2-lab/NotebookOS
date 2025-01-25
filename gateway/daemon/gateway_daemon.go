@@ -1636,12 +1636,39 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 
 // scheduleReplicas actually scheduled the replicas of the specified kernel.
 func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel scheduling.Kernel, in *proto.KernelSpec) error {
-	d.log.Debug("Scheduling replica container(s) of kernel %s now.", kernel.ID())
+	d.log.Debug("Scheduling replica container(s) of kernel %s startTime.", kernel.ID())
+
+	scheduleReplicasStartedEvents := make(map[int32]*statistics.ClusterEvent)
+	replicaRegisteredTimestamps := make(map[int32]time.Time)
+	var replicaRegisteredEventsMutex sync.Mutex
+
+	d.clusterStatisticsMutex.Lock()
+	startTime := time.Now()
+	for i := 0; i < d.NumReplicas(); i++ {
+		replicaId := int32(i + 1)
+		event := &statistics.ClusterEvent{
+			EventId:             uuid.NewString(),
+			Name:                statistics.ScheduleReplicasStarted,
+			KernelId:            in.Id,
+			ReplicaId:           replicaId,
+			Timestamp:           startTime,
+			TimestampUnixMillis: startTime.UnixMilli(),
+		}
+		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, event)
+		scheduleReplicasStartedEvents[replicaId] = event
+	}
+	d.clusterStatisticsMutex.Unlock()
 
 	// Record that this kernel is starting.
 	kernelStartedChan := make(chan struct{})
 	d.kernelsStarting.Store(in.Id, kernelStartedChan)
 	created := newRegistrationWaitGroups(d.NumReplicas())
+	created.AddOnReplicaRegisteredCallback(func(replicaId int32) {
+		replicaRegisteredEventsMutex.Lock()
+		defer replicaRegisteredEventsMutex.Unlock()
+
+		replicaRegisteredTimestamps[replicaId] = time.Now()
+	})
 	d.waitGroups.Store(in.Id, created)
 
 	err := d.cluster.Scheduler().DeployKernelReplicas(ctx, in, []scheduling.Host{ /* No blacklisted hosts */ })
@@ -1680,7 +1707,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	d.log.Debug("Waiting for replicas of new kernel %s to register. Number of kernels starting: %d.",
 		in.Id, d.kernelsStarting.Len())
 	created.Wait()
-	d.log.Debug("All %d replica(s) of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster now.",
+	d.log.Debug("All %d replica(s) of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster startTime.",
 		d.NumReplicas(), in.Id)
 
 	// Wait until all replicas have started.
@@ -1702,6 +1729,28 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	for _, sess := range kernel.Sessions() {
 		d.log.Debug("Storing kernel %v under session ID \"%s\".", kernel, sess)
 		d.kernels.Store(sess, kernel)
+	}
+
+	// Create corresponding events for when the replicas registered.
+	for replicaId, timestamp := range replicaRegisteredTimestamps {
+		timeElapsed := timestamp.Sub(startTime)
+		event := &statistics.ClusterEvent{
+			EventId:             uuid.NewString(),
+			Name:                statistics.ScheduleReplicasStarted,
+			KernelId:            in.Id,
+			ReplicaId:           replicaId,
+			Timestamp:           timestamp,
+			TimestampUnixMillis: timestamp.UnixMilli(),
+			Duration:            timeElapsed,
+			DurationMillis:      timeElapsed.Milliseconds(),
+			Metadata: map[string]interface{}{
+				"start_time_unix_millis":       startTime.UnixMilli(),
+				"corresponding_start_event_id": scheduleReplicasStartedEvents[replicaId].EventId,
+			},
+		}
+		d.clusterStatisticsMutex.Lock()
+		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, event)
+		d.clusterStatisticsMutex.Unlock()
 	}
 
 	return nil
@@ -1785,6 +1834,7 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	d.clusterStatisticsMutex.Lock()
 	now := time.Now()
 	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		EventId:             uuid.NewString(),
 		Name:                statistics.KernelCreationStarted,
 		KernelId:            in.Id,
 		ReplicaId:           -1,
@@ -1893,6 +1943,7 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 
 	now := time.Now()
 	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		EventId:             uuid.NewString(),
 		Name:                statistics.KernelCreationComplete,
 		KernelId:            kernelId,
 		ReplicaId:           -1,
@@ -2161,6 +2212,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	d.clusterStatisticsMutex.Lock()
 	now := time.Now()
 	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		EventId:             uuid.NewString(),
 		Name:                statistics.KernelReplicaRegistered,
 		KernelId:            kernelId,
 		ReplicaId:           -1,
@@ -2308,7 +2360,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	waitGroup.SetReplica(replicaId, kernelIp)
 
-	waitGroup.Register()
+	waitGroup.Register(replicaId)
 	d.log.Debug("Done registering Kernel for kernel %s, replica %d on host %s. Resource spec: %v",
 		kernelId, replicaId, hostId, kernelSpec.ResourceSpec)
 	d.log.Debug("WaitGroup for Kernel \"%s\": %s", kernelId, waitGroup.String())
@@ -2521,6 +2573,7 @@ func (d *ClusterGatewayImpl) KillKernel(_ context.Context, in *proto.KernelId) (
 
 		now := time.Now()
 		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+			EventId:             uuid.NewString(),
 			Name:                statistics.KernelStopped,
 			KernelId:            in.Id,
 			ReplicaId:           -1,
@@ -2646,6 +2699,7 @@ func (d *ClusterGatewayImpl) StopKernel(_ context.Context, in *proto.KernelId) (
 
 	now := time.Now()
 	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		EventId:             uuid.NewString(),
 		Name:                statistics.KernelStopped,
 		KernelId:            in.Id,
 		ReplicaId:           -1,
@@ -2815,6 +2869,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 
 	d.clusterStatisticsMutex.Lock()
 	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+		EventId:             uuid.NewString(),
 		Name:                statistics.KernelMigrationStarted,
 		KernelId:            replicaInfo.KernelId,
 		ReplicaId:           replicaInfo.ReplicaId,
@@ -2871,6 +2926,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 
 		now := time.Now()
 		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+			EventId:             uuid.NewString(),
 			Name:                statistics.KernelMigrationComplete,
 			KernelId:            replicaInfo.KernelId,
 			ReplicaId:           replicaInfo.ReplicaId,
@@ -2901,6 +2957,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 
 		now := time.Now()
 		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
+			EventId:             uuid.NewString(),
 			Name:                statistics.KernelMigrationComplete,
 			KernelId:            replicaInfo.KernelId,
 			ReplicaId:           replicaInfo.ReplicaId,
@@ -3380,6 +3437,20 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 // "execute_request" messages. It first calls processExecuteRequest before forwarding the "execute_request"
 // to the replicas (well, to the Local Schedulers first).
 func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMsg *messaging.JupyterMessage) error {
+	// First, update the kernel's resource request (for replica-based policies) if there's an updated
+	// resource request in the metadata of the "execute_request" message.
+	//
+	// We do this before even checking if the replicas are scheduled.
+	// If they aren't scheduled, then it would be best for the spec to be up to date before we bother scheduling them.
+	// And if they're already scheduled, then their specs will be updated.
+	err := d.processExecuteRequestMetadata(jMsg, kernel)
+	if err != nil {
+		jMsg.IsFailedExecuteRequest = true
+		return err
+	}
+
+	// Now we check if the replicas are scheduled. For static and dynamic, they will be, as well as with reservation.
+	// For FCFS, they will not already be scheduled. (I say "they", but for FCFS, there's just 1 replica.)
 	_, replicasAlreadyScheduled, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage)
 	if err != nil {
 		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
@@ -3565,14 +3636,6 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	err = session.SetExpectingTraining().Error()
 	if err != nil {
 		d.notifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
-		msg.IsFailedExecuteRequest = true
-		return nil, err
-	}
-
-	// Update the kernel's resource request (for replica-based policies) if there's an updated
-	// resource request in the metadata of the "execute_request" message.
-	err = d.processExecuteRequestMetadata(msg, kernel)
-	if err != nil {
 		msg.IsFailedExecuteRequest = true
 		return nil, err
 	}

@@ -187,16 +187,34 @@ type ResourceScalingPolicy interface {
 
 // ScalingConfiguration encapsulates the various parameters related to auto-scaling.
 type ScalingConfiguration struct {
-	GpusPerHost                 int           // The number of virtual GPUs per host.
-	ScalingFactor               float64       // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
-	MaximumHostsToReleaseAtOnce int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	ScalingIntervalSec          int32         // How often to call UpdateRatio in seconds.
-	ScalingInterval             time.Duration // How often to call UpdateRatio .
-	ScalingLimit                float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
-	// PredictiveAutoscalingEnabled bool          // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
-	ScalingBufferSize int32 // How many extra hosts we provision so that we can quickly scale if needed.
-	MinimumCapacity   int32 // The minimum number of nodes we must have available at any time.
-	MaximumCapacity   int32 // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+	// GpusPerHost is the number of virtual GPUs per host.
+	GpusPerHost int
+
+	// ScalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	ScalingFactor float64
+
+	// MaximumHostsToReleaseAtOnce defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
+	MaximumHostsToReleaseAtOnce int32
+
+	// ScalingIntervalSec instructs us how often to call UpdateRatio in seconds.
+	// Auto-scaling occurs at the end of UpdateRatio.
+	// UpdateRatio updates the subscription ratio, which is used to determine the ratio of subscribed GPUs
+	// to how many are actually being used (by actively-training kernel replicas).
+	// We use that information to inform if we should scale in or out.
+	ScalingIntervalSec int32
+	ScalingInterval    time.Duration
+
+	// ScalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
+	ScalingLimit float64
+
+	// ScalingBufferSize is how many extra hosts we provision so that we can quickly scale if needed.
+	ScalingBufferSize int32
+
+	// MinimumCapacity is the minimum number of nodes we must have available at any time.
+	MinimumCapacity int32
+
+	// MaximumCapacity is the maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
+	MaximumCapacity int32
 }
 
 // NewScalingConfiguration creates a new ScalingConfiguration struct, populating its field with the corresponding

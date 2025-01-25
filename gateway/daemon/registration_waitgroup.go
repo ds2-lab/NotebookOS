@@ -10,6 +10,9 @@ type registrationWaitGroups struct {
 	registered    sync.WaitGroup
 	numRegistered int
 
+	onReplicaRegisteredCallbacks      []func(replicaId int32)
+	onReplicaRegisteredCallbacksMutex sync.Mutex
+
 	// Decremented each time we've notified a kernel of its ID.
 	notified    sync.WaitGroup
 	numNotified int
@@ -27,13 +30,21 @@ type registrationWaitGroups struct {
 // - numReplicas (int): Value to be added to the "notified" and "registered" sync.WaitGroups of the registrationWaitGroups.
 func newRegistrationWaitGroups(numReplicas int) *registrationWaitGroups {
 	wg := &registrationWaitGroups{
-		replicas: make(map[int32]string),
+		replicas:                     make(map[int32]string),
+		onReplicaRegisteredCallbacks: make([]func(replicaId int32), 0),
 	}
 
 	wg.notified.Add(numReplicas)
 	wg.registered.Add(numReplicas)
 
 	return wg
+}
+
+func (wg *registrationWaitGroups) AddOnReplicaRegisteredCallback(f func(int32)) {
+	wg.onReplicaRegisteredCallbacksMutex.Lock()
+	defer wg.onReplicaRegisteredCallbacksMutex.Unlock()
+
+	wg.onReplicaRegisteredCallbacks = append(wg.onReplicaRegisteredCallbacks, f)
 }
 
 func (wg *registrationWaitGroups) String() string {
@@ -52,13 +63,18 @@ func (wg *registrationWaitGroups) Notify() {
 }
 
 // Register calls `Done()` on the "registered" sync.WaitGroup.
-func (wg *registrationWaitGroups) Register() {
+func (wg *registrationWaitGroups) Register(replicaId int32) {
 	wg.registered.Done()
 
 	wg.replicasMutex.Lock()
-	defer wg.replicasMutex.Unlock()
-
 	wg.numRegistered += 1
+	wg.replicasMutex.Unlock()
+
+	wg.onReplicaRegisteredCallbacksMutex.Lock()
+	for _, callback := range wg.onReplicaRegisteredCallbacks {
+		callback(replicaId)
+	}
+	wg.onReplicaRegisteredCallbacksMutex.Unlock()
 }
 
 func (wg *registrationWaitGroups) SetReplica(idx int32, hostname string) {

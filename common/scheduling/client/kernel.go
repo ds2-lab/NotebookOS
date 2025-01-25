@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/petermattis/goid"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
@@ -447,6 +448,8 @@ func (c *KernelReplicaClient) KernelStartedTraining() error {
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				EventId:             uuid.NewString(),
 				Name:                statistics.KernelTrainingStarted,
 				KernelId:            c.id,
 				ReplicaId:           c.replicaId,
@@ -594,6 +597,7 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+				EventId:             uuid.NewString(),
 				Name:                statistics.KernelTrainingEnded,
 				KernelId:            c.id,
 				ReplicaId:           c.replicaId,

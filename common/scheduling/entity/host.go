@@ -938,8 +938,8 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 
 	oldSubscribedRatio := h.subscribedRatio
 	h.RecomputeSubscribedRatio()
-	h.log.Debug("Successfully reserved resources for new replica of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
-		spec.Id, oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
+	h.log.Debug("Successfully reserved resources for new replica of kernel %s. Old subscription ratio: %s. New subscription ratio: %s. Updated resources: %v.",
+		spec.Id, oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3), h.GetResourceCountsAsString())
 	h.reservations.Store(spec.Id, NewReservation(h.ID, spec.Id, time.Now(), usePendingResources, spec.DecimalSpecFromKernelSpec()))
 
 	return true, nil
