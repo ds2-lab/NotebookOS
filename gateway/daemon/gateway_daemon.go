@@ -170,7 +170,7 @@ func ensureErrorGrpcCompatible(err error, code codes.Code) error {
 // https://jupyter-client.readthedocs.io/en/stable/messaging.html
 // https://hackage.haskell.org/package/jupyter-0.9.0/docs/Jupyter-Messages.html
 type ClusterGatewayImpl struct {
-	sync.Mutex
+	mu sync.RWMutex
 
 	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
 	// as the request history.
@@ -2167,7 +2167,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	})
 	d.clusterStatisticsMutex.Unlock()
 
-	d.Lock()
+	d.mu.Lock()
 
 	_, loaded := d.kernelRegisteredNotifications.LoadOrStore(in.NotificationId, in)
 	if loaded {
@@ -4229,13 +4229,13 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 		Kernels: make([]*proto.DistributedJupyterKernel, 0, max(d.kernelIdToKernel.Len(), 1)),
 	}
 
-	d.Lock()
+	d.mu.RLock()
 	kernels := make([]scheduling.Kernel, 0, d.kernelIdToKernel.Len())
 	d.kernelIdToKernel.Range(func(id string, kernel scheduling.Kernel) bool {
 		kernels = append(kernels, kernel)
 		return true
 	})
-	d.Unlock()
+	d.mu.RUnlock()
 
 	for _, kernel := range kernels {
 		respKernel := &proto.DistributedJupyterKernel{

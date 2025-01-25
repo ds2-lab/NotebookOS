@@ -362,8 +362,10 @@ func (c *DistributedKernelClient) ResourceSpec() *types.DecimalSpec {
 //
 // It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/Replica.
 func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.Spec) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	// We'll read-lock because, while we're updating the spec of one of the kernels,
+	// we're not modifying the kernel slice or any properties of the DistributedKernelClient directly.
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	c.log.Debug("Updating ResourceSpec of kernel \"%s\" from %v to %v.",
 		c.id, c.spec.ResourceSpec.String(), newSpec.String())
@@ -498,13 +500,12 @@ func (c *DistributedKernelClient) AddOperationCompleted() {
 // Replicas returns the replicas in the kernel.
 func (c *DistributedKernelClient) Replicas() []scheduling.KernelReplica {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	// Make a copy of references.
 	ret := make([]scheduling.KernelReplica, 0, len(c.replicas))
 	for _, replica := range c.replicas {
 		ret = append(ret, replica)
 	}
+	c.mu.RUnlock()
 
 	// Ensure that the replicas are sorted from smallest to largest.
 	slices.SortFunc(ret, func(a, b scheduling.KernelReplica) int {
@@ -530,12 +531,11 @@ func (c *DistributedKernelClient) PodOrContainerName(id int32) (string, error) {
 // Pass -1 for smrNodeId to automatically select the next node ID.
 func (c *DistributedKernelClient) PrepareNewReplica(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if smrNodeId == -1 {
 		smrNodeId = c.nextNodeId
 		c.nextNodeId++
 	}
+	c.mu.Unlock()
 
 	spec := &proto.KernelReplicaSpec{
 		Kernel:       c.spec,
@@ -648,11 +648,8 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 
 func (c *DistributedKernelClient) GetReplicaByID(id int32) (scheduling.KernelReplica, error) {
 	c.mu.RLock()
-	// if id <= int32(len(c.replicas)) {
-	// 	replica = c.replicas[id-1]
-	// }
+	defer c.mu.RUnlock()
 	replica, ok := c.replicas[id]
-	c.mu.RUnlock()
 
 	if replica == nil || !ok {
 		validIds := make([]int32, 0, len(c.replicas))
