@@ -449,7 +449,6 @@ func (c *KernelReplicaClient) KernelStartedTraining() error {
 			now := time.Now()
 			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
 				EventId:             uuid.NewString(),
-				EventId:             uuid.NewString(),
 				Name:                statistics.KernelTrainingStarted,
 				KernelId:            c.id,
 				ReplicaId:           c.replicaId,
