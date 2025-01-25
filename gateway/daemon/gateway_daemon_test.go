@@ -820,6 +820,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 			}
 
+			kernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
 			mockScheduler.EXPECT().FindReadyReplica(kernel, jMsg.JupyterMessageId()).Times(1).DoAndReturn(
 				func(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
 					selectedReplica, err := schedulingPolicy.(scheduler.SchedulingPolicy).FindReadyReplica(kernel, executionId)
@@ -843,6 +844,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				return nil
 			})
+
+			kernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			go func() {
@@ -1881,6 +1884,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedSession.EXPECT().IsIdle().AnyTimes().Return(true)
 			mockedSession.EXPECT().IsTraining().AnyTimes().Return(false)
 
+			mockedKernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
 			mockedSession.EXPECT().SetExpectingTraining().Times(1).Return(promise.Resolved(nil))
 
 			clientShellSocket := messaging.NewSocket(zmq4.NewDealer(context.Background()), 0, messaging.ShellMessage, "ClientShellSocket")
@@ -2077,6 +2081,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				gomock.Any(), gomock.Any()).Times(1).Return(nil)
 
 			//mockedKernel.EXPECT().RegisterActiveExecution(jMsg).Times(1).Return(nil, nil)
+
+			mockedKernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
 
 			var shellHandlerWaitGroup sync.WaitGroup
 			shellHandlerWaitGroup.Add(1)

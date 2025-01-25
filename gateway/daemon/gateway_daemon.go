@@ -4230,13 +4230,16 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 	}
 
 	d.Lock()
-	defer d.Unlock()
-
+	kernels := make([]scheduling.Kernel, 0, d.kernelIdToKernel.Len())
 	d.kernelIdToKernel.Range(func(id string, kernel scheduling.Kernel) bool {
-		// d.log.Debug("Will be returning Kernel %s with %d replica(s) [%v] [%v].", id, kernel.Len(), kernel.Status(), kernel.AggregateBusyStatus())
+		kernels = append(kernels, kernel)
+		return true
+	})
+	d.Unlock()
 
+	for _, kernel := range kernels {
 		respKernel := &proto.DistributedJupyterKernel{
-			KernelId:            id,
+			KernelId:            kernel.ID(),
 			NumReplicas:         int32(kernel.Size()),
 			Status:              kernel.Status().String(),
 			AggregateBusyStatus: kernel.AggregateBusyStatus(),
@@ -4244,9 +4247,10 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 		}
 
 		replicas := make([]*proto.JupyterKernelReplica, 0, len(kernel.Replicas()))
-		for _, replica := range kernel.Replicas() {
+		kernelReplicas := kernel.Replicas()
+		for _, replica := range kernelReplicas {
 			kernelReplica := &proto.JupyterKernelReplica{
-				KernelId:  id,
+				KernelId:  kernel.ID(),
 				ReplicaId: replica.ReplicaID(),
 				PodId:     replica.GetPodOrContainerName(),
 				NodeId:    replica.NodeName(),
@@ -4256,9 +4260,7 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 		respKernel.Replicas = replicas
 
 		resp.Kernels = append(resp.Kernels, respKernel)
-
-		return true
-	})
+	}
 
 	return resp, nil
 }
