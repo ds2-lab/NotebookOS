@@ -2622,7 +2622,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		Context("Autoscaling", func() {
 			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
 			var options *domain.ClusterGatewayOptions
-			var mockCtrl *gomock.Controller
 
 			BeforeEach(func() {
 				abstractServer = &server.AbstractServer{
@@ -2634,12 +2633,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				if err != nil {
 					panic(err)
 				}
-
-				mockCtrl = gomock.NewController(GinkgoT())
-			})
-
-			AfterEach(func() {
-				mockCtrl.Finish()
 			})
 
 			It("Will correctly and automatically scale-out", func() {

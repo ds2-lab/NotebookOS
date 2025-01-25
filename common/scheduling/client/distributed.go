@@ -132,6 +132,10 @@ type DistributedKernelClient struct {
 
 	debugMode bool
 
+	// lastPrimaryReplica is the KernelReplica that served as the primary replica for the previous
+	// code execution. It will be nil if no code executions have occurred.
+	lastPrimaryReplica scheduling.KernelReplica
+
 	log     logger.Logger
 	mu      sync.RWMutex
 	closing int32
@@ -851,7 +855,7 @@ func (c *DistributedKernelClient) preprocessShellResponse(replica scheduling.Ker
 	}
 
 	activeExec := c.GetActiveExecution(msg.JupyterParentMessageId())
-	if activeExec != nil && c.debugMode { // Replies are only saved if debug mode is enabled.
+	if activeExec != nil {
 		err := activeExec.RegisterReply(replica.ReplicaID(), msg, true)
 		if err != nil {
 			c.log.Error("Failed to register \"execute_reply\" message: %v", err)
@@ -1175,6 +1179,12 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	return nil
 }
 
+// LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
+// code execution, or nil if no code executions have occurred.
+func (c *DistributedKernelClient) LastPrimaryReplica() scheduling.KernelReplica {
+	return c.lastPrimaryReplica
+}
+
 // handleDoneCallbackForRequest is called from RequestWithHandlerAndReplicas when the RequestWithHandlerAndReplicas
 // method is passed a non-nil done callback function.
 //
@@ -1467,6 +1477,8 @@ func (c *DistributedKernelClient) handleSmrLeadTaskMessage(kernelReplica schedul
 	}
 
 	activeExecution.SetActiveReplica(kernelReplica)
+
+	c.lastPrimaryReplica = kernelReplica
 
 	// Record that the kernel has started training.
 	if err := kernelReplica.KernelStartedTraining(); err != nil {

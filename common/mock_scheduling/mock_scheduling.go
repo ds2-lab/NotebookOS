@@ -883,6 +883,18 @@ func (mr *MockSchedulerMockRecorder) HostAdded(host any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HostAdded", reflect.TypeOf((*MockScheduler)(nil).HostAdded), host)
 }
 
+// HostRemoved mocks base method.
+func (m *MockScheduler) HostRemoved(host scheduling.Host) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "HostRemoved", host)
+}
+
+// HostRemoved indicates an expected call of HostRemoved.
+func (mr *MockSchedulerMockRecorder) HostRemoved(host any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HostRemoved", reflect.TypeOf((*MockScheduler)(nil).HostRemoved), host)
+}
+
 // MigrateKernelReplica mocks base method.
 func (m *MockScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelReplica, targetHostId string, forTraining bool) (*proto.MigrateKernelResponse, error, error) {
 	m.ctrl.T.Helper()
@@ -4630,6 +4642,20 @@ func (m *MockKernel) KernelSpec() *proto.KernelSpec {
 func (mr *MockKernelMockRecorder) KernelSpec() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelSpec", reflect.TypeOf((*MockKernel)(nil).KernelSpec))
+}
+
+// LastPrimaryReplica mocks base method.
+func (m *MockKernel) LastPrimaryReplica() scheduling.KernelReplica {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LastPrimaryReplica")
+	ret0, _ := ret[0].(scheduling.KernelReplica)
+	return ret0
+}
+
+// LastPrimaryReplica indicates an expected call of LastPrimaryReplica.
+func (mr *MockKernelMockRecorder) LastPrimaryReplica() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LastPrimaryReplica", reflect.TypeOf((*MockKernel)(nil).LastPrimaryReplica))
 }
 
 // MessageAcknowledgementsEnabled mocks base method.

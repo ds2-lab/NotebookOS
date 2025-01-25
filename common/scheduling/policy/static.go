@@ -118,6 +118,27 @@ func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (sche
 func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
 	replicas := kernel.Replicas()
 
+	// First, we try to select the same primary replica as last time, if possible.
+	lastPrimaryReplica := kernel.LastPrimaryReplica()
+	if lastPrimaryReplica != nil {
+		p.log.Debug("Attempting to reuse previous primary replica %d for new execution \"%s\" for kernel \"%s\"",
+			lastPrimaryReplica.ReplicaID(), executionId, kernel.ID())
+
+		allocationError := lastPrimaryReplica.Host().PreCommitResources(lastPrimaryReplica.Container(), executionId)
+		if allocationError == nil {
+			p.log.Debug(
+				utils.LightGreenStyle.Render(
+					"Resource pre-commitment %s. Previous primary replica %d of kernel %s will lead new execution \"%s\"."),
+				lastPrimaryReplica.ReplicaID(), kernel.ID(), executionId)
+
+			return lastPrimaryReplica, nil // Migration is permitted, so we never return an error.
+		}
+
+		// Failed to commit resources. Continue.
+		p.log.Debug("Resource pre-commitment %s. Previous primary replica %d of kernel %s is not viable for next execution \"%s\".",
+			utils.LightOrangeStyle.Render("failed"), lastPrimaryReplica.ReplicaID(), kernel.ID(), executionId)
+	}
+
 	// Sort the replicas from most to least idle GPUs available on each replica's respective host.
 	slices.SortFunc(replicas, func(r1, r2 scheduling.KernelReplica) int {
 		// cmp(r1, r2) should return:

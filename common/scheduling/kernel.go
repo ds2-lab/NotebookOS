@@ -91,6 +91,10 @@ type Kernel interface {
 	SourceKernelID() string
 	ResourceSpec() *types.DecimalSpec
 
+	// LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
+	// code execution, or nil if no code executions have occurred.
+	LastPrimaryReplica() KernelReplica
+
 	// UpdateResourceSpec updates the ResourceSpec of the Kernel, all of its KernelReplica instances, the UserSession
 	// of each KernelReplica, and the KernelContainer of each KernelReplica.
 	//

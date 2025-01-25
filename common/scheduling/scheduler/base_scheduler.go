@@ -725,8 +725,8 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 		//// Technically if the number of committed GPUs is zero, then the ratio is infinite (undefined).
 		//// TODO: Previously, I'd just set the ratio to 0 if BusyGPUs was 0.
 		//// But technically, it should be undefined/infinite, so I will try setting it to maxSubscribedRatio...
-		// ratio = s.maxSubscribedRatio.InexactFloat64()
-		ratio = 0
+		ratio = s.maxSubscribedRatio.InexactFloat64()
+		//ratio = 0
 
 		//if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
 		//	s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", s.cluster.DemandGPUs(),

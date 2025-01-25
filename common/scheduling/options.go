@@ -219,7 +219,7 @@ func (opts *SchedulerOptions) ValidateClusterSchedulerOptions() {
 
 	// Validate the scaling interval, which must be strictly positive
 	if opts.ScalingIntervalSec <= 0 {
-		log.Printf("[WARNING] Invalid scaling interval specified: %d. Defaulting to every %d seconds.",
+		log.Printf("[WARNING] Invalid scaling interval specified: %f. Defaulting to every %d seconds.",
 			opts.ScalingIntervalSec, DefaultScalingIntervalSeconds)
 		opts.ScalingIntervalSec = DefaultScalingIntervalSeconds
 	}
