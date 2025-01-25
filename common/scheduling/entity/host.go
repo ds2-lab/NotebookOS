@@ -133,6 +133,7 @@ type Host struct {
 	isContainedWithinIndex         bool                                                // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
 	ProperlyInitialized            bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
 	numReplicasPerKernel           int                                                 // The number of replicas per kernel.
+	numReplicasPerKernelDecimal    decimal.Decimal                                     // numReplicasPerKernelDecimal is a cached decimal.Decimal of numReplicasPerKernel.
 	resourceBindingMode            scheduling.ResourceBindingMode                      // resourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly when they are uncommitted from containers as well.
 	kernelsWithCommittedResources  map[string]int32                                    // Map from Kernel ID to int32. Values are replica IDs who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID). In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
 
@@ -197,13 +198,14 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 	// The most important is probably the LocalGatewayClient, as that ensures that the
 	// existing Host struct has a new, valid connection to the remote Local Daemon.
 	host := &Host{
-		ID:                   confirmedId.Id,
-		resourceSpec:         resourceSpec,
-		NodeName:             confirmedId.NodeName,
-		latestGpuInfo:        gpuInfoResp,
-		LocalGatewayClient:   localGatewayClient,
-		ProperlyInitialized:  false,
-		numReplicasPerKernel: numReplicasPerKernel,
+		ID:                          confirmedId.Id,
+		resourceSpec:                resourceSpec,
+		NodeName:                    confirmedId.NodeName,
+		latestGpuInfo:               gpuInfoResp,
+		LocalGatewayClient:          localGatewayClient,
+		ProperlyInitialized:         false,
+		numReplicasPerKernel:        numReplicasPerKernel,
+		numReplicasPerKernelDecimal: decimal.NewFromFloat(float64(numReplicasPerKernel)),
 	}
 
 	return host, ErrRestoreRequired
@@ -275,6 +277,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		Addr:                                addr,
 		resourceSpec:                        resourceSpec,
 		numReplicasPerKernel:                numReplicasPerKernel,
+		numReplicasPerKernelDecimal:         decimal.NewFromFloat(float64(numReplicasPerKernel)),
 		metricsProvider:                     metricsProvider,
 		log:                                 config.GetLogger(fmt.Sprintf("Host %s ", confirmedId.NodeName)),
 		containers:                          hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
@@ -656,25 +659,40 @@ func (h *Host) SynchronizeResourceInformation() error {
 // PlacedMemoryMB returns the total amount of memory scheduled onto the Host, which is computed as the
 // sum of the Host's pending memory and the Host's committed memory, in megabytes.
 func (h *Host) PlacedMemoryMB() decimal.Decimal {
-	return h.resourceManager.PendingResources().MemoryMbAsDecimal().Add(h.resourceManager.CommittedResources().MemoryMbAsDecimal())
+	return h.resourceManager.PendingResources().MemoryMbAsDecimal().
+		Add(h.resourceManager.CommittedResources().MemoryMbAsDecimal())
 }
 
 // PlacedGPUs returns the total number of GPUs scheduled onto the Host, which is computed as the
 // sum of the Host's pending GPUs and the Host's committed GPUs.
 func (h *Host) PlacedGPUs() decimal.Decimal {
-	return h.resourceManager.PendingResources().GPUsAsDecimal().Add(h.resourceManager.CommittedResources().GPUsAsDecimal())
+	return h.resourceManager.PendingResources().GPUsAsDecimal().
+		Add(h.resourceManager.CommittedResources().GPUsAsDecimal())
+}
+
+// PlacedVRAM returns the total amount of VRAM in GB scheduled onto the Host, which is computed as the
+// sum of the Host's pending VRAM and the Host's committed VRAM.
+func (h *Host) PlacedVRAM() decimal.Decimal {
+	return h.resourceManager.PendingResources().VRAMAsDecimal().
+		Add(h.resourceManager.CommittedResources().VRAMAsDecimal())
 }
 
 // PlacedCPUs returns the total number of Millicpus scheduled onto the Host, which is computed as the
 // sum of the Host's pending Millicpus and the Host's committed Millicpus.
 func (h *Host) PlacedCPUs() decimal.Decimal {
-	return h.resourceManager.PendingResources().MillicpusAsDecimal().Add(h.resourceManager.CommittedResources().MillicpusAsDecimal())
+	return h.resourceManager.PendingResources().MillicpusAsDecimal().
+		Add(h.resourceManager.CommittedResources().MillicpusAsDecimal())
 }
 
 // computeHypotheticalSubscriptionRatio computes what the Host's (over)subscription ratios would be for CPU, Memory,
 // and GPU, if it were to serve a Container with the given types.Spec resource request/requirements.
-func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) (decimal.Decimal, decimal.Decimal, decimal.Decimal) {
-	divisor := decimal.NewFromFloat(float64(h.numReplicasPerKernel))
+func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) (decimal.Decimal, decimal.Decimal, decimal.Decimal, decimal.Decimal) {
+	numReplicasPerKernel := h.numReplicasPerKernel
+	if h.numReplicasPerKernel == 0 {
+		h.numReplicasPerKernel = 1
+	}
+
+	divisor := decimal.NewFromFloat(float64(numReplicasPerKernel))
 
 	// Convert the given types.Spec to a *types.DecimalSpec.
 	var decimalSpec *types.DecimalSpec
@@ -685,7 +703,7 @@ func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) 
 		decimalSpec = types.ToDecimalSpec(resourceRequest)
 	}
 
-	var cpuRatio, memRatio, gpuRatio decimal.Decimal
+	var cpuRatio, memRatio, gpuRatio, vramRatio decimal.Decimal
 
 	if h.resourceManager.SpecResources().MillicpusAsDecimal().Equals(decimal.Zero) {
 		cpuRatio = decimal.Zero
@@ -708,7 +726,14 @@ func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) 
 		gpuRatio = totalGPUs.Div(h.resourceManager.SpecResources().GPUsAsDecimal()).Div(divisor)
 	}
 
-	return cpuRatio, memRatio, gpuRatio
+	if h.resourceManager.SpecResources().VRAMAsDecimal().Equals(decimal.Zero) {
+		vramRatio = decimal.Zero
+	} else {
+		totalVRAM := h.PlacedVRAM().Add(decimalSpec.VRam)
+		vramRatio = totalVRAM.Div(h.resourceManager.SpecResources().VRAMAsDecimal()).Div(divisor)
+	}
+
+	return cpuRatio, memRatio, gpuRatio, vramRatio
 }
 
 // WillBecomeTooOversubscribed returns a boolean indicating whether the Host will become "too" oversubscribed if it
@@ -717,20 +742,45 @@ func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) 
 // "Too" oversubscribed means that the Host's over-subscription ratio would exceed the configured limit upon
 // serving the Container with the given types.Spec resource request/requirements.
 func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
-	cpuRatio, memRatio, gpuRatio := h.computeHypotheticalSubscriptionRatio(resourceRequest)
+	cpuRatio, memRatio, gpuRatio, vramRatio := h.computeHypotheticalSubscriptionRatio(resourceRequest)
 
-	willOversubscribeCpu := h.SubscriptionQuerier.GetOversubscriptionFactor(cpuRatio).GreaterThanOrEqual(decimal.Zero)
-	willOversubscribeMemory := h.SubscriptionQuerier.GetOversubscriptionFactor(memRatio).GreaterThanOrEqual(decimal.Zero)
-	willOversubscribeGpu := h.SubscriptionQuerier.GetOversubscriptionFactor(gpuRatio).GreaterThanOrEqual(decimal.Zero)
+	var willOversubscribeCpu, willOversubscribeMemory, willOversubscribeGpu, willOversubscribeVRAM bool
+
+	if h.numReplicasPerKernel == 1 {
+		willOversubscribeCpu = h.SubscriptionQuerier.GetOversubscriptionFactor(cpuRatio).
+			GreaterThan(decimal.Zero)
+
+		willOversubscribeMemory = h.SubscriptionQuerier.GetOversubscriptionFactor(memRatio).
+			GreaterThan(decimal.Zero)
+
+		willOversubscribeGpu = h.SubscriptionQuerier.GetOversubscriptionFactor(gpuRatio).
+			GreaterThan(decimal.Zero)
+
+		willOversubscribeVRAM = h.SubscriptionQuerier.GetOversubscriptionFactor(vramRatio).
+			GreaterThan(decimal.Zero)
+	} else {
+		willOversubscribeCpu = h.SubscriptionQuerier.GetOversubscriptionFactor(cpuRatio).
+			GreaterThanOrEqual(decimal.Zero)
+
+		willOversubscribeMemory = h.SubscriptionQuerier.GetOversubscriptionFactor(memRatio).
+			GreaterThanOrEqual(decimal.Zero)
+
+		willOversubscribeGpu = h.SubscriptionQuerier.GetOversubscriptionFactor(gpuRatio).
+			GreaterThanOrEqual(decimal.Zero)
+
+		willOversubscribeVRAM = h.SubscriptionQuerier.GetOversubscriptionFactor(vramRatio).
+			GreaterThanOrEqual(decimal.Zero)
+	}
 
 	subscriptionRatio := h.SubscriptionQuerier.SubscriptionRatio()
 
 	h.log.Debug("Computed over-subscription ratios for resource request: %v. Current subscription ratio: %.4f.\n"+
-		"CPU Ratio: %s (Will Oversubscribe? %v), Memory Ratio: %s (Will Oversubscribe? %v), GPU Ratio: %s (Will Oversubscribe? %v)",
-		resourceRequest.String(), subscriptionRatio, cpuRatio.StringFixed(4), willOversubscribeCpu, memRatio.StringFixed(4),
-		willOversubscribeMemory, gpuRatio.StringFixed(4), willOversubscribeGpu)
+		"CPU Ratio: %s (Will Oversubscribe? %v), Memory Ratio: %s (Will Oversubscribe? %v), GPU Ratio: %s (Will Oversubscribe? %v)"+
+		", VRAM Ratio: %s (Will Oversubscribe? %v)", resourceRequest.String(), subscriptionRatio, cpuRatio.StringFixed(4),
+		willOversubscribeCpu, memRatio.StringFixed(4), willOversubscribeMemory, gpuRatio.StringFixed(4), willOversubscribeGpu,
+		vramRatio.StringFixed(4), willOversubscribeVRAM)
 
-	return willOversubscribeCpu || willOversubscribeMemory || willOversubscribeGpu
+	return willOversubscribeCpu || willOversubscribeMemory || willOversubscribeGpu || willOversubscribeVRAM
 }
 
 // CanServeContainerWithError returns nil if the target Host can serve the resource request.
@@ -827,8 +877,8 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	h.log.Debug("Creating resource reservation for new replica of kernel \"%s\". UsePending=%v. Request=%s.",
-		spec.Id, usePendingResources, spec.ResourceSpec.String())
+	h.log.Debug("Creating resource reservation for new replica of kernel \"%s\". UsePending=%v. Request=%s. Current resources on host: %v.",
+		spec.Id, usePendingResources, spec.ResourceSpec.String(), h.GetResourceCountsAsString())
 
 	// Check if we're already hosting a replica of the target kernel.
 	container, containerLoaded := h.containers.Load(spec.Id)
@@ -839,7 +889,6 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 	}
 
 	// Check if there's already a reservation for some (not-yet-scheduled) replica of the target kernel.
-	// TODO: If there's an error creating the container, we need to release the resource reservation on the Host.
 	reservation, reservationLoaded := h.reservations.Load(spec.Id)
 	if reservationLoaded {
 		h.log.Debug("Cannot reserve resources for a replica of kernel %s; have existing reservation for that kernel created %v ago.",

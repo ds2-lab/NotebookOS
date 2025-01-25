@@ -706,19 +706,23 @@ func (s *BaseScheduler) GetAddReplicaOperationManager() hashmap.HashMap[string, 
 func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 	var ratio float64
 	if s.cluster.BusyGPUs() == 0 {
-		// Technically if the number of committed GPUs is zero, then the ratio is infinite (undefined).
-		// TODO: Previously, I'd just set the ratio to 0 if BusyGPUs was 0.
-		// But technically, it should be undefined/infinite, so I will try setting it to maxSubscribedRatio...
-		ratio = s.maxSubscribedRatio.InexactFloat64()
-
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", s.cluster.DemandGPUs(), s.cluster.BusyGPUs(), ratio)
-		}
+		//// Technically if the number of committed GPUs is zero, then the ratio is infinite (undefined).
+		//// TODO: Previously, I'd just set the ratio to 0 if BusyGPUs was 0.
+		//// But technically, it should be undefined/infinite, so I will try setting it to maxSubscribedRatio...
+		//ratio = s.maxSubscribedRatio.InexactFloat64()
+		//
+		//if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
+		//	s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", s.cluster.DemandGPUs(),
+		//		s.cluster.BusyGPUs(), ratio)
+		//}
+		return false
 	} else {
-		ratio = s.cluster.DemandGPUs() / s.cluster.BusyGPUs()
+		demandGpus := s.cluster.DemandGPUs()
+		busyGpus := s.cluster.BusyGPUs()
+		ratio = demandGpus / busyGpus
 
 		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", s.cluster.DemandGPUs(), s.cluster.BusyGPUs(), ratio)
+			s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", demandGpus, busyGpus, ratio)
 		}
 	}
 

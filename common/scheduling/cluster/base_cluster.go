@@ -698,7 +698,7 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	opId := uuid.NewString()
 	scaleOp, err := c.registerScaleOutOperation(opId, targetNumNodes)
 	if err != nil {
-		c.log.Error("Could not register new scale-out operation to %d nodes because: %v", targetNumNodes, err)
+		c.log.Warn("Could not register new scale-out operation to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err)
 	}
 

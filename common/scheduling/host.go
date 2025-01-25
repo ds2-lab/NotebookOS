@@ -63,6 +63,7 @@ type Host interface {
 	SynchronizeResourceInformation() error
 	PlacedMemoryMB() decimal.Decimal
 	PlacedGPUs() decimal.Decimal
+	PlacedVRAM() decimal.Decimal
 	PlacedCPUs() decimal.Decimal
 	WillBecomeTooOversubscribed(resourceRequest types.Spec) bool
 
