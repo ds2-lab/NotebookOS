@@ -29,7 +29,7 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 		mockCluster = mock_scheduling.NewMockCluster(mockCtrl)
 		mockPolicy = mock_scheduling.NewMockPolicy(mockCtrl)
 
-		mockPolicy.EXPECT().ResourceScalingPolicy().AnyTimes().Return(scheduling.BindResourcesWhenContainerScheduled)
+		mockPolicy.EXPECT().ResourceBindingMode().AnyTimes().Return(scheduling.BindResourcesWhenContainerScheduled)
 	})
 
 	AfterEach(func() {
