@@ -113,6 +113,36 @@ func (mr *MockClusterMockRecorder) CanPossiblyScaleOut() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CanPossiblyScaleOut", reflect.TypeOf((*MockCluster)(nil).CanPossiblyScaleOut))
 }
 
+// Close mocks base method.
+func (m *MockCluster) Close() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "Close")
+}
+
+// Close indicates an expected call of Close.
+func (mr *MockClusterMockRecorder) Close() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockCluster)(nil).Close))
+}
+
+// DemandAndBusyGPUs mocks base method.
+func (m *MockCluster) DemandAndBusyGPUs() (float64, float64, int, int, int) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DemandAndBusyGPUs")
+	ret0, _ := ret[0].(float64)
+	ret1, _ := ret[1].(float64)
+	ret2, _ := ret[2].(int)
+	ret3, _ := ret[3].(int)
+	ret4, _ := ret[4].(int)
+	return ret0, ret1, ret2, ret3, ret4
+}
+
+// DemandAndBusyGPUs indicates an expected call of DemandAndBusyGPUs.
+func (mr *MockClusterMockRecorder) DemandAndBusyGPUs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DemandAndBusyGPUs", reflect.TypeOf((*MockCluster)(nil).DemandAndBusyGPUs))
+}
+
 // DemandGPUs mocks base method.
 func (m *MockCluster) DemandGPUs() float64 {
 	m.ctrl.T.Helper()

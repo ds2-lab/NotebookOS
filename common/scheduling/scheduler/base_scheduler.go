@@ -15,6 +15,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"math"
 	"sync"
 	"time"
 )
@@ -734,11 +735,32 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 		//}
 		//return false
 	} else {
-		demandGpus := s.cluster.DemandGPUs()
-		busyGpus := s.cluster.BusyGPUs()
-		ratio = demandGpus / busyGpus
+		demandGpus, busyGpus1, numRunning, numIdle, numTraining := s.cluster.DemandAndBusyGPUs()
+		busyGpus2 := s.cluster.BusyGPUs()
 
-		s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", demandGpus, busyGpus, ratio)
+		var busyGPUs float64
+		if busyGpus1 != busyGpus2 {
+			s.log.Error("Computed busy GPUs as %.0f from DemandAndBusyGPUs and %.0f from BusyGPUs...",
+				busyGpus1, busyGpus2)
+
+			// Pick the largest.
+			busyGPUs = math.Max(busyGpus1, busyGpus2)
+		} else {
+			busyGPUs = busyGpus1 // Doesn't matter
+		}
+
+		if demandGpus < busyGPUs {
+			s.log.Error("Demand GPUs (%.0f) are somehow lower than busy GPUs (%.0f)...", demandGpus, busyGPUs)
+			s.log.Error("There are %d sessions, of which %d are idle and %d are training.",
+				numRunning, numIdle, numTraining)
+
+			ratio = 1.0 // Force to be 1.0
+			s.log.Debug("DemandGPUs: %.0f (%.0f). CommittedGPUs: %.0f. Ratio: %.4f.",
+				busyGPUs, demandGpus, busyGPUs, ratio)
+		} else {
+			ratio = demandGpus / busyGPUs
+			s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", demandGpus, busyGPUs, ratio)
+		}
 	}
 
 	s.stRatio.Add(ratio)

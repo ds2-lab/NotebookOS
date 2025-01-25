@@ -211,6 +211,10 @@ type ClusterMetricsManager interface {
 	// BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
 	BusyGPUs() float64
 
+	// DemandAndBusyGPUs returns Demand GPUs, Busy GPUs, and then
+	// num running sessions, num idle sessions, num training sessions.
+	DemandAndBusyGPUs() (float64, float64, int, int, int)
+
 	// DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
 	DemandGPUs() float64
 
@@ -251,4 +255,7 @@ type Cluster interface {
 	ClusterMetricsManager
 	ClusterHostManager
 	ClusterSessionManager
+
+	// Close closes down the Cluster.
+	Close()
 }

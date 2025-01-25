@@ -157,6 +157,7 @@ func (c *BaseCluster) initRatioUpdater() {
 	}()
 }
 
+// Close closes down the BaseCluster.
 func (c *BaseCluster) Close() {
 	c.closed.Store(true)
 }
@@ -473,16 +474,63 @@ func (c *BaseCluster) BusyGPUs() float64 {
 	return busyGPUs
 }
 
+// DemandAndBusyGPUs returns Demand GPUs, Busy GPUs, num idle sessions, num training sessions.
+func (c *BaseCluster) DemandAndBusyGPUs() (float64, float64, int, int, int) {
+	c.sessionsMutex.RLock()
+	defer c.sessionsMutex.RUnlock()
+
+	seenSessions := make(map[string]struct{})
+
+	var demandGPUs, busyGPUs float64
+	var numRunning, numIdle, numTraining int
+	c.sessions.Range(func(_ string, session scheduling.UserSession) (contd bool) {
+		if _, loaded := seenSessions[session.ID()]; loaded {
+			// Shouldn't be possible, right...?
+			c.log.Warn("Found duplicate session: \"%s\"", session.ID())
+			return true // Skip
+		}
+
+		if session.IsMigrating() {
+			numRunning += 1
+		} else if session.IsIdle() {
+			demandGPUs += session.ResourceSpec().GPU()
+			numIdle += 1
+			numRunning += 1
+		} else if session.IsTraining() {
+			demandGPUs += session.ResourceSpec().GPU()
+			busyGPUs += session.ResourceSpec().GPU()
+			numTraining += 1
+			numRunning += 1
+		}
+
+		seenSessions[session.ID()] = struct{}{}
+
+		return true
+	})
+
+	return demandGPUs, busyGPUs, numRunning, numIdle, numTraining
+}
+
 // DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
 func (c *BaseCluster) DemandGPUs() float64 {
 	c.sessionsMutex.RLock()
 	defer c.sessionsMutex.RUnlock()
 
+	seenSessions := make(map[string]struct{})
+
 	demandGPUs := 0.0
 	c.sessions.Range(func(_ string, session scheduling.UserSession) (contd bool) {
+		if _, loaded := seenSessions[session.ID()]; loaded {
+			// Shouldn't be possible, right...?
+			c.log.Warn("Found duplicate session: \"%s\"", session.ID())
+			return true // Skip
+		}
+
 		if session.IsIdle() || session.IsTraining() {
 			demandGPUs += session.ResourceSpec().GPU()
 		}
+
+		seenSessions[session.ID()] = struct{}{}
 
 		return true
 	})

@@ -190,9 +190,11 @@ func (g *Router) AddHandler(typ messaging.MessageType, handler MessageHandler) {
 }
 
 func (g *Router) Close() error {
-	err := g.BaseServer.Close()
-	if err != nil {
-		g.log.Warn("Error while closing BaseServer of router '%s': %v", g.name, err)
+	if g.BaseServer != nil {
+		err := g.BaseServer.Close()
+		if err != nil {
+			g.log.Warn("Error while closing BaseServer of router '%s': %v", g.name, err)
+		}
 	}
 
 	// Sockets will be closed on Start() existing.

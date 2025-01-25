@@ -252,6 +252,8 @@ type ClusterStatistics struct {
 	// The number of Sessions that are actively running (but not necessarily training), so includes idle sessions.
 	// Does not include evicted, init, or stopped sessions.
 	NumRunningSessions int `csv:"NumRunningSessions" json:"NumRunningSessions"`
+	// NumSeenSessions is the total number of sessions seen/ever created.
+	NumSeenSessions int `csv:"NumSeenSessions" json:"NumSeenSessions"`
 
 	NumSuccessfulMigrations int `json:"num_successful_migrations" csv:"num_successful_migrations"`
 	NumFailedMigrations     int `json:"num_failed_migrations" csv:"num_failed_migrations"`

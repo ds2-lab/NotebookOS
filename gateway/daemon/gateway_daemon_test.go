@@ -282,6 +282,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 	})
 
 	AfterEach(func() {
+		if clusterGateway != nil {
+			_ = clusterGateway.Close()
+		}
+
 		mockCtrl.Finish()
 	})
 
@@ -570,6 +574,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			setActiveCall := kernel.EXPECT().RegisterActiveExecution(gomock.Any()).Return(nil, nil)
 			kernel.EXPECT().NumActiveExecutionOperations().Return(0).Times(1)
 			kernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).Times(1)
+
+			cluster.EXPECT().Close().AnyTimes()
 		})
 
 		It("should correctly handle execute_request messages via the processExecuteRequest method", func() {
@@ -1067,6 +1073,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				MsgType:  "execute_request",
 				Version:  "5.2",
 			}
+
+			cluster.EXPECT().Close().AnyTimes()
 		})
 
 		It("Should embed a RequestTrace struct in the buffers frame of a JupyterMessage in DebugMode", func() {
@@ -1884,7 +1892,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedSession.EXPECT().IsIdle().AnyTimes().Return(true)
 			mockedSession.EXPECT().IsTraining().AnyTimes().Return(false)
 
-			mockedKernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
+			// Technically it might want to return true at some point...?
+			mockedSession.EXPECT().IsMigrating().AnyTimes().Return(false)
+			// Technically it might want to return true at some point...?
+			mockedSession.EXPECT().IsStopped().AnyTimes().Return(false)
+
 			mockedSession.EXPECT().SetExpectingTraining().Times(1).Return(promise.Resolved(nil))
 
 			clientShellSocket := messaging.NewSocket(zmq4.NewDealer(context.Background()), 0, messaging.ShellMessage, "ClientShellSocket")
@@ -2776,6 +2788,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				mockSession.EXPECT().ID().AnyTimes().Return(sessionId)
 				mockSession.EXPECT().IsIdle().AnyTimes().Return(false)
 				mockSession.EXPECT().IsTraining().AnyTimes().Return(true)
+				// Technically it might want to return true at some point...?
+				mockSession.EXPECT().IsMigrating().AnyTimes().Return(false)
+				// Technically it might want to return true at some point...?
+				mockSession.EXPECT().IsStopped().AnyTimes().Return(false)
 				dockerCluster.AddSession(uuid.NewString(), mockSession)
 				err := Hosts[0].AddToCommittedResources(spec)
 				Expect(err).To(BeNil())

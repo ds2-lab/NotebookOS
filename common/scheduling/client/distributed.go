@@ -357,6 +357,46 @@ func (c *DistributedKernelClient) ResourceSpec() *types.DecimalSpec {
 	return c.spec.DecimalSpecFromKernelSpec()
 }
 
+func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spec) error {
+	var coordinatedTransaction *transaction.CoordinatedTransaction
+	if len(c.replicas) > 1 {
+		coordinatedTransaction = transaction.NewCoordinatedTransaction(len(c.replicas))
+	}
+
+	// Make sure that all the replicas -- however many there are -- have valid, non-nil containers.
+	for _, kernelReplica := range c.replicas {
+		if kernelReplica.Container() == nil {
+			c.log.Error("Replica %d of kernel %s is non-nil but lacks a valid container...",
+				kernelReplica.ReplicaID(), c.id)
+			return fmt.Errorf("replica %d of kernel %s is non-nil but lacks a valid container",
+				kernelReplica.ReplicaID(), c.id)
+		}
+	}
+
+	// If the coordinatedTransaction is non-nil, then there are multiple replicas.
+	// Update their specs using goroutines.
+	if coordinatedTransaction != nil {
+		for _, kernelReplica := range c.replicas {
+			go func() {
+				_ = kernelReplica.UpdateResourceSpec(newSpec, coordinatedTransaction)
+			}()
+		}
+	} else if len(c.replicas) == 1 { // Is there at least one replica?
+		// Just one replica. We'll update it ourselves.
+		return c.replicas[1].UpdateResourceSpec(newSpec, nil)
+	}
+
+	// If the coordinatedTransaction is non-nil, we'll return our result based on the success or failure of the tx.
+	if coordinatedTransaction != nil {
+		success := coordinatedTransaction.Wait()
+		if !success {
+			return coordinatedTransaction.FailureReason()
+		}
+	}
+
+	return nil
+}
+
 // UpdateResourceSpec updates the ResourceSpec of the Kernel, all of its Replica instances, the UserSession
 // of each Replica, and the KernelContainer of each Replica.
 //
@@ -377,23 +417,20 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.Spec) error {
 		return nil
 	}
 
-	coordinatedTransaction := transaction.NewCoordinatedTransaction(len(c.replicas))
-
-	for _, kernelReplica := range c.replicas {
-		go func() {
-			_ = kernelReplica.UpdateResourceSpec(newSpec, coordinatedTransaction)
-		}()
-	}
-
-	success := coordinatedTransaction.Wait()
-	if !success {
-		return coordinatedTransaction.FailureReason()
+	if len(c.replicas) > 0 {
+		err := c.updateResourceSpecOfReplicas(newSpec)
+		if err != nil {
+			return err
+		}
 	}
 
 	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
 	c.spec.ResourceSpec.Cpu = int32(newSpec.CPU())
 	c.spec.ResourceSpec.Vram = float32(newSpec.VRAM())
 	c.spec.ResourceSpec.Memory = float32(newSpec.MemoryMB())
+
+	c.log.Debug("Successfully updated ResourceSpec of kernel \"%s\" from %v to %v.",
+		c.id, oldSpec.String(), newSpec.String())
 
 	return nil
 }

@@ -212,6 +212,8 @@ type ClusterGatewayImpl struct {
 	closed  int32
 	cleaned chan struct{}
 
+	started atomic.Bool
+
 	// ClusterStatistics encapsulates a number of statistics/metrics.
 	ClusterStatistics        *statistics.ClusterStatistics
 	clusterStatisticsMutex   sync.Mutex
@@ -2921,6 +2923,8 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 }
 
 func (d *ClusterGatewayImpl) Start() error {
+	d.started.CompareAndSwap(false, true)
+
 	d.log.Info("Starting router...")
 
 	if d.KubernetesMode() {
@@ -2946,19 +2950,27 @@ func (d *ClusterGatewayImpl) Close() error {
 		return nil
 	}
 
-	// Close the router
-	if err := d.router.Close(); err != nil {
-		d.log.Error("Failed to cleanly shutdown router because: %v", err)
+	if d.router != nil {
+		// Close the router
+		if err := d.router.Close(); err != nil {
+			d.log.Error("Failed to cleanly shutdown router because: %v", err)
+		}
 	}
 
-	// Wait for the newKernels to be cleaned up
-	<-d.cleaned
+	if d.started.Load() {
+		// Wait for the newKernels to be cleaned up
+		<-d.cleaned
+	}
 
 	// Close the listener
 	if d.listener != nil {
 		if err := d.listener.Close(); err != nil {
 			d.log.Error("Failed to cleanly shutdown listener because: %v", err)
 		}
+	}
+
+	if d.cluster != nil {
+		d.cluster.Close()
 	}
 
 	return nil
@@ -3524,7 +3536,7 @@ func (d *ClusterGatewayImpl) processExecuteReply(kernelId string, msg *messaging
 // processExecuteRequest handles pre-committing resources, migrating a replica if no replicas are viable, etc.
 func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	kernelId := kernel.ID()
-	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg.StringFormatted())
+	d.log.Debug("Processing shell \"execute_request\" message targeting kernel %s: %s", kernelId, msg.StringFormatted())
 
 	// Register the execution with the kernel.
 	_, err := kernel.RegisterActiveExecution(msg)
@@ -4791,7 +4803,6 @@ func (d *ClusterGatewayImpl) recomputeResourceCounts() (int, int) {
 // gatherClusterStatistics is thread-safe.
 func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 	d.clusterStatisticsMutex.Lock()
-	defer d.clusterStatisticsMutex.Unlock()
 
 	now := time.Now()
 	var lastTime time.Time // Last update time
@@ -4801,8 +4812,6 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 	} else {
 		lastTime = d.lastFullStatisticsUpdate
 	}
-
-	d.log.Debug("Updating ClusterStatistics now.")
 
 	//var cpuUtil, gpuUtil, memUtil, vramUtil, demandGpus float64
 	var demandCpus, demandMem, demandGpus, demandVram float64
@@ -4824,14 +4833,33 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 	d.ClusterStatistics.CumulativeHostIdleTime += idleTime.Seconds()
 	d.ClusterStatistics.AggregateHostLifetime += time.Since(lastTime).Seconds() * float64(d.cluster.Len())
 
+	var numRunning, numIdle, numTraining, numStopped int
 	d.cluster.RangeOverSessions(func(key string, value scheduling.UserSession) bool {
 		demandCpus += value.ResourceSpec().CPU()
 		demandMem += value.ResourceSpec().MemoryMB()
 		demandGpus += value.ResourceSpec().GPU()
 		demandVram += value.ResourceSpec().VRAM()
 
+		if value.IsIdle() {
+			numIdle += 1
+			numRunning += 1
+		} else if value.IsTraining() {
+			numTraining += 1
+			numRunning += 1
+		} else if value.IsMigrating() {
+			numRunning += 1
+		} else if value.IsStopped() {
+			numStopped += 1
+		}
+
 		return true
 	})
+
+	d.ClusterStatistics.NumSeenSessions = d.cluster.Sessions().Len()
+	d.ClusterStatistics.NumRunningSessions = numRunning
+	d.ClusterStatistics.NumIdleSessions = numIdle
+	d.ClusterStatistics.NumTrainingSessions = numTraining
+	d.ClusterStatistics.NumStoppedSessions = numStopped
 
 	d.ClusterStatistics.DemandGPUs = demandCpus
 	d.ClusterStatistics.DemandMemMb = demandMem
@@ -4861,6 +4889,24 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 	d.ClusterStatistics.NumRunningSessions = d.cluster.Sessions().Len()
 
 	d.lastFullStatisticsUpdate = time.Now()
+
+	stats := d.ClusterStatistics
+
+	d.clusterStatisticsMutex.Unlock()
+
+	d.log.Debug("=== Updated Cluster Statistics ===")
+	d.log.Debug("Idle CPUs: %.0f, Idle Mem: %.0f, Idle GPUs: %.0f, Idle VRAM: %.0f",
+		stats.IdleCPUs, stats.IdleMemory, stats.IdleGPUs, stats.IdleVRAM)
+	d.log.Debug("Pending CPUs: %.0f, Pending Mem: %.0f, Pending GPUs: %.0f, Pending VRAM: %.0f",
+		stats.PendingCPUs, stats.PendingMemory, stats.PendingGPUs, stats.PendingVRAM)
+	d.log.Debug("Committed CPUs: %.0f, Committed Mem: %.0f, Committed GPUs: %.0f, Committed VRAM: %.0f",
+		stats.CommittedCPUs, stats.CommittedMemory, stats.CommittedGPUs, stats.CommittedVRAM)
+	d.log.Debug("Spec CPUs: %.0f, Spec Mem: %.0f, Spec GPUs: %.0f, Spec VRAM: %.0f",
+		stats.SpecCPUs, stats.SpecMemory, stats.SpecGPUs, stats.SpecVRAM)
+	d.log.Debug("NumSeenSessions: %d, NumRunningSessions: %d, NumNonTerminatedSessions: %d, NumTraining: %d, NumIdle: %d, NumStopped: %d.",
+		stats.NumSeenSessions, stats.NumRunningSessions, stats.NumNonTerminatedSessions, stats.NumTrainingSessions, stats.NumIdleSessions, stats.NumStoppedSessions)
+	d.log.Debug("NumHosts: %d, NumDisabledHosts: %d, NumEmptyHosts: %d",
+		stats.Hosts, stats.NumDisabledHosts, stats.NumEmptyHosts)
 }
 
 // handleExecutionYieldedNotification is called when we receive a 'YIELD' proposal from a replica of a kernel.
