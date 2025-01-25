@@ -134,7 +134,7 @@ type Host struct {
 	ProperlyInitialized            bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
 	numReplicasPerKernel           int                                                 // The number of replicas per kernel.
 	numReplicasPerKernelDecimal    decimal.Decimal                                     // numReplicasPerKernelDecimal is a cached decimal.Decimal of numReplicasPerKernel.
-	resourceBindingMode            scheduling.ResourceBindingMode                      // resourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly when they are uncommitted from containers as well.
+	schedulingPolicy               scheduling.Policy                                   // schedulingPolicy is the scheduling policy configured for the cluster.
 	kernelsWithCommittedResources  map[string]int32                                    // Map from Kernel ID to int32. Values are replica IDs who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID). In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
 
 	// containersWithPreCommittedResources keeps track of kernels for which resources were specifically pre-commited
@@ -217,7 +217,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 // call NewHostWithConn instead.
 func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int,
 	querier SubscriptionQuerier, indexUpdater IndexUpdater, metricsProvider scheduling.MetricsProvider,
-	localGatewayClient proto.LocalGatewayClient, resourceBindingMode scheduling.ResourceBindingMode,
+	localGatewayClient proto.LocalGatewayClient, schedulingPolicy scheduling.Policy,
 	errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
@@ -288,7 +288,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		meta:                                hashmap.NewCornelkMap[string, interface{}](64),
 		errorCallback:                       errorCallback,
 		enabled:                             true,
-		resourceBindingMode:                 resourceBindingMode,
+		schedulingPolicy:                    schedulingPolicy,
 		CreatedAt:                           time.Now(),
 		SubscriptionQuerier:                 querier,
 		kernelsWithCommittedResources:       make(map[string]int32),
@@ -312,13 +312,13 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 // NewHostWithConn creates and returns a new *Host.
 func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int,
 	querier SubscriptionQuerier, indexUpdater IndexUpdater, metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn,
-	resourceBindingMode scheduling.ResourceBindingMode, errorCallback scheduling.ErrorCallback) (*Host, error) {
+	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
 	host, err := NewHost(id, addr, millicpus, memMb, vramGb, numReplicasPerKernel, querier,
-		indexUpdater, metricsProvider, localGatewayClient, resourceBindingMode, errorCallback)
+		indexUpdater, metricsProvider, localGatewayClient, schedulingPolicy, errorCallback)
 	if err != nil {
 		// We need to return host here, in case the error is ErrRestoreRequired, as a host IS returned in that case.
 		// It's a host with only some fields filled-in so that it can be used to restore the existing host.
@@ -1023,7 +1023,7 @@ func (h *Host) Disable() error {
 // If there's an error while updating the local view of the resource counts of the Host, then we attempt to
 // synchronize with the remote Host and try again. If that fails, then we just return an error.
 func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelContainer) error {
-	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
+	if h.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
 		h.log.Debug("Releasing committed resources [%s] from replica %d of kernel \"%s\" during eviction process. Current resources: %s.",
 			container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
 		err := h.unsafeUncommitResources(container.ResourceSpec(), container.KernelID(), true)
@@ -1069,7 +1069,7 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 
 	// If the resource binding mode is instead BindResourcesWhenContainerScheduled, then we do not
 	// uncommit the resources until the container is actually evicted.
-	if h.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+	if h.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
 		spec := container.ResourceSpec()
 
 		h.log.Debug("Releasing committed resources [%s] from replica %d of kernel \"%s\". Current resources: %s.",
@@ -1155,7 +1155,7 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	// If the resource binding mode is instead BindResourcesWhenContainerScheduled, then they're already
 	// committed to the container, and so we don't have to do anything else and can just return nil,
 	// as we do below.
-	if h.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+	if h.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
 		if _, loaded := h.kernelsWithCommittedResources[container.KernelID()]; loaded {
 			h.log.Debug("Resources are already committed to replica %d of kernel \"%s\" upon training start. Must have been migrated recently.",
 				container.ReplicaId(), container.KernelID())
@@ -1562,7 +1562,7 @@ func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spe
 	}
 
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
-	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
+	if !h.schedulingPolicy.SupportsDynamicResourceAdjustments() {
 		return scheduling.ErrDynamicResourceAdjustmentProhibited
 	}
 
@@ -1611,7 +1611,7 @@ func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec 
 	}
 
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
-	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
+	if !h.schedulingPolicy.SupportsDynamicResourceAdjustments() {
 		return scheduling.ErrDynamicResourceAdjustmentProhibited
 	}
 

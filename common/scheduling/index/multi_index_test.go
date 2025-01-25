@@ -23,6 +23,7 @@ var _ = Describe("MultiIndex Tests", func() {
 	var (
 		mockCtrl    *gomock.Controller
 		mockCluster *mock_scheduling.MockCluster
+		mockPolicy  *mock_scheduling.MockPolicy
 	)
 
 	hostSpec := types.NewDecimalSpec(64000, 128000, 8, 40)
@@ -30,6 +31,9 @@ var _ = Describe("MultiIndex Tests", func() {
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		mockCluster = mock_scheduling.NewMockCluster(mockCtrl)
+		mockPolicy = mock_scheduling.NewMockPolicy(mockCtrl)
+
+		mockPolicy.EXPECT().ResourceScalingPolicy().AnyTimes().Return(scheduling.BindResourcesWhenContainerScheduled)
 	})
 
 	AfterEach(func() {
@@ -68,7 +72,7 @@ var _ = Describe("MultiIndex Tests", func() {
 
 		host, err := entity.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
 			scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, 3, mockCluster, mockCluster,
-			nil, localGatewayClient, scheduling.BindResourcesWhenContainerScheduled,
+			nil, localGatewayClient, mockPolicy,
 			func(_ string, _ string, _ string, _ string) error { return nil })
 
 		Expect(host).ToNot(BeNil())
