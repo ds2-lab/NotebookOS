@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -155,6 +156,16 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *DockerScheduler) HostAdded(host scheduling.Host) {
 	s.log.Debug("Host %s (ID=%s) has been added.", host.GetNodeName(), host.GetID())
+	heap.Push(s.idleHosts, &idleSortedHost{
+		Host: host,
+	})
+	s.log.Debug("Length of idle hosts: %d", s.idleHosts.Len())
+}
+
+// HostRemoved is called by the Cluster when a Host is removed from the Cluster.
+func (s *DockerScheduler) HostRemoved(host scheduling.Host) {
+	s.log.Debug("Host %s (ID=%s) has been removed.", host.GetNodeName(), host.GetID())
+	heap.Remove(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
 }
 
 // findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.

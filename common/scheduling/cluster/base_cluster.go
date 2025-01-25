@@ -434,6 +434,8 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 // The scalingOpMutex will be acquired by onHostRemoved.
 // This differs from onHostAdded, which must be called with the scalingOpMutex already held.
 func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
+	c.scheduler.HostRemoved(host)
+
 	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
 		if _, hostQualificationStatus := index.IsQualified(host); hostQualificationStatus != scheduling.IndexUnqualified {
 			index.Remove(host)

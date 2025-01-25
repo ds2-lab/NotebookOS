@@ -93,12 +93,6 @@ func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvi
 	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p), nil
 }
 
-// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
-// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
-func (p *ReservationPolicy) SupportsPredictiveAutoscaling() bool {
-	return false
-}
-
 // ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (p *ReservationPolicy) ValidateCapacity(_ scheduling.Cluster) {
@@ -143,6 +137,12 @@ func (p *ReservationPolicy) ScalingInEnabled() bool {
 
 func (p *ReservationPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	return p.scalingConfiguration
+}
+
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *ReservationPolicy) SupportsPredictiveAutoscaling() bool {
+	return true
 }
 
 /////////////////////////////////////////////

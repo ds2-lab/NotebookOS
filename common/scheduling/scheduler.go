@@ -103,6 +103,9 @@ type HostScheduler interface {
 	// HostAdded is called by the Cluster when a new Host connects to the Cluster.
 	HostAdded(host Host)
 
+	// HostRemoved is called by the Cluster when a Host is removed from the Cluster.
+	HostRemoved(host Host)
+
 	// ReleaseIdleHosts Tries to release n idle hosts. Return the number of hosts that were actually released.
 	// Error will be nil on success and non-nil if some sort of failure is encountered.
 	ReleaseIdleHosts(n int32) (int, error)

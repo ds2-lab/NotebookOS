@@ -76,7 +76,7 @@ func (p *FcfsBatchSchedulingPolicy) ValidateCapacity(_ scheduling.Cluster) {
 // SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
 // the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
 func (p *FcfsBatchSchedulingPolicy) SupportsPredictiveAutoscaling() bool {
-	return false
+	return true
 }
 
 // SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the

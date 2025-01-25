@@ -355,6 +355,10 @@ func (h *Host) IsExcludedFromScheduling() bool {
 	return h.excludedFromScheduling
 }
 
+func (h *Host) SetSubscriptionQuerier(querier SubscriptionQuerier) {
+	h.SubscriptionQuerier = querier
+}
+
 // ExcludeFromScheduling attempts to exclude this Host from being considered for scheduling operations.
 //
 // ExcludeFromScheduling will return true if the Host was successfully excluded.
@@ -462,7 +466,7 @@ func (h *Host) GetIdx(key types.HeapElementMetadataKey) int {
 
 	if h.HeapIndexes == nil {
 		h.HeapIndexes = make(map[types.HeapElementMetadataKey]int)
-		return -1
+		return 0
 	}
 
 	idx, loaded := h.HeapIndexes[key]
@@ -470,7 +474,7 @@ func (h *Host) GetIdx(key types.HeapElementMetadataKey) int {
 		return idx
 	}
 
-	return -1
+	return 0
 	//return h.heapIndex
 }
 

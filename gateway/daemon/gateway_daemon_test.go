@@ -2622,6 +2622,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		Context("Autoscaling", func() {
 			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
 			var options *domain.ClusterGatewayOptions
+			var mockCtrl *gomock.Controller
 
 			BeforeEach(func() {
 				abstractServer = &server.AbstractServer{
@@ -2633,6 +2634,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				if err != nil {
 					panic(err)
 				}
+
+				mockCtrl = gomock.NewController(GinkgoT())
+			})
+
+			AfterEach(func() {
+				mockCtrl.Finish()
 			})
 
 			It("Will correctly and automatically scale-out", func() {
@@ -2640,8 +2647,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				ScalingBufferSize := 3
 				InitialClusterSize := 4
 				NumHostsToCreate := 10
-				InitialConnectionTimeSeconds := 2
+				InitialConnectionTimeSeconds := 1
 				InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
+
+				Hosts := make([]scheduling.Host, 0)
 
 				// Relatively quick, but long enough that we can see individual scale-outs.
 				MeanScaleInPerHostSec := 1.0
@@ -2709,6 +2718,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					err = clusterGateway.registerNewHost(host)
 					Expect(err).To(BeNil())
 
+					Hosts = append(Hosts, host)
+
 					return host
 				}
 
@@ -2747,7 +2758,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				// The initial connection period should elapse.
 				Eventually(func() bool {
 					return clusterGateway.inInitialConnectionPeriod.Load()
-				}, time.Duration(float64(time.Millisecond*InitialConnectionTime)*1.25), time.Millisecond*50).
+				}, time.Duration(float64(time.Millisecond*InitialConnectionTime)*1.5), time.Millisecond*50).
 					Should(BeFalse())
 
 				Expect(dockerCluster.MeanScaleOutTime()).To(Equal(time.Millisecond * time.Duration(MeanScaleOutPerHostSec*1000)))
@@ -2758,6 +2769,18 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(dockerCluster.Len()).To(Equal(clusterSize))
 				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize))
 
+				// Scaling won't happen unless there's at least one busy GPU.
+				mockSession := mock_scheduling.NewMockUserSession(mockCtrl)
+				spec := types.NewDecimalSpec(0, 0, 1, 0)
+				mockSession.EXPECT().ResourceSpec().AnyTimes().Return(spec)
+				sessionId := uuid.NewString()
+				mockSession.EXPECT().ID().AnyTimes().Return(sessionId)
+				mockSession.EXPECT().IsIdle().AnyTimes().Return(false)
+				mockSession.EXPECT().IsTraining().AnyTimes().Return(true)
+				dockerCluster.AddSession(uuid.NewString(), mockSession)
+				err := Hosts[0].AddToCommittedResources(spec)
+				Expect(err).To(BeNil())
+
 				By("Scaling out")
 
 				// Now, we should scale out. The minimum dockerCluster size is set to 4,
@@ -2765,7 +2788,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				// that we should have is 7. We only have 4 right now.
 				Eventually(func() int {
 					return dockerCluster.Len()
-				}, time.Second*time.Duration(5*MeanScaleOutPerHostSec), time.Millisecond*50).
+				}, time.Second*time.Duration(10), time.Millisecond*50).
 					Should(Equal(clusterSize + 1))
 
 				clusterSize += 1
@@ -2803,7 +2826,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Not scaling out again")
 
 				// Now we have 7 hosts, so we shouldn't scale-out again.
-				time.Sleep(time.Second * 3)
+				time.Sleep(time.Second * 2)
 
 				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 3))
 				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
@@ -2828,9 +2851,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				//
 				// So, we need at least 50.9 committed GPUs to trigger a scale-out to 8 nodes.
 
-				spec := types.NewDecimalSpec(0, 0, 7, 0)
 				var lastHost scheduling.Host
 				dockerCluster.RangeOverHosts(func(key string, host scheduling.Host) bool {
+					// Add 7-<Current Committed>, since one of the hosts already had 1 committed GPU.
+					spec := types.NewDecimalSpec(0, 0, 7-host.CommittedGPUs(), 0)
 					err := host.AddToCommittedResources(spec)
 					Expect(err).To(BeNil())
 
@@ -2847,7 +2871,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
 				Expect(dockerCluster.HasActiveScalingOperation()).To(BeFalse())
 
-				err := lastHost.AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
+				err = lastHost.AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
 				Expect(err).To(BeNil())
 
 				// Cluster GPU load is 50, which is less than 50.9.
@@ -2872,7 +2896,28 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 4))
 				Expect(clusterSize).To(Equal(InitialClusterSize + 4))
 
-				time.Sleep(time.Second * 10)
+				time.Sleep(time.Second * 3)
+
+				dockerCluster.RangeOverHosts(func(key string, host scheduling.Host) bool {
+					// Remove all committed GPUs from all hosts.
+					spec := types.NewDecimalSpec(0, 0, host.CommittedGPUs(), 0)
+					err := host.SubtractFromCommittedResources(spec)
+					Expect(err).To(BeNil())
+
+					lastHost = host
+
+					return true
+				})
+
+				// Except make sure there's 1 host with committed resources.
+				err = lastHost.AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
+
+				// Now we should scale back in...
+				Expect(err).To(BeNil())
+				Eventually(func() int {
+					return dockerCluster.Len()
+				}, time.Second*10, time.Millisecond*50).
+					Should(Equal(clusterSize - 1))
 			})
 		})
 

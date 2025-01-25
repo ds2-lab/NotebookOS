@@ -27,6 +27,8 @@ const (
 	IdleIndexKey            types.HeapElementMetadataKey = "idle_index"
 )
 
+var IdleHostMetadataKey types.HeapElementMetadataKey = "idle_host_metadata_key"
+
 // schedulingNotification is a struct that is sent over a channel to notify the "main" goroutine handling the
 // scheduling of a new kernel that the scheduling of one of that kernel's replicas has completed successfully.
 type schedulingNotification struct {
@@ -391,6 +393,20 @@ func (s *BaseScheduler) FindReadyContainer(session scheduling.UserSession) sched
 	return nil
 }
 
+// UpdateIndex is used to update a Host's position in its index.
+// It also updates the "idle hosts" heap.
+func (s *BaseScheduler) UpdateIndex(host scheduling.Host) error {
+	heap.Fix(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
+
+	err := s.UpdateIndex(host)
+	if err != nil {
+		s.log.Error("Error while attempting to update index of host %s (ID=%s): %v",
+			host.GetNodeName(), host.GetID(), err)
+	}
+
+	return err // Will be nil on success
+}
+
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve
 // a Container (i.e., a kernel replica) with the given resource requirements (encoded as a types.Spec).
 //
@@ -487,7 +503,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 					kernelSpec.Id, host.GetNodeName(), host.GetID(), err)
 			}
 
-			err = s.cluster.UpdateIndex(host)
+			err = s.UpdateIndex(host)
 			if err != nil {
 				s.log.Error("Error while attempting to update index of host %s (ID=%s): %v",
 					host.GetNodeName(), host.GetID(), err)
@@ -709,21 +725,20 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 		//// Technically if the number of committed GPUs is zero, then the ratio is infinite (undefined).
 		//// TODO: Previously, I'd just set the ratio to 0 if BusyGPUs was 0.
 		//// But technically, it should be undefined/infinite, so I will try setting it to maxSubscribedRatio...
-		//ratio = s.maxSubscribedRatio.InexactFloat64()
-		//
+		// ratio = s.maxSubscribedRatio.InexactFloat64()
+		ratio = 0
+
 		//if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
 		//	s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", s.cluster.DemandGPUs(),
 		//		s.cluster.BusyGPUs(), ratio)
 		//}
-		return false
+		//return false
 	} else {
 		demandGpus := s.cluster.DemandGPUs()
 		busyGpus := s.cluster.BusyGPUs()
 		ratio = demandGpus / busyGpus
 
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", demandGpus, busyGpus, ratio)
-		}
+		s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", demandGpus, busyGpus, ratio)
 	}
 
 	s.stRatio.Add(ratio)
@@ -881,7 +896,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.cluster.UpdateIndex(targetHost)
+		s.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -903,7 +918,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.cluster.UpdateIndex(targetHost)
+		s.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -936,7 +951,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.cluster.UpdateIndex(targetHost)
+		s.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -961,7 +976,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.cluster.UpdateIndex(targetHost)
+		s.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -1118,6 +1133,11 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 	return dataDirectory, nil
 }
 
+// HostRemoved is called by the Cluster when a Host is removed from the Cluster.
+func (s *BaseScheduler) HostRemoved(host scheduling.Host) {
+	s.instance.HostRemoved(host)
+}
+
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *BaseScheduler) HostAdded(host scheduling.Host) {
 	s.instance.HostAdded(host)
@@ -1161,8 +1181,6 @@ func (s *BaseScheduler) validate() {
 		s.invalidated = 0.0
 	}
 }
-
-var IdleHostMetadataKey types.HeapElementMetadataKey = "idle_host_metadata_key"
 
 type idleSortedHost struct {
 	scheduling.Host
@@ -1230,9 +1248,11 @@ func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host) {
 func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	s.validate()
 
-	if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-		s.log.Debug("Attempting to release %d idle host(s). There are currently %d host(s) in the Cluster.", n, s.cluster.Len())
-	}
+	// For now, just ensure the heap is in a valid order.
+	heap.Init(s.idleHosts)
+
+	s.log.Debug("Attempting to release %d idle host(s). There are currently %d host(s) in the Cluster. Length of idle hosts: %d.",
+		n, s.cluster.Len(), s.idleHosts.Len())
 
 	toBeReleased := make([]scheduling.Host, 0, n)
 	for int32(len(toBeReleased)) < n && s.idleHosts.Len() > 0 {
@@ -1245,15 +1265,15 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		excluded := idleHost.Host.ExcludeFromScheduling()
 		if excluded {
+			// If we failed to exclude the host, then we won't reclaim it.
 			toBeReleased = append(toBeReleased, idleHost.Host)
 		}
 	}
 
 	var released int
 	for i, host := range toBeReleased {
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Releasing idle host %d/%d: Virtual Machine  %s. NumContainers: %d.", i+1, len(toBeReleased), host.GetID(), host.NumContainers())
-		}
+		s.log.Debug("Releasing idle host %d/%d: Virtual Machine  %s. NumContainers: %d.",
+			i+1, len(toBeReleased), host.GetID(), host.NumContainers())
 
 		// If the host has no containers running on it at all, then we can simply release the host.
 		if host.NumContainers() > 0 {
@@ -1278,9 +1298,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		}
 
 		released += 1
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Successfully released idle host %d/%d: Virtual Machine  %s.", i+1, len(toBeReleased), host.GetID())
-		}
+		s.log.Debug("Successfully released idle host %d/%d: Virtual Machine  %s.", i+1, len(toBeReleased), host.GetID())
 	}
 
 	return released, nil

@@ -142,9 +142,14 @@ func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.C
 	}
 
 	// Should we scale in?
-	if !cluster.Scheduler().CanScaleIn() || load <= limit {
+	if !cluster.Scheduler().CanScaleIn() {
 		return
 	}
+
+	//if load <= limit {
+	//	log.Debug("Load (%d) is <= limit (%d); cannot scale-in.", load, limit)
+	//	return
+	//}
 
 	// Scaling in.
 	// NOTE: Jingyuan's algorithm uses initial capacity here, rather than minimum capacity.
@@ -153,26 +158,28 @@ func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.C
 	}
 
 	numToRelease := int32(cluster.Len()) - limit
-	if numToRelease > 0 {
-		if numToRelease > maximumHostsToReleaseAtOnce {
-			if log.GetLevel() == logger.LOG_LEVEL_ALL {
-				log.Debug("Decreased the number of idle hosts to release from %d to the maximum allowed value of %s.", numToRelease, maximumHostsToReleaseAtOnce)
-			}
-			numToRelease = maximumHostsToReleaseAtOnce
-		}
 
-		if log.GetLevel() == logger.LOG_LEVEL_ALL {
-			log.Debug("Scaling in %d hosts", numToRelease)
-		}
+	if numToRelease <= 0 {
+		cluster.Scheduler().SetLastCapacityValidation(time.Now())
+		return
+	}
 
-		numReleased, err := cluster.Scheduler().ReleaseIdleHosts(numToRelease)
-		if err != nil {
-			log.Error("Error while releasing idle hosts: %v", err)
-		}
+	if numToRelease > maximumHostsToReleaseAtOnce {
+		log.Debug("Decreased the number of idle hosts to release from %d to the maximum allowed value of %s.",
+			numToRelease, maximumHostsToReleaseAtOnce)
 
-		if numReleased > 0 && log.GetLevel() == logger.LOG_LEVEL_ALL {
-			log.Debug("Released %d idle hosts based on #CommittedGPUs (%d). Prev #hosts: %s. New #hosts: %s.", numReleased, load, oldNumHosts, cluster.Len())
-		}
+		numToRelease = maximumHostsToReleaseAtOnce
+	}
+
+	log.Debug("Scaling in %d hosts", numToRelease)
+	numReleased, err := cluster.Scheduler().ReleaseIdleHosts(numToRelease)
+	if err != nil {
+		log.Error("Error while releasing idle hosts: %v", err)
+	}
+
+	if numReleased > 0 {
+		log.Debug("Released %d idle hosts based on #CommittedGPUs (%d). Prev #hosts: %s. New #hosts: %s.",
+			numReleased, load, oldNumHosts, cluster.Len())
 	}
 
 	cluster.Scheduler().SetLastCapacityValidation(time.Now())

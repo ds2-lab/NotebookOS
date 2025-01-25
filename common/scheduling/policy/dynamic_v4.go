@@ -39,12 +39,6 @@ func (p *DynamicV4Policy) ValidateCapacity(cluster scheduling.Cluster) {
 	multiReplicaValidateCapacity(p, cluster, p.log)
 }
 
-// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
-// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
-func (p *DynamicV4Policy) SupportsPredictiveAutoscaling() bool {
-	return true
-}
-
 func (p *DynamicV4Policy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
 	return p
 }
@@ -141,6 +135,12 @@ func (p *DynamicV4Policy) ScalingOutEnabled() bool {
 }
 
 func (p *DynamicV4Policy) ScalingInEnabled() bool {
+	return true
+}
+
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *DynamicV4Policy) SupportsPredictiveAutoscaling() bool {
 	return true
 }
 

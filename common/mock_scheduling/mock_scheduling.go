@@ -2810,6 +2810,20 @@ func (mr *MockHostMockRecorder) PlacedMemoryMB() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlacedMemoryMB", reflect.TypeOf((*MockHost)(nil).PlacedMemoryMB))
 }
 
+// PlacedVRAM mocks base method.
+func (m *MockHost) PlacedVRAM() decimal.Decimal {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PlacedVRAM")
+	ret0, _ := ret[0].(decimal.Decimal)
+	return ret0
+}
+
+// PlacedVRAM indicates an expected call of PlacedVRAM.
+func (mr *MockHostMockRecorder) PlacedVRAM() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlacedVRAM", reflect.TypeOf((*MockHost)(nil).PlacedVRAM))
+}
+
 // PreCommitResources mocks base method.
 func (m *MockHost) PreCommitResources(container scheduling.KernelContainer, executionId string) error {
 	m.ctrl.T.Helper()
