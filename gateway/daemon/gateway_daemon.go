@@ -14,6 +14,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/shopspring/decimal"
@@ -1688,7 +1689,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		}
 
 		// Only notify if there's an "actual" error.
-		if !errors.Is(err, scheduling.ErrInsufficientHostsAvailable) {
+		if !errors.Is(err, scheduling.ErrInsufficientHostsAvailable) && !errors.As(err, &resource.InsufficientResourcesError{}) {
 			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Create Kernel \"%s\"", in.Id), err.Error())
 		}
 
@@ -1736,7 +1737,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		timeElapsed := timestamp.Sub(startTime)
 		event := &statistics.ClusterEvent{
 			EventId:             uuid.NewString(),
-			Name:                statistics.ScheduleReplicasStarted,
+			Name:                statistics.ScheduleReplicasComplete,
 			KernelId:            in.Id,
 			ReplicaId:           replicaId,
 			Timestamp:           timestamp,
@@ -3659,6 +3660,18 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		if d.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning {
 			d.clusterStatisticsMutex.Lock()
 			d.ClusterStatistics.NumTimesKernelReplicaAvailableImmediately += 1
+			d.clusterStatisticsMutex.Unlock()
+		}
+
+		// If the kernel has a valid (i.e., non-nil) "previous primary replica", then we'll update another statistic...
+		if kernel.LastPrimaryReplica() != nil {
+			d.clusterStatisticsMutex.Lock()
+			// If we selected the same replica again, then update the corresponding metric.
+			if kernel.LastPrimaryReplica().ReplicaID() == targetReplica.ReplicaID() {
+				d.ClusterStatistics.NumTimesPreviousPrimaryReplicaSelectedConsecutively += 1
+			} else {
+				d.ClusterStatistics.NumTimesPreviousPrimaryReplicaUnavailable += 1
+			}
 			d.clusterStatisticsMutex.Unlock()
 		}
 

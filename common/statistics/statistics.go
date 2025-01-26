@@ -227,6 +227,15 @@ type ClusterStatistics struct {
 	// serve the "execute_request" immediately, with no migrations required).
 	NumTimesKernelReplicaNotAvailableImmediately float64 `csv:"NumTimesKernelReplicaNotAvailableImmediately" json:"NumTimesKernelReplicaNotAvailableImmediately"`
 
+	// NumTimesPreviousPrimaryReplicaSelectedConsecutively refers to the number of times that the previous primary replica is
+	// selected again for the next consecutive user-submitted code execution.
+	NumTimesPreviousPrimaryReplicaSelectedConsecutively int64 `csv:"NumTimesPreviousPrimaryReplicaSelectedConsecutively" json:"NumTimesPreviousPrimaryReplicaSelectedConsecutively"`
+
+	// NumTimesPreviousPrimaryReplicaUnavailable refers to the number of times that the previous primary replica is
+	// NOT selected again for the next consecutive user-submitted code execution, due to it being unavailable (i.e.,
+	// insufficient resources available on that replica's host).
+	NumTimesPreviousPrimaryReplicaUnavailable int64 `csv:"" json:""`
+
 	////////////////////////
 	// Dynamic Scheduling //
 	////////////////////////

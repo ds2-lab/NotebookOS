@@ -1191,7 +1191,7 @@ func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string,
 
 	if err != nil {
 		h.log.Error("Failed to release committed resources [%s] from replica of kernel %s.",
-			spec.String(), kernelId, kernelId)
+			spec.String(), kernelId)
 		return err
 	}
 

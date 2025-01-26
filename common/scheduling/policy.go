@@ -191,6 +191,12 @@ type ScalingConfiguration struct {
 	GpusPerHost int
 
 	// ScalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	// Specifically, a proposed auto-scale-out is computed as:
+	//
+	// (<Current GPU Load> * <Scaling Factor>) / <GPUs Per Host>
+	//
+	// This yields a proposed number of hosts (scaled-out from the current number, in theory, unless the scale factor
+	// is very small, in which case it may or may not result in a scale-out.)
 	ScalingFactor float64
 
 	// MaximumHostsToReleaseAtOnce defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
