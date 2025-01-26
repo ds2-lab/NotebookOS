@@ -118,7 +118,7 @@ var _ = Describe("Manager Tests", func() {
 
 			manager2 := resource.NewManager(baseSpec)
 			initialState2, commit2 := manager2.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(1, func() (*transaction.State, transaction.CommitTransactionResult) {
+			err = coordinatedTransaction.RegisterParticipant(2, func() (*transaction.State, transaction.CommitTransactionResult) {
 				return initialState2, commit2
 			}, tx, &mu2)
 			Expect(err).To(BeNil())
@@ -185,7 +185,7 @@ var _ = Describe("Manager Tests", func() {
 
 			manager2 := resource.NewManager(baseSpec)
 			initialState2, commit2 := manager2.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(1, func() (*transaction.State, transaction.CommitTransactionResult) {
+			err = coordinatedTransaction.RegisterParticipant(2, func() (*transaction.State, transaction.CommitTransactionResult) {
 				return initialState2, commit2
 			}, tx, &mu2)
 			Expect(err).To(BeNil())
