@@ -48,7 +48,8 @@ dependencies = [
     "pytest",
     "pytest-asyncio",
     "torchaudio",
-    "torchvision"
+    "torchvision",
+    "aioboto3"
 ]
 
 readme = "README.md"
