@@ -161,8 +161,7 @@ func (p *DynamicV3Policy) SelectReplicaForMigration(kernel scheduling.Kernel) (s
 // selecting a replica now depends upon the kernel's resource request correctly specifying
 // the requirements. If the requirements were to change after selection a replica, then
 // that could invalidate the selection.
-func (p *DynamicV3Policy) FindReadyReplica(_ scheduling.Kernel, _ string) (scheduling.KernelReplica, error) {
-	// TODO: Implement me.
+func (p *DynamicV3Policy) FindReadyReplica(_ scheduling.Kernel, _ string) (scheduling.KernelReplica, error) { // TODO: Implement me.
 	panic("Not implemented.")
 }
 

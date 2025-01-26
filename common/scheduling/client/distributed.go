@@ -399,9 +399,6 @@ func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spe
 //
 // It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/Replica.
 func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.CloneableSpec) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.log.Debug("Updating ResourceSpec of kernel \"%s\" from %v to %v.",
 		c.id, c.spec.ResourceSpec.String(), newSpec.String())
 
@@ -411,6 +408,9 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.CloneableSpec
 		c.log.Debug("Old spec and new spec of kernel \"%s\" are equal. Nothing to update.", c.id)
 		return nil
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	if len(c.replicas) > 0 {
 		err := c.updateResourceSpecOfReplicas(newSpec)

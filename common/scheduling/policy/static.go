@@ -167,7 +167,7 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 
 		p.log.Debug(
 			utils.LightGreenStyle.Render(
-				"Resource pre-commitment %s. Identified viable replica %d of kernel %s for execution \"%s\"."),
+				"Resource pre-commitment succeeded. Identified viable replica %d of kernel %s for execution \"%s\"."),
 			candidateReplica.ReplicaID(), kernel.ID(), executionId)
 
 		return candidateReplica, nil // Migration is permitted, so we never return an error.

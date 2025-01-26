@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/google/uuid"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 var (
@@ -16,20 +19,83 @@ var (
 	ErrTransactionRegistrationError = errors.New("failed to register coordinated transaction participant")
 	ErrTransactionAlreadyStarted    = errors.New("cannot register participant as transaction has already started")
 	ErrTransactionAborted           = errors.New("transaction was manually aborted")
+	ErrMissingParticipants          = errors.New("transaction cannot run as one or more participants are missing")
 )
 
 // CommitTransactionResult defines a function that is used to commit the result of a transaction.
 type CommitTransactionResult func(state *State)
 
+// GetInitialStateForTransaction is a function that returns the initial state and the commit function for a transaction
+// participant. Participants pass this function when registering.
+//
+// The expectation is that any necessary mutexes will already be held before a GetInitialStateForTransaction
+// function is called.
+type GetInitialStateForTransaction func() (*State, CommitTransactionResult)
+
 // CoordinatedParticipant represents a participant in a coordinated transaction.
 //
 // Each CoordinatedParticipant is typically associated with a specific replica of a kernel.
 type CoordinatedParticipant struct {
+	// id is the SMR node ID of the kernel replica represented by the CoordinatedParticipant
+	id int32
+
 	// commit defines how the committed state should be used/applied if the transaction succeeds for the CoordinatedParticipant.
 	commit CommitTransactionResult
 
 	// tx defines the operations that should be applied to the CoordinatedParticipant's resources during the transaction.
 	tx *Transaction
+
+	// Operation is the operation that is executed by the CoordinatedParticipant during the CoordinatedTransaction.
+	operation Operation
+
+	// getInitialState obtains the initial state for the CoordinatedTransaction.
+	// getInitialState is called after the mu is acquired.
+	getInitialState GetInitialStateForTransaction
+
+	initialState *State
+
+	// mu is the CoordinatedParticipant's mutex. The CoordinatedTransaction will acquire the mutexes of all
+	// the CoordinatedParticipant structs that are involved at the very beginning of the transaction.
+	//
+	// It is the caller's responsibility to unlock the mu once the transaction has finished.
+	// The CoordinatedTransaction will not unlock the mu.
+	mu *sync.Mutex
+}
+
+// tryLock attempts to acquire the CoordinatedParticipant's mu (a sync.Mutex).
+func (p *CoordinatedParticipant) tryLock() bool {
+	return p.mu.TryLock()
+}
+
+// initialize initializes the CoordinatedParticipant, getting its initial State from the CoordinatedParticipant's
+// getInitialState field (of type GetInitialStateForTransaction).
+//
+// initialize creates the internal, single-participant *Transaction as well.
+//
+// IMPORTANT: initialize should only be called once ALL mutexes (of ALL CoordinatedParticipant entities involved
+// in the CoordinatedTransaction) have been acquired.
+func (p *CoordinatedParticipant) initialize() error {
+	if p.operation == nil {
+		return ErrNilTransactionOperation
+	}
+
+	// Get the initial state for the transaction.
+	p.initialState, p.commit = p.getInitialState()
+
+	if p.initialState == nil {
+		return ErrNilInitialState
+	}
+
+	tx := New(p.operation, p.initialState)
+	if tx == nil {
+		return fmt.Errorf("unexpectedly failed to initialize transaction")
+	}
+
+	if err := tx.validateInputs(); err != nil {
+		return errors.Join(ErrTransactionRegistrationError, err)
+	}
+
+	return nil
 }
 
 // validateState checks if the result of the transaction is valid.
@@ -57,6 +123,8 @@ func (p *CoordinatedParticipant) run(wg *sync.WaitGroup) {
 // The CoordinatedTransaction will either succeed for all replicas or fail for all replicas.
 type CoordinatedTransaction struct {
 	mu sync.Mutex
+
+	id string
 
 	log logger.Logger
 
@@ -89,6 +157,7 @@ type CoordinatedTransaction struct {
 
 func NewCoordinatedTransaction(numParticipants int) *CoordinatedTransaction {
 	coordinatedTransaction := &CoordinatedTransaction{
+		id:                      uuid.NewString(),
 		participants:            make(map[int32]*CoordinatedParticipant, numParticipants),
 		expectedNumParticipants: numParticipants,
 	}
@@ -129,6 +198,11 @@ func (t *CoordinatedTransaction) Started() bool {
 
 // Wait blocks until the CoordinatedTransaction completes and returns whether it was successful.
 func (t *CoordinatedTransaction) Wait() bool {
+	if t.shouldAbort.Load() {
+		t.log.Debug("Transaction %s was aborted. Immediately returning from Wait().", t.id)
+		return false
+	}
+
 	t.doneGroup.Wait()
 
 	return t.succeeded.Load()
@@ -145,7 +219,11 @@ func (t *CoordinatedTransaction) Abort() {
 // RegisterParticipant is used to register a "participant" of the CoordinatedTransaction.
 //
 // If the CoordinatedTransaction has already started, then X will return an error.
-func (t *CoordinatedTransaction) RegisterParticipant(id int32, state *State, operation Operation, commit CommitTransactionResult) error {
+//
+// The expectation is that any necessary mutexes will already be held before the initial state function is called.
+//
+// The given mutex will be locked by the CoordinatedTransaction, but it is the caller's responsibility to unlock it.
+func (t *CoordinatedTransaction) RegisterParticipant(id int32, getInitialState GetInitialStateForTransaction, operation Operation, mu *sync.Mutex) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -153,29 +231,21 @@ func (t *CoordinatedTransaction) RegisterParticipant(id int32, state *State, ope
 		return errors.Join(ErrTransactionRegistrationError, ErrTransactionAlreadyStarted)
 	}
 
-	if state == nil {
-		return ErrNilInitialState
-	}
-
-	if operation == nil {
-		return ErrNilTransactionOperation
-	}
-
-	tx := New(operation, state)
-	if tx == nil {
-		return fmt.Errorf("unexpectedly failed to initialize transaction")
-	}
-
-	if err := tx.validateInputs(); err != nil {
-		return errors.Join(ErrTransactionRegistrationError, err)
+	if t.shouldAbort.Load() {
+		return errors.Join(ErrTransactionRegistrationError, ErrTransactionAborted)
 	}
 
 	t.participants[id] = &CoordinatedParticipant{
-		tx:     tx,
-		commit: commit,
+		id:              id,
+		getInitialState: getInitialState,
+		operation:       operation,
+		mu:              mu,
 	}
 
 	if len(t.participants) == t.expectedNumParticipants {
+		t.log.Debug("Registered participant %d/%d (with ID=%d). Beginning transaction now.",
+			len(t.participants), t.expectedNumParticipants, id)
+
 		_ = t.run()
 	}
 
@@ -216,11 +286,69 @@ func (t *CoordinatedTransaction) recordFinished(succeeded bool, failureReason er
 	t.doneGroup.Done()
 }
 
+// acquireHostMutexes acquires the mutexes of all scheduling.Host instances involved in the CoordinatedTransaction.
+//
+// IMPORTANT: acquireHostMutexes is called with the CoordinatedTransaction's mu already locked.
+func (t *CoordinatedTransaction) acquireHostMutexes() error {
+	if len(t.participants) != t.expectedNumParticipants {
+		return fmt.Errorf("%w: expected %d participants, have only %d registered",
+			ErrMissingParticipants, t.expectedNumParticipants, len(t.participants))
+	}
+
+	// Keep track of the mutexes that we've already locked successfully.
+	lockedMutexes := make([]*sync.Mutex, 0, len(t.participants))
+
+	releaseLocks := func() {
+		// Release all locked mutexes.
+		for _, mu := range lockedMutexes {
+			mu.Unlock()
+		}
+
+		// Recreate the slice of locked mutexes.
+		lockedMutexes = make([]*sync.Mutex, 0, len(t.participants))
+	}
+
+	// Keep trying forever...
+	for {
+		// Iterate over all the participants, attempting to lock each one.
+		for _, participant := range t.participants {
+			// Try to lock the participant's mutex.
+			locked := participant.tryLock()
+
+			// Check if we succeeded in locking the participant's mutex.
+			if locked {
+				// We succeeded. Append the mutex to the slice of locked mutexes and continue.
+				lockedMutexes = append(lockedMutexes, participant.mu)
+				continue
+			}
+
+			// We failed to lock the mutex. Release all acquired locks and break out of the (inner) for-loop.
+			releaseLocks()
+			break
+		}
+
+		// If we failed to lock a mutex, then the length of lockedMutexes will be 0, and we'll loop again.
+		//
+		// If we succeeded in locking all mutexes, then the length of lockedMutexes will be equal to
+		// the value of t.expectedNumParticipants. In this case, we can simply return.
+		if len(lockedMutexes) == t.expectedNumParticipants {
+			return nil
+		}
+
+		// Sleep for a random interval between 5 - 10 milliseconds before retrying.
+		time.Sleep(time.Millisecond*time.Duration(rand.Int64N(5)) + (time.Millisecond * 5))
+	}
+}
+
 // run runs the transaction. run is called automatically when the last participant registers.
+//
+// IMPORTANT: run is called with the CoordinatedTransaction's mu already locked.
 func (t *CoordinatedTransaction) run() error {
 	if len(t.participants) == 0 {
 		return ErrNilInitialState
 	}
+
+	err := t.acquireHostMutexes()
 
 	t.started.Store(true)
 
@@ -235,7 +363,7 @@ func (t *CoordinatedTransaction) run() error {
 	wg.Wait()
 
 	for id, participant := range t.participants {
-		err := participant.validateState()
+		err = participant.validateState()
 		if err != nil {
 			t.log.Warn("Participant %d failed. Aborting transaction. Reason: %v.", id, err)
 			t.recordFinished(false, err)

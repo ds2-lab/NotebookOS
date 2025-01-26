@@ -125,7 +125,7 @@ type Host struct {
 	errorCallback                  scheduling.ErrorCallback                            // errorCallback is a function to be called if a Host appears to be dead.
 	pendingContainers              types.StatInt32                                     // pendingContainers is the number of Containers that are scheduled on the host.
 	enabled                        bool                                                // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
-	excludedFromScheduling         bool                                                // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
+	excludedFromScheduling         atomic.Bool                                         // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
 	isBeingConsideredForScheduling atomic.Int32                                        // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
 	CreatedAt                      time.Time                                           // CreatedAt is the time at which the Host was created.
 	resourceManager                *resource.Manager                                   // resourcesWrapper wraps all the Host's HostResources.
@@ -349,10 +349,7 @@ func (h *Host) GetLastRemoteSync() time.Time {
 }
 
 func (h *Host) IsExcludedFromScheduling() bool {
-	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Unlock()
-
-	return h.excludedFromScheduling
+	return h.excludedFromScheduling.Load()
 }
 
 func (h *Host) SetSubscriptionQuerier(querier SubscriptionQuerier) {
@@ -366,9 +363,6 @@ func (h *Host) SetSubscriptionQuerier(querier SubscriptionQuerier) {
 // If ExcludeFromScheduling returns false, then the Host is already being considered for scheduling by one or more
 // scheduling operations and thus cannot be excluded at this time.
 func (h *Host) ExcludeFromScheduling() bool {
-	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Unlock()
-
 	if numOperationsConsideringHost := h.isBeingConsideredForScheduling.Load(); numOperationsConsideringHost > 0 {
 		h.log.Debug("Host %s (ID=%s) cannot be excluded from consideration from scheduling operations as it is "+
 			"already being considered by %d scheduling operation(s).", h.NodeName, h.ID, numOperationsConsideringHost)
@@ -376,7 +370,7 @@ func (h *Host) ExcludeFromScheduling() bool {
 	}
 
 	h.log.Debug("Host %s (ID=%s) is now precluded from being considered for scheduling.", h.NodeName, h.ID)
-	h.excludedFromScheduling = true
+	h.excludedFromScheduling.Store(true)
 	return true
 }
 
@@ -392,11 +386,11 @@ func (h *Host) IncludeForScheduling() error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	if !h.excludedFromScheduling {
+	if !h.excludedFromScheduling.Load() {
 		return ErrHostAlreadyIncludedForScheduling
 	}
 
-	h.excludedFromScheduling = false
+	h.excludedFromScheduling.Store(false)
 	h.log.Debug("Host %s (ID=%s) will be included for consideration in scheduling operations again.", h.NodeName, h.ID)
 	return nil
 }
@@ -425,7 +419,7 @@ func (h *Host) ConsiderForScheduling() bool {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	if h.excludedFromScheduling {
+	if h.excludedFromScheduling.Load() {
 		h.log.Debug("Cannot consider host %s (ID=%s) for scheduling; it is presently excluded from scheduling.",
 			h.NodeName, h.ID)
 		return false
@@ -1552,33 +1546,37 @@ func (h *Host) getSIP(sess scheduling.UserSession) float64 {
 // this Host is updated or changed. This ensures that the Host's resource counts are up to date.
 //
 // This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
-func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
-	h.schedulingMutex.Lock()
+func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec,
+	container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
+
+	// The CoordinatedTransaction will lock this mutex.
+	// We just need to unlock it.
 	defer h.schedulingMutex.Unlock()
 
 	// Sanity check.
 	if _, loaded := h.containers.Load(container.ContainerID()); !loaded {
+		coordinatedTransaction.Abort()
 		return fmt.Errorf("the specified KernelContainer is not running on the target Host")
 	}
 
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
 	if !h.schedulingPolicy.SupportsDynamicResourceAdjustments() {
+		coordinatedTransaction.Abort()
 		return scheduling.ErrDynamicResourceAdjustmentProhibited
 	}
 
 	oldSubscribedRatio := h.subscribedRatio
-	h.log.Debug("Updating resource reservation for %s", container.ContainerID())
+	h.log.Debug("Coordinated Transaction: updating resource reservation for %s", container.ContainerID())
 
 	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
 	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
 
-	initialState, commit := h.resourceManager.GetTransactionData()
+	txOperation := func(state *transaction.State) {
+		state.PendingResources().Subtract(oldSpecDecimal)
+		state.PendingResources().Add(newSpecDecimal)
+	}
 
-	err := coordinatedTransaction.RegisterParticipant(container.ReplicaId(), initialState,
-		func(state *transaction.State) {
-			state.PendingResources().Subtract(oldSpecDecimal)
-			state.PendingResources().Add(newSpecDecimal)
-		}, commit)
+	err := coordinatedTransaction.RegisterParticipant(container.ReplicaId(), h.resourceManager.GetTransactionData, txOperation, &h.schedulingMutex)
 	if err != nil {
 		h.log.Error("Received error upon registering for coordination transaction when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
 			container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), err)
@@ -1616,7 +1614,7 @@ func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec 
 	}
 
 	oldSubscribedRatio := h.subscribedRatio
-	h.log.Debug("Updating resource reservation for %s", container.ContainerID())
+	h.log.Debug("Updating resource reservation for just %s", container.ContainerID())
 
 	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
 	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
