@@ -573,7 +573,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			setActiveCall := kernel.EXPECT().RegisterActiveExecution(gomock.Any()).Return(nil, nil)
 			kernel.EXPECT().NumActiveExecutionOperations().Return(0).Times(1)
-			kernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).Times(1)
+			kernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).AnyTimes()
 
 			cluster.EXPECT().Close().AnyTimes()
 		})
@@ -661,6 +661,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				return selectedReplica, nil
 			})
+
+			kernel.EXPECT().LastPrimaryReplica().Times(1).Return(nil)
 
 			cluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
 

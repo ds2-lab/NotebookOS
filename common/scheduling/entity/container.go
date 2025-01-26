@@ -60,6 +60,9 @@ func NewContainer(session scheduling.UserSession, kernelReplica scheduling.Kerne
 	container.interactivePriority.Producer = cache.FormalizeICProducer(container.getInteractivePriority)
 	container.interactivePriority.Validator = GetClockTimeCacheValidator()
 
+	container.log.Debug("Container for replica %d of kernel %s has been created with spec %v on host %s (ID=%s)",
+		container.replicaId, container.id, container.ResourceSpec().String(), host.GetNodeName(), host.GetID())
+
 	return container
 }
 
@@ -127,8 +130,8 @@ func (c *Container) KernelID() string {
 }
 
 func (c *Container) String() string {
-	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,State=%v,StartedAt=%v,Host=%v]",
-		c.id, c.replicaId, c.containerState, c.startedAt, c.host)
+	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,State=%v,StartedAt=%v,ResourceSpec=%v,Host=%v]",
+		c.id, c.replicaId, c.containerState, c.startedAt, c.ResourceSpec(), c.host)
 }
 
 func (c *Container) Session() scheduling.UserSession {
@@ -247,7 +250,7 @@ func (c *Container) ScaleOutPriority() float64 {
 }
 
 // TrainingStartedInContainer should be called when the Container begins training.
-func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
+func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/) error {
 	err := c.host.ContainerStartedTraining(c)
 	if err != nil {
 		return err
@@ -277,7 +280,7 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 // ContainerStoppedTraining should be called when the Container stops training.
 //
 // This should be called by the Session's SessionStoppedTraining method.
-func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
+func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/) error {
 	if err := c.transition(scheduling.ContainerStateIdle); err != nil {
 		c.log.Error("Failed to transition Container to state %v because: %v", scheduling.ContainerStateIdle, err)
 		return err
@@ -330,6 +333,9 @@ func (c *Container) ContainerStopped() error {
 		c.log.Error("Failed to cleanly stop Container as its host is nil...")
 		return scheduling.ErrNilHost
 	}
+
+	c.log.Debug("Container for replica %d of kernel %s has stopped. Removing from host %s (ID=%s). Container spec: %v.",
+		c.ReplicaID(), c.ID(), c.host.GetNodeName(), c.host.GetID(), c.ResourceSpec())
 
 	err := c.host.ContainerRemoved(c)
 	if err != nil {

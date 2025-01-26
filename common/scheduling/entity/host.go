@@ -1402,7 +1402,7 @@ func (h *Host) unsafeReleasePreCommitedResources(container scheduling.KernelCont
 func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, replicaId int32, decrementPending bool) error {
 	if existingReplicaId, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
 		h.log.Error("Attempting to commit resources [%s] to replica %d of kernel %s, but we've already committed resources to replica %d of kernel %s.",
-			spec.String(), replicaId, kernelId, existingReplicaId)
+			spec.String(), replicaId, kernelId, existingReplicaId, kernelId)
 		return fmt.Errorf("%w (replica %d of kernel \"%s\")", ErrResourcesAlreadyCommitted, existingReplicaId, kernelId)
 	}
 

@@ -5190,7 +5190,7 @@ func (mr *MockKernelMockRecorder) UnbindSession(sess any) *gomock.Call {
 }
 
 // UpdateResourceSpec mocks base method.
-func (m *MockKernel) UpdateResourceSpec(spec types.Spec) error {
+func (m *MockKernel) UpdateResourceSpec(spec types.CloneableSpec) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateResourceSpec", spec)
 	ret0, _ := ret[0].(error)

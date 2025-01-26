@@ -99,7 +99,7 @@ type Kernel interface {
 	// of each KernelReplica, and the KernelContainer of each KernelReplica.
 	//
 	// It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/Replica.
-	UpdateResourceSpec(spec types.Spec) error
+	UpdateResourceSpec(spec types.CloneableSpec) error
 	KernelSpec() *proto.KernelSpec
 	ConnectionInfo() *jupyter.ConnectionInfo
 	Status() jupyter.KernelStatus

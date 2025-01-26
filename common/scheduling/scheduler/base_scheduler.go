@@ -735,12 +735,15 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 		//}
 		//return false
 	} else {
+		// NOTE: DemandAndBusyGPUs computes the busy GPUs based on sessions that are actively training,
+		// whereas BusyGPUs computes the quantity based on reservations on Hosts (i.e., pre-reserved
+		// resources and whatnot).
 		demandGpus, busyGpus1, numRunning, numIdle, numTraining := s.cluster.DemandAndBusyGPUs()
 		busyGpus2 := s.cluster.BusyGPUs()
 
 		var busyGPUs float64
 		if busyGpus1 != busyGpus2 {
-			s.log.Error("Computed busy GPUs as %.0f from DemandAndBusyGPUs and %.0f from BusyGPUs...",
+			s.log.Warn("Computed busy GPUs as %.0f from DemandAndBusyGPUs and %.0f from BusyGPUs...",
 				busyGpus1, busyGpus2)
 
 			// Pick the largest.

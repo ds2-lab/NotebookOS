@@ -257,6 +257,9 @@ func (s *Session) ResourceSpec() types.CloneableSpec {
 }
 
 func (s *Session) UpdateResourceSpec(newSpec types.CloneableSpec) {
+	s.log.Debug("Updating ResourceSpec of Session \"%s\" from %v to %v.",
+		s.id, s.resourceSpec.String(), newSpec.String())
+
 	s.resourceSpec = newSpec
 
 	s.kernelSpec.ResourceSpec.Gpu = int32(newSpec.GPU())

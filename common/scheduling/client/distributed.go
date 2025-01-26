@@ -401,7 +401,7 @@ func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spe
 // of each Replica, and the KernelContainer of each Replica.
 //
 // It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/Replica.
-func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.Spec) error {
+func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.CloneableSpec) error {
 	// We'll read-lock because, while we're updating the spec of one of the kernels,
 	// we're not modifying the kernel slice or any properties of the DistributedKernelClient directly.
 	c.mu.RLock()
@@ -422,6 +422,10 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.Spec) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	if c.session != nil {
+		c.session.UpdateResourceSpec(newSpec)
 	}
 
 	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
@@ -665,9 +669,12 @@ func (c *DistributedKernelClient) RemoveReplica(r scheduling.KernelReplica, remo
 	// So, we'll explicitly try calling Host::ContainerRemoved now, but there's a good chance it'll fail (since there
 	// was already some sort of issue when we tried to call ContainerStopped).
 	if errors.As(err, &scheduling.ErrInvalidStateTransition) || errors.As(err, &scheduling.ErrNilHost) {
+		c.log.Debug("Removing container for replica %d of kernel %s from host %s (ID=%s). Container spec: %v.",
+			r.ReplicaID(), c.ID(), host.GetNodeName(), host.GetID(), r.Container().ResourceSpec())
 		hostContainerRemovalError := host.ContainerRemoved(r.Container())
 		if hostContainerRemovalError != nil {
-			c.log.Error("Failed to remove scheduling.Container %s-%d from Host %s because: %v", r.ID(), r.ReplicaID(), host.GetID(), hostContainerRemovalError)
+			c.log.Error("Failed to remove scheduling.Container %s-%d from Host %s because: %v",
+				r.ID(), r.ReplicaID(), host.GetID(), hostContainerRemovalError)
 
 			// If another error occurred, then we'll join the two together so that they get returned together.
 			err = errors.Join(err, hostContainerRemovalError)

@@ -327,7 +327,6 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx *t
 		}
 
 		container.UpdateResourceSpec(specAsDecimalSpec)
-		container.Session().UpdateResourceSpec(specAsDecimalSpec)
 	} else if tx != nil {
 		c.log.Warn("Replica %d of kernel %s does not have a non-nil container, but coordinated tx is non-nil...",
 			c.replicaId, c.id)
