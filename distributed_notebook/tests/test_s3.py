@@ -60,6 +60,8 @@ try:
 except Exception as e:
     print(f"Failed to download checkpoint from S3: {e}")
 
+buffer.seek(0)
+
 # Restoring the model and optimizer state
 checkpoint = torch.load(buffer)
 model.load_state_dict(checkpoint['model_state_dict'])

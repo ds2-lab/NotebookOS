@@ -128,6 +128,8 @@ class S3Checkpointer(RemoteCheckpointer):
             try:
                 s3.download_fileobj(self._bucket_name, object_name, buffer)
                 self._num_objects_read += 1
+
+                buffer.seek(0) # Need to move pointer back to beginning of buffer.
                 return buffer
             except Exception as e:
                 self.log.error(f"Error downloading file: {e}")
@@ -144,6 +146,8 @@ class S3Checkpointer(RemoteCheckpointer):
         try:
             self._s3_client.download_fileobj(self._bucket_name, object_name, buffer)
             self._num_objects_read += 1
+
+            buffer.seek(0) # Need to move pointer back to beginning of buffer.
             return buffer
         except Exception as e:
             self.log.error(f"Error downloading file: {e}")
