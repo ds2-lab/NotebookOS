@@ -1008,6 +1008,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			kernel.EXPECT().Replicas().AnyTimes().Return([]scheduling.KernelReplica{replica1, replica2, replica3})
 
+			kernel.EXPECT().LastPrimaryReplica().Times(1).Return(nil)
+
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			targetReplica, err := clusterGateway.processExecuteRequest(jMsg, kernel)
 			Expect(targetReplica).ToNot(BeNil())
