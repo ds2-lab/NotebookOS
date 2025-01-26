@@ -1,6 +1,9 @@
 package policy_test
 
 import (
+	"github.com/Scusemua/go-utils/config"
+	"github.com/Scusemua/go-utils/logger"
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -11,3 +14,17 @@ func TestPolicy(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Policy Suite")
 }
+
+var debugLoggingEnabled bool
+
+func init() {
+	if os.Getenv("DEBUG") != "" || os.Getenv("VERBOSE") != "" {
+		debugLoggingEnabled = true
+	}
+}
+
+var _ = BeforeSuite(func() {
+	if debugLoggingEnabled {
+		config.LogLevel = logger.LOG_LEVEL_ALL
+	}
+})

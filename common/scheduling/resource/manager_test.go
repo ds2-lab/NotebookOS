@@ -8,6 +8,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"sync"
 )
 
 var _ = Describe("Manager Tests", func() {
@@ -100,9 +101,14 @@ var _ = Describe("Manager Tests", func() {
 				state.CommittedResources().Add(deltaSpec)
 			}
 
+			var mu1, mu2, mu3 sync.Mutex
+
 			manager1 := resource.NewManager(baseSpec)
 			initialState1, commit1 := manager1.GetTransactionData()
-			err := coordinatedTransaction.RegisterParticipant(1, initialState1, tx, commit1)
+
+			err := coordinatedTransaction.RegisterParticipant(1, func() (*transaction.State, transaction.CommitTransactionResult) {
+				return initialState1, commit1
+			}, tx, &mu1)
 			Expect(err).To(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(1))
@@ -112,7 +118,9 @@ var _ = Describe("Manager Tests", func() {
 
 			manager2 := resource.NewManager(baseSpec)
 			initialState2, commit2 := manager2.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(2, initialState2, tx, commit2)
+			err = coordinatedTransaction.RegisterParticipant(1, func() (*transaction.State, transaction.CommitTransactionResult) {
+				return initialState2, commit2
+			}, tx, &mu2)
 			Expect(err).To(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(2))
@@ -122,7 +130,9 @@ var _ = Describe("Manager Tests", func() {
 
 			manager3 := resource.NewManager(baseSpec)
 			initialState3, commit3 := manager3.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(3, initialState3, tx, commit3)
+			err = coordinatedTransaction.RegisterParticipant(3, func() (*transaction.State, transaction.CommitTransactionResult) {
+				return initialState3, commit3
+			}, tx, &mu3)
 			Expect(err).To(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
@@ -159,9 +169,13 @@ var _ = Describe("Manager Tests", func() {
 				state.CommittedResources().Subtract(types.NewDecimalSpec(1500, 1500, 1500, 1500))
 			}
 
+			var mu1, mu2, mu3 sync.Mutex
+
 			manager1 := resource.NewManager(baseSpec)
 			initialState1, commit1 := manager1.GetTransactionData()
-			err := coordinatedTransaction.RegisterParticipant(1, initialState1, tx, commit1)
+			err := coordinatedTransaction.RegisterParticipant(1, func() (*transaction.State, transaction.CommitTransactionResult) {
+				return initialState1, commit1
+			}, tx, &mu1)
 			Expect(err).To(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(1))
@@ -171,7 +185,9 @@ var _ = Describe("Manager Tests", func() {
 
 			manager2 := resource.NewManager(baseSpec)
 			initialState2, commit2 := manager2.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(2, initialState2, tx, commit2)
+			err = coordinatedTransaction.RegisterParticipant(1, func() (*transaction.State, transaction.CommitTransactionResult) {
+				return initialState2, commit2
+			}, tx, &mu2)
 			Expect(err).To(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(2))
@@ -181,7 +197,9 @@ var _ = Describe("Manager Tests", func() {
 
 			manager3 := resource.NewManager(baseSpec)
 			initialState3, commit3 := manager3.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(3, initialState3, tx, commit3)
+			err = coordinatedTransaction.RegisterParticipant(3, func() (*transaction.State, transaction.CommitTransactionResult) {
+				return initialState3, commit3
+			}, tx, &mu3)
 			Expect(err).To(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
