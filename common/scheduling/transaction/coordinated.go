@@ -60,6 +60,8 @@ type CoordinatedParticipant struct {
 	// It is the caller's responsibility to unlock the mu once the transaction has finished.
 	// The CoordinatedTransaction will not unlock the mu.
 	mu *sync.Mutex
+
+	log logger.Logger
 }
 
 // tryLock attempts to acquire the CoordinatedParticipant's mu (a sync.Mutex).
@@ -74,7 +76,7 @@ func (p *CoordinatedParticipant) tryLock() bool {
 //
 // IMPORTANT: initialize should only be called once ALL mutexes (of ALL CoordinatedParticipant entities involved
 // in the CoordinatedTransaction) have been acquired.
-func (p *CoordinatedParticipant) initialize() error {
+func (p *CoordinatedParticipant) initialize(txId string) error {
 	if p.operation == nil {
 		return ErrNilTransactionOperation
 	}
@@ -86,6 +88,8 @@ func (p *CoordinatedParticipant) initialize() error {
 		return ErrNilInitialState
 	}
 
+	p.initialState.ParticipantId = p.id
+
 	p.tx = New(p.operation, p.initialState)
 	if p.tx == nil {
 		return fmt.Errorf("unexpectedly failed to initialize transaction")
@@ -94,6 +98,8 @@ func (p *CoordinatedParticipant) initialize() error {
 	if err := p.tx.validateInputs(); err != nil {
 		return errors.Join(ErrTransactionRegistrationError, err)
 	}
+
+	config.InitLogger(&p.log, fmt.Sprintf("CoordTx-%s-%d ", txId, p.id))
 
 	return nil
 }
@@ -269,15 +275,15 @@ func (t *CoordinatedTransaction) NumExpectedParticipants() int {
 
 // NumRegisteredParticipants returns the number of participants that have already registered.
 func (t *CoordinatedTransaction) NumRegisteredParticipants() int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	//t.mu.Lock()
+	//defer t.mu.Unlock()
 
 	return len(t.participants)
 }
 
 func (t *CoordinatedTransaction) FailureReason() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	//t.mu.Lock()
+	//defer t.mu.Unlock()
 
 	return t.failureReason
 }
@@ -294,10 +300,10 @@ func (t *CoordinatedTransaction) recordFinished(succeeded bool, failureReason er
 	t.doneGroup.Done()
 }
 
-// acquireHostMutexes acquires the mutexes of all scheduling.Host instances involved in the CoordinatedTransaction.
+// initializeAndLockParticipants acquires the mutexes of all scheduling.Host instances involved in the CoordinatedTransaction.
 //
-// IMPORTANT: acquireHostMutexes is called with the CoordinatedTransaction's mu already locked.
-func (t *CoordinatedTransaction) acquireHostMutexes() error {
+// IMPORTANT: initializeAndLockParticipants is called with the CoordinatedTransaction's mu already locked.
+func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
 	if len(t.participants) != t.expectedNumParticipants {
 		return fmt.Errorf("%w: expected %d participants, have only %d registered",
 			ErrMissingParticipants, t.expectedNumParticipants, len(t.participants))
@@ -305,7 +311,7 @@ func (t *CoordinatedTransaction) acquireHostMutexes() error {
 
 	// Initialize all the participants.
 	for _, participant := range t.participants {
-		err := participant.initialize()
+		err := participant.initialize(t.id)
 		if err != nil {
 			t.log.Error("Failed to initialize participant %d of tx %s: %v", participant.id, t.id, err)
 			return err
@@ -318,6 +324,10 @@ func (t *CoordinatedTransaction) acquireHostMutexes() error {
 	lockedMutexes := make([]*sync.Mutex, 0, len(t.participants))
 
 	releaseLocks := func() {
+		if len(lockedMutexes) == 0 {
+			return
+		}
+
 		// Release all locked mutexes.
 		for _, mu := range lockedMutexes {
 			mu.Unlock()
@@ -341,6 +351,8 @@ func (t *CoordinatedTransaction) acquireHostMutexes() error {
 				continue
 			}
 
+			t.log.Debug("Failed to lock participant %d's mutex.", participant.id)
+
 			// We failed to lock the mutex. Release all acquired locks and break out of the (inner) for-loop.
 			releaseLocks()
 			break
@@ -351,8 +363,11 @@ func (t *CoordinatedTransaction) acquireHostMutexes() error {
 		// If we succeeded in locking all mutexes, then the length of lockedMutexes will be equal to
 		// the value of t.expectedNumParticipants. In this case, we can simply return.
 		if len(lockedMutexes) == t.expectedNumParticipants {
+			t.log.Debug("Locked all %d mutexes", len(lockedMutexes))
 			return nil
 		}
+
+		t.log.Debug("Only locked %d mutexes...", len(lockedMutexes))
 
 		// Sleep for a random interval between 5 - 10 milliseconds before retrying.
 		time.Sleep(time.Millisecond*time.Duration(rand.Int64N(5)) + (time.Millisecond * 5))
@@ -367,7 +382,7 @@ func (t *CoordinatedTransaction) run() error {
 		return ErrNilInitialState
 	}
 
-	err := t.acquireHostMutexes()
+	err := t.initializeAndLockParticipants()
 	if err != nil {
 		t.recordFinished(false, err)
 		return err
@@ -380,6 +395,7 @@ func (t *CoordinatedTransaction) run() error {
 
 	// Inputs were validated during registration.
 	for _, participant := range t.participants {
+		t.log.Debug("Running participant %d", participant.id)
 		go participant.run(&wg)
 	}
 
