@@ -86,12 +86,12 @@ func (p *CoordinatedParticipant) initialize() error {
 		return ErrNilInitialState
 	}
 
-	tx := New(p.operation, p.initialState)
-	if tx == nil {
+	p.tx = New(p.operation, p.initialState)
+	if p.tx == nil {
 		return fmt.Errorf("unexpectedly failed to initialize transaction")
 	}
 
-	if err := tx.validateInputs(); err != nil {
+	if err := p.tx.validateInputs(); err != nil {
 		return errors.Join(ErrTransactionRegistrationError, err)
 	}
 
@@ -224,6 +224,14 @@ func (t *CoordinatedTransaction) Abort() {
 //
 // The given mutex will be locked by the CoordinatedTransaction, but it is the caller's responsibility to unlock it.
 func (t *CoordinatedTransaction) RegisterParticipant(id int32, getInitialState GetInitialStateForTransaction, operation Operation, mu *sync.Mutex) error {
+	if getInitialState == nil {
+		return errors.Join(ErrTransactionRegistrationError, ErrNilInitialStateFunction)
+	}
+
+	if mu == nil {
+		return errors.Join(ErrTransactionRegistrationError, ErrNilParticipantMutex)
+	}
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -295,6 +303,17 @@ func (t *CoordinatedTransaction) acquireHostMutexes() error {
 			ErrMissingParticipants, t.expectedNumParticipants, len(t.participants))
 	}
 
+	// Initialize all the participants.
+	for _, participant := range t.participants {
+		err := participant.initialize()
+		if err != nil {
+			t.log.Error("Failed to initialize participant %d of tx %s: %v", participant.id, t.id, err)
+			return err
+		}
+
+		t.log.Debug("Successfully initialized participant %d of tx %s.", participant.id, t.id)
+	}
+
 	// Keep track of the mutexes that we've already locked successfully.
 	lockedMutexes := make([]*sync.Mutex, 0, len(t.participants))
 
@@ -349,6 +368,10 @@ func (t *CoordinatedTransaction) run() error {
 	}
 
 	err := t.acquireHostMutexes()
+	if err != nil {
+		t.recordFinished(false, err)
+		return err
+	}
 
 	t.started.Store(true)
 

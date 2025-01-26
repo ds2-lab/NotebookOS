@@ -7,6 +7,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"sync"
 )
 
 type resourceContainer struct {
@@ -79,7 +80,14 @@ var _ = Describe("Coordinated", func() {
 			state.CommittedResources().Add(spec1)
 		}
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, container1.getStateForTransaction(), tx, container1.getCommit())
+		var mu1, mu2, mu3 sync.Mutex
+
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container1.getStateForTransaction()
+			commit := container1.getCommit()
+
+			return state, commit
+		}, tx, &mu1)
 		Expect(err).To(BeNil())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(1))
@@ -87,7 +95,12 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, container2.getStateForTransaction(), tx, container2.getCommit())
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container2.getStateForTransaction()
+			commit := container2.getCommit()
+
+			return state, commit
+		}, tx, &mu2)
 		Expect(err).To(BeNil())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(2))
@@ -95,7 +108,12 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, container3.getStateForTransaction(), tx, container3.getCommit())
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container3.getStateForTransaction()
+			commit := container3.getCommit()
+
+			return state, commit
+		}, tx, &mu3)
 		Expect(err).To(BeNil())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
@@ -125,7 +143,14 @@ var _ = Describe("Coordinated", func() {
 			state.PendingResources().Subtract(spec1)
 		}
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, container1.getStateForTransaction(), tx, container1.getCommit())
+		var mu1, mu2, mu3 sync.Mutex
+
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container1.getStateForTransaction()
+			commit := container1.getCommit()
+
+			return state, commit
+		}, tx, &mu1)
 		Expect(err).To(BeNil())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(1))
@@ -133,7 +158,12 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, container2.getStateForTransaction(), tx, container2.getCommit())
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container2.getStateForTransaction()
+			commit := container2.getCommit()
+
+			return state, commit
+		}, tx, &mu2)
 		Expect(err).To(BeNil())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(2))
@@ -141,7 +171,12 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, container3.getStateForTransaction(), tx, container3.getCommit())
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container3.getStateForTransaction()
+			commit := container3.getCommit()
+
+			return state, commit
+		}, tx, &mu3)
 		Expect(err).To(BeNil())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
@@ -167,13 +202,30 @@ var _ = Describe("Coordinated", func() {
 			state.PendingResources().Add(spec1)
 		}
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, container1.getStateForTransaction(), tx, container1.getCommit())
+		var mu1, mu2, mu3 sync.Mutex
+
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container1.getStateForTransaction()
+			commit := container1.getCommit()
+
+			return state, commit
+		}, tx, &mu1)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, container2.getStateForTransaction(), tx, container2.getCommit())
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container2.getStateForTransaction()
+			commit := container2.getCommit()
+
+			return state, commit
+		}, tx, &mu2)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, container3.getStateForTransaction(), tx, container3.getCommit())
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container3.getStateForTransaction()
+			commit := container3.getCommit()
+
+			return state, commit
+		}, tx, &mu3)
 		Expect(err).To(BeNil())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
@@ -184,12 +236,17 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeTrue())
 		Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, container3.getStateForTransaction(), tx, container3.getCommit())
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container3.getStateForTransaction()
+			commit := container3.getCommit()
+
+			return state, commit
+		}, tx, &mu3)
 		Expect(err).ToNot(BeNil())
 		Expect(errors.Is(err, transaction.ErrTransactionAlreadyStarted)).To(BeTrue())
 	})
 
-	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the participant's transaction was not initialized correctly", func() {
+	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the participant's initial state is nil", func() {
 		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
 
 		container1 := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
@@ -200,18 +257,142 @@ var _ = Describe("Coordinated", func() {
 			state.PendingResources().Add(spec1)
 		}
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, container1.getStateForTransaction(), tx, container1.getCommit())
+		var mu1, mu2, mu3 sync.Mutex
+
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container1.getStateForTransaction()
+			commit := container1.getCommit()
+
+			return state, commit
+		}, tx, &mu1)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, container2.getStateForTransaction(), tx, container2.getCommit())
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container2.getStateForTransaction()
+			commit := container2.getCommit()
+
+			return state, commit
+		}, tx, &mu2)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, nil, tx, container3.getCommit())
-		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, transaction.ErrNilInitialState)).To(BeTrue())
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			commit := container3.getCommit()
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, container3.getStateForTransaction(), nil, container3.getCommit())
-		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, transaction.ErrNilTransactionOperation)).To(BeTrue())
+			return nil, commit
+		}, tx, &mu3)
+
+		Expect(coordinatedTransaction.Wait()).To(BeFalse())
+		Expect(errors.Is(coordinatedTransaction.FailureReason(), transaction.ErrNilInitialState)).To(BeTrue())
+	})
+
+	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the participant's transaction operation is nil", func() {
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+
+		container1 := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
+		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
+		container3 := newResourceContainer(3, types.NewDecimalSpec(100, 100, 100, 100))
+
+		tx := func(state *transaction.State) {
+			state.PendingResources().Add(spec1)
+		}
+
+		var mu1, mu2, mu3 sync.Mutex
+
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container1.getStateForTransaction()
+			commit := container1.getCommit()
+
+			return state, commit
+		}, tx, &mu1)
+		Expect(err).To(BeNil())
+
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container2.getStateForTransaction()
+			commit := container2.getCommit()
+
+			return state, commit
+		}, tx, &mu2)
+		Expect(err).To(BeNil())
+
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container3.getStateForTransaction()
+			commit := container3.getCommit()
+
+			return state, commit
+		}, nil, &mu3)
+
+		Expect(coordinatedTransaction.Wait()).To(BeFalse())
+		Expect(errors.Is(coordinatedTransaction.FailureReason(), transaction.ErrNilTransactionOperation)).To(BeTrue())
+	})
+
+	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the participant's mutex is nil", func() {
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+
+		container1 := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
+		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
+		container3 := newResourceContainer(3, types.NewDecimalSpec(100, 100, 100, 100))
+
+		tx := func(state *transaction.State) {
+			state.PendingResources().Add(spec1)
+		}
+
+		var mu1, mu2 sync.Mutex
+
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container1.getStateForTransaction()
+			commit := container1.getCommit()
+
+			return state, commit
+		}, tx, &mu1)
+		Expect(err).To(BeNil())
+
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container2.getStateForTransaction()
+			commit := container2.getCommit()
+
+			return state, commit
+		}, tx, &mu2)
+		Expect(err).To(BeNil())
+
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container3.getStateForTransaction()
+			commit := container3.getCommit()
+
+			return state, commit
+		}, nil, nil)
+		Expect(errors.Is(err, transaction.ErrNilParticipantMutex)).To(BeTrue())
+	})
+
+	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the participant's 'get initial state' function is nil", func() {
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+
+		container1 := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
+		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
+		container3 := newResourceContainer(3, types.NewDecimalSpec(100, 100, 100, 100))
+
+		tx := func(state *transaction.State) {
+			state.PendingResources().Add(spec1)
+		}
+
+		var mu1, mu2, mu3 sync.Mutex
+
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container1.getStateForTransaction()
+			commit := container1.getCommit()
+
+			return state, commit
+		}, tx, &mu1)
+		Expect(err).To(BeNil())
+
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			state := container2.getStateForTransaction()
+			commit := container2.getCommit()
+
+			return state, commit
+		}, tx, &mu2)
+		Expect(err).To(BeNil())
+
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, nil, tx, &mu3)
+		Expect(errors.Is(err, transaction.ErrNilInitialStateFunction)).To(BeTrue())
 	})
 })
