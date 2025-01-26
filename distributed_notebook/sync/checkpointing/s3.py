@@ -23,6 +23,22 @@ class S3Checkpointer(RemoteCheckpointer):
 
         self._aio_session: aioboto3.session.Session = aioboto3.Session()
 
+        self._num_objects_written: int = 0
+        self._num_objects_read: int = 0
+        self._num_objects_deleted: int = 0
+
+    @property
+    def num_objects_written(self) -> int:
+        return self._num_objects_written
+
+    @property
+    def num_objects_read(self) -> int:
+        return self._num_objects_read
+
+    @property
+    def num_objects_deleted(self) -> int:
+        return self._num_objects_deleted
+
     @property
     def bucket_name(self) -> str:
         return self._bucket_name
@@ -35,6 +51,21 @@ class S3Checkpointer(RemoteCheckpointer):
         """
         try:
             self._s3_client.delete_object(Bucket=self._bucket_name, Key=object_name)
+            self._num_objects_deleted += 1
+            return True
+        except Exception as e:
+            self.log.error(f"Error deleting object \"{object_name}\": {e}")
+            return False
+
+    async def delete_data_async(self, object_name: str)->bool:
+        """
+        Delete a file in the S3 bucket.
+        :param object_name: the name/key of the file to delete
+        :return: True if the file was deleted successfully, otherwise False.
+        """
+        try:
+            self._s3_client.delete_object(Bucket=self._bucket_name, Key=object_name)
+            self._num_objects_deleted += 1
             return True
         except Exception as e:
             self.log.error(f"Error deleting object \"{object_name}\": {e}")
@@ -50,17 +81,20 @@ class S3Checkpointer(RemoteCheckpointer):
         """
         if isinstance(data, str):
             data = data.encode('utf-8')
+        elif isinstance(data, io.BytesIO):
+            data = data.getvalue()
 
         async with self._aio_session.client('s3') as s3:
             try:
                 s3.upload_fileobj(Fileobj=io.BytesIO(data), Bucket=self._bucket_name, Key=object_name)
                 self.log.debug(f"Data uploaded to {self._bucket_name}/{object_name}")
+                self._num_objects_written += 1
                 return True
             except Exception as e:
                 self.log.error(f"Error uploading data: {e}")
                 return False
 
-    def upload_bytes_to_s3(self, data, object_name: str):
+    def upload_bytes_to_s3(self, data, object_name: str)->bool:
         """
         Upload in-memory bytes to an S3 bucket.
 
@@ -70,14 +104,17 @@ class S3Checkpointer(RemoteCheckpointer):
         """
         if isinstance(data, str):
             data = data.encode('utf-8')
+        elif isinstance(data, io.BytesIO):
+            data = data.getvalue()
 
         try:
             self._s3_client.upload_fileobj(Fileobj=io.BytesIO(data), Bucket=self._bucket_name, Key=object_name)
             self.log.debug(f"Data uploaded to {self._bucket_name}/{object_name}")
+            self._num_objects_written += 1
             return True
         except Exception as e:
             self.log.error(f"Error uploading data: {e}")
-            return False
+            raise e # Re-raise
 
     async def download_file_from_s3_async(self, object_name: str) -> io.BytesIO:
         """
@@ -90,6 +127,7 @@ class S3Checkpointer(RemoteCheckpointer):
             buffer: io.BytesIO = io.BytesIO()
             try:
                 s3.download_fileobj(self._bucket_name, object_name, buffer)
+                self._num_objects_read += 1
                 return buffer
             except Exception as e:
                 self.log.error(f"Error downloading file: {e}")
@@ -105,6 +143,7 @@ class S3Checkpointer(RemoteCheckpointer):
         buffer: io.BytesIO = io.BytesIO()
         try:
             self._s3_client.download_fileobj(self._bucket_name, object_name, buffer)
+            self._num_objects_read += 1
             return buffer
         except Exception as e:
             self.log.error(f"Error downloading file: {e}")
@@ -326,6 +365,8 @@ class S3Checkpointer(RemoteCheckpointer):
             f"Successfully wrote state of model \"{model_name}\" to AWS S3 at bucket/key \"{self._bucket_name + "/" + object_name}\" "
             f"(model size: {size_mb} MB) in {et - st} seconds.")
 
+        self._num_objects_written += 1
+
     async def write_state_dicts_async(self, pointer: ModelPointer):
         if pointer is None:
             raise ValueError("cannot write model using nil ModelPointer")
@@ -361,16 +402,28 @@ class S3Checkpointer(RemoteCheckpointer):
         base_s3_key: str = pointer.key
 
         model_object_name: str = os.path.join(base_s3_key, "model.pt")
-        self.__write_state_dict(model_object_name, pointer.model.state_dict, model_name)
+        self.__write_state_dict(
+            object_name = model_object_name,
+            state_dict =pointer.model.state_dict,
+            model_name = model_name)
 
         optimizer_object_name: str = os.path.join(base_s3_key, "optimizer.pt")
-        self.__write_state_dict(optimizer_object_name, pointer.model.optimizer_state_dict, model_name)
+        self.__write_state_dict(
+            object_name = optimizer_object_name,
+            state_dict =pointer.model.optimizer_state_dict,
+            model_name = model_name)
 
         criterion_object_name: str = os.path.join(base_s3_key, "criterion.pt")
-        self.__write_state_dict(criterion_object_name, pointer.model.criterion_state_dict, model_name)
+        self.__write_state_dict(
+            object_name = criterion_object_name,
+            state_dict =pointer.model.criterion_state_dict,
+            model_name = model_name)
 
         constructor_state_key: str = os.path.join(base_s3_key, "constructor_args.pt")
-        self.__write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
+        self.__write_state_dict(
+            object_name = constructor_state_key,
+            state_dict = pointer.model.constructor_args,
+            model_name = model_name)
 
     def storage_name(self) -> str:
         return f"AWS S3"

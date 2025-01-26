@@ -2222,14 +2222,14 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	})
 	d.clusterStatisticsMutex.Unlock()
 
-	d.mu.Lock()
-
 	_, loaded := d.kernelRegisteredNotifications.LoadOrStore(in.NotificationId, in)
 	if loaded {
 		d.log.Warn("Received duplicate \"Kernel Registered\" notification with ID=%s", in.NotificationId)
 		d.mu.Unlock()
 		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
 	}
+
+	d.mu.Lock()
 
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {
@@ -2322,13 +2322,6 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	// Assign the Container to the Kernel.
 	replica.SetContainer(container)
 
-	// Add the Container to the Host.
-	if err := host.ContainerScheduled(container); err != nil {
-		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
-		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
-		panic(err)
-	}
-
 	// Register the Container with the Session.
 	if err := session.AddReplica(container); err != nil {
 		d.log.Error("Error while registering container %v with session %v: %v", container, session, err)
@@ -2336,11 +2329,25 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		panic(err)
 	}
 
+	d.mu.Unlock() // Need to unlock before calling ContainerScheduled, or deadlock can occur.
+
+	// Add the Container to the Host.
+	if err := host.ContainerScheduled(container); err != nil {
+		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
+		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
+		panic(err)
+	}
+
 	d.log.Debug("Validating new Kernel for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	if val := ctx.Value(SkipValidationKey); val == nil {
 		err := replica.Validate()
 		if err != nil {
-			panic(fmt.Sprintf("Kernel::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
+			d.log.Error("Kernel::Validate call failed: %v", err)
+			go d.notifyDashboardOfError(fmt.Sprintf("Kernel::Validate call failed for replica %d of kernel %s",
+				replica.ReplicaID(), in.KernelId), err.Error())
+
+			// TODO: Handle this more gracefully.
+			return nil, err
 		}
 	} else {
 		d.log.Warn("Skipping validation and establishment of actual network connections with newly-registered replica %d of kernel %s.",
@@ -2357,7 +2364,6 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	// The replica is fully operational at this point, so record that it is ready.
 	replica.SetReady()
-	d.mu.Unlock()
 
 	waitGroup.SetReplica(replicaId, kernelIp)
 

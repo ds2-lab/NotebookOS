@@ -193,6 +193,14 @@ func (m *Manager) ExecutionComplete(msg *messaging.JupyterMessage) (*Execution, 
 	// Store the execution in the "finished" map.
 	m.FinishedExecutions[requestId] = execution
 
+	reason := "Received \"execute_reply\" message, indicating that the training has stopped."
+	err = execution.ActiveReplica.KernelStoppedTraining(reason)
+	if err != nil {
+		m.log.Error("Error while calling KernelStoppedTraining on active replica %d for execution \"%s\": %v",
+			execution.ActiveReplica.ReplicaID(), msg.JupyterParentMessageId(), err)
+		return nil, err
+	}
+
 	return execution, nil
 }
 

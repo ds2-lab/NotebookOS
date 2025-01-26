@@ -13,7 +13,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
-	"log"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -206,16 +205,16 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 // SetSignatureScheme sets the SignatureScheme field of the ConnectionInfo of the server.AbstractServer underlying the
 // DistributedKernelClient.
 func (c *DistributedKernelClient) SetSignatureScheme(signatureScheme string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	//c.mu.Lock()
+	//defer c.mu.Unlock()
 
 	c.server.Meta.SignatureScheme = signatureScheme
 }
 
 // SetKernelKey sets the Key field of the ConnectionInfo of the server.AbstractServer underlying the DistributedKernelClient.
 func (c *DistributedKernelClient) SetKernelKey(key string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	//c.mu.Lock()
+	//defer c.mu.Unlock()
 
 	c.server.Meta.Key = key
 }
@@ -241,8 +240,8 @@ func (c *DistributedKernelClient) GetSession() scheduling.UserSession {
 // GetContainers returns a slice containing all the scheduling.Container associated with the scheduling.Session
 // (i.e., the scheduling.Session that itself is associated with the DistributedKernelClient).
 func (c *DistributedKernelClient) GetContainers() []scheduling.KernelContainer {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	containers := make([]scheduling.KernelContainer, len(c.replicas))
 	for _, replica := range c.replicas {
@@ -278,27 +277,25 @@ func (c *DistributedKernelClient) ExecutionFailedCallback() scheduling.Execution
 // assigned as the current ActiveExecution for the DistributedKernelClient. If this occurs, then
 // ExecutionComplete returns true.
 func (c *DistributedKernelClient) ExecutionComplete(msg *messaging.JupyterMessage) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if msg.ReplicaId == -1 {
-		log.Fatalf(utils.RedStyle.Render("[ERROR] Cannot determine which replica \"execute_reply\" %s message came from..."),
+		c.log.Error(utils.RedStyle.Render("[ERROR] Cannot determine which replica \"execute_reply\" %s message came from..."),
 			msg.JupyterMessageId())
+		return fmt.Errorf("cannot determine which replica \"execute_reply\" %s message came from", msg.JupyterMessageId())
 	}
 
-	activeExecution, err := c.ExecutionManager.ExecutionComplete(msg)
+	_, err := c.ExecutionManager.ExecutionComplete(msg)
 	if err != nil {
 		c.log.Error("Error while processing completed execution '%s': %v", msg.JupyterParentMessageId(), err)
 		return err
 	}
 
-	reason := "Received \"execute_reply\" message, indicating that the training has stopped."
-	err = activeExecution.ActiveReplica.KernelStoppedTraining(reason)
-	if err != nil {
-		c.log.Error("Error while calling KernelStoppedTraining on active replica %d for execution \"%s\": %v",
-			activeExecution.ActiveReplica.ReplicaID(), msg.JupyterParentMessageId(), err)
-		return err
-	}
+	//reason := "Received \"execute_reply\" message, indicating that the training has stopped."
+	//err = activeExecution.ActiveReplica.KernelStoppedTraining(reason)
+	//if err != nil {
+	//	c.log.Error("Error while calling KernelStoppedTraining on active replica %d for execution \"%s\": %v",
+	//		activeExecution.ActiveReplica.ReplicaID(), msg.JupyterParentMessageId(), err)
+	//	return err
+	//}
 
 	return nil
 }
@@ -311,8 +308,8 @@ func (c *DistributedKernelClient) ExecutionComplete(msg *messaging.JupyterMessag
 // If we are resubmitting an "execute_request" following a migration, then this will not create and return a new
 // (pointer to a) execution.Execution struct, as the current active execution can simply be reused.
 func (c *DistributedKernelClient) RegisterActiveExecution(msg *messaging.JupyterMessage) (*execution.Execution, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	//c.mu.Lock()
+	//defer c.mu.Unlock()
 
 	codeExecution, err := c.ExecutionManager.RegisterExecution(msg)
 	if err != nil {
@@ -402,10 +399,8 @@ func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spe
 //
 // It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/Replica.
 func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.CloneableSpec) error {
-	// We'll read-lock because, while we're updating the spec of one of the kernels,
-	// we're not modifying the kernel slice or any properties of the DistributedKernelClient directly.
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	c.log.Debug("Updating ResourceSpec of kernel \"%s\" from %v to %v.",
 		c.id, c.spec.ResourceSpec.String(), newSpec.String())
@@ -788,8 +783,8 @@ func (c *DistributedKernelClient) InitializeIOForwarder() (*messaging.Socket, er
 // GetReadyReplica returns a replica that has already joined its SMR cluster and everything.
 // GetReadyReplica returns nil if there are no ready replicas.
 func (c *DistributedKernelClient) GetReadyReplica() scheduling.KernelReplica {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	for _, replica := range c.replicas {
 		if replica.IsReady() {
@@ -802,8 +797,8 @@ func (c *DistributedKernelClient) GetReadyReplica() scheduling.KernelReplica {
 
 // IsReady returns true if ALL replicas associated with this distributed kernel client are ready.
 func (c *DistributedKernelClient) IsReady() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	for _, replica := range c.replicas {
 		if !replica.IsReady() {
@@ -816,8 +811,8 @@ func (c *DistributedKernelClient) IsReady() bool {
 
 // IsReplicaReady returns true if the replica with the specified ID is ready.
 func (c *DistributedKernelClient) IsReplicaReady(replicaId int32) (bool, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	replica, ok := c.replicas[replicaId]
 	if !ok {

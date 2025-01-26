@@ -41,7 +41,11 @@ def test_upload_and_download_file():
     success = checkpointer.delete_data(obj_name)
     assert success
 
-def test_read_after_write():
+    assert checkpointer.num_objects_read == 1
+    assert checkpointer.num_objects_written == 1
+    assert checkpointer.num_objects_deleted == 1
+
+def test_read_after_write_simple_model_state():
     checkpointer: S3Checkpointer = S3Checkpointer()
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
@@ -56,8 +60,6 @@ def test_read_after_write():
 
     # The size will now be three -- as we wrote the model state, the state of the model's optimizer, and
     # the state of the model's criterion.
-    assert checkpointer.size == 4
-    assert len(checkpointer) == 4
 
     model_state, optimizer_state, criterion_state, constructor_args_state = checkpointer.read_state_dicts(model_pointer)
 
@@ -70,6 +72,10 @@ def test_read_after_write():
     assert isinstance(optimizer_state, dict)
     assert isinstance(criterion_state, dict)
     assert isinstance(constructor_args_state, dict)
+
+    assert checkpointer.num_objects_read == 4
+    assert checkpointer.num_objects_written == 4
+    # assert checkpointer.num_objects_deleted == 4
 
 
 def test_write_model_that_does_not_require_checkpointing():
