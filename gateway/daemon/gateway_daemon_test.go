@@ -2234,7 +2234,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			var yielded bool
 			yielded, err = executionManager.HandleExecuteReplyMessage(execReply1, mockedKernelReplica1)
-			Expect(err).To(BeNil())
+			Expect(errors.Is(err, messaging.ErrExecutionYielded)).To(BeTrue())
 			Expect(yielded).To(BeTrue())
 
 			Expect(activeExecution.NumRolesReceived()).To(Equal(1))
@@ -2244,7 +2244,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedKernelReplica2.EXPECT().ReceivedExecuteReply(execReply2).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica2, gomock.Any()).Times(1).Return(nil)
 			yielded, err = executionManager.HandleExecuteReplyMessage(execReply2, mockedKernelReplica2)
-			Expect(err).To(BeNil())
+			Expect(errors.Is(err, messaging.ErrExecutionYielded)).To(BeTrue())
 			Expect(yielded).To(BeTrue())
 
 			Expect(activeExecution.NumRolesReceived()).To(Equal(2))
@@ -2260,7 +2260,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			go func(wg *sync.WaitGroup) {
 				yielded, err = executionManager.HandleExecuteReplyMessage(execReply3, mockedKernelReplica3)
-				Expect(err).To(BeNil())
+				Expect(errors.Is(err, messaging.ErrExecutionYielded)).To(BeTrue())
 				Expect(yielded).To(BeTrue())
 
 				handledLastYieldNotificationWaitGroup.Done()
