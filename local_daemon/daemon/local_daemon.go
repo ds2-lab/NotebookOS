@@ -89,13 +89,13 @@ type GRPCServerWrapper struct {
 	PurposefullyShutdown bool
 }
 
-// LocalDaemonImpl is the daemon that proxy requests to kernel replicas on local-host.
+// LocalScheduler is the daemon that proxy requests to kernel replicas on local-host.
 //
 // WIP: Replica membership change.
 // TODO: Distinguish reachable host list from replica list.
 // TODO: Synchronize resource status using replica network (e.g., control socket).
 // Synchronization message should load-balance between replicas mapped the same host.
-type LocalDaemonImpl struct {
+type LocalScheduler struct {
 	// SchedulerOptions
 	id       string
 	nodeName string
@@ -273,11 +273,11 @@ type KernelRegistrationClient struct {
 
 func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.LocalDaemonOptions,
 	kernelRegistryPort int, kernelErrorReporterServerPort int, virtualGpuPluginServer device.VirtualGpuPluginServer,
-	nodeName string, dockerNodeId string, configs ...domain.SchedulerDaemonConfig) *LocalDaemonImpl {
+	nodeName string, dockerNodeId string, configs ...domain.SchedulerDaemonConfig) *LocalScheduler {
 
 	ip := os.Getenv("POD_IP")
 
-	daemon := &LocalDaemonImpl{
+	daemon := &LocalScheduler{
 		connectionOptions:                  connectionOptions,
 		transport:                          "tcp",
 		ip:                                 ip,
@@ -497,20 +497,20 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	return daemon
 }
 
-// Provisioner returns the proto.ClusterGatewayClient field of the target LocalDaemonImpl struct.
-func (d *LocalDaemonImpl) Provisioner() proto.ClusterGatewayClient {
+// Provisioner returns the proto.ClusterGatewayClient field of the target LocalScheduler struct.
+func (d *LocalScheduler) Provisioner() proto.ClusterGatewayClient {
 	return d.provisioner
 }
 
 // SetProvisioner assigns a value to the provisioner and provisionerClientConnectionGRPC
-// fields of the target LocalDaemonImpl struct.
-func (d *LocalDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayClient, grpcClientConn *grpc.ClientConn) {
+// fields of the target LocalScheduler struct.
+func (d *LocalScheduler) SetProvisioner(provisioner proto.ClusterGatewayClient, grpcClientConn *grpc.ClientConn) {
 	if provisioner == nil {
-		panic("Cannot set LocalDaemon's provisioner to nil")
+		panic("Cannot set LocalScheduler's provisioner to nil")
 	}
 
 	if grpcClientConn == nil {
-		panic("Cannot set LocalDaemon's provisioner gRPC connection to nil")
+		panic("Cannot set LocalScheduler's provisioner gRPC connection to nil")
 	}
 
 	d.provisioner = provisioner
@@ -519,11 +519,11 @@ func (d *LocalDaemonImpl) SetProvisioner(provisioner proto.ClusterGatewayClient,
 
 // hasId returns true if we already have a valid ID assigned.
 // Otherwise, hasId returns false.
-func (d *LocalDaemonImpl) hasId() bool {
+func (d *LocalScheduler) hasId() bool {
 	return d.id != ""
 }
 
-func (d *LocalDaemonImpl) ConsumeDockerEvent(event map[string]interface{}) {
+func (d *LocalScheduler) ConsumeDockerEvent(event map[string]interface{}) {
 	m, _ := json.MarshalIndent(event, "", "  ")
 	d.log.Debug("Received Docker 'container-created' event:\n%s", m)
 
@@ -562,9 +562,9 @@ func isValidId(id string) bool {
 	return id != ""
 }
 
-// SetID sets the LocalDaemonImpl id by the gateway.
+// SetID sets the LocalScheduler id by the gateway.
 // This also instructs the Local Daemon to create a LocalDaemonPrometheusManager and begin serving metrics.
-func (d *LocalDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto.HostId, error) {
+func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.HostId, error) {
 	// If we've already done this once before, then we'll use our existing ID and whatnot.
 	if d.finishedGatewayHandshake {
 		return &proto.HostId{
@@ -662,7 +662,7 @@ func (d *LocalDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto.Hos
 }
 
 // publishPrometheusMetrics creates a goroutine that publishes metrics to prometheus on a configurable interval.
-func (d *LocalDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
+func (d *LocalScheduler) publishPrometheusMetrics(wg *sync.WaitGroup) {
 	go func() {
 		// Claim ownership of publishing metrics.
 		if !d.servingPrometheus.CompareAndSwap(0, 1) {
@@ -741,7 +741,7 @@ func (d *LocalDaemonImpl) publishPrometheusMetrics(wg *sync.WaitGroup) {
 }
 
 // StartKernel starts a single kernel.
-func (d *LocalDaemonImpl) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
+func (d *LocalScheduler) StartKernel(ctx context.Context, in *proto.KernelSpec) (*proto.KernelConnectionInfo, error) {
 	return d.StartKernelReplica(ctx, &proto.KernelReplicaSpec{
 		ReplicaId:  1,
 		Replicas:   nil,
@@ -751,7 +751,7 @@ func (d *LocalDaemonImpl) StartKernel(ctx context.Context, in *proto.KernelSpec)
 }
 
 // initializeConsulAndTracer creates the Consul client and Tracer.
-func (d *LocalDaemonImpl) initializeConsulAndTracer() {
+func (d *LocalScheduler) initializeConsulAndTracer() {
 	tracer, consulClient := CreateConsulAndTracer(d.localDaemonOptions)
 
 	d.tracer = tracer
@@ -762,7 +762,7 @@ func (d *LocalDaemonImpl) initializeConsulAndTracer() {
 //
 // This is thread-safe. If another thread is already executing connectToGateway when the current thread calls
 // connectToGateway, then the current thread will return immediately.
-func (d *LocalDaemonImpl) connectToGateway(gatewayAddress string, finalize LocalDaemonFinalizer) error {
+func (d *LocalScheduler) connectToGateway(gatewayAddress string, finalize LocalDaemonFinalizer) error {
 	// We use this finalize function to ensure we don't needlessly terminate the Local Daemon process/container
 	// when we're purposefully reconnecting to the Cluster Gateway (as doing so necessarily requires that we
 	// shut down the existing gRPC server and whatnot, and ordinarily that causes use to panic).
@@ -945,7 +945,7 @@ func (d *LocalDaemonImpl) connectToGateway(gatewayAddress string, finalize Local
 
 // Register a Kernel that has started running on the same node that we are running on.
 // This method must be thread-safe.
-func (d *LocalDaemonImpl) registerKernelReplica(_ context.Context, kernelRegistrationClient *KernelRegistrationClient) {
+func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistrationClient *KernelRegistrationClient) {
 	registeredAt := time.Now()
 	d.log.Debug("Registering Kernel at (remote) address %v", kernelRegistrationClient.conn.RemoteAddr())
 
@@ -1349,7 +1349,7 @@ func (d *LocalDaemonImpl) registerKernelReplica(_ context.Context, kernelRegistr
 //
 // The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
 // to avoid causing the ReconnectToGateway to encounter an error.
-func (d *LocalDaemonImpl) ReconnectToGateway(_ context.Context, in *proto.ReconnectToGatewayRequest) (*proto.Void, error) {
+func (d *LocalScheduler) ReconnectToGateway(_ context.Context, in *proto.ReconnectToGatewayRequest) (*proto.Void, error) {
 	if in.Delay {
 		d.log.Warn("We've been instructed to reconnect to the Cluster Gateway. Will initiate procedure after returning from ReconnectToGateway gRPC handler.")
 	} else {
@@ -1378,7 +1378,7 @@ func (d *LocalDaemonImpl) ReconnectToGateway(_ context.Context, in *proto.Reconn
 
 // notifyClusterGatewayAndPanic attempts to notify the internalCluster Gateway of a fatal error and then panics.
 // notifyClusterGatewayAndPanic's attempt to notify the internalCluster Gateway will time out after 30 seconds.
-func (d *LocalDaemonImpl) notifyClusterGatewayAndPanic(errorTitle string, errorBody string, panicArg interface{}) {
+func (d *LocalScheduler) notifyClusterGatewayAndPanic(errorTitle string, errorBody string, panicArg interface{}) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
 	defer cancel()
 
@@ -1397,7 +1397,7 @@ func (d *LocalDaemonImpl) notifyClusterGatewayAndPanic(errorTitle string, errorB
 // we try to reconnect to that kernel (and then resubmit the request, if we reconnect successfully).
 //
 // If we do not reconnect successfully, then this method is called.
-func (d *LocalDaemonImpl) kernelReconnectionFailed(kernel scheduling.KernelReplica, msg *messaging.JupyterMessage, reconnectionError error) {
+func (d *LocalScheduler) kernelReconnectionFailed(kernel scheduling.KernelReplica, msg *messaging.JupyterMessage, reconnectionError error) {
 	// var messageType string = "N/A"
 	// _, header, _, err := jupyter.HeaderFromMsg(msg)
 	// if err != nil {
@@ -1424,7 +1424,7 @@ func (d *LocalDaemonImpl) kernelReconnectionFailed(kernel scheduling.KernelRepli
 //
 // If we are able to reconnect successfully, but then the subsequent resubmission/re-forwarding of the request fails,
 // then this method is called.
-func (d *LocalDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(kernel scheduling.KernelReplica, msg *messaging.JupyterMessage, resubmissionError error) {
+func (d *LocalScheduler) kernelRequestResubmissionFailedAfterReconnection(kernel scheduling.KernelReplica, msg *messaging.JupyterMessage, resubmissionError error) {
 	// var messageType string = "N/A"
 	// _, header, _, err := jupyter.HeaderFromMsg(msg)
 	// if err != nil {
@@ -1446,7 +1446,7 @@ func (d *LocalDaemonImpl) kernelRequestResubmissionFailedAfterReconnection(kerne
 	})
 }
 
-func (d *LocalDaemonImpl) smrReadyCallback(kernelClient scheduling.KernelReplica) {
+func (d *LocalScheduler) smrReadyCallback(kernelClient scheduling.KernelReplica) {
 	d.log.Debug("Replica %d of kernel %s is ready to join its SMR cluster.", kernelClient.ReplicaID(), kernelClient.ID())
 
 	_, err := d.provisioner.SmrReady(context.TODO(), &proto.SmrReadyNotification{
@@ -1464,7 +1464,7 @@ func (d *LocalDaemonImpl) smrReadyCallback(kernelClient scheduling.KernelReplica
 // GetActualGpuInfo returns the "actual" GPU resource information for the node.
 //
 // Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
-func (d *LocalDaemonImpl) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.GpuInfo, error) {
+func (d *LocalScheduler) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*proto.GpuInfo, error) {
 	gpuInfo := &proto.GpuInfo{
 		SpecGPUs:              int32(d.resourceManager.SpecGPUs().InexactFloat64()),
 		IdleGPUs:              int32(d.resourceManager.IdleGPUs().InexactFloat64()),
@@ -1481,11 +1481,11 @@ func (d *LocalDaemonImpl) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*p
 	return gpuInfo, nil
 }
 
-func (d *LocalDaemonImpl) PingKernel(_ context.Context, _ *proto.PingInstruction) (*proto.Pong, error) {
+func (d *LocalScheduler) PingKernel(_ context.Context, _ *proto.PingInstruction) (*proto.Pong, error) {
 	return nil, domain.ErrNotImplemented
 }
 
-func (d *LocalDaemonImpl) PrepareToMigrate(_ context.Context, req *proto.ReplicaInfo) (*proto.PrepareToMigrateResponse, error) {
+func (d *LocalScheduler) PrepareToMigrate(_ context.Context, req *proto.ReplicaInfo) (*proto.PrepareToMigrateResponse, error) {
 	kernelId := req.KernelId
 	replicaId := req.ReplicaId
 	d.log.Debug("Preparing to migrate replica %d of kernel %s now.", req.ReplicaId, req.KernelId)
@@ -1578,7 +1578,7 @@ func (d *LocalDaemonImpl) PrepareToMigrate(_ context.Context, req *proto.Replica
 
 // YieldNextExecution ensures that the next 'execute_request' for the specified kernel fails.
 // This is to be used exclusively for testing/debugging purposes.
-func (d *LocalDaemonImpl) YieldNextExecution(_ context.Context, in *proto.KernelId) (*proto.Void, error) {
+func (d *LocalScheduler) YieldNextExecution(_ context.Context, in *proto.KernelId) (*proto.Void, error) {
 	kernelId := in.Id
 
 	kernel, ok := d.kernels.Load(kernelId)
@@ -1593,7 +1593,7 @@ func (d *LocalDaemonImpl) YieldNextExecution(_ context.Context, in *proto.Kernel
 	return proto.VOID, nil
 }
 
-func (d *LocalDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
+func (d *LocalScheduler) UpdateReplicaAddr(_ context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
 	kernelId := req.KernelId
 	hostname := req.Hostname // The new hostname of the replica.
 	replicaId := req.Id
@@ -1668,10 +1668,10 @@ func (d *LocalDaemonImpl) UpdateReplicaAddr(_ context.Context, req *proto.Replic
 	return proto.VOID, nil
 }
 
-// AddReplica prompts the LocalDaemonImpl to send an "add_replica_request" CONTROL message to the specified kernel.
+// AddReplica prompts the LocalScheduler to send an "add_replica_request" CONTROL message to the specified kernel.
 //
 // NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
-func (d *LocalDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
+func (d *LocalScheduler) AddReplica(_ context.Context, req *proto.ReplicaInfoWithAddr) (*proto.Void, error) {
 	kernelId := req.KernelId
 	hostname := req.Hostname
 	replicaId := req.Id
@@ -1720,7 +1720,7 @@ func (d *LocalDaemonImpl) AddReplica(_ context.Context, req *proto.ReplicaInfoWi
 // the Local Daemon can notify the Cluster Gateway.
 //
 // NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
-func (d *LocalDaemonImpl) smrNodeAddedCallback(readyMessage *messaging.MessageSMRNodeUpdated) {
+func (d *LocalScheduler) smrNodeAddedCallback(readyMessage *messaging.MessageSMRNodeUpdated) {
 	if readyMessage.Success {
 		d.log.Debug("Replica %d of kernel %s has successfully joined its SMR cluster.", readyMessage.NodeID, readyMessage.KernelId)
 	} else {
@@ -1747,7 +1747,7 @@ func (d *LocalDaemonImpl) smrNodeAddedCallback(readyMessage *messaging.MessageSM
 //
 // We could technically be running within a Docker container that is managed/orchestrated
 // by Kubernetes. In this case, DockerComposeMode also returns false.
-func (d *LocalDaemonImpl) DockerComposeMode() bool {
+func (d *LocalScheduler) DockerComposeMode() bool {
 	return d.deploymentMode == types.DockerComposeMode
 }
 
@@ -1756,7 +1756,7 @@ func (d *LocalDaemonImpl) DockerComposeMode() bool {
 //
 // We could technically be running within a Docker container that is managed/orchestrated
 // by Kubernetes. In this case, DockerSwarmMode also returns false.
-func (d *LocalDaemonImpl) DockerSwarmMode() bool {
+func (d *LocalScheduler) DockerSwarmMode() bool {
 	return d.deploymentMode == types.DockerSwarmMode
 }
 
@@ -1765,24 +1765,24 @@ func (d *LocalDaemonImpl) DockerSwarmMode() bool {
 //
 // We could technically be running within a Docker container that is managed/orchestrated
 // by Kubernetes. In this case, this function would return false.
-func (d *LocalDaemonImpl) DockerMode() bool {
+func (d *LocalScheduler) DockerMode() bool {
 	return d.DockerComposeMode() || d.DockerSwarmMode()
 }
 
 // KubernetesMode returns true if we're running in Kubernetes.
-func (d *LocalDaemonImpl) KubernetesMode() bool {
+func (d *LocalScheduler) KubernetesMode() bool {
 	return d.deploymentMode == types.KubernetesMode
 }
 
 // LocalMode returns true if we're running in DefaultSchedulingPolicy mode.
-func (d *LocalDaemonImpl) LocalMode() bool {
+func (d *LocalScheduler) LocalMode() bool {
 	return d.deploymentMode == types.LocalMode
 }
 
 // Initialize a kernel client for a new kernel.
 // Initialize shell/IO forwarders, validate the connection with the kernel (which includes connecting to the ZMQ sockets), etc.
 // If there's an error at any point during the initialization process, then the kernel connection/client is closed and an error is returned.
-func (d *LocalDaemonImpl) initializeKernelClient(id string, connInfo *jupyter.ConnectionInfo, kernel scheduling.KernelReplica) (*proto.KernelConnectionInfo, error) {
+func (d *LocalScheduler) initializeKernelClient(id string, connInfo *jupyter.ConnectionInfo, kernel scheduling.KernelReplica) (*proto.KernelConnectionInfo, error) {
 	shell := d.router.Socket(messaging.ShellMessage)
 	if d.schedulerDaemonOptions.DirectServer {
 		var err error
@@ -1845,7 +1845,7 @@ func (d *LocalDaemonImpl) initializeKernelClient(id string, connInfo *jupyter.Co
 
 // StartKernelReplica launches a new kernel via Docker.
 // This is ONLY used in the Docker-based deployment mode.
-func (d *LocalDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
 	if in == nil {
 		d.log.Error("`gateway.KernelReplicaSpec` argument is nil in call to StartKernelReplica...")
 		return nil, ErrNilArgument
@@ -1858,7 +1858,7 @@ func (d *LocalDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.Kern
 	}
 
 	kernelId := in.Kernel.Id
-	d.log.Debug("LocalDaemonImpl::StartKernelReplica(\"%s\"). Spec: %v.", kernelId, in)
+	d.log.Debug("LocalScheduler::StartKernelReplica(\"%s\"). Spec: %v.", kernelId, in)
 
 	if otherReplica, loaded := d.kernels.Load(kernelId); loaded {
 		d.log.Error("We already have a replica of kernel %s running locally (replica %d). Cannot launch new replica on this node.", kernelId, otherReplica.ReplicaID())
@@ -1991,7 +1991,7 @@ func (d *LocalDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.Kern
 }
 
 // GetKernelStatus returns the status of a kernel.
-func (d *LocalDaemonImpl) GetKernelStatus(_ context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
+func (d *LocalScheduler) GetKernelStatus(_ context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Warn("Kernel %s not found on query status", in.Id)
@@ -2003,7 +2003,7 @@ func (d *LocalDaemonImpl) GetKernelStatus(_ context.Context, in *proto.KernelId)
 }
 
 // KillKernel kills a kernel.
-func (d *LocalDaemonImpl) KillKernel(_ context.Context, in *proto.KernelId) (*proto.Void, error) {
+func (d *LocalScheduler) KillKernel(_ context.Context, in *proto.KernelId) (*proto.Void, error) {
 	d.log.Debug("KillKernel RPC called for kernel %s.", in.Id)
 
 	kernel, ok := d.kernels.Load(in.Id)
@@ -2030,7 +2030,7 @@ func (d *LocalDaemonImpl) KillKernel(_ context.Context, in *proto.KernelId) (*pr
 }
 
 // StopKernel stops a kernel.
-func (d *LocalDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
+func (d *LocalScheduler) StopKernel(ctx context.Context, in *proto.KernelId) (ret *proto.Void, err error) {
 	d.log.Debug("StopKernel RPC called for kernel %s.", in.Id)
 
 	kernel, ok := d.kernels.Load(in.Id)
@@ -2076,7 +2076,7 @@ func (d *LocalDaemonImpl) StopKernel(ctx context.Context, in *proto.KernelId) (r
 	return proto.VOID, nil
 }
 
-func (d *LocalDaemonImpl) stopKernel(ctx context.Context, kernel scheduling.KernelReplica, ignoreReply bool) (err error) {
+func (d *LocalScheduler) stopKernel(ctx context.Context, kernel scheduling.KernelReplica, ignoreReply bool) (err error) {
 	if ignoreReply {
 		_ = kernel.AddIOHandler(messaging.IOTopicShutdown, d.handleIgnoreMsg)
 	}
@@ -2120,7 +2120,7 @@ func (d *LocalDaemonImpl) stopKernel(ctx context.Context, kernel scheduling.Kern
 }
 
 // WaitKernel waits for a kernel to exit.
-func (d *LocalDaemonImpl) WaitKernel(_ context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
+func (d *LocalScheduler) WaitKernel(_ context.Context, in *proto.KernelId) (*proto.KernelStatus, error) {
 	kernel, ok := d.kernels.Load(in.Id)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", in.Id)
@@ -2131,12 +2131,12 @@ func (d *LocalDaemonImpl) WaitKernel(_ context.Context, in *proto.KernelId) (*pr
 	return d.statusErrorf(kernel, kernelStatus, err)
 }
 
-func (d *LocalDaemonImpl) SetClose(_ context.Context, _ *proto.Void) (*proto.Void, error) {
+func (d *LocalScheduler) SetClose(_ context.Context, _ *proto.Void) (*proto.Void, error) {
 	_ = d.Close()
 	return proto.VOID, nil
 }
 
-func (d *LocalDaemonImpl) Start() error {
+func (d *LocalScheduler) Start() error {
 	d.log.Info("Starting router...")
 
 	// Start cleaning routine.
@@ -2152,7 +2152,7 @@ func (d *LocalDaemonImpl) Start() error {
 	return err
 }
 
-func (d *LocalDaemonImpl) startKernelRegistryService() {
+func (d *LocalScheduler) startKernelRegistryService() {
 	d.log.Debug("Beginning to listen for kernel registrations at %v", fmt.Sprintf(":%d", d.kernelRegistryPort))
 
 	// Initialize the Kernel Registry listener
@@ -2182,7 +2182,7 @@ func (d *LocalDaemonImpl) startKernelRegistryService() {
 	}
 }
 
-func (d *LocalDaemonImpl) Close() error {
+func (d *LocalScheduler) Close() error {
 	// Close the router
 	_ = d.router.Close()
 
@@ -2193,7 +2193,7 @@ func (d *LocalDaemonImpl) Close() error {
 
 // Provider implementations.
 
-func (d *LocalDaemonImpl) ControlHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (d *LocalScheduler) ControlHandler(_ router.Info, msg *messaging.JupyterMessage) error {
 	// Kernel ID is not available in the control message.
 	// _, header, _, err := jupyter.HeaderFromMsg(msg)
 	// if err != nil {
@@ -2239,11 +2239,11 @@ func (d *LocalDaemonImpl) ControlHandler(_ router.Info, msg *messaging.JupyterMe
 	return nil
 }
 
-func (d *LocalDaemonImpl) kernelShellHandler(info scheduling.KernelInfo, _ messaging.MessageType, msg *messaging.JupyterMessage) error {
+func (d *LocalScheduler) kernelShellHandler(info scheduling.KernelInfo, _ messaging.MessageType, msg *messaging.JupyterMessage) error {
 	return d.ShellHandler(info, msg)
 }
 
-func (d *LocalDaemonImpl) ShellHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (d *LocalScheduler) ShellHandler(_ router.Info, msg *messaging.JupyterMessage) error {
 	// d.log.Debug("Received shell message with %d frame(s): %s", len(msg.JupyterFrames), msg)
 	// kernelId, header, offset, err := d.headerAndOffsetFromMsg(msg)
 	// if err != nil {
@@ -2347,7 +2347,7 @@ func (d *LocalDaemonImpl) ShellHandler(_ router.Info, msg *messaging.JupyterMess
 // channel that serves as the message queue, then the FCFS ordering of the messages cannot be guaranteed. Specifically,
 // the order in which the messages are enqueued is non-deterministic. (Once enqueued, the messages will be served in
 // a FCFS manner.)
-func (d *LocalDaemonImpl) enqueueExecuteRequest(execOrYieldReq *messaging.JupyterMessage, kernel scheduling.KernelReplica) <-chan interface{} {
+func (d *LocalScheduler) enqueueExecuteRequest(execOrYieldReq *messaging.JupyterMessage, kernel scheduling.KernelReplica) <-chan interface{} {
 	gid := goid.Get()
 	msgType := execOrYieldReq.JupyterMessageType()
 	if msgType != messaging.ShellExecuteRequest && msgType != messaging.ShellYieldRequest {
@@ -2410,7 +2410,7 @@ func (d *LocalDaemonImpl) enqueueExecuteRequest(execOrYieldReq *messaging.Jupyte
 // channel that serves as the message queue, then the FCFS ordering of the messages cannot be guaranteed. Specifically,
 // the order in which the messages are enqueued is non-deterministic. (Once enqueued, the messages will be served in
 // a FCFS manner.)
-func (d *LocalDaemonImpl) executeRequestForwarderLoop(queue chan *enqueuedExecOrYieldRequest, stopChan chan interface{}, kernel scheduling.KernelReplica) {
+func (d *LocalScheduler) executeRequestForwarderLoop(queue chan *enqueuedExecOrYieldRequest, stopChan chan interface{}, kernel scheduling.KernelReplica) {
 	gid := goid.Get()
 	d.log.Debug("[gid=%d] \"execute_request\" forwarder for replica %d of kernel %s has started running.",
 		gid, kernel.ReplicaID(), kernel.ID())
@@ -2433,7 +2433,7 @@ func (d *LocalDaemonImpl) executeRequestForwarderLoop(queue chan *enqueuedExecOr
 // forwardExecuteRequest forwards an "execute_request" (or "yield_request") message to the target kernel.
 //
 // forwardExecuteRequest is called by executeRequestForwarderLoop.
-func (d *LocalDaemonImpl) forwardExecuteRequest(message *enqueuedExecOrYieldRequest, kernel scheduling.KernelReplica,
+func (d *LocalScheduler) forwardExecuteRequest(message *enqueuedExecOrYieldRequest, kernel scheduling.KernelReplica,
 	gid int64) {
 
 	// Sanity check.
@@ -2500,7 +2500,7 @@ func (d *LocalDaemonImpl) forwardExecuteRequest(message *enqueuedExecOrYieldRequ
 }
 
 // processExecuteReply handles the logic of deallocating resources that have been committed to a kernel so that it could execute user-submitted code.
-func (d *LocalDaemonImpl) processExecuteReply(msg *messaging.JupyterMessage, kernel scheduling.KernelInfo /*, offset int */) error {
+func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kernel scheduling.KernelInfo /*, offset int */) error {
 	kernelClient := kernel.(scheduling.KernelReplica)
 	// Check if we need to release allocated GPUs.
 	// We only release allocated GPUs if this kernel replica executed the code.
@@ -2616,7 +2616,7 @@ func (d *LocalDaemonImpl) processExecuteReply(msg *messaging.JupyterMessage, ker
 //
 // updateKernelResourceSpec will return nil on success. updateKernelResourceSpec will return an error if the kernel
 // presently has resources committed to it, and the adjustment cannot occur due to resource contention.
-func (d *LocalDaemonImpl) updateKernelResourceSpec(kernel scheduling.KernelReplica, newSpec types.Spec) error {
+func (d *LocalScheduler) updateKernelResourceSpec(kernel scheduling.KernelReplica, newSpec types.Spec) error {
 	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
 		d.log.Error("Requested updated resource spec for kernel %s is invalid, as one or more quantities are negative: %s",
 			kernel.ID(), newSpec.String())
@@ -2641,7 +2641,7 @@ func (d *LocalDaemonImpl) updateKernelResourceSpec(kernel scheduling.KernelRepli
 
 // resourceRequestAdjustmentEnabled returns true if dynamically adjusting resource requests is enabled
 // based on the configured scheduling policy used by the cluster.
-func (d *LocalDaemonImpl) resourceRequestAdjustmentEnabled() bool {
+func (d *LocalScheduler) resourceRequestAdjustmentEnabled() bool {
 	return d.schedulingPolicy.SupportsDynamicResourceAdjustments()
 }
 
@@ -2650,7 +2650,7 @@ func (d *LocalDaemonImpl) resourceRequestAdjustmentEnabled() bool {
 // Returns the target replica ID, if there is one, or -1 if there is not, along with the decoded metadata dictionary
 // if the dictionary was decoded successfully. If the dictionary was not decoded successfully, then an empty map
 // will be returned.
-func (d *LocalDaemonImpl) processExecuteRequestMetadata(msg *messaging.JupyterMessage, kernel scheduling.KernelReplica) (int32, map[string]interface{}, error) {
+func (d *LocalScheduler) processExecuteRequestMetadata(msg *messaging.JupyterMessage, kernel scheduling.KernelReplica) (int32, map[string]interface{}, error) {
 	// If there is nothing in the message's metadata frame, then we just return immediately.
 	if len(*msg.JupyterFrames.MetadataFrame()) == 0 {
 		return -1, make(map[string]interface{}), nil
@@ -2700,7 +2700,7 @@ func (d *LocalDaemonImpl) processExecuteRequestMetadata(msg *messaging.JupyterMe
 // TODO: | concurrent code executions running on the same node)?
 // TODO: |
 // TODO: | For now, we're reserving resources.
-func (d *LocalDaemonImpl) processExecOrYieldRequest(msg *messaging.JupyterMessage, kernel scheduling.KernelReplica) *messaging.JupyterMessage {
+func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage, kernel scheduling.KernelReplica) *messaging.JupyterMessage {
 	gid := goid.Get()
 
 	if msg.JupyterMessageType() != messaging.ShellExecuteRequest && msg.JupyterMessageType() != messaging.ShellYieldRequest {
@@ -2874,16 +2874,16 @@ func (d *LocalDaemonImpl) processExecOrYieldRequest(msg *messaging.JupyterMessag
 	return msg
 }
 
-func (d *LocalDaemonImpl) StdinHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (d *LocalScheduler) StdinHandler(_ router.Info, msg *messaging.JupyterMessage) error {
 	return d.forwardRequest(context.Background(), nil, messaging.StdinMessage, msg, nil)
 }
 
-func (d *LocalDaemonImpl) HBHandler(_ router.Info, msg *messaging.JupyterMessage) error {
+func (d *LocalScheduler) HBHandler(_ router.Info, msg *messaging.JupyterMessage) error {
 	return d.forwardRequest(context.Background(), nil, messaging.HBMessage, msg, nil)
 }
 
 // GetVirtualGpuAllocations returns the current vGPU allocations on this node.
-func (d *LocalDaemonImpl) GetVirtualGpuAllocations(_ context.Context, _ *proto.Void) (*proto.VirtualGpuAllocations, error) {
+func (d *LocalScheduler) GetVirtualGpuAllocations(_ context.Context, _ *proto.Void) (*proto.VirtualGpuAllocations, error) {
 	allocations := &proto.VirtualGpuAllocations{
 		Allocations: d.virtualGpuPluginServer.GetAllocations(),
 	}
@@ -2893,7 +2893,7 @@ func (d *LocalDaemonImpl) GetVirtualGpuAllocations(_ context.Context, _ *proto.V
 	return allocations, nil
 }
 
-func (d *LocalDaemonImpl) GetVirtualGpuInfo(_ context.Context, _ *proto.Void) (*proto.VirtualGpuInfo, error) {
+func (d *LocalScheduler) GetVirtualGpuInfo(_ context.Context, _ *proto.Void) (*proto.VirtualGpuInfo, error) {
 	response := &proto.VirtualGpuInfo{
 		TotalVirtualGPUs:     int32(d.virtualGpuPluginServer.NumVirtualGPUs()),
 		AllocatedVirtualGPUs: int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()),
@@ -2910,7 +2910,7 @@ func (d *LocalDaemonImpl) GetVirtualGpuInfo(_ context.Context, _ *proto.Void) (*
 // For example, if this node has a total of 64 vGPUs, of which 48 are actively allocated, and
 // this function is called with the new total number specified as 32, then the operation will fail.
 // In this case (when the operation fails), a domain.ErrInvalidParameter is returned.
-func (d *LocalDaemonImpl) SetTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
+func (d *LocalScheduler) SetTotalVirtualGPUs(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
 	if d.KubernetesMode() {
 		return d.setTotalVirtualGPUsKubernetes(ctx, in)
 	} else {
@@ -2919,7 +2919,7 @@ func (d *LocalDaemonImpl) SetTotalVirtualGPUs(ctx context.Context, in *proto.Set
 }
 
 // setTotalVirtualGPUsKubernetes is used to change the vGPUs available on this node when running in Docker mode.
-func (d *LocalDaemonImpl) setTotalVirtualGPUsDocker(in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
+func (d *LocalScheduler) setTotalVirtualGPUsDocker(in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
 	err := d.resourceManager.AdjustSpecGPUs(float64(in.GetValue()))
 	if err != nil {
 		response := &proto.VirtualGpuInfo{
@@ -2939,7 +2939,7 @@ func (d *LocalDaemonImpl) setTotalVirtualGPUsDocker(in *proto.SetVirtualGPUsRequ
 }
 
 // setTotalVirtualGPUsKubernetes is used to change the vGPUs available on this node when running in Kubernetes mode.
-func (d *LocalDaemonImpl) setTotalVirtualGPUsKubernetes(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
+func (d *LocalScheduler) setTotalVirtualGPUsKubernetes(ctx context.Context, in *proto.SetVirtualGPUsRequest) (*proto.VirtualGpuInfo, error) {
 	newNumVirtualGPUs := in.GetValue()
 	if newNumVirtualGPUs < int32(d.virtualGpuPluginServer.NumAllocatedVirtualGPUs()) {
 		response := &proto.VirtualGpuInfo{
@@ -2967,7 +2967,7 @@ func (d *LocalDaemonImpl) setTotalVirtualGPUsKubernetes(ctx context.Context, in 
 }
 
 // ResourcesSnapshot returns a *proto.NodeResourcesSnapshot struct encoding a snapshot of the current resource quantities on the node.
-func (d *LocalDaemonImpl) ResourcesSnapshot(_ context.Context, _ *proto.Void) (*proto.NodeResourcesSnapshotWithContainers, error) {
+func (d *LocalScheduler) ResourcesSnapshot(_ context.Context, _ *proto.Void) (*proto.NodeResourcesSnapshotWithContainers, error) {
 	resourceSnapshot := d.resourceManager.ProtoResourcesSnapshot()
 
 	containers := make([]*proto.ReplicaInfo, 0)
@@ -2993,7 +2993,7 @@ func (d *LocalDaemonImpl) ResourcesSnapshot(_ context.Context, _ *proto.Void) (*
 	return snapshotWithContainers, nil
 }
 
-func (d *LocalDaemonImpl) kernelFromMsg(msg *messaging.JupyterMessage) (kernel scheduling.KernelReplica, err error) {
+func (d *LocalScheduler) kernelFromMsg(msg *messaging.JupyterMessage) (kernel scheduling.KernelReplica, err error) {
 	kernel, ok := d.kernels.Load(msg.DestinationId)
 	if !ok {
 		d.log.Error("Could not find kernel with ID \"%s\"", msg.DestinationId)
@@ -3007,7 +3007,7 @@ func (d *LocalDaemonImpl) kernelFromMsg(msg *messaging.JupyterMessage) (kernel s
 	return kernel, nil
 }
 
-func (d *LocalDaemonImpl) forwardRequest(ctx context.Context, kernel scheduling.KernelReplica, typ messaging.MessageType, msg *messaging.JupyterMessage, done func()) (err error) {
+func (d *LocalScheduler) forwardRequest(ctx context.Context, kernel scheduling.KernelReplica, typ messaging.MessageType, msg *messaging.JupyterMessage, done func()) (err error) {
 	// goroutineId := goid.Get()
 	if kernel == nil {
 		kernel, err = d.kernelFromMsg(msg)
@@ -3019,7 +3019,7 @@ func (d *LocalDaemonImpl) forwardRequest(ctx context.Context, kernel scheduling.
 	return kernel.RequestWithHandler(ctx, "Forwarding", typ, msg, d.kernelResponseForwarder, done)
 }
 
-func (d *LocalDaemonImpl) kernelResponseForwarder(from scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
+func (d *LocalScheduler) kernelResponseForwarder(from scheduling.KernelReplicaInfo, typ messaging.MessageType, msg *messaging.JupyterMessage) error {
 	var (
 		sender         messaging.Sender
 		connectionInfo *jupyter.ConnectionInfo
@@ -3102,7 +3102,7 @@ func (d *LocalDaemonImpl) kernelResponseForwarder(from scheduling.KernelReplicaI
 	return nil // Will be nil on success.
 }
 
-func (d *LocalDaemonImpl) handleErrorReport(kernel scheduling.KernelReplica, frames *messaging.JupyterFrames, _ *messaging.JupyterMessage) error {
+func (d *LocalScheduler) handleErrorReport(kernel scheduling.KernelReplica, frames *messaging.JupyterFrames, _ *messaging.JupyterMessage) error {
 	var errorReport messaging.ErrorReport
 	if err := frames.DecodeContent(&errorReport); err != nil {
 		d.log.Error("Failed to decode content of 'error report' message: %v", err)
@@ -3130,7 +3130,7 @@ func (d *LocalDaemonImpl) handleErrorReport(kernel scheduling.KernelReplica, fra
 // by Jupyter kernel replicas running on the same scheduling.Host as this Local Daemon to notify when something occurs.
 // Typically, this API is used to inform the Local Daemon that an error has occurred, so that the Local Daemon can
 // in turn notify the Cluster Gateway, which can then send a notification to the Cluster Dashboard UI to inform the user.
-func (d *LocalDaemonImpl) Notify(ctx context.Context, notification *proto.KernelNotification) (*proto.Void, error) {
+func (d *LocalScheduler) Notify(ctx context.Context, notification *proto.KernelNotification) (*proto.Void, error) {
 	if notification.NotificationType == 0 {
 		d.log.Warn("Received error notification from replica %d of kernel %s. Title: %s. Message: %s.",
 			notification.ReplicaId, notification.KernelId, notification.Title, notification.Message)
@@ -3155,7 +3155,7 @@ func (d *LocalDaemonImpl) Notify(ctx context.Context, notification *proto.Kernel
 // This is used to report errors to the Gateway.
 // In general, this is done so that the errors can then be
 // pushed to the frontend UI to inform the user.
-func (d *LocalDaemonImpl) notifyClusterGatewayOfError(ctx context.Context, notification *proto.Notification) {
+func (d *LocalScheduler) notifyClusterGatewayOfError(ctx context.Context, notification *proto.Notification) {
 	_, err := d.provisioner.Notify(ctx, notification)
 
 	if err != nil {
@@ -3163,7 +3163,7 @@ func (d *LocalDaemonImpl) notifyClusterGatewayOfError(ctx context.Context, notif
 	}
 }
 
-func (d *LocalDaemonImpl) handleSMRLeadTask(kernel scheduling.KernelReplica, frames *messaging.JupyterFrames, jMsg *messaging.JupyterMessage) error {
+func (d *LocalScheduler) handleSMRLeadTask(kernel scheduling.KernelReplica, frames *messaging.JupyterFrames, jMsg *messaging.JupyterMessage) error {
 	messageType, err := frames.GetMessageType()
 	if err != nil {
 		d.log.Error("Failed to extract message type from SMR Lead ZMQ message: %v", err)
@@ -3254,7 +3254,7 @@ func (d *LocalDaemonImpl) handleSMRLeadTask(kernel scheduling.KernelReplica, fra
 // addResourceSnapshotToJupyterMessage decodes the metadata frame of the given messaging.JupyterMessage
 // and adds an entry under the scheduling.SnapshotMetadataKey key with the value being a snapshot
 // of the current resource quantities of the Local Daemon's ResourceManager.
-func (d *LocalDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *messaging.JupyterMessage, kernel scheduling.KernelReplica) (*resource.ManagerSnapshot, error) {
+func (d *LocalScheduler) addResourceSnapshotToJupyterMessage(jMsg *messaging.JupyterMessage, kernel scheduling.KernelReplica) (*resource.ManagerSnapshot, error) {
 	var snapshot *resource.ManagerSnapshot
 
 	// Include in the message a snapshot of the current resource quantities of the ResourceManager.
@@ -3311,19 +3311,19 @@ func (d *LocalDaemonImpl) addResourceSnapshotToJupyterMessage(jMsg *messaging.Ju
 	return snapshot, nil
 }
 
-func (d *LocalDaemonImpl) handleIgnoreMsg(kernel scheduling.KernelReplica, _ *messaging.JupyterFrames, raw *messaging.JupyterMessage) error {
+func (d *LocalScheduler) handleIgnoreMsg(kernel scheduling.KernelReplica, _ *messaging.JupyterFrames, raw *messaging.JupyterMessage) error {
 	d.log.Debug("%v ignores %v", kernel, raw)
 	return types.ErrStopPropagation
 }
 
-func (d *LocalDaemonImpl) errorf(err error) error {
+func (d *LocalScheduler) errorf(err error) error {
 	if err == nil {
 		return nil
 	}
 	return status.Errorf(codes.Internal, err.Error())
 }
 
-func (d *LocalDaemonImpl) statusErrorf(kernel scheduling.KernelReplica, status jupyter.KernelStatus, err error) (*proto.KernelStatus, error) {
+func (d *LocalScheduler) statusErrorf(kernel scheduling.KernelReplica, status jupyter.KernelStatus, err error) (*proto.KernelStatus, error) {
 	if err != nil {
 		return nil, d.errorf(err)
 	}
@@ -3342,11 +3342,11 @@ func (d *LocalDaemonImpl) statusErrorf(kernel scheduling.KernelReplica, status j
 	return &proto.KernelStatus{Status: int32(status)}, nil
 }
 
-func (d *LocalDaemonImpl) getInvoker(kernel scheduling.KernelReplica) invoker.KernelInvoker {
+func (d *LocalScheduler) getInvoker(kernel scheduling.KernelReplica) invoker.KernelInvoker {
 	return kernel.Context().Value(ctxKernelInvoker).(invoker.KernelInvoker)
 }
 
-func (d *LocalDaemonImpl) closeKernel(kernel scheduling.KernelReplica, reason string) {
+func (d *LocalScheduler) closeKernel(kernel scheduling.KernelReplica, reason string) {
 	if err := d.getInvoker(kernel).Close(); err != nil {
 		d.log.Warn("Failed to close %v after %s, failure: %v", kernel, reason, err)
 	}
@@ -3356,7 +3356,7 @@ func (d *LocalDaemonImpl) closeKernel(kernel scheduling.KernelReplica, reason st
 	}
 }
 
-func (d *LocalDaemonImpl) cleanUp() {
+func (d *LocalScheduler) cleanUp() {
 	timer := time.NewTimer(cleanUpInterval)
 
 	for {
@@ -3376,7 +3376,7 @@ func (d *LocalDaemonImpl) cleanUp() {
 	}
 }
 
-func (d *LocalDaemonImpl) clearHandler(_ string, kernel scheduling.KernelReplica) (contd bool) {
+func (d *LocalScheduler) clearHandler(_ string, kernel scheduling.KernelReplica) (contd bool) {
 	err := d.getInvoker(kernel).Close()
 	if err != nil {
 		d.log.Error("Error while closing kernel %s: %v", kernel.String(), err)
@@ -3384,7 +3384,7 @@ func (d *LocalDaemonImpl) clearHandler(_ string, kernel scheduling.KernelReplica
 	return true
 }
 
-func (d *LocalDaemonImpl) gcHandler(kernelId string, kernel scheduling.KernelReplica) (contd bool) {
+func (d *LocalScheduler) gcHandler(kernelId string, kernel scheduling.KernelReplica) (contd bool) {
 	if d.getInvoker(kernel).Expired(cleanUpInterval) {
 		d.kernels.Delete(kernelId)
 		if kernelId == kernel.ID() {
