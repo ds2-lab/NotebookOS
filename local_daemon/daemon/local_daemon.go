@@ -330,7 +330,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		daemon.electionTimeoutSeconds = 3
 	}
 
-	daemon.router = router.New(context.Background(), daemon.connectionOptions, daemon, daemon.MessageAcknowledgementsEnabled,
+	daemon.router = router.New(context.Background(), "", daemon.connectionOptions, daemon, daemon.MessageAcknowledgementsEnabled,
 		fmt.Sprintf("LocalDaemon_%s", nodeName), true, metrics.LocalDaemon, daemon.DebugMode, nil)
 
 	if daemon.numResendAttempts <= 0 {
@@ -1904,7 +1904,7 @@ func (d *SchedulerDaemonImpl) StartKernelReplica(ctx context.Context, in *proto.
 			BindDebugpyPort:                      d.bindDebugpyPort,
 			SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
 		}
-		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager.GetContainerMetricsProvider())
+		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		// Note that we could pass d.prometheusManager directly in the call above.
 
 		d.kernelDebugPorts.Store(kernelId, int(in.DockerModeKernelDebugPort))

@@ -1,8 +1,15 @@
 package metrics
 
 import (
+	"errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"time"
+)
+
+var (
+	ErrPrometheusMetricsDisabled = errors.New("cannot start GatewayPrometheusManager as Prometheus metrics are disabled")
 )
 
 type Host interface {
@@ -25,21 +32,57 @@ type Host interface {
 }
 
 type ClusterMetricsProvider struct {
-	promProvider                                  *GatewayPrometheusManager
+	gatewayPrometheusManager *GatewayPrometheusManager
+
 	incrementResourceCountsForNewHostCallback     func(Host)
 	decrementResourceCountsForRemovedHostCallback func(Host)
+
+	updateClusterStatsCallback func(updater func(statistics *ClusterStatistics))
+	prometheusMetricsEnabled   bool
 }
 
-func NewClusterMetricsProvider(promProvider *GatewayPrometheusManager, incrCallback func(Host), decrCallback func(Host)) *ClusterMetricsProvider {
-	return &ClusterMetricsProvider{
-		promProvider: promProvider,
-		incrementResourceCountsForNewHostCallback:     incrCallback,
-		decrementResourceCountsForRemovedHostCallback: decrCallback,
+func NewClusterMetricsProvider(port int, localDaemonNodeProvider LocalDaemonNodeProvider,
+	updateClusterStatsCallback func(updater func(statistics *ClusterStatistics)),
+	incrResHost func(Host), decrResHost func(Host)) *ClusterMetricsProvider {
+	provider := &ClusterMetricsProvider{
+		gatewayPrometheusManager:                      nil,
+		prometheusMetricsEnabled:                      false,
+		updateClusterStatsCallback:                    updateClusterStatsCallback,
+		incrementResourceCountsForNewHostCallback:     incrResHost,
+		decrementResourceCountsForRemovedHostCallback: decrResHost,
 	}
+
+	if port > 0 {
+		provider.gatewayPrometheusManager = NewGatewayPrometheusManager(port, localDaemonNodeProvider, updateClusterStatsCallback)
+		provider.prometheusMetricsEnabled = true
+	}
+
+	return provider
 }
 
-func (p *ClusterMetricsProvider) GetClusterMetricsProvider() *ClusterMetricsProvider {
-	return p
+func (p *ClusterMetricsProvider) StartGatewayPrometheusManager() error {
+	if p.prometheusMetricsEnabled == false || p.gatewayPrometheusManager == nil {
+		return ErrPrometheusMetricsDisabled
+	}
+
+	return p.gatewayPrometheusManager.Start()
+}
+
+// PrometheusMetricsEnabled returns true if Prometheus metrics are enabled/available.
+func (p *ClusterMetricsProvider) PrometheusMetricsEnabled() bool {
+	return p.prometheusMetricsEnabled && p.gatewayPrometheusManager != nil
+}
+
+// UpdateClusterStatistics accepts a function as an argument.
+//
+// The parameter function accepts one parameter of type *statistics.ClusterStatistics and
+// is used to update cluster-level metrics and statistics.
+func (p *ClusterMetricsProvider) UpdateClusterStatistics(updater func(statistics *ClusterStatistics)) {
+	p.updateClusterStatsCallback(updater)
+}
+
+func (p *ClusterMetricsProvider) GetGatewayPrometheusManager() *GatewayPrometheusManager {
+	return p.gatewayPrometheusManager
 }
 
 // IncrementResourceCountsForNewHost is intended to be called when a Host is added to the Cluster.
@@ -61,49 +104,102 @@ func (p *ClusterMetricsProvider) DecrementResourceCountsForRemovedHost(host Host
 }
 
 func (p *ClusterMetricsProvider) GetScaleOutLatencyMillisecondsHistogram() prometheus.Histogram {
-	if p.promProvider == nil {
+	if p.gatewayPrometheusManager == nil {
 		return nil
 	}
 
-	return p.promProvider.GetScaleOutLatencyMillisecondsHistogram()
+	return p.gatewayPrometheusManager.GetScaleOutLatencyMillisecondsHistogram()
 }
 
 func (p *ClusterMetricsProvider) GetScaleInLatencyMillisecondsHistogram() prometheus.Histogram {
-	if p.promProvider == nil {
+	if p.gatewayPrometheusManager == nil {
 		return nil
 	}
 
-	return p.promProvider.GetScaleInLatencyMillisecondsHistogram()
+	return p.gatewayPrometheusManager.GetScaleInLatencyMillisecondsHistogram()
 }
 
 func (p *ClusterMetricsProvider) GetPlacerFindHostLatencyMicrosecondsHistogram() *prometheus.HistogramVec {
-	if p.promProvider == nil {
+	if p.gatewayPrometheusManager == nil {
 		return nil
 	}
 
-	return p.promProvider.GetPlacerFindHostLatencyMicrosecondsHistogram()
+	return p.gatewayPrometheusManager.GetPlacerFindHostLatencyMicrosecondsHistogram()
 }
 
 func (p *ClusterMetricsProvider) GetNumDisabledHostsGauge() prometheus.Gauge {
-	if p.promProvider == nil {
+	if p.gatewayPrometheusManager == nil {
 		return nil
 	}
 
-	return p.promProvider.GetNumDisabledHostsGauge()
+	return p.gatewayPrometheusManager.GetNumDisabledHostsGauge()
 }
 
 func (p *ClusterMetricsProvider) GetNumHostsGauge() prometheus.Gauge {
-	if p.promProvider == nil {
+	if p.gatewayPrometheusManager == nil {
 		return nil
 	}
 
-	return p.promProvider.GetNumHostsGauge()
+	return p.gatewayPrometheusManager.GetNumHostsGauge()
 }
 
 func (p *ClusterMetricsProvider) GetHostRemoteSyncLatencyMicrosecondsHistogram() prometheus.Histogram {
-	if p.promProvider == nil {
+	if p.gatewayPrometheusManager == nil {
 		return nil
 	}
 
-	return p.promProvider.GetHostRemoteSyncLatencyMicrosecondsHistogram()
+	return p.gatewayPrometheusManager.GetHostRemoteSyncLatencyMicrosecondsHistogram()
+}
+
+func (p *ClusterMetricsProvider) IncrementNumTrainingEventsCompletedCounterVec() {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (p *ClusterMetricsProvider) AddMessageE2ELatencyObservation(latency time.Duration, nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
+	if !p.PrometheusMetricsEnabled() {
+		return ErrPrometheusMetricsDisabled
+	}
+
+	return p.gatewayPrometheusManager.AddMessageE2ELatencyObservation(latency, nodeId, nodeType, socketType, jupyterMessageType)
+}
+
+func (p *ClusterMetricsProvider) AddNumSendAttemptsRequiredObservation(acksRequired float64, nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
+	if !p.PrometheusMetricsEnabled() {
+		return ErrPrometheusMetricsDisabled
+	}
+
+	return p.gatewayPrometheusManager.AddNumSendAttemptsRequiredObservation(acksRequired, nodeId, nodeType, socketType, jupyterMessageType)
+}
+
+func (p *ClusterMetricsProvider) AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
+	if !p.PrometheusMetricsEnabled() {
+		return ErrPrometheusMetricsDisabled
+	}
+
+	return p.gatewayPrometheusManager.AddAckReceivedLatency(latency, nodeId, nodeType, socketType, jupyterMessageType)
+}
+
+func (p *ClusterMetricsProvider) AddFailedSendAttempt(nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
+	if !p.PrometheusMetricsEnabled() {
+		return ErrPrometheusMetricsDisabled
+	}
+
+	return p.gatewayPrometheusManager.AddFailedSendAttempt(nodeId, nodeType, socketType, jupyterMessageType)
+}
+
+func (p *ClusterMetricsProvider) SentMessage(nodeId string, sendLatency time.Duration, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
+	if !p.PrometheusMetricsEnabled() {
+		return ErrPrometheusMetricsDisabled
+	}
+
+	return p.gatewayPrometheusManager.SentMessage(nodeId, sendLatency, nodeType, socketType, jupyterMessageType)
+}
+
+func (p *ClusterMetricsProvider) SentMessageUnique(nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
+	if !p.PrometheusMetricsEnabled() {
+		return ErrPrometheusMetricsDisabled
+	}
+
+	return p.gatewayPrometheusManager.SentMessageUnique(nodeId, nodeType, socketType, jupyterMessageType)
 }

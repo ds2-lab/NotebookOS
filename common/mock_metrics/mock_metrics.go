@@ -150,7 +150,7 @@ func (mr *MockprometheusHandlerMockRecorder) Stop() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Stop", reflect.TypeOf((*MockprometheusHandler)(nil).Stop))
 }
 
-// MockMessagingMetricsProvider is a mock of MessagingMetricsProvider interface.
+// MockMessagingMetricsProvider is a mock of StatisticsAndMetricsProvider interface.
 type MockMessagingMetricsProvider struct {
 	ctrl     *gomock.Controller
 	recorder *MockMessagingMetricsProviderMockRecorder

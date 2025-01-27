@@ -3,9 +3,9 @@ package cluster
 import (
 	"fmt"
 	"github.com/Scusemua/go-utils/promise"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 )
@@ -42,7 +42,7 @@ func (c *KubernetesCluster) Scheduler() scheduling.Scheduler {
 func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec, placer scheduling.Placer,
 	hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
 	notificationBroker scheduler.NotificationBroker, schedulingPolicy internalSchedulingPolicy,
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)), opts *scheduling.SchedulerOptions) *KubernetesCluster {
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)), opts *scheduling.SchedulerOptions) *KubernetesCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "KubernetesCluster", statisticsUpdaterProvider)
 	kubernetesCluster := &KubernetesCluster{

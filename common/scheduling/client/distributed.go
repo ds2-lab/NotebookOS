@@ -10,7 +10,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"slices"
 	"sync"
@@ -83,8 +82,6 @@ type DistributedKernelClient struct {
 	busyStatus     *AggregateKernelStatus
 	lastBStatusMsg *messaging.JupyterMessage
 
-	statistics *statistics.ClusterStatistics
-
 	temporaryKernelReplicaClient *TemporaryKernelReplicaClient
 
 	spec              *proto.KernelSpec
@@ -103,9 +100,6 @@ type DistributedKernelClient struct {
 	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
 	notificationCallback scheduling.NotificationCallback
 
-	// messagingMetricsProvider is an interface that enables the recording of metrics observed by the DistributedKernelClient.
-	messagingMetricsProvider metrics.MessagingMetricsProvider
-
 	session scheduling.UserSession
 
 	debugMode bool
@@ -114,11 +108,6 @@ type DistributedKernelClient struct {
 	mu      sync.RWMutex
 	closing int32
 	cleaned chan struct{}
-
-	// Used to update the fields of the Cluster Gateway's GatewayStatistics struct atomically.
-	// The Cluster Gateway locks modifications to the GatewayStatistics struct before calling whatever function
-	// we pass to the statisticsUpdaterProvider.
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))
 }
 
 // DistributedKernelClientProvider enables the creation of DistributedKernelClient structs.
@@ -129,14 +118,12 @@ type DistributedKernelClientProvider struct{}
 func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-	messagingMetricsProvider metrics.MessagingMetricsProvider, statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
-	notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
+	statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 	kernel := &DistributedKernelClient{
-		id:                       spec.Id,
-		persistentId:             persistentId,
-		debugMode:                debugMode,
-		messagingMetricsProvider: messagingMetricsProvider,
+		id:           spec.Id,
+		persistentId: persistentId,
+		debugMode:    debugMode,
 		server: server.New(ctx, &jupyter.ConnectionInfo{Transport: "tcp", SignatureScheme: connectionInfo.SignatureScheme, Key: connectionInfo.Key}, metrics.ClusterGateway, func(s *server.AbstractServer) {
 			s.Sockets.Shell = messaging.NewSocket(zmq4.NewRouter(s.Ctx), 0, messaging.ShellMessage, fmt.Sprintf("DK-Router-Shell[%s]", spec.Id))
 			s.Sockets.IO = messaging.NewSocket(zmq4.NewPub(s.Ctx), 0, messaging.IOMessage, fmt.Sprintf("DK-Pub-IO[%s]", spec.Id)) // connectionInfo.IOSubPort}
@@ -147,18 +134,17 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 			s.ComponentId = hostId
 			s.DebugMode = debugMode
 			s.Name = fmt.Sprintf("DistrKernelClient-%s", spec.Id)
-			s.MessagingMetricsProvider = messagingMetricsProvider
+			s.StatisticsAndMetricsProvider = statisticsProvider
 			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
-		status:                    jupyter.KernelStatusInitializing,
-		notificationCallback:      notificationCallback,
-		spec:                      spec,
-		replicas:                  make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.Replica, numReplicas),
-		targetNumReplicas:         int32(numReplicas),
-		cleaned:                   make(chan struct{}),
-		numActiveAddOperations:    0,
-		nextNodeId:                int32(numReplicas + 1),
-		statisticsUpdaterProvider: statisticsUpdaterProvider,
+		status:                 jupyter.KernelStatusInitializing,
+		notificationCallback:   notificationCallback,
+		spec:                   spec,
+		replicas:               make(map[int32]scheduling.KernelReplica, numReplicas), // make([]scheduling.Replica, numReplicas),
+		targetNumReplicas:      int32(numReplicas),
+		cleaned:                make(chan struct{}),
+		numActiveAddOperations: 0,
+		nextNodeId:             int32(numReplicas + 1),
 	}
 	kernel.BaseServer = kernel.server.Server()
 	kernel.SessionManager = NewSessionManager(spec.Session)
@@ -168,8 +154,8 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 	temporaryKernelReplicaClient := &TemporaryKernelReplicaClient{kernel}
 	kernel.temporaryKernelReplicaClient = temporaryKernelReplicaClient
 
-	kernel.ExecutionManager = NewExecutionManager(
-		kernel, numReplicas, executionFailedCallback, notificationCallback, executionLatencyCallback)
+	kernel.ExecutionManager = NewExecutionManager(kernel, numReplicas, executionFailedCallback, notificationCallback,
+		executionLatencyCallback, statisticsProvider)
 
 	return kernel
 }

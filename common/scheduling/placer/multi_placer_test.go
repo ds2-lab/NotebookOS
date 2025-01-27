@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
@@ -14,7 +15,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/mock_scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
@@ -203,7 +203,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, multiPlacer, mockedHostMapper,
 				mockedKernelProvider, nil, nil, schedulingPolicy.(scheduler.SchedulingPolicy), // TODO: Fix these messy types
-				func(f func(stats *statistics.ClusterStatistics)) {}, &opts.SchedulerOptions)
+				func(f func(stats *metrics.ClusterStatistics)) {}, &opts.SchedulerOptions)
 
 			var ok bool
 			dockerScheduler, ok = dockerSwarmCluster.Scheduler().(*scheduler.DockerScheduler)

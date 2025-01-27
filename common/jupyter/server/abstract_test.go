@@ -78,7 +78,7 @@ var _ = Describe("AbstractServer", func() {
 			s.Sockets.Shell = &messaging.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort, Type: messaging.ShellMessage, Name: "TestServer_Router_Shell"}
 			s.DebugMode = true
 			s.ComponentId = serverName
-			s.MessagingMetricsProvider = serverMetricsProvider
+			s.StatisticsAndMetricsProvider = serverMetricsProvider
 			config.InitLogger(&s.Log, "[SERVER] ")
 		})
 		server = &wrappedServer{AbstractServer: _server, shellPort: shellListenPort, id: "[SERVER]"}
@@ -87,7 +87,7 @@ var _ = Describe("AbstractServer", func() {
 			s.Sockets.Shell = &messaging.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: shellListenPort + 1, Type: messaging.ShellMessage, Name: "TestClient_Dealer_Shell"}
 			s.DebugMode = true
 			s.ComponentId = clientName
-			s.MessagingMetricsProvider = clientMetricsProvider
+			s.StatisticsAndMetricsProvider = clientMetricsProvider
 			config.InitLogger(&s.Log, "[CLIENT] ")
 		})
 		client = &wrappedServer{AbstractServer: _client, shellPort: shellListenPort + 1, id: "[CLIENT]"}

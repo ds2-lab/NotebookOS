@@ -10,7 +10,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
 	"sync"
@@ -121,12 +120,12 @@ type KernelReplicaClient struct {
 	container scheduling.KernelContainer
 
 	// prometheusManager is an interface that enables the recording of metrics observed by the KernelReplicaClient.
-	messagingMetricsProvider metrics.MessagingMetricsProvider
+	messagingMetricsProvider server.MessagingMetricsProvider
 
 	// Used to update the fields of the Cluster Gateway's GatewayStatistics struct atomically.
 	// The Cluster Gateway locks modifications to the GatewayStatistics struct before calling whatever function
 	// we pass to the statisticsUpdaterProvider.
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))
 
 	log logger.Logger
 	mu  sync.Mutex
@@ -141,9 +140,9 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	numResendAttempts int, podOrContainerName string, nodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback,
 	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, messageAcknowledgementsEnabled bool, persistentId string, hostId string,
 	host scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool, debugMode bool,
-	messagingMetricsProvider metrics.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
+	messagingMetricsProvider server.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback,
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))) *KernelReplicaClient {
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))) *KernelReplicaClient {
 
 	// Validate that the `spec` argument is non-nil.
 	if spec == nil {
@@ -194,7 +193,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 			s.PrependId = false
 			s.ComponentId = componentId
 			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
-			s.MessagingMetricsProvider = messagingMetricsProvider
+			s.StatisticsAndMetricsProvider = messagingMetricsProvider
 			s.Name = fmt.Sprintf("Kernel-%s", spec.Kernel.Id)
 			s.DebugMode = debugMode
 
@@ -441,14 +440,14 @@ func (c *KernelReplicaClient) KernelStartedTraining() error {
 	c.log.Debug(utils.PurpleStyle.Render("Replica %d of kernel \"%s\" has STARTED training."), c.replicaId, c.id)
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			stats.NumTrainingSessions += 1
 			stats.CumulativeSessionIdleTime += time.Since(c.idleStartedAt).Seconds()
 
 			now := time.Now()
-			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
 				EventId:             uuid.NewString(),
-				Name:                statistics.KernelTrainingStarted,
+				Name:                metrics.KernelTrainingStarted,
 				KernelId:            c.id,
 				ReplicaId:           c.replicaId,
 				Timestamp:           now,
@@ -582,7 +581,7 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 		c.replicaId, c.id, time.Since(c.trainingStartedAt), reason)
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			stats.NumTrainingSessions -= 1
 			stats.CumulativeSessionTrainingTime += time.Since(c.trainingStartedAt).Seconds()
 
@@ -594,9 +593,9 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 			}
 
 			now := time.Now()
-			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
 				EventId:             uuid.NewString(),
-				Name:                statistics.KernelTrainingEnded,
+				Name:                metrics.KernelTrainingEnded,
 				KernelId:            c.id,
 				ReplicaId:           c.replicaId,
 				Timestamp:           now,

@@ -5,15 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
-	"github.com/scusemua/distributed-notebook/common/metrics"
 )
 
 var (
 	ErrIOSocketAlreadySet = errors.New("the server already has a non-nil IO ZeroMQ Socket")
 )
 
-// ServerInfo defines the interface to provider infos of a JupyterRouter.
-type ServerInfo interface {
+// Info defines the interface to provider infos of a JupyterRouter.
+type Info interface {
 	fmt.Stringer
 
 	Socket(messaging.MessageType) *messaging.Socket
@@ -32,9 +31,9 @@ func (s *BaseServer) SetComponentId(id string) {
 	s.server.ComponentId = id
 }
 
-// AssignMessagingMetricsProvider sets the MessagingMetricsProvider on the AbstractServer encapsulated by the BaseServer.
-func (s *BaseServer) AssignMessagingMetricsProvider(messagingMetricsProvider metrics.MessagingMetricsProvider) {
-	s.server.MessagingMetricsProvider = messagingMetricsProvider
+// AssignMessagingMetricsProvider sets the StatisticsAndMetricsProvider on the AbstractServer encapsulated by the BaseServer.
+func (s *BaseServer) AssignMessagingMetricsProvider(provider MessagingMetricsProvider) {
+	s.server.StatisticsAndMetricsProvider = provider
 }
 
 // func (s *BaseServer) SendRequest(requiresACK bool, socket *messaging.Socket, reqId string, req *zmq4.msg, dest RequestDest, sourceKernel SourceKernel, offset int) error {

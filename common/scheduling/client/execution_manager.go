@@ -7,6 +7,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"sync"
@@ -91,13 +92,18 @@ type ExecutionManager struct {
 	// the code began executing on the kernel. This interval is computed and passed to the ExecutionLatencyCallback,
 	// so that a relevant Prometheus metric can be updated.
 	executionLatencyCallback scheduling.ExecutionLatencyCallback
+
+	// statisticsProvider exposes two functions: one for updating *statistics.ClusterStatistics and another
+	// for updating Prometheus metrics.
+	statisticsProvider scheduling.StatisticsProvider
 }
 
 // NewExecutionManager creates a new ExecutionManager struct to be associated with the given Kernel.
 //
 // NewExecutionManager returns a pointer to the new ExecutionManager struct.
 func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCallback scheduling.ExecutionFailedCallback,
-	notifyCallback scheduling.NotificationCallback, latencyCallback scheduling.ExecutionLatencyCallback) *ExecutionManager {
+	notifyCallback scheduling.NotificationCallback, latencyCallback scheduling.ExecutionLatencyCallback,
+	statsProvider scheduling.StatisticsProvider) *ExecutionManager {
 
 	manager := &ExecutionManager{
 		ActiveExecutions:         make(map[string]*Execution),
@@ -109,6 +115,7 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCall
 		executionFailedCallback:  execFailCallback,
 		notificationCallback:     notifyCallback,
 		executionLatencyCallback: latencyCallback,
+		statisticsProvider:       statsProvider,
 	}
 
 	config.InitLogger(&manager.log, manager)
@@ -315,6 +322,8 @@ func (m *ExecutionManager) HandleSmrLeadTaskMessage(msg *messaging.JupyterMessag
 	m.processExecutionStartLatency(activeExecution, time.UnixMilli(leadMessage.UnixMilliseconds))
 
 	// Record that the kernel has started training.
+	// TODO: What if there is a delay such that this message is received AFTER
+	// 		 the associated "execute_reply"? That could break things...
 	if err = kernelReplica.KernelStartedTraining(); err != nil {
 		m.log.Error("Failed to start training for kernel replica %s-%d: %v", m.Kernel.ID(),
 			kernelReplica.ReplicaID(), err)
@@ -327,8 +336,39 @@ func (m *ExecutionManager) HandleSmrLeadTaskMessage(msg *messaging.JupyterMessag
 		return err
 	}
 
-	m.log.Debug("Session \"%s\" has successfully started training on replica %d.",
+	m.log.Debug("Session \"%s\" has successfully started training on replica %m.",
 		m.Kernel.ID(), kernelReplica.ReplicaID())
+
+	return nil
+}
+
+// HandleExecuteReplyMessage is called by a scheduling.Kernel when an "execute_reply" message is received.
+func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessage, kernelReplica scheduling.KernelReplica) error {
+	kernelId := m.Kernel.ID()
+	m.log.Debug("Received \"execute_reply\" with JupyterID=\"%s\" from replica %d of kernel %s.",
+		msg.JupyterMessageId(), kernelReplica.ReplicaID(), kernelId)
+
+	// If this message is actually from a failed attempt to handle all replicas proposing 'yield', then we just
+	// return immediately. The execution wasn't successful. We want this error to be sent back to the client.
+	if msg.IsFailedExecuteRequest {
+		m.log.Warn("\"execute_reply\" with JupyterID=\"%s\" from replica %d of kernel %s is from a failed 'all replicas yielded' handler...",
+			msg.JupyterMessageId(), kernelReplica.ReplicaID(), kernelId)
+		return nil
+	}
+
+	if m.statisticsProvider.PrometheusMetricsEnabled() {
+		m.statisticsProvider.IncrementNumTrainingEventsCompletedCounterVec()
+	}
+
+	_, err := m.ExecutionComplete(msg)
+	if err != nil {
+		return err
+	}
+
+	m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+		statistics.CompletedTrainings += 1
+		statistics.NumIdleSessions += 1
+	})
 
 	return nil
 }

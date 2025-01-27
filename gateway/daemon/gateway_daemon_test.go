@@ -18,7 +18,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
@@ -162,7 +161,7 @@ func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx c
 	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
 	handleExecuteYieldNotification scheduling.YieldNotificationHandler, messagingMetricsProvider metrics.MessagingMetricsProvider,
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)),
 	notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 	if kernel, ok := p.expectedKernels[spec.Id]; ok {
@@ -531,10 +530,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockScheduler.EXPECT().PolicyKey().Return(scheduling.Static).AnyTimes()
 
 			clusterGateway = &ClusterGatewayImpl{
-				cluster:                  cluster,
-				RequestLog:               metrics.NewRequestLog(),
-				gatewayPrometheusManager: nil,
-				ClusterStatistics:        statistics.NewClusterStatistics(),
+				cluster:               cluster,
+				RequestLog:            metrics.NewRequestLog(),
+				gatewayMetricsManager: nil,
+				ClusterStatistics:     metrics.NewClusterStatistics(),
 			}
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
@@ -1041,9 +1040,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 
 			clusterGateway = &ClusterGatewayImpl{
-				cluster:                  cluster,
-				RequestLog:               metrics.NewRequestLog(),
-				gatewayPrometheusManager: nil,
+				cluster:               cluster,
+				RequestLog:            metrics.NewRequestLog(),
+				gatewayMetricsManager: nil,
 			}
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
@@ -1814,7 +1813,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			clusterGateway.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 			kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(), mockedKernelSpec, 3, clusterGateway.id,
 				clusterGateway.connectionOptions, uuid.NewString(), clusterGateway.DebugMode, clusterGateway.executionFailed, clusterGateway.executionLatencyCallback,
-				clusterGateway.handleExecutionYieldedNotification, clusterGateway.gatewayPrometheusManager, clusterGateway.updateClusterStatistics, clusterGateway.notifyDashboard)
+				clusterGateway.handleExecutionYieldedNotification, clusterGateway.gatewayMetricsManager, clusterGateway.updateClusterStatistics, clusterGateway.notifyDashboard)
 
 			shellSocket, err := kernel.InitializeShellForwarder(clusterGateway.kernelShellHandler)
 			Expect(err).To(BeNil())
@@ -2420,7 +2419,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		)
 
 		// This is used to check that the ClusterStatistics is reporting the correct resource counts.
-		assertClusterResourceCounts := func(stats *statistics.ClusterStatistics, expectDiff bool, clusterSize int) {
+		assertClusterResourceCounts := func(stats *metrics.ClusterStatistics, expectDiff bool, clusterSize int) {
 			Expect(stats.IdleGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
 			Expect(stats.SpecGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
 			Expect(stats.PendingGPUs).To(Equal(0.0))
@@ -2501,7 +2500,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.gatewayPrometheusManager).To(BeNil())
+				Expect(clusterGateway.gatewayMetricsManager).To(BeNil())
 				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
 				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
@@ -2633,7 +2632,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.gatewayPrometheusManager).To(BeNil())
+				Expect(clusterGateway.gatewayMetricsManager).To(BeNil())
 				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
 				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(false))
@@ -2688,7 +2687,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.gatewayPrometheusManager).To(BeNil())
+				Expect(clusterGateway.gatewayMetricsManager).To(BeNil())
 				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
 				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
@@ -2964,7 +2963,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.gatewayPrometheusManager).To(BeNil())
+				Expect(clusterGateway.gatewayMetricsManager).To(BeNil())
 			})
 
 			AfterEach(func() {

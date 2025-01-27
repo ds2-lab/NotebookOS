@@ -1,4 +1,4 @@
-package statistics
+package metrics
 
 import (
 	"github.com/scusemua/distributed-notebook/common/proto"

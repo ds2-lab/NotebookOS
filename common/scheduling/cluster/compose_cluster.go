@@ -3,9 +3,9 @@ package cluster
 import (
 	"errors"
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"math/rand"
 	"strings"
@@ -26,7 +26,7 @@ type DockerComposeCluster struct {
 // by the Cluster for scheduling decisions.
 func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker,
-	schedulingPolicy internalSchedulingPolicy, statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
+	schedulingPolicy internalSchedulingPolicy, statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)),
 	opts *scheduling.SchedulerOptions) *DockerComposeCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerComposeCluster", statisticsUpdaterProvider)

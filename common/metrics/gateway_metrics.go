@@ -23,6 +23,8 @@ type LocalDaemonNodeProvider interface {
 type GatewayPrometheusManager struct {
 	*basePrometheusManager
 
+	updateClusterStatsCallback func(updater func(statistics *ClusterStatistics))
+
 	localDaemonNodeProvider LocalDaemonNodeProvider
 
 	// JupyterTrainingStartLatency is a metric tracking the latency, in milliseconds, between when an
@@ -96,13 +98,18 @@ type GatewayPrometheusManager struct {
 	KernelMigrationLatencyHistogram prometheus.Histogram
 }
 
-func NewGatewayPrometheusManager(port int, localDaemonNodeProvider LocalDaemonNodeProvider) *GatewayPrometheusManager {
+func (m *GatewayPrometheusManager) UpdateClusterStatistics(updater func(statistics *ClusterStatistics)) {
+	m.updateClusterStatsCallback(updater)
+}
+
+func NewGatewayPrometheusManager(port int, localDaemonNodeProvider LocalDaemonNodeProvider, updater func(updater func(statistics *ClusterStatistics))) *GatewayPrometheusManager {
 	baseManager := newBasePrometheusManager(port, localDaemonNodeProvider.GetId())
 	config.InitLogger(&baseManager.log, baseManager)
 
 	manager := &GatewayPrometheusManager{
-		basePrometheusManager:   baseManager,
-		localDaemonNodeProvider: localDaemonNodeProvider,
+		basePrometheusManager:      baseManager,
+		localDaemonNodeProvider:    localDaemonNodeProvider,
+		updateClusterStatsCallback: updater,
 	}
 	baseManager.instance = manager
 	baseManager.initializeInstanceMetrics = manager.initMetrics
@@ -321,14 +328,6 @@ func (m *GatewayPrometheusManager) HandleVariablesRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// GetContainerMetricsProvider returns nil in the case of a GatewayPrometheusManager struct,
-// as GatewayPrometheusManager does not provide/implement this interface.
-func (m *GatewayPrometheusManager) GetContainerMetricsProvider() ContainerMetricsProvider {
-	m.log.Warn("Someone is attempting to retrieve a ContainerMetricsProvider from a GatewayPrometheusManager. " +
-		"GatewayPrometheusManager does not implement the ContainerMetricsProvider interface, so this is going to fail.")
-	return nil
-}
-
 func (m *GatewayPrometheusManager) GetScaleOutLatencyMillisecondsHistogram() prometheus.Histogram {
 	if m == nil {
 		return nil
@@ -375,4 +374,10 @@ func (m *GatewayPrometheusManager) GetHostRemoteSyncLatencyMicrosecondsHistogram
 	}
 
 	return m.HostRemoteSyncLatencyMicrosecondsHistogram
+}
+
+// IncrementNumTrainingEventsCompletedCounterVec increments the NumTrainingEventsCompletedCounterVec Prometheus vec.
+func (m *GatewayPrometheusManager) IncrementNumTrainingEventsCompletedCounterVec() {
+	m.NumTrainingEventsCompletedCounterVec.
+		With(prometheus.Labels{"node_id": "cluster", "node_type": string(ClusterGateway)}).Inc()
 }

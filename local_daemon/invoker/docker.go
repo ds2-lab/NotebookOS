@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
-	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"net/url"
@@ -92,30 +91,30 @@ type DockerInvoker struct {
 	tempBase                             string
 	hostMountDir                         string
 	targetMountDir                       string
-	invokerCmd                           string                           // Command used to create the Docker container.
-	containerName                        string                           // Name of the launched container; this is the empty string before the container is launched.
-	kernelId                             string                           // The ID of the target kernel.
-	dockerNetworkName                    string                           // The name of the Docker network that the Local Daemon container is running within.
-	smrPort                              int                              // Port used by the SMR cluster.
-	closing                              int32                            // Indicates whether the container is closing/shutting down.
-	id                                   string                           // Uniquely identifies this Invoker instance.
-	kernelDebugPort                      int                              // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
-	remoteStorageEndpoint                string                           // Endpoint of the remote storage.
-	remoteStorage                        string                           // Type of remote storage, either 'hdfs' or 'redis'
-	dockerStorageBase                    string                           // Base directory in which the persistent store data is stored.
-	containerCreatedAt                   time.Time                        // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
-	containerCreated                     bool                             // containerCreated is a bool indicating whether kernel the container has been created.
-	containerMetricsProvider             metrics.ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
-	simulateCheckpointingLatency         bool                             // simulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of performing checkpointing after a migration (read) and after executing code (write).
-	electionTimeoutSeconds               int                              // electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before deciding on a leader
-	deploymentMode                       types.DeploymentMode             // deploymentMode is the deployment mode of the cluster
-	runKernelsInGdb                      bool                             // If true, then the kernels will be run in GDB.
-	prometheusMetricsPort                int                              // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
-	simulateWriteAfterExec               bool                             // Simulate network write after executing code?
-	simulateWriteAfterExecOnCriticalPath bool                             // Should the simulated network write after executing code be on the critical path?
-	useRealGpus                          bool                             // UseRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
-	bindDebugpyPort                      bool                             // bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
-	saveStoppedKernelContainers          bool                             // If true, then do not fully remove stopped kernel containers.
+	invokerCmd                           string                   // Command used to create the Docker container.
+	containerName                        string                   // Name of the launched container; this is the empty string before the container is launched.
+	kernelId                             string                   // The ID of the target kernel.
+	dockerNetworkName                    string                   // The name of the Docker network that the Local Daemon container is running within.
+	smrPort                              int                      // Port used by the SMR cluster.
+	closing                              int32                    // Indicates whether the container is closing/shutting down.
+	id                                   string                   // Uniquely identifies this Invoker instance.
+	kernelDebugPort                      int                      // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	remoteStorageEndpoint                string                   // Endpoint of the remote storage.
+	remoteStorage                        string                   // Type of remote storage, either 'hdfs' or 'redis'
+	dockerStorageBase                    string                   // Base directory in which the persistent store data is stored.
+	containerCreatedAt                   time.Time                // containerCreatedAt is the time at which the DockerInvoker created the kernel container.
+	containerCreated                     bool                     // containerCreated is a bool indicating whether kernel the container has been created.
+	containerMetricsProvider             ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
+	simulateCheckpointingLatency         bool                     // simulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of performing checkpointing after a migration (read) and after executing code (write).
+	electionTimeoutSeconds               int                      // electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before deciding on a leader
+	deploymentMode                       types.DeploymentMode     // deploymentMode is the deployment mode of the cluster
+	runKernelsInGdb                      bool                     // If true, then the kernels will be run in GDB.
+	prometheusMetricsPort                int                      // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
+	simulateWriteAfterExec               bool                     // Simulate network write after executing code?
+	simulateWriteAfterExecOnCriticalPath bool                     // Should the simulated network write after executing code be on the critical path?
+	useRealGpus                          bool                     // UseRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	bindDebugpyPort                      bool                     // bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
+	saveStoppedKernelContainers          bool                     // If true, then do not fully remove stopped kernel containers.
 	workloadId                           string
 	smrEnabled                           bool
 
@@ -185,7 +184,7 @@ type DockerInvokerOptions struct {
 	SaveStoppedKernelContainers bool
 }
 
-func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider metrics.ContainerMetricsProvider) *DockerInvoker {
+func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider ContainerMetricsProvider) *DockerInvoker {
 	smrPort, _ := strconv.Atoi(utils.GetEnv(KernelSMRPort, strconv.Itoa(KernelSMRPortDefault)))
 	if smrPort == 0 {
 		smrPort = KernelSMRPortDefault

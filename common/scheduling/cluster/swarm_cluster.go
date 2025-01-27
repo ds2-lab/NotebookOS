@@ -3,9 +3,9 @@ package cluster
 import (
 	"errors"
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 	"math/rand"
@@ -29,7 +29,7 @@ type DockerSwarmCluster struct {
 func NewDockerSwarmCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper,
 	kernelProvider scheduler.KernelProvider, clusterMetricsProvider scheduling.MetricsProvider,
 	notificationBroker scheduler.NotificationBroker, schedulingPolicy internalSchedulingPolicy,
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)), opts *scheduling.SchedulerOptions) *DockerSwarmCluster {
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)), opts *scheduling.SchedulerOptions) *DockerSwarmCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerSwarmCluster", statisticsUpdaterProvider)
 

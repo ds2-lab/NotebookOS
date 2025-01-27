@@ -3,13 +3,13 @@ package scheduling
 import (
 	"context"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
-	"github.com/scusemua/distributed-notebook/common/metrics"
+	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 )
 
 type Server interface {
 	SendRequest(request messaging.Request, socket *messaging.Socket) error
 	SetComponentId(id string)
-	AssignMessagingMetricsProvider(messagingMetricsProvider metrics.MessagingMetricsProvider)
+	AssignMessagingMetricsProvider(messagingMetricsProvider server.MessagingMetricsProvider)
 	RegisterAck(msg *messaging.JupyterMessage) (chan struct{}, bool)
 	RegisterAckForRequest(req messaging.Request) (chan struct{}, bool)
 	Socket(typ messaging.MessageType) *messaging.Socket
