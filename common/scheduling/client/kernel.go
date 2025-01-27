@@ -469,9 +469,9 @@ func (c *KernelReplicaClient) NumPendingExecuteRequests() int {
 	return c.pendingExecuteRequestIds.Len()
 }
 
-// SentExecuteRequest records that an "execute_request" message has been sent to the kernel.
+// SendingExecuteRequest records that an "execute_request" message has been sent to the kernel.
 //
-// SentExecuteRequest will panic if the given messaging.JupyterMessage is not an "execute_request"
+// SendingExecuteRequest will panic if the given messaging.JupyterMessage is not an "execute_request"
 // message or a "yield_request" message.
 func (c *KernelReplicaClient) SendingExecuteRequest(msg *messaging.JupyterMessage) {
 	c.pendingExecuteRequestIdsMutex.Lock()

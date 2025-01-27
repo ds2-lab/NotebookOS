@@ -57,9 +57,9 @@ const (
 	// DefaultExecuteRequestQueueSize is the default capacity of outgoing "execute_request" message queues.
 	//
 	// Important note: if there are more concurrent execute_request messages sent than the capacity of the buffered
-	// channel that serves as the message queue, then the FCFS ordering of the messages cannot be guaranteed. Specifically,
-	// the order in which the messages are enqueued is non-deterministic. (Once enqueued, the messages will be served in
-	// a FCFS manner.)
+	// channel that serves as the message queue, then the first-come, first-serve ordering of the messages cannot be
+	// guaranteed. Specifically, the order in which the messages are enqueued is non-deterministic.
+	// (Once enqueued, the messages will be served in a first-come, first-serve manner.)
 	DefaultExecuteRequestQueueSize = 128
 )
 
@@ -1984,8 +1984,10 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 	// Notify that the kernel client has been set up successfully.
 	kernelClientCreationChannel <- info
 
-	d.prometheusManager.TotalNumKernelsCounter.Inc()
-	d.prometheusManager.NumActiveKernelReplicasGauge.Add(1)
+	if d.prometheusManager != nil {
+		d.prometheusManager.TotalNumKernelsCounter.Inc()
+		d.prometheusManager.NumActiveKernelReplicasGauge.Add(1)
+	}
 
 	return info, nil
 }
@@ -2484,7 +2486,8 @@ func (d *LocalScheduler) forwardExecuteRequest(message *enqueuedExecOrYieldReque
 	ctx, cancel := context.WithCancel(context.Background())
 	err := message.Kernel.RequestWithHandler(
 		ctx, "Forwarding", messaging.ShellMessage, processedMessage, d.kernelResponseForwarder, func() {
-			d.log.Debug("[gid=%d] Done() called for shell \"%s\" message targeting replica %d of kernel %s. Cancelling (though request may have succeeded already).",
+			d.log.Debug("[gid=%d] Done() called for shell \"%s\" message targeting replica %d of kernel %s. "+
+				"Cancelling (though request may have succeeded already).",
 				goid.Get(), processedMessage.JupyterMessageType(), message.Kernel.ReplicaID(), message.Kernel.ID())
 			cancel()
 		})
