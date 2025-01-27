@@ -1453,7 +1453,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}).AnyTimes()
 			mockedKernel.EXPECT().ID().Return(kernelId).AnyTimes()
 			mockedKernel.EXPECT().
-				RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 				AnyTimes()
 
 			mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, mockedKernel)
@@ -1956,9 +1956,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(loadedKernel).ToNot(BeNil())
 			Expect(loadedKernel).To(Equal(kernel))
 
-			mockedKernelReplica1.EXPECT().SentExecuteRequest(gomock.Any()).MaxTimes(1)
-			mockedKernelReplica2.EXPECT().SentExecuteRequest(gomock.Any()).MaxTimes(1)
-			mockedKernelReplica3.EXPECT().SentExecuteRequest(gomock.Any()).MaxTimes(1)
+			mockedKernelReplica1.EXPECT().SendingExecuteRequest(gomock.Any()).MaxTimes(1)
+			mockedKernelReplica2.EXPECT().SendingExecuteRequest(gomock.Any()).MaxTimes(1)
+			mockedKernelReplica3.EXPECT().SendingExecuteRequest(gomock.Any()).MaxTimes(1)
 
 			mockedKernelReplica1.EXPECT().RequestWithHandlerAndWaitOptionGetter(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(1).Return(nil)
 			mockedKernelReplica2.EXPECT().RequestWithHandlerAndWaitOptionGetter(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).MaxTimes(1).Return(nil)
