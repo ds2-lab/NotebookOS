@@ -30,6 +30,11 @@ type ExecutionManager interface {
 	GetActiveExecution(msgId string) Execution
 	NumActiveExecutionOperations() int
 	TotalNumExecutionOperations() int
+	ExecutionFailedCallback() ExecutionFailedCallback
+
+	// LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
+	// code execution, or nil if no code executions have occurred.
+	LastPrimaryReplica() KernelReplica
 
 	// ExecutionIndexIsLarger returns true if the given executionIndex is larger than all 3 of the execution-index-related
 	// fields of the KernelReplicaClient, namely submittedExecutionIndex, activeExecutionIndex, and completedExecutionIndex.

@@ -45,9 +45,9 @@ type ExecutionManager struct {
 	// NumReplicas is how many replicas the Kernel has.
 	NumReplicas int
 
-	// LastPrimaryReplica is the KernelReplica that served as the primary replica for the previous
+	// lastPrimaryReplica is the KernelReplica that served as the primary replica for the previous
 	// code execution. It will be nil if no code executions have occurred.
-	LastPrimaryReplica scheduling.KernelReplica
+	lastPrimaryReplica scheduling.KernelReplica
 
 	// activeExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
 	// the code submission with the aforementioned ID.
@@ -231,6 +231,16 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (sch
 	return newExecution, nil
 }
 
+func (m *ExecutionManager) ExecutionFailedCallback() scheduling.ExecutionFailedCallback {
+	return m.executionFailedCallback
+}
+
+// LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
+// code execution, or nil if no code executions have occurred.
+func (m *ExecutionManager) LastPrimaryReplica() scheduling.KernelReplica {
+	return m.lastPrimaryReplica
+}
+
 // registerExecutionAttempt registers a new attempt for an existing execution.
 func (m *ExecutionManager) registerExecutionAttempt(msg *messaging.JupyterMessage, existingExecution scheduling.Execution) scheduling.Execution {
 	requestId := msg.JupyterMessageId()
@@ -401,7 +411,7 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(execution scheduling.Executi
 	defer m.mu.Unlock()
 
 	execution.SetActiveReplica(replica)
-	m.LastPrimaryReplica = replica
+	m.lastPrimaryReplica = replica
 
 	// We pass (as the second argument) the time at which the kernel replica began executing the code.
 	m.processExecutionStartLatency(execution, time.UnixMilli(leadMessage.UnixMilliseconds))

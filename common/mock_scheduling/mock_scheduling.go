@@ -4794,7 +4794,7 @@ func (mr *MockKernelMockRecorder) KernelSpec() *gomock.Call {
 // LastPrimaryReplica mocks base method.
 func (m *MockKernel) LastPrimaryReplica() scheduling.KernelReplica {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LastPrimaryReplica")
+	ret := m.ctrl.Call(m, "lastPrimaryReplica")
 	ret0, _ := ret[0].(scheduling.KernelReplica)
 	return ret0
 }
@@ -4802,7 +4802,7 @@ func (m *MockKernel) LastPrimaryReplica() scheduling.KernelReplica {
 // LastPrimaryReplica indicates an expected call of LastPrimaryReplica.
 func (mr *MockKernelMockRecorder) LastPrimaryReplica() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LastPrimaryReplica", reflect.TypeOf((*MockKernel)(nil).LastPrimaryReplica))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "lastPrimaryReplica", reflect.TypeOf((*MockKernel)(nil).LastPrimaryReplica))
 }
 
 // MessageAcknowledgementsEnabled mocks base method.

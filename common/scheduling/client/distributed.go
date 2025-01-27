@@ -77,7 +77,7 @@ type DistributedKernelClient struct {
 	nextNodeId int32
 
 	// ExecutionManager is responsible for managing the user-submitted cell executions.
-	ExecutionManager *ExecutionManager
+	ExecutionManager scheduling.ExecutionManager
 
 	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
 	notificationCallback scheduling.NotificationCallback
@@ -200,7 +200,7 @@ func (c *DistributedKernelClient) IOPubListenPort() int {
 }
 
 func (c *DistributedKernelClient) ExecutionFailedCallback() scheduling.ExecutionFailedCallback {
-	return c.ExecutionManager.executionFailedCallback
+	return c.ExecutionManager.ExecutionFailedCallback()
 }
 
 func (c *DistributedKernelClient) GetExecutionManager() scheduling.ExecutionManager {
@@ -1073,7 +1073,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 // LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
 // code execution, or nil if no code executions have occurred.
 func (c *DistributedKernelClient) LastPrimaryReplica() scheduling.KernelReplica {
-	return c.ExecutionManager.LastPrimaryReplica
+	return c.ExecutionManager.LastPrimaryReplica()
 }
 
 // handleDoneCallbackForRequest is called from RequestWithHandlerAndReplicas when the RequestWithHandlerAndReplicas
