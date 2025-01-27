@@ -307,9 +307,9 @@ func (e *Execution) GetOriginallySentAtTime() time.Time {
 }
 
 func (e *Execution) GetWorkloadId() string {
-	return e.GetWorkloadId()
+	return e.WorkloadId
 }
 
 func (e *Execution) GetExecuteRequestMessageId() string {
-	return e.GetExecuteRequestMessageId()
+	return e.ExecuteRequestMessageId
 }

@@ -571,7 +571,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			kernel.EXPECT().Size().Return(3).AnyTimes()
 
-			setActiveCall := kernel.EXPECT().RegisterActiveExecution(gomock.Any()).Return(nil, nil)
+			setActiveCall := kernel.EXPECT().RegisterActiveExecution(gomock.Any()).Return(nil).AnyTimes()
 			kernel.EXPECT().NumActiveExecutionOperations().Return(0).Times(1)
 			kernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).AnyTimes()
 
@@ -1421,7 +1421,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Memory: 2048,
 			}
 
-			mockedKernel, mockedKernelSpec = initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec)
+			mockedKernel, mockedKernelSpec = initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec, 3)
 
 			Expect(mockedKernelSpec).ToNot(BeNil())
 			mockedKernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
@@ -2070,15 +2070,17 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			wg.Add(1)
 
 			var activeExecution *client.Execution
-			mockedKernel.EXPECT().RegisterActiveExecution(gomock.Any()).DoAndReturn(func(msg *messaging.JupyterMessage) (*client.Execution, error) {
+			mockedKernel.EXPECT().RegisterActiveExecution(gomock.Any()).DoAndReturn(func(msg *messaging.JupyterMessage) error {
 				Expect(msg).ToNot(BeNil())
 				Expect(msg).To(Equal(jMsg))
 
-				// TODO: Create ExecutionManager and use that here.
-				activeExecution = client.NewExecution(kernelId, 1, 3, msg)
+				executionManager := mockedKernel.GetExecutionManager()
+				Expect(executionManager).ToNot(BeNil())
+
+				_, err := executionManager.RegisterExecution(msg)
 				wg.Done()
 
-				return activeExecution, nil
+				return err // Nil on success
 			}).Times(1)
 
 			fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
@@ -2172,14 +2174,14 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			shellHandlerWaitGroup.Wait()
 
-			yieldReason := &messaging.MessageErrorWithYieldReason{
-				MessageError: &messaging.MessageError{
-					Status:   messaging.MessageStatusError,
-					ErrName:  messaging.MessageErrYieldExecution,
-					ErrValue: messaging.ErrExecutionYielded.Error(),
-				},
-				YieldReason: "N/A",
-			}
+			//yieldReason := &messaging.MessageErrorWithYieldReason{
+			//	MessageError: &messaging.MessageError{
+			//		Status:   messaging.MessageStatusError,
+			//		ErrName:  messaging.MessageErrYieldExecution,
+			//		ErrValue: messaging.ErrExecutionYielded.Error(),
+			//	},
+			//	YieldReason: "N/A",
+			//}
 
 			preparedReplicaIdChan := make(chan int32, 1)
 
@@ -2225,7 +2227,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedKernelReplica1.EXPECT().ReceivedExecuteReply(execReply1).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica1, gomock.Any()).Times(1).Return(nil)
-			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica1, yieldReason, execReply1)
+			executionManager := mockedKernel.GetExecutionManager()
+			Expect(executionManager).ToNot(BeNil())
+
+			err = executionManager.HandleExecuteReplyMessage(execReply1, mockedKernelReplica1)
 			Expect(err).To(BeNil())
 
 			Expect(activeExecution.NumRolesReceived()).To(Equal(1))
@@ -2234,7 +2239,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedKernelReplica2.EXPECT().ReceivedExecuteReply(execReply2).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica2, gomock.Any()).Times(1).Return(nil)
-			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica2, yieldReason, execReply2)
+			err = executionManager.HandleExecuteReplyMessage(execReply2, mockedKernelReplica2)
 			Expect(err).To(BeNil())
 
 			Expect(activeExecution.NumRolesReceived()).To(Equal(2))
@@ -2249,7 +2254,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			handledLastYieldNotificationWaitGroup.Add(1)
 
 			go func(wg *sync.WaitGroup) {
-				err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica3, yieldReason, execReply3)
+				err = executionManager.HandleExecuteReplyMessage(execReply3, mockedKernelReplica3)
 				Expect(err).To(BeNil())
 
 				handledLastYieldNotificationWaitGroup.Done()
@@ -2989,7 +2994,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Memory: 2048,
 				}
 
-				kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec)
+				kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec, 3)
 				mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
 
 				mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
@@ -3356,7 +3361,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				for i := 0; i < numKernels; i++ {
 					kernelId := uuid.NewString()
 					kernelKey := uuid.NewString()
-					kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec)
+					kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec, 3)
 					mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
 
 					kernels[kernelId] = kernel
