@@ -792,7 +792,13 @@ func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targ
 		targetReplica.SendingExecuteRequest(jupyterMessage)
 
 		// Inform our ExecutionManager that we are sending an "execute_request" (or "yield_request") message.
-		c.ExecutionManager.SendingExecuteRequest(jupyterMessage)
+		err := c.ExecutionManager.SendingExecuteRequest(jupyterMessage)
+		if err != nil {
+			c.log.Error("ExecutionManager reported error for \"%s\" message \"%s\": %v",
+				jupyterMessage.JupyterMessageType(), jupyterMessage.JupyterMessageId(), err)
+
+			return err
+		}
 	}
 
 	// TODO: If the ACKs fail on this and we reconnect and retry, the responseReceivedWg.Done may be called too many times.
