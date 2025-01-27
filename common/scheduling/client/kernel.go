@@ -99,8 +99,6 @@ type KernelReplicaClient struct {
 	trainingFinishedCond             *sync.Cond                                         // Used to notify the goroutine responsible for sending "execute_requests" to the kernel that the kernel has finished training.
 	trainingFinishedMu               sync.Mutex                                         // Goes with the trainingFinishedCond field.
 
-	// isSomeReplicaTraining            bool             // isSomeReplicaTraining indicates whether any replica of the kernel associated with this client is actively training, even if it is not the specific replica associated with this client.
-
 	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback // Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
 
 	// If we successfully reconnect to a kernel and then fail to send the message again, then we call this.

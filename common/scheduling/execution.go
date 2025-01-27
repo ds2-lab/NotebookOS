@@ -30,6 +30,10 @@ type ExecutionManager interface {
 	GetActiveExecution(msgId string) Execution
 	NumActiveExecutionOperations() int
 	TotalNumExecutionOperations() int
+
+	// ExecutionIndexIsLarger returns true if the given executionIndex is larger than all 3 of the execution-index-related
+	// fields of the KernelReplicaClient, namely submittedExecutionIndex, activeExecutionIndex, and completedExecutionIndex.
+	ExecutionIndexIsLarger(executionIndex int32) bool
 }
 
 type Execution interface {
@@ -59,6 +63,9 @@ type Execution interface {
 	GetOriginallySentAtTime() time.Time
 	GetWorkloadId() string
 	GetExecuteRequestMessageId() string
+
+	// GetExecutionIndex returns the ExecutionIndex of the target Execution.
+	GetExecutionIndex() int32
 }
 type Proposal interface {
 	GetKey() ProposalKey

@@ -5718,17 +5718,17 @@ func (mr *MockKernelReplicaMockRecorder) KernelSpec() *gomock.Call {
 }
 
 // KernelStartedTraining mocks base method.
-func (m *MockKernelReplica) KernelStartedTraining() error {
+func (m *MockKernelReplica) KernelStartedTraining(executionIndex int32) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "KernelStartedTraining")
+	ret := m.ctrl.Call(m, "KernelStartedTraining", executionIndex)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // KernelStartedTraining indicates an expected call of KernelStartedTraining.
-func (mr *MockKernelReplicaMockRecorder) KernelStartedTraining() *gomock.Call {
+func (mr *MockKernelReplicaMockRecorder) KernelStartedTraining(executionIndex any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelStartedTraining", reflect.TypeOf((*MockKernelReplica)(nil).KernelStartedTraining))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelStartedTraining", reflect.TypeOf((*MockKernelReplica)(nil).KernelStartedTraining), executionIndex)
 }
 
 // KernelStoppedTraining mocks base method.
@@ -7590,6 +7590,20 @@ func (m *MockExecution) GetExecuteRequestMessageId() string {
 func (mr *MockExecutionMockRecorder) GetExecuteRequestMessageId() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExecuteRequestMessageId", reflect.TypeOf((*MockExecution)(nil).GetExecuteRequestMessageId))
+}
+
+// GetExecutionIndex mocks base method.
+func (m *MockExecution) GetExecutionIndex() int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExecutionIndex")
+	ret0, _ := ret[0].(int32)
+	return ret0
+}
+
+// GetExecutionIndex indicates an expected call of GetExecutionIndex.
+func (mr *MockExecutionMockRecorder) GetExecutionIndex() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExecutionIndex", reflect.TypeOf((*MockExecution)(nil).GetExecutionIndex))
 }
 
 // GetNumReplicas mocks base method.

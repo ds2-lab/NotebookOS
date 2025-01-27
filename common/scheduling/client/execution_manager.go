@@ -11,6 +11,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -38,35 +39,6 @@ type ExecutionManager struct {
 	log logger.Logger
 	mu  sync.Mutex
 
-	// ActiveExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
-	// the code submission with the aforementioned ID.
-	//
-	// ActiveExecutions contains only code submissions that have not yet completed.
-	// There should typically just be one entry in the ActiveExecutions map at a time,
-	// but because messages can be weirdly delayed and reordered, there may be multiple.
-	ActiveExecutions map[string]*Execution
-
-	// FinishedExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
-	// the code submission with the aforementioned ID.
-	//
-	// FinishedExecutions contains only Execution structs that represent code submissions
-	// that completed successfully, without error.
-	FinishedExecutions map[string]*Execution
-
-	// ErredExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
-	// the code submission with the aforementioned ID.
-	//
-	// ErredExecutions contains only Execution structs that represent code submissions
-	// that failed to complete successfully and were abandoned.
-	ErredExecutions map[string]*Execution
-
-	// AllExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
-	// the code submission with the aforementioned ID.
-	//
-	// AllExecutions contains an entry for every single Execution, regardless of
-	// the State of the Execution.
-	AllExecutions map[string]*Execution
-
 	// Kernel is the kernel associated with the ExecutionManager.
 	Kernel scheduling.Kernel
 
@@ -76,6 +48,97 @@ type ExecutionManager struct {
 	// LastPrimaryReplica is the KernelReplica that served as the primary replica for the previous
 	// code execution. It will be nil if no code executions have occurred.
 	LastPrimaryReplica scheduling.KernelReplica
+
+	// activeExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// activeExecutions contains only code submissions that have not yet completed.
+	// There should typically just be one entry in the activeExecutions map at a time,
+	// but because messages can be weirdly delayed and reordered, there may be multiple.
+	activeExecutions map[string]*Execution
+
+	// finishedExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// finishedExecutions contains only Execution structs that represent code submissions
+	// that completed successfully, without error.
+	finishedExecutions map[string]*Execution
+
+	// erredExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// erredExecutions contains only Execution structs that represent code submissions
+	// that failed to complete successfully and were abandoned.
+	erredExecutions map[string]*Execution
+
+	// allExecutions is a map from Jupyter "msg_id" to the Execution encapsulating
+	// the code submission with the aforementioned ID.
+	//
+	// allExecutions contains an entry for every single Execution, regardless of
+	// the State of the Execution.
+	allExecutions map[string]*Execution
+
+	// ExecutionIndices is a map from Execution ID (i.e., the "msg_id" of the associated "execute_request" [or
+	// "yield_request"] message) to the ExecutionIndex of that Execution.
+	//
+	// An Execution's ExecutionIndex uniquely identifies the Execution and enables a total ordering between
+	// all Execution structs.
+	executionIndices map[string]int32
+
+	// nextExecutionIndex is the index of the next "execute_request" to be submitted.
+	nextExecutionIndex atomic.Int32
+
+	// submittedExecutionIndex is used to decide if a KernelReplicaClient should actually transition into training upon
+	// receiving a "smr_lead_task" message, or if it should essentially just ignore the message.
+	//
+	// "smr_lead_task" messages are submitted as soon as training begins as an IOPub message by the kernel; however,
+	// it's possible for the "execute_reply" -- which is sent when training ends -- to be received BEFORE the
+	// "smr_lead_task", as they're sent on separate channels and thus their order is not guaranteed.
+	//
+	// If an "execute_reply" message is received before the kernel has started to train, then we just assume that we
+	// missed the "smr_lead_task" -- it could have been dropped or delayed, we don't know. If we later receive the
+	// (apparently delayed) "smr_lead_task" message, then we just ignore it.
+	//
+	// And we know to ignore it by comparing the execution indices.
+	//
+	// submittedExecutionIndex is specifically the execution index of the most up-to-date training for which we received
+	// the "smr_lead_task" message. By up to date, we mean that the training occurred most recently in terms of what
+	// the client is doing/submitting.
+	//
+	// completedExecutionIndex, a related field, is the execution index of the most up-to-date training for which
+	// we received an "execute_reply". By up to date, we mean that the training occurred most recently in terms of what
+	//	// the client is doing/submitting.
+	submittedExecutionIndex int32
+
+	// activeExecutionIndex works together with the activeExecutionIndex and completedExecutionIndex fields to achieve
+	// the goals outlined in the documentation of the submittedExecutionIndex field.
+	// See the submittedExecutionIndex field for more info.
+	//
+	// activeExecutionIndex is the execution index of the most up-to-date training for which we received an
+	// "smr_lead_task". By up to date, we mean that the training occurred most recently in terms of what the client is
+	// doing/submitting.
+	//
+	// completedExecutionIndex, a related field, is the execution index of the most up-to-date training for which
+	// we received an "execute_reply". By up to date, we mean that the training occurred most recently in terms of what
+	// the client is doing/submitting.
+	//
+	// submittedExecutionIndex, a related field, is specifically the execution index of the most up-to-date training for
+	// which we received the "smr_lead_task" message. By up to date, we mean that the training occurred most recently
+	// in terms of what the client is doing/submitting.
+	activeExecutionIndex int32
+
+	// completedExecutionIndex works together with the submittedExecutionIndex and activeExecutionIndex fields to
+	// achieve the goals outlined in the documentation of the submittedExecutionIndex field.
+	// See the submittedExecutionIndex field for more info.
+	//
+	// completedExecutionIndex is the execution index of the most up-to-date training for which we received an
+	// "execute_reply". By up to date, we mean that the training occurred most recently in terms of what the client is
+	// doing/submitting.
+	//
+	// submittedExecutionIndex, a related field, is specifically the execution index of the most up-to-date training for
+	// which we received the "smr_lead_task" message. By up to date, we mean that the training occurred most recently
+	// in terms of what the client is doing/submitting.
+	completedExecutionIndex int32
 
 	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
 	notificationCallback scheduling.NotificationCallback
@@ -106,12 +169,16 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCall
 	statsProvider scheduling.StatisticsProvider) *ExecutionManager {
 
 	manager := &ExecutionManager{
-		ActiveExecutions:         make(map[string]*Execution),
-		FinishedExecutions:       make(map[string]*Execution),
-		ErredExecutions:          make(map[string]*Execution),
-		AllExecutions:            make(map[string]*Execution),
+		activeExecutions:         make(map[string]*Execution),
+		finishedExecutions:       make(map[string]*Execution),
+		erredExecutions:          make(map[string]*Execution),
+		allExecutions:            make(map[string]*Execution),
+		executionIndices:         make(map[string]int32),
 		NumReplicas:              numReplicas,
 		Kernel:                   kernel,
+		submittedExecutionIndex:  -1,
+		activeExecutionIndex:     -1,
+		completedExecutionIndex:  -1,
 		executionFailedCallback:  execFailCallback,
 		notificationCallback:     notifyCallback,
 		executionLatencyCallback: latencyCallback,
@@ -121,6 +188,12 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCall
 	config.InitLogger(&manager.log, manager)
 
 	return manager
+}
+
+// ExecutionIndexIsLarger returns true if the given executionIndex is larger than all 3 of the execution-index-related
+// fields of the KernelReplicaClient, namely submittedExecutionIndex, activeExecutionIndex, and completedExecutionIndex.
+func (c *ExecutionManager) ExecutionIndexIsLarger(executionIndex int32) bool {
+	return executionIndex > c.submittedExecutionIndex && executionIndex > c.activeExecutionIndex && executionIndex > c.completedExecutionIndex
 }
 
 // RegisterExecution registers a newly-submitted "execute_request" with the ExecutionManager.
@@ -134,22 +207,26 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (sch
 	}
 
 	requestId := msg.JupyterMessageId()
-	if _, loaded := m.FinishedExecutions[requestId]; loaded {
+	if _, loaded := m.finishedExecutions[requestId]; loaded {
 		m.log.Error("Attempt made to re-register completed execution \"%s\"", requestId)
 		return nil, fmt.Errorf("%w: execution ID=\"%s\"", ErrDuplicateExecution, requestId)
 	}
 
-	existingExecution, loaded := m.ActiveExecutions[requestId]
+	existingExecution, loaded := m.activeExecutions[requestId]
 	if loaded {
 		nextExecutionAttempt := m.registerExecutionAttempt(msg, existingExecution)
 		return nextExecutionAttempt, nil
 	}
 
-	newExecution := NewExecution(m.Kernel.ID(), 1, m.NumReplicas, msg)
-	m.AllExecutions[requestId] = newExecution
-	m.ActiveExecutions[requestId] = newExecution
+	executionIndex := m.nextExecutionIndex.Add(1)
+	m.executionIndices[requestId] = executionIndex
 
-	m.log.Debug("Registered new execution \"%s\" for kernel \"%s\"", requestId, m.Kernel.ID())
+	newExecution := NewExecution(m.Kernel.ID(), 1, m.NumReplicas, executionIndex, msg)
+	m.allExecutions[requestId] = newExecution
+	m.activeExecutions[requestId] = newExecution
+
+	m.log.Debug("Registered new execution \"%s\" (idx=%d) for kernel \"%s\"",
+		requestId, executionIndex, m.Kernel.ID())
 
 	return newExecution, nil
 }
@@ -160,7 +237,8 @@ func (m *ExecutionManager) registerExecutionAttempt(msg *messaging.JupyterMessag
 	nextAttemptNumber := existingExecution.GetAttemptNumber() + 1
 
 	// Create the next execution attempt.
-	nextExecutionAttempt := NewExecution(m.Kernel.ID(), nextAttemptNumber, m.NumReplicas, msg)
+	nextExecutionAttempt := NewExecution(m.Kernel.ID(), nextAttemptNumber, m.NumReplicas,
+		existingExecution.GetExecutionIndex(), msg)
 
 	m.log.Debug("Registering new attempt (%d) for execution \"%s\"", nextAttemptNumber, requestId)
 
@@ -170,7 +248,7 @@ func (m *ExecutionManager) registerExecutionAttempt(msg *messaging.JupyterMessag
 
 	// Replace the entry in the mapping with the next attempt.
 	// We can still access the previous attempt by following the "previous attempt" link.
-	m.ActiveExecutions[requestId] = nextExecutionAttempt
+	m.activeExecutions[requestId] = nextExecutionAttempt
 
 	// Return the next execution attempt.
 	return nextExecutionAttempt
@@ -202,12 +280,12 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 	defer m.mu.Unlock()
 
 	// Find the associated Execution struct.
-	activeExecution, loaded := m.ActiveExecutions[targetExecuteRequestId]
+	activeExecution, loaded := m.activeExecutions[targetExecuteRequestId]
 	if !loaded {
 		m.log.Warn("Could not find active Execution with ID \"%s\"...", targetExecuteRequestId)
 
 		// Check the other executions in case we received the 'YIELD' message after the response from the leader.
-		activeExecution, loaded = m.AllExecutions[targetExecuteRequestId]
+		activeExecution, loaded = m.allExecutions[targetExecuteRequestId]
 		if loaded {
 			m.log.Warn("Instead, found %s Execution with ID \"%s\"...",
 				activeExecution.State.String(), targetExecuteRequestId)
@@ -312,21 +390,26 @@ func (m *ExecutionManager) HandleSmrLeadTaskMessage(msg *messaging.JupyterMessag
 			executeRequestMsgId, m.Kernel.ID())
 	}
 
+	return m.handleSmrLeadTaskMessage(activeExecution, kernelReplica)
+}
+
+// handleSmrLeadTaskMessage is the critical section of HandleSmrLeadTaskMessage.
+func (m *ExecutionManager) handleSmrLeadTaskMessage(execution scheduling.Execution, replica scheduling.KernelReplica,
+	leadMessage *messaging.MessageSMRLeadTask) error {
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	activeExecution.SetActiveReplica(kernelReplica)
-	m.LastPrimaryReplica = kernelReplica
+	execution.SetActiveReplica(replica)
+	m.LastPrimaryReplica = replica
 
 	// We pass (as the second argument) the time at which the kernel replica began executing the code.
-	m.processExecutionStartLatency(activeExecution, time.UnixMilli(leadMessage.UnixMilliseconds))
+	m.processExecutionStartLatency(execution, time.UnixMilli(leadMessage.UnixMilliseconds))
 
 	// Record that the kernel has started training.
-	// TODO: What if there is a delay such that this message is received AFTER
-	// 		 the associated "execute_reply"? That could break things...
-	if err = kernelReplica.KernelStartedTraining(); err != nil {
+	if err := replica.KernelStartedTraining(execution.GetExecutionIndex()); err != nil {
 		m.log.Error("Failed to start training for kernel replica %s-%d: %v", m.Kernel.ID(),
-			kernelReplica.ReplicaID(), err)
+			replica.ReplicaID(), err)
 
 		if m.notificationCallback != nil {
 			go m.notificationCallback(fmt.Sprintf("Failed to Start Training for Kernel \"%s\"",
@@ -337,7 +420,7 @@ func (m *ExecutionManager) HandleSmrLeadTaskMessage(msg *messaging.JupyterMessag
 	}
 
 	m.log.Debug("Session \"%s\" has successfully started training on replica %m.",
-		m.Kernel.ID(), kernelReplica.ReplicaID())
+		m.Kernel.ID(), replica.ReplicaID())
 
 	return nil
 }
@@ -481,17 +564,17 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	requestId := msg.JupyterParentMessageId()
 
 	// Attempt to load the execution from the "active" map.
-	activeExecution, loaded := m.ActiveExecutions[requestId]
+	activeExecution, loaded := m.activeExecutions[requestId]
 	if !loaded {
 		return nil, fmt.Errorf("%w: \"%s\"", ErrUnknownActiveExecution, requestId)
 	}
 
 	if activeExecution.HasValidOriginalSentTimestamp() {
 		latency := time.Since(activeExecution.OriginallySentAt)
-		m.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %m. Total time elapsed since submission: %v.",
+		m.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d. Total time elapsed since submission: %v.",
 			activeExecution.GetExecuteRequestMessageId(), m.Kernel.ID(), msg.ReplicaId, latency)
 	} else {
-		m.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %m.",
+		m.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %d.",
 			activeExecution.GetExecuteRequestMessageId(), m.Kernel.ID(), msg.ReplicaId)
 	}
 
@@ -506,10 +589,10 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	activeExecution.State = Completed
 
 	// Remove the execution from the "active" map.
-	delete(m.ActiveExecutions, requestId)
+	delete(m.activeExecutions, requestId)
 
 	// Store the execution in the "finished" map.
-	m.FinishedExecutions[requestId] = activeExecution
+	m.finishedExecutions[requestId] = activeExecution
 
 	if m.statisticsProvider != nil && m.statisticsProvider.PrometheusMetricsEnabled() {
 		m.statisticsProvider.IncrementNumTrainingEventsCompletedCounterVec()
@@ -554,7 +637,7 @@ func (m *ExecutionManager) GetActiveExecution(msgId string) scheduling.Execution
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.AllExecutions[msgId]
+	return m.allExecutions[msgId]
 }
 
 // getActiveExecution returns a pointer to the Execution struct identified by the given message ID,
@@ -562,7 +645,7 @@ func (m *ExecutionManager) GetActiveExecution(msgId string) scheduling.Execution
 //
 // getActiveExecution is NOT thread-safe. The thread-safe version is GetActiveExecution.
 func (m *ExecutionManager) getActiveExecution(msgId string) scheduling.Execution {
-	return m.AllExecutions[msgId]
+	return m.allExecutions[msgId]
 }
 
 // NumActiveExecutionOperations returns the number of active Execution structs registered with the ExecutionManager.
@@ -572,7 +655,7 @@ func (m *ExecutionManager) NumActiveExecutionOperations() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return len(m.ActiveExecutions)
+	return len(m.activeExecutions)
 }
 
 // TotalNumExecutionOperations returns the total number of Execution structs registered with the ExecutionManager.
@@ -582,7 +665,7 @@ func (m *ExecutionManager) TotalNumExecutionOperations() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return len(m.AllExecutions)
+	return len(m.allExecutions)
 }
 
 // decodeLeadMessageContent decodes the content frame of the given *messaging.JupyterMessage into a

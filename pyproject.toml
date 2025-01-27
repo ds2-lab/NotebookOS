@@ -23,6 +23,7 @@ dependencies = [
     "pybindgen>=0.22.1",
     "ansible",
     "ansible_runner",
+    "torch",
     "typing_extensions",
     "debugpy",
     "aiohttp>=3.11.11",

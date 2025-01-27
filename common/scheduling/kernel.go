@@ -170,7 +170,7 @@ type KernelReplica interface {
 	SetContainer(container KernelContainer)
 	IsTraining() bool
 	WaitForTrainingToStop()
-	KernelStartedTraining() error
+	KernelStartedTraining(executionIndex int32) error
 	WaitForPendingExecuteRequests()
 	SetLastTrainingTimePrometheusUpdate()
 	LastTrainingTimePrometheusUpdate() time.Time

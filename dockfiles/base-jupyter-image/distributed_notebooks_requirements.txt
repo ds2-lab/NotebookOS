@@ -21,6 +21,7 @@ numpy
 redis
 boto3
 omegaconf
+torch
 torchmetrics
 python-Levenshtein
 wget

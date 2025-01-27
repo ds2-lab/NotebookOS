@@ -20,31 +20,34 @@ import (
 // Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
 // Alternatively, under 'dynamic' scheduling, we migrate existing replicas to another node to handle the request.
 type Execution struct {
-	// The Jupyter message ID of the associated Jupyter "execute_request" ZMQ message.
+	// ExecuteRequestMessageId is the  Jupyter message ID of the associated Jupyter "execute_request" ZMQ message.
 	ExecuteRequestMessageId string
 
-	// Beginning at 1, identifies the "attempt number", in case we have to retry due to timeouts.
+	// ExecutionIndex uniquely identifies this Execution and enables a total ordering between all Execution structs.
+	ExecutionIndex int32
+
+	// AttemptNumber begins at 1, identifies the "attempt number", in case we have to retry due to timeouts.
 	AttemptNumber int
 
-	// The ID of the Jupyter session that initiated the request.
+	// SessionId is the ID of the Jupyter session that initiated the request.
 	SessionId string
 
-	// ID of the associated kernel.
+	// KernelId is the ID of the associated kernel.
 	KernelId string
 
-	// The time at which this Execution was created.
+	// CreatedAt is the time at which this Execution was created.
 	CreatedAt time.Time
 
-	// The number of replicas that the kernel had with the execution request was originally received.
+	// NumReplicas is the number of replicas that the kernel had with the execution request was originally received.
 	NumReplicas int
 
-	// Number of 'LEAD' Proposals issued.
+	// NumLeadProposals is the number of 'LEAD' Proposals issued.
 	NumLeadProposals int
 
-	// Number of 'YIELD' Proposals issued.
+	// NumYieldProposals is the number of 'YIELD' Proposals issued.
 	NumYieldProposals int
 
-	// Map from replica ID to what it proposed ('YIELD' or 'LEAD')
+	// Proposals is a map from replica ID to what it proposed ('YIELD' or 'LEAD')
 	Proposals map[int32]scheduling.Proposal
 
 	// NextAttempt is the Execution attempt that occurred after this one.
@@ -69,7 +72,7 @@ type Execution struct {
 	OriginallySentAt        time.Time
 	originallySentAtDecoded bool
 
-	// activeReplica is the Kernel connected to the replica of the kernel that is actually
+	// ActiveReplica is the Kernel connected to the replica of the kernel that is actually
 	// executing the user-submitted code.
 	ActiveReplica scheduling.KernelReplica
 
@@ -81,7 +84,7 @@ type Execution struct {
 	State State
 }
 
-func NewExecution(kernelId string, attemptId int, numReplicas int, msg *messaging.JupyterMessage) *Execution {
+func NewExecution(kernelId string, attemptId int, numReplicas int, executionIndex int32, msg *messaging.JupyterMessage) *Execution {
 	activeExecution := &Execution{
 		SessionId:               msg.JupyterSession(),
 		AttemptNumber:           attemptId,
@@ -96,6 +99,7 @@ func NewExecution(kernelId string, attemptId int, numReplicas int, msg *messagin
 		originallySentAtDecoded: false,
 		CreatedAt:               time.Now(),
 		State:                   Pending,
+		ExecutionIndex:          executionIndex,
 	}
 
 	var metadataDict map[string]interface{}
@@ -136,6 +140,11 @@ func NewExecution(kernelId string, attemptId int, numReplicas int, msg *messagin
 	}
 
 	return activeExecution
+}
+
+// GetExecutionIndex returns the ExecutionIndex of the target Execution.
+func (e *Execution) GetExecutionIndex() int32 {
+	return e.ExecutionIndex
 }
 
 func (e *Execution) LinkPreviousAttempt(previousAttempt scheduling.Execution) {
