@@ -94,8 +94,14 @@ func (s *ExecuteRequestForwarder[MessageType]) EnqueueRequest(msg MessageType, k
 	mutex, loaded := s.outgoingExecuteRequestQueueMutexes.Load(kernel.ID())
 	if !loaded {
 		errorMessage := fmt.Sprintf("Could not find \"execute_request\" queue mutex for kernel \"%s\"", kernel.ID())
-		s.notificationCallback(
-			"Could Not Find \"execute_request\" Queue Mutex", errorMessage, messaging.ErrorNotification)
+
+		if s.notificationCallback != nil {
+			s.notificationCallback(
+				"Could Not Find \"execute_request\" Queue Mutex", errorMessage, messaging.ErrorNotification)
+		}
+
+		s.log.Error(errorMessage)
+
 		return nil
 	}
 
@@ -182,15 +188,23 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 		errorMessage := fmt.Sprintf("Found enqueued message with mismatched kernel ID. "+
 			"Enqueued message kernel ID: \"%s\". Expected kernel ID: \"%s\"", message.Kernel.ID(), kernel.ID())
 
-		s.notificationCallback("Enqueued Message with Mismatched Kernel ID", errorMessage, messaging.ErrorNotification)
+		if s.notificationCallback != nil {
+			s.notificationCallback("Enqueued Message with Mismatched Kernel ID", errorMessage, messaging.ErrorNotification)
+		}
 
-		return // We'll panic before this line is executed.
+		s.log.Error(errorMessage)
+
+		return // We'll panic before this line is executed in the local daemon.
 	}
 
 	s.log.Debug("Dequeued message %s (JupyterID=%s) targeting kernel %s.", message.Kernel.ID())
 
 	// Process the message.
-	processedMessage := s.processCallback(message.Msg, message.Kernel) // , header, offset)
+	processedMessage := message.Msg
+	if s.processCallback != nil {
+		processedMessage = s.processCallback(processedMessage, message.Kernel)
+	}
+
 	s.log.Debug("Forwarding shell message to kernel %s: %s", message.Kernel.ID(), processedMessage)
 
 	// Sanity check.

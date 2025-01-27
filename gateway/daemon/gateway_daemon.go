@@ -1934,6 +1934,16 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		panic(errorMessage)
 	}
 
+	d.registerKernelWithExecReqForwarder(kernel)
+
+	d.newKernelCreated(startTime, kernel.ID())
+
+	d.log.Info("Returning from ClusterGatewayImpl::StartKernel for kernel %s after %v.", kernel.ID(), time.Since(startTime))
+
+	return info, nil
+}
+
+func (d *ClusterGatewayImpl) registerKernelWithExecReqForwarder(kernel scheduling.Kernel) {
 	// Create a wrapper around the kernel's RequestWithHandlerAndReplicas method.
 	forwarder := func(ctx context.Context, op string, typ messaging.MessageType, jupyterMessages []*messaging.JupyterMessage,
 		handler scheduling.KernelReplicaMessageHandler, done func()) error {
@@ -1941,12 +1951,6 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	}
 
 	d.executeRequestForwarder.RegisterKernel(kernel, forwarder, d.kernelReplicaResponseForwarder)
-
-	d.newKernelCreated(startTime, kernel.ID())
-
-	d.log.Info("Returning from ClusterGatewayImpl::StartKernel for kernel %s after %v.", kernel.ID(), time.Since(startTime))
-
-	return info, nil
 }
 
 // newKernelCreated is to be called from StartKernel if and when the procedure succeeds.

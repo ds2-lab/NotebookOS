@@ -542,6 +542,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				RequestLog:        metrics.NewRequestLog(),
 				ClusterStatistics: metrics.NewClusterStatistics(),
 			}
+			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
 			clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.updateClusterStatistics,
 				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost)
 			config.InitLogger(&clusterGateway.log, clusterGateway)
@@ -852,8 +853,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			jupyterMessagesChan := make(chan []*messaging.JupyterMessage)
 
 			kernel.EXPECT().RequestWithHandlerAndReplicas(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-				gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, typ messaging.MessageType,
+				gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(ctx context.Context, op string, typ messaging.MessageType,
 				jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
+				fmt.Printf("RequestWithHandlerAndReplicas called with JupyterMessages:\n%v\n", jupyterMessages)
 
 				jupyterMessagesChan <- jupyterMessages
 
@@ -861,6 +863,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			})
 
 			kernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
+
+			clusterGateway.registerKernelWithExecReqForwarder(kernel)
+			kernel.EXPECT().IsTraining().AnyTimes().Return(false)
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			go func() {
@@ -1052,6 +1057,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				cluster:    cluster,
 				RequestLog: metrics.NewRequestLog(),
 			}
+			clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](nil, nil)
 			clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.updateClusterStatistics,
 				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost)
 			config.InitLogger(&clusterGateway.log, clusterGateway)
