@@ -179,52 +179,6 @@ func addHost(idx int, clusterGateway *ClusterGatewayImpl, mockCtrl *gomock.Contr
 	return host, localGatewayClient, resourceSpoofer, err
 }
 
-// initMockedKernelForCreation creates and returns a new MockAbstractDistributedKernelClient that is
-// set up for use in a unit test that involves creating a new kernel.
-func initMockedKernelForCreation(mockCtrl *gomock.Controller, kernelId string, kernelKey string, resourceSpec *proto.ResourceSpec, numReplicas int) (*mock_scheduling.MockKernel, *proto.KernelSpec) {
-	persistentId := uuid.NewString()
-
-	kernelSpec := &proto.KernelSpec{
-		Id:              kernelId,
-		Session:         kernelId,
-		Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-		SignatureScheme: messaging.JupyterSignatureScheme,
-		Key:             kernelKey,
-		ResourceSpec:    resourceSpec,
-	}
-
-	kernel := mock_scheduling.NewMockKernel(mockCtrl)
-	var currentSize atomic.Int32
-	var sessionId string
-
-	kernel.EXPECT().InitializeShellForwarder(gomock.Any()).Times(1)
-	kernel.EXPECT().InitializeIOForwarder().Times(1)
-	kernel.EXPECT().ID().Return(kernelId).AnyTimes()
-	kernel.EXPECT().SetSession(gomock.Any()).MaxTimes(1).DoAndReturn(func(session scheduling.UserSession) {
-		sessionId = session.ID()
-	})
-	kernel.EXPECT().AddReplica(gomock.Any(), gomock.Any()).Times(3).DoAndReturn(func(r scheduling.KernelReplica, host scheduling.Host) error {
-		currentSize.Add(1)
-
-		return nil
-	})
-	kernel.EXPECT().PersistentID().AnyTimes().Return(persistentId)
-	kernel.EXPECT().NumActiveMigrationOperations().Times(3).Return(0)
-	kernel.EXPECT().Size().AnyTimes().DoAndReturn(func() int {
-		return int(currentSize.Load())
-	})
-	kernel.EXPECT().Sessions().MaxTimes(1).Return([]string{sessionId})
-	kernel.EXPECT().GetSocketPort(messaging.ShellMessage).MaxTimes(1).Return(9001)
-	kernel.EXPECT().GetSocketPort(messaging.IOMessage).MaxTimes(2).Return(9004)
-	kernel.EXPECT().KernelSpec().MaxTimes(2).Return(kernelSpec)
-	kernel.EXPECT().String().AnyTimes().Return("SPOOFED KERNEL " + kernelId + " STRING")
-
-	executionManager := client.NewExecutionManager(kernel, numReplicas, nil, nil, nil, nil)
-	kernel.EXPECT().GetExecutionManager().AnyTimes().Return(executionManager)
-
-	return kernel, kernelSpec
-}
-
 // prepareMockedGatewayForStartKernel prepares the given *mock_proto.MockLocalGatewayClient to have its StartKernelReplica
 // method called during the creation of a new kernel.
 func prepareMockedGatewayForStartKernel(localGatewayClient *mock_proto.MockLocalGatewayClient, idx int, resourceSpoofer *distNbTesting.ResourceSpoofer, resourceSpec *proto.ResourceSpec, startKernelReturnValChan chan *proto.KernelConnectionInfo, startKernelReplicaCalled *sync.WaitGroup, numKernels int) {
@@ -275,6 +229,59 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			VRam:      decimal.NewFromFloat(40),
 		}
 	)
+
+	// initMockedKernelForCreation creates and returns a new MockAbstractDistributedKernelClient that is
+	// set up for use in a unit test that involves creating a new kernel.
+	initMockedKernelForCreation := func(mockCtrl *gomock.Controller, kernelId string, kernelKey string, resourceSpec *proto.ResourceSpec, numReplicas int) (*mock_scheduling.MockKernel, *proto.KernelSpec) {
+		persistentId := uuid.NewString()
+
+		kernelSpec := &proto.KernelSpec{
+			Id:              kernelId,
+			Session:         kernelId,
+			Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+			SignatureScheme: messaging.JupyterSignatureScheme,
+			Key:             kernelKey,
+			ResourceSpec:    resourceSpec,
+		}
+
+		kernel := mock_scheduling.NewMockKernel(mockCtrl)
+		var currentSize atomic.Int32
+		var sessionId string
+
+		kernel.EXPECT().InitializeShellForwarder(gomock.Any()).Times(1)
+		kernel.EXPECT().InitializeIOForwarder().Times(1)
+		kernel.EXPECT().ID().Return(kernelId).AnyTimes()
+
+		kernel.EXPECT().SetSession(gomock.Any()).MaxTimes(1).DoAndReturn(func(session scheduling.UserSession) {
+			sessionId = session.ID()
+		})
+
+		kernel.EXPECT().AddReplica(gomock.Any(), gomock.Any()).
+			Times(3).
+			DoAndReturn(func(r scheduling.KernelReplica, h scheduling.Host) error {
+				currentSize.Add(1)
+
+				return nil
+			})
+
+		kernel.EXPECT().PersistentID().AnyTimes().Return(persistentId)
+		kernel.EXPECT().NumActiveMigrationOperations().Times(3).Return(0)
+		kernel.EXPECT().Size().AnyTimes().DoAndReturn(func() int {
+			return int(currentSize.Load())
+		})
+		
+		kernel.EXPECT().Sessions().MaxTimes(1).Return([]string{sessionId})
+		kernel.EXPECT().GetSocketPort(messaging.ShellMessage).MaxTimes(1).Return(9001)
+		kernel.EXPECT().GetSocketPort(messaging.IOMessage).MaxTimes(2).Return(9004)
+		kernel.EXPECT().KernelSpec().MaxTimes(2).Return(kernelSpec)
+		kernel.EXPECT().String().AnyTimes().Return("SPOOFED KERNEL " + kernelId + " STRING")
+
+		executionManager := client.NewExecutionManager(kernel, numReplicas, clusterGateway.executionFailed,
+			nil, nil, nil)
+		kernel.EXPECT().GetExecutionManager().AnyTimes().Return(executionManager)
+
+		return kernel, kernelSpec
+	}
 
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
@@ -2119,11 +2126,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			wg.Wait()
 			Expect(activeExecution).ToNot(BeNil())
 			Expect(activeExecution.GetExecuteRequestMessageId()).To(Equal(jupyterExecuteRequestId))
-
-			//firstGetActiveExecutionCalls := mockedKernel.EXPECT().
-			//	GetActiveExecution("c7074e5b-b90f-44f8-af5d-63201ec3a528").
-			//	Times(1).
-			//	Return(activeExecution)
 
 			getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
 				unsignedExecuteReplyFrames := [][]byte{
