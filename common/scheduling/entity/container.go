@@ -250,7 +250,7 @@ func (c *Container) ScaleOutPriority() float64 {
 }
 
 // TrainingStartedInContainer should be called when the Container begins training.
-func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/) error {
+func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
 	err := c.host.ContainerStartedTraining(c)
 	if err != nil {
 		return err
@@ -271,8 +271,8 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 		return err
 	}
 
-	c.log.Debug("Container for replica %d of kernel \"%s\" has successfully started training. ResourceSpec: %v.",
-		c.replicaId, c.id, c.ResourceSpec().String())
+	c.log.Debug("Container for replica %d of kernel \"%s\" has successfully started training on host %s (ID=%s). ResourceSpec: %v. Host resources: %v.",
+		c.replicaId, c.id, c.host.GetNodeName(), c.host.GetID(), c.ResourceSpec().String(), c.host.GetResourceCountsAsString())
 
 	return nil
 }
@@ -280,13 +280,14 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 // ContainerStoppedTraining should be called when the Container stops training.
 //
 // This should be called by the Session's SessionStoppedTraining method.
-func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/) error {
+func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]*/ ) error {
 	if err := c.transition(scheduling.ContainerStateIdle); err != nil {
 		c.log.Error("Failed to transition Container to state %v because: %v", scheduling.ContainerStateIdle, err)
 		return err
 	}
 
-	c.log.Debug("Training stopping after %v. Outputting Resources before training officially stops. ResourceSpec of %s: %s", time.Since(c.trainingStartedAt), c.ContainerID(), c.spec.String())
+	c.log.Debug("Training stopping on host %s (ID=%s) after %v. Outputting Resources before training officially stops. ResourceSpec of %s: %s",
+		c.host.GetNodeName(), c.host.GetID(), time.Since(c.trainingStartedAt), c.ContainerID(), c.spec.String())
 	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
 	c.log.Debug("Idle CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",

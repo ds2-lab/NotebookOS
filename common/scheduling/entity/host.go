@@ -102,6 +102,13 @@ type containerWithPreCommittedResources struct {
 	ExecutionId string
 }
 
+type containerWithCommittedResources struct {
+	KernelId           string
+	ReplicaId          int32
+	ResourcesCommitted types.Spec
+	CommittedAt        time.Time
+}
+
 type Host struct {
 	proto.LocalGatewayClient
 
@@ -135,7 +142,7 @@ type Host struct {
 	numReplicasPerKernel           int                                                 // The number of replicas per kernel.
 	numReplicasPerKernelDecimal    decimal.Decimal                                     // numReplicasPerKernelDecimal is a cached decimal.Decimal of numReplicasPerKernel.
 	schedulingPolicy               scheduling.Policy                                   // schedulingPolicy is the scheduling policy configured for the cluster.
-	kernelsWithCommittedResources  map[string]int32                                    // Map from Kernel ID to int32. Values are replica IDs who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID). In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
+	kernelsWithCommittedResources  map[string]*containerWithCommittedResources         // Map from Kernel ID to int32. Values are replica IDs who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID). In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
 
 	// containersWithPreCommittedResources keeps track of kernels for which resources were specifically pre-commited
 	// along with the IDs of the associated "execute_request" messages. Keys are container IDs.
@@ -291,7 +298,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		schedulingPolicy:                    schedulingPolicy,
 		CreatedAt:                           time.Now(),
 		SubscriptionQuerier:                 querier,
-		kernelsWithCommittedResources:       make(map[string]int32),
+		kernelsWithCommittedResources:       make(map[string]*containerWithCommittedResources),
 		containersWithPreCommittedResources: make(map[string]*containerWithPreCommittedResources),
 		indexUpdater:                        indexUpdater,
 		ProperlyInitialized:                 true,
@@ -1150,9 +1157,10 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	// committed to the container, and so we don't have to do anything else and can just return nil,
 	// as we do below.
 	if h.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
-		if _, loaded := h.kernelsWithCommittedResources[container.KernelID()]; loaded {
-			h.log.Debug("Resources are already committed to replica %d of kernel \"%s\" upon training start. Must have been migrated recently.",
-				container.ReplicaId(), container.KernelID())
+		existingContainer, loaded := h.kernelsWithCommittedResources[container.KernelID()]
+		if loaded {
+			h.log.Debug("Resources were already committed to replica %d of kernel \"%s\" upon training start %v ago. Must have been migrated recently. Resources committed: %v.",
+				container.ReplicaId(), container.KernelID(), time.Since(existingContainer.CommittedAt), existingContainer.ResourcesCommitted)
 
 			return nil
 		}
@@ -1372,7 +1380,7 @@ func (h *Host) unsafeReleasePreCommitedResources(container scheduling.KernelCont
 	// Let's check if the execution ID matches.
 	// If not, we'll assume that we already released it and just return.
 	if containerWithPreCommittedRes.ExecutionId != executionId {
-		h.log.Warn("Resources are pre-committed to replica %dof kernel \"%s\" for execution \"%s\", not execution \"%s\"",
+		h.log.Warn("Resources are pre-committed to replica %d of kernel \"%s\" for execution \"%s\", not execution \"%s\"",
 			container.ReplicaId(), container.KernelID(), containerWithPreCommittedRes.ExecutionId, executionId)
 
 		return nil
@@ -1394,10 +1402,11 @@ func (h *Host) unsafeReleasePreCommitedResources(container scheduling.KernelCont
 }
 
 func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, replicaId int32, decrementPending bool) error {
-	if existingReplicaId, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
+	if existingContainerWithCommittedResource, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
 		h.log.Error("Attempting to commit resources [%s] to replica %d of kernel %s, but we've already committed resources to replica %d of kernel %s.",
-			spec.String(), replicaId, kernelId, existingReplicaId, kernelId)
-		return fmt.Errorf("%w (replica %d of kernel \"%s\")", ErrResourcesAlreadyCommitted, existingReplicaId, kernelId)
+			spec.String(), replicaId, kernelId, existingContainerWithCommittedResource.ReplicaId, kernelId)
+		return fmt.Errorf("%w (replica %d of kernel \"%s\")",
+			ErrResourcesAlreadyCommitted, existingContainerWithCommittedResource.ReplicaId, kernelId)
 	}
 
 	err := h.resourceManager.RunTransaction(func(state *transaction.State) {
@@ -1423,7 +1432,12 @@ func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, r
 		// Ignore error for now...
 	}
 
-	h.kernelsWithCommittedResources[kernelId] = replicaId
+	h.kernelsWithCommittedResources[kernelId] = &containerWithCommittedResources{
+		KernelId:           kernelId,
+		ReplicaId:          replicaId,
+		ResourcesCommitted: spec,
+		CommittedAt:        time.Now(),
+	}
 	return nil
 }
 
@@ -1586,8 +1600,9 @@ func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spe
 	succeeded := coordinatedTransaction.Wait()
 	if succeeded {
 		h.RecomputeSubscribedRatio()
-		h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
-			container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
+		h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s. Updated resource counts: %v.",
+			container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3),
+			h.subscribedRatio.StringFixed(3), h.GetResourceCountsAsString())
 		return nil
 	}
 

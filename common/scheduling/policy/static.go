@@ -128,7 +128,7 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 		if allocationError == nil {
 			p.log.Debug(
 				utils.LightGreenStyle.Render(
-					"Resource pre-commitment %s. Previous primary replica %d of kernel %s will lead new execution \"%s\"."),
+					"Resource pre-commitment succeeded. Previous primary replica %d of kernel %s will lead new execution \"%s\"."),
 				lastPrimaryReplica.ReplicaID(), kernel.ID(), executionId)
 
 			return lastPrimaryReplica, nil // Migration is permitted, so we never return an error.

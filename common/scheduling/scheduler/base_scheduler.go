@@ -391,13 +391,9 @@ func (s *BaseScheduler) FindReadyContainer(session scheduling.UserSession) sched
 func (s *BaseScheduler) UpdateIndex(host scheduling.Host) error {
 	heap.Fix(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
 
-	err := s.UpdateIndex(host)
-	if err != nil {
-		s.log.Error("Error while attempting to update index of host %s (ID=%s): %v",
-			host.GetNodeName(), host.GetID(), err)
-	}
+	s.placer.UpdateIndex(host)
 
-	return err // Will be nil on success
+	return nil
 }
 
 // GetCandidateHosts returns a slice of scheduling.Host containing Host instances that could serve

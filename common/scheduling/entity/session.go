@@ -341,7 +341,8 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 //
 // DistributedKernelClient::handleSmrLeadTaskMessage --> Kernel::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
 func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) promise.Promise {
-	s.log.Debug("Training starting. Current state: %s.", s.GetState().String())
+	s.log.Debug("Training starting in replica %d on host %s (ID=%s). Current state: %s.",
+		container.ReplicaId(), container.Host().GetNodeName(), container.Host().GetID(), s.GetState().String())
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
