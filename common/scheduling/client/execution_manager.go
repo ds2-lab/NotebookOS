@@ -225,7 +225,7 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 
 	// It's possible we received a 'YIELD' proposal for an Execution different from the current one.
 	// So, retrieve the Execution associated with the 'YIELD' proposal (using the "execute_request" message IDs).
-	associatedActiveExecution := m.GetActiveExecution(targetExecuteRequestId)
+	associatedActiveExecution := m.getActiveExecution(targetExecuteRequestId)
 
 	// If we couldn't find the associated active execution at all, then we should return an error, as that is bad.
 	if associatedActiveExecution == nil {
@@ -548,10 +548,20 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 
 // GetActiveExecution returns a pointer to the Execution struct identified by the given message ID,
 // or nil if no such Execution exists.
+//
+// GetActiveExecution is thread-safe.
 func (m *ExecutionManager) GetActiveExecution(msgId string) scheduling.Execution {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	return m.AllExecutions[msgId]
+}
+
+// getActiveExecution returns a pointer to the Execution struct identified by the given message ID,
+// or nil if no such Execution exists.
+//
+// getActiveExecution is NOT thread-safe. The thread-safe version is GetActiveExecution.
+func (m *ExecutionManager) getActiveExecution(msgId string) scheduling.Execution {
 	return m.AllExecutions[msgId]
 }
 
