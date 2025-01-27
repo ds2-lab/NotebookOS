@@ -33,7 +33,7 @@ const (
 	signatureScheme string = "hmac-sha256"
 )
 
-func processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon *SchedulerDaemonImpl, messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica, updatedResourceSpec *types.Float64Spec) *messaging.JupyterMessage {
+func processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon *LocalDaemonImpl, messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica, updatedResourceSpec *types.Float64Spec) *messaging.JupyterMessage {
 	metadata := map[string]interface{}{
 		"resource_request": updatedResourceSpec,
 	}
@@ -44,7 +44,7 @@ func processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon *SchedulerDaem
 	return processedMessage
 }
 
-func processExecuteRequest(schedulerDaemon *SchedulerDaemonImpl, messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica) *messaging.JupyterMessage {
+func processExecuteRequest(schedulerDaemon *LocalDaemonImpl, messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica) *messaging.JupyterMessage {
 	jMsg := test_utils.CreateJupyterMessage(messageType, kernelReplica.ID(), kernelReplica.ConnectionInfo().Key)
 	processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernelReplica) // , header, offset)
 
@@ -72,7 +72,7 @@ func createKernelReplica(mockController *gomock.Controller, kernelId string, ker
 
 var _ = Describe("Local Daemon Tests", func() {
 	var (
-		schedulerDaemon  *SchedulerDaemonImpl
+		schedulerDaemon  *LocalDaemonImpl
 		vgpuPluginServer device.VirtualGpuPluginServer
 		mockCtrl         *gomock.Controller
 		kernel1Replica1  *mock_scheduling.MockKernelReplica
@@ -169,7 +169,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		Expect(err).To(BeNil())
 		Expect(schedulingPolicy).ToNot(BeNil())
 
-		schedulerDaemon = &SchedulerDaemonImpl{
+		schedulerDaemon = &LocalDaemonImpl{
 			transport:                          "tcp",
 			kernels:                            hashmap.NewCornelkMap[string, scheduling.KernelReplica](1000),
 			closed:                             make(chan struct{}),

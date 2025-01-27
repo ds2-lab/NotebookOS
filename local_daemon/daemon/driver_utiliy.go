@@ -217,7 +217,7 @@ func getNameAndIdOfDockerContainer() (string, string, error) {
 	return containerName, containerId, nil
 }
 
-func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, done *sync.WaitGroup, finalize LocalDaemonFinalizer, sig chan os.Signal) (*SchedulerDaemonImpl, func()) {
+func CreateAndStartLocalDaemonComponents(options *domain.LocalDaemonOptions, done *sync.WaitGroup, finalize LocalDaemonFinalizer, sig chan os.Signal) (*LocalDaemonImpl, func()) {
 	var nodeName, dockerContainerId string
 	if options.IsLocalMode() {
 		nodeName = options.NodeName
