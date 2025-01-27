@@ -741,8 +741,9 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 		}
 
 		if demandGpus < busyGPUs {
-			s.log.Error("Demand GPUs (%.0f) are somehow lower than busy GPUs (%.0f)...", demandGpus, busyGPUs)
-			s.log.Error("There are %d sessions, of which %d are idle and %d are training.",
+			// This can happen sometimes if we pre-reserve resources.
+			s.log.Warn("Demand GPUs (%.0f) are somehow lower than busy GPUs (%.0f)...", demandGpus, busyGPUs)
+			s.log.Warn("There are %d sessions, of which %d are idle and %d are training.",
 				numRunning, numIdle, numTraining)
 
 			ratio = 1.0 // Force to be 1.0

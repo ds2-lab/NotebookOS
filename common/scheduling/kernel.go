@@ -2,7 +2,6 @@ package scheduling
 
 import (
 	"context"
-	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
@@ -74,6 +73,7 @@ type Kernel interface {
 	GetContainers() []KernelContainer
 	ShellListenPort() int
 	IOPubListenPort() int
+	GetExecutionManager() ExecutionManager
 	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
 	ExecutionComplete(msg *messaging.JupyterMessage) error
@@ -150,11 +150,19 @@ type Kernel interface {
 }
 
 type KernelReplica interface {
-	execution.Replica
 	types.Contextable
 	messaging.JupyterServerInfo
 	SessionManager
 	Server
+
+	// ID returns the ID of the associated Kernel.
+	ID() string
+
+	// ReplicaID returns the SMR node ID of the Replica.
+	ReplicaID() int32
+
+	// KernelStoppedTraining is called when the Replica has stopped training.
+	KernelStoppedTraining(reason string) error
 
 	Container() KernelContainer
 	Host() Host

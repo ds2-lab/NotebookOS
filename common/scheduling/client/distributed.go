@@ -29,23 +29,6 @@ var (
 	CtxKernelHost = utils.ContextKey("host")
 )
 
-type CodeExecutionQueue []*Execution
-
-// Enqueue adds an element to the end of the queue
-func (q *CodeExecutionQueue) Enqueue(item *Execution) {
-	*q = append(*q, item)
-}
-
-// Dequeue removes and returns the element from the front of the queue
-func (q *CodeExecutionQueue) Dequeue() *Execution {
-	if len(*q) == 0 {
-		return nil // Queue is empty
-	}
-	item := (*q)[0]
-	*q = (*q)[1:]
-	return item
-}
-
 // ReplicaKernelInfo offers hybrid information that reflects the replica source of messages.
 type ReplicaKernelInfo struct {
 	scheduling.KernelInfo
@@ -219,6 +202,10 @@ func (c *DistributedKernelClient) IOPubListenPort() int {
 
 func (c *DistributedKernelClient) ExecutionFailedCallback() scheduling.ExecutionFailedCallback {
 	return c.ExecutionManager.executionFailedCallback
+}
+
+func (c *DistributedKernelClient) GetExecutionManager() scheduling.ExecutionManager {
+	return c.ExecutionManager
 }
 
 // ExecutionComplete sets the current ActiveExecution to nil, or possibly to the next ActiveExecution in the queue,

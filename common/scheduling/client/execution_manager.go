@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
-	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -18,7 +17,7 @@ import (
 // or a "yield_request" message.
 func validateRequest(msg *messaging.JupyterMessage) error {
 	if msg.JupyterMessageType() != messaging.ShellExecuteRequest && msg.JupyterMessageType() != messaging.ShellYieldRequest {
-		return fmt.Errorf("%w: message provided is of type \"%s\"", execution.ErrInvalidMessage, msg.JupyterMessageType())
+		return fmt.Errorf("%w: message provided is of type \"%s\"", ErrInvalidMessage, msg.JupyterMessageType())
 	}
 
 	return nil
@@ -27,7 +26,7 @@ func validateRequest(msg *messaging.JupyterMessage) error {
 // validateReply ensures that the given *messaging.JupyterMessage is an "execute_reply"
 func validateReply(msg *messaging.JupyterMessage) error {
 	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
-		return fmt.Errorf("%w: message provided is of type \"%s\"", execution.ErrInvalidMessage, msg.JupyterMessageType())
+		return fmt.Errorf("%w: message provided is of type \"%s\"", ErrInvalidMessage, msg.JupyterMessageType())
 	}
 
 	return nil
@@ -124,7 +123,7 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCall
 }
 
 // RegisterExecution registers a newly-submitted "execute_request" with the ExecutionManager.
-func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (*Execution, error) {
+func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (scheduling.Execution, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -136,7 +135,7 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (*Ex
 	requestId := msg.JupyterMessageId()
 	if _, loaded := m.FinishedExecutions[requestId]; loaded {
 		m.log.Error("Attempt made to re-register completed execution \"%s\"", requestId)
-		return nil, fmt.Errorf("%w: execution ID=\"%s\"", execution.ErrDuplicateExecution, requestId)
+		return nil, fmt.Errorf("%w: execution ID=\"%s\"", ErrDuplicateExecution, requestId)
 	}
 
 	existingExecution, loaded := m.ActiveExecutions[requestId]
@@ -145,7 +144,7 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (*Ex
 		return nextExecutionAttempt, nil
 	}
 
-	newExecution := NewActiveExecution(m.Kernel.ID(), 1, m.NumReplicas, msg)
+	newExecution := NewExecution(m.Kernel.ID(), 1, m.NumReplicas, msg)
 	m.AllExecutions[requestId] = newExecution
 	m.ActiveExecutions[requestId] = newExecution
 
@@ -155,12 +154,12 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (*Ex
 }
 
 // registerExecutionAttempt registers a new attempt for an existing execution.
-func (m *ExecutionManager) registerExecutionAttempt(msg *messaging.JupyterMessage, existingExecution *Execution) *Execution {
+func (m *ExecutionManager) registerExecutionAttempt(msg *messaging.JupyterMessage, existingExecution scheduling.Execution) scheduling.Execution {
 	requestId := msg.JupyterMessageId()
-	nextAttemptNumber := existingExecution.AttemptNumber + 1
+	nextAttemptNumber := existingExecution.GetAttemptNumber() + 1
 
 	// Create the next execution attempt.
-	nextExecutionAttempt := NewActiveExecution(m.Kernel.ID(), nextAttemptNumber, m.NumReplicas, msg)
+	nextExecutionAttempt := NewExecution(m.Kernel.ID(), nextAttemptNumber, m.NumReplicas, msg)
 
 	m.log.Debug("Registering new attempt (%d) for execution \"%s\"", nextAttemptNumber, requestId)
 
@@ -186,7 +185,7 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 	msgErr *messaging.MessageErrorWithYieldReason) error {
 	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
 		return fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
-			execution.ErrInvalidMessage, messaging.ShellExecuteReply, msg.JupyterMessageType())
+			ErrInvalidMessage, messaging.ShellExecuteReply, msg.JupyterMessageType())
 	}
 
 	m.log.Debug("Received 'YIELD' proposal from replica %d for execution \"%s\"",
@@ -214,7 +213,7 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 
 	if activeExecution == nil {
 		m.log.Error("Could not find any Execution with ID \"%s\"...", targetExecuteRequestId)
-		return fmt.Errorf("%w: \"%s\"", execution.ErrUnknownActiveExecution, targetExecuteRequestId)
+		return fmt.Errorf("%w: \"%s\"", ErrUnknownActiveExecution, targetExecuteRequestId)
 	}
 
 	// This will return an error if the replica did not have any pre-committed resources.
@@ -242,10 +241,10 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 	m.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for Execution associated with "+
 		"\"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
 		replica.ReplicaID(), replica.ID(), targetExecuteRequestId, associatedActiveExecution.NumRolesReceived(),
-		associatedActiveExecution.NumReplicas, replica.ID())
+		associatedActiveExecution.GetNumReplicas(), replica.ID())
 
 	// If we have a non-nil error, and it isn't just that all the replicas proposed YIELD, then return it directly.
-	if err != nil && !errors.Is(err, execution.ErrExecutionFailedAllYielded) {
+	if err != nil && !errors.Is(err, ErrExecutionFailedAllYielded) {
 		m.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for Execution associated with \"execute_request\" \"%s\": %v",
 			replica.ReplicaID(), replica.ID(), targetExecuteRequestId, err)
 
@@ -253,12 +252,12 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 	}
 
 	// If we have a non-nil error, and it's just that all replicas proposed YIELD, then we'll call the handler.
-	if errors.Is(err, execution.ErrExecutionFailedAllYielded) {
+	if errors.Is(err, ErrExecutionFailedAllYielded) {
 		// Concatenate all the yield reasons. We'll return them along with the error returned by
 		// handleFailedExecutionAllYielded if handleFailedExecutionAllYielded returns a non-nil error.
 		yieldErrors := make([]error, 0, 4)
-		associatedActiveExecution.RangeRoles(func(i int32, proposal *Proposal) bool {
-			yieldError := fmt.Errorf("replica %d proposed \"YIELD\" because: %s", i, proposal.Reason)
+		associatedActiveExecution.RangeRoles(func(i int32, proposal scheduling.Proposal) bool {
+			yieldError := fmt.Errorf("replica %d proposed \"YIELD\" because: %s", i, proposal.GetReason())
 			yieldErrors = append(yieldErrors, yieldError)
 			return true
 		})
@@ -315,7 +314,7 @@ func (m *ExecutionManager) HandleSmrLeadTaskMessage(msg *messaging.JupyterMessag
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	activeExecution.ActiveReplica = kernelReplica
+	activeExecution.SetActiveReplica(kernelReplica)
 	m.LastPrimaryReplica = kernelReplica
 
 	// We pass (as the second argument) the time at which the kernel replica began executing the code.
@@ -377,7 +376,7 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 // message is received.
 //
 // ExecutionComplete returns nil on success.
-func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage) (*Execution, error) {
+func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage) (scheduling.Execution, error) {
 	err := validateReply(msg)
 	if err != nil {
 		return nil, err
@@ -394,10 +393,10 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage) (*Ex
 	if activeExecution.HasValidOriginalSentTimestamp() {
 		latency := time.Since(activeExecution.OriginallySentAt)
 		m.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %m. Total time elapsed since submission: %v.",
-			activeExecution.ExecuteRequestMessageId, m.Kernel.ID(), msg.ReplicaId, latency)
+			activeExecution.GetExecuteRequestMessageId(), m.Kernel.ID(), msg.ReplicaId, latency)
 	} else {
 		m.log.Debug("Execution %s targeting kernel %s has been completed successfully by replica %m.",
-			activeExecution.ExecuteRequestMessageId, m.Kernel.ID(), msg.ReplicaId)
+			activeExecution.GetExecuteRequestMessageId(), m.Kernel.ID(), msg.ReplicaId)
 	}
 
 	err = activeExecution.ReceivedLeadNotification(msg.ReplicaId)
@@ -434,7 +433,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage) (*Ex
 
 // GetActiveExecution returns a pointer to the Execution struct identified by the given message ID,
 // or nil if no such Execution exists.
-func (m *ExecutionManager) GetActiveExecution(msgId string) *Execution {
+func (m *ExecutionManager) GetActiveExecution(msgId string) scheduling.Execution {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -481,22 +480,22 @@ func (m *ExecutionManager) decodeLeadMessageContent(msg *messaging.JupyterMessag
 
 // processExecutionStartLatency attempts to compute the "execution start latency", which is a core metric for
 // interactivity, from the metadata of the active execution and the metadata included in the "smr_lead_task" message.
-func (m *ExecutionManager) processExecutionStartLatency(activeExecution *Execution, startedProcessingAt time.Time) {
+func (m *ExecutionManager) processExecutionStartLatency(activeExecution scheduling.Execution, startedProcessingAt time.Time) {
 	if activeExecution.HasValidOriginalSentTimestamp() {
 		// Measure of the interactivity.
 		// The latency here is calculated as the difference between when the kernel replica began executing the
 		// user-submitted code, and the time at which the user's Jupyter client sent the "execute_request" message.
-		latency := startedProcessingAt.Sub(activeExecution.OriginallySentAt)
+		latency := startedProcessingAt.Sub(activeExecution.GetOriginallySentAtTime())
 
 		// Record metrics in Prometheus.
 		if activeExecution.HasValidWorkloadId() {
-			m.executionLatencyCallback(latency, activeExecution.WorkloadId, m.Kernel.ID())
+			m.executionLatencyCallback(latency, activeExecution.GetWorkloadId(), m.Kernel.ID())
 		} else {
 			m.log.Warn("Execution for \"execute_request\" \"%s\" had \"sent-at\" timestamp, but no workload ID...",
-				activeExecution.ExecuteRequestMessageId)
+				activeExecution.GetExecuteRequestMessageId())
 		}
 	} else {
 		m.log.Warn("Execution for \"execute_request\" \"%s\" did not have original \"send\" timestamp available.",
-			activeExecution.ExecuteRequestMessageId)
+			activeExecution.GetExecuteRequestMessageId())
 	}
 }

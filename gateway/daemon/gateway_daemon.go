@@ -96,10 +96,10 @@ var (
 type GatewayDaemonConfig func(ClusterGateway)
 
 type DistributedClientProvider interface {
-	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
-		connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
+	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
+		numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 		executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-		updater scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel
+		statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel
 }
 
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.

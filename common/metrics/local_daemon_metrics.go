@@ -65,7 +65,7 @@ type LocalDaemonPrometheusManager struct {
 
 // UpdateClusterStatistics isn't directly supported by LocalDaemonPrometheusManager.
 func (m *LocalDaemonPrometheusManager) UpdateClusterStatistics(_ func(statistics *ClusterStatistics)) {
-	m.log.Warn("Someone is attempting to update cluster statistics using a LocalDaemonPrometheusManager.")
+	// Not supported. We can just ignore it. No-op.
 	return
 }
 

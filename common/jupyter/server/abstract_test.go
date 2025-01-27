@@ -99,6 +99,8 @@ var _ = Describe("AbstractServer", func() {
 
 	Context("Reliable Message Delivery", func() {
 		It("Will re-send messages until an ACK is received", func() {
+			serverMetricsProvider.EXPECT().UpdateClusterStatistics(gomock.Any()).AnyTimes()
+			clientMetricsProvider.EXPECT().UpdateClusterStatistics(gomock.Any()).AnyTimes()
 			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, messaging.ShellMessage, gomock.Any()).MaxTimes(1)
 			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MinTimes(3).MaxTimes(3)
 			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)
@@ -311,6 +313,8 @@ var _ = Describe("AbstractServer", func() {
 		})
 
 		It("Will halt the retry procedure upon receiving an ACK.", func() {
+			serverMetricsProvider.EXPECT().UpdateClusterStatistics(gomock.Any()).AnyTimes()
+			clientMetricsProvider.EXPECT().UpdateClusterStatistics(gomock.Any()).AnyTimes()
 			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, messaging.ShellMessage, gomock.Any()).MaxTimes(1)
 			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MinTimes(1).MaxTimes(1)
 			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)
