@@ -269,7 +269,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 		kernel.EXPECT().Size().AnyTimes().DoAndReturn(func() int {
 			return int(currentSize.Load())
 		})
-		
+
 		kernel.EXPECT().Sessions().MaxTimes(1).Return([]string{sessionId})
 		kernel.EXPECT().GetSocketPort(messaging.ShellMessage).MaxTimes(1).Return(9001)
 		kernel.EXPECT().GetSocketPort(messaging.IOMessage).MaxTimes(2).Return(9004)

@@ -25,6 +25,7 @@ dependencies = [
     "ansible_runner",
     "typing_extensions",
     "debugpy",
+    "aiohttp>=3.11.11",
     "fabric",
     "jsonpatch",
     "ipykernel>=6.29.5",
