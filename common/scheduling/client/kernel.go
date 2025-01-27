@@ -1092,17 +1092,17 @@ func (c *KernelReplicaClient) AddIOHandler(topic string, handler scheduling.Mess
 
 // RequestWithHandler sends a request and handles the response.
 func (c *KernelReplicaClient) RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
-	jupyterMsgTyp := msg.JupyterMessageType()
-	if jupyterMsgTyp == messaging.ShellExecuteRequest || jupyterMsgTyp == messaging.ShellYieldRequest {
-		c.SendingExecuteRequest(msg)
-	}
-
 	return c.RequestWithHandlerAndWaitOptionGetter(ctx, typ, msg, handler, c.getWaitResponseOption, done)
 }
 
 func (c *KernelReplicaClient) RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
 	if c.status < jupyter.KernelStatusRunning {
 		return jupyter.ErrKernelNotReady
+	}
+
+	jupyterMsgTyp := msg.JupyterMessageType()
+	if jupyterMsgTyp == messaging.ShellExecuteRequest || jupyterMsgTyp == messaging.ShellYieldRequest {
+		c.SendingExecuteRequest(msg)
 	}
 
 	// Use a default "done" handler.

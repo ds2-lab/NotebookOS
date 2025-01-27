@@ -435,7 +435,7 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	activeExecution := m.GetActiveExecution(executeRequestMsgId)
+	activeExecution := m.getActiveExecution(executeRequestMsgId)
 	if activeExecution == nil {
 		errorMessage := fmt.Sprintf(
 			"Cannot find active activeExecution with \"execute_request\" message ID of \"%s\" associated with kernel \"%s\"...\n",
@@ -525,7 +525,10 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 
 	isYieldProposal := msgErr.ErrName == messaging.MessageErrYieldExecution
 
-	activeExec := m.GetActiveExecution(msg.JupyterParentMessageId())
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	activeExec := m.getActiveExecution(msg.JupyterParentMessageId())
 	if activeExec != nil {
 		err := activeExec.RegisterReply(replica.ReplicaID(), msg, true)
 		if err != nil {

@@ -111,6 +111,9 @@ type LocalScheduler struct {
 	grpcServer *GRPCServerWrapper
 	listener   net.Listener
 
+	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
+	executeRequestForwarder *client.ExecuteRequestForwarder[*messaging.JupyterMessage]
+
 	// connectingToGateway indicates whether the scheduler is actively trying to connect to the Cluster Gateway.
 	// If its value is > 0, then it is. If its value is 0, then it is not.
 	connectingToGateway atomic.Int32
@@ -329,6 +332,21 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	if daemon.electionTimeoutSeconds <= 0 {
 		daemon.electionTimeoutSeconds = 3
 	}
+
+	notifyCallback := func(title string, content string, notificationType messaging.NotificationType) {
+		daemon.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
+			Title:            title,
+			Message:          content,
+			NotificationType: int32(notificationType),
+			Panicked:         false,
+		})
+	}
+
+	daemon.executeRequestForwarder = client.NewExecuteRequestForwarder[*messaging.JupyterMessage](
+		notifyCallback, func(msg *messaging.JupyterMessage, kernel client.MessageRecipient) *messaging.JupyterMessage {
+			return daemon.processExecOrYieldRequest(msg, kernel.(scheduling.KernelReplica))
+		})
 
 	daemon.router = router.New(context.Background(), "", daemon.connectionOptions, daemon, daemon.MessageAcknowledgementsEnabled,
 		fmt.Sprintf("LocalDaemon_%s", nodeName), true, metrics.LocalDaemon, daemon.DebugMode, nil)
