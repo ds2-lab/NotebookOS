@@ -1,6 +1,7 @@
 package client
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
@@ -183,6 +184,8 @@ func (m *ExecutionManager) registerExecutionAttempt(msg *messaging.JupyterMessag
 // "failure handler", which will  handle the situation according to the cluster's configured scheduling policy.
 func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplica, msg *messaging.JupyterMessage,
 	msgErr *messaging.MessageErrorWithYieldReason) error {
+	replica.ReceivedExecuteReply(msg)
+
 	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
 		return fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
 			ErrInvalidMessage, messaging.ShellExecuteReply, msg.JupyterMessageType())
@@ -219,8 +222,6 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 	// This will return an error if the replica did not have any pre-committed resources.
 	// So, we can just ignore the error.
 	_ = m.Kernel.ReleasePreCommitedResourcesFromReplica(replica, msg)
-
-	replica.ReceivedExecuteReply(msg)
 
 	// It's possible we received a 'YIELD' proposal for an Execution different from the current one.
 	// So, retrieve the Execution associated with the 'YIELD' proposal (using the "execute_request" message IDs).
@@ -342,41 +343,136 @@ func (m *ExecutionManager) HandleSmrLeadTaskMessage(msg *messaging.JupyterMessag
 }
 
 // HandleExecuteReplyMessage is called by a scheduling.Kernel when an "execute_reply" message is received.
-func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessage, kernelReplica scheduling.KernelReplica) error {
+//
+// HandleExecuteReplyMessage returns a bool flag indicating whether the message is a 'YIELD' message or ot.
+func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (bool, error) {
+	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
+		return false, fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
+			ErrInvalidMessage, messaging.ShellExecuteReply, msg.JupyterMessageType())
+	}
+
 	kernelId := m.Kernel.ID()
 	m.log.Debug("Received \"execute_reply\" with JupyterID=\"%s\" from replica %d of kernel %s.",
-		msg.JupyterMessageId(), kernelReplica.ReplicaID(), kernelId)
+		msg.JupyterMessageId(), replica.ReplicaID(), kernelId)
 
-	// If this message is actually from a failed attempt to handle all replicas proposing 'yield', then we just
-	// return immediately. The execution wasn't successful. We want this error to be sent back to the client.
-	if msg.IsFailedExecuteRequest {
-		m.log.Warn("\"execute_reply\" with JupyterID=\"%s\" from replica %d of kernel %s is from a failed 'all replicas yielded' handler...",
-			msg.JupyterMessageId(), kernelReplica.ReplicaID(), kernelId)
-		return nil
+	// 0: <IDS|MSG>, 1: Signature, 2: Header, 3: ParentHeader, 4: Metadata, 5: Content[, 6: Buffers]
+	if msg.JupyterFrames.LenWithoutIdentitiesFrame(true) < 5 {
+		m.log.Error("Received invalid Jupyter message from replica %d of kernel %s (detected in extractShellError)",
+			replica.ReplicaID(), kernelId)
+		return false, messaging.ErrInvalidJupyterMessage
 	}
 
-	if m.statisticsProvider.PrometheusMetricsEnabled() {
-		m.statisticsProvider.IncrementNumTrainingEventsCompletedCounterVec()
+	if len(*msg.JupyterFrames.ContentFrame()) == 0 {
+		m.log.Warn("Received shell '%v' response with empty content.", msg.JupyterMessageType())
+		return false, nil
 	}
 
-	_, err := m.ExecutionComplete(msg)
+	var msgErr *messaging.MessageErrorWithYieldReason
+	if err := json.Unmarshal(*msg.JupyterFrames.ContentFrame(), &msgErr); err != nil {
+		m.log.Error("Failed to unmarshal shell message received from replica %d of kernel %s because: %v",
+			replica.ReplicaID(), kernelId, err)
+		return false, err
+	}
+
+	isYieldProposal := msgErr.ErrName == messaging.MessageErrYieldExecution
+
+	activeExec := m.GetActiveExecution(msg.JupyterParentMessageId())
+	if activeExec != nil {
+		err := activeExec.RegisterReply(replica.ReplicaID(), msg, true)
+		if err != nil {
+			m.log.Error("Failed to register \"execute_reply\" message: %v", err)
+			return isYieldProposal, err
+		}
+	}
+
+	if isYieldProposal {
+		err := m.YieldProposalReceived(replica, msg, msgErr)
+		if err != nil {
+			msg.IsFailedExecuteRequest = true
+			return true, errors.Join(err, fmt.Errorf("%s: %s", msgErr.ErrName, msgErr.ErrValue))
+		}
+
+		return true, messaging.ErrExecutionYielded
+	}
+
+	_, err := m.ExecutionComplete(msg, replica)
+
+	return false, err // Will be nil if everything went OK in the call to ExecutionComplete
+}
+
+// handleInconsistentPrimaryReplicas is called when we received a valid "execute_reply" from a primary replica,
+// but the ID of the replica that sent the "execute_reply" does not match the ID of the ActiveReplica field of
+// the associated Execution struct. This indicates that the replica that sent the "smr_lead_task" message is
+// not the same as the replica that sent the valid "execute_reply" message, which should really never happen.
+func (m *ExecutionManager) handleInconsistentPrimaryReplicas(msg *messaging.JupyterMessage,
+	replica scheduling.KernelReplica, activeExecution *Execution) (scheduling.Execution, error) {
+
+	requestId := msg.JupyterParentMessageId()
+
+	m.log.Error("Received 'execute_reply' from primary replica %d for execution \"%s\", "+
+		"but we previously recorded that replica %d was the primary replica for this execution...",
+		activeExecution.ActiveReplica.ReplicaID(), requestId, replica.ReplicaID())
+
+	if m.notificationCallback != nil {
+		go m.notificationCallback(
+			fmt.Sprintf("Inconsistent Primary Replicas for Completed Code Execution \"%s\" of Kernel \"%s\"",
+				requestId, m.Kernel.ID()),
+			fmt.Sprintf("Received 'execute_reply' from primary replica %d for execution \"%s\", "+
+				"but we previously recorded that replica %d was the primary replica for this execution...",
+				activeExecution.ActiveReplica.ReplicaID(), requestId, replica.ReplicaID()),
+			messaging.ErrorNotification,
+		)
+	}
+
+	reason := "Received \"execute_reply\" message, indicating that the training has stopped."
+
+	// We'll attempt to call 'stop training' on both replicas in attempt to salvage things,
+	// buuuut we're probably screwed.
+
+	var err1, err2 error
+	if activeExecution.ActiveReplica.IsTraining() {
+		m.log.Warn("Calling KernelStoppedTraining on the replica recorded on the Execution struct for execution '%s'",
+			requestId)
+
+		err1 = activeExecution.ActiveReplica.KernelStoppedTraining(reason)
+	}
+
+	if replica.IsTraining() {
+		m.log.Warn("Calling KernelStoppedTraining on the replica that sent the \"execute_reply\" message for execution '%s'",
+			requestId)
+
+		err2 = replica.KernelStoppedTraining(reason)
+	}
+
+	// We recorded the errors of each call to KernelStoppedTraining separately.
+	// If just one of the errors was non-nil, then we'll just return that single error.
+	// If they were both non-nil, then we'll join them and return the joined error.
+	// If they were both nil, then we'll also return nil (for our error return value).
+	var err error
+	if err1 != nil && err2 == nil {
+		err = err1
+	} else if err1 == nil && err2 != nil {
+		err = err2
+	} else if err2 != nil && err1 != nil {
+		err = errors.Join(err1, err2)
+	}
+
 	if err != nil {
-		return err
+		m.log.Error("Error while calling KernelStoppedTraining on active replica %d for execution \"%s\": %v",
+			activeExecution.ActiveReplica.ReplicaID(), msg.JupyterParentMessageId(), err)
+		return activeExecution, err
 	}
 
-	m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
-		statistics.CompletedTrainings += 1
-		statistics.NumIdleSessions += 1
-	})
-
-	return nil
+	return activeExecution, err
 }
 
 // ExecutionComplete should be called by the Kernel associated with the target ExecutionManager when an "execute_reply"
 // message is received.
 //
 // ExecutionComplete returns nil on success.
-func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage) (scheduling.Execution, error) {
+func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (scheduling.Execution, error) {
+	replica.ReceivedExecuteReply(msg)
+
 	err := validateReply(msg)
 	if err != nil {
 		return nil, err
@@ -415,9 +511,24 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage) (sch
 	// Store the execution in the "finished" map.
 	m.FinishedExecutions[requestId] = activeExecution
 
+	if m.statisticsProvider != nil && m.statisticsProvider.PrometheusMetricsEnabled() {
+		m.statisticsProvider.IncrementNumTrainingEventsCompletedCounterVec()
+	}
+
+	if m.statisticsProvider != nil {
+		m.statisticsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
+			statistics.CompletedTrainings += 1
+			statistics.NumIdleSessions += 1
+		})
+	}
+
 	if activeExecution.ActiveReplica == nil {
 		m.log.Warn("Execution \"%s\" does not have its ActiveReplica specified, despite having just finished...")
+		activeExecution.ActiveReplica = replica
+	}
 
+	if activeExecution.ActiveReplica.ReplicaID() != replica.ReplicaID() {
+		return m.handleInconsistentPrimaryReplicas(msg, replica, activeExecution)
 	}
 
 	reason := "Received \"execute_reply\" message, indicating that the training has stopped."
@@ -426,6 +537,10 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage) (sch
 		m.log.Error("Error while calling KernelStoppedTraining on active replica %d for execution \"%s\": %v",
 			activeExecution.ActiveReplica.ReplicaID(), msg.JupyterParentMessageId(), err)
 		return nil, err
+	}
+
+	if activeExecution.ActiveReplica.ReplicaID() != replica.ReplicaID() {
+		return m.handleInconsistentPrimaryReplicas(msg, replica, activeExecution)
 	}
 
 	return activeExecution, nil

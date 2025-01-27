@@ -76,7 +76,8 @@ type Kernel interface {
 	GetExecutionManager() ExecutionManager
 	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
-	ExecutionComplete(msg *messaging.JupyterMessage) error
+	// ExecutionComplete(msg *messaging.JupyterMessage) error
+
 	RegisterActiveExecution(msg *messaging.JupyterMessage) error
 	ResetID(id string)
 	PersistentID() string

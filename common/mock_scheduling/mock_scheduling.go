@@ -4591,20 +4591,6 @@ func (mr *MockKernelMockRecorder) DebugMode() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DebugMode", reflect.TypeOf((*MockKernel)(nil).DebugMode))
 }
 
-// ExecutionComplete mocks base method.
-func (m *MockKernel) ExecutionComplete(msg *messaging.JupyterMessage) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExecutionComplete", msg)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ExecutionComplete indicates an expected call of ExecutionComplete.
-func (mr *MockKernelMockRecorder) ExecutionComplete(msg any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecutionComplete", reflect.TypeOf((*MockKernel)(nil).ExecutionComplete), msg)
-}
-
 // ExecutionFailedCallback mocks base method.
 func (m *MockKernel) ExecutionFailedCallback() scheduling.ExecutionFailedCallback {
 	m.ctrl.T.Helper()
@@ -7440,18 +7426,18 @@ func (m *MockExecutionManager) EXPECT() *MockExecutionManagerMockRecorder {
 }
 
 // ExecutionComplete mocks base method.
-func (m *MockExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage) (scheduling.Execution, error) {
+func (m *MockExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (scheduling.Execution, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ExecutionComplete", msg)
+	ret := m.ctrl.Call(m, "ExecutionComplete", msg, replica)
 	ret0, _ := ret[0].(scheduling.Execution)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ExecutionComplete indicates an expected call of ExecutionComplete.
-func (mr *MockExecutionManagerMockRecorder) ExecutionComplete(msg any) *gomock.Call {
+func (mr *MockExecutionManagerMockRecorder) ExecutionComplete(msg, replica any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecutionComplete", reflect.TypeOf((*MockExecutionManager)(nil).ExecutionComplete), msg)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecutionComplete", reflect.TypeOf((*MockExecutionManager)(nil).ExecutionComplete), msg, replica)
 }
 
 // GetActiveExecution mocks base method.
@@ -7469,17 +7455,18 @@ func (mr *MockExecutionManagerMockRecorder) GetActiveExecution(msgId any) *gomoc
 }
 
 // HandleExecuteReplyMessage mocks base method.
-func (m *MockExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessage, kernelReplica scheduling.KernelReplica) error {
+func (m *MockExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "HandleExecuteReplyMessage", msg, kernelReplica)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "HandleExecuteReplyMessage", msg, replica)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // HandleExecuteReplyMessage indicates an expected call of HandleExecuteReplyMessage.
-func (mr *MockExecutionManagerMockRecorder) HandleExecuteReplyMessage(msg, kernelReplica any) *gomock.Call {
+func (mr *MockExecutionManagerMockRecorder) HandleExecuteReplyMessage(msg, replica any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleExecuteReplyMessage", reflect.TypeOf((*MockExecutionManager)(nil).HandleExecuteReplyMessage), msg, kernelReplica)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HandleExecuteReplyMessage", reflect.TypeOf((*MockExecutionManager)(nil).HandleExecuteReplyMessage), msg, replica)
 }
 
 // HandleSmrLeadTaskMessage mocks base method.
