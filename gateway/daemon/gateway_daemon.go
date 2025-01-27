@@ -264,6 +264,9 @@ type ClusterGatewayImpl struct {
 	// io pub *messaging.Socket
 	smrPort int
 
+	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
+	executeRequestForwarder *client.ExecuteRequestForwarder[[]*messaging.JupyterMessage]
+
 	// Map of kernels that are starting for the first time.
 	//
 	// We add an entry to this map at the beginning of ClusterDaemon::StartKernel.
@@ -390,6 +393,9 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	} else {
 		clusterGateway.log.Debug("Not running in DebugMode.")
 	}
+
+	clusterGateway.executeRequestForwarder = client.NewExecuteRequestForwarder[[]*messaging.JupyterMessage](
+		clusterGateway.notifyDashboard, nil)
 
 	clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(
 		clusterDaemonOptions.PrometheusPort, clusterGateway, clusterGateway.updateClusterStatistics,
@@ -1928,6 +1934,14 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 		panic(errorMessage)
 	}
 
+	// Create a wrapper around the kernel's RequestWithHandlerAndReplicas method.
+	forwarder := func(ctx context.Context, op string, typ messaging.MessageType, jupyterMessages []*messaging.JupyterMessage,
+		handler scheduling.KernelReplicaMessageHandler, done func()) error {
+		return kernel.RequestWithHandlerAndReplicas(ctx, op, typ, jupyterMessages, handler, done, kernel.Replicas()...)
+	}
+
+	d.executeRequestForwarder.RegisterKernel(kernel, forwarder, d.kernelReplicaResponseForwarder)
+
 	d.newKernelCreated(startTime, kernel.ID())
 
 	d.log.Info("Returning from ClusterGatewayImpl::StartKernel for kernel %s after %v.", kernel.ID(), time.Since(startTime))
@@ -3446,13 +3460,18 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 			msg.JupyterMessageId(), idx+1, kernel.ID(), msg.JupyterMessageType())
 	}
 
+	d.executeRequestForwarder.EnqueueRequest(jupyterMessages, kernel)
+
+	return nil
+
 	// We'll call RequestWithHandlerAndReplicas instead of RequestWithHandler.
 	//
 	// The difference is that RequestWithHandler basically does what we just did up above before calling
 	// RequestWithHandlerAndReplicas; however, RequestWithHandler assumes that all replicas are to receive an
 	// identical message. That's obviously not what we want to happen here, and so we manually created the different
 	// messages for the different replicas ourselves.
-	return kernel.RequestWithHandlerAndReplicas(context.Background(), messaging.ShellMessage, jupyterMessages, d.kernelReplicaResponseForwarder, func() {}, replicas...)
+	//return kernel.RequestWithHandlerAndReplicas(context.Background(), "Forwarding", messaging.ShellMessage, jupyterMessages,
+	//	d.kernelReplicaResponseForwarder, func() {}, replicas...)
 }
 
 // executeRequestHandler is a specialized version of ShellHandler that is used explicitly/exclusively for

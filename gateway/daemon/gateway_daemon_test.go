@@ -851,7 +851,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			jupyterMessagesChan := make(chan []*messaging.JupyterMessage)
 
-			kernel.EXPECT().RequestWithHandlerAndReplicas(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+			kernel.EXPECT().RequestWithHandlerAndReplicas(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
 				gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, typ messaging.MessageType,
 				jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
 
@@ -1452,8 +1452,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				VRam:      decimal.NewFromFloat(2),
 			}).AnyTimes()
 			mockedKernel.EXPECT().ID().Return(kernelId).AnyTimes()
-			mockedKernel.EXPECT().RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(),
-				gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+			mockedKernel.EXPECT().
+				RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+				AnyTimes()
 
 			mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, mockedKernel)
 
@@ -2105,7 +2106,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			// ctx, typ, jupyterMessages, handler, done any, replicas ...any
 			mockedKernel.EXPECT().RequestWithHandlerAndReplicas(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
-				gomock.Any(), gomock.Any()).Times(1).Return(nil)
+				gomock.Any(), gomock.Any(), gomock.Any()).Times(1).Return(nil)
 
 			//mockedKernel.EXPECT().RegisterActiveExecution(jMsg).Times(1).Return(nil, nil)
 

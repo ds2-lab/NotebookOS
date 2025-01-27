@@ -490,11 +490,11 @@ func (c *KernelReplicaClient) SendingExecuteRequest(msg *messaging.JupyterMessag
 		// Print a warning, as we shouldn't be sending concurrent execute requests to the kernel, and we just recorded
 		// that an execute request has been resolved, yet there is still at least one outstanding "execute_request"...
 		c.log.Warn(utils.OrangeStyle.Render("Recorded that \"%s\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
-			"Updated number of outstanding \"execute_request\" messages: %d."), msg.JupyterMessageType(),
+			"Updated number of outstanding \"execute_request\" msg: %d."), msg.JupyterMessageType(),
 			msg.JupyterMessageId(), c.id, c.pendingExecuteRequestIds.Len())
 	} else {
 		c.log.Debug("Recorded that \"%s\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
-			"Updated number of outstanding \"execute_request\" messages: %d.", msg.JupyterMessageType(),
+			"Updated number of outstanding \"execute_request\" msg: %d.", msg.JupyterMessageType(),
 			msg.JupyterMessageId(), c.id, c.pendingExecuteRequestIds.Len())
 	}
 }
@@ -1092,6 +1092,11 @@ func (c *KernelReplicaClient) AddIOHandler(topic string, handler scheduling.Mess
 
 // RequestWithHandler sends a request and handles the response.
 func (c *KernelReplicaClient) RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
+	jupyterMsgTyp := msg.JupyterMessageType()
+	if jupyterMsgTyp == messaging.ShellExecuteRequest || jupyterMsgTyp == messaging.ShellYieldRequest {
+		c.SendingExecuteRequest(msg)
+	}
+
 	return c.RequestWithHandlerAndWaitOptionGetter(ctx, typ, msg, handler, c.getWaitResponseOption, done)
 }
 

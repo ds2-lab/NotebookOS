@@ -763,7 +763,36 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 		jupyterMessages = append(jupyterMessages, jupyterMessage)
 	}
 
-	return c.RequestWithHandlerAndReplicas(ctx, typ, jupyterMessages, handler, done, replicas...)
+	return c.RequestWithHandlerAndReplicas(ctx, "Forwarding", typ, jupyterMessages, handler, done, replicas...)
+}
+
+// TrainingStartedAt returns the time at which one of the target DistributedKernelClient's replicas
+// began actively training, if there is an actively-training replica.
+func (c *DistributedKernelClient) TrainingStartedAt() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, replica := range c.replicas {
+		if replica.IsTraining() {
+			return replica.TrainingStartedAt()
+		}
+	}
+
+	return time.Time{}
+}
+
+// IsTraining returns true if one of the target DistributedKernelClient's replicas is actively training.
+func (c *DistributedKernelClient) IsTraining() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, replica := range c.replicas {
+		if replica.IsTraining() {
+			return true
+		}
+	}
+
+	return false
 }
 
 // getRequestContext returns a context.Context struct and a context.CancelFunc to be used by RequestWithHandlerAndReplicas.
@@ -788,9 +817,6 @@ func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targ
 	responseHandler scheduling.KernelReplicaMessageHandler) error {
 
 	if jupyterMessage.JupyterMessageType() == messaging.ShellExecuteRequest || jupyterMessage.JupyterMessageType() == messaging.ShellYieldRequest {
-		// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
-		targetReplica.SendingExecuteRequest(jupyterMessage)
-
 		// Inform our ExecutionManager that we are sending an "execute_request" (or "yield_request") message.
 		err := c.ExecutionManager.SendingExecuteRequest(jupyterMessage)
 		if err != nil {
@@ -964,9 +990,12 @@ func (c *DistributedKernelClient) getResponseForwarder(handler scheduling.Kernel
 // Note: the handler will be wrapped in the DistributedKernelClient's generic response "forwarder function".
 // This "response forwarder" function contains additional logic, such as for handling "execute_reply" and "yield"
 // messages/notifications from kernel replicas.
-func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType,
+func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, _ string, typ messaging.MessageType,
 	jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(),
 	replicas ...scheduling.KernelReplica) error {
+	if len(replicas) == 0 {
+		replicas = c.Replicas()
+	}
 
 	once := sync.Once{}
 	replicaCtx, cancel := c.getRequestContext(ctx, typ)

@@ -943,6 +943,76 @@ func (d *LocalScheduler) connectToGateway(gatewayAddress string, finalize LocalD
 	return nil
 }
 
+// registerKernelReplicaKube performs some Kubernetes-mode-specific registration steps.
+func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.KernelReplicaSpec,
+	registrationPayload *KernelRegistrationPayload, connInfo *jupyter.ConnectionInfo,
+	kernelRegistrationClient *KernelRegistrationClient) (*client.KernelReplicaClient, *proto.KernelConnectionInfo) {
+
+	invokerOpts := &invoker.DockerInvokerOptions{
+		RemoteStorageEndpoint:                d.remoteStorageEndpoint,
+		RemoteStorage:                        d.remoteStorage,
+		KernelDebugPort:                      -1,
+		DockerStorageBase:                    d.dockerStorageBase,
+		RunKernelsInGdb:                      d.runKernelsInGdb,
+		IsInDockerSwarm:                      d.DockerSwarmMode(),
+		PrometheusMetricsPort:                d.prometheusPort,
+		ElectionTimeoutSeconds:               d.electionTimeoutSeconds,
+		SimulateCheckpointingLatency:         d.SimulateCheckpointingLatency,
+		SimulateWriteAfterExec:               d.schedulingPolicy.PostExecutionStatePolicy().ShouldPerformWriteOperation(),
+		SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
+		SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
+		UseRealGpus:                          d.useRealGpus,
+		BindDebugpyPort:                      d.bindDebugpyPort,
+		SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
+	}
+
+	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
+	kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
+	// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the internalCluster Gateway.
+	kernel := client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id,
+		d.numResendAttempts, registrationPayload.PodOrContainerName, registrationPayload.NodeName,
+		d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "", d.id, nil,
+		metrics.LocalDaemon, false, false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
+		d.kernelRequestResubmissionFailedAfterReconnection, nil)
+
+	kernelConnectionInfo, err := d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
+	if err != nil {
+		errorMessage := fmt.Sprintf("Failed to initialize replica %d of kernel %s because: %v",
+			registrationPayload.ReplicaId, registrationPayload.Kernel.Id, err)
+		d.log.Error(errorMessage)
+		go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
+			Id:               uuid.NewString(),
+			Title:            "Failed to Register Kernel.",
+			Message:          errorMessage,
+			NotificationType: 0,
+			Panicked:         false,
+		})
+
+		// Write an error back to the kernel that registered with us.
+		payload := map[string]interface{}{
+			"status":  "error",
+			"error":   "Failed to Register",
+			"message": fmt.Sprintf("Could not initialize kernel client because: %s", errorMessage),
+		}
+		payloadJson, _ := json.Marshal(payload)
+		_, _ = kernelRegistrationClient.conn.Write(payloadJson)
+
+		// TODO: Handle this more gracefully.
+		return nil, nil
+	}
+
+	// Buffered so we don't get stuck sending a "stop" notification to a goroutine that is processed an "execute_request" message.
+	executeRequestStopChan := make(chan interface{}, 1)
+	executeRequestQueue := make(chan *enqueuedExecOrYieldRequest, DefaultExecuteRequestQueueSize)
+	d.outgoingExecuteRequestQueue.Store(kernelReplicaSpec.Kernel.Id, executeRequestQueue)
+	d.outgoingExecuteRequestQueueMutexes.Store(kernelReplicaSpec.Kernel.Id, &sync.Mutex{})
+	d.executeRequestQueueStopChannels.Store(kernelReplicaSpec.Kernel.Id, executeRequestStopChan)
+
+	go d.executeRequestForwarderLoop(executeRequestQueue, executeRequestStopChan, kernel)
+
+	return kernel, kernelConnectionInfo
+}
+
 // Register a Kernel that has started running on the same node that we are running on.
 // This method must be thread-safe.
 func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistrationClient *KernelRegistrationClient) {
@@ -964,7 +1034,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		return
 	}
 
-	var registrationPayload KernelRegistrationPayload
+	var registrationPayload *KernelRegistrationPayload
 	jsonDecoder := json.NewDecoder(kernelRegistrationClient.conn)
 	err = jsonDecoder.Decode(&registrationPayload)
 	if err != nil {
@@ -1034,66 +1104,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 		kernelConnectionInfo        *proto.KernelConnectionInfo
 	)
 	if d.deploymentMode == types.KubernetesMode {
-		invokerOpts := &invoker.DockerInvokerOptions{
-			RemoteStorageEndpoint:                d.remoteStorageEndpoint,
-			RemoteStorage:                        d.remoteStorage,
-			KernelDebugPort:                      -1,
-			DockerStorageBase:                    d.dockerStorageBase,
-			RunKernelsInGdb:                      d.runKernelsInGdb,
-			IsInDockerSwarm:                      d.DockerSwarmMode(),
-			PrometheusMetricsPort:                d.prometheusPort,
-			ElectionTimeoutSeconds:               d.electionTimeoutSeconds,
-			SimulateCheckpointingLatency:         d.SimulateCheckpointingLatency,
-			SimulateWriteAfterExec:               d.schedulingPolicy.PostExecutionStatePolicy().ShouldPerformWriteOperation(),
-			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
-			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
-			UseRealGpus:                          d.useRealGpus,
-			BindDebugpyPort:                      d.bindDebugpyPort,
-			SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
-		}
-
-		dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
-		kernelCtx := context.WithValue(context.Background(), ctxKernelInvoker, dockerInvoker)
-		// We're passing "" for the persistent ID here; we'll re-assign it once we receive the persistent ID from the internalCluster Gateway.
-		kernel = client.NewKernelReplicaClient(kernelCtx, kernelReplicaSpec, connInfo, d.id,
-			d.numResendAttempts, registrationPayload.PodOrContainerName, registrationPayload.NodeName,
-			d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "", d.id, nil,
-			metrics.LocalDaemon, false, false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
-			d.kernelRequestResubmissionFailedAfterReconnection, nil)
-
-		kernelConnectionInfo, err = d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
-		if err != nil {
-			errorMessage := fmt.Sprintf("Failed to initialize replica %d of kernel %s because: %v", registrationPayload.ReplicaId, registrationPayload.Kernel.Id, err)
-			d.log.Error(errorMessage)
-			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
-				Id:               uuid.NewString(),
-				Title:            "Failed to Register Kernel.",
-				Message:          errorMessage,
-				NotificationType: 0,
-				Panicked:         false,
-			})
-
-			// Write an error back to the kernel that registered with us.
-			payload := map[string]interface{}{
-				"status":  "error",
-				"error":   "Failed to Register",
-				"message": fmt.Sprintf("Could not initialize kernel client because: %s", errorMessage),
-			}
-			payloadJson, _ := json.Marshal(payload)
-			_, _ = kernelRegistrationClient.conn.Write(payloadJson)
-
-			// TODO: Handle this more gracefully.
-			return
-		}
-
-		// Buffered so we don't get stuck sending a "stop" notification to a goroutine that is processed an "execute_request" message.
-		executeRequestStopChan := make(chan interface{}, 1)
-		executeRequestQueue := make(chan *enqueuedExecOrYieldRequest, DefaultExecuteRequestQueueSize)
-		d.outgoingExecuteRequestQueue.Store(kernelReplicaSpec.Kernel.Id, executeRequestQueue)
-		d.outgoingExecuteRequestQueueMutexes.Store(kernelReplicaSpec.Kernel.Id, &sync.Mutex{})
-		d.executeRequestQueueStopChannels.Store(kernelReplicaSpec.Kernel.Id, executeRequestStopChan)
-
-		go d.executeRequestForwarderLoop(executeRequestQueue, executeRequestStopChan, kernel)
+		kernel, kernelConnectionInfo = d.registerKernelReplicaKube(kernelReplicaSpec, registrationPayload, connInfo, kernelRegistrationClient)
 	} else {
 		kernelClientCreationChannel, loaded = d.kernelClientCreationChannels.Load(kernelReplicaSpec.Kernel.Id)
 		if !loaded {
@@ -2477,9 +2488,6 @@ func (d *LocalScheduler) forwardExecuteRequest(message *enqueuedExecOrYieldReque
 			"next \"execute_request\"/\"yield_execute\" request yet. Started training at: %v (i.e., %v ago)."),
 			gid, message.Kernel.ID(), message.Kernel.TrainingStartedAt(), time.Since(message.Kernel.TrainingStartedAt()))
 	}
-
-	// Record that we've sent this (although technically we haven't yet).
-	kernel.SendingExecuteRequest(processedMessage)
 
 	// Send the message and post the result back to the caller via the channel included within
 	// the enqueued "execute_request" message.
