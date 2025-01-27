@@ -525,9 +525,6 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 
 	isYieldProposal := msgErr.ErrName == messaging.MessageErrYieldExecution
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	activeExec := m.getActiveExecution(msg.JupyterParentMessageId())
 	if activeExec != nil {
 		err := activeExec.RegisterReply(replica.ReplicaID(), msg, true)
