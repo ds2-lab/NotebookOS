@@ -394,13 +394,21 @@ class S3Checkpointer(RemoteCheckpointer):
         constructor_state_key: str = os.path.join(base_s3_key, "constructor_args.pt")
         await self.__write_state_dict_async(constructor_state_key, pointer.model.constructor_args, model_name)
 
-    def write_state_dicts(self, pointer: ModelPointer):
+    def write_state_dicts(self, pointer: ModelPointer)->list[str]:
+        """
+        Write the state dictionaries required to checkpoint the given model to AWS S3.
+
+        :return: a list of the keys for the model's state dict, the optimizer's state dict, the criterion's state
+                 dict, and any constructor arguments for the model object.
+        """
         if pointer is None:
             raise ValueError("cannot write model using nil ModelPointer")
 
         if pointer.model is None:
             self.log.error(f"Cannot model dataset \"{pointer.large_object_name}\"; invalid pointer.")
             raise ValueError(f"ModelPointer for model \"{pointer.large_object_name}\" does not have a valid pointer")
+
+        initial_num_objects_written: int = self.num_objects_written
 
         model_name: str = pointer.large_object_name
         base_s3_key: str = pointer.key
@@ -428,6 +436,11 @@ class S3Checkpointer(RemoteCheckpointer):
             object_name = constructor_state_key,
             state_dict = pointer.model.constructor_args,
             model_name = model_name)
+
+        self.log.debug(f'Finished writing state dictionaries to AWS S3 for model "{pointer.total_num_epochs}". '
+                       f'Wrote {self.num_objects_written - initial_num_objects_written} objects in total.')
+
+        return [model_object_name, optimizer_object_name, criterion_object_name, constructor_state_key]
 
     def storage_name(self) -> str:
         return f"AWS S3"

@@ -1,8 +1,9 @@
-package execution
+package client
 
 import (
 	"fmt"
 	"github.com/go-viper/mapstructure/v2"
+	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -70,7 +71,7 @@ type Execution struct {
 
 	// activeReplica is the Kernel connected to the replica of the kernel that is actually
 	// executing the user-submitted code.
-	ActiveReplica Replica
+	ActiveReplica execution.Replica
 
 	// WorkloadId can be retrieved from the metadata dictionary of the Jupyter messages if the sender
 	// was a Golang Jupyter client.
@@ -143,10 +144,6 @@ func (e *Execution) LinkPreviousAttempt(previousAttempt *Execution) {
 
 func (e *Execution) LinkNextAttempt(nextAttempt *Execution) {
 	e.NextAttempt = nextAttempt
-}
-
-func (e *Execution) SetActiveReplica(replica Replica) {
-	e.ActiveReplica = replica
 }
 
 // RegisterReply saves an "execute_reply" *messaging.JupyterMessage from one of the replicas of the kernel
@@ -226,7 +223,7 @@ func (e *Execution) String() string {
 // ReceivedLeadNotification records that the specified kernel replica lead the election and executed the code.
 func (e *Execution) ReceivedLeadNotification(smrNodeId int32) error {
 	if _, ok := e.Proposals[smrNodeId]; ok {
-		return ErrProposalAlreadyReceived
+		return execution.ErrProposalAlreadyReceived
 	}
 
 	e.Proposals[smrNodeId] = NewProposal(LeadProposal, "")
@@ -238,14 +235,14 @@ func (e *Execution) ReceivedLeadNotification(smrNodeId int32) error {
 // ReceivedYieldNotification records that the specified replica ultimately yielded and did not lead the election.
 func (e *Execution) ReceivedYieldNotification(smrNodeId int32, yieldReason string) error {
 	if _, ok := e.Proposals[smrNodeId]; ok {
-		return ErrProposalAlreadyReceived
+		return execution.ErrProposalAlreadyReceived
 	}
 
 	e.Proposals[smrNodeId] = NewProposal(YieldProposal, yieldReason)
 	e.NumYieldProposals += 1
 
 	if e.NumYieldProposals == e.NumReplicas {
-		return ErrExecutionFailedAllYielded
+		return execution.ErrExecutionFailedAllYielded
 	}
 
 	return nil

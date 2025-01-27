@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
@@ -101,8 +100,8 @@ type DistributedClientProvider interface {
 	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
 		connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 		executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-		handleExecuteYieldNotification scheduling.YieldNotificationHandler, messagingMetricsProvider metrics.MessagingMetricsProvider,
-		updater func(func(statistics *statistics.ClusterStatistics)), notificationCallback scheduling.NotificationCallback) scheduling.Kernel
+		messagingMetricsProvider metrics.MessagingMetricsProvider, updater func(func(statistics *statistics.ClusterStatistics)),
+		notificationCallback scheduling.NotificationCallback) scheduling.Kernel
 }
 
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
@@ -1316,10 +1315,6 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 //
 // The passed message is the "execute_reply" or "yield_reply".
 func (d *ClusterGatewayImpl) executionFailed(c scheduling.Kernel, msg *messaging.JupyterMessage) error {
-	activeExecution := c.GetActiveExecution(msg.JupyterParentMessageId())
-	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.",
-		activeExecution.ExecuteRequestMessageId, activeExecution.AttemptNumber, c.ID())
-
 	return d.executionFailedCallback(c, msg)
 }
 
@@ -1597,7 +1592,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 	// Initialize kernel with new context.
 	kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
 		d.connectionOptions, uuid.NewString(), d.DebugMode, d.executionFailed, d.executionLatencyCallback,
-		d.handleExecutionYieldedNotification, d.gatewayPrometheusManager, d.updateClusterStatistics, d.notifyDashboard)
+		d.gatewayPrometheusManager, d.updateClusterStatistics, d.notifyDashboard)
 
 	d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 	_, err := kernel.InitializeShellForwarder(d.kernelShellHandler)
@@ -3617,7 +3612,7 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	d.log.Debug("Processing shell \"execute_request\" message targeting kernel %s: %s", kernelId, msg.StringFormatted())
 
 	// Register the execution with the kernel.
-	_, err := kernel.RegisterActiveExecution(msg)
+	err := kernel.RegisterActiveExecution(msg)
 	if err != nil {
 		d.log.Error("Failed to register new active execution \"%s\" targeting kernel \"%s\": %v",
 			msg.JupyterMessageId(), kernel.ID(), err)
@@ -4989,71 +4984,4 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 		stats.NumSeenSessions, stats.NumRunningSessions, stats.NumNonTerminatedSessions, stats.NumTrainingSessions, stats.NumIdleSessions, stats.NumStoppedSessions)
 	d.log.Debug("NumHosts: %d, NumDisabledHosts: %d, NumEmptyHosts: %d",
 		stats.Hosts, stats.NumDisabledHosts, stats.NumEmptyHosts)
-}
-
-// handleExecutionYieldedNotification is called when we receive a 'YIELD' proposal from a replica of a kernel.
-// handleExecutionYieldedNotification registers the 'yield' proposal with the kernel's current execution.Execution
-// struct. If we find that we've received all three proposals, and they were ALL 'yield', then we'll handle the situation
-// according to the scheduling policy that we've been configured to use.
-func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduling.KernelReplica, msgErr *messaging.MessageErrorWithYieldReason, msg *messaging.JupyterMessage) error {
-	kernelId := replica.ID()
-	kernel, loaded := d.kernels.Load(kernelId)
-	if !loaded {
-		panic(fmt.Sprintf("could not find kernel \"%s\" while handling 'yield' notification", kernelId))
-	}
-
-	// TODO: What to do if this returns an error?
-	_ = kernel.ReleasePreCommitedResourcesFromReplica(replica, msg)
-
-	replica.ReceivedExecuteReply(msg)
-
-	// targetExecuteRequestId is the Jupyter message ID of the "execute_request" message associated
-	// with the 'YIELD' proposal that we just received.
-	targetExecuteRequestId := msg.JupyterParentMessageId()
-
-	// It's possible we received a 'YIELD' proposal for an Execution different from the current one.
-	// So, retrieve the Execution associated with the 'YIELD' proposal (using the "execute_request" message IDs).
-	associatedActiveExecution := kernel.GetActiveExecution(targetExecuteRequestId)
-
-	// If we couldn't find the associated active execution at all, then we should panic. That's bad.
-	if associatedActiveExecution == nil {
-		log.Fatalf(utils.RedStyle.Render("Received 'YIELD' proposal from replica %d of kernel %s targeting unknown Execution associated with an \"execute_request\" message with msg_id=\"%s\"..."),
-			replica.ReplicaID(), replica.ID(), targetExecuteRequestId)
-	}
-
-	// Mark that we received the 'YIELD' proposal for the associated Execution.
-	err := associatedActiveExecution.ReceivedYieldNotification(replica.ReplicaID(), msgErr.YieldReason)
-
-	d.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for Execution associated with \"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
-		replica.ReplicaID(), replica.ID(), targetExecuteRequestId, associatedActiveExecution.NumRolesReceived(), associatedActiveExecution.NumReplicas, replica.ID())
-
-	// If we have a non-nil error, and it isn't just that all the replicas proposed YIELD, then return it directly.
-	if err != nil && !errors.Is(err, execution.ErrExecutionFailedAllYielded) {
-		d.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for Execution associated with \"execute_request\" \"%s\": %v",
-			replica.ReplicaID(), replica.ID(), targetExecuteRequestId, err)
-
-		return err
-	}
-
-	// If we have a non-nil error, and it's just that all replicas proposed YIELD, then we'll call the handler.
-	if errors.Is(err, execution.ErrExecutionFailedAllYielded) {
-		// Concatenate all the yield reasons. We'll return them along with the error returned by
-		// handleFailedExecutionAllYielded if handleFailedExecutionAllYielded returns a non-nil error.
-		yieldErrors := make([]error, 0, 4)
-		associatedActiveExecution.RangeRoles(func(i int32, proposal *execution.Proposal) bool {
-			yieldError := fmt.Errorf("replica %d proposed \"YIELD\" because: %s", i, proposal.Reason)
-			yieldErrors = append(yieldErrors, yieldError)
-			return true
-		})
-
-		// Call the handler. If it returns an error, then we'll join that error with the YIELD errors, and return
-		// them all together.
-		handlerError := d.executionFailed(kernel, msg)
-		if handlerError != nil {
-			allErrors := append([]error{handlerError}, yieldErrors...)
-			return errors.Join(allErrors...)
-		}
-	}
-
-	return nil
 }

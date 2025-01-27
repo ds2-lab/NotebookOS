@@ -17,7 +17,6 @@ import (
 	promise "github.com/Scusemua/go-utils/promise"
 	orderedmap "github.com/elliotchance/orderedmap/v2"
 	prometheus "github.com/prometheus/client_golang/prometheus"
-	execution "github.com/scusemua/distributed-notebook/common/execution"
 	jupyter "github.com/scusemua/distributed-notebook/common/jupyter"
 	messaging "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	server "github.com/scusemua/distributed-notebook/common/jupyter/server"
@@ -4488,20 +4487,6 @@ func (mr *MockKernelMockRecorder) ExecutionFailedCallback() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecutionFailedCallback", reflect.TypeOf((*MockKernel)(nil).ExecutionFailedCallback))
 }
 
-// GetActiveExecution mocks base method.
-func (m *MockKernel) GetActiveExecution(msgId string) *execution.Execution {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetActiveExecution", msgId)
-	ret0, _ := ret[0].(*execution.Execution)
-	return ret0
-}
-
-// GetActiveExecution indicates an expected call of GetActiveExecution.
-func (mr *MockKernelMockRecorder) GetActiveExecution(msgId any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveExecution", reflect.TypeOf((*MockKernel)(nil).GetActiveExecution), msgId)
-}
-
 // GetContainers mocks base method.
 func (m *MockKernel) GetContainers() []scheduling.KernelContainer {
 	m.ctrl.T.Helper()
@@ -4804,12 +4789,11 @@ func (mr *MockKernelMockRecorder) RegisterAckForRequest(req any) *gomock.Call {
 }
 
 // RegisterActiveExecution mocks base method.
-func (m *MockKernel) RegisterActiveExecution(msg *messaging.JupyterMessage) (*execution.Execution, error) {
+func (m *MockKernel) RegisterActiveExecution(msg *messaging.JupyterMessage) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RegisterActiveExecution", msg)
-	ret0, _ := ret[0].(*execution.Execution)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // RegisterActiveExecution indicates an expected call of RegisterActiveExecution.

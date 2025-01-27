@@ -35,11 +35,12 @@ def test_upload_and_download_file():
     assert success
 
     data: io.BytesIO = checkpointer.download_file_from_s3(obj_name)
-    assert data is not None
     print("Read data:", data.getvalue().decode("utf-8"))
 
     success = checkpointer.delete_data(obj_name)
     assert success
+
+    assert data is not None
 
     assert checkpointer.num_objects_read == 1
     assert checkpointer.num_objects_written == 1
@@ -56,12 +57,17 @@ def test_read_after_write_simple_model_state():
         proposer_id=1,
     )
 
-    checkpointer.write_state_dicts(model_pointer)
+    keys: list[str] = checkpointer.write_state_dicts(model_pointer)
 
     # The size will now be three -- as we wrote the model state, the state of the model's optimizer, and
     # the state of the model's criterion.
 
     model_state, optimizer_state, criterion_state, constructor_args_state = checkpointer.read_state_dicts(model_pointer)
+
+    for key in keys:
+        print(f"Deleting S3 object: '{key}'")
+
+        checkpointer.delete_data(key)
 
     assert model_state is not None
     assert optimizer_state is not None
@@ -74,8 +80,8 @@ def test_read_after_write_simple_model_state():
     assert isinstance(constructor_args_state, dict)
 
     assert checkpointer.num_objects_read == 4
-    assert checkpointer.num_objects_written == 4
-    # assert checkpointer.num_objects_deleted == 4
+    assert checkpointer.num_objects_written == 8
+    assert checkpointer.num_objects_deleted == 4
 
 
 def test_write_model_that_does_not_require_checkpointing():

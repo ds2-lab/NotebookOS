@@ -603,17 +603,17 @@ func (d *SchedulerDaemonImpl) SetID(_ context.Context, in *proto.HostId) (*proto
 	d.finishedGatewayHandshake = true
 
 	if d.prometheusManager != nil {
-		// We'll just restart the Local Daemon's Prometheus Manager.
+		// We'll just restart the Local Daemon's Prometheus ExecutionManager.
 		_ = d.prometheusManager.Stop()
 		if err := d.prometheusManager.Start(); err != nil {
-			d.log.Error("Failed to start Prometheus Manager because: %v", err)
+			d.log.Error("Failed to start Prometheus ExecutionManager because: %v", err)
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 	} else {
 		d.prometheusManager = metrics.NewLocalDaemonPrometheusManager(8089, d.id)
 		err := d.prometheusManager.Start()
 		if err != nil {
-			d.log.Error("Failed to start Prometheus Manager because: %v", err)
+			d.log.Error("Failed to start Prometheus ExecutionManager because: %v", err)
 			return in, status.Error(codes.Internal, err.Error())
 		}
 
