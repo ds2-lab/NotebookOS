@@ -54,6 +54,8 @@ RUN apt-get update && apt-get install iputils-ping dnsutils unzip vim gdb screen
 
 ADD dockfiles/base-jupyter-image/distributed_notebooks_requirements.txt /home/jovyan/distributed_notebook_requirements.txt
 
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install torch torchdata torchaudio transformers datasets sox librosa
+
 RUN /home/jovyan/Python-3.12.6/debug/python -m pip install -r /home/jovyan/distributed_notebook_requirements.txt
 
 # Install Golang for debugging.
