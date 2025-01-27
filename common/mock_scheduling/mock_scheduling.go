@@ -5945,13 +5945,13 @@ func (mr *MockKernelReplicaMockRecorder) SendRequest(request, socket any) *gomoc
 // SentExecuteRequest mocks base method.
 func (m *MockKernelReplica) SentExecuteRequest(msg *messaging.JupyterMessage) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SentExecuteRequest", msg)
+	m.ctrl.Call(m, "SendingExecuteRequest", msg)
 }
 
 // SentExecuteRequest indicates an expected call of SentExecuteRequest.
 func (mr *MockKernelReplicaMockRecorder) SentExecuteRequest(msg any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SentExecuteRequest", reflect.TypeOf((*MockKernelReplica)(nil).SentExecuteRequest), msg)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendingExecuteRequest", reflect.TypeOf((*MockKernelReplica)(nil).SentExecuteRequest), msg)
 }
 
 // Sessions mocks base method.

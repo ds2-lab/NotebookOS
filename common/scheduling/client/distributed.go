@@ -788,7 +788,11 @@ func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targ
 	responseHandler scheduling.KernelReplicaMessageHandler) error {
 
 	if jupyterMessage.JupyterMessageType() == messaging.ShellExecuteRequest || jupyterMessage.JupyterMessageType() == messaging.ShellYieldRequest {
-		targetReplica.SentExecuteRequest(jupyterMessage)
+		// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
+		targetReplica.SendingExecuteRequest(jupyterMessage)
+
+		// Inform our ExecutionManager that we are sending an "execute_request" (or "yield_request") message.
+		c.ExecutionManager.SendingExecuteRequest(jupyterMessage)
 	}
 
 	// TODO: If the ACKs fail on this and we reconnect and retry, the responseReceivedWg.Done may be called too many times.
@@ -969,15 +973,6 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 	// If there's just a single replica, then send the message to that one replica.
 	if len(replicas) == 1 {
-		//jMsg := jupyterMessages[0]
-		//msgType := jMsg.JupyterMessageType()
-		//if msgType == messaging.ShellExecuteRequest || msgType == messaging.ShellYieldRequest {
-		//	replicas[0].SentExecuteRequest(jMsg)
-		//}
-		//
-		//return replicas[0].RequestWithHandlerAndWaitOptionGetter(replicaCtx, typ, jMsg, responseHandler,
-		//	c.getWaitResponseOption, done)
-
 		return c.sendRequestToReplica(replicaCtx, replicas[0], jupyterMessages[0], typ,
 			nil, nil, responseHandler)
 	}

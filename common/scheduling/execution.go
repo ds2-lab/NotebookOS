@@ -32,6 +32,11 @@ type ExecutionManager interface {
 	TotalNumExecutionOperations() int
 	ExecutionFailedCallback() ExecutionFailedCallback
 
+	// SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
+	//
+	// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
+	SendingExecuteRequest(msg *messaging.JupyterMessage) error
+
 	// LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
 	// code execution, or nil if no code executions have occurred.
 	LastPrimaryReplica() KernelReplica

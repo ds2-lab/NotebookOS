@@ -175,7 +175,11 @@ type KernelReplica interface {
 	SetLastTrainingTimePrometheusUpdate()
 	LastTrainingTimePrometheusUpdate() time.Time
 	NumPendingExecuteRequests() int
-	SentExecuteRequest(msg *messaging.JupyterMessage)
+
+	// SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
+	//
+	// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
+	SendingExecuteRequest(msg *messaging.JupyterMessage)
 	ReceivedExecuteReply(msg *messaging.JupyterMessage)
 	TrainingStartedAt() time.Time
 	WorkloadId() string

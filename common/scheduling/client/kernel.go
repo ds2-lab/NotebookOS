@@ -473,7 +473,7 @@ func (c *KernelReplicaClient) NumPendingExecuteRequests() int {
 //
 // SentExecuteRequest will panic if the given messaging.JupyterMessage is not an "execute_request"
 // message or a "yield_request" message.
-func (c *KernelReplicaClient) SentExecuteRequest(msg *messaging.JupyterMessage) {
+func (c *KernelReplicaClient) SendingExecuteRequest(msg *messaging.JupyterMessage) {
 	c.pendingExecuteRequestIdsMutex.Lock()
 	defer c.pendingExecuteRequestIdsMutex.Unlock()
 

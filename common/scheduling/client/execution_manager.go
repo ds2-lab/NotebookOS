@@ -28,7 +28,8 @@ func validateRequest(msg *messaging.JupyterMessage) error {
 // validateReply ensures that the given *messaging.JupyterMessage is an "execute_reply"
 func validateReply(msg *messaging.JupyterMessage) error {
 	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
-		return fmt.Errorf("%w: message provided is of type \"%s\"", ErrInvalidMessage, msg.JupyterMessageType())
+		return fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
+			ErrInvalidMessage, messaging.ShellExecuteReply, msg.JupyterMessageType())
 	}
 
 	return nil
@@ -85,6 +86,9 @@ type ExecutionManager struct {
 	// all Execution structs.
 	executionIndices map[string]int32
 
+	// executionIndicesToExecutions is a mapping from ExecutionIndex to *Execution.
+	executionIndicesToExecutions map[int32]*Execution
+
 	// nextExecutionIndex is the index of the next "execute_request" to be submitted.
 	nextExecutionIndex atomic.Int32
 
@@ -114,7 +118,7 @@ type ExecutionManager struct {
 	// the goals outlined in the documentation of the submittedExecutionIndex field.
 	// See the submittedExecutionIndex field for more info.
 	//
-	// activeExecutionIndex is the execution index of the most up-to-date training for which we received an
+	// activeExecutionIndex is the execution index of the most up-to-date training for which we received a
 	// "smr_lead_task". By up to date, we mean that the training occurred most recently in terms of what the client is
 	// doing/submitting.
 	//
@@ -169,20 +173,21 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCall
 	statsProvider scheduling.StatisticsProvider) *ExecutionManager {
 
 	manager := &ExecutionManager{
-		activeExecutions:         make(map[string]*Execution),
-		finishedExecutions:       make(map[string]*Execution),
-		erredExecutions:          make(map[string]*Execution),
-		allExecutions:            make(map[string]*Execution),
-		executionIndices:         make(map[string]int32),
-		NumReplicas:              numReplicas,
-		Kernel:                   kernel,
-		submittedExecutionIndex:  -1,
-		activeExecutionIndex:     -1,
-		completedExecutionIndex:  -1,
-		executionFailedCallback:  execFailCallback,
-		notificationCallback:     notifyCallback,
-		executionLatencyCallback: latencyCallback,
-		statisticsProvider:       statsProvider,
+		activeExecutions:             make(map[string]*Execution),
+		finishedExecutions:           make(map[string]*Execution),
+		erredExecutions:              make(map[string]*Execution),
+		allExecutions:                make(map[string]*Execution),
+		executionIndicesToExecutions: make(map[int32]*Execution),
+		executionIndices:             make(map[string]int32),
+		NumReplicas:                  numReplicas,
+		Kernel:                       kernel,
+		submittedExecutionIndex:      -1,
+		activeExecutionIndex:         -1,
+		completedExecutionIndex:      -1,
+		executionFailedCallback:      execFailCallback,
+		notificationCallback:         notifyCallback,
+		executionLatencyCallback:     latencyCallback,
+		statisticsProvider:           statsProvider,
 	}
 
 	config.InitLogger(&manager.log, manager)
@@ -192,19 +197,56 @@ func NewExecutionManager(kernel scheduling.Kernel, numReplicas int, execFailCall
 
 // ExecutionIndexIsLarger returns true if the given executionIndex is larger than all 3 of the execution-index-related
 // fields of the KernelReplicaClient, namely submittedExecutionIndex, activeExecutionIndex, and completedExecutionIndex.
-func (c *ExecutionManager) ExecutionIndexIsLarger(executionIndex int32) bool {
-	return executionIndex > c.submittedExecutionIndex && executionIndex > c.activeExecutionIndex && executionIndex > c.completedExecutionIndex
+func (m *ExecutionManager) ExecutionIndexIsLarger(executionIndex int32) bool {
+	return executionIndex > m.submittedExecutionIndex && executionIndex > m.activeExecutionIndex && executionIndex > m.completedExecutionIndex
+}
+
+// SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
+//
+// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
+func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) error {
+	err := validateRequest(msg)
+	if err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	requestId := msg.JupyterMessageId()
+
+	executionIndex, loaded := m.executionIndices[requestId]
+	if !loaded {
+		return fmt.Errorf("%w: could not find execution index associated with request \"%s\"",
+			ErrUnknownActiveExecution, requestId)
+	}
+
+	if executionIndex < m.submittedExecutionIndex {
+		execution := m.executionIndicesToExecutions[m.submittedExecutionIndex]
+		if execution == nil { // Sanity check.
+			panic(fmt.Sprintf("Expected to find Execution associated with last-submitted index %d.",
+				m.submittedExecutionIndex))
+		}
+
+		m.log.Error("Submitting execute request \"%s\" with index=%d; however, last submitted execution had index=%d and ID=%s.",
+			requestId, executionIndex, m.submittedExecutionIndex, execution.ExecuteRequestMessageId)
+		// TODO: Return error?
+	}
+
+	m.submittedExecutionIndex = executionIndex
+
+	return nil
 }
 
 // RegisterExecution registers a newly-submitted "execute_request" with the ExecutionManager.
 func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (scheduling.Execution, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	err := validateRequest(msg)
 	if err != nil {
 		return nil, err
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	requestId := msg.JupyterMessageId()
 	if _, loaded := m.finishedExecutions[requestId]; loaded {
@@ -224,6 +266,7 @@ func (m *ExecutionManager) RegisterExecution(msg *messaging.JupyterMessage) (sch
 	newExecution := NewExecution(m.Kernel.ID(), 1, m.NumReplicas, executionIndex, msg)
 	m.allExecutions[requestId] = newExecution
 	m.activeExecutions[requestId] = newExecution
+	m.executionIndicesToExecutions[executionIndex] = newExecution
 
 	m.log.Debug("Registered new execution \"%s\" (idx=%d) for kernel \"%s\"",
 		requestId, executionIndex, m.Kernel.ID())
@@ -274,9 +317,8 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 	msgErr *messaging.MessageErrorWithYieldReason) error {
 	replica.ReceivedExecuteReply(msg)
 
-	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
-		return fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
-			ErrInvalidMessage, messaging.ShellExecuteReply, msg.JupyterMessageType())
+	if err := validateReply(msg); err != nil {
+		return err
 	}
 
 	m.log.Debug("Received 'YIELD' proposal from replica %d for execution \"%s\"",
@@ -376,6 +418,11 @@ func (m *ExecutionManager) HandleSmrLeadTaskMessage(msg *messaging.JupyterMessag
 	m.log.Debug(utils.LightBlueStyle.Render("Received \"%s\" message from %v: %s"),
 		messaging.MessageTypeSMRLeadTask, kernelReplica.String(), msg.StringFormatted())
 
+	return m.handleSmrLeadTaskMessage(kernelReplica, msg)
+}
+
+// handleSmrLeadTaskMessage is the critical section of HandleSmrLeadTaskMessage.
+func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
 	// Decode the jupyter.MessageSMRLeadTask message.
 	leadMessage, err := m.decodeLeadMessageContent(msg)
 	if err != nil {
@@ -385,10 +432,13 @@ func (m *ExecutionManager) HandleSmrLeadTaskMessage(msg *messaging.JupyterMessag
 	// The ID of the Jupyter "execute_request" message that initiated the associated training.
 	executeRequestMsgId := leadMessage.ExecuteRequestMsgId
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	activeExecution := m.GetActiveExecution(executeRequestMsgId)
 	if activeExecution == nil {
 		errorMessage := fmt.Sprintf(
-			"Cannot find active execution with \"execute_request\" message ID of \"%s\" associated with kernel \"%s\"...\n",
+			"Cannot find active activeExecution with \"execute_request\" message ID of \"%s\" associated with kernel \"%s\"...\n",
 			executeRequestMsgId, m.Kernel.ID())
 		m.log.Error(utils.RedStyle.Render(errorMessage))
 
@@ -396,28 +446,35 @@ func (m *ExecutionManager) HandleSmrLeadTaskMessage(msg *messaging.JupyterMessag
 			go m.notificationCallback("Cannot Find Active Execution", errorMessage, messaging.ErrorNotification)
 		}
 
-		return fmt.Errorf("could not find active execution with jupyter request ID of \"%s\" associated with kernel \"%s\"",
+		return fmt.Errorf("could not find active activeExecution with jupyter request ID of \"%s\" associated with kernel \"%s\"",
 			executeRequestMsgId, m.Kernel.ID())
 	}
 
-	return m.handleSmrLeadTaskMessage(activeExecution, kernelReplica)
-}
+	executionIndex := activeExecution.GetExecutionIndex()
 
-// handleSmrLeadTaskMessage is the critical section of HandleSmrLeadTaskMessage.
-func (m *ExecutionManager) handleSmrLeadTaskMessage(execution scheduling.Execution, replica scheduling.KernelReplica,
-	leadMessage *messaging.MessageSMRLeadTask) error {
+	// If the execution index is less than the index of the most-recently-submitted execution, then this is an old
+	// "smr_lead_task" message, and we can simply discard it.
+	if executionIndex < m.submittedExecutionIndex {
+		moreRecentExecution := m.executionIndicesToExecutions[m.submittedExecutionIndex]
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+		m.log.Warn("Execution \"%s\" is old (index=%d). We've since submitted execution \"%s\" (index=%d).",
+			executeRequestMsgId, executionIndex, moreRecentExecution.ExecuteRequestMessageId, moreRecentExecution.ExecutionIndex)
+		m.log.Warn("Discarding \"smr_lead_task\" message \"%s\" associated with (old) execution \"%s\".",
+			msg.JupyterMessageId(), executeRequestMsgId)
 
-	execution.SetActiveReplica(replica)
+		// TODO: Should we still check if this "smr_lead_task" message is more recent than whatever the last one we
+		//       received? And if so, then should we update the associated field, even if we're discarding the message?
+		return nil
+	}
+
+	activeExecution.SetActiveReplica(replica)
 	m.lastPrimaryReplica = replica
 
 	// We pass (as the second argument) the time at which the kernel replica began executing the code.
-	m.processExecutionStartLatency(execution, time.UnixMilli(leadMessage.UnixMilliseconds))
+	m.processExecutionStartLatency(activeExecution, time.UnixMilli(leadMessage.UnixMilliseconds))
 
 	// Record that the kernel has started training.
-	if err := replica.KernelStartedTraining(execution.GetExecutionIndex()); err != nil {
+	if err := replica.KernelStartedTraining(); err != nil {
 		m.log.Error("Failed to start training for kernel replica %s-%d: %v", m.Kernel.ID(),
 			replica.ReplicaID(), err)
 
@@ -439,9 +496,8 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(execution scheduling.Executi
 //
 // HandleExecuteReplyMessage returns a bool flag indicating whether the message is a 'YIELD' message or ot.
 func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (bool, error) {
-	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
-		return false, fmt.Errorf("%w: expected message of type \"%s\", received message of type \"%s\"",
-			ErrInvalidMessage, messaging.ShellExecuteReply, msg.JupyterMessageType())
+	if err := validateReply(msg); err != nil {
+		return false, err
 	}
 
 	kernelId := m.Kernel.ID()

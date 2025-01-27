@@ -2452,7 +2452,7 @@ func (d *SchedulerDaemonImpl) executeRequestForwarder(queue chan *enqueuedExecOr
 				}
 
 				// Record that we've sent this (although technically we haven't yet).
-				kernel.SentExecuteRequest(processedMessage)
+				kernel.SendingExecuteRequest(processedMessage)
 
 				// Send the message and post the result back to the caller via the channel included within
 				// the enqueued "execute_request" message.
