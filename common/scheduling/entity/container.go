@@ -60,6 +60,9 @@ func NewContainer(session scheduling.UserSession, kernelReplica scheduling.Kerne
 	container.interactivePriority.Producer = cache.FormalizeICProducer(container.getInteractivePriority)
 	container.interactivePriority.Validator = GetClockTimeCacheValidator()
 
+	container.log.Debug("Container for replica %d of kernel %s has been created with spec %v on host %s (ID=%s)",
+		container.replicaId, container.id, container.ResourceSpec().String(), host.GetNodeName(), host.GetID())
+
 	return container
 }
 
@@ -127,8 +130,8 @@ func (c *Container) KernelID() string {
 }
 
 func (c *Container) String() string {
-	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,State=%v,StartedAt=%v,Host=%v]",
-		c.id, c.replicaId, c.containerState, c.startedAt, c.host)
+	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,State=%v,StartedAt=%v,ResourceSpec=%v,Host=%v]",
+		c.id, c.replicaId, c.containerState, c.startedAt, c.ResourceSpec(), c.host)
 }
 
 func (c *Container) Session() scheduling.UserSession {
@@ -268,8 +271,8 @@ func (c *Container) TrainingStartedInContainer( /*snapshot types.HostResourceSna
 		return err
 	}
 
-	c.log.Debug("Container for replica %d of kernel \"%s\" has successfully started training. ResourceSpec: %v.",
-		c.replicaId, c.id, c.ResourceSpec().String())
+	c.log.Debug("Container for replica %d of kernel \"%s\" has successfully started training on host %s (ID=%s). ResourceSpec: %v. Host resources: %v.",
+		c.replicaId, c.id, c.host.GetNodeName(), c.host.GetID(), c.ResourceSpec().String(), c.host.GetResourceCountsAsString())
 
 	return nil
 }
@@ -283,7 +286,8 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 		return err
 	}
 
-	c.log.Debug("Training stopping after %v. Outputting Resources before training officially stops. ResourceSpec of %s: %s", time.Since(c.trainingStartedAt), c.ContainerID(), c.spec.String())
+	c.log.Debug("Training stopping on host %s (ID=%s) after %v. Outputting Resources before training officially stops. ResourceSpec of %s: %s",
+		c.host.GetNodeName(), c.host.GetID(), time.Since(c.trainingStartedAt), c.ContainerID(), c.spec.String())
 	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
 	c.log.Debug("Idle CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
@@ -330,6 +334,9 @@ func (c *Container) ContainerStopped() error {
 		c.log.Error("Failed to cleanly stop Container as its host is nil...")
 		return scheduling.ErrNilHost
 	}
+
+	c.log.Debug("Container for replica %d of kernel %s has stopped. Removing from host %s (ID=%s). Container spec: %v.",
+		c.ReplicaID(), c.ID(), c.host.GetNodeName(), c.host.GetID(), c.ResourceSpec())
 
 	err := c.host.ContainerRemoved(c)
 	if err != nil {

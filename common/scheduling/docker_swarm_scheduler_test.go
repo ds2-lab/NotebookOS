@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	jupyter "github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/mock_proto"
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
 	"github.com/scusemua/distributed-notebook/common/proto"
@@ -18,7 +19,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/mock_scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
@@ -56,7 +56,7 @@ var (
 			"num-virtual-gpus-per-node": 72,
 			"subscribed-ratio-update-interval": 1,
 			"scaling-factor": 1.05,
-			"scaling-interval": 30,
+			"scaling-interval": 15,
 			"scaling-limit": 1.1,
 			"scaling-in-limit": 2,
 			"predictive_autoscaling": false,
@@ -191,7 +191,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
-				nil, nil, schedulingPolicy, func(f func(stats *statistics.ClusterStatistics)) {},
+				nil, nil, schedulingPolicy, func(f func(stats *metrics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
 			Expect(dockerCluster).ToNot(BeNil())
@@ -1298,7 +1298,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
-				nil, nil, schedulingPolicy, func(f func(stats *statistics.ClusterStatistics)) {},
+				nil, nil, schedulingPolicy, func(f func(stats *metrics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
 			Expect(dockerCluster).ToNot(BeNil())
@@ -1593,7 +1593,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(ok).To(BeTrue())
 
 			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
-				nil, nil, schedulingPolicy, func(f func(stats *statistics.ClusterStatistics)) {},
+				nil, nil, schedulingPolicy, func(f func(stats *metrics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
 			Expect(dockerCluster).ToNot(BeNil())

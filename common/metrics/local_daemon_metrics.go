@@ -63,6 +63,12 @@ type LocalDaemonPrometheusManager struct {
 	AckLatencyMicrosecondsHistogram         prometheus.Observer // AckLatencyMicrosecondsHistogram is a cached return of AckLatencyMicrosecondsVec.With(<label for the local daemon on this node>)
 }
 
+// UpdateClusterStatistics isn't directly supported by LocalDaemonPrometheusManager.
+func (m *LocalDaemonPrometheusManager) UpdateClusterStatistics(_ func(statistics *ClusterStatistics)) {
+	// Not supported. We can just ignore it. No-op.
+	return
+}
+
 // NewLocalDaemonPrometheusManager creates a new LocalDaemonPrometheusManager struct and returns a pointer to it.
 func NewLocalDaemonPrometheusManager(port int, nodeId string) *LocalDaemonPrometheusManager {
 	baseManager := newBasePrometheusManager(port, nodeId)
@@ -97,12 +103,6 @@ func (m *LocalDaemonPrometheusManager) HandleVariablesRequest(c *gin.Context) {
 	m.log.Error("LocalDaemonPrometheusManager is not supposed to receive 'variables' requests.")
 
 	_ = c.AbortWithError(http.StatusNotFound, fmt.Errorf("LocalDaemon nodes cannot serve 'variables' requests"))
-}
-
-// GetContainerMetricsProvider returns a ContainerMetricsProvider, a role that is fulfilled
-// by the LocalDaemonPrometheusManager.
-func (m *LocalDaemonPrometheusManager) GetContainerMetricsProvider() ContainerMetricsProvider {
-	return m
 }
 
 // InitMetrics creates a Prometheus endpoint and

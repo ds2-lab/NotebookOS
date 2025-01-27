@@ -271,6 +271,13 @@ func (index *StaticIndex) Identifier() string {
 // IsQualified returns the actual value according to the index category and whether the scheduling.Host is qualified.
 // An index provider must be able to track indexed scheduling.Host instances and indicate disqualification.
 func (index *StaticIndex) IsQualified(host scheduling.Host) (actual interface{}, qualified scheduling.IndexQualification) {
+	if !host.Enabled() {
+		// If the host is not enabled, then it is ineligible to be added to the index.
+		// In general, disabled hosts will not be attempted to be added to the index,
+		// but if that happens, then we return scheduling.IndexUnqualified.
+		return expectedRandomIndex, scheduling.IndexUnqualified
+	}
+
 	// Since all hosts are qualified, we check if the host is in the index only.
 	_, hostIsFree := index.MultiIndex.FreeHostsMap[host.GetID()]
 	if hostIsFree {

@@ -20,12 +20,23 @@ func NewDynamicV3Policy(opts *scheduling.SchedulerOptions) (*DynamicV3Policy, er
 		baseSchedulingPolicy: basePolicy,
 	}
 
+	if opts.MinimumNumNodes < policy.NumReplicas() {
+		panic(fmt.Sprintf("Minimum number of nodes (%d) is incompatible with number of replicas (%d). Minimum number of nodes must be >= number of replicas.",
+			opts.MinimumNumNodes, policy.NumReplicas()))
+	}
+
 	if opts.SchedulingPolicy != scheduling.DynamicV3.String() {
 		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of DynamicV3Policy.",
 			opts.SchedulingPolicy))
 	}
 
 	return policy, nil
+}
+
+// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
+// Adjust the Cluster's capacity as directed by scaling policy.
+func (p *DynamicV3Policy) ValidateCapacity(cluster scheduling.Cluster) {
+	multiReplicaValidateCapacity(p, cluster, p.log)
 }
 
 func (p *DynamicV3Policy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
@@ -50,6 +61,13 @@ func (p *DynamicV3Policy) Name() string {
 
 func (p *DynamicV3Policy) NumReplicas() int {
 	return 3
+}
+
+// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+// resource request of an existing/scheduled kernel after it has already been created, or if the
+// initial resource request/allocation is static and cannot be changed after the kernel is created.
+func (p *DynamicV3Policy) SupportsDynamicResourceAdjustments() bool {
+	return true
 }
 
 func (p *DynamicV3Policy) ResourceBindingMode() scheduling.ResourceBindingMode {
@@ -143,8 +161,7 @@ func (p *DynamicV3Policy) SelectReplicaForMigration(kernel scheduling.Kernel) (s
 // selecting a replica now depends upon the kernel's resource request correctly specifying
 // the requirements. If the requirements were to change after selection a replica, then
 // that could invalidate the selection.
-func (p *DynamicV3Policy) FindReadyReplica(_ scheduling.Kernel, _ string) (scheduling.KernelReplica, error) {
-	// TODO: Implement me.
+func (p *DynamicV3Policy) FindReadyReplica(_ scheduling.Kernel, _ string) (scheduling.KernelReplica, error) { // TODO: Implement me.
 	panic("Not implemented.")
 }
 
@@ -158,6 +175,12 @@ func (p *DynamicV3Policy) ScalingOutEnabled() bool {
 
 func (p *DynamicV3Policy) ScalingInEnabled() bool {
 	return p.scalingOutEnabled
+}
+
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *DynamicV3Policy) SupportsPredictiveAutoscaling() bool {
+	return true
 }
 
 /////////////////////////////////////////////

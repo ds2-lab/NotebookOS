@@ -8,7 +8,6 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/metrics"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"strings"
 	"time"
@@ -38,8 +37,9 @@ type Router struct {
 	handlers []MessageHandler
 }
 
-func New(ctx context.Context, opts *jupyter.ConnectionInfo, provider Provider, messageAcknowledgementsEnabled bool,
-	name string, shouldAckMessages bool, nodeType metrics.NodeType, debugMode bool, statisticsUpdater func(func(statistics *statistics.ClusterStatistics))) *Router {
+func New(ctx context.Context, id string, opts *jupyter.ConnectionInfo, provider Provider,
+	messageAcknowledgementsEnabled bool, name string, shouldAckMessages bool, nodeType metrics.NodeType, debugMode bool,
+	metricsProvider server.MessagingMetricsProvider) *Router {
 
 	router := &Router{
 		name: name,
@@ -64,7 +64,7 @@ func New(ctx context.Context, opts *jupyter.ConnectionInfo, provider Provider, m
 			s.ReconnectOnAckFailure = false
 			s.ShouldAckMessages = shouldAckMessages
 			s.DebugMode = debugMode
-			s.StatisticsUpdaterProvider = statisticsUpdater
+			s.StatisticsAndMetricsProvider = metricsProvider
 			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
 			s.Name = fmt.Sprintf("Router[%s] ", name)
 			config.InitLogger(&s.Log, s.Name)
@@ -78,13 +78,18 @@ func New(ctx context.Context, opts *jupyter.ConnectionInfo, provider Provider, m
 		router.AddHandler(messaging.StdinMessage, provider.StdinHandler)
 		router.AddHandler(messaging.HBMessage, provider.HBHandler)
 	}
+
+	if id != "" {
+		router.SetComponentId(id)
+	}
+
 	config.InitLogger(&router.log, router.name)
 	return router
 }
 
-// AssignPrometheusManager sets the MessagingMetricsProvider on the server(s) encapsulated by the Router.
-func (g *Router) AssignPrometheusManager(messagingMetricsProvider metrics.MessagingMetricsProvider) {
-	g.server.MessagingMetricsProvider = messagingMetricsProvider
+// AssignPrometheusManager sets the StatisticsAndMetricsProvider on the server(s) encapsulated by the Router.
+func (g *Router) AssignPrometheusManager(messagingMetricsProvider server.MessagingMetricsProvider) {
+	g.server.StatisticsAndMetricsProvider = messagingMetricsProvider
 
 	// I think this is actually essentially changing the same field, as I think the two structs/fields here
 	// are actually the same variable (via pointers), but nevertheless...
@@ -190,9 +195,11 @@ func (g *Router) AddHandler(typ messaging.MessageType, handler MessageHandler) {
 }
 
 func (g *Router) Close() error {
-	err := g.BaseServer.Close()
-	if err != nil {
-		g.log.Warn("Error while closing BaseServer of router '%s': %v", g.name, err)
+	if g.BaseServer != nil {
+		err := g.BaseServer.Close()
+		if err != nil {
+			g.log.Warn("Error while closing BaseServer of router '%s': %v", g.name, err)
+		}
 	}
 
 	// Sockets will be closed on Start() existing.

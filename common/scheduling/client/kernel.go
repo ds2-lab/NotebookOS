@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/petermattis/goid"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
 	"sync"
@@ -99,8 +99,6 @@ type KernelReplicaClient struct {
 	trainingFinishedCond             *sync.Cond                                         // Used to notify the goroutine responsible for sending "execute_requests" to the kernel that the kernel has finished training.
 	trainingFinishedMu               sync.Mutex                                         // Goes with the trainingFinishedCond field.
 
-	// isSomeReplicaTraining            bool             // isSomeReplicaTraining indicates whether any replica of the kernel associated with this client is actively training, even if it is not the specific replica associated with this client.
-
 	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback // Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
 
 	// If we successfully reconnect to a kernel and then fail to send the message again, then we call this.
@@ -120,12 +118,12 @@ type KernelReplicaClient struct {
 	container scheduling.KernelContainer
 
 	// prometheusManager is an interface that enables the recording of metrics observed by the KernelReplicaClient.
-	messagingMetricsProvider metrics.MessagingMetricsProvider
+	messagingMetricsProvider server.MessagingMetricsProvider
 
 	// Used to update the fields of the Cluster Gateway's GatewayStatistics struct atomically.
 	// The Cluster Gateway locks modifications to the GatewayStatistics struct before calling whatever function
 	// we pass to the statisticsUpdaterProvider.
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))
 
 	log logger.Logger
 	mu  sync.Mutex
@@ -140,9 +138,9 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	numResendAttempts int, podOrContainerName string, nodeName string, smrNodeReadyCallback SMRNodeReadyNotificationCallback,
 	smrNodeAddedCallback SMRNodeUpdatedNotificationCallback, messageAcknowledgementsEnabled bool, persistentId string, hostId string,
 	host scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool, debugMode bool,
-	messagingMetricsProvider metrics.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
+	messagingMetricsProvider server.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback,
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))) *KernelReplicaClient {
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))) *KernelReplicaClient {
 
 	// Validate that the `spec` argument is non-nil.
 	if spec == nil {
@@ -193,7 +191,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 			s.PrependId = false
 			s.ComponentId = componentId
 			s.MessageAcknowledgementsEnabled = messageAcknowledgementsEnabled
-			s.MessagingMetricsProvider = messagingMetricsProvider
+			s.StatisticsAndMetricsProvider = messagingMetricsProvider
 			s.Name = fmt.Sprintf("Kernel-%s", spec.Kernel.Id)
 			s.DebugMode = debugMode
 
@@ -326,7 +324,9 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx *t
 		}
 
 		container.UpdateResourceSpec(specAsDecimalSpec)
-		container.Session().UpdateResourceSpec(specAsDecimalSpec)
+	} else if tx != nil {
+		c.log.Warn("Replica %d of kernel %s does not have a non-nil container, but coordinated tx is non-nil...",
+			c.replicaId, c.id)
 	}
 
 	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
@@ -438,13 +438,14 @@ func (c *KernelReplicaClient) KernelStartedTraining() error {
 	c.log.Debug(utils.PurpleStyle.Render("Replica %d of kernel \"%s\" has STARTED training."), c.replicaId, c.id)
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			stats.NumTrainingSessions += 1
 			stats.CumulativeSessionIdleTime += time.Since(c.idleStartedAt).Seconds()
 
 			now := time.Now()
-			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
-				Name:                statistics.KernelTrainingStarted,
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.KernelTrainingStarted,
 				KernelId:            c.id,
 				ReplicaId:           c.replicaId,
 				Timestamp:           now,
@@ -472,12 +473,14 @@ func (c *KernelReplicaClient) NumPendingExecuteRequests() int {
 //
 // SentExecuteRequest will panic if the given messaging.JupyterMessage is not an "execute_request"
 // message or a "yield_request" message.
-func (c *KernelReplicaClient) SentExecuteRequest(msg *messaging.JupyterMessage) {
+func (c *KernelReplicaClient) SendingExecuteRequest(msg *messaging.JupyterMessage) {
 	c.pendingExecuteRequestIdsMutex.Lock()
 	defer c.pendingExecuteRequestIdsMutex.Unlock()
 
 	if msg.JupyterMessageType() != messaging.ShellExecuteRequest && msg.JupyterMessageType() != messaging.ShellYieldRequest {
-		log.Fatalf(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
+		// This really shouldn't happen.
+		c.log.Error(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
+		return
 	}
 
 	c.pendingExecuteRequestIds.Store(msg.JupyterMessageId(), msg)
@@ -507,7 +510,9 @@ func (c *KernelReplicaClient) ReceivedExecuteReply(msg *messaging.JupyterMessage
 	defer c.pendingExecuteRequestIdsMutex.Unlock()
 
 	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
-		log.Fatalf(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
+		// This really shouldn't happen.
+		c.log.Error(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
+		return
 	}
 
 	_, found := c.pendingExecuteRequestIds.LoadAndDelete(msg.JupyterParentMessageId())
@@ -574,7 +579,7 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 		c.replicaId, c.id, time.Since(c.trainingStartedAt), reason)
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			stats.NumTrainingSessions -= 1
 			stats.CumulativeSessionTrainingTime += time.Since(c.trainingStartedAt).Seconds()
 
@@ -586,8 +591,9 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 			}
 
 			now := time.Now()
-			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
-				Name:                statistics.KernelTrainingEnded,
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.KernelTrainingEnded,
 				KernelId:            c.id,
 				ReplicaId:           c.replicaId,
 				Timestamp:           now,

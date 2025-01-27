@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"container/heap"
 	"context"
 	"fmt"
 	"github.com/gin-gonic/contrib/cors"
@@ -62,7 +63,16 @@ func NewKubernetesScheduler(cluster scheduling.Cluster, placer scheduling.Placer
 
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *KubernetesScheduler) HostAdded(host scheduling.Host) {
-	s.log.Debug("Host %s (ID=%s) has been added.", host.GetNodeName(), host.GetID())
+	heap.Push(s.idleHosts, host)
+	s.log.Debug("Host %s (ID=%s) has been added. Cluster size: %d. Length of idle hosts: %d",
+		host.GetNodeName(), host.GetID(), s.cluster.Len(), s.idleHosts.Len())
+}
+
+// HostRemoved is called by the Cluster when a Host is removed from the Cluster.
+func (s *KubernetesScheduler) HostRemoved(host scheduling.Host) {
+	heap.Remove(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
+	s.log.Debug("Host %s (ID=%s) has been removed. Cluster size: %d. Length of idle hosts: %d",
+		host.GetNodeName(), host.GetID(), s.cluster.Len(), s.idleHosts.Len())
 }
 
 // findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.

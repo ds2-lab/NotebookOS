@@ -4,7 +4,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"github.com/scusemua/distributed-notebook/common/statistics"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -39,8 +39,8 @@ func init() {
 	options.ProvisionerPort = 8081
 	options.ConnectionInfo.Transport = "tcp"
 
-	gob.Register(statistics.ClusterStatistics{})
-	gob.Register(statistics.ClusterEvent{})
+	gob.Register(metrics.ClusterStatistics{})
+	gob.Register(metrics.ClusterEvent{})
 	gob.Register(map[string]interface{}{})
 	gob.Register(time.Duration(0))
 	gob.Register(time.Time{})

@@ -70,6 +70,11 @@ func newBaseSchedulingPolicy(opts *scheduling.SchedulerOptions, scalingOutEnable
 		supportsMigration:            supportsMigration,
 	}
 
+	if opts.MinimumNumNodes < 1 {
+		panic(fmt.Sprintf("Invalid minimum number of nodes: %d. Must be >= 1 and >= number of replicas.",
+			opts.MinimumNumNodes))
+	}
+
 	config.InitLogger(&basePolicy.log, basePolicy)
 
 	return basePolicy, nil

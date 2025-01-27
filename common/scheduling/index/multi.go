@@ -326,6 +326,13 @@ func (index *MultiIndex[T]) Category() (string, interface{}) {
 }
 
 func (index *MultiIndex[T]) IsQualified(host scheduling.Host) (interface{}, scheduling.IndexQualification) {
+	if !host.Enabled() {
+		// If the host is not enabled, then it is ineligible to be added to the index.
+		// In general, disabled hosts will not be attempted to be added to the index,
+		// but if that happens, then we return scheduling.IndexUnqualified.
+		return expectedRandomIndex, scheduling.IndexUnqualified
+	}
+
 	// Since all hosts are qualified, we check if the host is in the index only.
 	_, hostIsFree := index.FreeHostsMap[host.GetID()]
 	if hostIsFree {

@@ -56,6 +56,13 @@ func (index *OldStaticClusterIndex) Category() (category string, expected interf
 // IsQualified returns the actual value according to the index category and whether the host is qualified.
 // An index provider must be able to track indexed hosts and indicate disqualification.
 func (index *OldStaticClusterIndex) IsQualified(host scheduling.Host) (actual interface{}, qualified scheduling.IndexQualification) {
+	if !host.Enabled() {
+		// If the host is not enabled, then it is ineligible to be added to the index.
+		// In general, disabled hosts will not be attempted to be added to the index,
+		// but if that happens, then we return scheduling.IndexUnqualified.
+		return expectedRandomIndex, scheduling.IndexUnqualified
+	}
+
 	// Since all hosts are qualified, we check if the host is in the index only.
 	if _, ok := host.GetMeta(HostMetaStaticIndex).(int32); ok {
 		return expectedStaticIndex, scheduling.IndexQualified

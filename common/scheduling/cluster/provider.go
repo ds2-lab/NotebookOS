@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"log"
 )
@@ -33,17 +33,17 @@ func (t Type) String() string {
 //
 // Provider validates that all required arguments are non-nil before creating the scheduling.Cluster.
 type Provider struct {
-	ClusterType               Type                                                 // Required.
-	HostSpec                  types.Spec                                           // Required.
-	Placer                    scheduling.Placer                                    // Required.
-	HostMapper                scheduler.HostMapper                                 // Required.
-	KernelProvider            scheduler.KernelProvider                             // Required.
-	ClusterMetricsProvider    scheduling.MetricsProvider                           // Optional.
-	NotificationBroker        scheduler.NotificationBroker                         // Optional.
-	Options                   *scheduling.SchedulerOptions                         // Required.
-	SchedulingPolicy          internalSchedulingPolicy                             // Optional, will be extracted from Options if not specified.
-	KubeClient                scheduling.KubeClient                                // Required for Kubernetes clusters. Ignored for others.
-	StatisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)) // Optional.
+	ClusterType               Type                                              // Required.
+	HostSpec                  types.Spec                                        // Required.
+	Placer                    scheduling.Placer                                 // Required.
+	HostMapper                scheduler.HostMapper                              // Required.
+	KernelProvider            scheduler.KernelProvider                          // Required.
+	ClusterMetricsProvider    scheduling.MetricsProvider                        // Optional.
+	NotificationBroker        scheduler.NotificationBroker                      // Optional.
+	Options                   *scheduling.SchedulerOptions                      // Required.
+	SchedulingPolicy          internalSchedulingPolicy                          // Optional, will be extracted from Options if not specified.
+	KubeClient                scheduling.KubeClient                             // Required for Kubernetes clusters. Ignored for others.
+	StatisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)) // Optional.
 
 	log logger.Logger
 }
@@ -98,7 +98,7 @@ func (b *Provider) WithNotificationBroker(nb scheduler.NotificationBroker) *Prov
 	return b
 }
 
-func (b *Provider) WithStatisticsUpdateProvider(sup func(func(statistics *statistics.ClusterStatistics))) *Provider {
+func (b *Provider) WithStatisticsUpdateProvider(sup func(func(statistics *metrics.ClusterStatistics))) *Provider {
 	b.StatisticsUpdaterProvider = sup
 	return b
 }

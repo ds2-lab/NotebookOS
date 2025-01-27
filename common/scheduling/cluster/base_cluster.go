@@ -7,9 +7,9 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"strings"
@@ -77,7 +77,7 @@ type BaseCluster struct {
 	validateCapacityInterval time.Duration
 
 	// statisticsUpdaterProvider is used to update metrics/statistics.
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))
 
 	MeanScaleOutPerHost   time.Duration
 	StdDevScaleOutPerHost time.Duration
@@ -94,7 +94,7 @@ type BaseCluster struct {
 // This function is for package-internal or file-internal use only.
 func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 	clusterMetricsProvider scheduling.MetricsProvider, loggerPrefix string,
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))) *BaseCluster {
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))) *BaseCluster {
 
 	cluster := &BaseCluster{
 		opts:                      opts,
@@ -103,17 +103,17 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		hosts:                     hashmap.NewConcurrentMap[scheduling.Host](256),
 		sessions:                  hashmap.NewCornelkMap[string, scheduling.UserSession](128),
 		indexes:                   hashmap.NewSyncMap[string, scheduling.IndexProvider](),
-		validateCapacityInterval:  time.Second * time.Duration(opts.GetScalingInterval()),
+		validateCapacityInterval:  time.Millisecond * time.Duration(opts.GetScalingIntervalSec()*1000),
 		DisabledHosts:             hashmap.NewConcurrentMap[scheduling.Host](256),
 		statisticsUpdaterProvider: statisticsUpdaterProvider,
 		numFailedScaleInOps:       0,
 		numFailedScaleOutOps:      0,
 		numSuccessfulScaleInOps:   0,
 		numSuccessfulScaleOutOps:  0,
-		MeanScaleOutPerHost:       time.Second * time.Duration(opts.MeanScaleOutPerHostSec),
-		StdDevScaleOutPerHost:     time.Second * time.Duration(opts.StdDevScaleOutPerHostSec),
-		MeanScaleInPerHost:        time.Second * time.Duration(opts.MeanScaleInPerHostSec),
-		StdDevScaleInPerHost:      time.Second * time.Duration(opts.StdDevScaleInPerHostSec),
+		MeanScaleOutPerHost:       time.Millisecond * time.Duration(opts.MeanScaleOutPerHostSec*1000),
+		StdDevScaleOutPerHost:     time.Millisecond * time.Duration(opts.StdDevScaleOutPerHostSec*1000),
+		MeanScaleInPerHost:        time.Millisecond * time.Duration(opts.MeanScaleInPerHostSec*1000),
+		StdDevScaleInPerHost:      time.Millisecond * time.Duration(opts.StdDevScaleInPerHostSec*1000),
 	}
 	cluster.closed.Store(false)
 	cluster.scaleOperationCond = sync.NewCond(&cluster.scalingOpMutex)
@@ -157,6 +157,7 @@ func (c *BaseCluster) initRatioUpdater() {
 	}()
 }
 
+// Close closes down the BaseCluster.
 func (c *BaseCluster) Close() {
 	c.closed.Store(true)
 }
@@ -165,6 +166,11 @@ func (c *BaseCluster) Close() {
 // completed successfully.
 func (c *BaseCluster) NumScalingOperationsSucceeded() int {
 	return c.numSuccessfulScaleInOps + c.numSuccessfulScaleOutOps
+}
+
+// HasActiveScalingOperation returns true if there is an active scaling operation (of either kind).
+func (c *BaseCluster) HasActiveScalingOperation() bool {
+	return c.activeScaleOperation != nil
 }
 
 // NumScaleOutOperationsSucceeded returns the number of scale-out operations that have been
@@ -385,6 +391,8 @@ func (c *BaseCluster) onDisabledHostAdded(host scheduling.Host) error {
 }
 
 // onHostAdded is called when a host is added to the BaseCluster.
+//
+// onHostAdded must be called with the scalingOpMutex already held.
 func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 	c.scheduler.HostAdded(host)
 
@@ -409,13 +417,23 @@ func (c *BaseCluster) onHostAdded(host scheduling.Host) {
 
 	c.unsafeCheckIfScaleOperationIsComplete(host)
 
-	if c.metricsProvider != nil && c.metricsProvider.GetNumHostsGauge() != nil {
-		c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+	if c.metricsProvider != nil {
+		c.metricsProvider.IncrementResourceCountsForNewHost(host)
+
+		if c.metricsProvider.PrometheusMetricsEnabled() && c.metricsProvider.GetNumHostsGauge() != nil {
+			c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+		}
 	}
 }
 
 // onHostRemoved is called when a host is deleted from the BaseCluster.
+//
+// onHostRemoved must NOT be called with the scalingOpMutex already held.
+// The scalingOpMutex will be acquired by onHostRemoved.
+// This differs from onHostAdded, which must be called with the scalingOpMutex already held.
 func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
+	c.scheduler.HostRemoved(host)
+
 	c.indexes.Range(func(key string, index scheduling.IndexProvider) bool {
 		if _, hostQualificationStatus := index.IsQualified(host); hostQualificationStatus != scheduling.IndexUnqualified {
 			index.Remove(host)
@@ -424,11 +442,15 @@ func (c *BaseCluster) onHostRemoved(host scheduling.Host) {
 	})
 
 	c.scalingOpMutex.Lock()
-	defer c.scalingOpMutex.Unlock()
 	c.unsafeCheckIfScaleOperationIsComplete(host)
+	c.scalingOpMutex.Unlock()
 
-	if c.metricsProvider != nil && c.metricsProvider.GetNumHostsGauge() != nil {
-		c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+	if c.metricsProvider != nil {
+		c.metricsProvider.DecrementResourceCountsForRemovedHost(host)
+
+		if c.metricsProvider.PrometheusMetricsEnabled() && c.metricsProvider.GetNumHostsGauge() != nil {
+			c.metricsProvider.GetNumHostsGauge().Set(float64(c.hosts.Len()))
+		}
 	}
 }
 
@@ -446,16 +468,63 @@ func (c *BaseCluster) BusyGPUs() float64 {
 	return busyGPUs
 }
 
+// DemandAndBusyGPUs returns Demand GPUs, Busy GPUs, num idle sessions, num training sessions.
+func (c *BaseCluster) DemandAndBusyGPUs() (float64, float64, int, int, int) {
+	c.sessionsMutex.RLock()
+	defer c.sessionsMutex.RUnlock()
+
+	seenSessions := make(map[string]struct{})
+
+	var demandGPUs, busyGPUs float64
+	var numRunning, numIdle, numTraining int
+	c.sessions.Range(func(_ string, session scheduling.UserSession) (contd bool) {
+		if _, loaded := seenSessions[session.ID()]; loaded {
+			// Shouldn't be possible, right...?
+			c.log.Warn("Found duplicate session: \"%s\"", session.ID())
+			return true // Skip
+		}
+
+		if session.IsMigrating() {
+			numRunning += 1
+		} else if session.IsIdle() {
+			demandGPUs += session.ResourceSpec().GPU()
+			numIdle += 1
+			numRunning += 1
+		} else if session.IsTraining() {
+			demandGPUs += session.ResourceSpec().GPU()
+			busyGPUs += session.ResourceSpec().GPU()
+			numTraining += 1
+			numRunning += 1
+		}
+
+		seenSessions[session.ID()] = struct{}{}
+
+		return true
+	})
+
+	return demandGPUs, busyGPUs, numRunning, numIdle, numTraining
+}
+
 // DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
 func (c *BaseCluster) DemandGPUs() float64 {
 	c.sessionsMutex.RLock()
 	defer c.sessionsMutex.RUnlock()
 
+	seenSessions := make(map[string]struct{})
+
 	demandGPUs := 0.0
 	c.sessions.Range(func(_ string, session scheduling.UserSession) (contd bool) {
+		if _, loaded := seenSessions[session.ID()]; loaded {
+			// Shouldn't be possible, right...?
+			c.log.Warn("Found duplicate session: \"%s\"", session.ID())
+			return true // Skip
+		}
+
 		if session.IsIdle() || session.IsTraining() {
 			demandGPUs += session.ResourceSpec().GPU()
 		}
+
+		seenSessions[session.ID()] = struct{}{}
 
 		return true
 	})
@@ -568,7 +637,7 @@ func (c *BaseCluster) registerScaleOutOperation(operationId string, targetCluste
 	defer c.scalingOpMutex.Unlock()
 
 	if c.activeScaleOperation != nil {
-		c.log.Error("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
+		c.log.Debug("Cannot register new ScaleOutOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
 		return nil, scheduling.ErrScalingActive
 	}
 
@@ -595,7 +664,7 @@ func (c *BaseCluster) registerScaleInOperation(operationId string, targetCluster
 	defer c.scalingOpMutex.Unlock()
 
 	if c.activeScaleOperation != nil {
-		c.log.Error("Cannot register new ScaleInOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
+		c.log.Debug("Cannot register new ScaleInOperation, as there is already an active %s", c.activeScaleOperation.OperationType)
 		return nil, scheduling.ErrScalingActive
 	}
 
@@ -673,15 +742,16 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 	opId := uuid.NewString()
 	scaleOp, err := c.registerScaleOutOperation(opId, targetNumNodes)
 	if err != nil {
-		c.log.Error("Could not register new scale-out operation to %d nodes because: %v", targetNumNodes, err)
+		c.log.Warn("Could not register new scale-out operation to %d nodes because: %v", targetNumNodes, err)
 		return promise.Resolved(nil, err)
 	}
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			now := time.Now()
-			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
-				Name:                statistics.ScaleOutStarted,
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.ScaleOutStarted,
 				KernelId:            "-",
 				ReplicaId:           -1,
 				Timestamp:           now,
@@ -720,13 +790,13 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 
 	numProvisioned := c.Len() - int(scaleOp.InitialScale)
 	if numProvisioned > 0 && c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
+		c.statisticsUpdaterProvider(func(statistics *metrics.ClusterStatistics) {
 
 		})
 	}
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			var operationStatus string
 			if numProvisioned > 0 {
 				stats.NumSuccessfulScaleOutEvents += 1
@@ -746,8 +816,9 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
 
 			now := time.Now()
-			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
-				Name:                statistics.ScaleOutEnded,
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.ScaleOutEnded,
 				KernelId:            "-",
 				ReplicaId:           -1,
 				Timestamp:           now,
@@ -802,12 +873,13 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	}
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			stats.NumActiveScaleInEvents += 1
 
 			now := time.Now()
-			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
-				Name:                statistics.ScaleInStarted,
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.ScaleInStarted,
 				KernelId:            "-",
 				ReplicaId:           -1,
 				Timestamp:           now,
@@ -842,7 +914,7 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 	}
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			numReleased := currentNumNodes - int32(c.Len())
 			var operationStatus string
 			if numReleased > 0 {
@@ -863,8 +935,9 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
 
 			now := time.Now()
-			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
-				Name:                statistics.ScaleInEnded,
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.ScaleInEnded,
 				KernelId:            "-",
 				ReplicaId:           -1,
 				Timestamp:           now,
@@ -925,12 +998,13 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	}
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			stats.NumActiveScaleInEvents += 1
 
 			now := time.Now()
-			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
-				Name:                statistics.ScaleInStarted,
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.ScaleInStarted,
 				KernelId:            "-",
 				ReplicaId:           -1,
 				Timestamp:           now,
@@ -964,7 +1038,7 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 	}
 
 	if c.statisticsUpdaterProvider != nil {
-		c.statisticsUpdaterProvider(func(stats *statistics.ClusterStatistics) {
+		c.statisticsUpdaterProvider(func(stats *metrics.ClusterStatistics) {
 			numReleased := currentNumNodes - int32(c.Len())
 			var operationStatus string
 			if numReleased > 0 {
@@ -985,8 +1059,9 @@ func (c *BaseCluster) ReleaseHosts(ctx context.Context, n int32) promise.Promise
 			stats.CumulativeTimeProvisioningHosts += duration.Seconds()
 
 			now := time.Now()
-			stats.ClusterEvents = append(stats.ClusterEvents, &statistics.ClusterEvent{
-				Name:                statistics.ScaleInEnded,
+			stats.ClusterEvents = append(stats.ClusterEvents, &metrics.ClusterEvent{
+				EventId:             uuid.NewString(),
+				Name:                metrics.ScaleInEnded,
 				KernelId:            "-",
 				ReplicaId:           -1,
 				Timestamp:           now,
@@ -1095,7 +1170,8 @@ func (c *BaseCluster) NewHostAddedOrConnected(host scheduling.Host) error {
 
 	c.onHostAdded(host)
 
-	c.log.Debug("Finished handling scheduling.Cluster-level registration of newly-added host %s (ID=%s)", host.GetNodeName(), host.GetID())
+	c.log.Debug("Finished handling Cluster-level registration of newly-added host %s (ID=%s)",
+		host.GetNodeName(), host.GetID())
 
 	return nil
 }

@@ -17,13 +17,18 @@ type ReservationPolicy struct {
 }
 
 func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy, error) {
-	basePolicy, err := newBaseSchedulingPolicy(opts, true, false)
+	basePolicy, err := newBaseSchedulingPolicy(opts, true, true)
 	if err != nil {
 		return nil, err
 	}
 
 	policy := &ReservationPolicy{
 		baseSchedulingPolicy: basePolicy,
+	}
+
+	if opts.MinimumNumNodes < policy.NumReplicas() {
+		panic(fmt.Sprintf("Minimum number of nodes (%d) is incompatible with number of replicas (%d). Minimum number of nodes must be >= number of replicas.",
+			opts.MinimumNumNodes, policy.NumReplicas()))
 	}
 
 	if opts.SchedulingPolicy != scheduling.Reservation.String() {
@@ -36,11 +41,13 @@ func NewReservationPolicy(opts *scheduling.SchedulerOptions) (*ReservationPolicy
 
 // SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
 func (p *ReservationPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
-	if p.SupportsMigration() {
-		panic("ReservationPolicy isn't supposed to support migration, yet apparently it does?")
+	replicas := kernel.Replicas()
+
+	if len(replicas) == 0 {
+		return nil, fmt.Errorf("kernel '%s' does not have a replica", kernel.ID())
 	}
 
-	return nil, ErrMigrationNotSupported
+	return replicas[0], nil
 }
 
 func (p *ReservationPolicy) PolicyKey() scheduling.PolicyKey {
@@ -56,6 +63,8 @@ func (p *ReservationPolicy) NumReplicas() int {
 }
 
 func (p *ReservationPolicy) ResourceBindingMode() scheduling.ResourceBindingMode {
+	// The reservation-based policy uses a single long-running replica that remains scheduled for the
+	// duration of its lifetime.
 	return scheduling.BindResourcesWhenContainerScheduled
 }
 
@@ -82,6 +91,19 @@ func (p *ReservationPolicy) SmrEnabled() bool {
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
 	return placer.NewBasicPlacer(metricsProvider, p.NumReplicas(), p), nil
+}
+
+// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
+// Adjust the Cluster's capacity as directed by scaling policy.
+func (p *ReservationPolicy) ValidateCapacity(_ scheduling.Cluster) {
+	return // No-op, not supported
+}
+
+// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+// resource request of an existing/scheduled kernel after it has already been created, or if the
+// initial resource request/allocation is static and cannot be changed after the kernel is created.
+func (p *ReservationPolicy) SupportsDynamicResourceAdjustments() bool {
+	return false
 }
 
 // FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
@@ -115,6 +137,12 @@ func (p *ReservationPolicy) ScalingInEnabled() bool {
 
 func (p *ReservationPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration {
 	return p.scalingConfiguration
+}
+
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *ReservationPolicy) SupportsPredictiveAutoscaling() bool {
+	return true
 }
 
 /////////////////////////////////////////////

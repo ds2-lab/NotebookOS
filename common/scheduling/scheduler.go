@@ -103,6 +103,9 @@ type HostScheduler interface {
 	// HostAdded is called by the Cluster when a new Host connects to the Cluster.
 	HostAdded(host Host)
 
+	// HostRemoved is called by the Cluster when a Host is removed from the Cluster.
+	HostRemoved(host Host)
+
 	// ReleaseIdleHosts Tries to release n idle hosts. Return the number of hosts that were actually released.
 	// Error will be nil on success and non-nil if some sort of failure is encountered.
 	ReleaseIdleHosts(n int32) (int, error)
@@ -118,9 +121,8 @@ type HostScheduler interface {
 	// to the blacklist.
 	GetCandidateHost(replica KernelReplica, blacklistedHosts []Host, forTraining bool) (Host, error)
 
-	// UpdateHostInIndex is a callback for schedulers that maintain their own placers, rather than using the single
-	// primary placer of the cluster.
-	// UpdateHostInIndex(host Host)
+	// CanScaleIn returns true if scaling-in is possible now.
+	CanScaleIn() bool
 }
 
 type SchedulerMetricsManager interface {
@@ -141,6 +143,9 @@ type SchedulerMetricsManager interface {
 	// RemoteSynchronizationInterval returns the interval at which the Scheduler synchronizes
 	// the Host instances within the Cluster with their remote nodes.
 	RemoteSynchronizationInterval() time.Duration
+
+	// SetLastCapacityValidation is used to record that a capacity validation has occurred.
+	SetLastCapacityValidation(time.Time)
 }
 
 // PolicyManager is an interface that exposes methods for reporting what policies the Scheduler is configured to use.

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/promise"
 	"github.com/google/uuid"
-	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/metrics"
@@ -19,7 +18,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/policy"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	distNbTesting "github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
@@ -72,9 +70,9 @@ var (
 		"cluster_scheduler_options": {
 			"num-virtual-gpus-per-node": 72,
 			"subscribed-ratio-update-interval": 1,
-			"scaling-factor": 1.05,
-			"scaling-interval": 30,
-			"scaling-limit": 1.1,
+			"scaling-factor": 1.10,
+			"scaling-interval": 15,
+			"scaling-limit": 1.15,
 			"scaling-in-limit": 2,
 			"predictive_autoscaling": false,
 			"scaling-buffer-size": 3,
@@ -162,9 +160,7 @@ func (p *MockedDistributedKernelClientProvider) RegisterMockedDistributedKernel(
 func (p *MockedDistributedKernelClientProvider) NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
 	numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 	executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-	handleExecuteYieldNotification scheduling.YieldNotificationHandler, messagingMetricsProvider metrics.MessagingMetricsProvider,
-	statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
-	notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
+	statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel {
 
 	if kernel, ok := p.expectedKernels[spec.Id]; ok {
 		return kernel
@@ -181,49 +177,6 @@ func addHost(idx int, clusterGateway *ClusterGatewayImpl, mockCtrl *gomock.Contr
 	host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, clusterGateway.cluster, hostId, nodeName, resourceSpoofer)
 
 	return host, localGatewayClient, resourceSpoofer, err
-}
-
-// initMockedKernelForCreation creates and returns a new MockAbstractDistributedKernelClient that is
-// set up for use in a unit test that involves creating a new kernel.
-func initMockedKernelForCreation(mockCtrl *gomock.Controller, kernelId string, kernelKey string, resourceSpec *proto.ResourceSpec) (*mock_scheduling.MockKernel, *proto.KernelSpec) {
-	persistentId := uuid.NewString()
-
-	kernelSpec := &proto.KernelSpec{
-		Id:              kernelId,
-		Session:         kernelId,
-		Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-		SignatureScheme: messaging.JupyterSignatureScheme,
-		Key:             kernelKey,
-		ResourceSpec:    resourceSpec,
-	}
-
-	kernel := mock_scheduling.NewMockKernel(mockCtrl)
-	var currentSize atomic.Int32
-	var sessionId string
-
-	kernel.EXPECT().InitializeShellForwarder(gomock.Any()).Times(1)
-	kernel.EXPECT().InitializeIOForwarder().Times(1)
-	kernel.EXPECT().ID().Return(kernelId).AnyTimes()
-	kernel.EXPECT().SetSession(gomock.Any()).MaxTimes(1).DoAndReturn(func(session scheduling.UserSession) {
-		sessionId = session.ID()
-	})
-	kernel.EXPECT().AddReplica(gomock.Any(), gomock.Any()).Times(3).DoAndReturn(func(r scheduling.KernelReplica, host scheduling.Host) error {
-		currentSize.Add(1)
-
-		return nil
-	})
-	kernel.EXPECT().PersistentID().AnyTimes().Return(persistentId)
-	kernel.EXPECT().NumActiveMigrationOperations().Times(3).Return(0)
-	kernel.EXPECT().Size().AnyTimes().DoAndReturn(func() int {
-		return int(currentSize.Load())
-	})
-	kernel.EXPECT().Sessions().MaxTimes(1).Return([]string{sessionId})
-	kernel.EXPECT().GetSocketPort(messaging.ShellMessage).MaxTimes(1).Return(9001)
-	kernel.EXPECT().GetSocketPort(messaging.IOMessage).MaxTimes(2).Return(9004)
-	kernel.EXPECT().KernelSpec().MaxTimes(2).Return(kernelSpec)
-	kernel.EXPECT().String().AnyTimes().Return("SPOOFED KERNEL " + kernelId + " STRING")
-
-	return kernel, kernelSpec
 }
 
 // prepareMockedGatewayForStartKernel prepares the given *mock_proto.MockLocalGatewayClient to have its StartKernelReplica
@@ -273,15 +226,72 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			GPUs:      decimal.NewFromFloat(8),
 			Millicpus: decimal.NewFromFloat(64000),
 			MemoryMb:  decimal.NewFromFloat(128000),
-			VRam:      decimal.NewFromFloat(32),
+			VRam:      decimal.NewFromFloat(40),
 		}
 	)
+
+	// initMockedKernelForCreation creates and returns a new MockAbstractDistributedKernelClient that is
+	// set up for use in a unit test that involves creating a new kernel.
+	initMockedKernelForCreation := func(mockCtrl *gomock.Controller, kernelId string, kernelKey string, resourceSpec *proto.ResourceSpec, numReplicas int) (*mock_scheduling.MockKernel, *proto.KernelSpec) {
+		persistentId := uuid.NewString()
+
+		kernelSpec := &proto.KernelSpec{
+			Id:              kernelId,
+			Session:         kernelId,
+			Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+			SignatureScheme: messaging.JupyterSignatureScheme,
+			Key:             kernelKey,
+			ResourceSpec:    resourceSpec,
+		}
+
+		kernel := mock_scheduling.NewMockKernel(mockCtrl)
+		var currentSize atomic.Int32
+		var sessionId string
+
+		kernel.EXPECT().InitializeShellForwarder(gomock.Any()).Times(1)
+		kernel.EXPECT().InitializeIOForwarder().Times(1)
+		kernel.EXPECT().ID().Return(kernelId).AnyTimes()
+
+		kernel.EXPECT().SetSession(gomock.Any()).MaxTimes(1).DoAndReturn(func(session scheduling.UserSession) {
+			sessionId = session.ID()
+		})
+
+		kernel.EXPECT().AddReplica(gomock.Any(), gomock.Any()).
+			Times(3).
+			DoAndReturn(func(r scheduling.KernelReplica, h scheduling.Host) error {
+				currentSize.Add(1)
+
+				return nil
+			})
+
+		kernel.EXPECT().PersistentID().AnyTimes().Return(persistentId)
+		kernel.EXPECT().NumActiveMigrationOperations().Times(3).Return(0)
+		kernel.EXPECT().Size().AnyTimes().DoAndReturn(func() int {
+			return int(currentSize.Load())
+		})
+
+		kernel.EXPECT().Sessions().MaxTimes(1).Return([]string{sessionId})
+		kernel.EXPECT().GetSocketPort(messaging.ShellMessage).MaxTimes(1).Return(9001)
+		kernel.EXPECT().GetSocketPort(messaging.IOMessage).MaxTimes(2).Return(9004)
+		kernel.EXPECT().KernelSpec().MaxTimes(2).Return(kernelSpec)
+		kernel.EXPECT().String().AnyTimes().Return("SPOOFED KERNEL " + kernelId + " STRING")
+
+		executionManager := client.NewExecutionManager(kernel, numReplicas, clusterGateway.executionFailed,
+			nil, nil, nil)
+		kernel.EXPECT().GetExecutionManager().AnyTimes().Return(executionManager)
+
+		return kernel, kernelSpec
+	}
 
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 	})
 
 	AfterEach(func() {
+		if clusterGateway != nil {
+			_ = clusterGateway.Close()
+		}
+
 		mockCtrl.Finish()
 	})
 
@@ -528,11 +538,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockScheduler.EXPECT().PolicyKey().Return(scheduling.Static).AnyTimes()
 
 			clusterGateway = &ClusterGatewayImpl{
-				cluster:                  cluster,
-				RequestLog:               metrics.NewRequestLog(),
-				gatewayPrometheusManager: nil,
-				ClusterStatistics:        statistics.NewClusterStatistics(),
+				cluster:           cluster,
+				RequestLog:        metrics.NewRequestLog(),
+				ClusterStatistics: metrics.NewClusterStatistics(),
 			}
+			clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.updateClusterStatistics,
+				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost)
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
 			kernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
@@ -567,9 +578,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			kernel.EXPECT().Size().Return(3).AnyTimes()
 
-			setActiveCall := kernel.EXPECT().RegisterActiveExecution(gomock.Any()).Return(nil, nil)
+			setActiveCall := kernel.EXPECT().RegisterActiveExecution(gomock.Any()).Return(nil).AnyTimes()
 			kernel.EXPECT().NumActiveExecutionOperations().Return(0).Times(1)
-			kernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).Times(1)
+			kernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).AnyTimes()
+
+			cluster.EXPECT().Close().AnyTimes()
 		})
 
 		It("should correctly handle execute_request messages via the processExecuteRequest method", func() {
@@ -655,6 +668,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				return selectedReplica, nil
 			})
+
+			kernel.EXPECT().LastPrimaryReplica().Times(1).Return(nil)
 
 			cluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
 
@@ -820,6 +835,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 			}
 
+			kernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
 			mockScheduler.EXPECT().FindReadyReplica(kernel, jMsg.JupyterMessageId()).Times(1).DoAndReturn(
 				func(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
 					selectedReplica, err := schedulingPolicy.(scheduler.SchedulingPolicy).FindReadyReplica(kernel, executionId)
@@ -843,6 +859,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				return nil
 			})
+
+			kernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			go func() {
@@ -997,6 +1015,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			kernel.EXPECT().Replicas().AnyTimes().Return([]scheduling.KernelReplica{replica1, replica2, replica3})
 
+			kernel.EXPECT().LastPrimaryReplica().Times(1).Return(nil)
+
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			targetReplica, err := clusterGateway.processExecuteRequest(jMsg, kernel)
 			Expect(targetReplica).ToNot(BeNil())
@@ -1029,10 +1049,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			}
 
 			clusterGateway = &ClusterGatewayImpl{
-				cluster:                  cluster,
-				RequestLog:               metrics.NewRequestLog(),
-				gatewayPrometheusManager: nil,
+				cluster:    cluster,
+				RequestLog: metrics.NewRequestLog(),
 			}
+			clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(-1, clusterGateway, clusterGateway.updateClusterStatistics,
+				clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost)
 			config.InitLogger(&clusterGateway.log, clusterGateway)
 
 			kernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
@@ -1064,6 +1085,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				MsgType:  "execute_request",
 				Version:  "5.2",
 			}
+
+			cluster.EXPECT().Close().AnyTimes()
 		})
 
 		It("Should embed a RequestTrace struct in the buffers frame of a JupyterMessage in DebugMode", func() {
@@ -1405,7 +1428,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Memory: 2048,
 			}
 
-			mockedKernel, mockedKernelSpec = initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec)
+			mockedKernel, mockedKernelSpec = initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec, 3)
 
 			Expect(mockedKernelSpec).ToNot(BeNil())
 			mockedKernel.EXPECT().ConnectionInfo().Return(&jupyter.ConnectionInfo{SignatureScheme: signatureScheme, Key: kernelKey}).AnyTimes()
@@ -1800,7 +1823,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			clusterGateway.SetDistributedClientProvider(&client.DistributedKernelClientProvider{})
 			kernel := clusterGateway.DistributedClientProvider.NewDistributedKernelClient(context.Background(), mockedKernelSpec, 3, clusterGateway.id,
 				clusterGateway.connectionOptions, uuid.NewString(), clusterGateway.DebugMode, clusterGateway.executionFailed, clusterGateway.executionLatencyCallback,
-				clusterGateway.handleExecutionYieldedNotification, clusterGateway.gatewayPrometheusManager, clusterGateway.updateClusterStatistics, clusterGateway.notifyDashboard)
+				clusterGateway.metricsProvider, clusterGateway.notifyDashboard)
 
 			shellSocket, err := kernel.InitializeShellForwarder(clusterGateway.kernelShellHandler)
 			Expect(err).To(BeNil())
@@ -1880,6 +1903,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedSession.EXPECT().IsIdle().AnyTimes().Return(true)
 			mockedSession.EXPECT().IsTraining().AnyTimes().Return(false)
+
+			// Technically it might want to return true at some point...?
+			mockedSession.EXPECT().IsMigrating().AnyTimes().Return(false)
+			// Technically it might want to return true at some point...?
+			mockedSession.EXPECT().IsStopped().AnyTimes().Return(false)
 
 			mockedSession.EXPECT().SetExpectingTraining().Times(1).Return(promise.Resolved(nil))
 
@@ -2048,16 +2076,19 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			var wg sync.WaitGroup
 			wg.Add(1)
 
-			var activeExecution *execution.Execution
-			mockedKernel.EXPECT().RegisterActiveExecution(gomock.Any()).DoAndReturn(func(msg *messaging.JupyterMessage) (*execution.Execution, error) {
+			var activeExecution scheduling.Execution
+			mockedKernel.EXPECT().RegisterActiveExecution(gomock.Any()).DoAndReturn(func(msg *messaging.JupyterMessage) error {
 				Expect(msg).ToNot(BeNil())
 				Expect(msg).To(Equal(jMsg))
 
-				// TODO: Create ExecutionManager and use that here.
-				activeExecution = execution.NewActiveExecution(kernelId, 1, 3, msg)
+				executionManager := mockedKernel.GetExecutionManager()
+				Expect(executionManager).ToNot(BeNil())
+
+				var err error
+				activeExecution, err = executionManager.RegisterExecution(msg)
 				wg.Done()
 
-				return activeExecution, nil
+				return err // Nil on success
 			}).Times(1)
 
 			fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
@@ -2078,6 +2109,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			//mockedKernel.EXPECT().RegisterActiveExecution(jMsg).Times(1).Return(nil, nil)
 
+			mockedKernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
+
 			var shellHandlerWaitGroup sync.WaitGroup
 			shellHandlerWaitGroup.Add(1)
 			go func() {
@@ -2092,11 +2125,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			wg.Wait()
 			Expect(activeExecution).ToNot(BeNil())
-
-			//firstGetActiveExecutionCalls := mockedKernel.EXPECT().
-			//	GetActiveExecution("c7074e5b-b90f-44f8-af5d-63201ec3a528").
-			//	Times(1).
-			//	Return(activeExecution)
+			Expect(activeExecution.GetExecuteRequestMessageId()).To(Equal(jupyterExecuteRequestId))
 
 			getExecuteReplyMessage := func(id int) *messaging.JupyterMessage {
 				unsignedExecuteReplyFrames := [][]byte{
@@ -2149,19 +2178,14 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			shellHandlerWaitGroup.Wait()
 
-			yieldReason := &messaging.MessageErrorWithYieldReason{
-				MessageError: &messaging.MessageError{
-					Status:   messaging.MessageStatusError,
-					ErrName:  messaging.MessageErrYieldExecution,
-					ErrValue: messaging.ErrExecutionYielded.Error(),
-				},
-				YieldReason: "N/A",
-			}
-
-			mockedKernel.EXPECT().
-				GetActiveExecution(jupyterExecuteRequestId).
-				AnyTimes().
-				Return(activeExecution)
+			//yieldReason := &messaging.MessageErrorWithYieldReason{
+			//	MessageError: &messaging.MessageError{
+			//		Status:   messaging.MessageStatusError,
+			//		ErrName:  messaging.MessageErrYieldExecution,
+			//		ErrValue: messaging.ErrExecutionYielded.Error(),
+			//	},
+			//	YieldReason: "N/A",
+			//}
 
 			preparedReplicaIdChan := make(chan int32, 1)
 
@@ -2207,8 +2231,13 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedKernelReplica1.EXPECT().ReceivedExecuteReply(execReply1).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica1, gomock.Any()).Times(1).Return(nil)
-			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica1, yieldReason, execReply1)
-			Expect(err).To(BeNil())
+			executionManager := mockedKernel.GetExecutionManager()
+			Expect(executionManager).ToNot(BeNil())
+
+			var yielded bool
+			yielded, err = executionManager.HandleExecuteReplyMessage(execReply1, mockedKernelReplica1)
+			Expect(errors.Is(err, messaging.ErrExecutionYielded)).To(BeTrue())
+			Expect(yielded).To(BeTrue())
 
 			Expect(activeExecution.NumRolesReceived()).To(Equal(1))
 			Expect(activeExecution.NumYieldReceived()).To(Equal(1))
@@ -2216,8 +2245,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedKernelReplica2.EXPECT().ReceivedExecuteReply(execReply2).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica2, gomock.Any()).Times(1).Return(nil)
-			err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica2, yieldReason, execReply2)
-			Expect(err).To(BeNil())
+			yielded, err = executionManager.HandleExecuteReplyMessage(execReply2, mockedKernelReplica2)
+			Expect(errors.Is(err, messaging.ErrExecutionYielded)).To(BeTrue())
+			Expect(yielded).To(BeTrue())
 
 			Expect(activeExecution.NumRolesReceived()).To(Equal(2))
 			Expect(activeExecution.NumYieldReceived()).To(Equal(2))
@@ -2231,8 +2261,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			handledLastYieldNotificationWaitGroup.Add(1)
 
 			go func(wg *sync.WaitGroup) {
-				err = clusterGateway.handleExecutionYieldedNotification(mockedKernelReplica3, yieldReason, execReply3)
-				Expect(err).To(BeNil())
+				yielded, err = executionManager.HandleExecuteReplyMessage(execReply3, mockedKernelReplica3)
+				Expect(errors.Is(err, messaging.ErrExecutionYielded)).To(BeTrue())
+				Expect(yielded).To(BeTrue())
 
 				handledLastYieldNotificationWaitGroup.Done()
 			}(&handledLastYieldNotificationWaitGroup)
@@ -2391,6 +2422,60 @@ var _ = Describe("Cluster Gateway Tests", func() {
 	})
 
 	Context("DockerCluster", func() {
+		var (
+			lastSpecGpu  = 0.0
+			lastSpecCpu  = 0.0
+			lastSpecVram = 0.0
+			lastSpecMem  = 0.0
+		)
+
+		// This is used to check that the ClusterStatistics is reporting the correct resource counts.
+		assertClusterResourceCounts := func(stats *metrics.ClusterStatistics, expectDiff bool, clusterSize int) {
+			Expect(stats.IdleGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
+			Expect(stats.SpecGPUs).To(Equal(float64(clusterSize) * hostSpec.GPU()))
+			Expect(stats.PendingGPUs).To(Equal(0.0))
+			Expect(stats.CommittedGPUs).To(Equal(0.0))
+
+			Expect(stats.IdleCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
+			Expect(stats.SpecCPUs).To(Equal(float64(clusterSize) * hostSpec.CPU()))
+			Expect(stats.PendingCPUs).To(Equal(0.0))
+			Expect(stats.CommittedCPUs).To(Equal(0.0))
+
+			Expect(stats.IdleVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
+			Expect(stats.SpecVRAM).To(Equal(float64(clusterSize) * hostSpec.VRAM()))
+			Expect(stats.PendingVRAM).To(Equal(0.0))
+			Expect(stats.CommittedVRAM).To(Equal(0.0))
+
+			Expect(stats.IdleMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
+			Expect(stats.SpecMemory).To(Equal(float64(clusterSize) * hostSpec.MemoryMB()))
+			Expect(stats.PendingMemory).To(Equal(0.0))
+			Expect(stats.CommittedMemory).To(Equal(0.0))
+
+			if expectDiff {
+				Expect(lastSpecCpu).ToNot(Equal(stats.SpecCPUs))
+				Expect(lastSpecMem).ToNot(Equal(stats.SpecMemory))
+				Expect(lastSpecGpu).ToNot(Equal(stats.SpecGPUs))
+				Expect(lastSpecVram).ToNot(Equal(stats.SpecVRAM))
+			} else {
+				Expect(lastSpecCpu).To(Equal(stats.SpecCPUs))
+				Expect(lastSpecMem).To(Equal(stats.SpecMemory))
+				Expect(lastSpecGpu).To(Equal(stats.SpecGPUs))
+				Expect(lastSpecVram).To(Equal(stats.SpecVRAM))
+			}
+
+			lastSpecCpu = stats.SpecCPUs
+			lastSpecMem = stats.SpecMemory
+			lastSpecGpu = stats.SpecGPUs
+			lastSpecVram = stats.SpecVRAM
+		}
+
+		BeforeEach(func() {
+			lastSpecGpu = 0.0
+			lastSpecCpu = 0.0
+			lastSpecVram = 0.0
+			lastSpecMem = 0.0
+		})
+
 		Context("Initial Connection Period", func() {
 			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
 			var options *domain.ClusterGatewayOptions
@@ -2422,10 +2507,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
 					srv.SetClusterOptions(&options.ClusterDaemonOptions.SchedulerOptions)
 					srv.SetDistributedClientProvider(mockedDistributedKernelClientProvider)
+					srv.(*ClusterGatewayImpl).hostSpec = hostSpec
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.gatewayPrometheusManager).To(BeNil())
+				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
 				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
@@ -2446,9 +2533,15 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(placer.NumHostsInIndex()).To(Equal(0))
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
 
+				// Make sure the metrics provider is non-nil.
+				Expect(cluster.MetricsProvider()).ToNot(BeNil())
+
 				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
 
 				clusterSize := 0
+
+				assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
+
 				for i := 0; i < InitialClusterSize; i++ {
 					hostId := uuid.NewString()
 					hostName := fmt.Sprintf("TestHost%d", i)
@@ -2468,6 +2561,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
 					Expect(cluster.NumDisabledHosts()).To(Equal(0))
 					Expect(host.Enabled()).To(Equal(true))
+
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true, clusterSize)
 				}
 
 				Expect(cluster.Len()).To(Equal(InitialClusterSize))
@@ -2491,8 +2586,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					numDisabledHosts += 1
 
 					Expect(cluster.Len()).To(Equal(InitialClusterSize))
+					Expect(cluster.Len()).To(Equal(clusterSize))
 					Expect(host.Enabled()).To(Equal(false))
 					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
+
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
 				}
 
 				timeElapsed := time.Since(startTime)
@@ -2523,6 +2621,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
 					Expect(cluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
 					Expect(host.Enabled()).To(Equal(true))
+
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true, clusterSize)
 				}
 			})
 
@@ -2543,10 +2643,310 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.gatewayPrometheusManager).To(BeNil())
+				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
 				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
 				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(false))
+			})
+		})
+
+		Context("Autoscaling", func() {
+			var mockedDistributedKernelClientProvider *MockedDistributedKernelClientProvider
+			var options *domain.ClusterGatewayOptions
+
+			BeforeEach(func() {
+				abstractServer = &server.AbstractServer{
+					DebugMode: true,
+					Log:       config.GetLogger("TestAbstractServer"),
+				}
+
+				err := json.Unmarshal([]byte(GatewayOptsAsJsonString), &options)
+				if err != nil {
+					panic(err)
+				}
+			})
+
+			It("Will correctly and automatically scale-out", func() {
+				MinimumNumNodes := 4
+				ScalingBufferSize := 3
+				InitialClusterSize := 4
+				NumHostsToCreate := 10
+				InitialConnectionTimeSeconds := 1
+				InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
+
+				Hosts := make([]scheduling.Host, 0)
+
+				// Relatively quick, but long enough that we can see individual scale-outs.
+				MeanScaleInPerHostSec := 1.0
+				MeanScaleOutPerHostSec := 1.0
+
+				options.ScalingIntervalSec = 1
+				options.InitialClusterSize = InitialClusterSize
+				options.InitialClusterConnectionPeriodSec = InitialConnectionTimeSeconds
+				options.MinimumNumNodes = MinimumNumNodes
+				options.ScalingBufferSize = ScalingBufferSize
+				options.MeanScaleInPerHostSec = MeanScaleInPerHostSec
+				options.MeanScaleOutPerHostSec = MeanScaleOutPerHostSec
+
+				mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
+
+				clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
+					globalLogger.Info("Initializing internalCluster Daemon with options: %s", options.ClusterDaemonOptions.String())
+					srv.SetClusterOptions(&options.ClusterDaemonOptions.SchedulerOptions)
+					srv.SetDistributedClientProvider(mockedDistributedKernelClientProvider)
+					srv.(*ClusterGatewayImpl).hostSpec = hostSpec
+				})
+				config.InitLogger(&clusterGateway.log, clusterGateway)
+
+				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
+				Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
+				Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
+				Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
+
+				dockerCluster := clusterGateway.cluster
+				index, ok := dockerCluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+				Expect(ok).To(BeTrue())
+				Expect(index).ToNot(BeNil())
+
+				placer := dockerCluster.Placer()
+				Expect(placer).ToNot(BeNil())
+
+				scheduler := dockerCluster.Scheduler()
+				Expect(scheduler.Placer()).To(Equal(dockerCluster.Placer()))
+
+				Expect(dockerCluster.Len()).To(Equal(0))
+				Expect(index.Len()).To(Equal(0))
+				Expect(placer.NumHostsInIndex()).To(Equal(0))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
+
+				// Make sure the metrics provider is non-nil.
+				Expect(dockerCluster.MetricsProvider()).ToNot(BeNil())
+
+				By("Not disabling the first 'InitialClusterSize' Local Daemons that connect to the Cluster Gateway.")
+
+				clusterSize := 0
+				numDisabledHosts := 0
+
+				assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
+
+				createHost := func(i int) scheduling.Host {
+					hostId := uuid.NewString()
+					hostName := fmt.Sprintf("TestHost%d", i)
+					hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
+					host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, dockerCluster, hostId, hostName, hostSpoofer)
+					Expect(err).To(BeNil())
+					Expect(host).ToNot(BeNil())
+					Expect(localGatewayClient).ToNot(BeNil())
+
+					err = clusterGateway.registerNewHost(host)
+					Expect(err).To(BeNil())
+
+					Hosts = append(Hosts, host)
+
+					return host
+				}
+
+				By("Creating all of the initial-size hosts")
+
+				for i := 0; i < InitialClusterSize; i++ {
+					host := createHost(i)
+					clusterSize += 1
+
+					Expect(dockerCluster.Len()).To(Equal(clusterSize))
+					Expect(index.Len()).To(Equal(clusterSize))
+					Expect(placer.NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(dockerCluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
+					Expect(host.Enabled()).To(Equal(true))
+
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, true, clusterSize)
+				}
+
+				By("Creating additional hosts that are added as disabled hosts")
+
+				for i := InitialClusterSize; i < NumHostsToCreate; i++ {
+					host := createHost(i)
+					numDisabledHosts += 1
+
+					Expect(dockerCluster.Len()).To(Equal(clusterSize))
+					Expect(index.Len()).To(Equal(clusterSize))
+					Expect(placer.NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
+					Expect(dockerCluster.NumDisabledHosts()).To(Equal(numDisabledHosts))
+					Expect(host.Enabled()).To(Equal(false))
+
+					assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
+				}
+
+				// The initial connection period should elapse.
+				Eventually(func() bool {
+					return clusterGateway.inInitialConnectionPeriod.Load()
+				}, time.Duration(float64(time.Millisecond*InitialConnectionTime)*1.5), time.Millisecond*50).
+					Should(BeFalse())
+
+				Expect(dockerCluster.MeanScaleOutTime()).To(Equal(time.Millisecond * time.Duration(MeanScaleOutPerHostSec*1000)))
+				Expect(dockerCluster.MeanScaleInTime()).To(Equal(time.Millisecond * time.Duration(MeanScaleInPerHostSec*1000)))
+
+				Expect(dockerCluster.Scheduler().MinimumCapacity()).To(Equal(int32(MinimumNumNodes)))
+				Expect(dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize).To(Equal(int32(ScalingBufferSize)))
+				Expect(dockerCluster.Len()).To(Equal(clusterSize))
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize))
+
+				// Scaling won't happen unless there's at least one busy GPU.
+				mockSession := mock_scheduling.NewMockUserSession(mockCtrl)
+				spec := types.NewDecimalSpec(0, 0, 1, 0)
+				mockSession.EXPECT().ResourceSpec().AnyTimes().Return(spec)
+				sessionId := uuid.NewString()
+				mockSession.EXPECT().ID().AnyTimes().Return(sessionId)
+				mockSession.EXPECT().IsIdle().AnyTimes().Return(false)
+				mockSession.EXPECT().IsTraining().AnyTimes().Return(true)
+				// Technically it might want to return true at some point...?
+				mockSession.EXPECT().IsMigrating().AnyTimes().Return(false)
+				// Technically it might want to return true at some point...?
+				mockSession.EXPECT().IsStopped().AnyTimes().Return(false)
+				dockerCluster.AddSession(uuid.NewString(), mockSession)
+				err := Hosts[0].AddToCommittedResources(spec)
+				Expect(err).To(BeNil())
+
+				By("Scaling out")
+
+				// Now, we should scale out. The minimum dockerCluster size is set to 4,
+				// and the scaling buffer is set to 3, so the minimum number of hosts
+				// that we should have is 7. We only have 4 right now.
+				Eventually(func() int {
+					return dockerCluster.Len()
+				}, time.Second*time.Duration(10), time.Millisecond*50).
+					Should(Equal(clusterSize + 1))
+
+				clusterSize += 1
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 1))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 1))
+
+				By("Scaling out again")
+
+				// We should scale out again. The minimum dockerCluster size is set to 4,
+				// and the scaling buffer is set to 3, so the minimum number of hosts
+				// that we should have is 7. We only have 5 right now.
+				Eventually(func() int {
+					return dockerCluster.Len()
+				}, time.Second*time.Duration(5*MeanScaleOutPerHostSec), time.Millisecond*50).
+					Should(Equal(clusterSize + 1))
+
+				clusterSize += 1
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 2))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 2))
+
+				By("Scaling out yet again")
+
+				// We should scale out again. The minimum dockerCluster size is set to 4,
+				// and the scaling buffer is set to 3, so the minimum number of hosts
+				// that we should have is 7. We only have 6 right now.
+				Eventually(func() int {
+					return dockerCluster.Len()
+				}, time.Second*time.Duration(5*MeanScaleOutPerHostSec), time.Millisecond*50).
+					Should(Equal(clusterSize + 1))
+
+				clusterSize += 1
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 3))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
+
+				By("Not scaling out again")
+
+				// Now we have 7 hosts, so we shouldn't scale-out again.
+				time.Sleep(time.Second * 2)
+
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 3))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
+				Expect(dockerCluster.HasActiveScalingOperation()).To(BeFalse())
+
+				// Now, let's artificially increase the number of committed GPUs on each host.
+				// The formula for scaling out is:
+				// <Scaled Out Number of Hosts> = ⌈ (<Cluster Committed GPUs> x <Scale Factor>) / <GPUs Per Host> ⌉
+				//
+				// We want <Scaled Out Number of Hosts> to equal 8.
+				//
+				// <Scale Factor> is set to 1.10 in the configuration and <GPUs Per Host> is 8.
+				//
+				// Therefore, we have:
+				// 8 = ⌈ 1.10x / 8 ⌉
+				//
+				// Which is actually an inequality:
+				//
+				// 7 < 1.10x / 8 <= 8
+				// 56 < 1.10x <= 64
+				// 50.9 < x <= 58.18
+				//
+				// So, we need at least 50.9 committed GPUs to trigger a scale-out to 8 nodes.
+
+				var lastHost scheduling.Host
+				dockerCluster.RangeOverHosts(func(key string, host scheduling.Host) bool {
+					// Add 7-<Current Committed>, since one of the hosts already had 1 committed GPU.
+					spec := types.NewDecimalSpec(0, 0, 7-host.CommittedGPUs(), 0)
+					err := host.AddToCommittedResources(spec)
+					Expect(err).To(BeNil())
+
+					lastHost = host
+
+					return true
+				})
+
+				// Cluster GPU load is 49, which is less than 50.9.
+				// We still shouldn't scale out.
+				time.Sleep(time.Second * 3)
+
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 3))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
+				Expect(dockerCluster.HasActiveScalingOperation()).To(BeFalse())
+
+				err = lastHost.AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
+				Expect(err).To(BeNil())
+
+				// Cluster GPU load is 50, which is less than 50.9.
+				// We still shouldn't scale out.
+				time.Sleep(time.Second * 3)
+
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 3))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
+				Expect(dockerCluster.HasActiveScalingOperation()).To(BeFalse())
+
+				err = lastHost.AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
+				Expect(err).To(BeNil())
+
+				// Cluster GPU load is 51, which is greater than 50.9.
+				// We SHOULD scale out now.
+				Eventually(func() int {
+					return dockerCluster.Len()
+				}, time.Second*time.Duration(5*MeanScaleOutPerHostSec), time.Millisecond*50).
+					Should(Equal(clusterSize + 1))
+
+				clusterSize += 1
+				Expect(dockerCluster.Len()).To(Equal(InitialClusterSize + 4))
+				Expect(clusterSize).To(Equal(InitialClusterSize + 4))
+
+				time.Sleep(time.Second * 3)
+
+				dockerCluster.RangeOverHosts(func(key string, host scheduling.Host) bool {
+					// Remove all committed GPUs from all hosts.
+					spec := types.NewDecimalSpec(0, 0, host.CommittedGPUs(), 0)
+					err := host.SubtractFromCommittedResources(spec)
+					Expect(err).To(BeNil())
+
+					lastHost = host
+
+					return true
+				})
+
+				// Except make sure there's 1 host with committed resources.
+				err = lastHost.AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
+
+				// Now we should scale back in...
+				Expect(err).To(BeNil())
+				Eventually(func() int {
+					return dockerCluster.Len()
+				}, time.Second*10, time.Millisecond*50).
+					Should(Equal(clusterSize - 1))
 			})
 		})
 
@@ -2575,7 +2975,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 				config.InitLogger(&clusterGateway.log, clusterGateway)
 
-				Expect(clusterGateway.gatewayPrometheusManager).To(BeNil())
+				Expect(clusterGateway.metricsProvider).ToNot(BeNil())
+				Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
 			})
 
 			AfterEach(func() {
@@ -2601,7 +3002,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Memory: 2048,
 				}
 
-				kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec)
+				kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec, 3)
 				mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
 
 				mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
@@ -2968,7 +3369,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				for i := 0; i < numKernels; i++ {
 					kernelId := uuid.NewString()
 					kernelKey := uuid.NewString()
-					kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec)
+					kernel, kernelSpec := initMockedKernelForCreation(mockCtrl, kernelId, kernelKey, resourceSpec, 3)
 					mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
 
 					kernels[kernelId] = kernel

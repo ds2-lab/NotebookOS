@@ -257,6 +257,9 @@ func (s *Session) ResourceSpec() types.CloneableSpec {
 }
 
 func (s *Session) UpdateResourceSpec(newSpec types.CloneableSpec) {
+	s.log.Debug("Updating ResourceSpec of Session \"%s\" from %v to %v.",
+		s.id, s.resourceSpec.String(), newSpec.String())
+
 	s.resourceSpec = newSpec
 
 	s.kernelSpec.ResourceSpec.Gpu = int32(newSpec.GPU())
@@ -338,7 +341,13 @@ func (s *Session) SetExpectingTraining() promise.Promise {
 //
 // DistributedKernelClient::handleSmrLeadTaskMessage --> Kernel::TrainingStartedInContainer --> Session::TrainingStartedInContainer.
 func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) promise.Promise {
-	s.log.Debug("Training starting. Current state: %s.", s.GetState().String())
+	if container == nil {
+		s.log.Error("Specified container for training is nil. Cannot start training.")
+		return promise.Resolved(s.instance, fmt.Errorf("%w: container is nil", ErrInvalidContainer))
+	}
+
+	s.log.Debug("Training starting in replica %d on host %s (ID=%s). Current state: %s.",
+		container.ReplicaId(), container.Host().GetNodeName(), container.Host().GetID(), s.GetState().String())
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -346,18 +355,6 @@ func (s *Session) SessionStartedTraining(container scheduling.KernelContainer) p
 	if err := s.transition(scheduling.SessionStateTraining); err != nil {
 		s.log.Warn("Failed to start training because: %v", err)
 		return promise.Resolved(s.instance, err)
-	}
-
-	if container == nil {
-		s.log.Error("Specified container for training is nil.")
-
-		// Try to go back to idle...
-		err := s.transition(scheduling.SessionStateIdle)
-		if err != nil {
-			s.log.Error("Failed to revert back to idle state after failing to start training: %v", err)
-		}
-
-		return promise.Resolved(s.instance, fmt.Errorf("%w: container is nil", ErrInvalidContainer))
 	}
 
 	// Verify that the specified Container is indeed one of our replica containers.

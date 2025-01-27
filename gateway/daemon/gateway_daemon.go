@@ -9,13 +9,12 @@ import (
 	"fmt"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
+	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/shopspring/decimal"
 	"log"
 	"math/rand"
@@ -97,11 +96,10 @@ var (
 type GatewayDaemonConfig func(ClusterGateway)
 
 type DistributedClientProvider interface {
-	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec, numReplicas int, hostId string,
-		connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
+	NewDistributedKernelClient(ctx context.Context, spec *proto.KernelSpec,
+		numReplicas int, hostId string, connectionInfo *jupyter.ConnectionInfo, persistentId string, debugMode bool,
 		executionFailedCallback scheduling.ExecutionFailedCallback, executionLatencyCallback scheduling.ExecutionLatencyCallback,
-		handleExecuteYieldNotification scheduling.YieldNotificationHandler, messagingMetricsProvider metrics.MessagingMetricsProvider,
-		updater func(func(statistics *statistics.ClusterStatistics)), notificationCallback scheduling.NotificationCallback) scheduling.Kernel
+		statisticsProvider scheduling.StatisticsProvider, notificationCallback scheduling.NotificationCallback) scheduling.Kernel
 }
 
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
@@ -161,6 +159,23 @@ func ensureErrorGrpcCompatible(err error, code codes.Code) error {
 	return status.Error(code, err.Error())
 }
 
+// PrometheusMetricsProvider defines the general interface of Prometheus metric managers.
+//
+// This interface is designed to be used by external entities who need to store/publish metrics.
+type PrometheusMetricsProvider interface {
+	// Start registers metrics with Prometheus and begins serving the metrics via an HTTP endpoint.
+	Start() error
+
+	// NodeId returns the node ID associated with the metrics manager.
+	NodeId() string
+
+	// IsRunning returns true if the PrometheusMetricsProvider has been started and is serving metrics.
+	IsRunning() bool
+
+	// Stop instructs the PrometheusMetricsProvider to shut down its HTTP server.
+	Stop() error
+}
+
 // ClusterGatewayImpl serves distributed notebook gateway for three roles:
 // 1. A jupyter remote kernel gateway.
 // 2. A global scheduler that coordinate host schedulers.
@@ -170,7 +185,7 @@ func ensureErrorGrpcCompatible(err error, code codes.Code) error {
 // https://jupyter-client.readthedocs.io/en/stable/messaging.html
 // https://hackage.haskell.org/package/jupyter-0.9.0/docs/Jupyter-Messages.html
 type ClusterGatewayImpl struct {
-	sync.Mutex
+	mu sync.RWMutex
 
 	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
 	// as the request history.
@@ -212,8 +227,10 @@ type ClusterGatewayImpl struct {
 	closed  int32
 	cleaned chan struct{}
 
+	started atomic.Bool
+
 	// ClusterStatistics encapsulates a number of statistics/metrics.
-	ClusterStatistics        *statistics.ClusterStatistics
+	ClusterStatistics        *metrics.ClusterStatistics
 	clusterStatisticsMutex   sync.Mutex
 	lastFullStatisticsUpdate time.Time
 
@@ -294,11 +311,12 @@ type ClusterGatewayImpl struct {
 	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
 	MessageAcknowledgementsEnabled bool
 
-	// gatewayPrometheusManager serves Prometheus metrics and responds to HTTP GET queries
-	// issued by Grafana to create Grafana Variables for use in creating Grafana Dashboards.
-	gatewayPrometheusManager *metrics.GatewayPrometheusManager
+	// metricsProvider provides all metrics to the members of the scheduling package.
+	metricsProvider *metrics.ClusterMetricsProvider
+
 	// Indicates that a goroutine has been started to publish metrics to Prometheus.
 	servingPrometheus atomic.Int32
+
 	// prometheusInterval is how often we publish metrics to Prometheus.
 	prometheusInterval time.Duration
 
@@ -357,8 +375,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		initialClusterSize:             clusterDaemonOptions.InitialClusterSize,
 		initialConnectionPeriod:        time.Second * time.Duration(clusterDaemonOptions.InitialClusterConnectionPeriodSec),
 		prometheusInterval:             time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
-		gatewayPrometheusManager:       nil,
-		ClusterStatistics:              statistics.NewClusterStatistics(),
+		ClusterStatistics:              metrics.NewClusterStatistics(),
 		//availablePorts:                 utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
 	}
 
@@ -374,16 +391,27 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.log.Debug("Not running in DebugMode.")
 	}
 
-	clusterGateway.router = router.New(context.Background(), clusterGateway.connectionOptions, clusterGateway,
-		clusterGateway.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false,
-		metrics.ClusterGateway, clusterGateway.DebugMode, clusterGateway.updateClusterStatistics)
+	clusterGateway.metricsProvider = metrics.NewClusterMetricsProvider(
+		clusterDaemonOptions.PrometheusPort, clusterGateway, clusterGateway.updateClusterStatistics,
+		clusterGateway.IncrementResourceCountsForNewHost, clusterGateway.DecrementResourceCountsForRemovedHost)
 
-	if clusterDaemonOptions.PrometheusPort > 0 {
-		clusterGateway.gatewayPrometheusManager = metrics.NewGatewayPrometheusManager(clusterDaemonOptions.PrometheusPort, clusterGateway)
-		err := clusterGateway.gatewayPrometheusManager.Start()
+	clusterGateway.router = router.New(context.Background(), clusterGateway.id, clusterGateway.connectionOptions, clusterGateway,
+		clusterGateway.MessageAcknowledgementsEnabled, "ClusterGatewayRouter", false,
+		metrics.ClusterGateway, clusterGateway.DebugMode, clusterGateway.metricsProvider.GetGatewayPrometheusManager())
+
+	if clusterGateway.metricsProvider.PrometheusMetricsEnabled() {
+		err := clusterGateway.metricsProvider.StartGatewayPrometheusManager()
 		if err != nil {
 			panic(err)
 		}
+
+		clusterGateway.router.AssignPrometheusManager(clusterGateway.metricsProvider.GetGatewayPrometheusManager())
+
+		// Initial values for these metrics.
+		clusterGateway.metricsProvider.GetGatewayPrometheusManager().NumActiveKernelReplicasGaugeVec.
+			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Set(0)
+		clusterGateway.metricsProvider.GetGatewayPrometheusManager().DemandGpusGauge.Set(0)
+		clusterGateway.metricsProvider.GetGatewayPrometheusManager().BusyGpusGauge.Set(0)
 	} else {
 		clusterGateway.log.Warn("PrometheusPort is set to a negative number. Skipping initialization of Prometheus-related components.")
 	}
@@ -393,17 +421,6 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.publishPrometheusMetrics()
 	} else {
 		clusterGateway.log.Warn("\"Prometheus Metrics Publisher\" goroutine is disabled. Skipping initialization.")
-	}
-
-	clusterGateway.router.SetComponentId(clusterGateway.id)
-	if clusterDaemonOptions.PrometheusPort > 0 {
-		clusterGateway.router.AssignPrometheusManager(clusterGateway.gatewayPrometheusManager)
-
-		// Initial values for these metrics.
-		clusterGateway.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
-			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Set(0)
-		clusterGateway.gatewayPrometheusManager.DemandGpusGauge.Set(0)
-		clusterGateway.gatewayPrometheusManager.BusyGpusGauge.Set(0)
 	}
 
 	if clusterGateway.ip == "" {
@@ -452,6 +469,12 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 			clusterGateway.log.Debug("Using the 'FCFS Batch' scheduling policy.")
 			clusterGateway.executionFailedCallback = clusterGateway.fcfsBatchSchedulingFailureHandler
 		}
+	case string(scheduling.Reservation):
+		{
+			clusterGateway.policyKey = scheduling.Reservation
+			clusterGateway.log.Debug("Using the 'Reservation' scheduling policy.")
+			clusterGateway.executionFailedCallback = clusterGateway.reservationSchedulingFailureHandler
+		}
 	default:
 		{
 			panic(fmt.Sprintf("Unsupported or unknown scheduling policy specified: '%s'", clusterDaemonOptions.SchedulingPolicy))
@@ -480,11 +503,14 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		clusterGateway.log.Debug("Successfully looked up the number of real/actual GPUs available on this node: %d", gpusPerHost)
 	}
 
-	clusterGateway.hostSpec = &types.DecimalSpec{
-		GPUs:      decimal.NewFromFloat(float64(gpusPerHost)),
-		VRam:      decimal.NewFromFloat(scheduling.VramPerHostGb),
-		Millicpus: decimal.NewFromFloat(scheduling.MillicpusPerHost),
-		MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),
+	// It's possible one of the config functions already set this, so check that it is nil first.
+	if clusterGateway.hostSpec == nil {
+		clusterGateway.hostSpec = &types.DecimalSpec{
+			GPUs:      decimal.NewFromFloat(float64(gpusPerHost)),
+			VRam:      decimal.NewFromFloat(scheduling.VramPerHostGb),
+			Millicpus: decimal.NewFromFloat(scheduling.MillicpusPerHost),
+			MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),
+		}
 	}
 
 	schedulingPolicy, policyError := scheduler.GetSchedulingPolicy(&clusterDaemonOptions.SchedulerOptions)
@@ -579,7 +605,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		}
 	}
 
-	clusterPlacer, err = schedulingPolicy.GetNewPlacer(clusterGateway.gatewayPrometheusManager)
+	clusterPlacer, err = schedulingPolicy.GetNewPlacer(clusterGateway.metricsProvider)
 	if err != nil {
 		clusterGateway.log.Error("Failed to create Random Placer: %v", err)
 		panic(err)
@@ -593,7 +619,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		WithSchedulingPolicy(schedulingPolicy).
 		WithHostMapper(clusterGateway).
 		WithKernelProvider(clusterGateway).
-		WithClusterMetricsProvider(clusterGateway.gatewayPrometheusManager).
+		WithClusterMetricsProvider(clusterGateway.metricsProvider).
 		WithNotificationBroker(clusterGateway).
 		WithStatisticsUpdateProvider(clusterGateway.updateClusterStatistics).
 		WithOptions(&clusterSchedulerOptions).
@@ -605,8 +631,9 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 
 	clusterGateway.cluster = distributedNotebookCluster
 
-	if clusterGateway.gatewayPrometheusManager != nil {
-		clusterGateway.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())
+	if clusterGateway.metricsProvider.PrometheusMetricsEnabled() {
+		clusterGateway.metricsProvider.GetGatewayPrometheusManager().
+			ClusterSubscriptionRatioGauge.Set(clusterGateway.cluster.SubscriptionRatio())
 	}
 
 	// If initialClusterSize is specified as a negative number, then the feature is disabled, so we only bother
@@ -895,9 +922,14 @@ func (d *ClusterGatewayImpl) publishPrometheusMetrics() {
 
 		for {
 			if d.cluster != nil {
-				d.gatewayPrometheusManager.DemandGpusGauge.Set(d.cluster.DemandGPUs())
-				d.gatewayPrometheusManager.BusyGpusGauge.Set(d.cluster.BusyGPUs())
-				d.gatewayPrometheusManager.ClusterSubscriptionRatioGauge.Set(d.cluster.SubscriptionRatio())
+				d.metricsProvider.GetGatewayPrometheusManager().
+					DemandGpusGauge.Set(d.cluster.DemandGPUs())
+
+				d.metricsProvider.GetGatewayPrometheusManager().
+					BusyGpusGauge.Set(d.cluster.BusyGPUs())
+
+				d.metricsProvider.GetGatewayPrometheusManager().
+					ClusterSubscriptionRatioGauge.Set(d.cluster.SubscriptionRatio())
 			}
 
 			time.Sleep(d.prometheusInterval)
@@ -1081,7 +1113,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	// Create a host scheduler client and register it.
 	host, err := entity.NewHostWithConn(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
 		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, d.cluster.NumReplicas(), d.cluster, d.cluster,
-		d.gatewayPrometheusManager, gConn, d.Scheduler().Policy().ResourceBindingMode(), d.localDaemonDisconnected)
+		d.metricsProvider, gConn, d.Scheduler().Policy(), d.localDaemonDisconnected)
 
 	if err != nil {
 		if errors.Is(err, entity.ErrRestoreRequired) {
@@ -1294,10 +1326,6 @@ func (d *ClusterGatewayImpl) kernelRequestResubmissionFailedAfterReconnection(ke
 //
 // The passed message is the "execute_reply" or "yield_reply".
 func (d *ClusterGatewayImpl) executionFailed(c scheduling.Kernel, msg *messaging.JupyterMessage) error {
-	activeExecution := c.GetActiveExecution(msg.JupyterParentMessageId())
-	d.log.Warn("Execution %s (attempt %d) failed for kernel %s.",
-		activeExecution.ExecuteRequestMessageId, activeExecution.AttemptNumber, c.ID())
-
 	return d.executionFailedCallback(c, msg)
 }
 
@@ -1309,6 +1337,11 @@ func (d *ClusterGatewayImpl) defaultFailureHandler(_ scheduling.Kernel, _ *messa
 func (d *ClusterGatewayImpl) fcfsBatchSchedulingFailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
 	d.log.Warn("There is no failure handler for the FCFS Batch scheduling policy.")
 	return fmt.Errorf("there is no failure handler for the FCFS Batch policy; cannot handle error")
+}
+
+func (d *ClusterGatewayImpl) reservationSchedulingFailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
+	d.log.Warn("There is no failure handler for the Reservation scheduling policy.")
+	return fmt.Errorf("there is no failure handler for the Reservation scheduling policy; cannot handle error")
 }
 
 func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ messaging.NotificationType) {
@@ -1570,7 +1603,7 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 	// Initialize kernel with new context.
 	kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
 		d.connectionOptions, uuid.NewString(), d.DebugMode, d.executionFailed, d.executionLatencyCallback,
-		d.handleExecutionYieldedNotification, d.gatewayPrometheusManager, d.updateClusterStatistics, d.notifyDashboard)
+		d.metricsProvider, d.notifyDashboard)
 
 	d.log.Debug("Initializing Shell Forwarder for new distributedKernelClientImpl \"%s\" now.", in.Id)
 	_, err := kernel.InitializeShellForwarder(d.kernelShellHandler)
@@ -1610,12 +1643,39 @@ func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Ker
 
 // scheduleReplicas actually scheduled the replicas of the specified kernel.
 func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel scheduling.Kernel, in *proto.KernelSpec) error {
-	d.log.Debug("Scheduling replica container(s) of kernel %s now.", kernel.ID())
+	d.log.Debug("Scheduling replica container(s) of kernel %s startTime.", kernel.ID())
+
+	scheduleReplicasStartedEvents := make(map[int32]*metrics.ClusterEvent)
+	replicaRegisteredTimestamps := make(map[int32]time.Time)
+	var replicaRegisteredEventsMutex sync.Mutex
+
+	d.clusterStatisticsMutex.Lock()
+	startTime := time.Now()
+	for i := 0; i < d.NumReplicas(); i++ {
+		replicaId := int32(i + 1)
+		event := &metrics.ClusterEvent{
+			EventId:             uuid.NewString(),
+			Name:                metrics.ScheduleReplicasStarted,
+			KernelId:            in.Id,
+			ReplicaId:           replicaId,
+			Timestamp:           startTime,
+			TimestampUnixMillis: startTime.UnixMilli(),
+		}
+		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, event)
+		scheduleReplicasStartedEvents[replicaId] = event
+	}
+	d.clusterStatisticsMutex.Unlock()
 
 	// Record that this kernel is starting.
 	kernelStartedChan := make(chan struct{})
 	d.kernelsStarting.Store(in.Id, kernelStartedChan)
 	created := newRegistrationWaitGroups(d.NumReplicas())
+	created.AddOnReplicaRegisteredCallback(func(replicaId int32) {
+		replicaRegisteredEventsMutex.Lock()
+		defer replicaRegisteredEventsMutex.Unlock()
+
+		replicaRegisteredTimestamps[replicaId] = time.Now()
+	})
 	d.waitGroups.Store(in.Id, created)
 
 	err := d.cluster.Scheduler().DeployKernelReplicas(ctx, in, []scheduling.Host{ /* No blacklisted hosts */ })
@@ -1635,7 +1695,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		}
 
 		// Only notify if there's an "actual" error.
-		if !errors.Is(err, scheduling.ErrInsufficientHostsAvailable) {
+		if !errors.Is(err, scheduling.ErrInsufficientHostsAvailable) && !errors.As(err, &resource.InsufficientResourcesError{}) {
 			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Create Kernel \"%s\"", in.Id), err.Error())
 		}
 
@@ -1654,7 +1714,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	d.log.Debug("Waiting for replicas of new kernel %s to register. Number of kernels starting: %d.",
 		in.Id, d.kernelsStarting.Len())
 	created.Wait()
-	d.log.Debug("All %d replica(s) of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster now.",
+	d.log.Debug("All %d replica(s) of new kernel %s have been created and registered with their local daemons. Waiting for replicas to join their SMR cluster startTime.",
 		d.NumReplicas(), in.Id)
 
 	// Wait until all replicas have started.
@@ -1676,6 +1736,28 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 	for _, sess := range kernel.Sessions() {
 		d.log.Debug("Storing kernel %v under session ID \"%s\".", kernel, sess)
 		d.kernels.Store(sess, kernel)
+	}
+
+	// Create corresponding events for when the replicas registered.
+	for replicaId, timestamp := range replicaRegisteredTimestamps {
+		timeElapsed := timestamp.Sub(startTime)
+		event := &metrics.ClusterEvent{
+			EventId:             uuid.NewString(),
+			Name:                metrics.ScheduleReplicasComplete,
+			KernelId:            in.Id,
+			ReplicaId:           replicaId,
+			Timestamp:           timestamp,
+			TimestampUnixMillis: timestamp.UnixMilli(),
+			Duration:            timeElapsed,
+			DurationMillis:      timeElapsed.Milliseconds(),
+			Metadata: map[string]interface{}{
+				"start_time_unix_millis":       startTime.UnixMilli(),
+				"corresponding_start_event_id": scheduleReplicasStartedEvents[replicaId].EventId,
+			},
+		}
+		d.clusterStatisticsMutex.Lock()
+		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, event)
+		d.clusterStatisticsMutex.Unlock()
 	}
 
 	return nil
@@ -1758,8 +1840,9 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 
 	d.clusterStatisticsMutex.Lock()
 	now := time.Now()
-	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
-		Name:                statistics.KernelCreationStarted,
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
+		EventId:             uuid.NewString(),
+		Name:                metrics.KernelCreationStarted,
 		KernelId:            in.Id,
 		ReplicaId:           -1,
 		Timestamp:           now,
@@ -1866,8 +1949,9 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 	d.ClusterStatistics.NumIdleSessions += 1
 
 	now := time.Now()
-	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
-		Name:                statistics.KernelCreationComplete,
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
+		EventId:             uuid.NewString(),
+		Name:                metrics.KernelCreationComplete,
 		KernelId:            kernelId,
 		ReplicaId:           -1,
 		Timestamp:           now,
@@ -1875,13 +1959,17 @@ func (d *ClusterGatewayImpl) newKernelCreated(startTime time.Time, kernelId stri
 	})
 	d.clusterStatisticsMutex.Unlock()
 
-	if d.gatewayPrometheusManager != nil {
-		d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
+	if d.metricsProvider.PrometheusMetricsEnabled() {
+		d.metricsProvider.GetGatewayPrometheusManager().NumActiveKernelReplicasGaugeVec.
 			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
 			Set(float64(numActiveKernels))
-		d.gatewayPrometheusManager.TotalNumKernelsCounterVec.
-			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
-		d.gatewayPrometheusManager.KernelCreationLatencyHistogram.Observe(float64(time.Since(startTime).Milliseconds()))
+
+		d.metricsProvider.GetGatewayPrometheusManager().TotalNumKernelsCounterVec.
+			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
+			Inc()
+
+		d.metricsProvider.GetGatewayPrometheusManager().KernelCreationLatencyHistogram.
+			Observe(float64(time.Since(startTime).Milliseconds()))
 	}
 }
 
@@ -1943,7 +2031,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		jupyter.ConnectionInfoFromKernelConnectionInfo(in.ConnectionInfo),
 		d.id, d.numResendAttempts, in.PodOrContainerName, in.NodeName,
 		nil, nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
-		host, metrics.ClusterGateway, true, true, d.DebugMode, d.gatewayPrometheusManager,
+		host, metrics.ClusterGateway, true, true, d.DebugMode, d.metricsProvider,
 		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics)
 
 	err := replica.Validate()
@@ -2014,7 +2102,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		SmrPort:                         int32(d.smrPort),
 	}
 
-	d.Unlock()
+	d.mu.Unlock()
 
 	d.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during AddOperation \"%s\".",
 		replicaSpec.ReplicaId, in.KernelId, addReplicaOp.OperationID())
@@ -2134,8 +2222,9 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	d.clusterStatisticsMutex.Lock()
 	now := time.Now()
-	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
-		Name:                statistics.KernelReplicaRegistered,
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
+		EventId:             uuid.NewString(),
+		Name:                metrics.KernelReplicaRegistered,
 		KernelId:            kernelId,
 		ReplicaId:           -1,
 		Timestamp:           now,
@@ -2143,14 +2232,14 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	})
 	d.clusterStatisticsMutex.Unlock()
 
-	d.Lock()
-
 	_, loaded := d.kernelRegisteredNotifications.LoadOrStore(in.NotificationId, in)
 	if loaded {
 		d.log.Warn("Received duplicate \"Kernel Registered\" notification with ID=%s", in.NotificationId)
-		d.Unlock()
+		d.mu.Unlock()
 		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
 	}
+
+	d.mu.Lock()
 
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {
@@ -2226,7 +2315,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		jupyter.ConnectionInfoFromKernelConnectionInfo(connectionInfo), d.id,
 		d.numResendAttempts, kernelPodOrContainerName, nodeName, nil,
 		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
-		true, true, d.DebugMode, d.gatewayPrometheusManager, d.kernelReconnectionFailed,
+		true, true, d.DebugMode, d.metricsProvider, d.kernelReconnectionFailed,
 		d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics)
 
 	session, ok := d.cluster.GetSession(kernelId)
@@ -2243,13 +2332,6 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	// Assign the Container to the Kernel.
 	replica.SetContainer(container)
 
-	// Add the Container to the Host.
-	if err := host.ContainerScheduled(container); err != nil {
-		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
-		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
-		panic(err)
-	}
-
 	// Register the Container with the Session.
 	if err := session.AddReplica(container); err != nil {
 		d.log.Error("Error while registering container %v with session %v: %v", container, session, err)
@@ -2257,11 +2339,25 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		panic(err)
 	}
 
+	d.mu.Unlock() // Need to unlock before calling ContainerScheduled, or deadlock can occur.
+
+	// Add the Container to the Host.
+	if err := host.ContainerScheduled(container); err != nil {
+		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
+		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
+		panic(err)
+	}
+
 	d.log.Debug("Validating new Kernel for kernel %s, replica %d on host %s.", kernelId, replicaId, hostId)
 	if val := ctx.Value(SkipValidationKey); val == nil {
 		err := replica.Validate()
 		if err != nil {
-			panic(fmt.Sprintf("Kernel::Validate call failed: %v", err)) // TODO(Ben): Handle gracefully.
+			d.log.Error("Kernel::Validate call failed: %v", err)
+			go d.notifyDashboardOfError(fmt.Sprintf("Kernel::Validate call failed for replica %d of kernel %s",
+				replica.ReplicaID(), in.KernelId), err.Error())
+
+			// TODO: Handle this more gracefully.
+			return nil, err
 		}
 	} else {
 		d.log.Warn("Skipping validation and establishment of actual network connections with newly-registered replica %d of kernel %s.",
@@ -2278,11 +2374,10 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 
 	// The replica is fully operational at this point, so record that it is ready.
 	replica.SetReady()
-	d.Unlock()
 
 	waitGroup.SetReplica(replicaId, kernelIp)
 
-	waitGroup.Register()
+	waitGroup.Register(replicaId)
 	d.log.Debug("Done registering Kernel for kernel %s, replica %d on host %s. Resource spec: %v",
 		kernelId, replicaId, hostId, kernelSpec.ResourceSpec)
 	d.log.Debug("WaitGroup for Kernel \"%s\": %s", kernelId, waitGroup.String())
@@ -2494,8 +2589,9 @@ func (d *ClusterGatewayImpl) KillKernel(_ context.Context, in *proto.KernelId) (
 		}
 
 		now := time.Now()
-		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
-			Name:                statistics.KernelStopped,
+		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
+			EventId:             uuid.NewString(),
+			Name:                metrics.KernelStopped,
 			KernelId:            in.Id,
 			ReplicaId:           -1,
 			Timestamp:           now,
@@ -2504,8 +2600,8 @@ func (d *ClusterGatewayImpl) KillKernel(_ context.Context, in *proto.KernelId) (
 
 		d.clusterStatisticsMutex.Unlock()
 
-		if d.gatewayPrometheusManager != nil {
-			d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
+		if d.metricsProvider.PrometheusMetricsEnabled() {
+			d.metricsProvider.GetGatewayPrometheusManager().NumActiveKernelReplicasGaugeVec.
 				With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
 				Set(float64(numActiveKernels))
 		}
@@ -2582,8 +2678,12 @@ func (d *ClusterGatewayImpl) stopKernelImpl(in *proto.KernelId) (ret *proto.Void
 		go d.notifyDashboard(
 			"Kernel Stopped", fmt.Sprintf("Kernel %s has been terminated successfully.",
 				kernel.ID()), messaging.SuccessNotification)
-		d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
-			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Sub(1)
+
+		if d.metricsProvider.PrometheusMetricsEnabled() {
+			d.metricsProvider.GetGatewayPrometheusManager().NumActiveKernelReplicasGaugeVec.
+				With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
+				Sub(1)
+		}
 	} else {
 		go d.notifyDashboardOfError("Failed to Terminate Kernel",
 			fmt.Sprintf("An error was encountered while trying to terminate kernel %s: %v.", kernel.ID(), err))
@@ -2619,8 +2719,9 @@ func (d *ClusterGatewayImpl) StopKernel(_ context.Context, in *proto.KernelId) (
 	}
 
 	now := time.Now()
-	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
-		Name:                statistics.KernelStopped,
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
+		EventId:             uuid.NewString(),
+		Name:                metrics.KernelStopped,
 		KernelId:            in.Id,
 		ReplicaId:           -1,
 		Timestamp:           now,
@@ -2629,8 +2730,9 @@ func (d *ClusterGatewayImpl) StopKernel(_ context.Context, in *proto.KernelId) (
 
 	d.clusterStatisticsMutex.Unlock()
 
-	if d.gatewayPrometheusManager != nil {
-		d.gatewayPrometheusManager.NumActiveKernelReplicasGaugeVec.
+	if d.metricsProvider.PrometheusMetricsEnabled() {
+		d.metricsProvider.GetGatewayPrometheusManager().
+			NumActiveKernelReplicasGaugeVec.
 			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).
 			Set(float64(numActiveKernels))
 	}
@@ -2788,8 +2890,9 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 	targetNodeId := in.GetTargetNodeId()
 
 	d.clusterStatisticsMutex.Lock()
-	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
-		Name:                statistics.KernelMigrationStarted,
+	d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
+		EventId:             uuid.NewString(),
+		Name:                metrics.KernelMigrationStarted,
 		KernelId:            replicaInfo.KernelId,
 		ReplicaId:           replicaInfo.ReplicaId,
 		Timestamp:           startTime,
@@ -2835,8 +2938,8 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 				replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeIdForLogging, duration, err)
 		}
 
-		if d.gatewayPrometheusManager != nil {
-			d.gatewayPrometheusManager.NumFailedMigrations.Inc()
+		if d.metricsProvider.PrometheusMetricsEnabled() {
+			d.metricsProvider.GetGatewayPrometheusManager().NumFailedMigrations.Inc()
 		}
 
 		d.clusterStatisticsMutex.Lock()
@@ -2844,8 +2947,9 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 		d.ClusterStatistics.NumFailedMigrations += 1
 
 		now := time.Now()
-		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
-			Name:                statistics.KernelMigrationComplete,
+		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
+			EventId:             uuid.NewString(),
+			Name:                metrics.KernelMigrationComplete,
 			KernelId:            replicaInfo.KernelId,
 			ReplicaId:           replicaInfo.ReplicaId,
 			Timestamp:           now,
@@ -2865,8 +2969,8 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 		d.log.Debug("Migration operation of replica %d of kernel %s to target node %s completed successfully after %v.",
 			replicaInfo.ReplicaId, replicaInfo.KernelId, targetNodeId, duration)
 
-		if d.gatewayPrometheusManager != nil {
-			d.gatewayPrometheusManager.NumSuccessfulMigrations.Inc()
+		if d.metricsProvider.PrometheusMetricsEnabled() {
+			d.metricsProvider.GetGatewayPrometheusManager().NumSuccessfulMigrations.Inc()
 		}
 
 		d.clusterStatisticsMutex.Lock()
@@ -2874,8 +2978,9 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 		d.ClusterStatistics.NumSuccessfulMigrations += 1
 
 		now := time.Now()
-		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &statistics.ClusterEvent{
-			Name:                statistics.KernelMigrationComplete,
+		d.ClusterStatistics.ClusterEvents = append(d.ClusterStatistics.ClusterEvents, &metrics.ClusterEvent{
+			EventId:             uuid.NewString(),
+			Name:                metrics.KernelMigrationComplete,
 			KernelId:            replicaInfo.KernelId,
 			ReplicaId:           replicaInfo.ReplicaId,
 			Timestamp:           now,
@@ -2887,8 +2992,8 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 		d.clusterStatisticsMutex.Unlock()
 	}
 
-	if d.gatewayPrometheusManager != nil {
-		d.gatewayPrometheusManager.KernelMigrationLatencyHistogram.Observe(float64(duration.Milliseconds()))
+	if d.metricsProvider.PrometheusMetricsEnabled() {
+		d.metricsProvider.GetGatewayPrometheusManager().KernelMigrationLatencyHistogram.Observe(float64(duration.Milliseconds()))
 	}
 
 	// If there was an error, then err will be non-nil.
@@ -2897,6 +3002,8 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 }
 
 func (d *ClusterGatewayImpl) Start() error {
+	d.started.CompareAndSwap(false, true)
+
 	d.log.Info("Starting router...")
 
 	if d.KubernetesMode() {
@@ -2922,19 +3029,27 @@ func (d *ClusterGatewayImpl) Close() error {
 		return nil
 	}
 
-	// Close the router
-	if err := d.router.Close(); err != nil {
-		d.log.Error("Failed to cleanly shutdown router because: %v", err)
+	if d.router != nil {
+		// Close the router
+		if err := d.router.Close(); err != nil {
+			d.log.Error("Failed to cleanly shutdown router because: %v", err)
+		}
 	}
 
-	// Wait for the newKernels to be cleaned up
-	<-d.cleaned
+	if d.started.Load() {
+		// Wait for the newKernels to be cleaned up
+		<-d.cleaned
+	}
 
 	// Close the listener
 	if d.listener != nil {
 		if err := d.listener.Close(); err != nil {
 			d.log.Error("Failed to cleanly shutdown listener because: %v", err)
 		}
+	}
+
+	if d.cluster != nil {
+		d.cluster.Close()
 	}
 
 	return nil
@@ -3344,6 +3459,20 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 // "execute_request" messages. It first calls processExecuteRequest before forwarding the "execute_request"
 // to the replicas (well, to the Local Schedulers first).
 func (d *ClusterGatewayImpl) executeRequestHandler(kernel scheduling.Kernel, jMsg *messaging.JupyterMessage) error {
+	// First, update the kernel's resource request (for replica-based policies) if there's an updated
+	// resource request in the metadata of the "execute_request" message.
+	//
+	// We do this before even checking if the replicas are scheduled.
+	// If they aren't scheduled, then it would be best for the spec to be up to date before we bother scheduling them.
+	// And if they're already scheduled, then their specs will be updated.
+	err := d.processExecuteRequestMetadata(jMsg, kernel)
+	if err != nil {
+		jMsg.IsFailedExecuteRequest = true
+		return err
+	}
+
+	// Now we check if the replicas are scheduled. For static and dynamic, they will be, as well as with reservation.
+	// For FCFS, they will not already be scheduled. (I say "they", but for FCFS, there's just 1 replica.)
 	_, replicasAlreadyScheduled, err := d.ensureKernelReplicasAreScheduled(kernel, jMsg, messaging.ShellMessage)
 	if err != nil {
 		d.log.Error("Error encountered while ensuring replica container(s) of kernel %s are scheduled in order to handle shell \"%s\" message: %v",
@@ -3458,52 +3587,15 @@ func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request
 	return d.forwardResponse(kernel, typ, request)
 }
 
-// processExecuteReply handles the scheduling and resource allocation/de-allocation logic required when a kernel
-// finishes executing user-submitted code.
-func (d *ClusterGatewayImpl) processExecuteReply(kernelId string, msg *messaging.JupyterMessage) error {
-	d.log.Debug("Received \"execute_reply\" with JupyterID=\"%s\" from kernel %s.", msg.JupyterMessageId(), kernelId)
-
-	// If this message is actually from a failed attempt to handle all replicas proposing 'yield', then we just
-	// return immediately. The execution wasn't successful. We want this error to be sent back to the client.
-	if msg.IsFailedExecuteRequest {
-		d.log.Warn("\"execute_reply\" with JupyterID=\"%s\" from kernel %s is from a failed 'all replicas yielded' handler...",
-			kernelId, msg.JupyterMessageId())
-		return nil
-	}
-
-	kernel, loaded := d.kernels.Load(kernelId)
-	if !loaded {
-		d.log.Error("Failed to load DistributedKernelClient %s while processing \"execute_reply\" message...", kernelId)
-		go d.notifyDashboardOfError("Failed to Load Distributed Kernel Client", fmt.Sprintf("Failed to load DistributedKernelClient %s while processing \"execute_reply\" message...", kernelId))
-		return types.ErrKernelNotFound
-	}
-
-	if d.gatewayPrometheusManager != nil && d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec != nil {
-		d.gatewayPrometheusManager.NumTrainingEventsCompletedCounterVec.
-			With(prometheus.Labels{"node_id": "cluster", "node_type": string(metrics.ClusterGateway)}).Inc()
-	}
-
-	if err := kernel.ExecutionComplete(msg); err != nil {
-		return err
-	}
-
-	d.clusterStatisticsMutex.Lock()
-	d.ClusterStatistics.CompletedTrainings += 1
-	d.ClusterStatistics.NumIdleSessions += 1
-	d.clusterStatisticsMutex.Unlock()
-
-	return nil
-}
-
 // processExecuteRequest is an important step of the path of handling an "execute_request".
 //
 // processExecuteRequest handles pre-committing resources, migrating a replica if no replicas are viable, etc.
 func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	kernelId := kernel.ID()
-	d.log.Debug("Forwarding shell \"execute_request\" message to kernel %s: %s", kernelId, msg.StringFormatted())
+	d.log.Debug("Processing shell \"execute_request\" message targeting kernel %s: %s", kernelId, msg.StringFormatted())
 
 	// Register the execution with the kernel.
-	_, err := kernel.RegisterActiveExecution(msg)
+	err := kernel.RegisterActiveExecution(msg)
 	if err != nil {
 		d.log.Error("Failed to register new active execution \"%s\" targeting kernel \"%s\": %v",
 			msg.JupyterMessageId(), kernel.ID(), err)
@@ -3533,14 +3625,6 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		return nil, err
 	}
 
-	// Update the kernel's resource request (for replica-based policies) if there's an updated
-	// resource request in the metadata of the "execute_request" message.
-	err = d.processExecuteRequestMetadata(msg, kernel)
-	if err != nil {
-		msg.IsFailedExecuteRequest = true
-		return nil, err
-	}
-
 	// Find a "ready" replica to handle this execution request.
 	var targetReplica scheduling.KernelReplica
 	targetReplica, err = d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
@@ -3560,6 +3644,18 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 		if d.Scheduler().Policy().ContainerLifetime() == scheduling.LongRunning {
 			d.clusterStatisticsMutex.Lock()
 			d.ClusterStatistics.NumTimesKernelReplicaAvailableImmediately += 1
+			d.clusterStatisticsMutex.Unlock()
+		}
+
+		// If the kernel has a valid (i.e., non-nil) "previous primary replica", then we'll update another statistic...
+		if kernel.LastPrimaryReplica() != nil {
+			d.clusterStatisticsMutex.Lock()
+			// If we selected the same replica again, then update the corresponding metric.
+			if kernel.LastPrimaryReplica().ReplicaID() == targetReplica.ReplicaID() {
+				d.ClusterStatistics.NumTimesPreviousPrimaryReplicaSelectedConsecutively += 1
+			} else {
+				d.ClusterStatistics.NumTimesPreviousPrimaryReplicaUnavailable += 1
+			}
 			d.clusterStatisticsMutex.Unlock()
 		}
 
@@ -3653,14 +3749,15 @@ func (d *ClusterGatewayImpl) processExecuteRequestMetadata(msg *messaging.Jupyte
 	}
 
 	// Are we permitted to dynamically change the resource request(s) of kernels? If not, then we'll just return.
-	if d.Scheduler().Policy().ResourceBindingMode() != scheduling.BindResourcesAtTrainingStart {
+	if !d.Scheduler().Policy().SupportsDynamicResourceAdjustments() {
 		return nil
 	}
 
 	d.log.Debug("Found new resource request for kernel \"%s\" in \"execute_request\" message \"%s\": %s",
 		kernel.ID(), msg.JupyterMessageId(), requestMetadata.ResourceRequest.String())
 
-	if err := d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest); err != nil {
+	err = d.updateKernelResourceSpec(kernel, requestMetadata.ResourceRequest)
+	if err != nil {
 		d.log.Error("Error while updating resource spec of kernel \"%s\": %v", kernel.ID(), err)
 		return err
 	}
@@ -3672,7 +3769,12 @@ func (d *ClusterGatewayImpl) processExecuteRequestMetadata(msg *messaging.Jupyte
 //
 // updateKernelResourceSpec will return nil on success. updateKernelResourceSpec will return an error if the kernel
 // presently has resources committed to it, and the adjustment cannot occur due to resource contention.
-func (d *ClusterGatewayImpl) updateKernelResourceSpec(kernel scheduling.Kernel, newSpec types.Spec) error {
+func (d *ClusterGatewayImpl) updateKernelResourceSpec(kernel scheduling.Kernel, newSpec types.CloneableSpec) error {
+	if !d.Scheduler().Policy().SupportsDynamicResourceAdjustments() {
+		d.log.Debug("Cannot update resource spec of kernel \"%s\" as \"%s\" scheduling policy prohibits this.",
+			kernel.ID(), d.Scheduler().Policy().Name())
+	}
+
 	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
 		d.log.Error("Requested updated resource spec for kernel %s is invalid, as one or more quantities are negative: %s",
 			kernel.ID(), newSpec.String())
@@ -3692,8 +3794,8 @@ func (d *ClusterGatewayImpl) ClusterAge(_ context.Context, _ *proto.Void) (*prot
 func (d *ClusterGatewayImpl) executionLatencyCallback(latency time.Duration, workloadId string, kernelId string) {
 	milliseconds := float64(latency.Milliseconds())
 
-	if d.gatewayPrometheusManager != nil {
-		d.gatewayPrometheusManager.JupyterTrainingStartLatency.
+	if d.metricsProvider.PrometheusMetricsEnabled() {
+		d.metricsProvider.GetGatewayPrometheusManager().JupyterTrainingStartLatency.
 			With(prometheus.Labels{
 				"workload_id": workloadId,
 				"kernel_id":   kernelId,
@@ -3947,12 +4049,12 @@ func (d *ClusterGatewayImpl) sendZmqMessage(msg *messaging.JupyterMessage, socke
 			socket.Type.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId(), senderId, sendDuration)
 	}
 
-	if d.gatewayPrometheusManager != nil {
-		if metricError := d.gatewayPrometheusManager.SentMessage(d.id, sendDuration, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
+	if d.metricsProvider.PrometheusMetricsEnabled() {
+		if metricError := d.metricsProvider.GetGatewayPrometheusManager().SentMessage(d.id, sendDuration, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
 			d.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 
-		if metricError := d.gatewayPrometheusManager.SentMessageUnique(d.id, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
+		if metricError := d.metricsProvider.GetGatewayPrometheusManager().SentMessageUnique(d.id, metrics.ClusterGateway, socket.Type, msg.JupyterMessageType()); metricError != nil {
 			d.log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 	}
@@ -4077,15 +4179,6 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 		return nil
 	}
 
-	isShellExecuteReply := typ == messaging.ShellMessage && msg.JupyterMessageType() == messaging.ShellExecuteReply
-	if isShellExecuteReply {
-		err := d.processExecuteReply(from.ID(), msg)
-		if err != nil {
-			d.notifyDashboardOfError("Error While Processing \"execute_reply\" Message", err.Error())
-			panic(err)
-		}
-	}
-
 	if d.DebugMode {
 		requestTrace, _, err := messaging.AddOrUpdateRequestTraceToJupyterMessage(msg, time.Now(), d.log)
 		if err != nil {
@@ -4101,7 +4194,7 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 		}
 
 		// Extract the data from the RequestTrace.
-		if isShellExecuteReply {
+		if typ == messaging.ShellMessage {
 			d.updateStatisticsFromShellExecuteReply(requestTrace)
 		}
 	}
@@ -4112,7 +4205,7 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 	// If we just processed an "execute_reply" (without error, or else we would've returned earlier), and the
 	// scheduling policy indicates that the kernel container(s) should be stopped after processing a training
 	// event, then let's stop the kernel container(s).
-	if isShellExecuteReply && d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
+	if typ == messaging.ShellMessage && d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
 		d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
 
 		kernel, loaded := d.kernels.Load(from.ID())
@@ -4199,14 +4292,17 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 		Kernels: make([]*proto.DistributedJupyterKernel, 0, max(d.kernelIdToKernel.Len(), 1)),
 	}
 
-	d.Lock()
-	defer d.Unlock()
-
+	d.mu.RLock()
+	kernels := make([]scheduling.Kernel, 0, d.kernelIdToKernel.Len())
 	d.kernelIdToKernel.Range(func(id string, kernel scheduling.Kernel) bool {
-		// d.log.Debug("Will be returning Kernel %s with %d replica(s) [%v] [%v].", id, kernel.Len(), kernel.Status(), kernel.AggregateBusyStatus())
+		kernels = append(kernels, kernel)
+		return true
+	})
+	d.mu.RUnlock()
 
+	for _, kernel := range kernels {
 		respKernel := &proto.DistributedJupyterKernel{
-			KernelId:            id,
+			KernelId:            kernel.ID(),
 			NumReplicas:         int32(kernel.Size()),
 			Status:              kernel.Status().String(),
 			AggregateBusyStatus: kernel.AggregateBusyStatus(),
@@ -4214,9 +4310,10 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 		}
 
 		replicas := make([]*proto.JupyterKernelReplica, 0, len(kernel.Replicas()))
-		for _, replica := range kernel.Replicas() {
+		kernelReplicas := kernel.Replicas()
+		for _, replica := range kernelReplicas {
 			kernelReplica := &proto.JupyterKernelReplica{
-				KernelId:  id,
+				KernelId:  kernel.ID(),
 				ReplicaId: replica.ReplicaID(),
 				PodId:     replica.GetPodOrContainerName(),
 				NodeId:    replica.NodeName(),
@@ -4226,9 +4323,7 @@ func (d *ClusterGatewayImpl) listKernels() (*proto.ListKernelsResponse, error) {
 		respKernel.Replicas = replicas
 
 		resp.Kernels = append(resp.Kernels, respKernel)
-
-		return true
-	})
+	}
 
 	return resp, nil
 }
@@ -4479,7 +4574,7 @@ func (d *ClusterGatewayImpl) ClearClusterStatistics() (*proto.ClusterStatisticsR
 	}
 
 	d.lastFullStatisticsUpdate = time.Time{}
-	d.ClusterStatistics = statistics.NewClusterStatistics()
+	d.ClusterStatistics = metrics.NewClusterStatistics()
 
 	// Basically initialize the statistics with some values, but in a separate goroutine.
 	go d.gatherClusterStatistics()
@@ -4488,38 +4583,230 @@ func (d *ClusterGatewayImpl) ClearClusterStatistics() (*proto.ClusterStatisticsR
 }
 
 // updateClusterStatistics is passed to Distributed Kernel Clients so that they may atomically update statistics.
-func (d *ClusterGatewayImpl) updateClusterStatistics(updaterFunc func(statistics *statistics.ClusterStatistics)) {
+func (d *ClusterGatewayImpl) updateClusterStatistics(updaterFunc func(statistics *metrics.ClusterStatistics)) {
 	d.clusterStatisticsMutex.Lock()
 	defer d.clusterStatisticsMutex.Unlock()
 
 	updaterFunc(d.ClusterStatistics)
 }
 
-// gatherClusterStatistics updates all the values in the ClusterStatistics field.
-//
-// gatherClusterStatistics is thread-safe.
-func (d *ClusterGatewayImpl) gatherClusterStatistics() {
+// IncrementResourceCountsForNewHost is intended to be called when a Host is added to the Cluster.
+// IncrementResourceCountsForNewHost will increment the ClusterStatistics' resource counts
+// based on the resources available on the Host in question.
+func (d *ClusterGatewayImpl) IncrementResourceCountsForNewHost(host metrics.Host) {
 	d.clusterStatisticsMutex.Lock()
 	defer d.clusterStatisticsMutex.Unlock()
 
-	now := time.Now()
-	var lastTime time.Time // Last update time
+	d.incrIdleResourcesForHost(host)
+	d.incrSpecResourcesForHost(host)
+}
 
-	if d.lastFullStatisticsUpdate.IsZero() {
-		lastTime = now // We're doing the first update
-	} else {
-		lastTime = d.lastFullStatisticsUpdate
+// DecrementResourceCountsForRemovedHost is intended to be called when a Host is removed from the Cluster.
+// DecrementResourceCountsForRemovedHost will decrement the ClusterStatistics' resource counts
+// based on the resources available on the Host in question.
+func (d *ClusterGatewayImpl) DecrementResourceCountsForRemovedHost(host metrics.Host) {
+	d.clusterStatisticsMutex.Lock()
+	defer d.clusterStatisticsMutex.Unlock()
+
+	//d.log.Debug("Decrementing idle and spec resource counts for freshly-removed host %s (ID=%s)",
+	//	host.GetNodeName(), host.GetID())
+
+	d.decrIdleResourcesForHost(host)
+	d.decrSpecResourcesForHost(host)
+}
+
+// resetResourceCounts sets all resource counts in the ClusterStatistics to 0.
+//
+// Important: resetResourceCounts is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) resetResourceCounts() {
+	d.ClusterStatistics.IdleCPUs = 0
+	d.ClusterStatistics.IdleMemory = 0
+	d.ClusterStatistics.IdleGPUs = 0
+	d.ClusterStatistics.IdleVRAM = 0
+
+	d.ClusterStatistics.PendingCPUs = 0
+	d.ClusterStatistics.PendingMemory = 0
+	d.ClusterStatistics.PendingGPUs = 0
+	d.ClusterStatistics.PendingVRAM = 0
+
+	d.ClusterStatistics.CommittedCPUs = 0
+	d.ClusterStatistics.CommittedMemory = 0
+	d.ClusterStatistics.CommittedGPUs = 0
+	d.ClusterStatistics.CommittedVRAM = 0
+
+	d.ClusterStatistics.SpecCPUs = 0
+	d.ClusterStatistics.SpecMemory = 0
+	d.ClusterStatistics.SpecGPUs = 0
+	d.ClusterStatistics.SpecVRAM = 0
+}
+
+// incrIdleResourcesForHost increments the idle resource counts of the ClusterStatistics for a particular host.
+//
+// Important: incrIdleResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) incrIdleResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		d.log.Warn("Host %s (ID=%s) is not enabled. Will not be incrementing idle resource counts.",
+			host.GetNodeName(), host.GetID())
+		return
 	}
 
-	d.log.Debug("Updating ClusterStatistics now.")
+	d.ClusterStatistics.IdleCPUs += host.IdleCPUs()
+	d.ClusterStatistics.IdleMemory += host.IdleMemoryMb()
+	d.ClusterStatistics.IdleGPUs += host.IdleGPUs()
+	d.ClusterStatistics.IdleVRAM += host.IdleVRAM()
+}
 
-	var idleCpu, idleMem, idleGpu, idleVram float64
-	var pendingCpu, pendingMem, pendingGpu, pendingVram float64
-	var committedCpu, committedMem, committedGpu, committedVram float64
-	var specCpu, specMem, specGpu, specVram float64
+// incrPendingResourcesForHost increments the pending resource counts of the ClusterStatistics for a particular host.
+//
+// Important: incrPendingResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) incrPendingResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		d.log.Warn("Host %s (ID=%s) is not enabled. Will not be incrementing pending resource counts.",
+			host.GetNodeName(), host.GetID())
+		return
+	}
 
-	//var cpuUtil, gpuUtil, memUtil, vramUtil, demandGpus float64
-	var demandCpus, demandMem, demandGpus, demandVram float64
+	d.ClusterStatistics.PendingCPUs += host.PendingCPUs()
+	d.ClusterStatistics.PendingMemory += host.PendingMemoryMb()
+	d.ClusterStatistics.PendingGPUs += host.PendingGPUs()
+	d.ClusterStatistics.PendingVRAM += host.PendingVRAM()
+}
+
+// incrCommittedResourcesForHost increments the committed resource counts of the ClusterStatistics for a particular host.
+//
+// Important: incrCommittedResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) incrCommittedResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		d.log.Warn("Host %s (ID=%s) is not enabled. Will not be incrementing committed resource counts.",
+			host.GetNodeName(), host.GetID())
+		return
+	}
+
+	d.ClusterStatistics.CommittedCPUs += host.CommittedCPUs()
+	d.ClusterStatistics.CommittedMemory += host.CommittedMemoryMb()
+	d.ClusterStatistics.CommittedGPUs += host.CommittedGPUs()
+	d.ClusterStatistics.CommittedVRAM += host.CommittedVRAM()
+}
+
+// incrSpecResourcesForHost increments the spec resource counts of the ClusterStatistics for a particular host.
+//
+// Important: incrSpecResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) incrSpecResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		d.log.Warn("Host %s (ID=%s) is not enabled. Will not be incrementing spec resource counts.",
+			host.GetNodeName(), host.GetID())
+		return
+	}
+
+	d.ClusterStatistics.SpecCPUs += host.ResourceSpec().CPU()
+	d.ClusterStatistics.SpecMemory += host.ResourceSpec().MemoryMB()
+	d.ClusterStatistics.SpecGPUs += host.ResourceSpec().GPU()
+	d.ClusterStatistics.SpecVRAM += host.ResourceSpec().VRAM()
+}
+
+// incrementResourceCountsForHost increments the resource counts of the ClusterStatistics for a particular host.
+//
+// Important: incrementResourceCountsForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) incrementResourceCountsForHost(host scheduling.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.incrIdleResourcesForHost(host)
+	d.incrPendingResourcesForHost(host)
+	d.incrCommittedResourcesForHost(host)
+	d.incrSpecResourcesForHost(host)
+}
+
+// decrIdleResourcesForHost decrements the idle resource counts of the ClusterStatistics for a particular host.
+//
+// Important: decrIdleResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) decrIdleResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.ClusterStatistics.IdleCPUs -= host.IdleCPUs()
+	d.ClusterStatistics.IdleMemory -= host.IdleMemoryMb()
+	d.ClusterStatistics.IdleGPUs -= host.IdleGPUs()
+	d.ClusterStatistics.IdleVRAM -= host.IdleVRAM()
+}
+
+// decrPendingResourcesForHost decrements the pending resource counts of the ClusterStatistics for a particular host.
+//
+// Important: decrPendingResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) decrPendingResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.ClusterStatistics.PendingCPUs -= host.PendingCPUs()
+	d.ClusterStatistics.PendingMemory -= host.PendingMemoryMb()
+	d.ClusterStatistics.PendingGPUs -= host.PendingGPUs()
+	d.ClusterStatistics.PendingVRAM -= host.PendingVRAM()
+}
+
+// decrCommittedResourcesForHost decrements the committed resource counts of the ClusterStatistics for a particular host.
+//
+// Important: decrCommittedResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) decrCommittedResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.ClusterStatistics.CommittedCPUs -= host.CommittedCPUs()
+	d.ClusterStatistics.CommittedMemory -= host.CommittedMemoryMb()
+	d.ClusterStatistics.CommittedGPUs -= host.CommittedGPUs()
+	d.ClusterStatistics.CommittedVRAM -= host.CommittedVRAM()
+}
+
+// decrSpecResourcesForHost decrements the spec resource counts of the ClusterStatistics for a particular host.
+//
+// Important: decrSpecResourcesForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) decrSpecResourcesForHost(host metrics.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.ClusterStatistics.SpecCPUs -= host.ResourceSpec().CPU()
+	d.ClusterStatistics.SpecMemory -= host.ResourceSpec().MemoryMB()
+	d.ClusterStatistics.SpecGPUs -= host.ResourceSpec().GPU()
+	d.ClusterStatistics.SpecVRAM -= host.ResourceSpec().VRAM()
+}
+
+// decrementResourceCountsForHost decrements the resource counts of the ClusterStatistics for a particular host.
+//
+// Important: decrementResourceCountsForHost is NOT thread safe. The cluster statistics mutex must be acquired first.
+func (d *ClusterGatewayImpl) decrementResourceCountsForHost(host scheduling.Host) {
+	if !host.Enabled() {
+		// If the host is not enabled, then just return.
+		return
+	}
+
+	d.decrIdleResourcesForHost(host)
+	d.decrPendingResourcesForHost(host)
+	d.decrCommittedResourcesForHost(host)
+	d.decrSpecResourcesForHost(host)
+}
+
+// recomputeResourceCounts iterates over all the hosts in the cluster and updates the related resource count stats.
+//
+// Important: recomputeResourceCounts is NOT thread safe. The cluster statistics mutex must be acquired first.
+//
+// recomputeResourceCounts returns a tuple such that:
+// - 1st element is the number of non-empty hosts
+// - 2nd element is the number of empty hosts
+func (d *ClusterGatewayImpl) recomputeResourceCounts() (int, int) {
+	d.resetResourceCounts()
 
 	var numNonEmptyHosts, numEmptyHosts int
 
@@ -4527,25 +4814,12 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 	var aggregateHostLifetimeOfRunningHosts float64
 
 	d.cluster.RangeOverHosts(func(_ string, host scheduling.Host) bool {
-		idleCpu += host.IdleCPUs()
-		idleMem += host.IdleMemoryMb()
-		idleGpu += host.IdleGPUs()
-		idleVram += host.IdleVRAM()
+		if !host.Enabled() {
+			// If the host is not enabled, then just continue to the next host.
+			return true
+		}
 
-		pendingCpu += host.PendingCPUs()
-		pendingMem += host.PendingMemoryMb()
-		pendingGpu += host.PendingGPUs()
-		pendingVram += host.PendingVRAM()
-
-		committedCpu += host.CommittedCPUs()
-		committedMem += host.CommittedMemoryMb()
-		committedGpu += host.CommittedGPUs()
-		committedVram += host.CommittedVRAM()
-
-		specCpu += host.ResourceSpec().CPU()
-		specMem += host.ResourceSpec().MemoryMB()
-		specGpu += host.ResourceSpec().GPU()
-		specVram += host.ResourceSpec().VRAM()
+		d.incrementResourceCountsForHost(host)
 
 		if host.NumContainers() == 0 {
 			numEmptyHosts += 1
@@ -4558,22 +4832,73 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 		return true
 	})
 
+	d.ClusterStatistics.AggregateHostLifetimeOfRunningHosts = aggregateHostLifetimeOfRunningHosts
+
+	return numNonEmptyHosts, numEmptyHosts
+}
+
+// gatherClusterStatistics updates all the values in the ClusterStatistics field.
+//
+// gatherClusterStatistics is thread-safe.
+func (d *ClusterGatewayImpl) gatherClusterStatistics() {
+	d.clusterStatisticsMutex.Lock()
+
+	now := time.Now()
+	var lastTime time.Time // Last update time
+
+	if d.lastFullStatisticsUpdate.IsZero() {
+		lastTime = now // We're doing the first update
+	} else {
+		lastTime = d.lastFullStatisticsUpdate
+	}
+
+	//var cpuUtil, gpuUtil, memUtil, vramUtil, demandGpus float64
+	var demandCpus, demandMem, demandGpus, demandVram float64
+
+	numNonEmptyHosts, numEmptyHosts := d.recomputeResourceCounts()
+
 	activeTime := time.Since(lastTime) * time.Duration(numNonEmptyHosts)
 	idleTime := time.Since(lastTime) * time.Duration(numEmptyHosts)
 
+	///////////
+	// Hosts //
+	///////////
+
+	d.ClusterStatistics.Hosts = d.cluster.Len()
+	d.ClusterStatistics.NumDisabledHosts = d.cluster.NumDisabledHosts()
+	d.ClusterStatistics.NumEmptyHosts = numEmptyHosts
+
 	d.ClusterStatistics.CumulativeHostActiveTime += activeTime.Seconds()
 	d.ClusterStatistics.CumulativeHostIdleTime += idleTime.Seconds()
-	d.ClusterStatistics.AggregateHostLifetimeOfRunningHosts = aggregateHostLifetimeOfRunningHosts
 	d.ClusterStatistics.AggregateHostLifetime += time.Since(lastTime).Seconds() * float64(d.cluster.Len())
 
+	var numRunning, numIdle, numTraining, numStopped int
 	d.cluster.RangeOverSessions(func(key string, value scheduling.UserSession) bool {
 		demandCpus += value.ResourceSpec().CPU()
 		demandMem += value.ResourceSpec().MemoryMB()
 		demandGpus += value.ResourceSpec().GPU()
 		demandVram += value.ResourceSpec().VRAM()
 
+		if value.IsIdle() {
+			numIdle += 1
+			numRunning += 1
+		} else if value.IsTraining() {
+			numTraining += 1
+			numRunning += 1
+		} else if value.IsMigrating() {
+			numRunning += 1
+		} else if value.IsStopped() {
+			numStopped += 1
+		}
+
 		return true
 	})
+
+	d.ClusterStatistics.NumSeenSessions = d.cluster.Sessions().Len()
+	d.ClusterStatistics.NumRunningSessions = numRunning
+	d.ClusterStatistics.NumIdleSessions = numIdle
+	d.ClusterStatistics.NumTrainingSessions = numTraining
+	d.ClusterStatistics.NumStoppedSessions = numStopped
 
 	d.ClusterStatistics.DemandGPUs = demandCpus
 	d.ClusterStatistics.DemandMemMb = demandMem
@@ -4586,31 +4911,6 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 
 	d.ClusterStatistics.Hosts = d.cluster.Len()
 	d.ClusterStatistics.NumDisabledHosts = d.cluster.NumDisabledHosts()
-	d.ClusterStatistics.NumEmptyHosts = numEmptyHosts
-
-	///////////////
-	// Resources //
-	///////////////
-
-	d.ClusterStatistics.IdleCPUs = idleCpu
-	d.ClusterStatistics.IdleMemory = idleMem
-	d.ClusterStatistics.IdleGPUs = idleGpu
-	d.ClusterStatistics.IdleVRAM = idleVram
-
-	d.ClusterStatistics.PendingCPUs = pendingCpu
-	d.ClusterStatistics.PendingMemory = pendingMem
-	d.ClusterStatistics.PendingGPUs = pendingGpu
-	d.ClusterStatistics.PendingVRAM = pendingVram
-
-	d.ClusterStatistics.CommittedCPUs = committedCpu
-	d.ClusterStatistics.CommittedMemory = committedMem
-	d.ClusterStatistics.CommittedGPUs = committedGpu
-	d.ClusterStatistics.CommittedVRAM = committedVram
-
-	d.ClusterStatistics.SpecCPUs = specCpu
-	d.ClusterStatistics.SpecMemory = specMem
-	d.ClusterStatistics.SpecGPUs = specGpu
-	d.ClusterStatistics.SpecVRAM = specVram
 
 	/////////////////////////////////
 	// Static & Dynamic Scheduling //
@@ -4628,71 +4928,22 @@ func (d *ClusterGatewayImpl) gatherClusterStatistics() {
 	d.ClusterStatistics.NumRunningSessions = d.cluster.Sessions().Len()
 
 	d.lastFullStatisticsUpdate = time.Now()
-}
 
-// handleExecutionYieldedNotification is called when we receive a 'YIELD' proposal from a replica of a kernel.
-// handleExecutionYieldedNotification registers the 'yield' proposal with the kernel's current execution.Execution
-// struct. If we find that we've received all three proposals, and they were ALL 'yield', then we'll handle the situation
-// according to the scheduling policy that we've been configured to use.
-func (d *ClusterGatewayImpl) handleExecutionYieldedNotification(replica scheduling.KernelReplica, msgErr *messaging.MessageErrorWithYieldReason, msg *messaging.JupyterMessage) error {
-	kernelId := replica.ID()
-	kernel, loaded := d.kernels.Load(kernelId)
-	if !loaded {
-		panic(fmt.Sprintf("could not find kernel \"%s\" while handling 'yield' notification", kernelId))
-	}
+	stats := d.ClusterStatistics
 
-	// TODO: What to do if this returns an error?
-	_ = kernel.ReleasePreCommitedResourcesFromReplica(replica, msg)
+	d.clusterStatisticsMutex.Unlock()
 
-	replica.ReceivedExecuteReply(msg)
-
-	// targetExecuteRequestId is the Jupyter message ID of the "execute_request" message associated
-	// with the 'YIELD' proposal that we just received.
-	targetExecuteRequestId := msg.JupyterParentMessageId()
-
-	// It's possible we received a 'YIELD' proposal for an Execution different from the current one.
-	// So, retrieve the Execution associated with the 'YIELD' proposal (using the "execute_request" message IDs).
-	associatedActiveExecution := kernel.GetActiveExecution(targetExecuteRequestId)
-
-	// If we couldn't find the associated active execution at all, then we should panic. That's bad.
-	if associatedActiveExecution == nil {
-		log.Fatalf(utils.RedStyle.Render("Received 'YIELD' proposal from replica %d of kernel %s targeting unknown Execution associated with an \"execute_request\" message with msg_id=\"%s\"..."),
-			replica.ReplicaID(), replica.ID(), targetExecuteRequestId)
-	}
-
-	// Mark that we received the 'YIELD' proposal for the associated Execution.
-	err := associatedActiveExecution.ReceivedYieldNotification(replica.ReplicaID(), msgErr.YieldReason)
-
-	d.log.Debug("Received 'YIELD' proposal from replica %d of kernel %s for Execution associated with \"execute_request\" \"%s\". Received %d/%d proposals from replicas of kernel %s.",
-		replica.ReplicaID(), replica.ID(), targetExecuteRequestId, associatedActiveExecution.NumRolesReceived(), associatedActiveExecution.NumReplicas, replica.ID())
-
-	// If we have a non-nil error, and it isn't just that all the replicas proposed YIELD, then return it directly.
-	if err != nil && !errors.Is(err, execution.ErrExecutionFailedAllYielded) {
-		d.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for Execution associated with \"execute_request\" \"%s\": %v",
-			replica.ReplicaID(), replica.ID(), targetExecuteRequestId, err)
-
-		return err
-	}
-
-	// If we have a non-nil error, and it's just that all replicas proposed YIELD, then we'll call the handler.
-	if errors.Is(err, execution.ErrExecutionFailedAllYielded) {
-		// Concatenate all the yield reasons. We'll return them along with the error returned by
-		// handleFailedExecutionAllYielded if handleFailedExecutionAllYielded returns a non-nil error.
-		yieldErrors := make([]error, 0, 4)
-		associatedActiveExecution.RangeRoles(func(i int32, proposal *execution.Proposal) bool {
-			yieldError := fmt.Errorf("replica %d proposed \"YIELD\" because: %s", i, proposal.Reason)
-			yieldErrors = append(yieldErrors, yieldError)
-			return true
-		})
-
-		// Call the handler. If it returns an error, then we'll join that error with the YIELD errors, and return
-		// them all together.
-		handlerError := d.executionFailed(kernel, msg)
-		if handlerError != nil {
-			allErrors := append([]error{handlerError}, yieldErrors...)
-			return errors.Join(allErrors...)
-		}
-	}
-
-	return nil
+	d.log.Debug("=== Updated Cluster Statistics ===")
+	d.log.Debug("Idle CPUs: %.0f, Idle Mem: %.0f, Idle GPUs: %.0f, Idle VRAM: %.0f",
+		stats.IdleCPUs, stats.IdleMemory, stats.IdleGPUs, stats.IdleVRAM)
+	d.log.Debug("Pending CPUs: %.0f, Pending Mem: %.0f, Pending GPUs: %.0f, Pending VRAM: %.0f",
+		stats.PendingCPUs, stats.PendingMemory, stats.PendingGPUs, stats.PendingVRAM)
+	d.log.Debug("Committed CPUs: %.0f, Committed Mem: %.0f, Committed GPUs: %.0f, Committed VRAM: %.0f",
+		stats.CommittedCPUs, stats.CommittedMemory, stats.CommittedGPUs, stats.CommittedVRAM)
+	d.log.Debug("Spec CPUs: %.0f, Spec Mem: %.0f, Spec GPUs: %.0f, Spec VRAM: %.0f",
+		stats.SpecCPUs, stats.SpecMemory, stats.SpecGPUs, stats.SpecVRAM)
+	d.log.Debug("NumSeenSessions: %d, NumRunningSessions: %d, NumNonTerminatedSessions: %d, NumTraining: %d, NumIdle: %d, NumStopped: %d.",
+		stats.NumSeenSessions, stats.NumRunningSessions, stats.NumNonTerminatedSessions, stats.NumTrainingSessions, stats.NumIdleSessions, stats.NumStoppedSessions)
+	d.log.Debug("NumHosts: %d, NumDisabledHosts: %d, NumEmptyHosts: %d",
+		stats.Hosts, stats.NumDisabledHosts, stats.NumEmptyHosts)
 }

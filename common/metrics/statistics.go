@@ -1,4 +1,4 @@
-package statistics
+package metrics
 
 import (
 	"github.com/scusemua/distributed-notebook/common/proto"
@@ -6,18 +6,20 @@ import (
 )
 
 const (
-	KernelReplicaRegistered ClusterEventName = "kernel_replica_registered"
-	KernelCreationStarted   ClusterEventName = "kernel_creation_started"
-	KernelCreationComplete  ClusterEventName = "kernel_creation_complete"
-	KernelMigrationStarted  ClusterEventName = "kernel_migration_started"
-	KernelMigrationComplete ClusterEventName = "kernel_migration_complete"
-	KernelTrainingStarted   ClusterEventName = "kernel_training_started"
-	KernelTrainingEnded     ClusterEventName = "kernel_training_ended"
-	KernelStopped           ClusterEventName = "kernel_stopped"
-	ScaleOutStarted         ClusterEventName = "scale_out_started"
-	ScaleOutEnded           ClusterEventName = "scale_out_ended"
-	ScaleInStarted          ClusterEventName = "scale_in_started"
-	ScaleInEnded            ClusterEventName = "scale_in_ended"
+	KernelReplicaRegistered  ClusterEventName = "kernel_replica_registered"
+	KernelCreationStarted    ClusterEventName = "kernel_creation_started"
+	KernelCreationComplete   ClusterEventName = "kernel_creation_complete"
+	ScheduleReplicasStarted  ClusterEventName = "schedule_replicas_started"
+	ScheduleReplicasComplete ClusterEventName = "schedule_replicas_complete"
+	KernelMigrationStarted   ClusterEventName = "kernel_migration_started"
+	KernelMigrationComplete  ClusterEventName = "kernel_migration_complete"
+	KernelTrainingStarted    ClusterEventName = "kernel_training_started"
+	KernelTrainingEnded      ClusterEventName = "kernel_training_ended"
+	KernelStopped            ClusterEventName = "kernel_stopped"
+	ScaleOutStarted          ClusterEventName = "scale_out_started"
+	ScaleOutEnded            ClusterEventName = "scale_out_ended"
+	ScaleInStarted           ClusterEventName = "scale_in_started"
+	ScaleInEnded             ClusterEventName = "scale_in_ended"
 )
 
 type ClusterEventName string
@@ -35,6 +37,7 @@ type ClusterEvent struct {
 	DurationMillis      int64                  `json:"duration_millis" csv:"duration_millis"`
 	TimestampUnixMillis int64                  `json:"timestamp_unix_millis" csv:"timestamp_unix_millis"`
 	Metadata            map[string]interface{} `json:"metadata" csv:"-"`
+	EventId             string                 `json:"event_id" csv:"event_id"`
 }
 
 /*
@@ -224,6 +227,15 @@ type ClusterStatistics struct {
 	// serve the "execute_request" immediately, with no migrations required).
 	NumTimesKernelReplicaNotAvailableImmediately float64 `csv:"NumTimesKernelReplicaNotAvailableImmediately" json:"NumTimesKernelReplicaNotAvailableImmediately"`
 
+	// NumTimesPreviousPrimaryReplicaSelectedConsecutively refers to the number of times that the previous primary replica is
+	// selected again for the next consecutive user-submitted code execution.
+	NumTimesPreviousPrimaryReplicaSelectedConsecutively int64 `csv:"NumTimesPreviousPrimaryReplicaSelectedConsecutively" json:"NumTimesPreviousPrimaryReplicaSelectedConsecutively"`
+
+	// NumTimesPreviousPrimaryReplicaUnavailable refers to the number of times that the previous primary replica is
+	// NOT selected again for the next consecutive user-submitted code execution, due to it being unavailable (i.e.,
+	// insufficient resources available on that replica's host).
+	NumTimesPreviousPrimaryReplicaUnavailable int64 `csv:"" json:""`
+
 	////////////////////////
 	// Dynamic Scheduling //
 	////////////////////////
@@ -252,6 +264,8 @@ type ClusterStatistics struct {
 	// The number of Sessions that are actively running (but not necessarily training), so includes idle sessions.
 	// Does not include evicted, init, or stopped sessions.
 	NumRunningSessions int `csv:"NumRunningSessions" json:"NumRunningSessions"`
+	// NumSeenSessions is the total number of sessions seen/ever created.
+	NumSeenSessions int `csv:"NumSeenSessions" json:"NumSeenSessions"`
 
 	NumSuccessfulMigrations int `json:"num_successful_migrations" csv:"num_successful_migrations"`
 	NumFailedMigrations     int `json:"num_failed_migrations" csv:"num_failed_migrations"`

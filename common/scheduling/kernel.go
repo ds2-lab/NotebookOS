@@ -2,7 +2,6 @@ package scheduling
 
 import (
 	"context"
-	"github.com/scusemua/distributed-notebook/common/execution"
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
@@ -62,9 +61,6 @@ type ExecutionLatencyCallback func(latency time.Duration, workloadId string, ker
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
 type ExecutionFailedCallback func(c Kernel, msg *messaging.JupyterMessage) error
 
-// YieldNotificationHandler is called when a YIELD notification is received.
-type YieldNotificationHandler func(replica KernelReplica, msgErr *messaging.MessageErrorWithYieldReason, msg *messaging.JupyterMessage) error
-
 type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
 type Kernel interface {
@@ -77,13 +73,12 @@ type Kernel interface {
 	GetContainers() []KernelContainer
 	ShellListenPort() int
 	IOPubListenPort() int
-	// GetActiveExecution returns a pointer to the Execution struct identified by the given message ID,
-	// or nil if no such Execution exists.
-	GetActiveExecution(msgId string) *execution.Execution
+	GetExecutionManager() ExecutionManager
 	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
-	ExecutionComplete(msg *messaging.JupyterMessage) error
-	RegisterActiveExecution(msg *messaging.JupyterMessage) (*execution.Execution, error)
+	// ExecutionComplete(msg *messaging.JupyterMessage) error
+
+	RegisterActiveExecution(msg *messaging.JupyterMessage) error
 	ResetID(id string)
 	PersistentID() string
 	String() string
@@ -91,11 +86,15 @@ type Kernel interface {
 	SourceKernelID() string
 	ResourceSpec() *types.DecimalSpec
 
+	// LastPrimaryReplica returns the KernelReplica that served as the primary replica for the previous
+	// code execution, or nil if no code executions have occurred.
+	LastPrimaryReplica() KernelReplica
+
 	// UpdateResourceSpec updates the ResourceSpec of the Kernel, all of its KernelReplica instances, the UserSession
 	// of each KernelReplica, and the KernelContainer of each KernelReplica.
 	//
 	// It also ensures that the updated ResourceSpec is propagated to the Host of each KernelContainer/Replica.
-	UpdateResourceSpec(spec types.Spec) error
+	UpdateResourceSpec(spec types.CloneableSpec) error
 	KernelSpec() *proto.KernelSpec
 	ConnectionInfo() *jupyter.ConnectionInfo
 	Status() jupyter.KernelStatus
@@ -152,10 +151,19 @@ type Kernel interface {
 }
 
 type KernelReplica interface {
-	execution.Replica
 	types.Contextable
+	messaging.JupyterServerInfo
 	SessionManager
 	Server
+
+	// ID returns the ID of the associated Kernel.
+	ID() string
+
+	// ReplicaID returns the SMR node ID of the Replica.
+	ReplicaID() int32
+
+	// KernelStoppedTraining is called when the Replica has stopped training.
+	KernelStoppedTraining(reason string) error
 
 	Container() KernelContainer
 	Host() Host
@@ -167,7 +175,11 @@ type KernelReplica interface {
 	SetLastTrainingTimePrometheusUpdate()
 	LastTrainingTimePrometheusUpdate() time.Time
 	NumPendingExecuteRequests() int
-	SentExecuteRequest(msg *messaging.JupyterMessage)
+
+	// SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
+	//
+	// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
+	SendingExecuteRequest(msg *messaging.JupyterMessage)
 	ReceivedExecuteReply(msg *messaging.JupyterMessage)
 	TrainingStartedAt() time.Time
 	WorkloadId() string

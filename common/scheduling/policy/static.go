@@ -24,6 +24,11 @@ func NewStaticPolicy(opts *scheduling.SchedulerOptions) (*StaticPolicy, error) {
 		baseSchedulingPolicy: basePolicy,
 	}
 
+	if opts.MinimumNumNodes < policy.NumReplicas() {
+		panic(fmt.Sprintf("Minimum number of nodes (%d) is incompatible with number of replicas (%d). Minimum number of nodes must be >= number of replicas.",
+			opts.MinimumNumNodes, policy.NumReplicas()))
+	}
+
 	if opts.SchedulingPolicy != scheduling.Static.String() {
 		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of StaticPolicy.",
 			opts.SchedulingPolicy))
@@ -113,6 +118,27 @@ func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (sche
 func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
 	replicas := kernel.Replicas()
 
+	// First, we try to select the same primary replica as last time, if possible.
+	lastPrimaryReplica := kernel.LastPrimaryReplica()
+	if lastPrimaryReplica != nil {
+		p.log.Debug("Attempting to reuse previous primary replica %d for new execution \"%s\" for kernel \"%s\"",
+			lastPrimaryReplica.ReplicaID(), executionId, kernel.ID())
+
+		allocationError := lastPrimaryReplica.Host().PreCommitResources(lastPrimaryReplica.Container(), executionId)
+		if allocationError == nil {
+			p.log.Debug(
+				utils.LightGreenStyle.Render(
+					"Resource pre-commitment succeeded. Previous primary replica %d of kernel %s will lead new execution \"%s\"."),
+				lastPrimaryReplica.ReplicaID(), kernel.ID(), executionId)
+
+			return lastPrimaryReplica, nil // Migration is permitted, so we never return an error.
+		}
+
+		// Failed to commit resources. Continue.
+		p.log.Debug("Resource pre-commitment %s. Previous primary replica %d of kernel %s is not viable for next execution \"%s\".",
+			utils.LightOrangeStyle.Render("failed"), lastPrimaryReplica.ReplicaID(), kernel.ID(), executionId)
+	}
+
 	// Sort the replicas from most to least idle GPUs available on each replica's respective host.
 	slices.SortFunc(replicas, func(r1, r2 scheduling.KernelReplica) int {
 		// cmp(r1, r2) should return:
@@ -141,7 +167,7 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 
 		p.log.Debug(
 			utils.LightGreenStyle.Render(
-				"Resource pre-commitment %s. Identified viable replica %d of kernel %s for execution \"%s\"."),
+				"Resource pre-commitment succeeded. Identified viable replica %d of kernel %s for execution \"%s\"."),
 			candidateReplica.ReplicaID(), kernel.ID(), executionId)
 
 		return candidateReplica, nil // Migration is permitted, so we never return an error.
@@ -153,6 +179,19 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 		kernel.ID(), kernel.ResourceSpec().String())
 
 	return nil, nil // Migration is permitted, so we never return an error.
+}
+
+// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+// resource request of an existing/scheduled kernel after it has already been created, or if the
+// initial resource request/allocation is static and cannot be changed after the kernel is created.
+func (p *StaticPolicy) SupportsDynamicResourceAdjustments() bool {
+	return true
+}
+
+// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
+// Adjust the Cluster's capacity as directed by scaling policy.
+func (p *StaticPolicy) ValidateCapacity(cluster scheduling.Cluster) {
+	multiReplicaValidateCapacity(p, cluster, p.log)
 }
 
 //////////////////////////////////////////
@@ -172,6 +211,12 @@ func (p *StaticPolicy) ScalingOutEnabled() bool {
 }
 
 func (p *StaticPolicy) ScalingInEnabled() bool {
+	return true
+}
+
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *StaticPolicy) SupportsPredictiveAutoscaling() bool {
 	return true
 }
 

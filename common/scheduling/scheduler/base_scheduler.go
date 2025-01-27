@@ -28,6 +28,8 @@ const (
 	IdleIndexKey            types.HeapElementMetadataKey = "idle_index"
 )
 
+var IdleHostMetadataKey types.HeapElementMetadataKey = "idle_host_metadata_key"
+
 // schedulingNotification is a struct that is sent over a channel to notify the "main" goroutine handling the
 // scheduling of a new kernel that the scheduling of one of that kernel's replicas has completed successfully.
 type schedulingNotification struct {
@@ -154,9 +156,9 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		//virtualGpusPerHost:                       int32(b.options.VirtualGpusPerHost),
 		//scalingFactor:                            b.options.ScalingFactor,
 		//scalingLimit:                             b.options.ScalingLimit,
-		//scalingInterval:                          time.Second * time.Duration(b.options.ScalingInterval),
+		//scalingInterval:                          time.Second * time.Duration(b.options.ScalingIntervalSec),
 		//maximumHostsToReleaseAtOnce:              int32(b.options.MaximumHostsToReleaseAtOnce),
-		//scalingIntervalSec:                       int32(b.options.ScalingInterval),
+		//scalingIntervalSec:                       int32(b.options.ScalingIntervalSec),
 		//predictiveAutoscalingEnabled:             b.options.PredictiveAutoscalingEnabled,
 		//scalingBufferSize:                        int32(b.options.ScalingBufferSize),
 		//maximumCapacity:                          int32(b.options.MaximumNumNodes),
@@ -178,10 +180,10 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingLimit)
 		clusterScheduler.log.Debug("MaximumHostsToReleaseAtOnce: %d",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().MaximumHostsToReleaseAtOnce)
-		clusterScheduler.log.Debug("ScalingInterval: %d",
+		clusterScheduler.log.Debug("ScalingIntervalSec: %d",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec)
 		clusterScheduler.log.Debug("PredictiveAutoscalingEnabled: %v",
-			clusterScheduler.schedulingPolicy.ScalingConfiguration().PredictiveAutoscalingEnabled)
+			clusterScheduler.schedulingPolicy.SupportsPredictiveAutoscaling())
 		clusterScheduler.log.Debug("ScalingBufferSize: %d",
 			clusterScheduler.schedulingPolicy.ScalingConfiguration().ScalingBufferSize)
 		clusterScheduler.log.Debug("GPU Refresh Interval: %v",
@@ -206,12 +208,6 @@ type BaseScheduler struct {
 	// kernels (or other resources) and could occur in-parallel (such as being triggered
 	// by multiple concurrent RPC requests).
 	addReplicaMutex sync.Mutex
-
-	// candidateHostMutex enables atomic access to the FindCandidateHosts method.
-	candidateHostMutex sync.Mutex
-
-	// replicaSelectionMutex enables synchronous execution of FindReadyReplica and SelectReplicaForMigration.
-	replicaSelectionMutex sync.Mutex
 
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
 	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]]
@@ -339,8 +335,6 @@ func (s *BaseScheduler) setInstance(instance clusterSchedulerInternal) {
 //
 // If FindCandidateHosts returns nil, rather than an empty slice, then that indicates that an error occurred.
 func (s *BaseScheduler) FindCandidateHosts(numHosts int, kernelSpec *proto.KernelSpec) ([]scheduling.Host, error) {
-	s.candidateHostMutex.Lock()
-	defer s.candidateHostMutex.Unlock()
 	return s.instance.findCandidateHosts(numHosts, kernelSpec)
 }
 
@@ -389,6 +383,16 @@ func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, black
 // FindReadyContainer selects one of the scheduling.KernelContainer instances of the specified scheduling.UserSession
 // to handle a training event.
 func (s *BaseScheduler) FindReadyContainer(session scheduling.UserSession) scheduling.KernelContainer {
+	return nil
+}
+
+// UpdateIndex is used to update a Host's position in its index.
+// It also updates the "idle hosts" heap.
+func (s *BaseScheduler) UpdateIndex(host scheduling.Host) error {
+	heap.Fix(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
+
+	s.placer.UpdateIndex(host)
+
 	return nil
 }
 
@@ -488,7 +492,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 					kernelSpec.Id, host.GetNodeName(), host.GetID(), err)
 			}
 
-			err = s.cluster.UpdateIndex(host)
+			err = s.UpdateIndex(host)
 			if err != nil {
 				s.log.Error("Error while attempting to update index of host %s (ID=%s): %v",
 					host.GetNodeName(), host.GetID(), err)
@@ -707,19 +711,47 @@ func (s *BaseScheduler) GetAddReplicaOperationManager() hashmap.HashMap[string, 
 func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 	var ratio float64
 	if s.cluster.BusyGPUs() == 0 {
-		// Technically if the number of committed GPUs is zero, then the ratio is infinite (undefined).
-		// TODO: Previously, I'd just set the ratio to 0 if BusyGPUs was 0.
-		// But technically, it should be undefined/infinite, so I will try setting it to maxSubscribedRatio...
+		//// Technically if the number of committed GPUs is zero, then the ratio is infinite (undefined).
+		//// TODO: Previously, I'd just set the ratio to 0 if BusyGPUs was 0.
+		//// But technically, it should be undefined/infinite, so I will try setting it to maxSubscribedRatio...
 		ratio = s.maxSubscribedRatio.InexactFloat64()
+		//ratio = 0
 
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", s.cluster.DemandGPUs(), s.cluster.BusyGPUs(), ratio)
-		}
+		//if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
+		//	s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", s.cluster.DemandGPUs(),
+		//		s.cluster.BusyGPUs(), ratio)
+		//}
+		//return false
 	} else {
-		ratio = s.cluster.DemandGPUs() / s.cluster.BusyGPUs()
+		// NOTE: DemandAndBusyGPUs computes the busy GPUs based on sessions that are actively training,
+		// whereas BusyGPUs computes the quantity based on reservations on Hosts (i.e., pre-reserved
+		// resources and whatnot).
+		demandGpus, busyGpus1, numRunning, numIdle, numTraining := s.cluster.DemandAndBusyGPUs()
+		busyGpus2 := s.cluster.BusyGPUs()
 
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", s.cluster.DemandGPUs(), s.cluster.BusyGPUs(), ratio)
+		var busyGPUs float64
+		if busyGpus1 != busyGpus2 {
+			s.log.Warn("Computed busy GPUs as %.0f from DemandAndBusyGPUs and %.0f from BusyGPUs...",
+				busyGpus1, busyGpus2)
+
+			// Pick the largest.
+			busyGPUs = math.Max(busyGpus1, busyGpus2)
+		} else {
+			busyGPUs = busyGpus1 // Doesn't matter
+		}
+
+		if demandGpus < busyGPUs {
+			// This can happen sometimes if we pre-reserve resources.
+			s.log.Warn("Demand GPUs (%.0f) are somehow lower than busy GPUs (%.0f)...", demandGpus, busyGPUs)
+			s.log.Warn("There are %d sessions, of which %d are idle and %d are training.",
+				numRunning, numIdle, numTraining)
+
+			ratio = 1.0 // Force to be 1.0
+			s.log.Debug("DemandGPUs: %.0f (%.0f). CommittedGPUs: %.0f. Ratio: %.4f.",
+				busyGPUs, demandGpus, busyGPUs, ratio)
+		} else {
+			ratio = demandGpus / busyGPUs
+			s.log.Debug("DemandGPUs: %.0f. CommittedGPUs: %.0f. Ratio: %.4f.", demandGpus, busyGPUs, ratio)
 		}
 	}
 
@@ -734,8 +766,10 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 		s.log.Debug("Recomputed subscription ratio as %s.", s.subscriptionRatio.StringFixed(4))
 		s.rebalance(avg)
 
-		if !skipValidateCapacity && s.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec > 0 && time.Since(s.lastCapacityValidation) >= s.schedulingPolicy.ScalingConfiguration().ScalingInterval {
-			s.ValidateCapacity()
+		if !skipValidateCapacity && s.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec > 0 &&
+			time.Since(s.lastCapacityValidation) >= s.schedulingPolicy.ScalingConfiguration().ScalingInterval {
+
+			s.schedulingPolicy.ValidateCapacity(s.cluster)
 		}
 
 		return true
@@ -876,7 +910,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.cluster.UpdateIndex(targetHost)
+		s.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -898,7 +932,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.cluster.UpdateIndex(targetHost)
+		s.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -931,7 +965,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.cluster.UpdateIndex(targetHost)
+		s.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -956,7 +990,7 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.cluster.UpdateIndex(targetHost)
+		s.UpdateIndex(targetHost)
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -1113,133 +1147,24 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 	return dataDirectory, nil
 }
 
+// HostRemoved is called by the Cluster when a Host is removed from the Cluster.
+func (s *BaseScheduler) HostRemoved(host scheduling.Host) {
+	s.instance.HostRemoved(host)
+}
+
 // HostAdded is called by the Cluster when a new Host connects to the Cluster.
 func (s *BaseScheduler) HostAdded(host scheduling.Host) {
 	s.instance.HostAdded(host)
 }
 
-// ValidateCapacity validates the Cluster's capacity according to the scaling policy implemented by the particular ScaleManager.
-// Adjust the Cluster's capacity as directed by scaling policy.
-func (s *BaseScheduler) ValidateCapacity() {
-	var load int32
-	s.cluster.RangeOverHosts(func(_ string, host scheduling.Host) bool {
-		load += int32(host.CommittedGPUs())
-		return true
-	})
+// SetLastCapacityValidation is used to record that a capacity validation has occurred.
+func (s *BaseScheduler) SetLastCapacityValidation(ts time.Time) {
+	s.lastCapacityValidation = ts
+}
 
-	scalingFactor := s.schedulingPolicy.ScalingConfiguration().ScalingFactor
-	gpusPerHost := s.schedulingPolicy.ScalingConfiguration().GpusPerHost
-	scalingLimit := s.schedulingPolicy.ScalingConfiguration().ScalingLimit
-	scalingBufferSize := s.schedulingPolicy.ScalingConfiguration().ScalingBufferSize
-	predictiveAutoscalingEnabled := s.schedulingPolicy.ScalingConfiguration().PredictiveAutoscalingEnabled
-	maximumHostsToReleaseAtOnce := s.schedulingPolicy.ScalingConfiguration().MaximumHostsToReleaseAtOnce
-
-	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                      // The minimum number of hosts required to satisfy the Cluster's current committed GPUs.
-	minNumHosts := int32(s.schedulingPolicy.NumReplicas())
-	scaledOutNumHosts := int32(math.Ceil(float64(load) * scalingFactor / float64(gpusPerHost))) // The number of hosts we would scale-out to based on the configured scaling factor.
-	limit := int32(math.Ceil(float64(load) * scalingLimit / float64(gpusPerHost)))              // The maximum number of hosts we're permitted to scale-out to.
-
-	s.log.Debug("Validating Cluster Capacity. MinNumHosts: %d, ScaledOutNumHosts: %d, Limit: %d",
-		minNumHosts, scaledOutNumHosts, limit)
-
-	// Make some room for fluctuation.
-	//
-	// TODO(Ben): Is the minimum capacity of the host pool the right value to use here?
-	// Jingyuan's code uses the "min buffer size" (which is set within the `StaticPlacerBufferSize` constant in his code),
-	// so the minimum capacity of the host pool is the analogous value to use in my code. I'm just not sure if it will
-	// result in the intended behavior as I set the minimum capacity of the host pool more so from an economic standpoint
-	// to take advantage of reserved pricing.
-	if scaledOutNumHosts < (minNumHosts + scalingBufferSize) {
-		scaledOutNumHosts = minNumHosts + scalingBufferSize
-		s.log.Debug("Adjusted scaledOutNumHosts: %d.", scaledOutNumHosts)
-	}
-	if limit < minNumHosts+4 {
-		limit = minNumHosts + 4
-		s.log.Debug("Adjusted limit: %d.", limit)
-	}
-
-	if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-		s.log.Debug("Load (CommittedGPUs): %d. Current #Hosts: %d. Minimum #Hosts to Satisfy Load: %d. Target #Hosts: %d. Max Scaled-Out #Hosts: %d.",
-			load, s.cluster.Len(), minNumHosts, scaledOutNumHosts, limit)
-	}
-	oldNumHosts := int32(s.cluster.Len())
-	// Only scale-out if that feature is enabled.
-	if predictiveAutoscalingEnabled && s.cluster.CanPossiblyScaleOut() && oldNumHosts < scaledOutNumHosts {
-		// Scaling out
-		numProvisioned := 0
-		targetNumProvisioned := scaledOutNumHosts - oldNumHosts
-
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Scaling out by %d hosts (from %d to %d).", targetNumProvisioned, oldNumHosts, scaledOutNumHosts)
-		}
-
-		// This is such a minor optimization, but we cache the size of the active host pool locally so that we don't have to grab it everytime.
-		// The size of the pending host pool will grow each time we provision a new host.
-		numFailures := 0
-		for int32(s.cluster.Len()) < scaledOutNumHosts {
-			err := s.RequestNewHost()
-			if err != nil {
-				s.log.Error("Failed to add new host because: %v", err)
-				numFailures += 1
-
-				if numFailures > 3 {
-					s.log.Error("We've failed three times to provision a new host. Aborting automated operation.")
-					return
-				} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
-					s.log.Warn("Aborting scale-out operation as we lack sufficient disabled hosts to scale-out, and adding additional hosts directly is not supported by the current cluster type.")
-					return
-				} else {
-					continue
-				}
-			}
-
-			numProvisioned++
-		}
-
-		// If we provisioned any hosts -- or if we were supposed to provision at least one host -- then we'll
-		// print a message about how many we provisioned, and how many failures we encountered.
-		if (numProvisioned > 0 || targetNumProvisioned > 0) && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Provisioned %d new hosts based on #CommittedGPUs(%d). Previous #hosts: %d. Current #hosts: %d. #FailedProvisions: %d.", numProvisioned, load, oldNumHosts, s.cluster.Len(), numFailures)
-		}
-	} else if !s.cluster.CanPossiblyScaleOut() && oldNumHosts < scaledOutNumHosts { // If this was the reason the first if-statement evaluated to false, then we'll log a warning message.
-		s.log.Warn("Would like to scale out by %d hosts (from %d to %d); however, cluster cannot possibly scale-out right now.", scaledOutNumHosts-oldNumHosts, oldNumHosts, scaledOutNumHosts)
-	}
-
-	// Should we scale in?
-	if !s.canScaleIn || !predictiveAutoscalingEnabled || load <= limit {
-		return
-	}
-
-	// Scaling in.
-	// NOTE: Jingyuan's algorithm uses initial capacity here, rather than minimum capacity.
-	if limit < s.MinimumCapacity() {
-		limit = s.MinimumCapacity()
-	}
-
-	numToRelease := int32(s.cluster.Len()) - limit
-	if numToRelease > 0 {
-		if numToRelease > maximumHostsToReleaseAtOnce {
-			if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-				s.log.Debug("Decreased the number of idle hosts to release from %d to the maximum allowed value of %s.", numToRelease, maximumHostsToReleaseAtOnce)
-			}
-			numToRelease = maximumHostsToReleaseAtOnce
-		}
-
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Scaling in %d hosts", numToRelease)
-		}
-
-		numReleased, err := s.ReleaseIdleHosts(numToRelease)
-		if err != nil {
-			s.log.Error("Error while releasing idle hosts: %v", err)
-		}
-
-		if numReleased > 0 && s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Released %d idle hosts based on #CommittedGPUs (%d). Prev #hosts: %s. New #hosts: %s.", numReleased, load, oldNumHosts, s.cluster.Len())
-		}
-	}
-
-	s.lastCapacityValidation = time.Now()
+// CanScaleIn returns true if scaling-in is possible now.
+func (s *BaseScheduler) CanScaleIn() bool {
+	return s.canScaleIn
 }
 
 // designateSubscriptionPoolType places the specified Host into the specified scheduler pool (i.e., oversubscribed
@@ -1270,8 +1195,6 @@ func (s *BaseScheduler) validate() {
 		s.invalidated = 0.0
 	}
 }
-
-var IdleHostMetadataKey types.HeapElementMetadataKey = "idle_host_metadata_key"
 
 type idleSortedHost struct {
 	scheduling.Host
@@ -1339,9 +1262,11 @@ func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host) {
 func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	s.validate()
 
-	if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-		s.log.Debug("Attempting to release %d idle host(s). There are currently %d host(s) in the Cluster.", n, s.cluster.Len())
-	}
+	// For now, just ensure the heap is in a valid order.
+	heap.Init(s.idleHosts)
+
+	s.log.Debug("Attempting to release %d idle host(s). There are currently %d host(s) in the Cluster. Length of idle hosts: %d.",
+		n, s.cluster.Len(), s.idleHosts.Len())
 
 	toBeReleased := make([]scheduling.Host, 0, n)
 	for int32(len(toBeReleased)) < n && s.idleHosts.Len() > 0 {
@@ -1354,15 +1279,15 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		excluded := idleHost.Host.ExcludeFromScheduling()
 		if excluded {
+			// If we failed to exclude the host, then we won't reclaim it.
 			toBeReleased = append(toBeReleased, idleHost.Host)
 		}
 	}
 
 	var released int
 	for i, host := range toBeReleased {
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Releasing idle host %d/%d: Virtual Machine  %s. NumContainers: %d.", i+1, len(toBeReleased), host.GetID(), host.NumContainers())
-		}
+		s.log.Debug("Releasing idle host %d/%d: Virtual Machine  %s. NumContainers: %d.",
+			i+1, len(toBeReleased), host.GetID(), host.NumContainers())
 
 		// If the host has no containers running on it at all, then we can simply release the host.
 		if host.NumContainers() > 0 {
@@ -1387,9 +1312,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		}
 
 		released += 1
-		if s.log.GetLevel() == logger.LOG_LEVEL_ALL {
-			s.log.Debug("Successfully released idle host %d/%d: Virtual Machine  %s.", i+1, len(toBeReleased), host.GetID())
-		}
+		s.log.Debug("Successfully released idle host %d/%d: Virtual Machine  %s.", i+1, len(toBeReleased), host.GetID())
 	}
 
 	return released, nil
@@ -1397,16 +1320,6 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 // SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
 func (s *BaseScheduler) SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
-	s.replicaSelectionMutex.Lock()
-	defer s.replicaSelectionMutex.Unlock()
-
-	// If under the configured scheduling policy, we bind and commit resources as soon as
-	// the container is scheduled, then we also need to acquire the candidateHostMutex.
-	if s.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-		s.candidateHostMutex.Lock()
-		defer s.candidateHostMutex.Unlock() // Pushed onto stack.
-	}
-
 	return s.schedulingPolicy.SelectReplicaForMigration(kernel)
 }
 
@@ -1428,15 +1341,5 @@ func (s *BaseScheduler) SelectReplicaForMigration(kernel scheduling.Kernel) (sch
 // the requirements. If the requirements were to change after selection a replica, then
 // that could invalidate the selection.
 func (s *BaseScheduler) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
-	s.replicaSelectionMutex.Lock()
-	defer s.replicaSelectionMutex.Unlock()
-
-	// If under the configured scheduling policy, we bind and commit resources as soon as
-	// the container is scheduled, then we also need to acquire the candidateHostMutex.
-	if s.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-		s.candidateHostMutex.Lock()
-		defer s.candidateHostMutex.Unlock() // Pushed onto stack.
-	}
-
 	return s.schedulingPolicy.FindReadyReplica(kernel, executionId)
 }

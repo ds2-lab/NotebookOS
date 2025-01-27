@@ -78,7 +78,7 @@ var _ = Describe("AbstractServer", func() {
 			s.Sockets.Shell = &messaging.Socket{Socket: zmq4.NewRouter(s.Ctx), Port: shellListenPort, Type: messaging.ShellMessage, Name: "TestServer_Router_Shell"}
 			s.DebugMode = true
 			s.ComponentId = serverName
-			s.MessagingMetricsProvider = serverMetricsProvider
+			s.StatisticsAndMetricsProvider = serverMetricsProvider
 			config.InitLogger(&s.Log, "[SERVER] ")
 		})
 		server = &wrappedServer{AbstractServer: _server, shellPort: shellListenPort, id: "[SERVER]"}
@@ -87,7 +87,7 @@ var _ = Describe("AbstractServer", func() {
 			s.Sockets.Shell = &messaging.Socket{Socket: zmq4.NewDealer(s.Ctx), Port: shellListenPort + 1, Type: messaging.ShellMessage, Name: "TestClient_Dealer_Shell"}
 			s.DebugMode = true
 			s.ComponentId = clientName
-			s.MessagingMetricsProvider = clientMetricsProvider
+			s.StatisticsAndMetricsProvider = clientMetricsProvider
 			config.InitLogger(&s.Log, "[CLIENT] ")
 		})
 		client = &wrappedServer{AbstractServer: _client, shellPort: shellListenPort + 1, id: "[CLIENT]"}
@@ -99,6 +99,8 @@ var _ = Describe("AbstractServer", func() {
 
 	Context("Reliable Message Delivery", func() {
 		It("Will re-send messages until an ACK is received", func() {
+			serverMetricsProvider.EXPECT().UpdateClusterStatistics(gomock.Any()).AnyTimes()
+			clientMetricsProvider.EXPECT().UpdateClusterStatistics(gomock.Any()).AnyTimes()
 			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, messaging.ShellMessage, gomock.Any()).MaxTimes(1)
 			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MinTimes(3).MaxTimes(3)
 			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)
@@ -311,6 +313,8 @@ var _ = Describe("AbstractServer", func() {
 		})
 
 		It("Will halt the retry procedure upon receiving an ACK.", func() {
+			serverMetricsProvider.EXPECT().UpdateClusterStatistics(gomock.Any()).AnyTimes()
+			clientMetricsProvider.EXPECT().UpdateClusterStatistics(gomock.Any()).AnyTimes()
 			serverMetricsProvider.EXPECT().SentMessage(serverName, gomock.Any(), metrics.ClusterGateway, messaging.ShellMessage, gomock.Any()).MaxTimes(1)
 			clientMetricsProvider.EXPECT().SentMessage(clientName, gomock.Any(), metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MinTimes(1).MaxTimes(1)
 			clientMetricsProvider.EXPECT().SentMessageUnique(clientName, metrics.LocalDaemon, messaging.ShellMessage, messaging.KernelInfoRequest).MaxTimes(1)

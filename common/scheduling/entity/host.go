@@ -99,7 +99,15 @@ type containerWithPreCommittedResources struct {
 
 	// ExecutionId is the "msg_id" of the Jupyter "execute_request" message that contained the
 	// user-submitted code associated with this pre-allocation.
-	ExecutionId string
+	ExecutionId           string
+	PreCommittedResources *types.DecimalSpec
+}
+
+type containerWithCommittedResources struct {
+	KernelId           string
+	ReplicaId          int32
+	ResourcesCommitted types.Spec
+	CommittedAt        time.Time
 }
 
 type Host struct {
@@ -125,7 +133,7 @@ type Host struct {
 	errorCallback                  scheduling.ErrorCallback                            // errorCallback is a function to be called if a Host appears to be dead.
 	pendingContainers              types.StatInt32                                     // pendingContainers is the number of Containers that are scheduled on the host.
 	enabled                        bool                                                // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
-	excludedFromScheduling         bool                                                // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
+	excludedFromScheduling         atomic.Bool                                         // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
 	isBeingConsideredForScheduling atomic.Int32                                        // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
 	CreatedAt                      time.Time                                           // CreatedAt is the time at which the Host was created.
 	resourceManager                *resource.Manager                                   // resourcesWrapper wraps all the Host's HostResources.
@@ -133,8 +141,9 @@ type Host struct {
 	isContainedWithinIndex         bool                                                // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
 	ProperlyInitialized            bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
 	numReplicasPerKernel           int                                                 // The number of replicas per kernel.
-	resourceBindingMode            scheduling.ResourceBindingMode                      // resourceBindingMode indicates the time at which resources are (exclusively) committed to containers, and implicitly when they are uncommitted from containers as well.
-	kernelsWithCommittedResources  map[string]int32                                    // Map from Kernel ID to int32. Values are replica IDs who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID). In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
+	numReplicasPerKernelDecimal    decimal.Decimal                                     // numReplicasPerKernelDecimal is a cached decimal.Decimal of numReplicasPerKernel.
+	schedulingPolicy               scheduling.Policy                                   // schedulingPolicy is the scheduling policy configured for the cluster.
+	kernelsWithCommittedResources  map[string]*containerWithCommittedResources         // Map from Kernel ID to int32. Values are replica IDs who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID). In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
 
 	// containersWithPreCommittedResources keeps track of kernels for which resources were specifically pre-commited
 	// along with the IDs of the associated "execute_request" messages. Keys are container IDs.
@@ -197,13 +206,14 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 	// The most important is probably the LocalGatewayClient, as that ensures that the
 	// existing Host struct has a new, valid connection to the remote Local Daemon.
 	host := &Host{
-		ID:                   confirmedId.Id,
-		resourceSpec:         resourceSpec,
-		NodeName:             confirmedId.NodeName,
-		latestGpuInfo:        gpuInfoResp,
-		LocalGatewayClient:   localGatewayClient,
-		ProperlyInitialized:  false,
-		numReplicasPerKernel: numReplicasPerKernel,
+		ID:                          confirmedId.Id,
+		resourceSpec:                resourceSpec,
+		NodeName:                    confirmedId.NodeName,
+		latestGpuInfo:               gpuInfoResp,
+		LocalGatewayClient:          localGatewayClient,
+		ProperlyInitialized:         false,
+		numReplicasPerKernel:        numReplicasPerKernel,
+		numReplicasPerKernelDecimal: decimal.NewFromFloat(float64(numReplicasPerKernel)),
 	}
 
 	return host, ErrRestoreRequired
@@ -215,7 +225,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 // call NewHostWithConn instead.
 func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int,
 	querier SubscriptionQuerier, indexUpdater IndexUpdater, metricsProvider scheduling.MetricsProvider,
-	localGatewayClient proto.LocalGatewayClient, resourceBindingMode scheduling.ResourceBindingMode,
+	localGatewayClient proto.LocalGatewayClient, schedulingPolicy scheduling.Policy,
 	errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
@@ -275,6 +285,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		Addr:                                addr,
 		resourceSpec:                        resourceSpec,
 		numReplicasPerKernel:                numReplicasPerKernel,
+		numReplicasPerKernelDecimal:         decimal.NewFromFloat(float64(numReplicasPerKernel)),
 		metricsProvider:                     metricsProvider,
 		log:                                 config.GetLogger(fmt.Sprintf("Host %s ", confirmedId.NodeName)),
 		containers:                          hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
@@ -285,10 +296,10 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		meta:                                hashmap.NewCornelkMap[string, interface{}](64),
 		errorCallback:                       errorCallback,
 		enabled:                             true,
-		resourceBindingMode:                 resourceBindingMode,
+		schedulingPolicy:                    schedulingPolicy,
 		CreatedAt:                           time.Now(),
 		SubscriptionQuerier:                 querier,
-		kernelsWithCommittedResources:       make(map[string]int32),
+		kernelsWithCommittedResources:       make(map[string]*containerWithCommittedResources),
 		containersWithPreCommittedResources: make(map[string]*containerWithPreCommittedResources),
 		indexUpdater:                        indexUpdater,
 		ProperlyInitialized:                 true,
@@ -309,13 +320,13 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 // NewHostWithConn creates and returns a new *Host.
 func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int,
 	querier SubscriptionQuerier, indexUpdater IndexUpdater, metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn,
-	resourceBindingMode scheduling.ResourceBindingMode, errorCallback scheduling.ErrorCallback) (*Host, error) {
+	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
 	host, err := NewHost(id, addr, millicpus, memMb, vramGb, numReplicasPerKernel, querier,
-		indexUpdater, metricsProvider, localGatewayClient, resourceBindingMode, errorCallback)
+		indexUpdater, metricsProvider, localGatewayClient, schedulingPolicy, errorCallback)
 	if err != nil {
 		// We need to return host here, in case the error is ErrRestoreRequired, as a host IS returned in that case.
 		// It's a host with only some fields filled-in so that it can be used to restore the existing host.
@@ -346,10 +357,11 @@ func (h *Host) GetLastRemoteSync() time.Time {
 }
 
 func (h *Host) IsExcludedFromScheduling() bool {
-	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Unlock()
+	return h.excludedFromScheduling.Load()
+}
 
-	return h.excludedFromScheduling
+func (h *Host) SetSubscriptionQuerier(querier SubscriptionQuerier) {
+	h.SubscriptionQuerier = querier
 }
 
 // ExcludeFromScheduling attempts to exclude this Host from being considered for scheduling operations.
@@ -359,9 +371,6 @@ func (h *Host) IsExcludedFromScheduling() bool {
 // If ExcludeFromScheduling returns false, then the Host is already being considered for scheduling by one or more
 // scheduling operations and thus cannot be excluded at this time.
 func (h *Host) ExcludeFromScheduling() bool {
-	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Unlock()
-
 	if numOperationsConsideringHost := h.isBeingConsideredForScheduling.Load(); numOperationsConsideringHost > 0 {
 		h.log.Debug("Host %s (ID=%s) cannot be excluded from consideration from scheduling operations as it is "+
 			"already being considered by %d scheduling operation(s).", h.NodeName, h.ID, numOperationsConsideringHost)
@@ -369,7 +378,7 @@ func (h *Host) ExcludeFromScheduling() bool {
 	}
 
 	h.log.Debug("Host %s (ID=%s) is now precluded from being considered for scheduling.", h.NodeName, h.ID)
-	h.excludedFromScheduling = true
+	h.excludedFromScheduling.Store(true)
 	return true
 }
 
@@ -385,11 +394,11 @@ func (h *Host) IncludeForScheduling() error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	if !h.excludedFromScheduling {
+	if !h.excludedFromScheduling.Load() {
 		return ErrHostAlreadyIncludedForScheduling
 	}
 
-	h.excludedFromScheduling = false
+	h.excludedFromScheduling.Store(false)
 	h.log.Debug("Host %s (ID=%s) will be included for consideration in scheduling operations again.", h.NodeName, h.ID)
 	return nil
 }
@@ -418,7 +427,7 @@ func (h *Host) ConsiderForScheduling() bool {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	if h.excludedFromScheduling {
+	if h.excludedFromScheduling.Load() {
 		h.log.Debug("Cannot consider host %s (ID=%s) for scheduling; it is presently excluded from scheduling.",
 			h.NodeName, h.ID)
 		return false
@@ -459,7 +468,7 @@ func (h *Host) GetIdx(key types.HeapElementMetadataKey) int {
 
 	if h.HeapIndexes == nil {
 		h.HeapIndexes = make(map[types.HeapElementMetadataKey]int)
-		return -1
+		return 0
 	}
 
 	idx, loaded := h.HeapIndexes[key]
@@ -467,7 +476,7 @@ func (h *Host) GetIdx(key types.HeapElementMetadataKey) int {
 		return idx
 	}
 
-	return -1
+	return 0
 	//return h.heapIndex
 }
 
@@ -656,25 +665,40 @@ func (h *Host) SynchronizeResourceInformation() error {
 // PlacedMemoryMB returns the total amount of memory scheduled onto the Host, which is computed as the
 // sum of the Host's pending memory and the Host's committed memory, in megabytes.
 func (h *Host) PlacedMemoryMB() decimal.Decimal {
-	return h.resourceManager.PendingResources().MemoryMbAsDecimal().Add(h.resourceManager.CommittedResources().MemoryMbAsDecimal())
+	return h.resourceManager.PendingResources().MemoryMbAsDecimal().
+		Add(h.resourceManager.CommittedResources().MemoryMbAsDecimal())
 }
 
 // PlacedGPUs returns the total number of GPUs scheduled onto the Host, which is computed as the
 // sum of the Host's pending GPUs and the Host's committed GPUs.
 func (h *Host) PlacedGPUs() decimal.Decimal {
-	return h.resourceManager.PendingResources().GPUsAsDecimal().Add(h.resourceManager.CommittedResources().GPUsAsDecimal())
+	return h.resourceManager.PendingResources().GPUsAsDecimal().
+		Add(h.resourceManager.CommittedResources().GPUsAsDecimal())
+}
+
+// PlacedVRAM returns the total amount of VRAM in GB scheduled onto the Host, which is computed as the
+// sum of the Host's pending VRAM and the Host's committed VRAM.
+func (h *Host) PlacedVRAM() decimal.Decimal {
+	return h.resourceManager.PendingResources().VRAMAsDecimal().
+		Add(h.resourceManager.CommittedResources().VRAMAsDecimal())
 }
 
 // PlacedCPUs returns the total number of Millicpus scheduled onto the Host, which is computed as the
 // sum of the Host's pending Millicpus and the Host's committed Millicpus.
 func (h *Host) PlacedCPUs() decimal.Decimal {
-	return h.resourceManager.PendingResources().MillicpusAsDecimal().Add(h.resourceManager.CommittedResources().MillicpusAsDecimal())
+	return h.resourceManager.PendingResources().MillicpusAsDecimal().
+		Add(h.resourceManager.CommittedResources().MillicpusAsDecimal())
 }
 
 // computeHypotheticalSubscriptionRatio computes what the Host's (over)subscription ratios would be for CPU, Memory,
 // and GPU, if it were to serve a Container with the given types.Spec resource request/requirements.
-func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) (decimal.Decimal, decimal.Decimal, decimal.Decimal) {
-	divisor := decimal.NewFromFloat(float64(h.numReplicasPerKernel))
+func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) (decimal.Decimal, decimal.Decimal, decimal.Decimal, decimal.Decimal) {
+	numReplicasPerKernel := h.numReplicasPerKernel
+	if h.numReplicasPerKernel == 0 {
+		h.numReplicasPerKernel = 1
+	}
+
+	divisor := decimal.NewFromFloat(float64(numReplicasPerKernel))
 
 	// Convert the given types.Spec to a *types.DecimalSpec.
 	var decimalSpec *types.DecimalSpec
@@ -685,7 +709,7 @@ func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) 
 		decimalSpec = types.ToDecimalSpec(resourceRequest)
 	}
 
-	var cpuRatio, memRatio, gpuRatio decimal.Decimal
+	var cpuRatio, memRatio, gpuRatio, vramRatio decimal.Decimal
 
 	if h.resourceManager.SpecResources().MillicpusAsDecimal().Equals(decimal.Zero) {
 		cpuRatio = decimal.Zero
@@ -708,7 +732,14 @@ func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) 
 		gpuRatio = totalGPUs.Div(h.resourceManager.SpecResources().GPUsAsDecimal()).Div(divisor)
 	}
 
-	return cpuRatio, memRatio, gpuRatio
+	if h.resourceManager.SpecResources().VRAMAsDecimal().Equals(decimal.Zero) {
+		vramRatio = decimal.Zero
+	} else {
+		totalVRAM := h.PlacedVRAM().Add(decimalSpec.VRam)
+		vramRatio = totalVRAM.Div(h.resourceManager.SpecResources().VRAMAsDecimal()).Div(divisor)
+	}
+
+	return cpuRatio, memRatio, gpuRatio, vramRatio
 }
 
 // WillBecomeTooOversubscribed returns a boolean indicating whether the Host will become "too" oversubscribed if it
@@ -717,20 +748,45 @@ func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) 
 // "Too" oversubscribed means that the Host's over-subscription ratio would exceed the configured limit upon
 // serving the Container with the given types.Spec resource request/requirements.
 func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
-	cpuRatio, memRatio, gpuRatio := h.computeHypotheticalSubscriptionRatio(resourceRequest)
+	cpuRatio, memRatio, gpuRatio, vramRatio := h.computeHypotheticalSubscriptionRatio(resourceRequest)
 
-	willOversubscribeCpu := h.SubscriptionQuerier.GetOversubscriptionFactor(cpuRatio).GreaterThanOrEqual(decimal.Zero)
-	willOversubscribeMemory := h.SubscriptionQuerier.GetOversubscriptionFactor(memRatio).GreaterThanOrEqual(decimal.Zero)
-	willOversubscribeGpu := h.SubscriptionQuerier.GetOversubscriptionFactor(gpuRatio).GreaterThanOrEqual(decimal.Zero)
+	var willOversubscribeCpu, willOversubscribeMemory, willOversubscribeGpu, willOversubscribeVRAM bool
+
+	if h.numReplicasPerKernel == 1 {
+		willOversubscribeCpu = h.SubscriptionQuerier.GetOversubscriptionFactor(cpuRatio).
+			GreaterThan(decimal.Zero)
+
+		willOversubscribeMemory = h.SubscriptionQuerier.GetOversubscriptionFactor(memRatio).
+			GreaterThan(decimal.Zero)
+
+		willOversubscribeGpu = h.SubscriptionQuerier.GetOversubscriptionFactor(gpuRatio).
+			GreaterThan(decimal.Zero)
+
+		willOversubscribeVRAM = h.SubscriptionQuerier.GetOversubscriptionFactor(vramRatio).
+			GreaterThan(decimal.Zero)
+	} else {
+		willOversubscribeCpu = h.SubscriptionQuerier.GetOversubscriptionFactor(cpuRatio).
+			GreaterThanOrEqual(decimal.Zero)
+
+		willOversubscribeMemory = h.SubscriptionQuerier.GetOversubscriptionFactor(memRatio).
+			GreaterThanOrEqual(decimal.Zero)
+
+		willOversubscribeGpu = h.SubscriptionQuerier.GetOversubscriptionFactor(gpuRatio).
+			GreaterThanOrEqual(decimal.Zero)
+
+		willOversubscribeVRAM = h.SubscriptionQuerier.GetOversubscriptionFactor(vramRatio).
+			GreaterThanOrEqual(decimal.Zero)
+	}
 
 	subscriptionRatio := h.SubscriptionQuerier.SubscriptionRatio()
 
 	h.log.Debug("Computed over-subscription ratios for resource request: %v. Current subscription ratio: %.4f.\n"+
-		"CPU Ratio: %s (Will Oversubscribe? %v), Memory Ratio: %s (Will Oversubscribe? %v), GPU Ratio: %s (Will Oversubscribe? %v)",
-		resourceRequest.String(), subscriptionRatio, cpuRatio.StringFixed(4), willOversubscribeCpu, memRatio.StringFixed(4),
-		willOversubscribeMemory, gpuRatio.StringFixed(4), willOversubscribeGpu)
+		"CPU Ratio: %s (Will Oversubscribe? %v), Memory Ratio: %s (Will Oversubscribe? %v), GPU Ratio: %s (Will Oversubscribe? %v)"+
+		", VRAM Ratio: %s (Will Oversubscribe? %v)", resourceRequest.String(), subscriptionRatio, cpuRatio.StringFixed(4),
+		willOversubscribeCpu, memRatio.StringFixed(4), willOversubscribeMemory, gpuRatio.StringFixed(4), willOversubscribeGpu,
+		vramRatio.StringFixed(4), willOversubscribeVRAM)
 
-	return willOversubscribeCpu || willOversubscribeMemory || willOversubscribeGpu
+	return willOversubscribeCpu || willOversubscribeMemory || willOversubscribeGpu || willOversubscribeVRAM
 }
 
 // CanServeContainerWithError returns nil if the target Host can serve the resource request.
@@ -768,7 +824,7 @@ func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 func (h *Host) releaseCommittedReservation(spec *proto.KernelSpec, reservation *Reservation) error {
 	h.log.Debug("Releasing committed resources [%s] from reservation made for replica of kernel \"%s\". Current resources: %s.",
 		spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
-	err := h.unsafeUncommitResources(spec.DecimalSpecFromKernelSpec(), spec.Id, false)
+	err := h.unsafeReleaseCommittedResources(spec.DecimalSpecFromKernelSpec(), spec.Id, false)
 	if err != nil {
 		h.log.Error("Failed to release committed resource reservation for a replica of kernel %s: %v.",
 			spec.Id, err)
@@ -827,8 +883,8 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	h.log.Debug("Creating resource reservation for new replica of kernel \"%s\". UsePending=%v. Request=%s.",
-		spec.Id, usePendingResources, spec.ResourceSpec.String())
+	h.log.Debug("Creating resource reservation for new replica of kernel \"%s\". UsePending=%v. Request=%s. Current resources on host: %v.",
+		spec.Id, usePendingResources, spec.ResourceSpec.String(), h.GetResourceCountsAsString())
 
 	// Check if we're already hosting a replica of the target kernel.
 	container, containerLoaded := h.containers.Load(spec.Id)
@@ -839,7 +895,6 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 	}
 
 	// Check if there's already a reservation for some (not-yet-scheduled) replica of the target kernel.
-	// TODO: If there's an error creating the container, we need to release the resource reservation on the Host.
 	reservation, reservationLoaded := h.reservations.Load(spec.Id)
 	if reservationLoaded {
 		h.log.Debug("Cannot reserve resources for a replica of kernel %s; have existing reservation for that kernel created %v ago.",
@@ -885,8 +940,8 @@ func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool
 
 	oldSubscribedRatio := h.subscribedRatio
 	h.RecomputeSubscribedRatio()
-	h.log.Debug("Successfully reserved resources for new replica of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
-		spec.Id, oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
+	h.log.Debug("Successfully reserved resources for new replica of kernel %s. Old subscription ratio: %s. New subscription ratio: %s. Updated resources: %v.",
+		spec.Id, oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3), h.GetResourceCountsAsString())
 	h.reservations.Store(spec.Id, NewReservation(h.ID, spec.Id, time.Now(), usePendingResources, spec.DecimalSpecFromKernelSpec()))
 
 	return true, nil
@@ -970,10 +1025,10 @@ func (h *Host) Disable() error {
 // If there's an error while updating the local view of the resource counts of the Host, then we attempt to
 // synchronize with the remote Host and try again. If that fails, then we just return an error.
 func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelContainer) error {
-	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
+	if h.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
 		h.log.Debug("Releasing committed resources [%s] from replica %d of kernel \"%s\" during eviction process. Current resources: %s.",
 			container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
-		err := h.unsafeUncommitResources(container.ResourceSpec(), container.KernelID(), true)
+		err := h.unsafeReleaseCommittedResources(container.ResourceSpec(), container.KernelID(), true)
 		if err != nil {
 			h.log.Error("Failed to release committed resources %s from container for replica %d of kernel %s during eviction process: %v",
 				container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), err)
@@ -1016,13 +1071,13 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 
 	// If the resource binding mode is instead BindResourcesWhenContainerScheduled, then we do not
 	// uncommit the resources until the container is actually evicted.
-	if h.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
+	if h.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
 		spec := container.ResourceSpec()
 
 		h.log.Debug("Releasing committed resources [%s] from replica %d of kernel \"%s\". Current resources: %s.",
 			spec.String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
 
-		err := h.unsafeUncommitResources(spec, container.KernelID(), true)
+		err := h.unsafeReleaseCommittedResources(spec, container.KernelID(), true)
 		if err != nil {
 			h.log.Error("Failed to deallocate resources from previously-training replica %d of kernel %s: %v",
 				container.ReplicaId(), container.KernelID(), err)
@@ -1052,7 +1107,8 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 }
 
 func (h *Host) unsafeHandleResourceError() error {
-	h.log.Warn("Recomputing all resource quantities on host %s", h.ID)
+	h.log.Warn("Recomputing all resource quantities. There are %d container(s) scheduled on the host.",
+		h.containers.Len())
 
 	// Recompute allocated resources.
 	idle := h.resourceSpec.CloneDecimalSpec()
@@ -1062,13 +1118,46 @@ func (h *Host) unsafeHandleResourceError() error {
 	h.containers.Range(func(containerId string, container scheduling.KernelContainer) bool {
 		containerSpec := types.ToDecimalSpec(container.ResourceSpec())
 
-		_, containerHasPreCommittedResources := h.containersWithPreCommittedResources[container.ContainerID()]
+		record, containerHasPreCommittedResources := h.containersWithPreCommittedResources[container.ContainerID()]
 
-		if containerHasPreCommittedResources || container.IsTraining() {
-			committed = types.ToDecimalSpec(committed.Add(containerSpec))
-			idle = idle.Subtract(containerSpec)
+		// Depending on the state of the container, we'll recompute the resources differently.
+		if containerHasPreCommittedResources {
+			h.log.Warn("Container for replica %d of kernel %s has the following resources pre-committed to it: %v.",
+				container.ReplicaId(), container.KernelID(), record.PreCommittedResources.String())
+
+			// Print a warning if they're no longer equal. I don't think this should happen, but maybe with
+			// certain particularly rough message delays, it could?
+			if !containerSpec.Equals(record.PreCommittedResources) {
+				h.log.Warn("Container for replica %d of kernel %s has current spec: %s. This is different than the pre-committed resources: %s.",
+					container.ReplicaId(), container.KernelID(), containerSpec.String(), record.PreCommittedResources.String())
+			}
+
+			committed = types.ToDecimalSpec(committed.Add(record.PreCommittedResources))
+			idle = idle.Subtract(record.PreCommittedResources)
+
+			h.log.Warn("Updated WIP committed resources: %v; Updated WIP idle resources: %v", committed.String(), idle.String())
+		} else if container.IsTraining() {
+			h.log.Warn("Container for replica %d of kernel %s is actively training with the following resources committed to it: %v",
+				container.ReplicaId(), container.KernelID(), containerSpec.String())
+
+			// Print a warning if they're no longer equal. I don't think this should happen, but maybe with
+			// certain particularly rough message delays, it could?
+			if !containerSpec.Equals(record.PreCommittedResources) {
+				h.log.Warn("Container for replica %d of kernel %s has current spec: %s. This is different than the pre-committed resources: %s.",
+					container.ReplicaId(), container.KernelID(), containerSpec.String(), record.PreCommittedResources.String())
+			}
+
+			committed = types.ToDecimalSpec(committed.Add(record.PreCommittedResources))
+			idle = idle.Subtract(record.PreCommittedResources)
+
+			h.log.Warn("Updated WIP committed resources: %v; Updated WIP idle resources: %v", committed.String(), idle.String())
 		} else {
+			h.log.Warn("Container for replica %d of kernel %s is idle with the following pending resources: %v",
+				container.ReplicaId(), container.KernelID(), containerSpec.String())
+
 			pending = types.ToDecimalSpec(pending.Add(containerSpec))
+
+			h.log.Warn("Updated WIP pending resources: %v", pending.String())
 		}
 
 		return true
@@ -1078,7 +1167,7 @@ func (h *Host) unsafeHandleResourceError() error {
 	h.resourceManager.PendingResources().SetTo(pending)
 	h.resourceManager.CommittedResources().SetTo(committed)
 
-	h.log.Debug("Recomputed resources: %s", h.GetResourceCountsAsString())
+	h.log.Warn("Recomputed resources: %s", h.GetResourceCountsAsString())
 
 	return nil
 }
@@ -1102,10 +1191,11 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	// If the resource binding mode is instead BindResourcesWhenContainerScheduled, then they're already
 	// committed to the container, and so we don't have to do anything else and can just return nil,
 	// as we do below.
-	if h.resourceBindingMode == scheduling.BindResourcesAtTrainingStart {
-		if _, loaded := h.kernelsWithCommittedResources[container.KernelID()]; loaded {
-			h.log.Debug("Resources are already committed to replica %d of kernel \"%s\" upon training start. Must have been migrated recently.",
-				container.ReplicaId(), container.KernelID())
+	if h.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
+		existingContainer, loaded := h.kernelsWithCommittedResources[container.KernelID()]
+		if loaded {
+			h.log.Debug("Resources were already committed to replica %d of kernel \"%s\" upon training start %v ago. Must have been migrated recently. Resources committed: %v.",
+				container.ReplicaId(), container.KernelID(), time.Since(existingContainer.CommittedAt), existingContainer.ResourcesCommitted)
 
 			return nil
 		}
@@ -1119,11 +1209,20 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	return nil
 }
 
-func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string, incrementPending bool) error {
-	if _, loaded := h.kernelsWithCommittedResources[kernelId]; !loaded {
+// unsafeReleaseCommittedResources is the inverse of unsafeCommitResources.
+func (h *Host) unsafeReleaseCommittedResources(spec *types.DecimalSpec, kernelId string, incrementPending bool) error {
+	record, loaded := h.kernelsWithCommittedResources[kernelId]
+	if !loaded {
 		h.log.Error("Cannot release committed resources from replica of kernel \"%s\". No replica of kernel \"%s\" has resources committed to it. (Requested to release: %s)",
 			kernelId, kernelId, spec.String())
 		return ErrInvalidContainer
+	}
+
+	if !spec.Equals(record.ResourcesCommitted) {
+		h.log.Warn("Inconsistent committed resource release for replica of kernel %s. Requested: %v. Record: %v.",
+			kernelId, spec.String(), record.ResourcesCommitted.String())
+
+		spec = types.ToDecimalSpec(record.ResourcesCommitted)
 	}
 
 	err := h.resourceManager.RunTransaction(func(state *transaction.State) {
@@ -1138,7 +1237,7 @@ func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string,
 
 	if err != nil {
 		h.log.Error("Failed to release committed resources [%s] from replica of kernel %s.",
-			spec.String(), kernelId, kernelId)
+			spec.String(), kernelId)
 		return err
 	}
 
@@ -1151,8 +1250,8 @@ func (h *Host) unsafeUncommitResources(spec *types.DecimalSpec, kernelId string,
 	return nil
 }
 
-// unsafeUncommitResources releases the specified resources and returns nil on success.
-// unsafeUncommitResources is not thread safe and should only be called with the schedulingMutex already held.
+// unsafeReleaseCommittedResources releases the specified resources and returns nil on success.
+// unsafeReleaseCommittedResources is not thread safe and should only be called with the schedulingMutex already held.
 func (h *Host) unsafeUncommitResourcesOld(spec *types.DecimalSpec, kernelId string) error {
 	if _, loaded := h.kernelsWithCommittedResources[kernelId]; !loaded {
 		h.log.Error("Cannot release committed resources from replica of kernel \"%s\". No replica of kernel \"%s\" has resources committed to it. (Requested to release: %s)",
@@ -1272,8 +1371,9 @@ func (h *Host) PreCommitResources(container scheduling.KernelContainer, executio
 	}
 
 	h.containersWithPreCommittedResources[container.ContainerID()] = &containerWithPreCommittedResources{
-		KernelContainer: container,
-		ExecutionId:     executionId,
+		KernelContainer:       container,
+		ExecutionId:           executionId,
+		PreCommittedResources: spec,
 	}
 
 	h.log.Debug("Pre-Committed the following resources to replica %d of kernel \"%s\": %s. Updated resources on host: %s.",
@@ -1312,7 +1412,7 @@ func (h *Host) ReleasePreCommitedResources(container scheduling.KernelContainer,
 //
 // unsafeReleasePreCommitedResources should only be called if the Host's schedulingMutex is already held.
 func (h *Host) unsafeReleasePreCommitedResources(container scheduling.KernelContainer, executionId string) error {
-	containerWithPreCommittedRes, loaded := h.containersWithPreCommittedResources[container.ContainerID()]
+	record, loaded := h.containersWithPreCommittedResources[container.ContainerID()]
 
 	if !loaded {
 		h.log.Warn("Resources are not pre-commited to replica %d of kernel \"%s\" in any capacity.",
@@ -1324,15 +1424,23 @@ func (h *Host) unsafeReleasePreCommitedResources(container scheduling.KernelCont
 	// We know we found a pre-committed resource allocation.
 	// Let's check if the execution ID matches.
 	// If not, we'll assume that we already released it and just return.
-	if containerWithPreCommittedRes.ExecutionId != executionId {
-		h.log.Warn("Resources are pre-committed to replica %dof kernel \"%s\" for execution \"%s\", not execution \"%s\"",
-			container.ReplicaId(), container.KernelID(), containerWithPreCommittedRes.ExecutionId, executionId)
+	if record.ExecutionId != executionId {
+		h.log.Warn("Resources are pre-committed to replica %d of kernel \"%s\" for execution \"%s\", not execution \"%s\". Resources committed: %v.",
+			container.ReplicaId(), container.KernelID(), record.ExecutionId, executionId,
+			record.PreCommittedResources.String())
 
 		return nil
 	}
 
-	spec := container.ResourceSpec()
-	err := h.unsafeUncommitResources(spec, container.KernelID(), true)
+	// Print a warning if they're no longer equal. I don't think this should happen, but maybe with
+	// certain particularly rough message delays, it could?
+	if !container.ResourceSpec().Equals(record.PreCommittedResources) {
+		h.log.Warn("Container for replica %d of kernel %s has current spec: %s. This is different than the pre-committed resources: %s.",
+			container.ReplicaId(), container.KernelID(), container.ResourceSpec().String(), record.PreCommittedResources.String())
+	}
+
+	spec := record.PreCommittedResources
+	err := h.unsafeReleaseCommittedResources(spec, container.KernelID(), true)
 	if err != nil {
 		h.log.Error("Failed to release pre-committed resources (%s) from replica %d of kernel \"%s\": %v",
 			spec.String(), container.ReplicaId(), container.KernelID(), err)
@@ -1347,10 +1455,11 @@ func (h *Host) unsafeReleasePreCommitedResources(container scheduling.KernelCont
 }
 
 func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, replicaId int32, decrementPending bool) error {
-	if existingReplicaId, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
+	if existingContainerWithCommittedResource, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
 		h.log.Error("Attempting to commit resources [%s] to replica %d of kernel %s, but we've already committed resources to replica %d of kernel %s.",
-			spec.String(), replicaId, kernelId, existingReplicaId)
-		return fmt.Errorf("%w (replica %d of kernel \"%s\")", ErrResourcesAlreadyCommitted, existingReplicaId, kernelId)
+			spec.String(), replicaId, kernelId, existingContainerWithCommittedResource.ReplicaId, kernelId)
+		return fmt.Errorf("%w (replica %d of kernel \"%s\")",
+			ErrResourcesAlreadyCommitted, existingContainerWithCommittedResource.ReplicaId, kernelId)
 	}
 
 	err := h.resourceManager.RunTransaction(func(state *transaction.State) {
@@ -1374,9 +1483,17 @@ func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, r
 		h.log.Error("Failed to update index for host %s after committing resources to replica %d of kernel %s: %v",
 			h.NodeName, replicaId, kernelId, err)
 		// Ignore error for now...
+		// TODO: Should we really ignore it?
 	}
 
-	h.kernelsWithCommittedResources[kernelId] = replicaId
+	// Save the exact resources that were allocated to the kernel so that we can
+	// deallocate the right amount in the future.
+	h.kernelsWithCommittedResources[kernelId] = &containerWithCommittedResources{
+		KernelId:           kernelId,
+		ReplicaId:          replicaId,
+		ResourcesCommitted: spec,
+		CommittedAt:        time.Now(),
+	}
 	return nil
 }
 
@@ -1499,33 +1616,37 @@ func (h *Host) getSIP(sess scheduling.UserSession) float64 {
 // this Host is updated or changed. This ensures that the Host's resource counts are up to date.
 //
 // This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
-func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
-	h.schedulingMutex.Lock()
+func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec,
+	container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
+
+	// The CoordinatedTransaction will lock this mutex.
+	// We just need to unlock it.
 	defer h.schedulingMutex.Unlock()
 
 	// Sanity check.
 	if _, loaded := h.containers.Load(container.ContainerID()); !loaded {
+		coordinatedTransaction.Abort()
 		return fmt.Errorf("the specified KernelContainer is not running on the target Host")
 	}
 
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
-	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
+	if !h.schedulingPolicy.SupportsDynamicResourceAdjustments() {
+		coordinatedTransaction.Abort()
 		return scheduling.ErrDynamicResourceAdjustmentProhibited
 	}
 
 	oldSubscribedRatio := h.subscribedRatio
-	h.log.Debug("Updating resource reservation for %s", container.ContainerID())
+	h.log.Debug("Coordinated Transaction: updating resource reservation for %s", container.ContainerID())
 
 	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
 	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
 
-	initialState, commit := h.resourceManager.GetTransactionData()
+	txOperation := func(state *transaction.State) {
+		state.PendingResources().Subtract(oldSpecDecimal)
+		state.PendingResources().Add(newSpecDecimal)
+	}
 
-	err := coordinatedTransaction.RegisterParticipant(container.ReplicaId(), initialState,
-		func(state *transaction.State) {
-			state.PendingResources().Subtract(oldSpecDecimal)
-			state.PendingResources().Add(newSpecDecimal)
-		}, commit)
+	err := coordinatedTransaction.RegisterParticipant(container.ReplicaId(), h.resourceManager.GetTransactionData, txOperation, &h.schedulingMutex)
 	if err != nil {
 		h.log.Error("Received error upon registering for coordination transaction when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
 			container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), err)
@@ -1535,8 +1656,9 @@ func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spe
 	succeeded := coordinatedTransaction.Wait()
 	if succeeded {
 		h.RecomputeSubscribedRatio()
-		h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
-			container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
+		h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s. Updated resource counts: %v.",
+			container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3),
+			h.subscribedRatio.StringFixed(3), h.GetResourceCountsAsString())
 		return nil
 	}
 
@@ -1558,12 +1680,12 @@ func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec 
 	}
 
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
-	if h.resourceBindingMode == scheduling.BindResourcesWhenContainerScheduled {
+	if !h.schedulingPolicy.SupportsDynamicResourceAdjustments() {
 		return scheduling.ErrDynamicResourceAdjustmentProhibited
 	}
 
 	oldSubscribedRatio := h.subscribedRatio
-	h.log.Debug("Updating resource reservation for %s", container.ContainerID())
+	h.log.Debug("Updating resource reservation for just %s", container.ContainerID())
 
 	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
 	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
@@ -1777,9 +1899,9 @@ func (h *Host) CommittedMemoryMb() float64 {
 	return h.resourceManager.CommittedResources().MemoryMB()
 }
 
-func (h *Host) IdleVRAM() float64 { return h.resourceManager.IdleResources().MemoryMB() }
+func (h *Host) IdleVRAM() float64 { return h.resourceManager.IdleResources().VRAM() }
 
-func (h *Host) PendingVRAM() float64 { return h.resourceManager.PendingResources().MemoryMB() }
+func (h *Host) PendingVRAM() float64 { return h.resourceManager.PendingResources().VRAM() }
 
 func (h *Host) CommittedVRAM() float64 { return h.resourceManager.CommittedResources().VRAM() }
 

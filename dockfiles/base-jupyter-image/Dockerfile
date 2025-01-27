@@ -35,10 +35,7 @@ RUN chmod -R 777 /home/jovyan/Python-3.12.6/
 
 ENV LD_LIBRARY_PATH=/home/jovyan/Python-3.12.6/debug
 
-# Install amd version of pytorch and torchvision
-# RUN python3 -m pip install torch torchvision
-# RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==4.21.9 grpcio==1.50.0 grpcio-tools==1.50.0 debugpy
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==5.28.1 grpcio==1.66.1 grpcio-tools==1.66.1 debugpy torch torchvision
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install protobuf==5.28.1 grpcio==1.66.1 grpcio-tools==1.66.1
 
 # Switch back to jovyan
 USER jovyan:users
@@ -54,19 +51,12 @@ RUN mkdir -p /storage && chown jovyan:users /storage
 
 # For debugging.
 RUN apt-get update && apt-get install iputils-ping dnsutils unzip vim gdb screen sox -y
-# RUN python3 -m pip install kubernetes 
 
-# Install frontend extension.
-# RUN cd /home/jovyan \
-#     && git clone https://github.com/Scusemua/DistributedKernelFrontendExtension.git \
-#     && cd ./DistributedKernelFrontendExtension \
-#     && pip install .
+ADD dockfiles/base-jupyter-image/distributed_notebooks_requirements.txt /home/jovyan/distributed_notebook_requirements.txt
 
-# RUN mkdir /home/jovyan/data && cd /home/jovyan/data && wget http://cs231n.stanford.edu/tiny-imagenet-200.zip && unzip tiny-imagenet-200.zip
-# RUN chmod -R 777 /home/jovyan/data/*
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install torch torchdata torchaudio transformers datasets sox librosa
 
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install jupyter jupyterlab jupyter_server jsonpatch numpy pandas typing_extensions redis boto3 sox librosa
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install --upgrade ipyflow
+RUN /home/jovyan/Python-3.12.6/debug/python -m pip install -r /home/jovyan/distributed_notebook_requirements.txt
 
 # Install Golang for debugging.
 RUN cd /tmp && wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz

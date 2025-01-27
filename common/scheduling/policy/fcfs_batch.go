@@ -6,26 +6,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 )
 
-type internalPolicy interface {
-	// SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
-	SelectReplicaForMigration(kernel scheduling.Kernel) (scheduling.KernelReplica, error)
-
-	// FindReadyReplica (optionally) selects a KernelReplica of the specified Kernel to be
-	// pre-designated as the leader of a code execution.
-	//
-	// If the returned KernelReplica is nil and the returned error is nil, then that indicates
-	// that no KernelReplica is being pre-designated as the leader, and the KernelReplicas
-	// will fight amongst themselves to determine the leader.
-	//
-	// If a non-nil KernelReplica is returned, then the "execute_request" messages that are
-	// forwarded to that KernelReplica's peers should first be converted to "yield_request"
-	// messages, thereby ensuring that the selected KernelReplica becomes the leader.
-	//
-	// FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
-	// been ruled out.
-	FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error)
-}
-
 // FcfsBatchSchedulingPolicy is a scheduling.Policy modeled after Slurm-like first-come, first-serve batch schedulers.
 // FcfsBatchSchedulingPolicy uses short-lived scheduling.KernelContainer instances that are created reactively each
 // time a user submits a training task, and that are reclaimed when the training task finishes.
@@ -46,6 +26,11 @@ func NewFcfsBatchSchedulingPolicy(opts *scheduling.SchedulerOptions) (*FcfsBatch
 
 	policy := &FcfsBatchSchedulingPolicy{
 		baseSchedulingPolicy: basePolicy,
+	}
+
+	if opts.MinimumNumNodes < policy.NumReplicas() {
+		panic(fmt.Sprintf("Minimum number of nodes (%d) is incompatible with number of replicas (%d). Minimum number of nodes must be >= number of replicas.",
+			opts.MinimumNumNodes, policy.NumReplicas()))
 	}
 
 	if opts.SchedulingPolicy != scheduling.FcfsBatch.String() {
@@ -80,6 +65,26 @@ func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.
 // been ruled out.
 func (p *FcfsBatchSchedulingPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
 	return checkSingleReplica(kernel, p.supportsMigration, executionId)
+}
+
+// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
+// Adjust the Cluster's capacity as directed by scaling policy.
+func (p *FcfsBatchSchedulingPolicy) ValidateCapacity(_ scheduling.Cluster) {
+	return // No-op, not supported
+}
+
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *FcfsBatchSchedulingPolicy) SupportsPredictiveAutoscaling() bool {
+	return true
+}
+
+// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+// resource request of an existing/scheduled kernel after it has already been created, or if the
+// initial resource request/allocation is static and cannot be changed after the kernel is created.
+func (p *FcfsBatchSchedulingPolicy) SupportsDynamicResourceAdjustments() bool {
+	// TODO: Should this return true or false?
+	return true
 }
 
 func (p *FcfsBatchSchedulingPolicy) SmrEnabled() bool {

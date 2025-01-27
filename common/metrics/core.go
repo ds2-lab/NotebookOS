@@ -26,7 +26,7 @@ const (
 
 var (
 	ErrGatewayPrometheusManagerAlreadyRunning = errors.New("GatewayPrometheusManager is already running")
-	ErrMetricsNotInitialized                  = errors.New("the MessagingMetricsProvider has not been initialized yet")
+	ErrMetricsNotInitialized                  = errors.New("the StatisticsAndMetricsProvider has not been initialized yet")
 	//ErrGatewayPrometheusManagerNotRunning     = errors.New("GatewayPrometheusManager is not running")
 )
 
@@ -42,85 +42,11 @@ func (t NodeType) String() string {
 // Prometheus managers. This functionality is required for their correct operation, but entities that use
 // Prometheus managers need not be concerned with these details, so they're defined in a non-exported interface.
 type prometheusHandler interface {
-	PrometheusMetricsProvider
-
 	// HandleRequest is an HTTP handler to serve Prometheus metric-scraping requests.
 	HandleRequest(*gin.Context)
 
 	// HandleVariablesRequest handles query requests from Grafana for variables that are required to create Dashboards.
 	HandleVariablesRequest(*gin.Context)
-}
-
-// MessagingMetricsProvider is an interface intended to be embedded within the PrometheusMetricsProvider interface.
-//
-// This interface will allow servers to record observations of metrics like end-to-end latency without knowing
-// the actual names of the fields within concrete structs that implement the PrometheusMetricsProvider interface.
-type MessagingMetricsProvider interface {
-	// AddMessageE2ELatencyObservation records an observation of end-to-end latency, in microseconds, for a single message.
-	//
-	// If the target MessagingMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
-	// error is returned.
-	AddMessageE2ELatencyObservation(latency time.Duration, nodeId string, nodeType NodeType,
-		socketType messaging.MessageType, jupyterMessageType string) error
-
-	// AddNumSendAttemptsRequiredObservation enables the caller to record an observation of the number of times a
-	// message had to be (re)sent before an ACK was received from the recipient.
-	//
-	// If the target MessagingMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
-	// error is returned.
-	AddNumSendAttemptsRequiredObservation(acksRequired float64, nodeId string, nodeType NodeType,
-		socketType messaging.MessageType, jupyterMessageType string) error
-
-	// AddAckReceivedLatency is used to record an observation for the "ack_received_latency_microseconds" metric.
-	AddAckReceivedLatency(latency time.Duration, nodeId string, nodeType NodeType,
-		socketType messaging.MessageType, jupyterMessageType string) error
-
-	// AddFailedSendAttempt records that a message was never acknowledged by the target recipient.
-	//
-	// If the target MessagingMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
-	// error is returned.
-	AddFailedSendAttempt(nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error
-
-	// SentMessage record that a message was sent (including cases where the message sent was resubmitted and not
-	// sent for the very first time).
-	SentMessage(nodeId string, sendLatency time.Duration, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error
-
-	// SentMessageUnique records that a message was sent. This should not be incremented for resubmitted messages.
-	SentMessageUnique(nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error
-}
-
-// ContainerMetricsProvider is an exported interface that exposes an API for publishing container-related metrics.
-type ContainerMetricsProvider interface {
-	// AddContainerCreationLatencyObservation records the latency of a container-creation event.
-	//
-	// If the target ContainerMetricsProvider has not yet initialized its metrics yet, then an ErrMetricsNotInitialized
-	// error is returned.
-	AddContainerCreationLatencyObservation(latency time.Duration) error
-}
-
-// PrometheusMetricsProvider defines the general interface of Prometheus metric managers.
-//
-// This interface is designed to be used by external entities who need to store/publish metrics.
-type PrometheusMetricsProvider interface {
-	// GetMessagingMetricsProvider returns a MessagingMetricsProvider, or nil if this particular
-	// PrometheusMetricsProvider is incapable of providing a reference to a MessagingMetricsProvider instance.
-	GetMessagingMetricsProvider() MessagingMetricsProvider
-
-	// GetContainerMetricsProvider returns a ContainerMetricsProvider, or nil if this particular
-	// PrometheusMetricsProvider is incapable of providing a reference to a ContainerMetricsProvider instance.
-	GetContainerMetricsProvider() ContainerMetricsProvider
-
-	// Start registers metrics with Prometheus and begins serving the metrics via an HTTP endpoint.
-	Start() error
-
-	// NodeId returns the node ID associated with the metrics manager.
-	NodeId() string
-
-	// IsRunning returns true if the PrometheusMetricsProvider has been started and is serving metrics.
-	IsRunning() bool
-
-	// Stop instructs the PrometheusMetricsProvider to shut down its HTTP server.
-	Stop() error
 }
 
 // BasePrometheusManager contains the common state and infrastructure required
@@ -229,18 +155,6 @@ func (m *basePrometheusManager) IsRunning() bool {
 	defer m.mu.Unlock()
 
 	return m.isRunningUnsafe()
-}
-
-// GetMessagingMetricsProvider returns a MessagingMetricsProvider, a role that is fulfilled directly
-// by the basePrometheusManager.
-func (m *basePrometheusManager) GetMessagingMetricsProvider() MessagingMetricsProvider {
-	return m
-}
-
-// GetContainerMetricsProvider returns a ContainerMetricsProvider if the basePrometheusManager's instance
-// field is capable of producing a ContainerMetricsProvider. Otherwise, this returns nil.
-func (m *basePrometheusManager) GetContainerMetricsProvider() ContainerMetricsProvider {
-	return m.instance.GetContainerMetricsProvider()
 }
 
 // NodeId returns the node ID associated with the metrics manager.

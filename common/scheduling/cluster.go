@@ -61,6 +61,9 @@ type ClusterHostManager interface {
 	// task of locking the required structures during scaling operations.
 	NewHostAddedOrConnected(host Host) error
 
+	// HasActiveScalingOperation returns true if there is an active scaling operation (of either kind).
+	HasActiveScalingOperation() bool
+
 	// GetHost returns the Host with the given ID, if one exists.
 	GetHost(hostId string) (Host, bool)
 
@@ -89,6 +92,8 @@ type ClusterHostManager interface {
 	NumDisabledHosts() int
 
 	// Len returns the current size of the Cluster (i.e., the number of Host instances within the Cluster).
+	//
+	// Len does NOT include the number of disabled Host instances.
 	Len() int
 }
 
@@ -206,6 +211,10 @@ type ClusterMetricsManager interface {
 	// BusyGPUs returns the number of GPUs that are actively committed to kernel replicas right now.
 	BusyGPUs() float64
 
+	// DemandAndBusyGPUs returns Demand GPUs, Busy GPUs, and then
+	// num running sessions, num idle sessions, num training sessions.
+	DemandAndBusyGPUs() (float64, float64, int, int, int)
+
 	// DemandGPUs returns the number of GPUs that are required by all actively-running Sessions.
 	DemandGPUs() float64
 
@@ -246,4 +255,7 @@ type Cluster interface {
 	ClusterMetricsManager
 	ClusterHostManager
 	ClusterSessionManager
+
+	// Close closes down the Cluster.
+	Close()
 }

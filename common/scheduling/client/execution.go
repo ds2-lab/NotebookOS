@@ -1,9 +1,10 @@
-package execution
+package client
 
 import (
 	"fmt"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/scusemua/distributed-notebook/common/jupyter/messaging"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
@@ -19,38 +20,41 @@ import (
 // Specifically, under 'static' scheduling, we dynamically provision a new replica to handle the request.
 // Alternatively, under 'dynamic' scheduling, we migrate existing replicas to another node to handle the request.
 type Execution struct {
-	// The Jupyter message ID of the associated Jupyter "execute_request" ZMQ message.
+	// ExecuteRequestMessageId is the  Jupyter message ID of the associated Jupyter "execute_request" ZMQ message.
 	ExecuteRequestMessageId string
 
-	// Beginning at 1, identifies the "attempt number", in case we have to retry due to timeouts.
+	// ExecutionIndex uniquely identifies this Execution and enables a total ordering between all Execution structs.
+	ExecutionIndex int32
+
+	// AttemptNumber begins at 1, identifies the "attempt number", in case we have to retry due to timeouts.
 	AttemptNumber int
 
-	// The ID of the Jupyter session that initiated the request.
+	// SessionId is the ID of the Jupyter session that initiated the request.
 	SessionId string
 
-	// ID of the associated kernel.
+	// KernelId is the ID of the associated kernel.
 	KernelId string
 
-	// The time at which this Execution was created.
+	// CreatedAt is the time at which this Execution was created.
 	CreatedAt time.Time
 
-	// The number of replicas that the kernel had with the execution request was originally received.
+	// NumReplicas is the number of replicas that the kernel had with the execution request was originally received.
 	NumReplicas int
 
-	// Number of 'LEAD' Proposals issued.
+	// NumLeadProposals is the number of 'LEAD' Proposals issued.
 	NumLeadProposals int
 
-	// Number of 'YIELD' Proposals issued.
+	// NumYieldProposals is the number of 'YIELD' Proposals issued.
 	NumYieldProposals int
 
-	// Map from replica ID to what it proposed ('YIELD' or 'LEAD')
-	Proposals map[int32]*Proposal
+	// Proposals is a map from replica ID to what it proposed ('YIELD' or 'LEAD')
+	Proposals map[int32]scheduling.Proposal
 
 	// NextAttempt is the Execution attempt that occurred after this one.
-	NextAttempt *Execution
+	NextAttempt scheduling.Execution
 
 	// PreviousAttempt is the Execution attempt that preceded this one, if this is not the first attempt.
-	PreviousAttempt *Execution
+	PreviousAttempt scheduling.Execution
 
 	// JupyterMessage is the original 'execute_request' message.
 	JupyterMessage *messaging.JupyterMessage
@@ -68,9 +72,9 @@ type Execution struct {
 	OriginallySentAt        time.Time
 	originallySentAtDecoded bool
 
-	// activeReplica is the Kernel connected to the replica of the kernel that is actually
+	// ActiveReplica is the Kernel connected to the replica of the kernel that is actually
 	// executing the user-submitted code.
-	ActiveReplica Replica
+	ActiveReplica scheduling.KernelReplica
 
 	// WorkloadId can be retrieved from the metadata dictionary of the Jupyter messages if the sender
 	// was a Golang Jupyter client.
@@ -80,11 +84,11 @@ type Execution struct {
 	State State
 }
 
-func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *messaging.JupyterMessage) *Execution {
+func NewExecution(kernelId string, attemptId int, numReplicas int, executionIndex int32, msg *messaging.JupyterMessage) *Execution {
 	activeExecution := &Execution{
 		SessionId:               msg.JupyterSession(),
 		AttemptNumber:           attemptId,
-		Proposals:               make(map[int32]*Proposal, numReplicas),
+		Proposals:               make(map[int32]scheduling.Proposal, numReplicas),
 		KernelId:                kernelId,
 		NumReplicas:             numReplicas,
 		Replies:                 hashmap.NewCornelkMap[int32, *messaging.JupyterMessage](numReplicas),
@@ -95,6 +99,7 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *me
 		originallySentAtDecoded: false,
 		CreatedAt:               time.Now(),
 		State:                   Pending,
+		ExecutionIndex:          executionIndex,
 	}
 
 	var metadataDict map[string]interface{}
@@ -137,16 +142,21 @@ func NewActiveExecution(kernelId string, attemptId int, numReplicas int, msg *me
 	return activeExecution
 }
 
-func (e *Execution) LinkPreviousAttempt(previousAttempt *Execution) {
+// GetExecutionIndex returns the ExecutionIndex of the target Execution.
+func (e *Execution) GetExecutionIndex() int32 {
+	return e.ExecutionIndex
+}
+
+func (e *Execution) LinkPreviousAttempt(previousAttempt scheduling.Execution) {
 	e.PreviousAttempt = previousAttempt
 }
 
-func (e *Execution) LinkNextAttempt(nextAttempt *Execution) {
+func (e *Execution) LinkNextAttempt(nextAttempt scheduling.Execution) {
 	e.NextAttempt = nextAttempt
 }
 
-func (e *Execution) SetActiveReplica(replica Replica) {
-	e.ActiveReplica = replica
+func (e *Execution) GetAttemptNumber() int {
+	return e.AttemptNumber
 }
 
 // RegisterReply saves an "execute_reply" *messaging.JupyterMessage from one of the replicas of the kernel
@@ -229,7 +239,7 @@ func (e *Execution) ReceivedLeadNotification(smrNodeId int32) error {
 		return ErrProposalAlreadyReceived
 	}
 
-	e.Proposals[smrNodeId] = NewProposal(LeadProposal, "")
+	e.Proposals[smrNodeId] = NewProposal(scheduling.LeadProposal, "")
 	e.NumLeadProposals += 1
 
 	return nil
@@ -241,7 +251,7 @@ func (e *Execution) ReceivedYieldNotification(smrNodeId int32, yieldReason strin
 		return ErrProposalAlreadyReceived
 	}
 
-	e.Proposals[smrNodeId] = NewProposal(YieldProposal, yieldReason)
+	e.Proposals[smrNodeId] = NewProposal(scheduling.YieldProposal, yieldReason)
 	e.NumYieldProposals += 1
 
 	if e.NumYieldProposals == e.NumReplicas {
@@ -267,7 +277,7 @@ func (e *Execution) NumYieldReceived() int {
 	return e.NumYieldProposals
 }
 
-func (e *Execution) RangeRoles(rangeFunc func(int32, *Proposal) bool) {
+func (e *Execution) RangeRoles(rangeFunc func(int32, scheduling.Proposal) bool) {
 	for smrNodeId, role := range e.Proposals {
 		shouldContinue := rangeFunc(smrNodeId, role)
 
@@ -291,4 +301,24 @@ func (e *Execution) IsCompleted() bool {
 
 func (e *Execution) IsErred() bool {
 	return e.State == Erred
+}
+
+func (e *Execution) GetNumReplicas() int {
+	return e.NumReplicas
+}
+
+func (e *Execution) SetActiveReplica(replica scheduling.KernelReplica) {
+	e.ActiveReplica = replica
+}
+
+func (e *Execution) GetOriginallySentAtTime() time.Time {
+	return e.OriginallySentAt
+}
+
+func (e *Execution) GetWorkloadId() string {
+	return e.WorkloadId
+}
+
+func (e *Execution) GetExecuteRequestMessageId() string {
+	return e.ExecuteRequestMessageId
 }

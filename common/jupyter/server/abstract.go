@@ -8,7 +8,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"io"
 	"log"
 	"math"
@@ -56,9 +55,9 @@ type WaitResponseOptionGetter func(key string) interface{}
 type AbstractServer struct {
 	Meta *jupyter.ConnectionInfo
 
-	// MessagingMetricsProvider is an interface that enables the recording of metrics observed by the AbstractServer.
+	// StatisticsAndMetricsProvider is an interface that enables the recording of metrics observed by the AbstractServer.
 	// This should be assigned a value in the init function passed as a parameter in the "constructor" of the AbstractServer.
-	MessagingMetricsProvider metrics.MessagingMetricsProvider
+	StatisticsAndMetricsProvider MessagingMetricsProvider
 
 	// ctx of this server and a func to cancel it.
 	Ctx       context.Context
@@ -83,9 +82,6 @@ type AbstractServer struct {
 	//
 	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
 	MessageAcknowledgementsEnabled bool
-
-	// StatisticsUpdaterProvider is used by the AbstractServer instance(s) running within the Cluster Gateway.
-	StatisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics))
 
 	// MessageQueueCapacity is the amount that the message queue (which is a chan) is buffered
 	//MessageQueueCapacity int
@@ -391,11 +387,11 @@ func (s *AbstractServer) sendAck(msg *messaging.JupyterMessage, socket *messagin
 	s.NumSends.Add(1)
 	s.NumUniqueSends.Add(1)
 
-	if metricError := s.MessagingMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, ACK); metricError != nil {
+	if metricError := s.StatisticsAndMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, ACK); metricError != nil {
 		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 	}
 
-	if metricError := s.MessagingMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, ACK); metricError != nil {
+	if metricError := s.StatisticsAndMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, ACK); metricError != nil {
 		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 	}
 
@@ -687,12 +683,12 @@ func (s *AbstractServer) replyWithError(originalMessage *messaging.JupyterMessag
 	s.NumSends.Add(1)
 	s.NumUniqueSends.Add(1)
 
-	if s.MessagingMetricsProvider != nil && !reflect.ValueOf(s.MessagingMetricsProvider).IsNil() {
-		if metricError := s.MessagingMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
+	if s.StatisticsAndMetricsProvider != nil && !reflect.ValueOf(s.StatisticsAndMetricsProvider).IsNil() {
+		if metricError := s.StatisticsAndMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
 			s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 
-		if metricError := s.MessagingMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
+		if metricError := s.StatisticsAndMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, errorMessage.JupyterMessageType()); metricError != nil {
 			s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 		}
 	}
@@ -945,7 +941,7 @@ func (s *AbstractServer) sendRequest(request messaging.Request, socket *messagin
 
 	// Record metrics.
 	s.NumSends.Add(1)
-	if metricError := s.MessagingMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, request.JupyterMessageType()); metricError != nil {
+	if metricError := s.StatisticsAndMetricsProvider.SentMessage(s.ComponentId, sendDuration, s.nodeType, socket.Type, request.JupyterMessageType()); metricError != nil {
 		s.Log.Error("Could not record 'SentMessage' Prometheus metric because: %v", metricError)
 	}
 
@@ -997,7 +993,7 @@ func (s *AbstractServer) shouldAddRequestTrace(msg *messaging.JupyterMessage, so
 }
 
 func (s *AbstractServer) tryUpdateClusterStatisticsFromRequestTrace(trace *proto.RequestTrace) {
-	if s.StatisticsUpdaterProvider == nil {
+	if s.StatisticsAndMetricsProvider == nil {
 		return
 	}
 
@@ -1008,7 +1004,7 @@ func (s *AbstractServer) tryUpdateClusterStatisticsFromRequestTrace(trace *proto
 	gatewayResponseProcessTime := trace.ReplySentByGateway - trace.ReplyReceivedByGateway
 	localDaemonResponseProcessTime := trace.ReplySentByLocalDaemon - trace.ReplyReceivedByLocalDaemon
 
-	s.StatisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
+	s.StatisticsAndMetricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
 		statistics.CumulativeRequestProcessingTimeClusterGateway += gatewayRequestProcessTime
 		statistics.CumulativeRequestProcessingTimeLocalDaemon += localDaemonRequestProcessTime
 		statistics.CumulativeRequestProcessingTimeKernel += kernelProcessingTime
@@ -1067,7 +1063,7 @@ func (s *AbstractServer) sendRequestWithRetries(request messaging.Request, socke
 			// We only increment the unique "sent messages" counter here.
 			// We increment the other one earlier, before knowing if the send operation was ultimately "successful" or not.
 			s.NumUniqueSends.Add(1)
-			if metricError := s.MessagingMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); metricError != nil {
+			if metricError := s.StatisticsAndMetricsProvider.SentMessageUnique(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); metricError != nil {
 				s.Log.Error("Could not record 'SentMessageUnique' Prometheus metric because: %v", metricError)
 			}
 
@@ -1113,7 +1109,7 @@ func (s *AbstractServer) onAcknowledgementReceived(request messaging.Request, so
 		s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 	}
 
-	if err := s.MessagingMetricsProvider.AddAckReceivedLatency(ackReceivedLatency, s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
+	if err := s.StatisticsAndMetricsProvider.AddAckReceivedLatency(ackReceivedLatency, s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
 		s.Log.Warn("Could not record \"ack received latency\" metric because: %v", err)
 	}
 }
@@ -1144,7 +1140,7 @@ func (s *AbstractServer) onNoAcknowledgementReceived(request messaging.Request, 
 		}
 
 		// Record metric.
-		_ = s.MessagingMetricsProvider.AddFailedSendAttempt(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType())
+		_ = s.StatisticsAndMetricsProvider.AddFailedSendAttempt(s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType())
 		return ErrRequestOutOfAttempts
 	}
 
@@ -1204,7 +1200,7 @@ func (s *AbstractServer) onSuccessfullySentMessage(request messaging.Request, so
 		panic(fmt.Sprintf("Request transition to 'processing' state failed for %s \"%s\" request %s (JupyterID=%s): %v", socket.Type.String(), request.JupyterMessageType(), request.RequestId(), request.JupyterMessageId(), err))
 	}
 
-	if err := s.MessagingMetricsProvider.AddNumSendAttemptsRequiredObservation(float64(numTries+1), s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
+	if err := s.StatisticsAndMetricsProvider.AddNumSendAttemptsRequiredObservation(float64(numTries+1), s.ComponentId, s.nodeType, socket.Type, request.JupyterMessageType()); err != nil {
 		s.Log.Error("Could not record 'NumSendAttemptsRequired' observation because: %v", err)
 	}
 }
@@ -1272,8 +1268,8 @@ func (s *AbstractServer) poll(socket *messaging.Socket, chMsg chan<- interface{}
 				}
 			}
 
-			if s.StatisticsUpdaterProvider != nil {
-				s.StatisticsUpdaterProvider(func(statistics *statistics.ClusterStatistics) {
+			if s.StatisticsAndMetricsProvider != nil {
+				s.StatisticsAndMetricsProvider.UpdateClusterStatistics(func(statistics *metrics.ClusterStatistics) {
 					// We know we're in the Gateway if the StatisticsUpdaterProvider
 					statistics.NumJupyterMessagesReceivedByClusterGateway += 1
 				})
@@ -1365,7 +1361,7 @@ func (s *AbstractServer) getOneTimeMessageHandler(socket *messaging.Socket, shou
 						request.JupyterMessageId(), e2eLatency)
 
 					// Record the latency in (microseconds) in Prometheus.
-					if err := s.MessagingMetricsProvider.AddMessageE2ELatencyObservation(e2eLatency,
+					if err := s.StatisticsAndMetricsProvider.AddMessageE2ELatencyObservation(e2eLatency,
 						s.ComponentId, s.nodeType, request.MessageType(), request.JupyterMessageType()); err != nil {
 						s.Log.Error("Could not record E2E latency of %v for %s \"%s\" message %s (JupyterID=\"%s\") because: %v",
 							request.MessageType().String(), request.JupyterMessageType(), request.RequestId(),

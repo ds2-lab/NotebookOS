@@ -3,9 +3,9 @@ package cluster
 import (
 	"errors"
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/statistics"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"math/rand"
 	"strings"
@@ -26,7 +26,7 @@ type DockerComposeCluster struct {
 // by the Cluster for scheduling decisions.
 func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker,
-	schedulingPolicy internalSchedulingPolicy, statisticsUpdaterProvider func(func(statistics *statistics.ClusterStatistics)),
+	schedulingPolicy internalSchedulingPolicy, statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)),
 	opts *scheduling.SchedulerOptions) *DockerComposeCluster {
 
 	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerComposeCluster", statisticsUpdaterProvider)
@@ -169,7 +169,7 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 					host.GetNodeName(), hostId, scaleOpId)
 
 				scaleOutDurationSec := (rand.NormFloat64() * c.StdDevScaleOutPerHost.Seconds()) + c.MeanScaleOutPerHost.Seconds()
-				scaleOutDuration := time.Duration(scaleOutDurationSec) * time.Second
+				scaleOutDuration := time.Duration(scaleOutDurationSec*1000) * time.Millisecond
 				c.log.Debug("Simulating scale-out for host %s (ID=%s) during operation %s. Duration: %v",
 					host.GetNodeName(), hostId, scaleOpId, scaleOutDuration)
 				time.Sleep(scaleOutDuration)

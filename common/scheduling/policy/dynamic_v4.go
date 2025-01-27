@@ -20,12 +20,23 @@ func NewDynamicV4Policy(opts *scheduling.SchedulerOptions) (*DynamicV4Policy, er
 		baseSchedulingPolicy: basePolicy,
 	}
 
+	if opts.MinimumNumNodes < policy.NumReplicas() {
+		panic(fmt.Sprintf("Minimum number of nodes (%d) is incompatible with number of replicas (%d). Minimum number of nodes must be >= number of replicas.",
+			opts.MinimumNumNodes, policy.NumReplicas()))
+	}
+
 	if opts.SchedulingPolicy != scheduling.DynamicV4.String() {
 		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of DynamicV4Policy.",
 			opts.SchedulingPolicy))
 	}
 
 	return policy, nil
+}
+
+// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
+// Adjust the Cluster's capacity as directed by scaling policy.
+func (p *DynamicV4Policy) ValidateCapacity(cluster scheduling.Cluster) {
+	multiReplicaValidateCapacity(p, cluster, p.log)
 }
 
 func (p *DynamicV4Policy) PostExecutionStatePolicy() scheduling.PostExecutionStatePolicy {
@@ -54,6 +65,13 @@ func (p *DynamicV4Policy) NumReplicas() int {
 
 func (p *DynamicV4Policy) ResourceBindingMode() scheduling.ResourceBindingMode {
 	return scheduling.BindResourcesAtTrainingStart
+}
+
+// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+// resource request of an existing/scheduled kernel after it has already been created, or if the
+// initial resource request/allocation is static and cannot be changed after the kernel is created.
+func (p *DynamicV4Policy) SupportsDynamicResourceAdjustments() bool {
+	return true
 }
 
 func (p *DynamicV4Policy) SmrEnabled() bool {
@@ -117,6 +135,12 @@ func (p *DynamicV4Policy) ScalingOutEnabled() bool {
 }
 
 func (p *DynamicV4Policy) ScalingInEnabled() bool {
+	return true
+}
+
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *DynamicV4Policy) SupportsPredictiveAutoscaling() bool {
 	return true
 }
 

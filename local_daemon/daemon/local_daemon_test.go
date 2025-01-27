@@ -163,6 +163,8 @@ var _ = Describe("Local Daemon Tests", func() {
 				SchedulingPolicy:             string(scheduling.Static),
 				IdleSessionReclamationPolicy: string(scheduling.NoIdleSessionReclamation),
 			},
+			MinimumNumNodes: 3,
+			MaximumNumNodes: 16,
 		})
 		Expect(err).To(BeNil())
 		Expect(schedulingPolicy).ToNot(BeNil())

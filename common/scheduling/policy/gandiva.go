@@ -20,6 +20,11 @@ func NewGandivaPolicy(opts *scheduling.SchedulerOptions) (*GandivaPolicy, error)
 		baseSchedulingPolicy: basePolicy,
 	}
 
+	if opts.MinimumNumNodes < policy.NumReplicas() {
+		panic(fmt.Sprintf("Minimum number of nodes (%d) is incompatible with number of replicas (%d). Minimum number of nodes must be >= number of replicas.",
+			opts.MinimumNumNodes, policy.NumReplicas()))
+	}
+
 	if opts.SchedulingPolicy != scheduling.Gandiva.String() {
 		panic(fmt.Sprintf("Configured scheduling policy is \"%s\"; cannot create instance of GandivaPolicy.",
 			opts.SchedulingPolicy))
@@ -56,6 +61,14 @@ func (p *GandivaPolicy) ResourceBindingMode() scheduling.ResourceBindingMode {
 	return scheduling.BindResourcesWhenContainerScheduled
 }
 
+// SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
+// resource request of an existing/scheduled kernel after it has already been created, or if the
+// initial resource request/allocation is static and cannot be changed after the kernel is created.
+func (p *GandivaPolicy) SupportsDynamicResourceAdjustments() bool {
+	// TODO: Should this return true or false?
+	return true
+}
+
 func (p *GandivaPolicy) ContainerLifetime() scheduling.ContainerLifetime {
 	return scheduling.SingleTrainingEvent
 }
@@ -67,6 +80,12 @@ func (p *GandivaPolicy) SmrEnabled() bool {
 // GetNewPlacer returns a concrete Placer implementation based on the Policy.
 func (p *GandivaPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider) (scheduling.Placer, error) {
 	return placer.NewGandivaPlacer(metricsProvider, p.NumReplicas(), p)
+}
+
+// ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
+// Adjust the Cluster's capacity as directed by scaling policy.
+func (p *GandivaPolicy) ValidateCapacity(_ scheduling.Cluster) {
+	return // No-op, not supported
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.
@@ -107,6 +126,12 @@ func (p *GandivaPolicy) ScalingConfiguration() *scheduling.ScalingConfiguration 
 //////////////////////////////////
 // ScalingPolicy implementation //
 //////////////////////////////////
+
+// SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which
+// the cluster attempts to adaptively resize itself in anticipation of request load fluctuations.
+func (p *GandivaPolicy) SupportsPredictiveAutoscaling() bool {
+	return false
+}
 
 func (p *GandivaPolicy) ScalingOutEnabled() bool {
 	return p.scalingOutEnabled

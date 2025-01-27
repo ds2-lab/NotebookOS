@@ -1157,27 +1157,21 @@ class DistributedKernel(IPythonKernel):
                 """
                 Simple callback to print a message when the initialization of the persistent store completes.
                 """
+                if f.done():
+                    self.log.debug("Initialization of Persistent Store has completed on the Control Thread's IO loop.")
+                    return
+
                 if f.cancelled():
-                    self.log.error(
-                        "Initialization of Persistent Store on-start has been cancelled..."
-                    )
+                    self.log.error("Initialization of Persistent Store on-start has been cancelled...")
 
-                    try:
-                        self.log.error(
-                            f"Initialization of Persistent Store apparently raised an exception: {f.exception()}"
-                        )
-                    except:  # noqa
-                        self.log.error(
-                            "No exception associated with cancelled initialization of Persistent Store."
-                        )
-                elif f.done():
-                    self.log.debug(
-                        "Initialization of Persistent Store has completed on the Control Thread's IO loop."
-                    )
+                try:
+                    self.log.error(f"Initialization of Persistent Store apparently "
+                                   f"raised an exception: {f.exception()}")
+                except:  # noqa
+                    self.log.error("No exception associated with cancelled initialization of Persistent Store.")
 
-            self.log.debug(
-                f"Scheduling creation of init_persistent_store_on_start_future. Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}"
-            )
+            self.log.debug(f"Scheduling creation of init_persistent_store_on_start_future. "
+                           f"Loop is running: {self.control_thread.io_loop.asyncio_loop.is_running()}")
             self.init_persistent_store_on_start_future: futures.Future = (
                 asyncio.run_coroutine_threadsafe(
                     self.init_persistent_store_on_start(self.persistent_id),
@@ -1188,14 +1182,11 @@ class DistributedKernel(IPythonKernel):
                 init_persistent_store_done_callback
             )
         else:
-            self.log.warning(
-                "Will NOT be initializing Persistent Store on start, as persistent ID is not yet available."
-            )
+            self.log.warning("Will NOT be initializing Persistent Store on start, "
+                             "as persistent ID is not yet available.")
 
     async def init_persistent_store_on_start(self, persistent_id: str):
-        self.log.info(
-            f'Initializing Persistent Store on start, as persistent ID is available: "{persistent_id}"'
-        )
+        self.log.info(f'Initializing Persistent Store on start, as persistent ID is available: "{persistent_id}"')
         # Create future to avoid duplicate initialization
         future = asyncio.Future(loop=asyncio.get_running_loop())
         self.store = future
@@ -1229,6 +1220,9 @@ class DistributedKernel(IPythonKernel):
         That is, we do not call the base class' dispatch_shell method at all.
         """
         self.shell_received_at: float = time.time() * 1.0e3
+
+        if self.synclog is not None and self.synclog.fallback_future_io_loop is None:
+            self.synclog.fallback_future_io_loop = asyncio.get_running_loop()
 
         if not self.session:
             self.log.error("Received SHELL message, but our Session is None...")
