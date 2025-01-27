@@ -152,8 +152,9 @@ func (p *ClusterMetricsProvider) GetHostRemoteSyncLatencyMicrosecondsHistogram()
 }
 
 func (p *ClusterMetricsProvider) IncrementNumTrainingEventsCompletedCounterVec() {
-	//TODO implement me
-	panic("implement me")
+	if p.prometheusMetricsEnabled && p.gatewayPrometheusManager != nil {
+		p.gatewayPrometheusManager.IncrementNumTrainingEventsCompletedCounterVec()
+	}
 }
 
 func (p *ClusterMetricsProvider) AddMessageE2ELatencyObservation(latency time.Duration, nodeId string, nodeType NodeType, socketType messaging.MessageType, jupyterMessageType string) error {
