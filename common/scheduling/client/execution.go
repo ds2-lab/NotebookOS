@@ -295,7 +295,7 @@ func (e *Execution) IsErred() bool {
 }
 
 func (e *Execution) GetNumReplicas() int {
-	return e.GetNumReplicas()
+	return e.NumReplicas
 }
 
 func (e *Execution) SetActiveReplica(replica scheduling.KernelReplica) {
