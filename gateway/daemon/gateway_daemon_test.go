@@ -2050,9 +2050,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			unsignedExecuteRequestFrames := [][]byte{
 				[]byte("<IDS|MSG>"),
 				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
-				[]byte(""), /* Header */
-				[]byte(""), /* Parent executeRequestMessageHeader*/
-				[]byte(""), /* Metadata */
+				[]byte(""),   /* Header */
+				[]byte(""),   /* Parent executeRequestMessageHeader*/
+				[]byte("{}"), /* Metadata */
 				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
 			}
 
@@ -2079,6 +2079,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(loaded).To(BeTrue())
 			Expect(loadedKernel).ToNot(BeNil())
 			Expect(loadedKernel).To(Equal(mockedKernel))
+			mockedKernel.
+				EXPECT().
+				Replicas().
+				AnyTimes().
+				Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
 
 			var wg sync.WaitGroup
 			wg.Add(1)
@@ -2101,10 +2106,6 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			fmt.Printf("[DEBUG] Forwarding 'execute_request' message now:\n%v\n", jMsg.StringFormatted())
 
 			mockedKernel.EXPECT().ReplicasAreScheduled().AnyTimes().Return(true)
-			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
-			//mockedKernel.EXPECT().AddDestFrameIfNecessary(gomock.Any()).Times(1).DoAndReturn(func(msg *messaging.JupyterMessage) *messaging.JupyterMessage {
-			//	return msg
-			//})
 			mockedKernel.EXPECT().DebugMode().Times(1).Return(true)
 
 			mockedSession.EXPECT().IsTraining().Times(1).Return(false)
@@ -2117,6 +2118,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			//mockedKernel.EXPECT().RegisterActiveExecution(jMsg).Times(1).Return(nil, nil)
 
 			mockedKernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
+
+			mockedKernel.EXPECT().IsTraining().AnyTimes().Return(false)
 
 			var shellHandlerWaitGroup sync.WaitGroup
 			shellHandlerWaitGroup.Add(1)
@@ -2138,9 +2141,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				unsignedExecuteReplyFrames := [][]byte{
 					[]byte("<IDS|MSG>"),
 					[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
-					[]byte(""), /* Header */
-					[]byte(""), /* Parent executeReplyMessageHeader*/
-					[]byte(""), /* Metadata */
+					[]byte(""),   /* Header */
+					[]byte(""),   /* Parent executeReplyMessageHeader*/
+					[]byte("{}"), /* Metadata */
 					[]byte("{\"status\": \"error\", \"ename\": \"ExecutionYieldError\", \"evalue\": \"kernel replica failed to lead the execution\"}"),
 				}
 
@@ -2185,34 +2188,26 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			shellHandlerWaitGroup.Wait()
 
-			//yieldReason := &messaging.MessageErrorWithYieldReason{
-			//	MessageError: &messaging.MessageError{
-			//		Status:   messaging.MessageStatusError,
-			//		ErrName:  messaging.MessageErrYieldExecution,
-			//		ErrValue: messaging.ErrExecutionYielded.Error(),
-			//	},
-			//	YieldReason: "N/A",
-			//}
-
 			preparedReplicaIdChan := make(chan int32, 1)
 
 			mockedKernel.EXPECT().GetReplicaByID(int32(1)).MaxTimes(1).Return(mockedKernelReplica1, nil)
 			mockedKernel.EXPECT().GetReplicaByID(int32(2)).MaxTimes(1).Return(mockedKernelReplica2, nil)
 			mockedKernel.EXPECT().GetReplicaByID(int32(3)).MaxTimes(1).Return(mockedKernelReplica3, nil)
-			mockedKernel.EXPECT().Replicas().Times(2).Return([]scheduling.KernelReplica{mockedKernelReplica1, mockedKernelReplica2, mockedKernelReplica3})
 			mockedKernel.EXPECT().AddOperationStarted().Times(1)
 			mockedKernel.EXPECT().AddOperationCompleted().Times(1)
-			mockedKernel.EXPECT().PrepareNewReplica(persistentId, gomock.Any()).MaxTimes(1).DoAndReturn(func(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec {
-				preparedReplicaIdChan <- smrNodeId
+			mockedKernel.EXPECT().
+				PrepareNewReplica(persistentId, gomock.Any()).MaxTimes(1).
+				DoAndReturn(func(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec {
+					preparedReplicaIdChan <- smrNodeId
 
-				return &proto.KernelReplicaSpec{
-					Kernel:       mockedKernel.KernelSpec(),
-					NumReplicas:  3,
-					Join:         true,
-					PersistentId: &persistentId,
-					ReplicaId:    smrNodeId,
-				}
-			}).Times(1)
+					return &proto.KernelReplicaSpec{
+						Kernel:       mockedKernel.KernelSpec(),
+						NumReplicas:  3,
+						Join:         true,
+						PersistentId: &persistentId,
+						ReplicaId:    smrNodeId,
+					}
+				}).Times(1)
 
 			var replicaStartedOnHost4WaitGroup sync.WaitGroup
 			replicaStartedOnHost4WaitGroup.Add(1)
