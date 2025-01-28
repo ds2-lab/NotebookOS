@@ -1562,7 +1562,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 
 		kernel.BindSession(msg.JupyterSession())
 
-		err = d.executeRequestForwarder(kernel, msg)
+		err = d.executeRequestHandler(kernel, msg)
 	}
 
 	if err != nil {
