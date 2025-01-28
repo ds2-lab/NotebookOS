@@ -264,6 +264,7 @@ func (c *DistributedKernelClient) ResourceSpec() *types.DecimalSpec {
 	return c.spec.DecimalSpecFromKernelSpec()
 }
 
+// updateResourceSpecOfReplicas updates the resource specs of the replicas of the target DistributedKernelClient.
 func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spec) error {
 	var coordinatedTransaction *transaction.CoordinatedTransaction
 	if len(c.replicas) > 1 {
@@ -333,10 +334,10 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.CloneableSpec
 		c.session.UpdateResourceSpec(newSpec)
 	}
 
-	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
 	c.spec.ResourceSpec.Cpu = int32(newSpec.CPU())
-	c.spec.ResourceSpec.Vram = float32(newSpec.VRAM())
 	c.spec.ResourceSpec.Memory = float32(newSpec.MemoryMB())
+	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
+	c.spec.ResourceSpec.Vram = float32(newSpec.VRAM())
 
 	c.log.Debug("Successfully updated ResourceSpec of kernel \"%s\" from %v to %v.",
 		c.id, oldSpec.String(), newSpec.String())

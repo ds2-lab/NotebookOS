@@ -120,7 +120,8 @@ func (placer *GandivaPlacer) findHosts(blacklist []interface{}, spec *proto.Kern
 
 	// Create a wrapper around the 'resourceReserver' field so that it can be called by the index.
 	reserveResources := func(candidateHost scheduling.Host) bool {
-		return placer.resourceReserver(candidateHost, spec, forTraining)
+		reserved, _ := placer.resourceReserver(candidateHost, spec, forTraining)
+		return reserved
 	}
 
 	// Seek `numHosts` Hosts from the Placer's index.

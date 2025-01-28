@@ -31,4 +31,9 @@ type internalPlacer interface {
 }
 
 // resourceReserver is used by placers to reserve resources on candidate hosts.
-type resourceReserver func(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) bool
+//
+// resourceReserver returns true (and nil) if resources were reserved.
+//
+// If resources could not be reserved, then false is returned, along with an error explaining why
+// the resources could not be reserved.
+type resourceReserver func(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) (bool, error)

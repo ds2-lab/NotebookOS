@@ -50,6 +50,18 @@ type Placer interface {
 
 	// GetIndex returns the placer's index.ClusterIndex.
 	GetIndex() ClusterIndex
+
+	// ReserveResourcesForReplica is used to instruct the scheduling.Placer to explicitly reserve resources for a
+	// particular KernelReplica of a particular Kernel.
+	//
+	// The primary use case for ReserveResourcesForReplica is when a specific KernelReplica is specified to serve as
+	// the primary replica within the metadata of an "execute_request" message. This may occur because the user
+	// explicitly placed that metadata there, or following a migration when the ClusterGateway has a specific
+	// replica that should be able to serve the execution request.
+	//
+	// PRECONDITION: The specified KernelReplica should already be scheduled on the Host on which the resources are
+	// to be reserved.
+	ReserveResourcesForReplica(kernel Kernel, replica KernelReplica, commitResources bool) error
 }
 
 type PlacerStats interface {

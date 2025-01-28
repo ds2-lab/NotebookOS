@@ -3691,14 +3691,26 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 		return nil, err
 	}
 
-	var targetReplica scheduling.KernelReplica
-	if targetReplicaId, loaded := metadata[TargetReplicaArg]; loaded {
-		targetReplica, err = kernel.GetReplicaByID(targetReplicaId.(int32))
-	} else {
-		targetReplica, err = d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
+	// Check if a specific replica was explicitly specified.
+	targetReplicaId, loaded := metadata[TargetReplicaArg]
+	if !loaded {
+		return d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
 	}
 
-	return targetReplica, err
+	// TODO: Could there be a race here where we migrate the new replica right after scheduling it, such as
+	// 		 while using dynamic scheduling? (Yes, almost certainly.)
+	targetReplica, err := kernel.GetReplicaByID(targetReplicaId.(int32))
+	if err != nil {
+		return nil, err
+	}
+
+	// Explicitly reserve resources on the specified replica, or return an error if we cannot do so.
+	err = d.Scheduler().ReserveResourcesForReplica(kernel, targetReplica, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return targetReplica, nil
 }
 
 // processExecuteRequest is an important step of the path of handling an "execute_request".
