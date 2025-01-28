@@ -1557,6 +1557,8 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	err = d.ShellHandler(kernel, msg)
 
 	if errors.Is(err, types.ErrKernelNotFound) {
+		d.log.Error("ShellHandler couldn't identify kernel \"%s\"...", kernel.ID())
+
 		d.kernels.Store(msg.DestinationId, kernel)
 		d.kernels.Store(msg.JupyterSession(), kernel)
 
@@ -3374,9 +3376,10 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 			d.log.Error("Could not find kernel or session \"%s\" while handling shell message %v of type '%v', session=%v",
 				msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
-			d.log.Error("Valid kernels/sessions are:")
+			d.log.Error("Valid kernels/sessions are (%d):", d.kernels.Len())
 			d.kernels.Range(func(id string, kernel scheduling.Kernel) (contd bool) {
 				d.log.Error("%s (kernel \"%s\")", id, kernel.ID())
+				return true
 			})
 
 			// We don't know which kernel this came from, so we can't really send an error message in response.
