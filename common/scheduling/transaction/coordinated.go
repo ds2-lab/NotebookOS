@@ -313,19 +313,6 @@ func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
 			ErrMissingParticipants, t.expectedNumParticipants, len(t.participants))
 	}
 
-	// Initialize all the participants.
-	for _, participant := range t.participants {
-		err := participant.initialize(t.id)
-		if err != nil {
-			t.log.Error("Failed to initialize participant %d of tx %s targeting kernel %s: %v",
-				participant.id, t.id, t.kernelId, err)
-			return err
-		}
-
-		t.log.Debug("Successfully initialized participant %d of tx %s targeting kernel %s",
-			participant.id, t.id, t.kernelId)
-	}
-
 	// Keep track of the mutexes that we've already locked successfully.
 	lockedMutexes := make([]*sync.Mutex, 0, len(t.participants))
 
@@ -343,7 +330,8 @@ func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
 		lockedMutexes = make([]*sync.Mutex, 0, len(t.participants))
 	}
 
-	// Keep trying forever...
+	// Keep trying until we've locked all the locks.
+	numTries := 1
 	for {
 		// Iterate over all the participants, attempting to lock each one.
 		for _, participant := range t.participants {
@@ -372,15 +360,34 @@ func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
 		if len(lockedMutexes) == t.expectedNumParticipants {
 			t.log.Debug("Locked all %d mutexes for tx %s targeting kernel %s",
 				len(lockedMutexes), t.id, t.kernelId)
-			return nil
+
+			// We locked all the locks. Break out of the loop.
+			break
 		}
 
-		t.log.Debug("Only locked %d mutexes for tx %s targeting kernel %s...",
+		t.log.Debug("Only locked %d mutexes for tx %s targeting kernel %s on attempt %d...",
 			len(lockedMutexes), t.id, t.kernelId)
+
+		numTries += 1
 
 		// Sleep for a random interval between 5 - 10 milliseconds before retrying.
 		time.Sleep(time.Millisecond*time.Duration(rand.Int64N(5)) + (time.Millisecond * 5))
 	}
+
+	// Now that the locks have been acquired, we initialize all the participants.
+	for _, participant := range t.participants {
+		err := participant.initialize(t.id)
+		if err != nil {
+			t.log.Error("Failed to initialize participant %d of tx %s targeting kernel %s: %v",
+				participant.id, t.id, t.kernelId, err)
+			return err
+		}
+
+		t.log.Debug("Successfully initialized participant %d of tx %s targeting kernel %s",
+			participant.id, t.id, t.kernelId)
+	}
+
+	return nil
 }
 
 // run runs the transaction. run is called automatically when the last participant registers.
