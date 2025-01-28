@@ -16,7 +16,7 @@ const (
 type MessageTopicRecognizer[R any, T any] func(msg R) (string, T)
 
 // MessageBroker is a general message broker that offers simple event handling.
-// Users will need to provide the type of message source(S), raw message(R), normalized message(T), and a topic recognizer.
+// Users will need to provide the type of message source(S), raw message(R), normalized message(MessageType), and a topic recognizer.
 type MessageBroker[S any, R any, T any] struct {
 	topics            map[string][]scheduling.MessageBrokerHandler[S, T, R]
 	topicMutex        sync.RWMutex

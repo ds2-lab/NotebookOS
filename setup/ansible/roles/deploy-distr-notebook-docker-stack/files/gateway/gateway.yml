@@ -61,3 +61,4 @@ election_timeout_seconds: 3
 starting_resource_port: 9007
 num_resource_ports: 4096
 assign_kernel_debug_ports: false
+submit_execute_requests_one_at_a_time: true

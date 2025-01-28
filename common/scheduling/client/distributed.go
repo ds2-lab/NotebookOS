@@ -258,10 +258,11 @@ func (c *DistributedKernelClient) ResourceSpec() *types.DecimalSpec {
 	return c.spec.DecimalSpecFromKernelSpec()
 }
 
+// updateResourceSpecOfReplicas updates the resource specs of the replicas of the target DistributedKernelClient.
 func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spec) error {
 	var coordinatedTransaction *transaction.CoordinatedTransaction
 	if len(c.replicas) > 1 {
-		coordinatedTransaction = transaction.NewCoordinatedTransaction(len(c.replicas))
+		coordinatedTransaction = transaction.NewCoordinatedTransaction(len(c.replicas), c.id)
 	}
 
 	// Make sure that all the replicas -- however many there are -- have valid, non-nil containers.
@@ -327,10 +328,10 @@ func (c *DistributedKernelClient) UpdateResourceSpec(newSpec types.CloneableSpec
 		c.session.UpdateResourceSpec(newSpec)
 	}
 
-	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
 	c.spec.ResourceSpec.Cpu = int32(newSpec.CPU())
-	c.spec.ResourceSpec.Vram = float32(newSpec.VRAM())
 	c.spec.ResourceSpec.Memory = float32(newSpec.MemoryMB())
+	c.spec.ResourceSpec.Gpu = int32(newSpec.GPU())
+	c.spec.ResourceSpec.Vram = float32(newSpec.VRAM())
 
 	c.log.Debug("Successfully updated ResourceSpec of kernel \"%s\" from %v to %v.",
 		c.id, oldSpec.String(), newSpec.String())
@@ -763,7 +764,36 @@ func (c *DistributedKernelClient) RequestWithHandler(ctx context.Context, _ stri
 		jupyterMessages = append(jupyterMessages, jupyterMessage)
 	}
 
-	return c.RequestWithHandlerAndReplicas(ctx, typ, jupyterMessages, handler, done, replicas...)
+	return c.RequestWithHandlerAndReplicas(ctx, "Forwarding", typ, jupyterMessages, handler, done, replicas...)
+}
+
+// TrainingStartedAt returns the time at which one of the target DistributedKernelClient's replicas
+// began actively training, if there is an actively-training replica.
+func (c *DistributedKernelClient) TrainingStartedAt() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, replica := range c.replicas {
+		if replica.IsTraining() {
+			return replica.TrainingStartedAt()
+		}
+	}
+
+	return time.Time{}
+}
+
+// IsTraining returns true if one of the target DistributedKernelClient's replicas is actively training.
+func (c *DistributedKernelClient) IsTraining() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	for _, replica := range c.replicas {
+		if replica.IsTraining() {
+			return true
+		}
+	}
+
+	return false
 }
 
 // getRequestContext returns a context.Context struct and a context.CancelFunc to be used by RequestWithHandlerAndReplicas.
@@ -786,20 +816,6 @@ func (c *DistributedKernelClient) getRequestContext(ctx context.Context, typ mes
 func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targetReplica scheduling.KernelReplica,
 	jupyterMessage *messaging.JupyterMessage, typ messaging.MessageType, responseReceivedWg *sync.WaitGroup, numResponsesSoFar *atomic.Int32,
 	responseHandler scheduling.KernelReplicaMessageHandler) error {
-
-	if jupyterMessage.JupyterMessageType() == messaging.ShellExecuteRequest || jupyterMessage.JupyterMessageType() == messaging.ShellYieldRequest {
-		// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
-		targetReplica.SendingExecuteRequest(jupyterMessage)
-
-		// Inform our ExecutionManager that we are sending an "execute_request" (or "yield_request") message.
-		err := c.ExecutionManager.SendingExecuteRequest(jupyterMessage)
-		if err != nil {
-			c.log.Error("ExecutionManager reported error for \"%s\" message \"%s\": %v",
-				jupyterMessage.JupyterMessageType(), jupyterMessage.JupyterMessageId(), err)
-
-			return err
-		}
-	}
 
 	// TODO: If the ACKs fail on this and we reconnect and retry, the responseReceivedWg.Done may be called too many times.
 	// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
@@ -964,9 +980,14 @@ func (c *DistributedKernelClient) getResponseForwarder(handler scheduling.Kernel
 // Note: the handler will be wrapped in the DistributedKernelClient's generic response "forwarder function".
 // This "response forwarder" function contains additional logic, such as for handling "execute_reply" and "yield"
 // messages/notifications from kernel replicas.
-func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType,
+func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, _ string, typ messaging.MessageType,
 	jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(),
 	replicas ...scheduling.KernelReplica) error {
+
+	startTime := time.Now()
+	if len(replicas) == 0 {
+		replicas = c.Replicas()
+	}
 
 	once := sync.Once{}
 	replicaCtx, cancel := c.getRequestContext(ctx, typ)
@@ -976,6 +997,18 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	statusCtx, statusCancel := context.WithTimeout(context.Background(), messaging.DefaultRequestTimeout)
 	defer statusCancel()
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), messaging.MessageKernelStatusBusy, c.pubIOMessage)
+
+	// Just pass the first message. Doesn't matter if it is "execute_request" or "yield_request".
+	if jupyterMessages[0].JupyterMessageType() == messaging.ShellExecuteRequest {
+		// Inform our ExecutionManager that we are sending an "execute_request" (or "yield_request") message.
+		err := c.ExecutionManager.SendingExecuteRequest(jupyterMessages[0])
+		if err != nil {
+			c.log.Error("ExecutionManager reported error for \"%s\" message \"%s\": %v",
+				jupyterMessages[0].JupyterMessageType(), jupyterMessages[0].JupyterMessageId(), err)
+
+			return err
+		}
+	}
 
 	// If there's just a single replica, then send the message to that one replica.
 	if len(replicas) == 1 {
@@ -1055,6 +1088,8 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 					// Can we return yet? If we got replies from all replicas, we can.
 					if numNotifications >= len(replicas) {
+						c.log.Debug("RequestWithHandlerAndReplicas returning after %v. Received responses from all %d replicas.",
+							time.Since(startTime), len(replicas))
 						return nil
 					}
 				}
@@ -1064,6 +1099,9 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 		{
 			// Timed-out. That's fine. Just return.
 			// We used to not return anything ever.
+			c.log.Debug("RequestWithHandlerAndReplicas returning after %v. Timed-out (not a bad thing).",
+				time.Since(startTime), len(replicas))
+
 			return nil
 		}
 	}

@@ -336,7 +336,7 @@ func (c *Container) ContainerStopped() error {
 	}
 
 	c.log.Debug("Container for replica %d of kernel %s has stopped. Removing from host %s (ID=%s). Container spec: %v.",
-		c.ReplicaID(), c.ID(), c.host.GetNodeName(), c.host.GetID(), c.ResourceSpec())
+		c.ReplicaID(), c.KernelReplica.ID(), c.host.GetNodeName(), c.host.GetID(), c.ResourceSpec())
 
 	err := c.host.ContainerRemoved(c)
 	if err != nil {

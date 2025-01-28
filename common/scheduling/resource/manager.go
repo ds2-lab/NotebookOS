@@ -250,7 +250,6 @@ func (m *Manager) GetResourceCountsAsString() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// return fmt.Sprintf("CPUs (mCPUs): %s, %s, %s // Memory (MB): %s, %s, %s // GPUs: %s, %s, %s // VRAM (GB): %s, %s, %s",
 	return fmt.Sprintf("IDLE [%s], PENDING [%s], COMMITTED [%s]", m.idleResources.GetResourceCountsAsString(),
 		m.pendingResources.GetResourceCountsAsString(), m.committedResources.GetResourceCountsAsString())
 }

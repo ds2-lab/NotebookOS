@@ -488,7 +488,7 @@ func (s *AbstractServer) Serve(server messaging.JupyterServerInfo, socket *messa
 				if (socket.Type == messaging.ShellMessage || socket.Type == messaging.ControlMessage) && !jMsg.IsAck() {
 					firstPart := fmt.Sprintf(utils.BlueStyle.Render("[gid=%d] Handling %s \"%s\" message"), goroutineId, socket.Type, jMsg.JupyterMessageType())
 					secondPart := fmt.Sprintf("'%s' (JupyterID=%s)", utils.PurpleStyle.Render(jMsg.RequestId), utils.LightPurpleStyle.Render(jMsg.JupyterMessageId()))
-					thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg)
+					thirdPart := fmt.Sprintf(utils.BlueStyle.Render("via local socket %s [remoteSocket=%s]: %v"), socket.Name, socket.RemoteName, jMsg.StringFormatted())
 					s.Log.Debug("%s %s %s", firstPart, secondPart, thirdPart)
 				}
 

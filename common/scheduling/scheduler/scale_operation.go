@@ -366,9 +366,17 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 		log.Fatalf("Cannot execute ScaleOperation %s as its execution function is nil.", op.OperationId)
 	}
 
-	op.log.Debug("%s %s is beginning to execute.", op.OperationType, op.OperationId)
+	// We compute a timeout interval based on the number of hosts that will be impacted and the type of operation.
+	var timeoutInterval time.Duration
+	if op.IsScaleOutOperation() {
+		timeoutInterval = time.Duration(op.ExpectedNumAffectedNodes) * op.Cluster.MeanScaleOutTime() * 2
+	} else {
+		timeoutInterval = time.Duration(op.ExpectedNumAffectedNodes) * op.Cluster.MeanScaleInTime() * 2
+	}
 
-	timeoutInterval := time.Second * 30
+	op.log.Debug("%s %s from %d to %d host(s) is beginning to execute with timeout of %v.",
+		op.OperationType, op.OperationId, op.InitialScale, op.TargetScale, timeoutInterval)
+
 	childContext, cancel := context.WithTimeout(parentContext, timeoutInterval)
 	defer cancel()
 

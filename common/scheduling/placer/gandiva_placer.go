@@ -118,9 +118,10 @@ func (placer *GandivaPlacer) findHosts(blacklist []interface{}, spec *proto.Kern
 		err   error
 	)
 
-	// Create a wrapper around the 'resourceReserver' field so that it can be called by the index.
+	// Create a wrapper around the 'kernelResourceReserver' field so that it can be called by the index.
 	reserveResources := func(candidateHost scheduling.Host) bool {
-		return placer.resourceReserver(candidateHost, spec, forTraining)
+		reserved, _ := placer.kernelResourceReserver(candidateHost, spec, forTraining)
+		return reserved
 	}
 
 	// Seek `numHosts` Hosts from the Placer's index.
@@ -130,21 +131,32 @@ func (placer *GandivaPlacer) findHosts(blacklist []interface{}, spec *proto.Kern
 }
 
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *GandivaPlacer) findHost(blacklist []interface{}, spec *proto.KernelSpec, training bool,
+func (placer *GandivaPlacer) findHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool,
 	metrics ...[]float64) (scheduling.Host, error) {
 
 	// Our index will expect the first metric to be the number of GPUs.
-	// findHosts will handle this, however, so we can just call findHosts immediately.
-	hosts, err := placer.findHosts(blacklist, spec, 1, training, metrics...)
+	metrics = append([][]float64{{replicaSpec.ResourceSpec().GPU()}}, metrics...)
 
-	if err != nil {
-		placer.log.Error("Error while finding hosts for replica of kernel %s: %v", spec.Id, err)
-		return nil, err
+	var (
+		pos   interface{}
+		hosts []scheduling.Host
+		// err   error
+	)
+
+	// Create a wrapper around the 'kernelResourceReserver' field so that it can be called by the index.
+	reserveResources := func(candidateHost scheduling.Host) bool {
+		reserved, _ := placer.replicaResourceReserver(candidateHost, replicaSpec, forTraining)
+		return reserved
 	}
 
-	if hosts == nil || len(hosts) == 0 {
+	// Seek `numHosts` Hosts from the Placer's index.
+	hosts, _, _ /* err */ = placer.index.SeekMultipleFrom(pos, 1, reserveResources, blacklist, metrics...)
+
+	if len(hosts) == 0 {
+		// TODO: Why don't we return an error?
 		return nil, nil
 	}
 
+	// TODO: Why don't we return an error?
 	return hosts[0], nil
 }

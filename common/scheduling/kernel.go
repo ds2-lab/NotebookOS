@@ -59,7 +59,7 @@ type SessionManager interface {
 type ExecutionLatencyCallback func(latency time.Duration, workloadId string, kernelId string)
 
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
-type ExecutionFailedCallback func(c Kernel, msg *messaging.JupyterMessage) error
+type ExecutionFailedCallback func(c Kernel, executeRequestMsg *messaging.JupyterMessage) error
 
 type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 
@@ -76,6 +76,7 @@ type Kernel interface {
 	GetExecutionManager() ExecutionManager
 	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
+
 	// ExecutionComplete(msg *messaging.JupyterMessage) error
 
 	RegisterActiveExecution(msg *messaging.JupyterMessage) error
@@ -124,7 +125,7 @@ type Kernel interface {
 	GetSocketPort(typ messaging.MessageType) int
 	IsReplicaReady(replicaId int32) (bool, error)
 	RequestWithHandler(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func()) error
-	RequestWithHandlerAndReplicas(ctx context.Context, typ messaging.MessageType, jupyterMessages []*messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func(), replicas ...KernelReplica) error
+	RequestWithHandlerAndReplicas(ctx context.Context, _ string, typ messaging.MessageType, jupyterMessages []*messaging.JupyterMessage, handler KernelReplicaMessageHandler, done func(), replicas ...KernelReplica) error
 	Shutdown(remover ReplicaRemover, restart bool) error
 	WaitClosed() jupyter.KernelStatus
 	DebugMode() bool
@@ -148,6 +149,9 @@ type Kernel interface {
 	// TemporaryKernelReplicaClient structs are used in place of KernelReplicaClient structs when the replica container(s)
 	// of a given kernel is/are not scheduled, and that kernel receives a message.
 	TemporaryKernelReplicaClient() KernelReplicaInfo
+
+	TrainingStartedAt() time.Time
+	IsTraining() bool
 }
 
 type KernelReplica interface {
@@ -180,7 +184,7 @@ type KernelReplica interface {
 	//
 	// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
 	SendingExecuteRequest(msg *messaging.JupyterMessage)
-	ReceivedExecuteReply(msg *messaging.JupyterMessage)
+	ReceivedExecuteReply(msg *messaging.JupyterMessage, own bool)
 	TrainingStartedAt() time.Time
 	WorkloadId() string
 	SetWorkloadId(workloadId string)

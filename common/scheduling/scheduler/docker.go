@@ -136,7 +136,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 		blacklist = append(blacklist, host)
 	}
 
-	host, err := s.placer.FindHost(blacklist, replicaSpec.Kernel, forTraining)
+	host, err := s.placer.FindHost(blacklist, replicaSpec, forTraining)
 	if err != nil {
 		s.log.Error("Error while finding host for replica %d of kernel %s: %v",
 			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, err)

@@ -132,6 +132,8 @@ type CoordinatedTransaction struct {
 
 	id string
 
+	kernelId string
+
 	log logger.Logger
 
 	// participants is a map from node/participant ID to the associated CoordinatedParticipant struct.
@@ -161,9 +163,10 @@ type CoordinatedTransaction struct {
 	doneGroup *sync.WaitGroup
 }
 
-func NewCoordinatedTransaction(numParticipants int) *CoordinatedTransaction {
+func NewCoordinatedTransaction(numParticipants int, kernelId string) *CoordinatedTransaction {
 	coordinatedTransaction := &CoordinatedTransaction{
 		id:                      uuid.NewString(),
+		kernelId:                kernelId,
 		participants:            make(map[int32]*CoordinatedParticipant, numParticipants),
 		expectedNumParticipants: numParticipants,
 	}
@@ -205,7 +208,8 @@ func (t *CoordinatedTransaction) Started() bool {
 // Wait blocks until the CoordinatedTransaction completes and returns whether it was successful.
 func (t *CoordinatedTransaction) Wait() bool {
 	if t.shouldAbort.Load() {
-		t.log.Debug("Transaction %s was aborted. Immediately returning from Wait().", t.id)
+		t.log.Debug("Transaction %s targeting kernel %s was aborted. Immediately returning from Wait().",
+			t.id, t.kernelId)
 		return false
 	}
 
@@ -257,8 +261,8 @@ func (t *CoordinatedTransaction) RegisterParticipant(id int32, getInitialState G
 	}
 
 	if len(t.participants) == t.expectedNumParticipants {
-		t.log.Debug("Registered participant %d/%d (with ID=%d). Beginning transaction now.",
-			len(t.participants), t.expectedNumParticipants, id)
+		t.log.Debug("Registered participant %d/%d (with ID=%d) for tx %s targeting kernel %s. Beginning transaction now.",
+			len(t.participants), t.expectedNumParticipants, id, t.id, t.kernelId)
 
 		_ = t.run()
 	}
@@ -309,17 +313,6 @@ func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
 			ErrMissingParticipants, t.expectedNumParticipants, len(t.participants))
 	}
 
-	// Initialize all the participants.
-	for _, participant := range t.participants {
-		err := participant.initialize(t.id)
-		if err != nil {
-			t.log.Error("Failed to initialize participant %d of tx %s: %v", participant.id, t.id, err)
-			return err
-		}
-
-		t.log.Debug("Successfully initialized participant %d of tx %s.", participant.id, t.id)
-	}
-
 	// Keep track of the mutexes that we've already locked successfully.
 	lockedMutexes := make([]*sync.Mutex, 0, len(t.participants))
 
@@ -337,7 +330,8 @@ func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
 		lockedMutexes = make([]*sync.Mutex, 0, len(t.participants))
 	}
 
-	// Keep trying forever...
+	// Keep trying until we've locked all the locks.
+	numTries := 1
 	for {
 		// Iterate over all the participants, attempting to lock each one.
 		for _, participant := range t.participants {
@@ -351,7 +345,8 @@ func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
 				continue
 			}
 
-			t.log.Debug("Failed to lock participant %d's mutex.", participant.id)
+			t.log.Debug("Failed to lock participant %d's mutex for tx %s targeting kernel %s.",
+				participant.id, t.id, t.kernelId)
 
 			// We failed to lock the mutex. Release all acquired locks and break out of the (inner) for-loop.
 			releaseLocks()
@@ -363,15 +358,36 @@ func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
 		// If we succeeded in locking all mutexes, then the length of lockedMutexes will be equal to
 		// the value of t.expectedNumParticipants. In this case, we can simply return.
 		if len(lockedMutexes) == t.expectedNumParticipants {
-			t.log.Debug("Locked all %d mutexes", len(lockedMutexes))
-			return nil
+			t.log.Debug("Locked all %d mutexes for tx %s targeting kernel %s",
+				len(lockedMutexes), t.id, t.kernelId)
+
+			// We locked all the locks. Break out of the loop.
+			break
 		}
 
-		t.log.Debug("Only locked %d mutexes...", len(lockedMutexes))
+		t.log.Debug("Only locked %d mutexes for tx %s targeting kernel %s on attempt %d...",
+			len(lockedMutexes), t.id, t.kernelId)
+
+		numTries += 1
 
 		// Sleep for a random interval between 5 - 10 milliseconds before retrying.
 		time.Sleep(time.Millisecond*time.Duration(rand.Int64N(5)) + (time.Millisecond * 5))
 	}
+
+	// Now that the locks have been acquired, we initialize all the participants.
+	for _, participant := range t.participants {
+		err := participant.initialize(t.id)
+		if err != nil {
+			t.log.Error("Failed to initialize participant %d of tx %s targeting kernel %s: %v",
+				participant.id, t.id, t.kernelId, err)
+			return err
+		}
+
+		t.log.Debug("Successfully initialized participant %d of tx %s targeting kernel %s",
+			participant.id, t.id, t.kernelId)
+	}
+
+	return nil
 }
 
 // run runs the transaction. run is called automatically when the last participant registers.
@@ -395,7 +411,8 @@ func (t *CoordinatedTransaction) run() error {
 
 	// Inputs were validated during registration.
 	for _, participant := range t.participants {
-		t.log.Debug("Running participant %d", participant.id)
+		t.log.Debug("Running participant %d in tx %s targeting kernel %s",
+			participant.id, t.id, t.kernelId)
 		go participant.run(&wg)
 	}
 
@@ -404,17 +421,20 @@ func (t *CoordinatedTransaction) run() error {
 	for id, participant := range t.participants {
 		err = participant.validateState()
 		if err != nil {
-			t.log.Warn("Participant %d failed. Aborting transaction. Reason: %v.", id, err)
+			t.log.Warn("Participant %d failed in tx %s targeting kernel %s. Aborting transaction. Reason: %v.",
+				id, t.id, t.kernelId, err)
 			t.recordFinished(false, err)
 			return err
 		}
 	}
 
 	if t.shouldAbort.Load() {
-		t.log.Warn("Aborting transaction.")
+		t.log.Warn("Aborting transaction %s targeting kernel %s.", t.id, t.kernelId)
 		t.recordFinished(false, ErrTransactionAborted)
 		return nil
 	}
+
+	t.log.Debug("Transaction %s targeting kernel %s has succeeded.", t.id, t.kernelId)
 
 	for _, participant := range t.participants {
 		participant.commitResult()

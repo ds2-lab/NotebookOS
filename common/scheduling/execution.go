@@ -22,8 +22,7 @@ func (pk ProposalKey) String() string {
 
 type ExecutionManager interface {
 	RegisterExecution(msg *messaging.JupyterMessage) (Execution, error)
-	YieldProposalReceived(replica KernelReplica, msg *messaging.JupyterMessage,
-		msgErr *messaging.MessageErrorWithYieldReason) error
+	YieldProposalReceived(replica KernelReplica, executeReplyMsg *messaging.JupyterMessage, msgErr *messaging.MessageErrorWithYieldReason) error
 	HandleSmrLeadTaskMessage(msg *messaging.JupyterMessage, kernelReplica KernelReplica) error
 	HandleExecuteReplyMessage(msg *messaging.JupyterMessage, replica KernelReplica) (bool, error)
 	ExecutionComplete(msg *messaging.JupyterMessage, replica KernelReplica) (Execution, error)

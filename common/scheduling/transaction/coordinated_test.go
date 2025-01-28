@@ -2,6 +2,7 @@ package transaction_test
 
 import (
 	"fmt"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
@@ -57,7 +58,7 @@ var _ = Describe("Coordinated", func() {
 	spec1 := types.NewDecimalSpec(10, 10, 10, 10)
 
 	It("Will correctly commit a valid coordinated transaction", func() {
-		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 		Expect(coordinatedTransaction).ToNot(BeNil())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(0))
@@ -128,7 +129,7 @@ var _ = Describe("Coordinated", func() {
 	})
 
 	It("Will correctly commit a valid coordinated transaction even if it cannot acquire all the locks right away", func() {
-		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 		Expect(coordinatedTransaction).ToNot(BeNil())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(0))
@@ -213,7 +214,7 @@ var _ = Describe("Coordinated", func() {
 	})
 
 	It("Will correctly reject an invalid coordinated transaction", func() {
-		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 		Expect(coordinatedTransaction).ToNot(BeNil())
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(0))
@@ -278,7 +279,7 @@ var _ = Describe("Coordinated", func() {
 	})
 
 	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the transaction has already started", func() {
-		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 
 		container1 := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
@@ -333,7 +334,7 @@ var _ = Describe("Coordinated", func() {
 	})
 
 	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the participant's initial state is nil", func() {
-		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 
 		container1 := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
@@ -372,7 +373,7 @@ var _ = Describe("Coordinated", func() {
 	})
 
 	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the participant's transaction operation is nil", func() {
-		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 
 		container1 := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
@@ -412,7 +413,7 @@ var _ = Describe("Coordinated", func() {
 	})
 
 	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the participant's mutex is nil", func() {
-		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 
 		container1 := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
@@ -450,7 +451,7 @@ var _ = Describe("Coordinated", func() {
 	})
 
 	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the participant's 'get initial state' function is nil", func() {
-		coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 
 		container1 := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))

@@ -383,7 +383,7 @@ func (s *BaseScheduler) GetCandidateHost(replica scheduling.KernelReplica, black
 // FindReadyContainer selects one of the scheduling.KernelContainer instances of the specified scheduling.UserSession
 // to handle a training event.
 func (s *BaseScheduler) FindReadyContainer(session scheduling.UserSession) scheduling.KernelContainer {
-	return nil
+	panic("Not implemented.")
 }
 
 // UpdateIndex is used to update a Host's position in its index.
@@ -505,6 +505,22 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 	return hosts, nil
 }
 
+// ReserveResourcesForReplica is used to instruct the KernelScheduler to explicitly reserve resources for a
+// particular KernelReplica of a particular Kernel.
+//
+// The primary use case for ReserveResourcesForReplica is when a specific scheduling.KernelReplica is specified to
+// serve as the primary replica within the metadata of an "execute_request" message. This may occur because the user
+// explicitly placed that metadata there, or following a migration when the ClusterGateway has a specific
+// replica that should be able to serve the execution request.
+//
+// NOTE: Resources are always COMMITTED to the target scheduling.KernelReplica when using ReserveResourcesForReplica.
+//
+// PRECONDITION: The specified scheduling.KernelReplica should already be scheduled on the scheduling.Host
+// on which the resources are to be reserved.
+func (s *BaseScheduler) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+	return s.placer.ReserveResourcesForReplica(kernel, replica, commitResources)
+}
+
 // DeployKernelReplicas is responsible for scheduling the replicas of a new kernel onto Host instances.
 func (s *BaseScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	return s.instance.DeployKernelReplicas(ctx, in, blacklistedHosts)
@@ -528,8 +544,15 @@ func (s *BaseScheduler) RequestNewHost() error {
 
 	result, err := p.Result()
 	if err != nil {
+		// If it is just a scheduling.ErrUnsupportedOperation, then we do not need to notify the frontend.
+		// This is because Docker-based clusters cannot add new nodes themselves.
+		if errors.Is(err, scheduling.ErrUnsupportedOperation) {
+			return err
+		}
+
 		s.log.Error("Failed to add new host because: %v", err)
 		s.sendErrorNotification("Failed to Add Host to Cluster", err.Error())
+
 		return err
 	}
 
@@ -1281,6 +1304,11 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		if excluded {
 			// If we failed to exclude the host, then we won't reclaim it.
 			toBeReleased = append(toBeReleased, idleHost.Host)
+			s.log.Debug("Selected host \"%s\" (ID=%s) as candidate for release.", idleHost.GetNodeName(), idleHost.GetID())
+		} else {
+			s.log.Debug("Host \"%s\" (ID=%s) is ineligible for release: it's being considered in >= 1 scheduling operation(s).",
+				idleHost.Host.GetNodeName(), idleHost.Host.GetID())
+			break
 		}
 	}
 

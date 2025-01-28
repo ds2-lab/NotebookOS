@@ -115,11 +115,11 @@ func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.C
 		for int32(cluster.Len()) < scaledOutNumHosts {
 			err := cluster.Scheduler().RequestNewHost()
 			if err != nil {
-				log.Error("Failed to add new host because: %v", err)
+				log.Warn("Failed to add new host because: %v", err)
 				numFailures += 1
 
 				if numFailures > 3 {
-					log.Error("We've failed three times to provision a new host. Aborting automated operation.")
+					log.Warn("We've failed three times to provision a new host. Aborting automated operation.")
 					return
 				} else if errors.Is(err, scheduling.ErrUnsupportedOperation) {
 					log.Warn("Aborting scale-out operation as we lack sufficient disabled hosts to scale-out, and adding additional hosts directly is not supported by the current cluster type.")
