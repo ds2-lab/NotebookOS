@@ -1304,6 +1304,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		if excluded {
 			// If we failed to exclude the host, then we won't reclaim it.
 			toBeReleased = append(toBeReleased, idleHost.Host)
+			s.log.Debug("Selected host \"%s\" (ID=%s) as candidate for release.", idleHost.GetNodeName(), idleHost.GetID())
 		} else {
 			s.log.Debug("Host \"%s\" (ID=%s) is ineligible for release: it's being considered in >= 1 scheduling operation(s).",
 				idleHost.Host.GetNodeName(), idleHost.Host.GetID())
