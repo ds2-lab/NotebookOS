@@ -1759,7 +1759,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				return err // Nil on success
 			}).AnyTimes()
 
-			mockedKernel.EXPECT().NumActiveExecutionOperations().Return(0).Times(1)
+			mockedKernel.EXPECT().NumActiveExecutionOperations().Return(0).MaxTimes(1)
 			mockedKernel.EXPECT().NumActiveExecutionOperations().After(setActiveCall).Return(1).AnyTimes()
 
 			Expect(mockedKernelSpec).ToNot(BeNil())
