@@ -517,7 +517,7 @@ func (c *KernelReplicaClient) ReceivedExecuteReply(msg *messaging.JupyterMessage
 
 	_, found := c.pendingExecuteRequestIds.LoadAndDelete(msg.JupyterParentMessageId())
 	if !found {
-		c.log.Error(utils.RedStyle.Render("[ERROR] Kernel %s did not match against \"execute_reply\" with JupyterID=\"%s\""),
+		c.log.Warn(utils.RedStyle.Render("[ERROR] Kernel %s did not match against \"execute_reply\" with JupyterID=\"%s\""),
 			c.ID(), msg.JupyterParentMessageId())
 	}
 
@@ -1102,6 +1102,11 @@ func (c *KernelReplicaClient) RequestWithHandlerAndWaitOptionGetter(parentContex
 
 	jupyterMsgTyp := msg.JupyterMessageType()
 	if jupyterMsgTyp == messaging.ShellExecuteRequest || jupyterMsgTyp == messaging.ShellYieldRequest {
+		// This ensures that we send "execute_request" messages one-at-a-time.
+		// We wait until any pending "execute_request" messages receive an "execute_reply"
+		// response before we can forward this next "execute_request".
+		c.WaitForPendingExecuteRequests()
+
 		c.SendingExecuteRequest(msg)
 	}
 

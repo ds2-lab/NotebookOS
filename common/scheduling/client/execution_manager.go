@@ -627,7 +627,11 @@ func (m *ExecutionManager) handleInconsistentPrimaryReplicas(msg *messaging.Jupy
 //
 // ExecutionComplete returns nil on success.
 func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (scheduling.Execution, error) {
-	replica.ReceivedExecuteReply(msg)
+	// We'll notify ALL replicas that we received a response, so the next execute requests can be sent (at least
+	// to the local daemons).
+	for _, kernelReplica := range m.Kernel.Replicas() {
+		kernelReplica.ReceivedExecuteReply(msg)
+	}
 
 	err := validateReply(msg)
 	if err != nil {
