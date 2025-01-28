@@ -328,7 +328,6 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 	targetExecuteRequestId := executeReplyMsg.JupyterParentMessageId()
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	// Find the associated Execution struct.
 	activeExecution, loaded := m.activeExecutions[targetExecuteRequestId]
@@ -345,6 +344,8 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 
 	if activeExecution == nil {
 		m.log.Error("Could not find any Execution with ID \"%s\"...", targetExecuteRequestId)
+
+		m.mu.Unlock()
 		return fmt.Errorf("%w: \"%s\"", ErrUnknownActiveExecution, targetExecuteRequestId)
 	}
 
@@ -362,6 +363,7 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 			"Execution associated with an \"execute_request\" message with msg_id=\"%s\"..."),
 			replica.ReplicaID(), replica.ID(), targetExecuteRequestId)
 
+		m.mu.Unlock()
 		return fmt.Errorf("%w: \"%s\"", ErrUnknownActiveExecution, targetExecuteRequestId)
 	}
 
@@ -378,13 +380,16 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 		m.log.Error("Encountered error while processing 'YIELD' proposal from replica %d of kernel %s for Execution associated with \"execute_request\" \"%s\": %v",
 			replica.ReplicaID(), replica.ID(), targetExecuteRequestId, err)
 
+		m.mu.Unlock()
 		return err
 	}
 
 	// If we have a non-nil error, and it's just that all replicas proposed YIELD, then we'll call the handler.
 	if errors.Is(err, ErrExecutionFailedAllYielded) {
-		// Concatenate all the yield reasons. We'll return them along with the error returned by
-		// handleFailedExecutionAllYielded if handleFailedExecutionAllYielded returns a non-nil error.
+		// Concatenate all the yield reasons.
+		//
+		// We'll return them along with the error returned by handleFailedExecutionAllYielded if
+		// handleFailedExecutionAllYielded returns a non-nil error.
 		yieldErrors := make([]error, 0, 4)
 		associatedActiveExecution.RangeRoles(func(i int32, proposal scheduling.Proposal) bool {
 			yieldError := fmt.Errorf("replica %d proposed \"YIELD\" because: %s", i, proposal.GetReason())
@@ -404,15 +409,21 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 				targetExecuteRequestId, associatedActiveExecution.ExecutionIndex)
 		}
 
-		// Call the handler. If it returns an error, then we'll join that error with the YIELD errors, and return
-		// them all together.
+		// Call the handler.
+		//
+		// If it returns an error, then we'll join that error with the YIELD errors, and return them all together.
+		m.mu.Unlock()
 		handlerError := m.executionFailedCallback(m.Kernel, executeRequestMsg)
 		if handlerError != nil {
 			allErrors := append([]error{handlerError}, yieldErrors...)
 			return errors.Join(allErrors...)
 		}
+
+		m.mu.Unlock()
+		return nil // Explicitly return here, so we can just stick the unlock call above.
 	}
 
+	m.mu.Unlock()
 	return nil
 }
 

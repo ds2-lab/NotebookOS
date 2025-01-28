@@ -4647,21 +4647,6 @@ func (mr *MockKernelMockRecorder) GetContainers() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetContainers", reflect.TypeOf((*MockKernel)(nil).GetContainers))
 }
 
-// GetExecuteRequestForResubmission mocks base method.
-func (m *MockKernel) GetExecuteRequestForResubmission(executeReply *messaging.JupyterMessage) (*messaging.JupyterMessage, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetExecuteRequestForResubmission", executeReply)
-	ret0, _ := ret[0].(*messaging.JupyterMessage)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetExecuteRequestForResubmission indicates an expected call of GetExecuteRequestForResubmission.
-func (mr *MockKernelMockRecorder) GetExecuteRequestForResubmission(executeReply any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExecuteRequestForResubmission", reflect.TypeOf((*MockKernel)(nil).GetExecuteRequestForResubmission), executeReply)
-}
-
 // GetExecutionManager mocks base method.
 func (m *MockKernel) GetExecutionManager() scheduling.ExecutionManager {
 	m.ctrl.T.Helper()

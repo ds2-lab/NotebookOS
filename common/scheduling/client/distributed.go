@@ -142,12 +142,6 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 	return kernel
 }
 
-// GetExecuteRequestForResubmission returns the original "execute_request" message associated with
-// the given "execute_reply" message so that it can be re-submitted, such as after a migration.
-func (c *DistributedKernelClient) GetExecuteRequestForResubmission(executeReply *messaging.JupyterMessage) (*messaging.JupyterMessage, error) {
-	return c.ExecutionManager.GetExecuteRequestForResubmission(executeReply)
-}
-
 // SetSignatureScheme sets the SignatureScheme field of the ConnectionInfo of the server.AbstractServer underlying the
 // DistributedKernelClient.
 func (c *DistributedKernelClient) SetSignatureScheme(signatureScheme string) {

@@ -77,10 +77,6 @@ type Kernel interface {
 	ReleasePreCommitedResourcesFromReplica(replica KernelReplica, msg *messaging.JupyterMessage) error
 	ExecutionFailedCallback() ExecutionFailedCallback
 
-	// GetExecuteRequestForResubmission returns the original "execute_request" message associated with
-	// the given "execute_reply" message so that it can be re-submitted, such as after a migration.
-	GetExecuteRequestForResubmission(executeReply *messaging.JupyterMessage) (*messaging.JupyterMessage, error)
-
 	// ExecutionComplete(msg *messaging.JupyterMessage) error
 
 	RegisterActiveExecution(msg *messaging.JupyterMessage) error

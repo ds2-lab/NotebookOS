@@ -3007,7 +3007,7 @@ func (d *ClusterGatewayImpl) MigrateKernelReplica(_ context.Context, in *proto.M
 	duration := time.Since(startTime)
 	if err != nil || reason != nil {
 		targetNodeIdForLogging := "unspecified"
-		if resp != nil && resp.NewNodeId != "" {
+		if resp != nil && resp.NewNodeId != "" && resp.NewNodeId != " " {
 			targetNodeIdForLogging = resp.NewNodeId
 		} else if targetNodeId != "" {
 			targetNodeIdForLogging = targetNodeId
