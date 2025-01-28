@@ -878,6 +878,81 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 	return h.releasePendingReservation(spec)
 }
 
+// ReserveResourcesForSpecificReplica attempts to reserve the resources required by the specified kernel replica,
+// returning a boolean flag indicating whether the resource reservation was completed successfully.
+//
+// If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
+func (h *Host) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool) (bool, error) {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	kernelId := replicaSpec.Kernel.Id
+	targetReplicaId := replicaSpec.ReplicaId
+	resourceSpec := replicaSpec.ResourceSpec().ToDecimalSpec()
+	resourceSpecAsString := resourceSpec.String()
+	h.log.Debug("Creating resource reservation for replicaSpec %d of kernel \"%s\". UsePending=%v. Request=%s. Current resources on host: %v.",
+		targetReplicaId, replicaSpec.ID(), usePendingResources, resourceSpecAsString, h.GetResourceCountsAsString())
+
+	// Check if we're already hosting a replicaSpec of the target kernel.
+	container, containerLoaded := h.containers.Load(kernelId)
+	if containerLoaded {
+		h.log.Debug("Cannot reserve resources for replicaSpec %d of kernel %s; already hosting replicaSpec %d of kernel %s.",
+			targetReplicaId, kernelId, container.ReplicaId(), kernelId)
+		return false, nil
+	}
+
+	// Check if there's already a reservation for some (not-yet-scheduled) replicaSpec of the target kernel.
+	reservation, reservationLoaded := h.reservations.Load(kernelId)
+	if reservationLoaded {
+		h.log.Debug("Cannot reserve resources for replicaSpec %d of kernel %s; have existing reservation for a replicaSpec of that kernel that was created %v ago.",
+			targetReplicaId, kernelId, time.Since(reservation.CreationTimestamp))
+		return false, nil
+	}
+
+	// Check if the Host could satisfy the resource request for the target kernel.
+	if !h.CanServeContainer(resourceSpec) {
+		h.log.Debug("Cannot reserve resources [%v] for replicaSpec %d of kernel %s. Kernel is requesting more resources than we have allocatable.",
+			resourceSpecAsString, targetReplicaId, kernelId)
+		return false, nil
+	}
+
+	if h.WillBecomeTooOversubscribed(resourceSpec) {
+		h.log.Debug("Cannot reserve resources for replicaSpec %d of kernel %s; host would become too oversubscribed.",
+			targetReplicaId, kernelId)
+		return false, nil
+	}
+
+	// If we're going to need to commit the resources, then we should check if the host can do that before
+	// bothering with the pending reservation (that we'll subsequently upgrade to a committed reservation).
+	if !usePendingResources && !h.CanCommitResources(resourceSpec) {
+		h.log.Debug("Cannot commit resources for replicaSpec %d of kernel %s; insufficient idle resources available.",
+			targetReplicaId, kernelId)
+		return false, nil
+	}
+
+	var err error
+	if usePendingResources {
+		err = h.addPendingResources(resourceSpec, kernelId, targetReplicaId)
+	} else {
+		err = h.unsafeCommitResources(resourceSpec, kernelId, targetReplicaId, false)
+	}
+
+	if err != nil {
+		h.log.Debug("Failed to create resource reservation for replicaSpec %d of kernel %s because: %v [usePendingResources=%v]",
+			targetReplicaId, kernelId, err, usePendingResources)
+
+		return false, nil // Not an actual error, just didn't have enough resources available.
+	}
+
+	oldSubscribedRatio := h.subscribedRatio
+	h.RecomputeSubscribedRatio()
+	h.log.Debug("Successfully reserved resources for replicaSpec %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s. Updated resources: %v.",
+		targetReplicaId, kernelId, oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3), h.GetResourceCountsAsString())
+	h.reservations.Store(kernelId, NewReservation(h.ID, kernelId, time.Now(), usePendingResources, resourceSpec))
+
+	return true, nil
+}
+
 // ReserveResources attempts to reserve the resources required by the specified kernel, returning
 // a boolean flag indicating whether the resource reservation was completed successfully.
 //

@@ -1753,18 +1753,18 @@ func (m *MockPlacer) EXPECT() *MockPlacerMockRecorder {
 }
 
 // FindHost mocks base method.
-func (m *MockPlacer) FindHost(blacklist []any, kernelSpec *proto.KernelSpec, forTraining bool) (scheduling.Host, error) {
+func (m *MockPlacer) FindHost(blacklist []any, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (scheduling.Host, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "FindHost", blacklist, kernelSpec, forTraining)
+	ret := m.ctrl.Call(m, "FindHost", blacklist, replicaSpec, forTraining)
 	ret0, _ := ret[0].(scheduling.Host)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // FindHost indicates an expected call of FindHost.
-func (mr *MockPlacerMockRecorder) FindHost(blacklist, kernelSpec, forTraining any) *gomock.Call {
+func (mr *MockPlacerMockRecorder) FindHost(blacklist, replicaSpec, forTraining any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindHost", reflect.TypeOf((*MockPlacer)(nil).FindHost), blacklist, kernelSpec, forTraining)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindHost", reflect.TypeOf((*MockPlacer)(nil).FindHost), blacklist, replicaSpec, forTraining)
 }
 
 // FindHosts mocks base method.
@@ -3148,6 +3148,21 @@ func (m *MockHost) ReserveResources(spec *proto.KernelSpec, usePendingResources 
 func (mr *MockHostMockRecorder) ReserveResources(spec, usePendingResources any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResources", reflect.TypeOf((*MockHost)(nil).ReserveResources), spec, usePendingResources)
+}
+
+// ReserveResourcesForSpecificReplica mocks base method.
+func (m *MockHost) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReserveResourcesForSpecificReplica", replicaSpec, usePendingResources)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReserveResourcesForSpecificReplica indicates an expected call of ReserveResourcesForSpecificReplica.
+func (mr *MockHostMockRecorder) ReserveResourcesForSpecificReplica(replicaSpec, usePendingResources any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResourcesForSpecificReplica", reflect.TypeOf((*MockHost)(nil).ReserveResourcesForSpecificReplica), replicaSpec, usePendingResources)
 }
 
 // ResourceSpec mocks base method.

@@ -419,8 +419,7 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 			return errors.Join(allErrors...)
 		}
 
-		m.mu.Unlock()
-		return nil // Explicitly return here, so we can just stick the unlock call above.
+		return nil // Explicitly return here, so we can safely stick another m.mu.Unlock() call down below.
 	}
 
 	m.mu.Unlock()
