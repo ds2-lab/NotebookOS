@@ -3,6 +3,7 @@ package resource_test
 import (
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
@@ -81,7 +82,7 @@ var _ = Describe("Manager Tests", func() {
 		deltaSpec := types.NewDecimalSpec(25, 25, 25, 25)
 
 		It("Will correctly commit a valid coordinated transaction", func() {
-			coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+			coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 			Expect(coordinatedTransaction).ToNot(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(0))
@@ -146,7 +147,7 @@ var _ = Describe("Manager Tests", func() {
 		})
 
 		It("Will correctly reject a coordinated transaction that would result in an invalid resource state", func() {
-			coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+			coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 			Expect(coordinatedTransaction).ToNot(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(0))

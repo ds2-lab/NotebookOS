@@ -261,7 +261,7 @@ func (c *DistributedKernelClient) ResourceSpec() *types.DecimalSpec {
 func (c *DistributedKernelClient) updateResourceSpecOfReplicas(newSpec types.Spec) error {
 	var coordinatedTransaction *transaction.CoordinatedTransaction
 	if len(c.replicas) > 1 {
-		coordinatedTransaction = transaction.NewCoordinatedTransaction(len(c.replicas))
+		coordinatedTransaction = transaction.NewCoordinatedTransaction(len(c.replicas), c.id)
 	}
 
 	// Make sure that all the replicas -- however many there are -- have valid, non-nil containers.
