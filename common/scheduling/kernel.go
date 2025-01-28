@@ -59,7 +59,7 @@ type SessionManager interface {
 type ExecutionLatencyCallback func(latency time.Duration, workloadId string, kernelId string)
 
 // ExecutionFailedCallback is a callback to handle a case where an execution failed because all replicas yielded.
-type ExecutionFailedCallback func(c Kernel, executeReply *messaging.JupyterMessage) error
+type ExecutionFailedCallback func(c Kernel, executeRequestMsg *messaging.JupyterMessage) error
 
 type NotificationCallback func(title string, content string, notificationType messaging.NotificationType)
 

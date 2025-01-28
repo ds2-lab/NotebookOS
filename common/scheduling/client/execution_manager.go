@@ -209,31 +209,6 @@ func (m *ExecutionManager) ExecutionIndexIsLarger(executionIndex int32) bool {
 	return executionIndex > m.submittedExecutionIndex && executionIndex > m.activeExecutionIndex && executionIndex > m.completedExecutionIndex
 }
 
-// GetExecuteRequestForResubmission returns the original "execute_request" message associated with
-// the given "execute_reply" message so that it can be re-submitted, such as after a migration.
-func (m *ExecutionManager) GetExecuteRequestForResubmission(executeReply *messaging.JupyterMessage) (*messaging.JupyterMessage, error) {
-	if err := validateReply(executeReply); err != nil {
-		return nil, err
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	executeRequestId := executeReply.JupyterParentMessageId()
-	execution, loaded := m.failedExecutions[executeRequestId]
-
-	if !loaded {
-		m.log.Error("Could not find execution \"%s\". Cannot provide original \"execute_request\" message.",
-			executeRequestId)
-		return nil, fmt.Errorf("%w: \"%s\"", ErrUnknownActiveExecution, executeRequestId)
-	}
-
-	m.log.Debug("Returning original \"execute_request\" message for execution \"%s\" (index=%d): %v",
-		executeRequestId, execution.ExecutionIndex, execution.JupyterMessage.StringFormatted())
-
-	return execution.JupyterMessage, nil
-}
-
 // SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
 //
 // SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.
@@ -336,20 +311,21 @@ func (m *ExecutionManager) LastPrimaryReplica() scheduling.KernelReplica {
 //
 // If we find that we've received all three proposals, and they were ALL YieldProposal, then we'll invoke the
 // "failure handler", which will  handle the situation according to the cluster's configured scheduling policy.
-func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplica, msg *messaging.JupyterMessage,
-	msgErr *messaging.MessageErrorWithYieldReason) error {
-	replica.ReceivedExecuteReply(msg, true)
+func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplica,
+	executeReplyMsg *messaging.JupyterMessage, msgErr *messaging.MessageErrorWithYieldReason) error {
 
-	if err := validateReply(msg); err != nil {
+	replica.ReceivedExecuteReply(executeReplyMsg, true)
+
+	if err := validateReply(executeReplyMsg); err != nil {
 		return err
 	}
 
 	m.log.Debug("Received 'YIELD' proposal from replica %d for execution \"%s\"",
-		replica.ReplicaID(), msg.JupyterParentMessageId())
+		replica.ReplicaID(), executeReplyMsg.JupyterParentMessageId())
 
 	// targetExecuteRequestId is the Jupyter message ID of the "execute_request" message associated
 	// with the 'YIELD' proposal that we just received.
-	targetExecuteRequestId := msg.JupyterParentMessageId()
+	targetExecuteRequestId := executeReplyMsg.JupyterParentMessageId()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -374,7 +350,7 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 
 	// This will return an error if the replica did not have any pre-committed resources.
 	// So, we can just ignore the error.
-	_ = m.Kernel.ReleasePreCommitedResourcesFromReplica(replica, msg)
+	_ = m.Kernel.ReleasePreCommitedResourcesFromReplica(replica, executeReplyMsg)
 
 	// It's possible we received a 'YIELD' proposal for an Execution different from the current one.
 	// So, retrieve the Execution associated with the 'YIELD' proposal (using the "execute_request" message IDs).
@@ -422,9 +398,15 @@ func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplic
 		delete(m.activeExecutions, targetExecuteRequestId)
 		m.failedExecutions[targetExecuteRequestId] = associatedActiveExecution
 
+		executeRequestMsg, err := m.getExecuteRequestForResubmission(executeReplyMsg)
+		if err != nil {
+			m.log.Error("Could not find original \"execute_request\" message for execution \"%s\" (index=%d).",
+				targetExecuteRequestId, associatedActiveExecution.ExecutionIndex)
+		}
+
 		// Call the handler. If it returns an error, then we'll join that error with the YIELD errors, and return
 		// them all together.
-		handlerError := m.executionFailedCallback(m.Kernel, msg)
+		handlerError := m.executionFailedCallback(m.Kernel, executeRequestMsg)
 		if handlerError != nil {
 			allErrors := append([]error{handlerError}, yieldErrors...)
 			return errors.Join(allErrors...)
@@ -860,4 +842,32 @@ func (m *ExecutionManager) sendNotification(title string, content string, typ me
 			m.notificationCallback(title, content, typ)
 		}
 	}
+}
+
+// getExecuteRequestForResubmission returns the original "execute_request" message associated with
+// the given "execute_reply" message so that it can be re-submitted, such as after a migration.
+//
+// IMPORTANT: By itself, GetExecuteRequestForResubmission is NOT thread safe. The method does NOT acquire any locks.
+// However, GetExecuteRequestForResubmission is meant to be called from the ExecutionManager's YieldProposalReceived
+// method, which IS thread safe. So, the ExecutionManager's mutex should already be held by the calling thread when
+// GetExecuteRequestForResubmission is called, assuming the current goroutine's stack includes a previous call to
+// the ExecutionManager's YieldProposalReceived method.
+func (m *ExecutionManager) getExecuteRequestForResubmission(executeReply *messaging.JupyterMessage) (*messaging.JupyterMessage, error) {
+	if err := validateReply(executeReply); err != nil {
+		return nil, err
+	}
+
+	executeRequestId := executeReply.JupyterParentMessageId()
+	execution, loaded := m.failedExecutions[executeRequestId]
+
+	if !loaded {
+		m.log.Error("Could not find execution \"%s\". Cannot provide original \"execute_request\" message.",
+			executeRequestId)
+		return nil, fmt.Errorf("%w: \"%s\"", ErrUnknownActiveExecution, executeRequestId)
+	}
+
+	m.log.Debug("Returning original \"execute_request\" message for execution \"%s\" (index=%d): %v",
+		executeRequestId, execution.ExecutionIndex, execution.JupyterMessage.StringFormatted())
+
+	return execution.JupyterMessage, nil
 }

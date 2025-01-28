@@ -22,8 +22,7 @@ func (pk ProposalKey) String() string {
 
 type ExecutionManager interface {
 	RegisterExecution(msg *messaging.JupyterMessage) (Execution, error)
-	YieldProposalReceived(replica KernelReplica, msg *messaging.JupyterMessage,
-		msgErr *messaging.MessageErrorWithYieldReason) error
+	YieldProposalReceived(replica KernelReplica, executeReplyMsg *messaging.JupyterMessage, msgErr *messaging.MessageErrorWithYieldReason) error
 	HandleSmrLeadTaskMessage(msg *messaging.JupyterMessage, kernelReplica KernelReplica) error
 	HandleExecuteReplyMessage(msg *messaging.JupyterMessage, replica KernelReplica) (bool, error)
 	ExecutionComplete(msg *messaging.JupyterMessage, replica KernelReplica) (Execution, error)
@@ -31,10 +30,6 @@ type ExecutionManager interface {
 	NumActiveExecutionOperations() int
 	TotalNumExecutionOperations() int
 	ExecutionFailedCallback() ExecutionFailedCallback
-
-	// GetExecuteRequestForResubmission returns the original "execute_request" message associated with
-	// the given "execute_reply" message so that it can be re-submitted, such as after a migration.
-	GetExecuteRequestForResubmission(executeReply *messaging.JupyterMessage) (*messaging.JupyterMessage, error)
 
 	// SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
 	//

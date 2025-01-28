@@ -1340,19 +1340,209 @@ func (d *ClusterGatewayImpl) executionFailed(c scheduling.Kernel, msg *messaging
 	return d.executionFailedCallback(c, msg)
 }
 
+// defaultFailureHandler is invoked when an "execute_request" cannot be processed when using the Default
+// scheduling policy.
+//
+// The first argument is the associated kernel, and the second is the original "execute_request" message that was
+// submitted to the kernel -- NOT the "execute_reply" that may have been received.
 func (d *ClusterGatewayImpl) defaultFailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
 	d.log.Warn("There is no failure handler for the DEFAULT scheduling policy.")
 	return fmt.Errorf("there is no failure handler for the DEFAULT scheduling policy; cannot handle error")
 }
 
+// fcfsBatchSchedulingFailureHandler is invoked when an "execute_request" cannot be processed when using the FCFS
+// Batch scheduling policy.
+//
+// The first argument is the associated kernel, and the second is the original "execute_request" message that was
+// submitted to the kernel -- NOT the "execute_reply" that may have been received.
 func (d *ClusterGatewayImpl) fcfsBatchSchedulingFailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
 	d.log.Warn("There is no failure handler for the FCFS Batch scheduling policy.")
 	return fmt.Errorf("there is no failure handler for the FCFS Batch policy; cannot handle error")
 }
 
+// reservationSchedulingFailureHandler is invoked when an "execute_request" cannot be processed when using the
+// Reservation scheduling policy.
+//
+// The first argument is the associated kernel, and the second is the original "execute_request" message that was
+// submitted to the kernel -- NOT the "execute_reply" that may have been received.
 func (d *ClusterGatewayImpl) reservationSchedulingFailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
 	d.log.Warn("There is no failure handler for the Reservation scheduling policy.")
 	return fmt.Errorf("there is no failure handler for the Reservation scheduling policy; cannot handle error")
+}
+
+// staticSchedulingFailureHandler is a callback to be invoked when all replicas of a
+// kernel propose 'YIELD' while static scheduling is set as the configured scheduling policy.
+//
+// The first argument is the associated kernel, and the second is the original "execute_request" message that was
+// submitted to the kernel -- NOT the "execute_reply" that may have been received.
+func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Kernel, executeRequestMsg *messaging.JupyterMessage) error {
+	// Dynamically migrate one of the existing replicas to another node.
+	//
+	// Randomly select a replica to migrate.
+	targetReplica := rand.Intn(kernel.Size()) + 1
+	d.log.Debug(utils.LightBlueStyle.Render("Static Failure Handler: migrating replica %d of kernel %s now."),
+		targetReplica, kernel.ID())
+
+	// Notify the cluster dashboard that we're performing a migration.
+	go d.notifyDashboardOfInfo(fmt.Sprintf("All Replicas of Kernel \"%s\" Have Proposed 'YIELD'", kernel.ID()),
+		fmt.Sprintf("All replicas of kernel %s proposed 'YIELD' during code execution.", kernel.ID()))
+
+	req := &proto.MigrationRequest{
+		TargetReplica: &proto.ReplicaInfo{
+			KernelId:     kernel.ID(),
+			ReplicaId:    int32(targetReplica),
+			PersistentId: kernel.PersistentID(),
+		},
+		ForTraining:  true,
+		TargetNodeId: nil,
+	}
+
+	var waitGroup sync.WaitGroup
+
+	waitGroup.Add(1)
+	errorChan := make(chan error, 1)
+
+	// Start the migration operation in another thread so that we can do some stuff while we wait.
+	go func() {
+		resp, err := d.MigrateKernelReplica(context.TODO(), req)
+
+		if err != nil {
+			d.log.Warn(utils.OrangeStyle.Render("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s"),
+				targetReplica, kernel.ID(), err.Error())
+
+			var migrationError error
+
+			if errors.Is(err, scheduling.ErrInsufficientHostsAvailable) {
+				migrationError = errors.Join(scheduling.ErrMigrationFailed, err)
+			} else {
+				migrationError = err
+			}
+
+			errorChan <- migrationError
+		} else {
+			d.log.Debug(utils.GreenStyle.Render("Static Failure Handler: successfully migrated replica %d of kernel %s to host %s."),
+				targetReplica, kernel.ID(), resp.Hostname)
+		}
+
+		waitGroup.Done()
+	}()
+
+	metadataDict, err := executeRequestMsg.DecodeMetadata()
+	if err != nil {
+		d.log.Warn("Failed to unmarshal metadata frame for \"execute_request\" message \"%s\" (JupyterID=\"%s\"): %v",
+			executeRequestMsg.RequestId, executeRequestMsg.JupyterMessageId(), executeRequestMsg)
+
+		// We'll assume the metadata frame was empty, and we'll create a new dictionary to use as the metadata frame.
+		metadataDict = make(map[string]interface{})
+	}
+
+	// Specify the target replica.
+	metadataDict[TargetReplicaArg] = targetReplica
+	metadataDict[ForceReprocessArg] = true
+	err = executeRequestMsg.EncodeMetadata(metadataDict)
+	if err != nil {
+		d.log.Error("Failed to encode metadata frame because: %v", err)
+		return err
+	}
+
+	// If this is a "yield_request" message, then we need to convert it to an "execute_request" before resubmission.
+	if executeRequestMsg.JupyterMessageType() == messaging.ShellYieldRequest {
+		err = executeRequestMsg.SetMessageType(messaging.ShellExecuteRequest, true)
+		if err != nil {
+			d.log.Error("Failed to re-encode message header while converting \"yield_request\" message \"%s\" to \"execute_request\" before resubmitting it: %v",
+				executeRequestMsg.JupyterMessageId(), err)
+			return err
+		}
+
+		d.log.Debug("Successfully converted \"yield_request\" message \"%s\" to \"execute_request\" before resubmitting it.",
+			executeRequestMsg.JupyterMessageId())
+	}
+
+	signatureScheme := kernel.ConnectionInfo().SignatureScheme
+	if signatureScheme == "" {
+		d.log.Warn("Kernel %s's signature scheme is blank. Defaulting to \"%s\"", messaging.JupyterSignatureScheme)
+		signatureScheme = messaging.JupyterSignatureScheme
+	}
+
+	// Regenerate the signature.
+	if _, err := executeRequestMsg.JupyterFrames.Sign(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
+		// Ignore the error; just log it.
+		d.log.Warn("Failed to sign frames because %v", err)
+	}
+
+	// Ensure that the frames are now correct.
+	if err := executeRequestMsg.JupyterFrames.Verify(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
+		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v': %v",
+			signatureScheme, kernel.ConnectionInfo().Key, err)
+		d.log.Error("This message will likely be rejected by the kernel:\n%v", executeRequestMsg)
+		return ErrFailedToVerifyMessage
+	}
+
+	// Now, we wait for the migration operation to proceed.
+	waitGroup.Wait()
+	select {
+	case err := <-errorChan:
+		{
+			// If there was an error during execution, then we'll return that error rather than proceed.
+			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Migrate Replica of Kernel \"%s\"",
+				kernel.ID()), err.Error())
+
+			return err
+		}
+	default:
+		{
+			// Do nothing. The migration operation completed successfully.
+		}
+	}
+
+	d.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), kernel.ID())
+	err = d.ShellHandler(kernel, executeRequestMsg)
+
+	if errors.Is(err, types.ErrKernelNotFound) {
+		d.log.Error("ShellHandler couldn't identify kernel \"%s\"...", kernel.ID())
+
+		d.kernels.Store(executeRequestMsg.DestinationId, kernel)
+		d.kernels.Store(executeRequestMsg.JupyterSession(), kernel)
+
+		kernel.BindSession(executeRequestMsg.JupyterSession())
+
+		err = d.executeRequestHandler(kernel, executeRequestMsg)
+	}
+
+	if err != nil {
+		d.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
+		go d.notifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
+		return err
+	}
+
+	return nil
+}
+
+// dynamicV3FailureHandler is invoked when an "execute_request" cannot be processed when using the Dynamic v3
+// scheduling policy.
+//
+// The first argument is the associated kernel, and the second is the original "execute_request" message that was
+// submitted to the kernel -- NOT the "execute_reply" that may have been received.
+func (d *ClusterGatewayImpl) dynamicV3FailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
+	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
+}
+
+// dynamicV4FailureHandler is invoked when an "execute_request" cannot be processed when using the Dynamic v4
+// scheduling policy.
+//
+// The first argument is the associated kernel, and the second is the original "execute_request" message that was
+// submitted to the kernel -- NOT the "execute_reply" that may have been received.
+func (d *ClusterGatewayImpl) dynamicV4FailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
+	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
+}
+
+// gandivaV4FailureHandler is invoked when an "execute_request" cannot be processed when using the Gandiva
+// scheduling policy.
+//
+// The first argument is the associated kernel, and the second is the original "execute_request" message that was
+// submitted to the kernel -- NOT the "execute_reply" that may have been received.
+func (d *ClusterGatewayImpl) gandivaV4FailureHandler(_ scheduling.Kernel, _ *messaging.JupyterMessage) error {
+	panic("The 'GANDIVA' scheduling policy is not yet supported.")
 }
 
 func (d *ClusterGatewayImpl) notifyDashboard(notificationName string, notificationMessage string, typ messaging.NotificationType) {
@@ -1442,168 +1632,6 @@ func (d *ClusterGatewayImpl) notifyDashboardOfWarning(warningName string, warnin
 			d.log.Debug("Successfully sent \"%s\" (typ=WARNING) notification to internalCluster Dashboard in %v.", warningName, time.Since(sendStart))
 		}
 	}
-}
-
-// staticSchedulingFailureHandler is a callback to be invoked when all replicas of a
-// kernel propose 'YIELD' while static scheduling is set as the configured scheduling policy.
-func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Kernel, executeReply *messaging.JupyterMessage) error {
-	// Dynamically migrate one of the existing replicas to another node.
-	//
-	// Randomly select a replica to migrate.
-	targetReplica := rand.Intn(kernel.Size()) + 1
-	d.log.Debug(utils.LightBlueStyle.Render("Static Failure Handler: migrating replica %d of kernel %s now."),
-		targetReplica, kernel.ID())
-
-	// Notify the cluster dashboard that we're performing a migration.
-	go d.notifyDashboardOfInfo(fmt.Sprintf("All Replicas of Kernel \"%s\" Have Proposed 'YIELD'", kernel.ID()),
-		fmt.Sprintf("All replicas of kernel %s proposed 'YIELD' during code execution.", kernel.ID()))
-
-	req := &proto.MigrationRequest{
-		TargetReplica: &proto.ReplicaInfo{
-			KernelId:     kernel.ID(),
-			ReplicaId:    int32(targetReplica),
-			PersistentId: kernel.PersistentID(),
-		},
-		ForTraining:  true,
-		TargetNodeId: nil,
-	}
-
-	var waitGroup sync.WaitGroup
-
-	waitGroup.Add(1)
-	errorChan := make(chan error, 1)
-
-	// Start the migration operation in another thread so that we can do some stuff while we wait.
-	go func() {
-		resp, err := d.MigrateKernelReplica(context.TODO(), req)
-
-		if err != nil {
-			d.log.Warn(utils.OrangeStyle.Render("Static Failure Handler: failed to migrate replica %d of kernel %s because: %s"),
-				targetReplica, kernel.ID(), err.Error())
-
-			var migrationError error
-
-			if errors.Is(err, scheduling.ErrInsufficientHostsAvailable) {
-				migrationError = errors.Join(scheduling.ErrMigrationFailed, err)
-			} else {
-				migrationError = err
-			}
-
-			errorChan <- migrationError
-		} else {
-			d.log.Debug(utils.GreenStyle.Render("Static Failure Handler: successfully migrated replica %d of kernel %s to host %s."),
-				targetReplica, kernel.ID(), resp.Hostname)
-		}
-
-		waitGroup.Done()
-	}()
-
-	executeRequest, err := kernel.GetExecuteRequestForResubmission(executeReply)
-	if err != nil {
-		return err
-	}
-
-	metadataDict, err := executeRequest.DecodeMetadata()
-	if err != nil {
-		d.log.Warn("Failed to unmarshal metadata frame for \"execute_request\" message \"%s\" (JupyterID=\"%s\"): %v",
-			executeRequest.RequestId, executeRequest.JupyterMessageId(), executeRequest)
-
-		// We'll assume the metadata frame was empty, and we'll create a new dictionary to use as the metadata frame.
-		metadataDict = make(map[string]interface{})
-	}
-
-	// Specify the target replica.
-	metadataDict[TargetReplicaArg] = targetReplica
-	metadataDict[ForceReprocessArg] = true
-	err = executeRequest.EncodeMetadata(metadataDict)
-	if err != nil {
-		d.log.Error("Failed to encode metadata frame because: %v", err)
-		return err
-	}
-
-	// If this is a "yield_request" message, then we need to convert it to an "execute_request" before resubmission.
-	if executeRequest.JupyterMessageType() == messaging.ShellYieldRequest {
-		err = executeRequest.SetMessageType(messaging.ShellExecuteRequest, true)
-		if err != nil {
-			d.log.Error("Failed to re-encode message header while converting \"yield_request\" message \"%s\" to \"execute_request\" before resubmitting it: %v",
-				executeRequest.JupyterMessageId(), err)
-			return err
-		}
-
-		d.log.Debug("Successfully converted \"yield_request\" message \"%s\" to \"execute_request\" before resubmitting it.",
-			executeRequest.JupyterMessageId())
-	}
-
-	signatureScheme := kernel.ConnectionInfo().SignatureScheme
-	if signatureScheme == "" {
-		d.log.Warn("Kernel %s's signature scheme is blank. Defaulting to \"%s\"", messaging.JupyterSignatureScheme)
-		signatureScheme = messaging.JupyterSignatureScheme
-	}
-
-	// Regenerate the signature.
-	if _, err := executeRequest.JupyterFrames.Sign(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
-		// Ignore the error; just log it.
-		d.log.Warn("Failed to sign frames because %v", err)
-	}
-
-	// Ensure that the frames are now correct.
-	if err := executeRequest.JupyterFrames.Verify(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
-		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v': %v",
-			signatureScheme, kernel.ConnectionInfo().Key, err)
-		d.log.Error("This message will likely be rejected by the kernel:\n%v", executeRequest)
-		return ErrFailedToVerifyMessage
-	}
-
-	// Now, we wait for the migration operation to proceed.
-	waitGroup.Wait()
-	select {
-	case err := <-errorChan:
-		{
-			// If there was an error during execution, then we'll return that error rather than proceed.
-			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Migrate Replica of Kernel \"%s\"",
-				kernel.ID()), err.Error())
-
-			return err
-		}
-	default:
-		{
-			// Do nothing. The migration operation completed successfully.
-		}
-	}
-
-	d.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), kernel.ID())
-	err = d.ShellHandler(kernel, executeRequest)
-
-	if errors.Is(err, types.ErrKernelNotFound) {
-		d.log.Error("ShellHandler couldn't identify kernel \"%s\"...", kernel.ID())
-
-		d.kernels.Store(executeRequest.DestinationId, kernel)
-		d.kernels.Store(executeRequest.JupyterSession(), kernel)
-
-		kernel.BindSession(executeRequest.JupyterSession())
-
-		err = d.executeRequestHandler(kernel, executeRequest)
-	}
-
-	if err != nil {
-		d.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
-		go d.notifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
-		return err
-	}
-
-	return nil
-}
-
-func (d *ClusterGatewayImpl) dynamicV3FailureHandler(_ scheduling.Kernel, msg *messaging.JupyterMessage) error {
-	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
-}
-
-func (d *ClusterGatewayImpl) dynamicV4FailureHandler(_ scheduling.Kernel, msg *messaging.JupyterMessage) error {
-	panic("The 'DYNAMIC' scheduling policy is not yet supported.")
-}
-
-func (d *ClusterGatewayImpl) gandivaV4FailureHandler(_ scheduling.Kernel, msg *messaging.JupyterMessage) error {
-	panic("The 'GANDIVA' scheduling policy is not yet supported.")
 }
 
 // DockerComposeMode returns true if we're running in Docker via "docker compose".
@@ -3717,7 +3745,7 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 	// If the specified target replica is invalid (e.g., less than or equal to 0), then we'll just
 	// use the scheduler/scheduling policy to select a target replica.
 	//
-	// Typically a value of -1 is specified when no explicit target is indicated, so this is an
+	// Typically, a value of -1 is specified when no explicit target is indicated, so this is an
 	// expected outcome.
 	if targetReplicaId <= 0 {
 		return d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())

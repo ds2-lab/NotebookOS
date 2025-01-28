@@ -1067,6 +1067,20 @@ func (mr *MockSchedulerMockRecorder) RequestNewHost() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestNewHost", reflect.TypeOf((*MockScheduler)(nil).RequestNewHost))
 }
 
+// ReserveResourcesForReplica mocks base method.
+func (m *MockScheduler) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReserveResourcesForReplica", kernel, replica, commitResources)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReserveResourcesForReplica indicates an expected call of ReserveResourcesForReplica.
+func (mr *MockSchedulerMockRecorder) ReserveResourcesForReplica(kernel, replica, commitResources any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResourcesForReplica", reflect.TypeOf((*MockScheduler)(nil).ReserveResourcesForReplica), kernel, replica, commitResources)
+}
+
 // ScheduleKernelReplica mocks base method.
 func (m *MockScheduler) ScheduleKernelReplica(replicaSpec *proto.KernelReplicaSpec, targetHost scheduling.Host, blacklistedHosts []scheduling.Host, forTraining bool) error {
 	m.ctrl.T.Helper()
@@ -1823,6 +1837,20 @@ func (m *MockPlacer) Reclaim(host scheduling.Host, sess scheduling.UserSession, 
 func (mr *MockPlacerMockRecorder) Reclaim(host, sess, noop any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Reclaim", reflect.TypeOf((*MockPlacer)(nil).Reclaim), host, sess, noop)
+}
+
+// ReserveResourcesForReplica mocks base method.
+func (m *MockPlacer) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReserveResourcesForReplica", kernel, replica, commitResources)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReserveResourcesForReplica indicates an expected call of ReserveResourcesForReplica.
+func (mr *MockPlacerMockRecorder) ReserveResourcesForReplica(kernel, replica, commitResources any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResourcesForReplica", reflect.TypeOf((*MockPlacer)(nil).ReserveResourcesForReplica), kernel, replica, commitResources)
 }
 
 // UpdateIndex mocks base method.
@@ -7525,21 +7553,6 @@ func (mr *MockExecutionManagerMockRecorder) GetActiveExecution(msgId any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveExecution", reflect.TypeOf((*MockExecutionManager)(nil).GetActiveExecution), msgId)
 }
 
-// GetExecuteRequestForResubmission mocks base method.
-func (m *MockExecutionManager) GetExecuteRequestForResubmission(executeReply *messaging.JupyterMessage) (*messaging.JupyterMessage, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetExecuteRequestForResubmission", executeReply)
-	ret0, _ := ret[0].(*messaging.JupyterMessage)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetExecuteRequestForResubmission indicates an expected call of GetExecuteRequestForResubmission.
-func (mr *MockExecutionManagerMockRecorder) GetExecuteRequestForResubmission(executeReply any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExecuteRequestForResubmission", reflect.TypeOf((*MockExecutionManager)(nil).GetExecuteRequestForResubmission), executeReply)
-}
-
 // HandleExecuteReplyMessage mocks base method.
 func (m *MockExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (bool, error) {
 	m.ctrl.T.Helper()
@@ -7641,17 +7654,17 @@ func (mr *MockExecutionManagerMockRecorder) TotalNumExecutionOperations() *gomoc
 }
 
 // YieldProposalReceived mocks base method.
-func (m *MockExecutionManager) YieldProposalReceived(replica scheduling.KernelReplica, msg *messaging.JupyterMessage, msgErr *messaging.MessageErrorWithYieldReason) error {
+func (m *MockExecutionManager) YieldProposalReceived(replica scheduling.KernelReplica, executeReplyMsg *messaging.JupyterMessage, msgErr *messaging.MessageErrorWithYieldReason) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "YieldProposalReceived", replica, msg, msgErr)
+	ret := m.ctrl.Call(m, "YieldProposalReceived", replica, executeReplyMsg, msgErr)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // YieldProposalReceived indicates an expected call of YieldProposalReceived.
-func (mr *MockExecutionManagerMockRecorder) YieldProposalReceived(replica, msg, msgErr any) *gomock.Call {
+func (mr *MockExecutionManagerMockRecorder) YieldProposalReceived(replica, executeReplyMsg, msgErr any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "YieldProposalReceived", reflect.TypeOf((*MockExecutionManager)(nil).YieldProposalReceived), replica, msg, msgErr)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "YieldProposalReceived", reflect.TypeOf((*MockExecutionManager)(nil).YieldProposalReceived), replica, executeReplyMsg, msgErr)
 }
 
 // MockExecution is a mock of Execution interface.
