@@ -3474,8 +3474,19 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 	if d.SubmitExecuteRequestsOneAtATime {
 		d.log.Debug("Enqueuing \"execute_request\" \"%s\" targeting kernel \"%s\" with \"execute_request\" forwarder.",
 			jupyterMessages[0].JupyterMessageId(), kernel.ID())
-		d.executeRequestForwarder.EnqueueRequest(jupyterMessages, kernel, jupyterMessages[0].JupyterMessageId())
-		return nil
+		resultChan := d.executeRequestForwarder.EnqueueRequest(jupyterMessages, kernel, jupyterMessages[0].JupyterMessageId())
+
+		// Wait for the result.
+		// We need to wait for the result, or the execute forwarder (for this particular kernel) will block.
+		res := <-resultChan
+
+		// Return the result as an error or nil if there was no error.
+		switch res.(type) {
+		case error:
+			return res.(error)
+		case struct{}:
+			return nil
+		}
 	}
 
 	// We're not using the request forwarder, apparently. So, we'll call RequestWithHandlerAndReplicas ourselves.

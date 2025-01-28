@@ -982,6 +982,8 @@ func (c *DistributedKernelClient) getResponseForwarder(handler scheduling.Kernel
 func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Context, _ string, typ messaging.MessageType,
 	jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(),
 	replicas ...scheduling.KernelReplica) error {
+
+	startTime := time.Now()
 	if len(replicas) == 0 {
 		replicas = c.Replicas()
 	}
@@ -1085,6 +1087,8 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 					// Can we return yet? If we got replies from all replicas, we can.
 					if numNotifications >= len(replicas) {
+						c.log.Debug("RequestWithHandlerAndReplicas returning after %v. Received responses from all %d replicas.",
+							time.Since(startTime), len(replicas))
 						return nil
 					}
 				}
@@ -1094,6 +1098,9 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 		{
 			// Timed-out. That's fine. Just return.
 			// We used to not return anything ever.
+			c.log.Debug("RequestWithHandlerAndReplicas returning after %v. Timed-out (not a bad thing).",
+				time.Since(startTime), len(replicas))
+
 			return nil
 		}
 	}

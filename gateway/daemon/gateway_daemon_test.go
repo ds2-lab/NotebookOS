@@ -1029,9 +1029,244 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
 		})
 
-		//It("should respond correctly upon receiving three YIELD notifications", func() {
-		//
-		//})
+		It("Should correctly handle multiple 'execute_request' messages in a row", func() {
+			encodedHeader, err := json.Marshal(header)
+			Expect(err).To(BeNil())
+
+			unsignedFrames := [][]byte{
+				[]byte("<IDS|MSG>"),
+				[]byte("6c7ab7a8c1671036668a06b199919959cf440d1c6cbada885682a90afd025be8"),
+				encodedHeader, /* Header */
+				[]byte(""),    /* Parent header*/
+				[]byte(fmt.Sprintf("{\"%s\": 2}", TargetReplicaArg)), /* Metadata */
+				[]byte("{\"silent\":false,\"store_history\":true,\"user_expressions\":{},\"allow_stdin\":true,\"stop_on_error\":false,\"code\":\"\"}"),
+			}
+			jFrames := messaging.NewJupyterFramesFromBytes(unsignedFrames)
+			frames, _ := jFrames.Sign(signatureScheme, []byte(kernelKey))
+			msg := &zmq4.Msg{
+				Frames: frames,
+				Type:   zmq4.UsrMsg,
+			}
+			jMsg := messaging.NewJupyterMessage(msg)
+
+			session.EXPECT().IsTraining().Return(false).MaxTimes(1)
+			session.EXPECT().SetExpectingTraining().Return(promise.Resolved(nil)).MaxTimes(1)
+
+			host1 := mock_scheduling.NewMockHost(mockCtrl)
+			host1.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host1.EXPECT().GetNodeName().AnyTimes().Return("MockedHost1")
+			host1.EXPECT().ResourceSpec().AnyTimes().Return(hostSpec)
+
+			host2 := mock_scheduling.NewMockHost(mockCtrl)
+			host2.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host2.EXPECT().GetNodeName().AnyTimes().Return("MockedHost2")
+			host2.EXPECT().ResourceSpec().AnyTimes().Return(hostSpec)
+
+			host3 := mock_scheduling.NewMockHost(mockCtrl)
+			host3.EXPECT().GetID().AnyTimes().Return(uuid.NewString())
+			host3.EXPECT().GetNodeName().AnyTimes().Return("MockedHost3")
+			host3.EXPECT().ResourceSpec().AnyTimes().Return(hostSpec)
+
+			hosts := []*mock_scheduling.MockHost{host1, host2, host3}
+
+			addReplica := func(id int32, kernelId string, persistentId string, host *mock_scheduling.MockHost) (*mock_scheduling.MockKernelReplica, *mock_scheduling.MockKernelContainer) {
+				resourceSpec := &proto.ResourceSpec{
+					Gpu:    2,
+					Cpu:    100,
+					Memory: 1000,
+					Vram:   1,
+				}
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					SignatureScheme: signatureScheme,
+					Key:             "23d90942-8c3de3a713a5c3611792b7a5",
+					ResourceSpec:    resourceSpec,
+				}
+
+				container := mock_scheduling.NewMockKernelContainer(mockCtrl)
+				container.EXPECT().ReplicaId().Return(id).AnyTimes()
+				container.EXPECT().KernelID().Return(kernelId).AnyTimes()
+				container.EXPECT().ResourceSpec().Return(resourceSpec.ToDecimalSpec()).AnyTimes()
+				container.EXPECT().Host().Return(host).AnyTimes()
+
+				replica := mock_scheduling.NewMockKernelReplica(mockCtrl)
+				replica.EXPECT().ReplicaID().Return(id).AnyTimes()
+				replica.EXPECT().ID().Return(kernelId).AnyTimes()
+				replica.EXPECT().Container().Return(container).AnyTimes()
+				replica.EXPECT().KernelSpec().Return(kernelSpec).AnyTimes()
+				replica.EXPECT().Host().Return(host).AnyTimes()
+				replica.EXPECT().ResourceSpec().Return(resourceSpec.ToDecimalSpec()).AnyTimes()
+				replica.EXPECT().KernelReplicaSpec().Return(&proto.KernelReplicaSpec{
+					Kernel:       kernelSpec,
+					NumReplicas:  3,
+					Join:         true,
+					PersistentId: &persistentId,
+					ReplicaId:    id,
+				}).AnyTimes()
+
+				return replica, container
+			}
+
+			replica1, _ /* container1 */ := addReplica(1, kernelId, persistentId, host1)
+			replica2, _ /* container2 */ := addReplica(2, kernelId, persistentId, host2)
+			replica3, _ /* container3 */ := addReplica(3, kernelId, persistentId, host3)
+
+			replicas := []scheduling.KernelReplica{replica1, replica2, replica3}
+			kernel.EXPECT().Replicas().AnyTimes().Return(replicas)
+			kernel.EXPECT().ReplicasAreScheduled().AnyTimes().Return(true)
+			kernel.EXPECT().DebugMode().AnyTimes().Return(true)
+
+			selectedReplicaChan := make(chan scheduling.KernelReplica)
+
+			var host1IdleGpus, host2IdleGpus, host3IdleGpus atomic.Int64
+			var host1CommittedGpus, host2CommittedGpus, host3CommittedGpus atomic.Int64
+
+			// We'll artificially say that Host 3 has 8 idle GPUs, whereas hosts 1 and 2 have less.
+			initialIdleGpuValues := map[int32]int64{
+				1: 6,
+				2: 7,
+				3: 8,
+			}
+			initialCommittedGpuValues := map[int32]int64{
+				1: 2,
+				2: 1,
+				3: 0,
+			}
+
+			host1IdleGpus.Store(initialIdleGpuValues[int32(1)])
+			host2IdleGpus.Store(initialIdleGpuValues[int32(2)])
+			host3IdleGpus.Store(initialIdleGpuValues[int32(3)])
+			host1CommittedGpus.Store(initialCommittedGpuValues[int32(1)])
+			host2CommittedGpus.Store(initialCommittedGpuValues[int32(2)])
+			host3CommittedGpus.Store(initialCommittedGpuValues[int32(3)])
+
+			idleGpus := []*atomic.Int64{&host1IdleGpus, &host2IdleGpus, &host3IdleGpus}
+			committedGpus := []*atomic.Int64{&host1CommittedGpus, &host2CommittedGpus, &host3CommittedGpus}
+
+			// Set up all the state management for the mocked hosts.
+			for i, host := range hosts {
+				hostIndex := i
+				host.EXPECT().CommittedGPUs().DoAndReturn(func() float64 {
+					hostCommittedGpus := committedGpus[hostIndex]
+					return float64(hostCommittedGpus.Load())
+				}).AnyTimes()
+
+				host.EXPECT().IdleGPUs().DoAndReturn(func() float64 {
+					hostIdleGpus := idleGpus[hostIndex]
+					return float64(hostIdleGpus.Load())
+				}).AnyTimes()
+
+				currReplica := replicas[hostIndex]
+				host.EXPECT().PreCommitResources(currReplica.Container(), jupyterExecuteRequestId).AnyTimes().DoAndReturn(func(container scheduling.KernelContainer, executeId string) error {
+					Expect(container.ReplicaId()).To(Equal(currReplica.ReplicaID()))
+					Expect(currReplica.Container()).To(Equal(container))
+
+					hostCommittedGpus := committedGpus[hostIndex]
+					committed := hostCommittedGpus.Load()
+					if committed+int64(container.ResourceSpec().GPU()) > int64(hostSpec.GPU()) {
+						return fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
+							transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
+					}
+
+					hostIdleGpus := idleGpus[hostIndex]
+					idle := hostIdleGpus.Load()
+					if idle-int64(container.ResourceSpec().GPU()) < 0 {
+						return fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
+							transaction.ErrNegativeResourceCount, idle)
+					}
+
+					hostCommittedGpus.Add(int64(container.ResourceSpec().GPU()))
+					hostIdleGpus.Add(int64(-1 * container.ResourceSpec().GPU()))
+
+					return nil
+				})
+			}
+
+			kernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
+			mockScheduler.EXPECT().FindReadyReplica(kernel, jMsg.JupyterMessageId()).Times(1).DoAndReturn(
+				func(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+					selectedReplica, err := schedulingPolicy.(scheduler.SchedulingPolicy).FindReadyReplica(kernel, executionId)
+					Expect(err).To(BeNil())
+					Expect(selectedReplica).ToNot(BeNil())
+
+					selectedReplicaChan <- selectedReplica
+
+					return selectedReplica, nil
+				})
+
+			cluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
+
+			jupyterMessagesChan := make(chan []*messaging.JupyterMessage)
+
+			kernel.EXPECT().RequestWithHandlerAndReplicas(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+				gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(func(ctx context.Context, op string, typ messaging.MessageType,
+				jupyterMessages []*messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func(), replicas ...scheduling.KernelReplica) error {
+				fmt.Printf("RequestWithHandlerAndReplicas called with JupyterMessages:\n%v\n", jupyterMessages)
+
+				jupyterMessagesChan <- jupyterMessages
+
+				return nil
+			})
+
+			kernel.EXPECT().LastPrimaryReplica().AnyTimes().Return(nil)
+
+			clusterGateway.registerKernelWithExecReqForwarder(kernel)
+			kernel.EXPECT().IsTraining().AnyTimes().Return(false)
+
+			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
+			go func() {
+				err = clusterGateway.executeRequestHandler(kernel, jMsg)
+				Expect(err).To(BeNil())
+			}()
+
+			selectedReplica := <-selectedReplicaChan
+
+			GinkgoWriter.Printf("Selected replica %d on targetReplicaHost %s (ID=%s)\n", selectedReplica.ReplicaID(),
+				selectedReplica.Host().GetNodeName(), selectedReplica.Host().GetID())
+
+			Expect(selectedReplica.ReplicaID()).To(Equal(int32(3)))
+
+			jupyterMessages := <-jupyterMessagesChan
+
+			Expect(jupyterMessages).ToNot(BeNil())
+			Expect(len(jupyterMessages)).To(Equal(3))
+
+			for idx, msg := range jupyterMessages {
+				GinkgoWriter.Printf("Jupyter Message #%d:\n%v\n", idx, msg.StringFormatted())
+				Expect(msg.JupyterMessageId()).To(Equal(jupyterExecuteRequestId))
+
+				// We add 1 because replica IDs start at 1.
+				if int32(idx+1) == selectedReplica.ReplicaID() {
+					Expect(msg.JupyterMessageType()).To(Equal(messaging.ShellExecuteRequest))
+				} else {
+					Expect(msg.JupyterMessageType()).To(Equal(messaging.ShellYieldRequest))
+				}
+			}
+
+			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
+
+			targetReplicaHost := hosts[selectedReplica.ReplicaID()-1]
+
+			// Check that the resources were updated correctly on the targetReplicaHost of the selected/target replica.
+			Expect(targetReplicaHost.IdleGPUs()).To(Equal(float64(idleGpus[selectedReplica.ReplicaID()-1].Load())))
+			Expect(targetReplicaHost.CommittedGPUs()).To(Equal(float64(committedGpus[selectedReplica.ReplicaID()-1].Load())))
+
+			for idx, host := range hosts {
+				if replicas[idx].ReplicaID() == selectedReplica.ReplicaID() {
+					// The host of the target replica should have changed resource values.
+					Expect(host.IdleGPUs()).ToNot(Equal(float64(initialIdleGpuValues[replicas[idx].ReplicaID()])))
+					Expect(host.CommittedGPUs()).ToNot(Equal(float64(initialCommittedGpuValues[replicas[idx].ReplicaID()])))
+
+					Expect(host.IdleGPUs()).ToNot(Equal(float64(initialIdleGpuValues[selectedReplica.ReplicaID()])))
+					Expect(host.CommittedGPUs()).ToNot(Equal(float64(initialCommittedGpuValues[selectedReplica.ReplicaID()])))
+				} else {
+					// The other two hosts should not have changed resources values.
+					Expect(host.IdleGPUs()).To(Equal(float64(initialIdleGpuValues[replicas[idx].ReplicaID()])))
+					Expect(host.CommittedGPUs()).To(Equal(float64(initialCommittedGpuValues[replicas[idx].ReplicaID()])))
+				}
+			}
+		})
 	})
 
 	Context("Processing general ZMQ Messages", func() {
