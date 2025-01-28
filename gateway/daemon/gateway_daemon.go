@@ -3761,6 +3761,9 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 		return d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
 	}
 
+	d.log.Debug("Target replica specified as replica %d for execution \"%s\" targeting kernel \"%s\".",
+		targetReplicaId, msg.JupyterMessageId(), kernel.ID())
+
 	// TODO: Could there be a race here where we migrate the new replica right after scheduling it, such as
 	// 		 while using dynamic scheduling? (Yes, almost certainly.)
 	targetReplica, err := kernel.GetReplicaByID(targetReplicaId)

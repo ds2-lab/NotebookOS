@@ -203,7 +203,7 @@ func (placer *AbstractPlacer) ReserveResourcesForReplica(kernel scheduling.Kerne
 	decimalSpec := kernel.ResourceSpec()
 	placer.log.Debug("Explicitly reserving resources [%v] for replica %d of kernel %s [commitResources=%v].",
 		decimalSpec, replica.ReplicaID(), kernel.ID(), commitResources)
-	reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), commitResources)
+	reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources)
 
 	if reserved {
 		placer.log.Debug("Explicitly reserved [%v] resources for replica %d of kernel %s [commitResources=%v].",
