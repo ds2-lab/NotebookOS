@@ -991,7 +991,7 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		d.numResendAttempts, registrationPayload.PodOrContainerName, registrationPayload.NodeName,
 		d.smrReadyCallback, d.smrNodeAddedCallback, d.MessageAcknowledgementsEnabled, "", d.id, nil,
 		metrics.LocalDaemon, false, false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
-		d.kernelRequestResubmissionFailedAfterReconnection, nil)
+		d.kernelRequestResubmissionFailedAfterReconnection, nil, true)
 
 	kernelConnectionInfo, err := d.initializeKernelClient(registrationPayload.Kernel.Id, connInfo, kernel)
 	if err != nil {
@@ -1990,7 +1990,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		types.DockerContainerIdTBD, types.DockerNode, d.smrReadyCallback, d.smrNodeAddedCallback,
 		d.MessageAcknowledgementsEnabled, "", d.id, nil, metrics.LocalDaemon, false,
 		false, d.DebugMode, d.prometheusManager, d.kernelReconnectionFailed,
-		d.kernelRequestResubmissionFailedAfterReconnection, nil)
+		d.kernelRequestResubmissionFailedAfterReconnection, nil, true)
 
 	// Register kernel.
 	d.kernels.Store(kernel.ID(), kernel)

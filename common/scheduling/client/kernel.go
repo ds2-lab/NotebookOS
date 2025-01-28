@@ -98,6 +98,7 @@ type KernelReplicaClient struct {
 	pendingExecuteRequestCond        *sync.Cond                                         // Used to notify goroutines when the number of outstanding/pending "execute_request" messages reaches 0.
 	trainingFinishedCond             *sync.Cond                                         // Used to notify the goroutine responsible for sending "execute_requests" to the kernel that the kernel has finished training.
 	trainingFinishedMu               sync.Mutex                                         // Goes with the trainingFinishedCond field.
+	submitRequestsOneAtATime         bool
 
 	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback // Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
 
@@ -140,7 +141,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	host scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool, debugMode bool,
 	messagingMetricsProvider server.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback,
-	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))) *KernelReplicaClient {
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)), submitRequestsOneAtATime bool) *KernelReplicaClient {
 
 	// Validate that the `spec` argument is non-nil.
 	if spec == nil {
@@ -173,6 +174,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		isGatewayClient:                      isGatewayClient,
 		connectionRevalidationFailedCallback: connRevalFailedCallback,
 		statisticsUpdaterProvider:            statisticsUpdaterProvider,
+		submitRequestsOneAtATime:             submitRequestsOneAtATime,
 		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
 		client: server.New(ctx, info, nodeType, func(s *server.AbstractServer) {
 			var remoteComponentName string
@@ -1105,7 +1107,9 @@ func (c *KernelReplicaClient) RequestWithHandlerAndWaitOptionGetter(parentContex
 		// This ensures that we send "execute_request" messages one-at-a-time.
 		// We wait until any pending "execute_request" messages receive an "execute_reply"
 		// response before we can forward this next "execute_request".
-		c.WaitForPendingExecuteRequests()
+		if c.submitRequestsOneAtATime {
+			c.WaitForPendingExecuteRequests()
+		}
 
 		c.SendingExecuteRequest(msg)
 	}

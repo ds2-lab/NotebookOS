@@ -2055,7 +2055,8 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		d.id, d.numResendAttempts, in.PodOrContainerName, in.NodeName,
 		nil, nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), in.HostId,
 		host, metrics.ClusterGateway, true, true, d.DebugMode, d.metricsProvider,
-		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics)
+		d.kernelReconnectionFailed, d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics,
+		d.SubmitExecuteRequestsOneAtATime)
 
 	err := replica.Validate()
 	if err != nil {
@@ -2339,7 +2340,8 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		d.numResendAttempts, kernelPodOrContainerName, nodeName, nil,
 		nil, d.MessageAcknowledgementsEnabled, kernel.PersistentID(), hostId, host, metrics.ClusterGateway,
 		true, true, d.DebugMode, d.metricsProvider, d.kernelReconnectionFailed,
-		d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics)
+		d.kernelRequestResubmissionFailedAfterReconnection, d.updateClusterStatistics,
+		d.SubmitExecuteRequestsOneAtATime)
 
 	session, ok := d.cluster.GetSession(kernelId)
 	if !ok {
