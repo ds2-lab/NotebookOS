@@ -3714,6 +3714,15 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 		panic(errorMessage)
 	}
 
+	// If the specified target replica is invalid (e.g., less than or equal to 0), then we'll just
+	// use the scheduler/scheduling policy to select a target replica.
+	//
+	// Typically a value of -1 is specified when no explicit target is indicated, so this is an
+	// expected outcome.
+	if targetReplicaId <= 0 {
+		return d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
+	}
+
 	// TODO: Could there be a race here where we migrate the new replica right after scheduling it, such as
 	// 		 while using dynamic scheduling? (Yes, almost certainly.)
 	targetReplica, err := kernel.GetReplicaByID(targetReplicaId)
