@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
@@ -100,10 +101,12 @@ type containerWithPreCommittedResources struct {
 	// ExecutionId is the "msg_id" of the Jupyter "execute_request" message that contained the
 	// user-submitted code associated with this pre-allocation.
 	ExecutionId           string
+	AllocationId          string
 	PreCommittedResources *types.DecimalSpec
 }
 
 type containerWithCommittedResources struct {
+	AllocationId       string
 	KernelId           string
 	ReplicaId          int32
 	ResourcesCommitted types.Spec
@@ -1228,8 +1231,8 @@ func (h *Host) unsafeReleaseCommittedResources(spec *types.DecimalSpec, kernelId
 	}
 
 	if !spec.Equals(record.ResourcesCommitted) {
-		h.log.Warn("Inconsistent committed resource release for replica of kernel %s. Requested: %v. Record: %v.",
-			kernelId, spec.String(), record.ResourcesCommitted.String())
+		h.log.Warn("Inconsistent committed resource release for replica of kernel %s. Requested: %v. Record: %v. AllocationID=%s.",
+			kernelId, spec.String(), record.ResourcesCommitted.String(), record.AllocationId)
 
 		spec = types.ToDecimalSpec(record.ResourcesCommitted)
 	}
@@ -1245,8 +1248,8 @@ func (h *Host) unsafeReleaseCommittedResources(spec *types.DecimalSpec, kernelId
 	})
 
 	if err != nil {
-		h.log.Error("Failed to release committed resources [%s] from replica of kernel %s.",
-			spec.String(), kernelId)
+		h.log.Error("Failed to release resources committed %v ago [%s] from replica of kernel %s with AllocationID=%s.",
+			time.Since(record.CommittedAt), spec.String(), kernelId, record.AllocationId)
 		return err
 	}
 
@@ -1380,6 +1383,7 @@ func (h *Host) PreCommitResources(container scheduling.KernelContainer, executio
 	}
 
 	h.containersWithPreCommittedResources[container.ContainerID()] = &containerWithPreCommittedResources{
+		AllocationId:          uuid.NewString(),
 		KernelContainer:       container,
 		ExecutionId:           executionId,
 		PreCommittedResources: spec,
@@ -1463,12 +1467,21 @@ func (h *Host) unsafeReleasePreCommitedResources(container scheduling.KernelCont
 	return nil
 }
 
+// unsafeCommitResources is the inverse of unsafeReleaseCommittedResources.
 func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, replicaId int32, decrementPending bool) error {
 	if existingContainerWithCommittedResource, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
 		h.log.Error("Attempting to commit resources [%s] to replica %d of kernel %s, but we've already committed resources to replica %d of kernel %s.",
 			spec.String(), replicaId, kernelId, existingContainerWithCommittedResource.ReplicaId, kernelId)
 		return fmt.Errorf("%w (replica %d of kernel \"%s\")",
 			ErrResourcesAlreadyCommitted, existingContainerWithCommittedResource.ReplicaId, kernelId)
+	}
+
+	if replicaId > 0 {
+		h.log.Debug("Attempting to commit resources [%v] to replica %d of kernel %s. Host resource counts: %v.",
+			spec.String(), replicaId, kernelId, h.GetResourceCountsAsString())
+	} else {
+		h.log.Debug("Attempting to commit resources [%v] to replica of kernel %s. Host resource counts: %v.",
+			spec.String(), kernelId, h.GetResourceCountsAsString())
 	}
 
 	err := h.resourceManager.RunTransaction(func(state *transaction.State) {
@@ -1497,12 +1510,23 @@ func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, r
 
 	// Save the exact resources that were allocated to the kernel so that we can
 	// deallocate the right amount in the future.
-	h.kernelsWithCommittedResources[kernelId] = &containerWithCommittedResources{
+	record := &containerWithCommittedResources{
+		AllocationId:       uuid.NewString(),
 		KernelId:           kernelId,
 		ReplicaId:          replicaId,
 		ResourcesCommitted: spec,
 		CommittedAt:        time.Now(),
 	}
+	h.kernelsWithCommittedResources[kernelId] = record
+
+	if replicaId > 0 {
+		h.log.Debug("Successfully committed resources [%v] to replica %d of kernel %s with AllocationID=%s. Host resource counts: %v.",
+			spec.String(), replicaId, kernelId, record.AllocationId, h.GetResourceCountsAsString())
+	} else {
+		h.log.Debug("Successfully committed resources [%v] to replica of kernel %s with AllocationID=%s. Host resource counts: %v.",
+			spec.String(), kernelId, record.AllocationId, h.GetResourceCountsAsString())
+	}
+
 	return nil
 }
 

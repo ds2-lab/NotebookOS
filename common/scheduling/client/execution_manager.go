@@ -230,7 +230,7 @@ func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) 
 
 		m.log.Error("Submitting execute request \"%s\" with index=%d; however, last submitted execution had index=%d and ID=%s.",
 			requestId, executionIndex, m.submittedExecutionIndex, execution.ExecuteRequestMessageId)
-		// TODO: Return error?
+		panic("Attempted to submit old execution after submitting new execution")
 	}
 
 	m.submittedExecutionIndex = executionIndex
