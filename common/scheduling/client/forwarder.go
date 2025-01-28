@@ -29,6 +29,7 @@ const (
 type enqueuedRequest[MessageType any] struct {
 	Msg           MessageType
 	ResultChannel chan interface{}
+	MsgId         string
 	Kernel        MessageRecipient
 }
 
@@ -90,7 +91,7 @@ func NewExecuteRequestForwarder[MessageType any](notifyCallback scheduling.Notif
 	return submitter
 }
 
-func (s *ExecuteRequestForwarder[MessageType]) EnqueueRequest(msg MessageType, kernel MessageRecipient) <-chan interface{} {
+func (s *ExecuteRequestForwarder[MessageType]) EnqueueRequest(msg MessageType, kernel MessageRecipient, msgId string) <-chan interface{} {
 	mutex, loaded := s.outgoingExecuteRequestQueueMutexes.Load(kernel.ID())
 	if !loaded {
 		errorMessage := fmt.Sprintf("Could not find \"execute_request\" queue mutex for kernel \"%s\"", kernel.ID())
@@ -122,9 +123,12 @@ func (s *ExecuteRequestForwarder[MessageType]) EnqueueRequest(msg MessageType, k
 	// This could conceivably block, which would be fine.
 	queue <- &enqueuedRequest[MessageType]{
 		Msg:           msg,
+		MsgId:         msgId,
 		ResultChannel: resultChan,
 		Kernel:        kernel,
 	}
+
+	s.log.Debug("Enqueued \"execute_request\" message(s) with kernel \"%s\"", kernel.ID())
 
 	return resultChan
 }
@@ -181,12 +185,13 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardRequests(queue chan *enque
 // forwardExecuteRequest is called by executeRequestForwarderLoop.
 func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *enqueuedRequest[MessageType],
 	kernel MessageRecipient, requestHandler RequestHandler[MessageType], handler scheduling.KernelReplicaMessageHandler) {
+	s.log.Debug("Forwarding \"execute_request\" message(s) to kernel \"%s\"", kernel.ID())
 
 	// Sanity check.
 	// Ensure that the message is meant for the same kernel replica that this thread is responsible for.
 	if message.Kernel.ID() != kernel.ID() {
-		errorMessage := fmt.Sprintf("Found enqueued message with mismatched kernel ID. "+
-			"Enqueued message kernel ID: \"%s\". Expected kernel ID: \"%s\"", message.Kernel.ID(), kernel.ID())
+		errorMessage := fmt.Sprintf("Found enqueued message \"%s\" with mismatched kernel ID. "+
+			"Enqueued message kernel ID: \"%s\". Expected kernel ID: \"%s\"", message.MsgId, message.Kernel.ID(), kernel.ID())
 
 		if s.notificationCallback != nil {
 			s.notificationCallback("Enqueued Message with Mismatched Kernel ID", errorMessage, messaging.ErrorNotification)
@@ -197,7 +202,7 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 		return // We'll panic before this line is executed in the local daemon.
 	}
 
-	s.log.Debug("Dequeued message %s (JupyterID=%s) targeting kernel %s.", message.Kernel.ID())
+	s.log.Debug("Dequeued message %s (JupyterID=%s) targeting kernel %s.", message.MsgId, message.Kernel.ID())
 
 	// Process the message.
 	processedMessage := message.Msg
@@ -205,7 +210,8 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 		processedMessage = s.processCallback(processedMessage, message.Kernel)
 	}
 
-	s.log.Debug("Forwarding shell message to kernel %s: %s", message.Kernel.ID(), processedMessage)
+	s.log.Debug("Forwarding \"execute_request\" message \"%s\" to kernel %s: %s",
+		message.MsgId, message.Kernel.ID(), processedMessage)
 
 	// Sanity check.
 	if message.Kernel.IsTraining() {
@@ -219,8 +225,8 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 	ctx, cancel := context.WithCancel(context.Background())
 	err := requestHandler(
 		ctx, "Forwarding", messaging.ShellMessage, processedMessage, handler, func() {
-			s.log.Debug("Done() called for shell execute/yield message targeting kernel %s. "+
-				"Cancelling (though request may have succeeded already).", message.Kernel.ID())
+			s.log.Debug("Done() called for shell execute/yield message \"%s\" targeting kernel %s. "+
+				"Cancelling (though request may have succeeded already).", message.MsgId, message.Kernel.ID())
 			cancel()
 		})
 
@@ -232,4 +238,7 @@ func (s *ExecuteRequestForwarder[MessageType]) forwardExecuteRequest(message *en
 
 	// General notification that we're done, and there was no error.
 	message.ResultChannel <- struct{}{}
+
+	s.log.Debug("Finished forwarding \"execute_request\" message \"%s\" to kernel \"%s\".",
+		message.MsgId, message.Kernel.ID())
 }
