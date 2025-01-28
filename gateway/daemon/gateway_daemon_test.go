@@ -674,9 +674,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			cluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
 
-			kernel.EXPECT().GetReplicaByID(int32(1)).AnyTimes().Return(replica1)
-			kernel.EXPECT().GetReplicaByID(int32(2)).AnyTimes().Return(replica2)
-			kernel.EXPECT().GetReplicaByID(int32(3)).AnyTimes().Return(replica3)
+			kernel.EXPECT().GetReplicaByID(int32(1)).AnyTimes().Return(replica1, nil)
+			kernel.EXPECT().GetReplicaByID(int32(2)).AnyTimes().Return(replica2, nil)
+			kernel.EXPECT().GetReplicaByID(int32(3)).AnyTimes().Return(replica3, nil)
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			targetReplica, err := clusterGateway.processExecuteRequest(jMsg, kernel)
@@ -870,9 +870,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			clusterGateway.registerKernelWithExecReqForwarder(kernel)
 			kernel.EXPECT().IsTraining().AnyTimes().Return(false)
-			kernel.EXPECT().GetReplicaByID(int32(1)).AnyTimes().Return(replica1)
-			kernel.EXPECT().GetReplicaByID(int32(2)).AnyTimes().Return(replica2)
-			kernel.EXPECT().GetReplicaByID(int32(3)).AnyTimes().Return(replica3)
+			kernel.EXPECT().GetReplicaByID(int32(1)).AnyTimes().Return(replica1, nil)
+			kernel.EXPECT().GetReplicaByID(int32(2)).AnyTimes().Return(replica2, nil)
+			kernel.EXPECT().GetReplicaByID(int32(3)).AnyTimes().Return(replica3, nil)
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			go func() {
@@ -1027,9 +1027,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			kernel.EXPECT().Replicas().AnyTimes().Return([]scheduling.KernelReplica{replica1, replica2, replica3})
 
-			kernel.EXPECT().GetReplicaByID(int32(1)).AnyTimes().Return(replica1)
-			kernel.EXPECT().GetReplicaByID(int32(2)).AnyTimes().Return(replica2)
-			kernel.EXPECT().GetReplicaByID(int32(3)).AnyTimes().Return(replica3)
+			kernel.EXPECT().GetReplicaByID(int32(1)).AnyTimes().Return(replica1, nil)
+			kernel.EXPECT().GetReplicaByID(int32(2)).AnyTimes().Return(replica2, nil)
+			kernel.EXPECT().GetReplicaByID(int32(3)).AnyTimes().Return(replica3, nil)
 
 			kernel.EXPECT().LastPrimaryReplica().Times(1).Return(nil)
 
