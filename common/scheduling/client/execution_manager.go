@@ -219,7 +219,19 @@ func (m *ExecutionManager) GetExecuteRequestForResubmission(executeReply *messag
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return nil, nil
+	executeRequestId := executeReply.JupyterParentMessageId()
+	execution, loaded := m.failedExecutions[executeRequestId]
+
+	if !loaded {
+		m.log.Error("Could not find execution \"%s\". Cannot provide original \"execute_request\" message.",
+			executeRequestId)
+		return nil, fmt.Errorf("%w: \"%s\"", ErrUnknownActiveExecution, executeRequestId)
+	}
+
+	m.log.Debug("Returning original \"execute_request\" message for execution \"%s\" (index=%d): %v",
+		executeRequestId, execution.ExecutionIndex, execution.JupyterMessage.StringFormatted())
+
+	return execution.JupyterMessage, nil
 }
 
 // SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.

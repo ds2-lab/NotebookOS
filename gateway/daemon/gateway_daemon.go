@@ -1498,12 +1498,15 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 		waitGroup.Done()
 	}()
 
-	executeRequest := kernel.GetExecuteRequestForResubmission(executeReply)
+	executeRequest, err := kernel.GetExecuteRequestForResubmission(executeReply)
+	if err != nil {
+		return err
+	}
 
-	metadataDict, err := executeReply.DecodeMetadata()
+	metadataDict, err := executeRequest.DecodeMetadata()
 	if err != nil {
 		d.log.Warn("Failed to unmarshal metadata frame for \"execute_request\" message \"%s\" (JupyterID=\"%s\"): %v",
-			executeReply.RequestId, executeReply.JupyterMessageId(), executeReply)
+			executeRequest.RequestId, executeRequest.JupyterMessageId(), executeRequest)
 
 		// We'll assume the metadata frame was empty, and we'll create a new dictionary to use as the metadata frame.
 		metadataDict = make(map[string]interface{})
@@ -1512,10 +1515,23 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	// Specify the target replica.
 	metadataDict[TargetReplicaArg] = targetReplica
 	metadataDict[ForceReprocessArg] = true
-	err = executeReply.EncodeMetadata(metadataDict)
+	err = executeRequest.EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("Failed to encode metadata frame because: %v", err)
 		return err
+	}
+
+	// If this is a "yield_request" message, then we need to convert it to an "execute_request" before resubmission.
+	if executeRequest.JupyterMessageType() == messaging.ShellYieldRequest {
+		err = executeRequest.SetMessageType(messaging.ShellExecuteRequest, true)
+		if err != nil {
+			d.log.Error("Failed to re-encode message header while converting \"yield_request\" message \"%s\" to \"execute_request\" before resubmitting it: %v",
+				executeRequest.JupyterMessageId(), err)
+			return err
+		}
+
+		d.log.Debug("Successfully converted \"yield_request\" message \"%s\" to \"execute_request\" before resubmitting it.",
+			executeRequest.JupyterMessageId())
 	}
 
 	signatureScheme := kernel.ConnectionInfo().SignatureScheme
@@ -1525,16 +1541,16 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	}
 
 	// Regenerate the signature.
-	if _, err := executeReply.JupyterFrames.Sign(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
+	if _, err := executeRequest.JupyterFrames.Sign(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		// Ignore the error; just log it.
 		d.log.Warn("Failed to sign frames because %v", err)
 	}
 
 	// Ensure that the frames are now correct.
-	if err := executeReply.JupyterFrames.Verify(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
+	if err := executeRequest.JupyterFrames.Verify(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v': %v",
 			signatureScheme, kernel.ConnectionInfo().Key, err)
-		d.log.Error("This message will likely be rejected by the kernel:\n%v", executeReply)
+		d.log.Error("This message will likely be rejected by the kernel:\n%v", executeRequest)
 		return ErrFailedToVerifyMessage
 	}
 
@@ -1556,17 +1572,17 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	}
 
 	d.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), kernel.ID())
-	err = d.ShellHandler(kernel, executeReply)
+	err = d.ShellHandler(kernel, executeRequest)
 
 	if errors.Is(err, types.ErrKernelNotFound) {
 		d.log.Error("ShellHandler couldn't identify kernel \"%s\"...", kernel.ID())
 
-		d.kernels.Store(executeReply.DestinationId, kernel)
-		d.kernels.Store(executeReply.JupyterSession(), kernel)
+		d.kernels.Store(executeRequest.DestinationId, kernel)
+		d.kernels.Store(executeRequest.JupyterSession(), kernel)
 
-		kernel.BindSession(executeReply.JupyterSession())
+		kernel.BindSession(executeRequest.JupyterSession())
 
-		err = d.executeRequestHandler(kernel, executeReply)
+		err = d.executeRequestHandler(kernel, executeRequest)
 	}
 
 	if err != nil {
