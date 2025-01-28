@@ -32,6 +32,10 @@ type ExecutionManager interface {
 	TotalNumExecutionOperations() int
 	ExecutionFailedCallback() ExecutionFailedCallback
 
+	// GetExecuteRequestForResubmission returns the original "execute_request" message associated with
+	// the given "execute_reply" message so that it can be re-submitted, such as after a migration.
+	GetExecuteRequestForResubmission(executeReply *messaging.JupyterMessage) (*messaging.JupyterMessage, error)
+
 	// SendingExecuteRequest records that an "execute_request" (or "yield_request") message is being sent.
 	//
 	// SendingExecuteRequest should be called RIGHT BEFORE the "execute_request" message is ACTUALLY sent.

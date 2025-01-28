@@ -1446,7 +1446,7 @@ func (d *ClusterGatewayImpl) notifyDashboardOfWarning(warningName string, warnin
 
 // staticSchedulingFailureHandler is a callback to be invoked when all replicas of a
 // kernel propose 'YIELD' while static scheduling is set as the configured scheduling policy.
-func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Kernel, msg *messaging.JupyterMessage) error {
+func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Kernel, executeReply *messaging.JupyterMessage) error {
 	// Dynamically migrate one of the existing replicas to another node.
 	//
 	// Randomly select a replica to migrate.
@@ -1498,10 +1498,12 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 		waitGroup.Done()
 	}()
 
-	metadataDict, err := msg.DecodeMetadata()
+	executeRequest := kernel.GetExecuteRequestForResubmission(executeReply)
+
+	metadataDict, err := executeReply.DecodeMetadata()
 	if err != nil {
 		d.log.Warn("Failed to unmarshal metadata frame for \"execute_request\" message \"%s\" (JupyterID=\"%s\"): %v",
-			msg.RequestId, msg.JupyterMessageId(), msg)
+			executeReply.RequestId, executeReply.JupyterMessageId(), executeReply)
 
 		// We'll assume the metadata frame was empty, and we'll create a new dictionary to use as the metadata frame.
 		metadataDict = make(map[string]interface{})
@@ -1510,7 +1512,7 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	// Specify the target replica.
 	metadataDict[TargetReplicaArg] = targetReplica
 	metadataDict[ForceReprocessArg] = true
-	err = msg.EncodeMetadata(metadataDict)
+	err = executeReply.EncodeMetadata(metadataDict)
 	if err != nil {
 		d.log.Error("Failed to encode metadata frame because: %v", err)
 		return err
@@ -1523,16 +1525,16 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	}
 
 	// Regenerate the signature.
-	if _, err := msg.JupyterFrames.Sign(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
+	if _, err := executeReply.JupyterFrames.Sign(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		// Ignore the error; just log it.
 		d.log.Warn("Failed to sign frames because %v", err)
 	}
 
 	// Ensure that the frames are now correct.
-	if err := msg.JupyterFrames.Verify(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
+	if err := executeReply.JupyterFrames.Verify(signatureScheme, []byte(kernel.ConnectionInfo().Key)); err != nil {
 		d.log.Error("Failed to verify modified message with signature scheme '%v' and key '%v': %v",
 			signatureScheme, kernel.ConnectionInfo().Key, err)
-		d.log.Error("This message will likely be rejected by the kernel:\n%v", msg)
+		d.log.Error("This message will likely be rejected by the kernel:\n%v", executeReply)
 		return ErrFailedToVerifyMessage
 	}
 
@@ -1554,17 +1556,17 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 	}
 
 	d.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), kernel.ID())
-	err = d.ShellHandler(kernel, msg)
+	err = d.ShellHandler(kernel, executeReply)
 
 	if errors.Is(err, types.ErrKernelNotFound) {
 		d.log.Error("ShellHandler couldn't identify kernel \"%s\"...", kernel.ID())
 
-		d.kernels.Store(msg.DestinationId, kernel)
-		d.kernels.Store(msg.JupyterSession(), kernel)
+		d.kernels.Store(executeReply.DestinationId, kernel)
+		d.kernels.Store(executeReply.JupyterSession(), kernel)
 
-		kernel.BindSession(msg.JupyterSession())
+		kernel.BindSession(executeReply.JupyterSession())
 
-		err = d.executeRequestHandler(kernel, msg)
+		err = d.executeRequestHandler(kernel, executeReply)
 	}
 
 	if err != nil {
@@ -3393,8 +3395,14 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 
 	// If the kernel is still nil, then that's a bug.
 	if kernel == nil {
-		d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v",
+		d.log.Error("Could not find kernel or session \"%s\" while handling shell message %v of type '%v', session=%v",
 			msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
+
+		d.log.Error("Valid kernels/sessions are (%d):", d.kernels.Len())
+		d.kernels.Range(func(id string, kernel scheduling.Kernel) (contd bool) {
+			d.log.Error("%s (kernel \"%s\")", id, kernel.ID())
+			return true
+		})
 
 		// If there's no message ID, then something is really wrong.
 		// We'll print the stack so we can better trace through what happened while handling this message.
