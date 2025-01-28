@@ -3773,6 +3773,9 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 
 	// Reserve resources for the target kernel if resources are not already reserved.
 	if !targetReplica.Host().HasResourcesCommittedToKernel(kernel.ID()) {
+		d.log.Debug("Specified target replica %d of kernel \"%s\" does not have resources committed to it on host %s yet. Pre-committing resources now.",
+			targetReplica.ReplicaID(), kernel.ID(), targetReplica.Host().GetNodeName())
+
 		// Attempt to pre-commit resources on the specified replica, or return an error if we cannot do so.
 		err = targetReplica.Host().PreCommitResources(targetReplica.Container(), msg.JupyterMessageId())
 		if err != nil {
@@ -3780,6 +3783,9 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 				targetReplica.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), err)
 			return nil, err
 		}
+
+		d.log.Debug("Successfully pre-committed resources for explicitly-specified target replica %d of kernel \"%s\" on host %s.",
+			targetReplica.ReplicaID(), kernel.ID(), targetReplica.Host().GetNodeName())
 	}
 
 	return targetReplica, nil

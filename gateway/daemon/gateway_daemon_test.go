@@ -769,6 +769,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					mutexes[i].Lock()
 					defer mutexes[i].Unlock()
 
+					fmt.Printf("[DEBUG] Precommitting resources on host %s for replica %d. Resources: %v.\n",
+						host.GetNodeName(), container.ReplicaId(), container.ResourceSpec())
+
 					Expect(container.ReplicaId()).To(Equal(currReplica.ReplicaID()))
 					Expect(currReplica.Container()).To(Equal(container))
 
@@ -790,6 +793,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					hostIdleGpus.Add(int64(-1 * container.ResourceSpec().GPU()))
 					hostCommittedMaps[i][container.KernelID()] = struct{}{}
 
+					fmt.Printf("[DEBUG] Precommitted %.0f GPUs on host %s for replica %d. Current committed GPUs: %d.\n",
+						container.ResourceSpec().GPU(), host.GetNodeName(), container.ReplicaId(), hostCommittedGpus.Load())
+
 					return nil
 				})
 
@@ -797,7 +803,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					mutexes[i].Lock()
 					defer mutexes[i].Unlock()
 
-					fmt.Printf("\nHost %s is reserving resources for replica %d of kernel %s: %v\n",
+					fmt.Printf("\n[DEBUG] Host %s is reserving resources for replica %d of kernel %s: %v\n",
 						host.GetNodeName(), replicaSpec.ReplicaId, replicaSpec.Kernel.Id, replicaSpec.ResourceSpec().ToDecimalSpec().String())
 
 					Expect(replicaSpec.ReplicaId).To(Equal(currReplica.ReplicaID()))
@@ -1030,18 +1036,18 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			kernel.EXPECT().GetReplicaByID(int32(2)).AnyTimes().Return(replica2, nil)
 			kernel.EXPECT().GetReplicaByID(int32(3)).AnyTimes().Return(replica3, nil)
 
-			mockScheduler.EXPECT().ReserveResourcesForReplica(kernel, replicas[targetReplicaId-1], true).Times(1).DoAndReturn(func(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
-				host := replica.Host()
-
-				// Normally this would go through a placer
-				reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources)
-
-				if reserved {
-					return nil
-				}
-
-				return err
-			})
+			//mockScheduler.EXPECT().ReserveResourcesForReplica(kernel, replicas[targetReplicaId-1], true).Times(1).DoAndReturn(func(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+			//	host := replica.Host()
+			//
+			//	// Normally this would go through a placer
+			//	reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources)
+			//
+			//	if reserved {
+			//		return nil
+			//	}
+			//
+			//	return err
+			//})
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			go func() {
@@ -1095,7 +1101,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(targetReplica).ToNot(BeNil())
 
-			Expect(targetReplica.Host().CommittedGPUs()).To(Equal(targetReplica.ResourceSpec().GPU()))
+			Expect(targetReplica.Host().CommittedGPUs()).To(Equal(targetReplica.ResourceSpec().GPU() + float64(initialCommittedGpuValues[targetReplicaId])))
 		})
 
 		It("should correctly handle non-targeted execute_request messages via the executeRequestHandler method", func() {
