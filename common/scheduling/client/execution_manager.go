@@ -467,6 +467,13 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 		return nil
 	}
 
+	if executionIndex == m.submittedExecutionIndex {
+		m.log.Debug("Execution index associated with \"smr_lead_task\" message (%d) matches last-submitted index.",
+			executionIndex)
+
+		m.activeExecutionIndex = executionIndex
+	}
+
 	activeExecution.SetActiveReplica(replica)
 	m.lastPrimaryReplica = replica
 
@@ -486,7 +493,7 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 		return err
 	}
 
-	m.log.Debug("Session \"%s\" has successfully started training on replica %m.",
+	m.log.Debug("Session \"%s\" has successfully started training on replica %d.",
 		m.Kernel.ID(), replica.ReplicaID())
 
 	return nil
@@ -669,6 +676,28 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 			statistics.CompletedTrainings += 1
 			statistics.NumIdleSessions += 1
 		})
+	}
+
+	if activeExecution.ExecutionIndex == m.submittedExecutionIndex {
+		m.log.Debug("Received \"execute_reply\" with index %d matching last-submitted execution's index.",
+			activeExecution.ExecutionIndex)
+
+		m.completedExecutionIndex = activeExecution.ExecutionIndex
+	} else {
+		m.log.Warn("Received \"execute_reply\" for execution %d; however, latest submitted execution has index %d.",
+			activeExecution.ExecutionIndex, m.submittedExecutionIndex)
+
+		if activeExecution.ExecutionIndex > m.completedExecutionIndex {
+			m.log.Warn("\"execute_reply\" index (%d) is still greater than last completed index (%d).",
+				activeExecution.ExecutionIndex, m.completedExecutionIndex)
+
+			m.completedExecutionIndex = activeExecution.ExecutionIndex
+		}
+	}
+
+	if activeExecution.ExecutionIndex != m.activeExecutionIndex {
+		m.log.Debug("\"execute_reply\" with index %d does not match last-known active index %d...",
+			activeExecution.ExecutionIndex, m.activeExecutionIndex)
 	}
 
 	if activeExecution.ActiveReplica == nil {

@@ -3464,6 +3464,11 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 			msg.JupyterMessageId(), idx+1, kernel.ID(), msg.JupyterMessageType())
 	}
 
+	// This ensures that we send "execute_request" messages one-at-a-time.
+	// We wait until any pending "execute_request" messages receive an "execute_reply"
+	// response before we can forward this next "execute_request".
+	kernel.WaitForPendingExecuteRequests()
+
 	d.executeRequestForwarder.EnqueueRequest(jupyterMessages, kernel)
 
 	return nil

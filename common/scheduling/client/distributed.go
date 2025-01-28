@@ -816,17 +816,6 @@ func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targ
 	jupyterMessage *messaging.JupyterMessage, typ messaging.MessageType, responseReceivedWg *sync.WaitGroup, numResponsesSoFar *atomic.Int32,
 	responseHandler scheduling.KernelReplicaMessageHandler) error {
 
-	if jupyterMessage.JupyterMessageType() == messaging.ShellExecuteRequest || jupyterMessage.JupyterMessageType() == messaging.ShellYieldRequest {
-		// Inform our ExecutionManager that we are sending an "execute_request" (or "yield_request") message.
-		err := c.ExecutionManager.SendingExecuteRequest(jupyterMessage)
-		if err != nil {
-			c.log.Error("ExecutionManager reported error for \"%s\" message \"%s\": %v",
-				jupyterMessage.JupyterMessageType(), jupyterMessage.JupyterMessageId(), err)
-
-			return err
-		}
-	}
-
 	// TODO: If the ACKs fail on this and we reconnect and retry, the responseReceivedWg.Done may be called too many times.
 	// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
 	// to be cleared after the context ends; we just do it on ACK timeout.
@@ -1005,6 +994,18 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	statusCtx, statusCancel := context.WithTimeout(context.Background(), messaging.DefaultRequestTimeout)
 	defer statusCancel()
 	c.busyStatus.Collect(statusCtx, len(c.replicas), len(c.replicas), messaging.MessageKernelStatusBusy, c.pubIOMessage)
+
+	// Just pass the first message. Doesn't matter if it is "execute_request" or "yield_request".
+	if jupyterMessages[0].JupyterMessageType() == messaging.ShellExecuteRequest {
+		// Inform our ExecutionManager that we are sending an "execute_request" (or "yield_request") message.
+		err := c.ExecutionManager.SendingExecuteRequest(jupyterMessages[0])
+		if err != nil {
+			c.log.Error("ExecutionManager reported error for \"%s\" message \"%s\": %v",
+				jupyterMessages[0].JupyterMessageType(), jupyterMessages[0].JupyterMessageId(), err)
+
+			return err
+		}
+	}
 
 	// If there's just a single replica, then send the message to that one replica.
 	if len(replicas) == 1 {
