@@ -5844,15 +5844,15 @@ func (mr *MockKernelReplicaMockRecorder) PersistentID() *gomock.Call {
 }
 
 // ReceivedExecuteReply mocks base method.
-func (m *MockKernelReplica) ReceivedExecuteReply(msg *messaging.JupyterMessage) {
+func (m *MockKernelReplica) ReceivedExecuteReply(msg *messaging.JupyterMessage, own bool) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "ReceivedExecuteReply", msg)
+	m.ctrl.Call(m, "ReceivedExecuteReply", msg, own)
 }
 
 // ReceivedExecuteReply indicates an expected call of ReceivedExecuteReply.
-func (mr *MockKernelReplicaMockRecorder) ReceivedExecuteReply(msg any) *gomock.Call {
+func (mr *MockKernelReplicaMockRecorder) ReceivedExecuteReply(msg, own any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReceivedExecuteReply", reflect.TypeOf((*MockKernelReplica)(nil).ReceivedExecuteReply), msg)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReceivedExecuteReply", reflect.TypeOf((*MockKernelReplica)(nil).ReceivedExecuteReply), msg, own)
 }
 
 // ReconnectSocket mocks base method.

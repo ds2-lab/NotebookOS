@@ -315,7 +315,7 @@ func (m *ExecutionManager) registerExecutionAttempt(msg *messaging.JupyterMessag
 // "failure handler", which will  handle the situation according to the cluster's configured scheduling policy.
 func (m *ExecutionManager) YieldProposalReceived(replica scheduling.KernelReplica, msg *messaging.JupyterMessage,
 	msgErr *messaging.MessageErrorWithYieldReason) error {
-	replica.ReceivedExecuteReply(msg)
+	replica.ReceivedExecuteReply(msg, true)
 
 	if err := validateReply(msg); err != nil {
 		return err
@@ -630,7 +630,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	// We'll notify ALL replicas that we received a response, so the next execute requests can be sent (at least
 	// to the local daemons).
 	for _, kernelReplica := range m.Kernel.Replicas() {
-		kernelReplica.ReceivedExecuteReply(msg)
+		kernelReplica.ReceivedExecuteReply(msg, kernelReplica.ReplicaID() == replica.ReplicaID())
 	}
 
 	err := validateReply(msg)

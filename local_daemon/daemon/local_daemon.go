@@ -2629,7 +2629,7 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 		}
 	}
 
-	kernelClient.ReceivedExecuteReply(msg)
+	kernelClient.ReceivedExecuteReply(msg, true)
 
 	// Include a snapshot of the current resource quantities on the node within the metadata frame of the message.
 	_, _ = d.addResourceSnapshotToJupyterMessage(msg, kernelClient)

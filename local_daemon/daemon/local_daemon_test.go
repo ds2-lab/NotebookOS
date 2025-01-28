@@ -1170,7 +1170,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			By("Releasing the resources once training ends")
 
-			kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any()).Times(1)
+			kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
 			kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
 
 			executeReplyContent := map[string]interface{}{"status": "ok"}
@@ -1414,7 +1414,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				By("Releasing the resources once training ends")
 
-				kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any()).Times(1)
+				kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
 				kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
 
 				executeReplyContent := map[string]interface{}{"status": "ok"}
@@ -1483,7 +1483,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 					By("Releasing the resources once training ends")
 
-					kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any()).Times(1)
+					kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
 					kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
 					executeReplyContent = map[string]interface{}{"status": "ok"}
 					executeReplyMsg = test_utils.CreateJupyterMessageWithContent(messaging.ShellExecuteReply, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key, executeReplyContent)

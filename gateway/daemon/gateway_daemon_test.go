@@ -2231,7 +2231,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				return ret, nil
 			}).Times(1)
 
-			mockedKernelReplica1.EXPECT().ReceivedExecuteReply(execReply1).Times(1)
+			mockedKernelReplica1.EXPECT().ReceivedExecuteReply(execReply1, gomock.Any()).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica1, gomock.Any()).Times(1).Return(nil)
 			executionManager := mockedKernel.GetExecutionManager()
 			Expect(executionManager).ToNot(BeNil())
@@ -2245,7 +2245,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(activeExecution.NumYieldReceived()).To(Equal(1))
 			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
 
-			mockedKernelReplica2.EXPECT().ReceivedExecuteReply(execReply2).Times(1)
+			mockedKernelReplica2.EXPECT().ReceivedExecuteReply(execReply2, gomock.Any()).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica2, gomock.Any()).Times(1).Return(nil)
 			yielded, err = executionManager.HandleExecuteReplyMessage(execReply2, mockedKernelReplica2)
 			Expect(errors.Is(err, messaging.ErrExecutionYielded)).To(BeTrue())
@@ -2255,7 +2255,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(activeExecution.NumYieldReceived()).To(Equal(2))
 			Expect(activeExecution.NumLeadReceived()).To(Equal(0))
 
-			mockedKernelReplica3.EXPECT().ReceivedExecuteReply(execReply3).Times(1)
+			mockedKernelReplica3.EXPECT().ReceivedExecuteReply(execReply3, gomock.Any()).Times(1)
 			mockedKernel.EXPECT().ReleasePreCommitedResourcesFromReplica(mockedKernelReplica3, gomock.Any()).Times(1).Return(nil)
 			mockedKernel.EXPECT().NumActiveMigrationOperations().Times(1).Return(1)
 
