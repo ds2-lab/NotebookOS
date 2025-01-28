@@ -544,8 +544,15 @@ func (s *BaseScheduler) RequestNewHost() error {
 
 	result, err := p.Result()
 	if err != nil {
+		// If it is just a scheduling.ErrUnsupportedOperation, then we do not need to notify the frontend.
+		// This is because Docker-based clusters cannot add new nodes themselves.
+		if errors.Is(err, scheduling.ErrUnsupportedOperation) {
+			return err
+		}
+
 		s.log.Error("Failed to add new host because: %v", err)
 		s.sendErrorNotification("Failed to Add Host to Cluster", err.Error())
+
 		return err
 	}
 

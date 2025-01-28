@@ -20,7 +20,9 @@ import (
 	"math/rand"
 	"net"
 	"os"
+	"reflect"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -3727,17 +3729,29 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 
 	var targetReplicaId int32
 	switch val.(type) {
+	case string:
+		var targetReplicaIdAsInt int
+		targetReplicaIdAsInt, err = strconv.Atoi(val.(string))
+
+		if err != nil {
+			d.log.Error("Failed to convert string target replica ID \"%s\" to valid integer: %v", val, err)
+			return nil, err
+		} else {
+			targetReplicaId = int32(targetReplicaIdAsInt)
+		}
 	case float32:
 		targetReplicaId = int32(val.(float32))
 	case float64:
 		targetReplicaId = int32(val.(float64))
+	case int:
+		targetReplicaId = int32(val.(int))
 	case int32:
 		targetReplicaId = val.(int32)
 	case int64:
 		targetReplicaId = int32(val.(int64))
 	default:
-		errorMessage := fmt.Sprintf("Unknown or unexpected type of target replica ID found in metadata of \"%s\" request \"%s\"",
-			msg.JupyterMessageId(), kernel.ID())
+		errorMessage := fmt.Sprintf("Unknown or unexpected type of target replica ID found in metadata of \"%s\" request \"%s\": %v",
+			msg.JupyterMessageId(), kernel.ID(), reflect.TypeOf(val).Name())
 		d.notifyDashboardOfError("Failed to Extract Target Replica ID", errorMessage)
 		panic(errorMessage)
 	}
