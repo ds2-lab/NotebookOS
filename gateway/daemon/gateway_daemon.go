@@ -3469,7 +3469,7 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 			msg.JupyterMessageId(), idx+1, kernel.ID(), msg.JupyterMessageType())
 	}
 
-	if UseRequestForwarder {
+	if d.SubmitExecuteRequestsOneAtATime {
 		d.executeRequestForwarder.EnqueueRequest(jupyterMessages, kernel)
 		return nil
 	}

@@ -38,6 +38,10 @@ distributed_notebook_std_dev_scale_out_per_host_sec: 2
 distributed_notebook_mean_scale_in_per_host_sec: 10
 distributed_notebook_std_dev_scale_in_per_host_sec: 1
 distributed_notebook_use_real_gpus: false
+distributed_notebook_save_stopped_kernel_containers: false
+distributed_notebook_bind_debugpy_port: false
+distributed_notebook_assign_kernel_debug_ports: false
+distributed_notebook_submit_execute_requests_one_at_a_time: true
 
 # Specify 'hdfs' to use HDFS or 'redis' to use Redis.
 distributed_notebook_remote_storage_type: redis
