@@ -1555,6 +1555,16 @@ func (d *ClusterGatewayImpl) staticSchedulingFailureHandler(kernel scheduling.Ke
 
 	d.log.Debug(utils.LightBlueStyle.Render("Resubmitting 'execute_request' message targeting kernel %s now."), kernel.ID())
 	err = d.ShellHandler(kernel, msg)
+
+	if errors.Is(err, types.ErrKernelNotFound) {
+		d.kernels.Store(msg.DestinationId, kernel)
+		d.kernels.Store(msg.JupyterSession(), kernel)
+
+		kernel.BindSession(msg.JupyterSession())
+
+		err = d.executeRequestForwarder(kernel, msg)
+	}
+
 	if err != nil {
 		d.log.Error("Resubmitted 'execute_request' message erred: %s", err.Error())
 		go d.notifyDashboardOfError("Resubmitted 'execute_request' Erred", err.Error())
@@ -3361,11 +3371,17 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 
 		kernel, ok = d.kernels.Load(msg.DestinationId)
 		if !ok {
-			d.log.Error("Could not find kernel or session %s while handling shell message %v of type '%v', session=%v",
+			d.log.Error("Could not find kernel or session \"%s\" while handling shell message %v of type '%v', session=%v",
 				msg.DestinationId, msg.JupyterMessageId(), msg.JupyterMessageType(), msg.JupyterSession())
 
+			d.log.Error("Valid kernels/sessions are:")
+			d.kernels.Range(func(id string, kernel scheduling.Kernel) (contd bool) {
+				d.log.Error("%s (kernel \"%s\")", id, kernel.ID())
+			})
+
 			// We don't know which kernel this came from, so we can't really send an error message in response.
-			return types.ErrKernelNotFound
+			return fmt.Errorf("%w: could not find kernel associated with session \"%s\" or destination \"%s\"",
+				types.ErrKernelNotFound, msg.JupyterSession(), msg.DestinationId)
 		}
 
 		kernel.BindSession(msg.JupyterSession())
@@ -3385,7 +3401,8 @@ func (d *ClusterGatewayImpl) ShellHandler(_ router.Info, msg *messaging.JupyterM
 		}
 
 		// We don't know which kernel this came from, so we can't really send an error message in response.
-		return types.ErrKernelNotFound
+		return fmt.Errorf("%w: could not find kernel associated with session \"%s\" or destination \"%s\"",
+			types.ErrKernelNotFound, msg.JupyterSession(), msg.DestinationId)
 	}
 
 	connInfo := kernel.ConnectionInfo()
