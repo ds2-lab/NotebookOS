@@ -678,6 +678,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			kernel.EXPECT().GetReplicaByID(int32(2)).AnyTimes().Return(replica2, nil)
 			kernel.EXPECT().GetReplicaByID(int32(3)).AnyTimes().Return(replica3, nil)
 
+			mockScheduler.EXPECT().ReserveResourcesForReplica(kernel, replica3, true).Times(1).Return(nil)
+
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 			targetReplica, err := clusterGateway.processExecuteRequest(jMsg, kernel)
 			Expect(targetReplica).ToNot(BeNil())
