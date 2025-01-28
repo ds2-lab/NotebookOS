@@ -2591,6 +2591,20 @@ func (mr *MockHostMockRecorder) HasReservationForKernel(kernelId any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasReservationForKernel", reflect.TypeOf((*MockHost)(nil).HasReservationForKernel), kernelId)
 }
 
+// HasResourcesCommittedToKernel mocks base method.
+func (m *MockHost) HasResourcesCommittedToKernel(kernelId string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasResourcesCommittedToKernel", kernelId)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasResourcesCommittedToKernel indicates an expected call of HasResourcesCommittedToKernel.
+func (mr *MockHostMockRecorder) HasResourcesCommittedToKernel(kernelId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasResourcesCommittedToKernel", reflect.TypeOf((*MockHost)(nil).HasResourcesCommittedToKernel), kernelId)
+}
+
 // HasSpecificReplicaOfKernel mocks base method.
 func (m *MockHost) HasSpecificReplicaOfKernel(kernelId string, replicaId int32) bool {
 	m.ctrl.T.Helper()
