@@ -2585,15 +2585,6 @@ func (d *ClusterGatewayImpl) QueryMessage(_ context.Context, in *proto.QueryMess
 			in.MessageId, wrapper.KernelId, in.KernelId)
 	}
 
-	//Make sure that the RequestTrace is non-nil. If it is, then we'll panic.
-	//requestTrace := entry.RequestTrace
-	//if requestTrace == nil {
-	//	errorMessage := fmt.Sprintf("RequestTrace field of RequestLogEntry for request \"%s\" of type \"%s\" targeting kernel \"%s\" is nil.",
-	//		in.MessageId, entry.JupyterMessageType, entry.KernelId)
-	//	d.notifyDashboardOfError("RequestLogEntry's RequestTrace Field is Nil", errorMessage)
-	//	panic(utils.RedStyle.Render(errorMessage))
-	//}
-
 	d.log.Debug("Received QueryMessage request for Jupyter %s \"%s\" request with JupyterID=\"%s\" targeting kernel \"%s\"",
 		wrapper.MessageType.String(), wrapper.JupyterMessageType, wrapper.JupyterMessageId, wrapper.KernelId)
 
@@ -3724,6 +3715,8 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 	// Check if a specific replica was explicitly specified.
 	val, loaded := metadata[TargetReplicaArg]
 	if !loaded {
+		d.log.Debug("Target replica unspecified for execution \"%s\" targeting kernel \"%s\".",
+			msg.JupyterMessageId(), kernel.ID())
 		return d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
 	}
 
@@ -3752,6 +3745,7 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 	default:
 		errorMessage := fmt.Sprintf("Unknown or unexpected type of target replica ID found in metadata of \"%s\" request \"%s\": %v",
 			msg.JupyterMessageId(), kernel.ID(), reflect.TypeOf(val).Name())
+		d.log.Error(errorMessage)
 		d.notifyDashboardOfError("Failed to Extract Target Replica ID", errorMessage)
 		panic(errorMessage)
 	}
@@ -3762,6 +3756,8 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 	// Typically, a value of -1 is specified when no explicit target is indicated, so this is an
 	// expected outcome.
 	if targetReplicaId <= 0 {
+		d.log.Debug("Target replica unspecified for execution \"%s\" targeting kernel \"%s\".",
+			msg.JupyterMessageId(), kernel.ID())
 		return d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
 	}
 
@@ -3769,12 +3765,15 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 	// 		 while using dynamic scheduling? (Yes, almost certainly.)
 	targetReplica, err := kernel.GetReplicaByID(targetReplicaId)
 	if err != nil {
+		d.log.Error("Failed to get replica %d of kernel \"%s\": %v", targetReplicaId, kernel.ID(), err)
 		return nil, err
 	}
 
 	// Explicitly reserve resources on the specified replica, or return an error if we cannot do so.
 	err = d.Scheduler().ReserveResourcesForReplica(kernel, targetReplica, true)
 	if err != nil {
+		d.log.Error("Failed to reserve resources for replica %d of kernel \"%s\" for execution \"%s\": %v",
+			targetReplica.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), err)
 		return nil, err
 	}
 
@@ -3787,14 +3786,6 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
 	kernelId := kernel.ID()
 	d.log.Debug("Processing shell \"execute_request\" message targeting kernel %s: %s", kernelId, msg.StringFormatted())
-
-	// Register the execution with the kernel.
-	err := kernel.RegisterActiveExecution(msg)
-	if err != nil {
-		d.log.Error("Failed to register new active execution \"%s\" targeting kernel \"%s\": %v",
-			msg.JupyterMessageId(), kernel.ID(), err)
-		return nil, err
-	}
 
 	// Get the session associated with the kernel.
 	session, ok := d.cluster.GetSession(kernelId)
@@ -3812,10 +3803,18 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	}
 
 	// Transition the session to the "expecting to start training soon" state.
-	err = session.SetExpectingTraining().Error()
+	err := session.SetExpectingTraining().Error()
 	if err != nil {
 		d.notifyDashboardOfError("Failed to Set Session to 'Expecting Training'", err.Error())
 		msg.IsFailedExecuteRequest = true
+		return nil, err
+	}
+
+	// Register the execution with the kernel.
+	err = kernel.RegisterActiveExecution(msg)
+	if err != nil {
+		d.log.Error("Failed to register new active execution \"%s\" targeting kernel \"%s\": %v",
+			msg.JupyterMessageId(), kernel.ID(), err)
 		return nil, err
 	}
 
