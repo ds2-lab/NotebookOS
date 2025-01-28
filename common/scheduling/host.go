@@ -165,6 +165,8 @@ type Host interface {
 	Penalty(gpus float64) (float64, PreemptionInfo, error)
 	HasAnyReplicaOfKernel(kernelId string) bool
 	HasReservationForKernel(kernelId string) bool
+	// HasResourcesCommittedToKernel returns true if the Host has resources committed to a replica of the specified kernel.
+	HasResourcesCommittedToKernel(kernelId string) bool
 	HasSpecificReplicaOfKernel(kernelId string, replicaId int32) bool
 	GetAnyReplicaOfKernel(kernelId string) KernelContainer
 	GetSpecificReplicaOfKernel(kernelId string, replicaId int32) KernelContainer

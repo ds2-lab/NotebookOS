@@ -146,7 +146,7 @@ type Host struct {
 	numReplicasPerKernel           int                                                 // The number of replicas per kernel.
 	numReplicasPerKernelDecimal    decimal.Decimal                                     // numReplicasPerKernelDecimal is a cached decimal.Decimal of numReplicasPerKernel.
 	schedulingPolicy               scheduling.Policy                                   // schedulingPolicy is the scheduling policy configured for the cluster.
-	kernelsWithCommittedResources  map[string]*containerWithCommittedResources         // Map from Kernel ID to int32. Values are replica IDs who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID). In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
+	kernelsWithCommittedResources  map[string]*containerWithCommittedResources         // Map from Kernel ID to *containerWithCommittedResources. Values are *containerWithCommittedResources representing containers who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID). In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
 
 	// containersWithPreCommittedResources keeps track of kernels for which resources were specifically pre-commited
 	// along with the IDs of the associated "execute_request" messages. Keys are container IDs.
@@ -1653,6 +1653,15 @@ func (h *Host) ContainerScheduled(container scheduling.KernelContainer) error {
 	h.log.Debug("Container %s was officially started on onto Host %s %v after reservation was created.",
 		container.ContainerID(), h.ID, time.Since(reservation.CreationTimestamp))
 
+	if !reservation.CreatedUsingPendingResources {
+		record, loaded := h.kernelsWithCommittedResources[container.KernelID()]
+		if loaded && record.ReplicaId == -1 {
+			h.log.Debug("Updating missing ReplicaId field of committed resource record for replica %d of kernel %s",
+				container.ReplicaId(), container.KernelID())
+			record.ReplicaId = container.ReplicaId()
+		}
+	}
+
 	// Container was scheduled onto us, so we're no longer being considered for scheduling, as the scheduling
 	// operation concluded (and scheduled a replica onto us).
 	h.isBeingConsideredForScheduling.Add(-1)
@@ -1844,6 +1853,15 @@ func (h *Host) updatePenaltyList(cached *scheduling.PenaltyContainers) *scheduli
 	}
 	sort.Sort(cached)
 	return cached
+}
+
+// HasResourcesCommittedToKernel returns true if the Host has resources committed to a replica of the specified kernel.
+func (h *Host) HasResourcesCommittedToKernel(kernelId string) bool {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	_, loaded := h.kernelsWithCommittedResources[kernelId]
+	return loaded
 }
 
 // HasReservationForKernel returns true if the target Host has a reservation for the specified kernel.

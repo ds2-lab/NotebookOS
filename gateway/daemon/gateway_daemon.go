@@ -2066,7 +2066,6 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// We load-and-delete the entry so that, if we migrate the same replica again in the future, then we can't load
 	// the old AddReplicaOperation struct...
 	key := fmt.Sprintf("%s-%d", in.KernelId, in.ReplicaId)
-	// addReplicaOp, ok := d.addReplicaOperationsByKernelReplicaId.LoadAndDelete(key)
 	addReplicaOp, ok := d.Scheduler().GetAddReplicaOperationManager().LoadAndDelete(key)
 
 	if !ok {
@@ -3772,12 +3771,15 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 		return nil, err
 	}
 
-	// Explicitly reserve resources on the specified replica, or return an error if we cannot do so.
-	err = d.Scheduler().ReserveResourcesForReplica(kernel, targetReplica, true)
-	if err != nil {
-		d.log.Error("Failed to reserve resources for replica %d of kernel \"%s\" for execution \"%s\": %v",
-			targetReplica.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), err)
-		return nil, err
+	// Reserve resources for the target kernel if resources are not already reserved.
+	if !targetReplica.Host().HasResourcesCommittedToKernel(kernel.ID()) {
+		// Explicitly reserve resources on the specified replica, or return an error if we cannot do so.
+		err = d.Scheduler().ReserveResourcesForReplica(kernel, targetReplica, true)
+		if err != nil {
+			d.log.Error("Failed to reserve resources for replica %d of kernel \"%s\" for execution \"%s\": %v",
+				targetReplica.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), err)
+			return nil, err
+		}
 	}
 
 	return targetReplica, nil

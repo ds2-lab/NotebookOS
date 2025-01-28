@@ -2529,8 +2529,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					preparedReplicaIdChan <- smrNodeId
 
 					replicaBeingMigrated, _ := mockedKernel.GetReplicaByID(smrNodeId)
-					err := replicaBeingMigrated.(*mock_scheduling.MockKernelReplica).Host().
-						ContainerRemoved(replicaBeingMigrated.Container())
+					host := replicaBeingMigrated.(*mock_scheduling.MockKernelReplica).Host()
+
+					fmt.Printf("\n\nGoing to remove container from replica %d from host %s. Current resource counts: %v\n\n",
+						smrNodeId, host.GetNodeName(), host.GetResourceCountsAsString())
+
+					err := host.ContainerRemoved(replicaBeingMigrated.Container())
 					Expect(err).To(BeNil())
 
 					return &proto.KernelReplicaSpec{
