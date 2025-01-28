@@ -31,6 +31,7 @@ const (
 type ClusterDaemonOptions struct {
 	scheduling.SchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
 
+	SubmitExecuteRequestsOneAtATime   bool   `name:"submit_execute_requests_one_at_a_time" json:"submit_execute_requests_one_at_a_time" yaml:"submit_execute_requests_one_at_a_time" description:"If true, the Cluster Gateway will submit 'execute_request' messages one-at-a-time to kernels."`
 	LocalDaemonServiceName            string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
 	LocalDaemonServicePort            int    `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
 	GlobalDaemonServiceName           string `name:"global-daemon-service-name"       json:"global-daemon-service-name"        yaml:"global-daemon-service-name"          description:"Name of the Kubernetes service that manages the global networking of local daemons."`

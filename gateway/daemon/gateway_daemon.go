@@ -264,6 +264,10 @@ type ClusterGatewayImpl struct {
 	// io pub *messaging.Socket
 	smrPort int
 
+	// SubmitExecuteRequestsOneAtATime indicates whether the client.ExecuteRequestForwarder should be used to submit
+	// execute requests, which forces requests to be submitted one-at-a-time.
+	SubmitExecuteRequestsOneAtATime bool
+
 	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
 	executeRequestForwarder *client.ExecuteRequestForwarder[[]*messaging.JupyterMessage]
 
@@ -357,28 +361,29 @@ type ClusterGatewayImpl struct {
 
 func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemonOptions, configs ...GatewayDaemonConfig) *ClusterGatewayImpl {
 	clusterGateway := &ClusterGatewayImpl{
-		id:                             uuid.New().String(),
-		connectionOptions:              opts,
-		createdAt:                      time.Now(),
-		transport:                      "tcp",
-		ip:                             opts.IP,
-		DebugMode:                      clusterDaemonOptions.CommonOptions.DebugMode,
-		kernels:                        hashmap.NewCornelkMap[string, scheduling.Kernel](128),
-		kernelIdToKernel:               hashmap.NewCornelkMap[string, scheduling.Kernel](128),
-		kernelSpecs:                    hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
-		waitGroups:                     hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
-		kernelRegisteredNotifications:  hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](128),
-		cleaned:                        make(chan struct{}),
-		smrPort:                        clusterDaemonOptions.SMRPort,
-		kernelsStarting:                hashmap.NewCornelkMap[string, chan struct{}](64),
-		remoteStorageEndpoint:          clusterDaemonOptions.RemoteStorageEndpoint,
-		dockerNetworkName:              clusterDaemonOptions.DockerNetworkName,
-		numResendAttempts:              clusterDaemonOptions.NumResendAttempts,
-		MessageAcknowledgementsEnabled: clusterDaemonOptions.MessageAcknowledgementsEnabled,
-		initialClusterSize:             clusterDaemonOptions.InitialClusterSize,
-		initialConnectionPeriod:        time.Second * time.Duration(clusterDaemonOptions.InitialClusterConnectionPeriodSec),
-		prometheusInterval:             time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
-		ClusterStatistics:              metrics.NewClusterStatistics(),
+		id:                              uuid.New().String(),
+		connectionOptions:               opts,
+		createdAt:                       time.Now(),
+		transport:                       "tcp",
+		ip:                              opts.IP,
+		DebugMode:                       clusterDaemonOptions.CommonOptions.DebugMode,
+		kernels:                         hashmap.NewCornelkMap[string, scheduling.Kernel](128),
+		kernelIdToKernel:                hashmap.NewCornelkMap[string, scheduling.Kernel](128),
+		kernelSpecs:                     hashmap.NewCornelkMap[string, *proto.KernelSpec](128),
+		waitGroups:                      hashmap.NewCornelkMap[string, *registrationWaitGroups](128),
+		kernelRegisteredNotifications:   hashmap.NewCornelkMap[string, *proto.KernelRegistrationNotification](128),
+		cleaned:                         make(chan struct{}),
+		smrPort:                         clusterDaemonOptions.SMRPort,
+		kernelsStarting:                 hashmap.NewCornelkMap[string, chan struct{}](64),
+		remoteStorageEndpoint:           clusterDaemonOptions.RemoteStorageEndpoint,
+		dockerNetworkName:               clusterDaemonOptions.DockerNetworkName,
+		numResendAttempts:               clusterDaemonOptions.NumResendAttempts,
+		MessageAcknowledgementsEnabled:  clusterDaemonOptions.MessageAcknowledgementsEnabled,
+		initialClusterSize:              clusterDaemonOptions.InitialClusterSize,
+		initialConnectionPeriod:         time.Second * time.Duration(clusterDaemonOptions.InitialClusterConnectionPeriodSec),
+		prometheusInterval:              time.Second * time.Duration(clusterDaemonOptions.PrometheusInterval),
+		ClusterStatistics:               metrics.NewClusterStatistics(),
+		SubmitExecuteRequestsOneAtATime: clusterDaemonOptions.SubmitExecuteRequestsOneAtATime,
 		//availablePorts:                 utils.NewAvailablePorts(opts.StartingResourcePort, opts.NumResourcePorts, 2),
 	}
 
@@ -3464,18 +3469,20 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 			msg.JupyterMessageId(), idx+1, kernel.ID(), msg.JupyterMessageType())
 	}
 
-	d.executeRequestForwarder.EnqueueRequest(jupyterMessages, kernel)
+	if UseRequestForwarder {
+		d.executeRequestForwarder.EnqueueRequest(jupyterMessages, kernel)
+		return nil
+	}
 
-	return nil
-
-	// We'll call RequestWithHandlerAndReplicas instead of RequestWithHandler.
+	// We're not using the request forwarder, apparently. So, we'll call RequestWithHandlerAndReplicas ourselves.
+	// We call RequestWithHandlerAndReplicas instead of RequestWithHandler because RequestWithHandler essentially does
+	// what we just did up above before calling RequestWithHandlerAndReplicas; however, RequestWithHandler assumes that
+	// all replicas are to receive an identical message.
 	//
-	// The difference is that RequestWithHandler basically does what we just did up above before calling
-	// RequestWithHandlerAndReplicas; however, RequestWithHandler assumes that all replicas are to receive an
-	// identical message. That's obviously not what we want to happen here, and so we manually created the different
-	// messages for the different replicas ourselves.
-	//return kernel.RequestWithHandlerAndReplicas(context.Background(), "Forwarding", messaging.ShellMessage, jupyterMessages,
-	//	d.kernelReplicaResponseForwarder, func() {}, replicas...)
+	// That's obviously not what we want to happen here, and so we manually created the different messages for the
+	// different replicas ourselves.
+	return kernel.RequestWithHandlerAndReplicas(context.Background(), "Forwarding", messaging.ShellMessage, jupyterMessages,
+		d.kernelReplicaResponseForwarder, func() {}, replicas...)
 }
 
 // executeRequestHandler is a specialized version of ShellHandler that is used explicitly/exclusively for
