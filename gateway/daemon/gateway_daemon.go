@@ -3692,14 +3692,31 @@ func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging
 	}
 
 	// Check if a specific replica was explicitly specified.
-	targetReplicaId, loaded := metadata[TargetReplicaArg]
+	val, loaded := metadata[TargetReplicaArg]
 	if !loaded {
 		return d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
 	}
 
+	var targetReplicaId int32
+	switch val.(type) {
+	case float32:
+		targetReplicaId = int32(val.(float32))
+	case float64:
+		targetReplicaId = int32(val.(float64))
+	case int32:
+		targetReplicaId = val.(int32)
+	case int64:
+		targetReplicaId = int32(val.(int64))
+	default:
+		errorMessage := fmt.Sprintf("Unknown or unexpected type of target replica ID found in metadata of \"%s\" request \"%s\"",
+			msg.JupyterMessageId(), kernel.ID())
+		d.notifyDashboardOfError("Failed to Extract Target Replica ID", errorMessage)
+		panic(errorMessage)
+	}
+
 	// TODO: Could there be a race here where we migrate the new replica right after scheduling it, such as
 	// 		 while using dynamic scheduling? (Yes, almost certainly.)
-	targetReplica, err := kernel.GetReplicaByID(targetReplicaId.(int32))
+	targetReplica, err := kernel.GetReplicaByID(targetReplicaId)
 	if err != nil {
 		return nil, err
 	}
