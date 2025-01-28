@@ -708,6 +708,15 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			host3.EXPECT().GetNodeName().AnyTimes().Return("MockedHost3")
 			host3.EXPECT().ResourceSpec().AnyTimes().Return(hostSpec)
 
+			host1Committed := map[string]struct{}{}
+			host2Committed := map[string]struct{}{}
+			host3Committed := map[string]struct{}{}
+
+			hostCommittedMaps := []map[string]struct{}{host1Committed, host2Committed, host3Committed}
+
+			var host1mutex, host2mutex, host3mutex sync.Mutex
+			mutexes := []*sync.Mutex{&host1mutex, &host2mutex, &host3mutex}
+
 			hosts = []*mock_scheduling.MockHost{host1, host2, host3}
 
 			replica1, _ /* container1 */ = addReplica(1, kernelId, persistentId, host1)
@@ -743,8 +752,23 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					return float64(hostPendingGpus.Load())
 				}).AnyTimes()
 
+				host.EXPECT().
+					HasResourcesCommittedToKernel(gomock.Any()).
+					AnyTimes().
+					DoAndReturn(func(kernelId string) bool {
+						mutexes[i].Lock()
+						defer mutexes[i].Unlock()
+
+						_, loaded := hostCommittedMaps[i][kernelId]
+
+						return loaded
+					})
+
 				currReplica := replicas[hostIndex]
 				host.EXPECT().PreCommitResources(currReplica.Container(), jupyterExecuteRequestId).AnyTimes().DoAndReturn(func(container scheduling.KernelContainer, executeId string) error {
+					mutexes[i].Lock()
+					defer mutexes[i].Unlock()
+
 					Expect(container.ReplicaId()).To(Equal(currReplica.ReplicaID()))
 					Expect(currReplica.Container()).To(Equal(container))
 
@@ -764,11 +788,15 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					hostCommittedGpus.Add(int64(container.ResourceSpec().GPU()))
 					hostIdleGpus.Add(int64(-1 * container.ResourceSpec().GPU()))
+					hostCommittedMaps[i][container.KernelID()] = struct{}{}
 
 					return nil
 				})
 
 				host.EXPECT().ReserveResourcesForSpecificReplica(currReplica.KernelReplicaSpec(), false).AnyTimes().DoAndReturn(func(replicaSpec *proto.KernelReplicaSpec, usePending bool) (bool, error) {
+					mutexes[i].Lock()
+					defer mutexes[i].Unlock()
+
 					fmt.Printf("\nHost %s is reserving resources for replica %d of kernel %s: %v\n",
 						host.GetNodeName(), replicaSpec.ReplicaId, replicaSpec.Kernel.Id, replicaSpec.ResourceSpec().ToDecimalSpec().String())
 
@@ -791,6 +819,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 						hostCommittedGpus.Add(int64(replicaSpec.ResourceSpec().GPU()))
 						hostIdleGpus.Add(int64(-1 * replicaSpec.ResourceSpec().GPU()))
+						hostCommittedMaps[i][replicaSpec.Kernel.Id] = struct{}{}
 					} else {
 						hostPendingGpus := pendingGpus[hostIndex]
 						pending := hostPendingGpus.Load()
@@ -837,7 +866,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			kernel.EXPECT().LastPrimaryReplica().Times(1).Return(nil)
 
-			mockScheduler.EXPECT().ReserveResourcesForReplica(kernel, replicas[targetReplicaId-1], true).Times(1).Return(nil)
+			// mockScheduler.EXPECT().ReserveResourcesForReplica(kernel, replicas[targetReplicaId-1], true).Times(1).Return(nil)
 
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(0))
 
@@ -855,6 +884,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				defer GinkgoRecover()
 				targetReplica, err = clusterGateway.processExecuteRequest(jMsg, kernel)
 
+				fmt.Printf("\nFinished call to processExecuteRequest.\n")
+
 				waitGroupProcessExecuteRequest.Done()
 				Expect(err).To(BeNil())
 			}()
@@ -868,6 +899,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(targetReplica.ReplicaID()).To(Equal(targetReplicaId))
 			Expect(err).To(BeNil())
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
+
+			Expect(targetReplica.Host().CommittedGPUs()).To(Equal(targetReplica.ResourceSpec().GPU()))
 		})
 
 		It("will correctly handle a non-targeted execute_request messages via the processExecuteRequest method", func() {
@@ -901,6 +934,17 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				DoAndReturn(func(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
 					fmt.Println("Mocked Scheduler::FindReadyReplica method has been called.")
 					selectedReplica := replicas[targetReplicaId-1]
+
+					// Reserve resources for the target kernel if resources are not already reserved.
+					if !selectedReplica.Host().HasResourcesCommittedToKernel(kernel.ID()) {
+						// Attempt to pre-commit resources on the specified replica, or return an error if we cannot do so.
+						err = selectedReplica.Host().PreCommitResources(selectedReplica.Container(), executionId)
+						if err != nil {
+							fmt.Printf("[ERROR] Failed to reserve resources for replica %d of kernel \"%s\" for execution \"%s\": %v\n",
+								selectedReplica.ReplicaID(), kernel.ID(), executionId, err)
+							return nil, err
+						}
+					}
 
 					return selectedReplica, nil
 				})
@@ -936,6 +980,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			Expect(targetReplica.ReplicaID()).To(Equal(targetReplicaId))
 			Expect(err).To(BeNil())
 			Expect(kernel.NumActiveExecutionOperations()).To(Equal(1))
+
+			Expect(targetReplica.Host().CommittedGPUs()).To(Equal(targetReplica.ResourceSpec().GPU()))
 		})
 
 		It("should correctly handle targeted execute_request messages via the executeRequestHandler method", func() {
@@ -1044,6 +1090,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host.CommittedGPUs()).To(Equal(float64(initialCommittedGpuValues[replicas[idx].ReplicaID()])))
 				}
 			}
+
+			targetReplica, err := kernel.GetReplicaByID(targetReplicaId)
+			Expect(err).To(BeNil())
+			Expect(targetReplica).ToNot(BeNil())
+
+			Expect(targetReplica.Host().CommittedGPUs()).To(Equal(targetReplica.ResourceSpec().GPU()))
 		})
 
 		It("should correctly handle non-targeted execute_request messages via the executeRequestHandler method", func() {
@@ -1161,6 +1213,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host.CommittedGPUs()).To(Equal(float64(initialCommittedGpuValues[replicas[idx].ReplicaID()])))
 				}
 			}
+
+			targetReplica, err := kernel.GetReplicaByID(targetReplicaId)
+			Expect(err).To(BeNil())
+			Expect(targetReplica).ToNot(BeNil())
+
+			Expect(targetReplica.Host().CommittedGPUs()).To(Equal(targetReplica.ResourceSpec().GPU()))
 		})
 
 		It("should correctly handle targeted execute_request messages with an offset", func() {
