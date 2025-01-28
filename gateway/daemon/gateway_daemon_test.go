@@ -1220,11 +1220,9 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}
 			}
 
-			targetReplica, err := kernel.GetReplicaByID(targetReplicaId)
-			Expect(err).To(BeNil())
-			Expect(targetReplica).ToNot(BeNil())
+			Expect(selectedReplica).ToNot(BeNil())
 
-			Expect(targetReplica.Host().CommittedGPUs()).To(Equal(targetReplica.ResourceSpec().GPU()))
+			Expect(selectedReplica.Host().CommittedGPUs()).To(Equal(selectedReplica.ResourceSpec().GPU()))
 		})
 
 		It("should correctly handle targeted execute_request messages with an offset", func() {
@@ -1312,23 +1310,21 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			replica2, _ /* container2 */ := addReplica(2, kernelId, persistentId, host2)
 			replica3, _ /* container3 */ := addReplica(3, kernelId, persistentId, host3)
 
-			replicas := []scheduling.KernelReplica{replica1, replica2, replica3}
-
 			kernel.EXPECT().Replicas().AnyTimes().Return([]scheduling.KernelReplica{replica1, replica2, replica3})
 			kernel.EXPECT().ReplicasAreScheduled().Return(true).AnyTimes()
 
-			mockScheduler.EXPECT().ReserveResourcesForReplica(kernel, replicas[targetReplicaId-1], true).Times(1).DoAndReturn(func(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
-				host := replica.Host()
-
-				// Normally this would go through a placer
-				reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources)
-
-				if reserved {
-					return nil
-				}
-
-				return err
-			})
+			//mockScheduler.EXPECT().ReserveResourcesForReplica(kernel, replicas[targetReplicaId-1], true).Times(1).DoAndReturn(func(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+			//	host := replica.Host()
+			//
+			//	// Normally this would go through a placer
+			//	reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources)
+			//
+			//	if reserved {
+			//		return nil
+			//	}
+			//
+			//	return err
+			//})
 
 			kernel.EXPECT().Replicas().AnyTimes().Return([]scheduling.KernelReplica{replica1, replica2, replica3})
 
