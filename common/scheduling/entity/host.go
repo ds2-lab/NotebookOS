@@ -1669,7 +1669,8 @@ func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spe
 	}
 
 	oldSubscribedRatio := h.subscribedRatio
-	h.log.Debug("Coordinated Transaction: updating resource reservation for %s", container.ContainerID())
+	h.log.Debug("Coordinated Transaction: updating resource reservation for for replica %d of kernel %s from [%v] to [%v]. Current resource counts: %v.",
+		container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), h.GetResourceCountsAsString())
 
 	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
 	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
