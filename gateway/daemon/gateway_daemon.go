@@ -3676,6 +3676,31 @@ func (d *ClusterGatewayImpl) sendErrorResponse(kernel scheduling.Kernel, request
 	return d.forwardResponse(kernel, typ, request)
 }
 
+// selectTargetReplicaForExecuteRequest selects a target scheduling.KernelReplica of the given scheduling.Kernel for
+// the specified "execute_request" message.
+//
+// selectTargetReplicaForExecuteRequest checks if there is a target replica specified in the request's metadata. If so,
+// then that replica is selected. If not, then selectTargetReplicaForExecuteRequest will invoke the scheduling.Scheduler
+// and the configured scheduling.Policy to select a target scheduling.KernelReplica.
+func (d *ClusterGatewayImpl) selectTargetReplicaForExecuteRequest(msg *messaging.JupyterMessage, kernel scheduling.Kernel) (scheduling.KernelReplica, error) {
+	metadata, err := msg.DecodeMetadata()
+	if err != nil {
+		d.log.Error("Failed to decode metadata of \"%s\" request \"%s\": %v", msg.JupyterMessageType(),
+			msg.JupyterParentMessageId(), err)
+
+		return nil, err
+	}
+
+	var targetReplica scheduling.KernelReplica
+	if targetReplicaId, loaded := metadata[TargetReplicaArg]; loaded {
+		targetReplica, err = kernel.GetReplicaByID(targetReplicaId.(int32))
+	} else {
+		targetReplica, err = d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
+	}
+
+	return targetReplica, err
+}
+
 // processExecuteRequest is an important step of the path of handling an "execute_request".
 //
 // processExecuteRequest handles pre-committing resources, migrating a replica if no replicas are viable, etc.
@@ -3715,12 +3740,10 @@ func (d *ClusterGatewayImpl) processExecuteRequest(msg *messaging.JupyterMessage
 	}
 
 	// Find a "ready" replica to handle this execution request.
-	var targetReplica scheduling.KernelReplica
-	targetReplica, err = d.Scheduler().FindReadyReplica(kernel, msg.JupyterMessageId())
+	targetReplica, err := d.selectTargetReplicaForExecuteRequest(msg, kernel)
 	if err != nil {
 		// If an error is returned, then we should return the error here so that we send an
 		// error message back to the client.
-		// TODO: This definitely sends an error message back to the client, right?
 		d.log.Error("Error while searching for ready replica of kernel '%s': %v", kernel.ID(), err)
 		msg.IsFailedExecuteRequest = true
 		return nil, err
