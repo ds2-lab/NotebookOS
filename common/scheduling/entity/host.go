@@ -1140,15 +1140,24 @@ func (h *Host) unsafeHandleResourceError() error {
 			h.log.Warn("Container for replica %d of kernel %s is actively training with the following resources committed to it: %v",
 				container.ReplicaId(), container.KernelID(), containerSpec.String())
 
-			// Print a warning if they're no longer equal. I don't think this should happen, but maybe with
-			// certain particularly rough message delays, it could?
-			if !containerSpec.Equals(record.PreCommittedResources) {
-				h.log.Warn("Container for replica %d of kernel %s has current spec: %s. This is different than the pre-committed resources: %s.",
-					container.ReplicaId(), container.KernelID(), containerSpec.String(), record.PreCommittedResources.String())
+			record, ok := h.kernelsWithCommittedResources[container.KernelID()]
+			if !ok {
+				h.log.Error("Container for replica %d of kernel %s is supposedly training, but no record of allocated resources available...",
+					container.ReplicaId(), container.KernelID())
+
+				// Skip
+				return true
 			}
 
-			committed = types.ToDecimalSpec(committed.Add(record.PreCommittedResources))
-			idle = idle.Subtract(record.PreCommittedResources)
+			// Print a warning if they're no longer equal. I don't think this should happen, but maybe with
+			// certain particularly rough message delays, it could?
+			if !containerSpec.Equals(record.ResourcesCommitted) {
+				h.log.Warn("Container for replica %d of kernel %s has current spec: %s. This is different than the pre-committed resources: %s.",
+					container.ReplicaId(), container.KernelID(), containerSpec.String(), record.ResourcesCommitted.String())
+			}
+
+			committed = types.ToDecimalSpec(committed.Add(record.ResourcesCommitted))
+			idle = idle.Subtract(record.ResourcesCommitted)
 
 			h.log.Warn("Updated WIP committed resources: %v; Updated WIP idle resources: %v", committed.String(), idle.String())
 		} else {
