@@ -1,4 +1,4 @@
-FROM FROM scusemua/generic-base-jupyter-image:latest
+FROM scusemua/generic-base-jupyter-image:python-3.12.6
 
 # IMPORTANT: This is expected to be built using the provided Makefile from the build context ../../..
 
