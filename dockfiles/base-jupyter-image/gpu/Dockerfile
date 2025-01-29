@@ -1,6 +1,6 @@
 FROM FROM scusemua/generic-base-jupyter-image:latest
 
-# IMPORTANT: This is expected to be built using the provided Makefile from the build context ../.. 
+# IMPORTANT: This is expected to be built using the provided Makefile from the build context ../../..
 
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
