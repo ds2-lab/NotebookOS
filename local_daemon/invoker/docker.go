@@ -113,7 +113,8 @@ type DockerInvoker struct {
 	simulateWriteAfterExec               bool                     // Simulate network write after executing code?
 	simulateWriteAfterExecOnCriticalPath bool                     // Should the simulated network write after executing code be on the critical path?
 	SimulateTrainingUsingSleep           bool                     // SimulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
-	AssignedGpuDeviceIds                 []int                    // AssignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
+	BindGPUs                             bool                     // BindGPUs indicates whether we should bind GPUs to the container or not. We can still train with CPU-PyTorch, so we only want to bind GPUs if we are going to be using real GPUs.
+	AssignedGpuDeviceIds                 []int32                  // AssignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
 	BindAllGpus                          bool                     // BindAllGpus instructs the DockerInvoker to bind ALL GPUs to the container when creating it (if SimulateTrainingUsingSleep is false). Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
 	BindDebugpyPort                      bool                     // BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
 	SaveStoppedKernelContainers          bool                     // If true, then do not fully remove stopped kernel containers.
@@ -183,7 +184,7 @@ type DockerInvokerOptions struct {
 
 	// AssignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that
 	// the DockerInvoker will be invoking.
-	AssignedGpuDeviceIds []int
+	AssignedGpuDeviceIds []int32
 
 	// SimulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
 	SimulateTrainingUsingSleep bool
@@ -193,6 +194,10 @@ type DockerInvokerOptions struct {
 
 	// If true, then do not fully remove stopped kernel containers.
 	SaveStoppedKernelContainers bool
+
+	// BindGPUs indicates whether we should bind GPUs to the container or not.
+	// We can still train with CPU-PyTorch, so we only want to bind GPUs if we are going to be using real GPUs.
+	BindGPUs bool
 }
 
 func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptions, containerMetricsProvider ContainerMetricsProvider) *DockerInvoker {
@@ -235,6 +240,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		BindAllGpus:                          opts.BindAllGpus,
 		BindDebugpyPort:                      opts.BindDebugpyPort,
 		SaveStoppedKernelContainers:          opts.SaveStoppedKernelContainers,
+		BindGPUs:                             opts.BindGPUs,
 	}
 
 	config.InitLogger(&invoker.log, invoker)
@@ -283,7 +289,8 @@ func (ivk *DockerInvoker) initDeploymentMode(opts *DockerInvokerOptions) {
 // InitGpuCommand returns the GPU command snippet that was generated.
 func (ivk *DockerInvoker) InitGpuCommand() string {
 	// If we're simulating training using time.sleep (in Python), then we can just return.
-	if ivk.SimulateTrainingUsingSleep {
+	// Likewise, if we're not supposed to bind GPUs at all, then we just return.
+	if ivk.SimulateTrainingUsingSleep || !ivk.BindGPUs {
 		return ""
 	}
 

@@ -247,6 +247,9 @@ type LocalScheduler struct {
 	// If true, rename stopped kernel containers to save/persist them. Enables you to persist their state, logs, etc.
 	saveStoppedKernelContainers bool
 
+	// realGpusAvailable indicates whether there are real GPUs available that should be bound to kernel containers.
+	realGpusAvailable bool
+
 	// lifetime
 	closed  chan struct{}
 	cleaned chan struct{}
@@ -359,22 +362,11 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	}
 
 	gpusPerHost := localDaemonOptions.GpusPerHost
-	if gpusPerHost == -1 {
-		if !localDaemonOptions.SimulateTrainingUsingSleep {
-			daemon.log.Error("Invalid number of simulated GPUs specified: %d", gpusPerHost)
-			panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d", gpusPerHost))
-		}
-
-		daemon.log.Debug("Attempting to look up the number of real/actual GPUs available on this node.")
-
-		var err error
-		gpusPerHost, err = utils.GetNumberOfActualGPUs()
-		if err != nil {
-			daemon.log.Error("Failed to look up the number of real/actual GPUs available on this node: %v", err)
-			panic(err)
-		}
-
-		daemon.log.Debug("Successfully looked up the number of real/actual GPUs available on this node: %d", gpusPerHost)
+	if gpusPerHost <= 0 {
+		daemon.log.Error("Invalid number of simulated GPUs specified: %d. Value must be >= 1 (even if there are no real GPUs available).",
+			gpusPerHost)
+		panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d. Value must be >= 1 (even if there are no real GPUs available).",
+			gpusPerHost))
 	}
 
 	daemon.resourceManager = resource.NewAllocationManager(&types.Float64Spec{
@@ -980,9 +972,12 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		SimulateWriteAfterExec:               d.schedulingPolicy.PostExecutionStatePolicy().ShouldPerformWriteOperation(),
 		SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
 		SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
-		SimulateTrainingUsingSleep:           d.simulateTrainingUsingSleep,
 		BindDebugpyPort:                      d.bindDebugpyPort,
 		SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
+		SimulateTrainingUsingSleep:           d.simulateTrainingUsingSleep,
+		BindGPUs:                             d.realGpusAvailable,
+		BindAllGpus:                          d.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning,
+		AssignedGpuDeviceIds:                 kernelReplicaSpec.ResourceSpec().GpuDeviceIds,
 	}
 
 	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1903,7 +1898,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 		return nil, status.Error(codes.Internal, resourceError.Error())
 	}
 
-	// If we're performing FCFS batch scheduling, then we commit resources right away.
+	// If we're performing first-come, first-serve (FCFS) batch scheduling, then we commit resources right away.
 	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
 		_, resourceError = d.resourceManager.CommitResources(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec, false)
 
@@ -1930,9 +1925,12 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
 			WorkloadId:                           in.WorkloadId,
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
-			SimulateTrainingUsingSleep:           d.simulateTrainingUsingSleep,
 			BindDebugpyPort:                      d.bindDebugpyPort,
 			SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
+			SimulateTrainingUsingSleep:           d.simulateTrainingUsingSleep,
+			BindGPUs:                             d.realGpusAvailable,
+			BindAllGpus:                          d.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning,
+			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		// Note that we could pass d.prometheusManager directly in the call above.

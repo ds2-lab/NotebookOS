@@ -787,6 +787,9 @@ message ResourceSpec {
   float memory = 2; // In MB.
   int32 gpu = 3; // Number of GPUs.
   float vram = 4; // Amount of VRAM in GB.
+
+  // Assigned GPU device IDs. Only used for scheduling policies with single-training container lifetimes.
+  repeated int32 gpuDeviceIds = 5;
 }
 
 // The kernel id.

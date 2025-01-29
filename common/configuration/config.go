@@ -8,6 +8,7 @@ import (
 // CommonOptions includes all configuration parameters that are common to both the Cluster Gateway
 // and the Local Daemon components.
 type CommonOptions struct {
+	RealGpusAvailable                  bool   `name:"use_real_gpus" json:"use_real_gpus" yaml:"use_real_gpus" description:"Indicates whether there are real GPUs available that should be bound to kernel containers or not."`
 	GpusPerHost                        int    `name:"gpus-per-host"                    json:"gpus-per-host"                     yaml:"gpus-per-host" description:"The number of actual GPUs that are available for use on each node/host."`
 	DeploymentMode                     string `name:"deployment_mode"                  json:"deployment_mode"                   yaml:"deployment_mode"                     description:"SchedulerOptions are 'docker-compose', 'docker-swarm', and 'kubernetes'."`
 	DockerAppName                      string `name:"docker_app_name" json:"docker_app_name" yaml:"docker_app_name" description:"The name of the Docker application (or Docker Stack) that we're deployed within (only relevant when in Docker mode)."`

@@ -29,22 +29,22 @@ var _ = Describe("Docker Invoker Tests", func() {
 		})
 
 		It("Should correctly generate GPU command snippets when binding a single GPU", func() {
-			deviceId := 4
+			for deviceId := int32(0); deviceId < int32(8); deviceId++ {
+				dockerInvoker := &invoker.DockerInvoker{
+					SimulateTrainingUsingSleep: false,
+					BindAllGpus:                false,
+					AssignedGpuDeviceIds:       []int32{deviceId},
+				}
 
-			dockerInvoker := &invoker.DockerInvoker{
-				SimulateTrainingUsingSleep: false,
-				BindAllGpus:                false,
-				AssignedGpuDeviceIds:       []int{deviceId},
+				target := fmt.Sprintf(" --gpus 'device=%d'", deviceId)
+				snippet := dockerInvoker.InitGpuCommand()
+
+				Expect(snippet).To(Equal(target))
 			}
-
-			target := fmt.Sprintf(" --gpus 'device=%d'", deviceId)
-			snippet := dockerInvoker.InitGpuCommand()
-
-			Expect(snippet).To(Equal(target))
 		})
 
 		It("Should correctly generate GPU command snippets when binding multiple GPUs", func() {
-			deviceIds := []int{1, 3, 5}
+			deviceIds := []int32{1, 3, 5}
 
 			dockerInvoker := &invoker.DockerInvoker{
 				SimulateTrainingUsingSleep: false,
@@ -59,7 +59,7 @@ var _ = Describe("Docker Invoker Tests", func() {
 		})
 
 		It("Should correctly generate GPU command snippets when binding all GPUs via ids", func() {
-			deviceIds := []int{0, 1, 2, 3, 4, 5, 6, 7}
+			deviceIds := []int32{0, 1, 2, 3, 4, 5, 6, 7}
 
 			dockerInvoker := &invoker.DockerInvoker{
 				SimulateTrainingUsingSleep: false,
