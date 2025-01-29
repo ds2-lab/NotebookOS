@@ -29,7 +29,7 @@ spec:
             - name: HOST_MOUNT_DIR
               value: /home/bcarver2/kernel_base
             - name: KERNEL_IMAGE
-              value: scusemua/jupyter:latest
+              value: scusemua/jupyter-gpu:latest
             - name: KERNEL_NETWORK
               value: local_daemon_default
             - name: KERNEL_TEMP_BASE_IN_CONTAINER

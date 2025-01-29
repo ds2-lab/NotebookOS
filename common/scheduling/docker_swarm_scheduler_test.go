@@ -94,7 +94,7 @@ var (
 	"global-daemon-service-port": 0,
 	"kubernetes-namespace": "",
 	"use-stateful-set": false,
-	"notebook-image-name": "scusemua/jupyter",
+	"notebook-image-name": "scusemua/jupyter-gpu",
 	"notebook-image-tag": "latest",
 	"distributed-cluster-service-port": 8079,
 	"remote-docker-event-aggregator-port": 5821,

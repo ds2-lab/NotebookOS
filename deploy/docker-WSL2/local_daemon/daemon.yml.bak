@@ -28,7 +28,7 @@ starting-resource-port: 9007
 num-resource-ports: 4096
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
-notebook-image-name: scusemua/jupyter
+notebook-image-name: scusemua/jupyter-gpu
 notebook-image-tag: latest
 scheduler-http-port: 8078
 idle-session-reclamation-policy: none
