@@ -61,7 +61,7 @@ scheduler_extender:
 
 notebook_server:
   port: 8888
-  image: scusemua/jupyter
+  image: scusemua/jupyter-gpu
   image_tag: latest
 
 local_daemon:

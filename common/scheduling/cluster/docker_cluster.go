@@ -12,26 +12,26 @@ import (
 	"time"
 )
 
-// DockerComposeCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
+// DockerCluster encapsulates the logic for a Docker compose Cluster, in which the nodes are simulated
 // locally, and scaling-up and down sometimes involves simulation steps in which nodes are not actually deleted,
 // but simply toggled "off" and "on".
-type DockerComposeCluster struct {
+type DockerCluster struct {
 	*BaseCluster
 }
 
-// NewDockerComposeCluster creates a new DockerComposeCluster struct and returns a pointer to it.
+// NewDockerCluster creates a new DockerCluster struct and returns a pointer to it.
 //
-// NewDockerComposeCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
+// NewDockerCluster should be used when the system is deployed in Docker mode (either compose or swarm, for now).
 // This function accepts parameters that are used to construct a DockerScheduler to be used internally
 // by the Cluster for scheduling decisions.
-func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
+func NewDockerCluster(hostSpec types.Spec, placer scheduling.Placer, hostMapper scheduler.HostMapper, kernelProvider scheduler.KernelProvider,
 	clusterMetricsProvider scheduling.MetricsProvider, notificationBroker scheduler.NotificationBroker,
 	schedulingPolicy internalSchedulingPolicy, statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)),
-	opts *scheduling.SchedulerOptions) *DockerComposeCluster {
+	opts *scheduling.SchedulerOptions) *DockerCluster {
 
-	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerComposeCluster", statisticsUpdaterProvider)
+	baseCluster := newBaseCluster(opts, placer, clusterMetricsProvider, "DockerCluster", statisticsUpdaterProvider)
 
-	dockerCluster := &DockerComposeCluster{
+	dockerCluster := &DockerCluster{
 		BaseCluster: baseCluster,
 	}
 
@@ -43,19 +43,19 @@ func NewDockerComposeCluster(hostSpec types.Spec, placer scheduling.Placer, host
 	return dockerCluster
 }
 
-func (c *DockerComposeCluster) String() string {
-	return fmt.Sprintf("DockerComposeCluster[Size=%d,NumSessions=%d]", c.Len(), c.sessions.Len())
+func (c *DockerCluster) String() string {
+	return fmt.Sprintf("DockerCluster[Size=%d,NumSessions=%d]", c.Len(), c.sessions.Len())
 }
 
 // CanPossiblyScaleOut returns true if the Cluster could possibly scale-out.
-// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
-// it is currently not supported unless there is at least one disabled host already within the cluster.
-func (c *DockerComposeCluster) CanPossiblyScaleOut() bool {
-	return true
+// For now, we scale-out using disabled nodes, so whether we can scale-out depends
+// upon whether there is at least one disabled node.
+func (c *DockerCluster) CanPossiblyScaleOut() bool {
+	return c.DisabledHosts.Len() > 0
 }
 
 // NodeType returns the type of node provisioned within the Cluster.
-func (c *DockerComposeCluster) NodeType() string {
+func (c *DockerCluster) NodeType() string {
 	return types.DockerNode
 }
 
@@ -63,8 +63,8 @@ func (c *DockerComposeCluster) NodeType() string {
 //
 // If the Host does not exist or is not already disabled, then an error is returned.
 //
-// Important: this should be called with the DockerComposeCluster's hostMutex already acquired.
-func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
+// Important: this should be called with the DockerCluster's hostMutex already acquired.
+func (c *DockerCluster) unsafeDisableHost(id string) error {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 
@@ -107,8 +107,8 @@ func (c *DockerComposeCluster) unsafeDisableHost(id string) error {
 //
 // If the Host does not exist or is not disabled, then an error is returned.
 //
-// Important: this should be called with the DockerComposeCluster's hostMutex already acquired.
-func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
+// Important: this should be called with the DockerCluster's hostMutex already acquired.
+func (c *DockerCluster) unsafeEnableHost(id string) error {
 	c.hostMutex.Lock()
 	defer c.hostMutex.Unlock()
 
@@ -142,7 +142,7 @@ func (c *DockerComposeCluster) unsafeEnableHost(id string) error {
 // GetScaleOutCommand returns the function to be executed to perform a scale-out.
 //
 // Important: this should be called with the Cluster's scalingMutex already acquired.
-func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}, scaleOpId string) func() {
+func (c *DockerCluster) GetScaleOutCommand(targetScale int32, coreLogicDoneChan chan interface{}, scaleOpId string) func() {
 	return func() {
 		currentScale := c.Len()
 		numNewNodesRequired := targetScale - int32(currentScale)
@@ -168,8 +168,7 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 				c.log.Debug("Using disabled host %s (ID=%s) in scale-out operation %s.",
 					host.GetNodeName(), hostId, scaleOpId)
 
-				scaleOutDurationSec := (rand.NormFloat64() * c.StdDevScaleOutPerHost.Seconds()) + c.MeanScaleOutPerHost.Seconds()
-				scaleOutDuration := time.Duration(scaleOutDurationSec*1000) * time.Millisecond
+				scaleOutDuration := time.Duration(rand.NormFloat64()*float64(c.StdDevScaleOutPerHost)) + c.MeanScaleOutPerHost
 				c.log.Debug("Simulating scale-out for host %s (ID=%s) during operation %s. Duration: %v",
 					host.GetNodeName(), hostId, scaleOpId, scaleOutDuration)
 				time.Sleep(scaleOutDuration)
@@ -230,7 +229,7 @@ func (c *DockerComposeCluster) GetScaleOutCommand(targetScale int32, coreLogicDo
 // unsafeGetTargetedScaleInCommand returns a function that, when executed, will terminate the hosts specified in the targetHosts parameter.
 //
 // Important: this should be called with the Cluster's hostMutex already acquired.
-func (c *DockerComposeCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+func (c *DockerCluster) unsafeGetTargetedScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
 	numAffectedNodes := int32(c.hosts.Len()) - targetScale
 	if numAffectedNodes != int32(len(targetHosts)) {
 		return nil, fmt.Errorf("inconsistent targetScale (%d) and length of hosts to remove (%d)", targetScale, len(targetHosts))
@@ -281,13 +280,13 @@ func (c *DockerComposeCluster) unsafeGetTargetedScaleInCommand(targetScale int32
 
 // GetScaleInCommand returns the function to be executed to perform a scale-in.
 //
-// DockerComposeCluster scales-in by disabling Local Daemon nodes while leaving their containers active and running.
+// DockerCluster scales-in by disabling Local Daemon nodes while leaving their containers active and running.
 //
 // This is because Docker Compose does not allow you to specify the container to be terminated when scaling-down
 // a docker compose service.
 //
 // Important: this should be called with the Cluster's hostMutex already acquired.
-func (c *DockerComposeCluster) GetScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
+func (c *DockerCluster) GetScaleInCommand(targetScale int32, targetHosts []string, coreLogicDoneChan chan interface{}) (func(), error) {
 	if len(targetHosts) > 0 {
 		return c.unsafeGetTargetedScaleInCommand(targetScale, targetHosts, coreLogicDoneChan)
 	}

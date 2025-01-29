@@ -831,7 +831,7 @@ func (d *ClusterGatewayImpl) PingKernel(ctx context.Context, in *proto.PingInstr
 	}
 
 	jMsg := messaging.NewJupyterMessage(&msg)
-	err = kernel.RequestWithHandler(ctx, "Forwarding", socketType, jMsg, responseHandler, func() {})
+	err = kernel.RequestWithHandler(ctx, "Forwarding", socketType, jMsg, responseHandler, nil)
 	if err != nil {
 		d.log.Error("Error while issuing %s '%s' request %s (JupyterID=%s) to kernel %s: %v", socketType.String(), jMsg.JupyterMessageType(), jMsg.RequestId, jMsg.JupyterMessageId(), kernel.ID(), err)
 		return &proto.Pong{
@@ -1200,7 +1200,7 @@ func (d *ClusterGatewayImpl) issueUpdateReplicaRequest(kernelId string, nodeId i
 	}
 
 	// Issue the 'update-replica' request. We panic if there was an error.
-	if _, err := host.UpdateReplicaAddr(context.TODO(), replicaInfo); err != nil {
+	if _, err := host.UpdateReplicaAddr(context.Background(), replicaInfo); err != nil {
 		d.log.Debug("Failed to add replica %d of kernel %s to SMR cluster because: %v", nodeId, kernelId, err)
 		panic(fmt.Sprintf("Failed to add replica %d of kernel %s to SMR cluster.", nodeId, kernelId))
 	}
@@ -2318,7 +2318,6 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 	_, loaded := d.kernelRegisteredNotifications.LoadOrStore(in.NotificationId, in)
 	if loaded {
 		d.log.Warn("Received duplicate \"Kernel Registered\" notification with ID=%s", in.NotificationId)
-		d.mu.Unlock()
 		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
 	}
 
@@ -2826,17 +2825,35 @@ func (d *ClusterGatewayImpl) WaitKernel(_ context.Context, in *proto.KernelId) (
 }
 
 func (d *ClusterGatewayImpl) Notify(_ context.Context, in *proto.Notification) (*proto.Void, error) {
-	d.log.Debug(utils.NotificationStyles[in.NotificationType].Render("Received %s notification \"%s\": %s"), NotificationTypeNames[in.NotificationType], in.Title, in.Message)
+	var logFunc func(format string, args ...interface{})
+	if in.NotificationType == int32(messaging.ErrorNotification) {
+		logFunc = d.log.Error
+	} else if in.NotificationType == int32(messaging.WarningNotification) {
+		logFunc = d.log.Warn
+	} else {
+		logFunc = d.log.Debug
+	}
+
+	logFunc(utils.NotificationStyles[in.NotificationType].Render("Received %s notification \"%s\": %s"),
+		NotificationTypeNames[in.NotificationType], in.Title, in.Message)
 	go d.notifyDashboard(in.Title, in.Message, messaging.NotificationType(in.NotificationType))
 	return proto.VOID, nil
 }
 
 func (d *ClusterGatewayImpl) SpoofNotifications(_ context.Context, _ *proto.Void) (*proto.Void, error) {
 	go func() {
-		d.notifyDashboard("Spoofed Error", "This is a made-up error message sent by the internalCluster Gateway.", messaging.ErrorNotification)
-		d.notifyDashboard("Spoofed Warning", "This is a made-up warning message sent by the internalCluster Gateway.", messaging.WarningNotification)
-		d.notifyDashboard("Spoofed Info Notification", "This is a made-up 'info' message sent by the internalCluster Gateway.", messaging.InfoNotification)
-		d.notifyDashboard("Spoofed Success Notification", "This is a made-up 'success' message sent by the internalCluster Gateway.", messaging.SuccessNotification)
+		d.notifyDashboard("Spoofed Error",
+			"This is a made-up error message sent by the internalCluster Gateway.",
+			messaging.ErrorNotification)
+		d.notifyDashboard("Spoofed Warning",
+			"This is a made-up warning message sent by the internalCluster Gateway.",
+			messaging.WarningNotification)
+		d.notifyDashboard("Spoofed Info Notification",
+			"This is a made-up 'info' message sent by the internalCluster Gateway.",
+			messaging.InfoNotification)
+		d.notifyDashboard("Spoofed Success Notification",
+			"This is a made-up 'success' message sent by the internalCluster Gateway.",
+			messaging.SuccessNotification)
 	}()
 
 	return proto.VOID, nil
@@ -3561,7 +3578,7 @@ func (d *ClusterGatewayImpl) forwardExecuteRequest(jMsg *messaging.JupyterMessag
 	// That's obviously not what we want to happen here, and so we manually created the different messages for the
 	// different replicas ourselves.
 	return kernel.RequestWithHandlerAndReplicas(context.Background(), "Forwarding", messaging.ShellMessage, jupyterMessages,
-		d.kernelReplicaResponseForwarder, func() {}, replicas...)
+		d.kernelReplicaResponseForwarder, nil, replicas...)
 }
 
 // executeRequestHandler is a specialized version of ShellHandler that is used explicitly/exclusively for
@@ -4228,7 +4245,7 @@ func (d *ClusterGatewayImpl) forwardRequest(kernel scheduling.Kernel, typ messag
 		return nil
 	}
 
-	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelReplicaResponseForwarder, func() {})
+	return kernel.RequestWithHandler(context.Background(), "Forwarding", typ, msg, d.kernelReplicaResponseForwarder, nil)
 }
 
 // sendZmqMessage sends the specified *messaging.JupyterMessage on/using the specified *messaging.Socket.

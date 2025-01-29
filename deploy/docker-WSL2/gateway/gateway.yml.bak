@@ -30,11 +30,11 @@ ipython-config-path: /home/jovyan/.ipython/profile_default/ipython_config.json
 kube-namespace: default
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
-notebook-image-name: scusemua/jupyter
+notebook-image-name: scusemua/jupyter-cpu:latest
 notebook-image-tag: latest
 idle-session-reclamation-policy: none
-# scheduling-policy: static
-scheduling-policy: fcfs-batch
+scheduling-policy: static
+# scheduling-policy: fcfs-batch
 # subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.10
@@ -43,9 +43,9 @@ scaling-limit: 1.15
 scaling-in-limit: 2
 predictive_autoscaling: false
 scaling-buffer-size: 3
-min_cluster_nodes: 4
-max_cluster_nodes: 32
-gpus-per-host: 1
+min_cluster_nodes: 12
+max_cluster_nodes: 48
+gpus-per-host: 8
 local_mode: false
 deployment_mode: "docker-compose"
 debug_mode: true
@@ -59,7 +59,7 @@ num_resend_attempts: 1
 acks_enabled: false
 checkpointing_enabled: true
 remote-docker-event-aggregator-port: 5821
-initial-cluster-size: 4
+initial-cluster-size: 12
 initial-connection-period: 60
 election_timeout_seconds: 3
 simulate_checkpointing_latency: true
@@ -70,3 +70,5 @@ std_dev_scale_in_per_host_sec: 1
 starting_resource_port: 9007
 num_resource_ports: 4096
 use_real_gpus: true
+assign_kernel_debug_ports: false
+submit_execute_requests_one_at_a_time: true

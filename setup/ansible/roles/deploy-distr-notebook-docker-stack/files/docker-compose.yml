@@ -3,7 +3,7 @@ services:
     environment:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
       - USING_WSL2=1
-    image: scusemua/jupyter-debug:latest
+    image: scusemua/jupyter-gpu:latest
     labels:
       app: "distributed_cluster"
       component: "jupyter_server"
@@ -56,7 +56,7 @@ services:
   daemon:
     environment:
       - KERNEL_TEMP_BASE_IN_CONTAINER=/kernel_base
-      - KERNEL_IMAGE=scusemua/jupyter-debug:latest
+      - KERNEL_IMAGE=scusemua/jupyter-gpu:latest
       - HOST_MOUNT_DIR=/home/ubuntu/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base
       - STORAGE=/home/ubuntu/kernel_storage

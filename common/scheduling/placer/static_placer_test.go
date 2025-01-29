@@ -86,7 +86,7 @@ var (
 	"global-daemon-service-port": 0,
 	"kubernetes-namespace": "",
 	"use-stateful-set": false,
-	"notebook-image-name": "scusemua/jupyter",
+	"notebook-image-name": "scusemua/jupyter-gpu",
 	"notebook-image-tag": "latest",
 	"distributed-cluster-service-port": 8079,
 	"remote-docker-event-aggregator-port": 5821,
@@ -107,9 +107,9 @@ var _ = Describe("Static Placer Tests", func() {
 		mockedHostMapper     *mock_scheduler.MockHostMapper
 		mockedKernelProvider *mock_scheduler.MockKernelProvider
 
-		dockerSwarmCluster *cluster.DockerSwarmCluster
-		dockerScheduler    *scheduler.DockerScheduler
-		schedulingPolicy   scheduling.Policy
+		dockerCluster    *cluster.DockerCluster
+		dockerScheduler  *scheduler.DockerScheduler
+		schedulingPolicy scheduling.Policy
 
 		opts *domain.ClusterGatewayOptions
 
@@ -130,7 +130,7 @@ var _ = Describe("Static Placer Tests", func() {
 		fmt.Printf("Host %s now has the following committed resources: %v\n\n",
 			host.GetNodeName(), host.CommittedResources().String())
 
-		err = dockerSwarmCluster.UpdateIndex(host)
+		err = dockerCluster.UpdateIndex(host)
 		Expect(err).To(BeNil())
 	}
 
@@ -138,11 +138,11 @@ var _ = Describe("Static Placer Tests", func() {
 		hostId := uuid.NewString()
 		hostName := fmt.Sprintf("TestHost-%d", idx)
 		resourceSpoofer := testing.NewResourceSpoofer(hostName, hostId, hostSpec)
-		host, _, err := testing.NewHostWithSpoofedGRPC(mockCtrl, dockerSwarmCluster, hostId, hostName, resourceSpoofer)
+		host, _, err := testing.NewHostWithSpoofedGRPC(mockCtrl, dockerCluster, hostId, hostName, resourceSpoofer)
 		Expect(err).To(BeNil())
 		Expect(host).ToNot(BeNil())
 
-		err = dockerSwarmCluster.NewHostAddedOrConnected(host)
+		err = dockerCluster.NewHostAddedOrConnected(host)
 		Expect(err).To(BeNil())
 
 		return host, resourceSpoofer
@@ -186,12 +186,12 @@ var _ = Describe("Static Placer Tests", func() {
 			staticPlacer := placer.NewStaticPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
 			Expect(staticPlacer).ToNot(BeNil())
 
-			dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, staticPlacer, mockedHostMapper,
+			dockerCluster = cluster.NewDockerCluster(hostSpec, staticPlacer, mockedHostMapper,
 				mockedKernelProvider, nil, nil, schedulingPolicy.(scheduler.SchedulingPolicy), // TODO: Fix these messy types
 				func(f func(stats *metrics.ClusterStatistics)) {}, &opts.SchedulerOptions)
 
 			var ok bool
-			dockerScheduler, ok = dockerSwarmCluster.Scheduler().(*scheduler.DockerScheduler)
+			dockerScheduler, ok = dockerCluster.Scheduler().(*scheduler.DockerScheduler)
 			Expect(ok).To(BeTrue())
 			Expect(dockerScheduler).ToNot(BeNil())
 
@@ -257,11 +257,11 @@ var _ = Describe("Static Placer Tests", func() {
 
 			_, _ = createHost(1)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(1))
-			Expect(dockerSwarmCluster.Len()).To(Equal(1))
+			Expect(dockerCluster.Len()).To(Equal(1))
 
 			_, _ = createHost(2)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(2))
-			Expect(dockerSwarmCluster.Len()).To(Equal(2))
+			Expect(dockerCluster.Len()).To(Equal(2))
 
 			kernelResourceSpec := types.NewDecimalSpec(128, 128, 5, 2)
 			kernel1Spec := createKernelSpec(kernelResourceSpec)
@@ -387,11 +387,11 @@ var _ = Describe("Static Placer Tests", func() {
 
 			host1, _ := createHost(1)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(1))
-			Expect(dockerSwarmCluster.Len()).To(Equal(1))
+			Expect(dockerCluster.Len()).To(Equal(1))
 
 			host2, _ := createHost(2)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(2))
-			Expect(dockerSwarmCluster.Len()).To(Equal(2))
+			Expect(dockerCluster.Len()).To(Equal(2))
 
 			Expect(staticPlacer.Len()).To(Equal(2))
 			Expect(staticPlacer.GetIndex().Len()).To(Equal(2))

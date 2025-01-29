@@ -128,7 +128,7 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		//
 		// instead of
 		//
-		// "DockerComposeCluster Hello, world"
+		// "DockerCluster Hello, world"
 		if !strings.HasSuffix(loggerPrefix, " ") {
 			loggerPrefix = loggerPrefix + " "
 		}
@@ -691,6 +691,25 @@ func (c *BaseCluster) registerScaleInOperation(operationId string, targetCluster
 
 	c.activeScaleOperation = scaleOperation
 	return scaleOperation, nil
+}
+
+// DefaultOnScaleOperationFailed is automatically registered when scheduler.ScaleOperation instances are created.
+// DefaultOnScaleOperationFailed just updates some relevant statistics.
+func (c *BaseCluster) DefaultOnScaleOperationFailed(op scheduling.ScaleOperation) {
+	if op == nil {
+		c.log.Error("Received nil ScaleOperation in call to BaseCluster::DefaultOnScaleOperationFailed...")
+		return
+	}
+
+	if op.IsScaleInOperation() {
+		c.log.Debug("Scale-In Operation \"%s\" has failed.", op.GetOperationId())
+		c.numFailedScaleInOps += 1
+	} else if op.IsScaleOutOperation() {
+		c.log.Debug("Scale-Out Operation \"%s\" has failed.", op.GetOperationId())
+		c.numFailedScaleOutOps += 1
+	} else {
+		c.log.Error("Received ScaleOperation that is neither a scale-out operation nor a scale-in operation...")
+	}
 }
 
 // MeanScaleOutTime returns the average time to scale-out and add a Host to the Cluster.

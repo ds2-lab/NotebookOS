@@ -36,7 +36,7 @@ const (
 	DockerTempBaseDefault = ""
 
 	DockerImageName        = "KERNEL_IMAGE"
-	DockerImageNameDefault = "scusemua/jupyter:latest"
+	DockerImageNameDefault = "scusemua/jupyter-gpu:latest"
 
 	DockerStorageVolume        = "STORAGE"
 	DockerStorageVolumeDefault = "/kernel_storage"

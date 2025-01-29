@@ -2073,6 +2073,8 @@ class DistributedKernel(IPythonKernel):
             # or until the leader finishes executing the user-submitted code.
             current_election: Election = self.synchronizer.current_election
             metadata["election_metadata"] = current_election.get_election_metadata()
+            metadata["election_metadata"]["leader_term"] = self.synclog.leader_term
+            metadata["election_metadata"]["leader_id"] = self.synclog.leader_id
 
             # If we weren't the lead replica, then we didn't recover the term number up above, so
             # let's get the current term number from the election object.

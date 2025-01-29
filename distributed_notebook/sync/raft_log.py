@@ -555,11 +555,11 @@ class RaftLog(object):
                 )
 
             return self.__buffer_vote(vote, received_at=received_at)
-        elif vote.election_term > self._current_election.term_number:
+        elif vote.election_term > self.current_election_term:
             self.log.warning(
                 f'Received vote for node "{vote.proposed_node_id}" from node {vote.proposer_id} '
                 f"from future election term {vote.election_term} "
-                f"while local election is for term {self._current_election.term_number}. "
+                f"while local election is for term {self.current_election_term}. "
                 f"Match: {self._node_id == vote.proposer_id}. Will buffer vote for now. "
                 f"Proposal: {str(vote)}"
             )
@@ -944,15 +944,36 @@ class RaftLog(object):
                     )
 
             if self.leader_id != notification.proposer_id:
-                self.log.error(
-                    f"Current leader ID is {self.leader_id}, but we just received an "
-                    f'"election finished" notification with proposer ID = {notification.proposer_id}...'
+                self.log.warning(
+                    f'Current leader ID is {self.leader_id}, but we just received an '
+                    f'"election finished" notification with proposer ID = {notification.proposer_id}. '
+                    f'Notification term number: {notification.election_term}. Our local election term: '
+                    f'{self.current_election_term}. Leader term: {self.leader_term}.'
                 )
-                raise ValueError(
-                    f'Inconsistency detected between our local leader ID and the proposer ID of "election finished" notification. '
-                    f'Leader ID: {self.leader_id}. "Election finished" notification proposer ID: '
-                    f"{notification.proposer_id}."
-                )
+
+                # Pretty sure this is a bug/race condition of some sort, in which something updated our leader term,
+                # but not our leader ID. Maybe the leader checkpointed some state right before sending the 'execution
+                # complete' notification, and so we updated our leader term but not our leader ID. (I don't think that
+                # specific scenario is possible, since we still need to process a vote before this point, and if we
+                # process the vote, then we'd have updated our leader ID then, unless we discarded the vote for some
+                # reason?) In any case, if our leader term matches the notification's term, and if our current election
+                # is the one for which we just received the notification, then we'll just update our leader ID, but we'll
+                # still send an error notification so that I can potentially debug this.
+                if self.leader_term == notification.election_term and self.current_election_term == notification.election_term:
+                    self._leader_id = notification.proposer_id
+                    self._report_error_callback(
+                        f"Inconsistency detected between our local leader ID and the proposer ID of 'election finished' notification.",
+                        f'Leader ID: {self.leader_id}. "Election finished" notification proposer ID: '
+                        f"{notification.proposer_id}. Notification term number: {notification.election_term}. "
+                        f"Our local election term: {self.current_election_term}. Leader term: {self.leader_term}."
+                    )
+                else:
+                    raise ValueError(
+                        f'Inconsistency detected between our local leader ID and the proposer ID of "election finished" notification. '
+                        f'Leader ID: {self.leader_id}. "Election finished" notification proposer ID: '
+                        f"{notification.proposer_id}. Notification term number: {notification.election_term}. "
+                        f"Our local election term: {self.current_election_term}. Leader term: {self.leader_term}."
+                    )
 
             self.current_election.set_execution_complete(
                 fast_forwarding=fast_forwarding,
@@ -1334,13 +1355,12 @@ class RaftLog(object):
         self.log.debug(f"Received SynchronizedValue: {str(committedValue)}")
 
         if committedValue.election_term < self._leader_term:
-            self.log.warning(
-                f"Committed value has election term {committedValue.election_term} < our leader term of {self._leader_term}..."
-            )
-            # raise ValueError(f"Leader term of committed value {committedValue.election_term} is less than our current leader term {self._leader_term}")
+            self.log.warning(f"Committed value has election term {committedValue.election_term} < "
+                             f"our leader term of {self._leader_term}...")
 
         self.log.debug(
-            f"Updating self._leader_term from {self._leader_term} to {committedValue.election_term}, the leader term of the committed non-proposal SynchronizedValue."
+            f"Updating self._leader_term from {self._leader_term} to {committedValue.election_term}, "
+            f"the leader term of the committed non-proposal SynchronizedValue."
         )
         self._leader_term = committedValue.election_term
 

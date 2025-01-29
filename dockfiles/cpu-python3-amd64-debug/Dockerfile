@@ -1,5 +1,5 @@
 # FROM scusemua/base-jupyter-image-python3.12.6:latest
-FROM scusemua/base-jupyter-image:python3.12.6-cuda
+FROM scusemua/base-jupyter-image:python3.12.6-cpu
 
 ENV LANG=C.UTF-8 \
     TZ=Etc/UTC \
@@ -28,9 +28,6 @@ RUN mkdir -p /home/jovyan/.cache/distributed_notebook/
 
 RUN chmod -R 777 /home/jovyan/.cache/
 RUN chown -R jovyan /home/jovyan/.cache/
-
-# TODO: Remove this once I rebuild the base image.
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install aiohttp>=3.11.11
 
 # Install distributed_notebook module.
 RUN /home/jovyan/Python-3.12.6/debug/python -m pip install /distributed_notebook/distributed_notebook

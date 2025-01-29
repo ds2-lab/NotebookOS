@@ -438,8 +438,8 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		hosts = append(hosts, hostBatch...)
 
 		if len(hosts) < s.schedulingPolicy.NumReplicas() {
-			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
-				len(hosts), s.schedulingPolicy.NumReplicas(), kernelSpec.Id)
+			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far (attempt=%d).",
+				len(hosts), s.schedulingPolicy.NumReplicas(), kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
 
 			if !s.isScalingOutEnabled() {
 				s.log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
@@ -933,7 +933,12 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.UpdateIndex(targetHost)
+		updateIndexErr := s.UpdateIndex(targetHost)
+		if updateIndexErr != nil {
+			s.log.Error("Failed to update index containing host %s: %v", targetHost.GetNodeName(), updateIndexErr)
+			err = errors.Join(err, updateIndexErr)
+		}
+
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -955,7 +960,12 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.UpdateIndex(targetHost)
+		updateIndexErr := s.UpdateIndex(targetHost)
+		if updateIndexErr != nil {
+			s.log.Error("Failed to update index containing host %s: %v", targetHost.GetNodeName(), updateIndexErr)
+			err = errors.Join(err, updateIndexErr)
+		}
+
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -988,7 +998,12 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.UpdateIndex(targetHost)
+		updateIndexErr := s.UpdateIndex(targetHost)
+		if updateIndexErr != nil {
+			s.log.Error("Failed to update index containing host %s: %v", targetHost.GetNodeName(), updateIndexErr)
+			err = errors.Join(err, updateIndexErr)
+		}
+
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -1013,7 +1028,12 @@ func (s *BaseScheduler) MigrateKernelReplica(kernelReplica scheduling.KernelRepl
 			err = errors.Join(err, releaseReservationError)
 		}
 
-		s.UpdateIndex(targetHost)
+		updateIndexErr := s.UpdateIndex(targetHost)
+		if updateIndexErr != nil {
+			s.log.Error("Failed to update index containing host %s: %v", targetHost.GetNodeName(), updateIndexErr)
+			err = errors.Join(err, updateIndexErr)
+		}
+
 		return &proto.MigrateKernelResponse{
 			Id:          -1,
 			Hostname:    ErrorHostname,
@@ -1113,14 +1133,14 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 	}
 
 	resultChan := make(chan interface{}, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*180)
 	defer cancel()
 
 	go func() {
 		gRpcClientConnection := originalHost.GetGrpcConnection()
 
 		if gRpcClientConnection == nil {
-			err := fmt.Errorf("gRPC Client Connection with host %s (ID=%s) is nil. I hope we're unit-testing.",
+			err := fmt.Errorf("gRPC Client Connection with host %s (ID=%s) is nil; I hope we're unit-testing",
 				originalHost.GetNodeName(), originalHost.GetID())
 			s.log.Warn(utils.OrangeStyle.Render(err.Error()))
 			// resultChan <- err

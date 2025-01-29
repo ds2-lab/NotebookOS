@@ -124,6 +124,18 @@ func (mr *MockClusterMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockCluster)(nil).Close))
 }
 
+// DefaultOnScaleOperationFailed mocks base method.
+func (m *MockCluster) DefaultOnScaleOperationFailed(op scheduling.ScaleOperation) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "DefaultOnScaleOperationFailed", op)
+}
+
+// DefaultOnScaleOperationFailed indicates an expected call of DefaultOnScaleOperationFailed.
+func (mr *MockClusterMockRecorder) DefaultOnScaleOperationFailed(op any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DefaultOnScaleOperationFailed", reflect.TypeOf((*MockCluster)(nil).DefaultOnScaleOperationFailed), op)
+}
+
 // DemandAndBusyGPUs mocks base method.
 func (m *MockCluster) DemandAndBusyGPUs() (float64, float64, int, int, int) {
 	m.ctrl.T.Helper()
