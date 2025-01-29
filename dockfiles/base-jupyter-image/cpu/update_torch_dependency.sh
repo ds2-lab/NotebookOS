@@ -3,7 +3,7 @@
 REQUIREMENTS_FILE="distributed_notebooks_requirements.txt"
 
 # torch (PyTorch)
-NEW_TORCH_ENTRY="torch @ https://download.pytorch.org/whl/cpu-cxx11-abi/torch-2.5.1%2Bcpu.cxx11.abi-cp312-cp312-linux_x86_64.whl#sha256=0b55f1516410e4255132533b9f5a9621e48b7504d8adf22d927c57c9fa441bfd"
+NEW_TORCH_ENTRY="torch @ https://download.pytorch.org/whl/cpu/torch-2.5.1%2Bcpu-cp312-cp312-linux_x86_64.whl#sha256=4856f9d6925121d13c2df07aa7580b767f449dfe71ae5acde9c27535d5da4840"
 if grep -q "^torch$" "$REQUIREMENTS_FILE"; then
   sed -E -i "s|^torch\b.*|$NEW_TORCH_ENTRY|" "$REQUIREMENTS_FILE"
   echo "Updated 'torch' dependency entry"
