@@ -958,7 +958,7 @@ class RaftLog(object):
                 # process the vote, then we'd have updated our leader ID then, unless we discarded the vote for some
                 # reason?) In any case, if our leader term matches the notification's term, and if our current election
                 # is the one for which we just received the notification, then we'll just update our leader ID, but we'll
-                # still send an error notification so that I can potentially debug this. 
+                # still send an error notification so that I can potentially debug this.
                 if self.leader_term == notification.election_term and self.current_election_term == notification.election_term:
                     self._leader_id = notification.proposer_id
                     self._report_error_callback(
