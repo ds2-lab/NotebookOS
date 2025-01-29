@@ -3,7 +3,7 @@ include ../../env.mk
 all: build
 
 update-pytorch-dependency:
-	update_torch_dependency.sh
+	./update_torch_dependency.sh
 
 gen-requirements-file:
 	python3 generate_requirements_txt.py
