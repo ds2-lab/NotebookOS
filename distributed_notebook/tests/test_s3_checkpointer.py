@@ -18,6 +18,16 @@ from distributed_notebook.deep_learning.models.simple_model import SimpleModel, 
 from distributed_notebook.sync.checkpointing.s3 import S3Checkpointer
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
 
+from .util import create_s3_bucket_if_not_exists
+
+@pytest.fixture(scope="session", autouse=True)
+def create_s3_bucket():
+    """
+    Allows plugins and conftest files to perform initial configuration.
+    This hook is called for every plugin and initial conftest
+    file after command line options have been parsed.
+    """
+    create_s3_bucket_if_not_exists("distributed-notebook-storage")
 
 def test_create():
     checkpointer: S3Checkpointer = S3Checkpointer()
