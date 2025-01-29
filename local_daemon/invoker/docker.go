@@ -98,7 +98,7 @@ type DockerInvoker struct {
 	smrPort                              int                      // Port used by the SMR cluster.
 	closing                              int32                    // Indicates whether the container is closing/shutting down.
 	id                                   string                   // Uniquely identifies this Invoker instance.
-	kernelDebugPort                      int                      // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
+	KernelDebugPort                      int                      // Debug port used within the kernel to expose an HTTP server and the go net/pprof debug server.
 	remoteStorageEndpoint                string                   // Endpoint of the remote storage.
 	remoteStorage                        string                   // Type of remote storage, either 'hdfs' or 'redis'
 	dockerStorageBase                    string                   // Base directory in which the persistent store data is stored.
@@ -107,25 +107,25 @@ type DockerInvoker struct {
 	containerMetricsProvider             ContainerMetricsProvider // containerMetricsProvider enables the DockerInvoker to publish relevant metrics, such as latency of creating containers.
 	simulateCheckpointingLatency         bool                     // simulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of performing checkpointing after a migration (read) and after executing code (write).
 	electionTimeoutSeconds               int                      // electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before deciding on a leader
-	deploymentMode                       types.DeploymentMode     // deploymentMode is the deployment mode of the cluster
-	runKernelsInGdb                      bool                     // If true, then the kernels will be run in GDB.
+	DeploymentMode                       types.DeploymentMode     // DeploymentMode is the deployment mode of the cluster
+	RunKernelsInGdb                      bool                     // If true, then the kernels will be run in GDB.
 	prometheusMetricsPort                int                      // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
 	simulateWriteAfterExec               bool                     // Simulate network write after executing code?
 	simulateWriteAfterExecOnCriticalPath bool                     // Should the simulated network write after executing code be on the critical path?
-	simulateTrainingUsingSleep           bool                     // simulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
-	assignedGpuDeviceIds                 []int                    // assignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if simulateTrainingUsingSleep is true, then this option is ultimately ignored.
-	bindAllGpus                          bool                     // bindAllGpus instructs the DockerInvoker to bind ALL GPUs to the container when creating it (if simulateTrainingUsingSleep is false). Note that if simulateTrainingUsingSleep is true, then this option is ultimately ignored.
-	bindDebugpyPort                      bool                     // bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
-	saveStoppedKernelContainers          bool                     // If true, then do not fully remove stopped kernel containers.
-	workloadId                           string
-	smrEnabled                           bool
+	SimulateTrainingUsingSleep           bool                     // SimulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	AssignedGpuDeviceIds                 []int                    // AssignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
+	BindAllGpus                          bool                     // BindAllGpus instructs the DockerInvoker to bind ALL GPUs to the container when creating it (if SimulateTrainingUsingSleep is false). Note that if SimulateTrainingUsingSleep is true, then this option is ultimately ignored.
+	BindDebugpyPort                      bool                     // BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
+	SaveStoppedKernelContainers          bool                     // If true, then do not fully remove stopped kernel containers.
+	WorkloadId                           string
+	SmrEnabled                           bool
 
 	// IsInDockerSwarm indicates whether we're running within a Docker Swarm cluster.
 	// If IsInDockerSwarm is false, then we're just a regular docker compose application.
 	//
 	// When in Docker Swarm, we add a constraint when invoking kernel replicas to ensure
 	// that they are scheduled onto our node.
-	isInDockerSwarm bool
+	IsInDockerSwarm bool
 }
 
 // DockerInvokerOptions encapsulates a number of configuration parameters required by the DockerInvoker in order
@@ -217,53 +217,49 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		remoteStorageEndpoint:                opts.RemoteStorageEndpoint,
 		remoteStorage:                        opts.RemoteStorage,
 		id:                                   uuid.NewString(),
-		kernelDebugPort:                      opts.KernelDebugPort,
+		KernelDebugPort:                      opts.KernelDebugPort,
 		dockerNetworkName:                    dockerNetworkName,
 		dockerStorageBase:                    opts.DockerStorageBase,
-		runKernelsInGdb:                      opts.RunKernelsInGdb,
+		RunKernelsInGdb:                      opts.RunKernelsInGdb,
 		containerMetricsProvider:             containerMetricsProvider,
 		simulateCheckpointingLatency:         opts.SimulateCheckpointingLatency,
-		isInDockerSwarm:                      opts.IsInDockerSwarm,
+		IsInDockerSwarm:                      opts.IsInDockerSwarm,
 		prometheusMetricsPort:                opts.PrometheusMetricsPort,
 		electionTimeoutSeconds:               opts.ElectionTimeoutSeconds,
 		simulateWriteAfterExec:               opts.SimulateWriteAfterExec,
 		simulateWriteAfterExecOnCriticalPath: opts.SimulateWriteAfterExecOnCriticalPath,
-		workloadId:                           opts.WorkloadId,
-		smrEnabled:                           opts.SmrEnabled,
-		simulateTrainingUsingSleep:           opts.SimulateTrainingUsingSleep,
-		assignedGpuDeviceIds:                 opts.AssignedGpuDeviceIds,
-		bindAllGpus:                          opts.BindAllGpus,
-		bindDebugpyPort:                      opts.BindDebugpyPort,
-		saveStoppedKernelContainers:          opts.SaveStoppedKernelContainers,
+		WorkloadId:                           opts.WorkloadId,
+		SmrEnabled:                           opts.SmrEnabled,
+		SimulateTrainingUsingSleep:           opts.SimulateTrainingUsingSleep,
+		AssignedGpuDeviceIds:                 opts.AssignedGpuDeviceIds,
+		BindAllGpus:                          opts.BindAllGpus,
+		BindDebugpyPort:                      opts.BindDebugpyPort,
+		SaveStoppedKernelContainers:          opts.SaveStoppedKernelContainers,
 	}
 
 	config.InitLogger(&invoker.log, invoker)
 
-	// This is a DockerInvoker, so it's one of these two.
-	if opts.IsInDockerSwarm {
-		invoker.deploymentMode = types.DockerSwarmMode
-	} else {
-		invoker.deploymentMode = types.DockerComposeMode
-	}
+	invoker.initDeploymentMode(opts)
 
 	invoker.LocalInvoker.statusChanged = invoker.defaultStatusChangedHandler
 
 	invoker.invokerCmd = strings.ReplaceAll(dockerInvokerCmd, VarContainerNetwork, utils.GetEnv(DockerNetworkNameEnv, DockerNetworkNameDefault))
 	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarStorageVolume, utils.GetEnv(DockerStorageVolume, DockerStorageVolumeDefault))
 
-	if invoker.runKernelsInGdb {
+	if invoker.RunKernelsInGdb {
 		invoker.invokerCmd += " -e RUN_IN_GDB=1"
 	}
 
-	invoker.initGpuCommand()
+	gpuCommandSnippet := invoker.InitGpuCommand()
+	invoker.invokerCmd += gpuCommandSnippet
 
-	if invoker.bindDebugpyPort {
-		debugpyPort := invoker.kernelDebugPort + 10000
+	if invoker.BindDebugpyPort {
+		debugpyPort := invoker.KernelDebugPort + 10000
 		invoker.invokerCmd += fmt.Sprintf(" -p %d:%d", debugpyPort, debugpyPort)
 	}
 
-	if invoker.kernelDebugPort > 1024 {
-		invoker.invokerCmd += fmt.Sprintf(" -p %d:%d", invoker.kernelDebugPort, invoker.kernelDebugPort)
+	if invoker.KernelDebugPort > 1024 {
+		invoker.invokerCmd += fmt.Sprintf(" -p %d:%d", invoker.KernelDebugPort, invoker.KernelDebugPort)
 	}
 
 	invoker.invokerCmd += " {image}"
@@ -273,24 +269,34 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	return invoker
 }
 
-// initGpuCommand adds/creates the GPU-binding-related part of the docker invoke command.
-func (ivk *DockerInvoker) initGpuCommand() {
+func (ivk *DockerInvoker) initDeploymentMode(opts *DockerInvokerOptions) {
+	// This is a DockerInvoker, so it's one of these two.
+	if opts.IsInDockerSwarm {
+		ivk.DeploymentMode = types.DockerSwarmMode
+	} else {
+		ivk.DeploymentMode = types.DockerComposeMode
+	}
+}
+
+// InitGpuCommand adds/creates the GPU-binding-related part of the docker invoke command.
+//
+// InitGpuCommand returns the GPU command snippet that was generated.
+func (ivk *DockerInvoker) InitGpuCommand() string {
 	// If we're simulating training using time.sleep (in Python), then we can just return.
-	if ivk.simulateTrainingUsingSleep {
-		return
+	if ivk.SimulateTrainingUsingSleep {
+		return ""
 	}
 
 	// If we're binding all available GPUs, then we simply append "--gpus all" to the command.
-	if ivk.bindAllGpus {
-		ivk.invokerCmd += " --gpus all"
-		return
+	if ivk.BindAllGpus {
+		return " --gpus all"
 	}
 
-	// If no GPU device IDs were specified (and bindAllGpus is false), then we can just return.
-	if len(ivk.assignedGpuDeviceIds) == 0 {
+	// If no GPU device IDs were specified (and BindAllGpus is false), then we can just return.
+	if len(ivk.AssignedGpuDeviceIds) == 0 {
 		ivk.log.Warn("The use of real GPUs is enabled; however, no GPU device IDs were specified, " +
 			"and we were not instructed to bind all GPUs...")
-		return
+		return ""
 	}
 
 	// We'll need to append something like this to the invocation command:
@@ -298,16 +304,16 @@ func (ivk *DockerInvoker) initGpuCommand() {
 	// --gpus '"device=0,2"'
 	//
 	// The snippet above would, as an example, bind GPUs 0 and 2 to the container.
-	gpuCommandSnippet := "--gpus device='\"{device_ids}\"'"
+	gpuCommandSnippet := " --gpus 'device={device_ids}'"
 
 	// Iterate over all the assigned GPU device IDs, building out the string to include in the GPU command snippet.
 	deviceIdsString := ""
-	for i, deviceId := range ivk.assignedGpuDeviceIds {
+	for i, deviceId := range ivk.AssignedGpuDeviceIds {
 		// Append the GPU device ID to the string.
 		deviceIdsString += fmt.Sprintf("%d", deviceId)
 
 		// If there is going to be another GPU device ID, then we'll append a comma before continuing with the loop.
-		if i < len(ivk.assignedGpuDeviceIds)-1 {
+		if i < len(ivk.AssignedGpuDeviceIds)-1 {
 			deviceIdsString += ","
 		}
 	}
@@ -315,8 +321,7 @@ func (ivk *DockerInvoker) initGpuCommand() {
 	// Replace the "{device_ids}" substring in the gpuCommandSnippet with the string that we just built out.
 	gpuCommandSnippet = strings.ReplaceAll(gpuCommandSnippet, "{device_ids}", deviceIdsString)
 
-	// Append the 'GPU command snippet' to the invoker command.
-	ivk.invokerCmd += gpuCommandSnippet
+	return gpuCommandSnippet
 }
 
 // KernelCreated returns a bool indicating whether kernel the container has been created.
@@ -379,7 +384,7 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 
 	ivk.log.Debug("hostMountDir = \"%v\"\n", ivk.hostMountDir)
 	ivk.log.Debug("targetMountDir = \"%v\"\n", ivk.hostMountDir)
-	ivk.log.Debug("kernel debug port = %d", ivk.kernelDebugPort)
+	ivk.log.Debug("kernel debug port = %d", ivk.KernelDebugPort)
 
 	ivk.log.Debug("Prepared connection info: %v\n", connectionInfo)
 
@@ -422,8 +427,8 @@ func (ivk *DockerInvoker) InvokeWithContext(ctx context.Context, spec *proto.Ker
 	cmd = strings.ReplaceAll(cmd, VarConfigFile, filepath.Base(configFile))
 	cmd = strings.ReplaceAll(cmd, VarKernelId, spec.Kernel.Id)
 	cmd = strings.ReplaceAll(cmd, VarSessionId, spec.Kernel.Session)
-	cmd = strings.ReplaceAll(cmd, VarDebugPort, fmt.Sprintf("%d", ivk.kernelDebugPort))
-	// cmd = strings.ReplaceAll(cmd, VarKernelDebugPyPort, fmt.Sprintf("%d", ivk.kernelDebugPort+10000))
+	cmd = strings.ReplaceAll(cmd, VarDebugPort, fmt.Sprintf("%d", ivk.KernelDebugPort))
+	// cmd = strings.ReplaceAll(cmd, VarKernelDebugPyPort, fmt.Sprintf("%d", ivk.KernelDebugPort+10000))
 
 	for i, arg := range spec.Kernel.Argv {
 		spec.Kernel.Argv[i] = strings.ReplaceAll(arg, VarConnectionFile, connectionFile)
@@ -524,7 +529,7 @@ func (ivk *DockerInvoker) Close() error {
 	// Status will not change anymore, reset the handler.
 	ivk.statusChanged = ivk.defaultStatusChangedHandler
 
-	if ivk.saveStoppedKernelContainers {
+	if ivk.SaveStoppedKernelContainers {
 		return ivk.renameStoppedContainer()
 	}
 
@@ -703,12 +708,12 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			SpecMemoryMb:                 float64(spec.Kernel.ResourceSpec.Memory),
 			SpecGpus:                     int(spec.Kernel.ResourceSpec.Gpu),
 			SpecVramGb:                   float64(spec.Kernel.ResourceSpec.Vram),
-			DeploymentMode:               ivk.deploymentMode,
+			DeploymentMode:               ivk.DeploymentMode,
 			SimulateCheckpointingLatency: ivk.simulateCheckpointingLatency,
 			ElectionTimeoutSeconds:       ivk.electionTimeoutSeconds,
-			WorkloadId:                   ivk.workloadId,
-			SmrEnabled:                   ivk.smrEnabled,
-			SimulateTrainingUsingSleep:   ivk.simulateTrainingUsingSleep,
+			WorkloadId:                   ivk.WorkloadId,
+			SmrEnabled:                   ivk.SmrEnabled,
+			SimulateTrainingUsingSleep:   ivk.SimulateTrainingUsingSleep,
 		},
 	}
 	if spec.PersistentId != nil {
