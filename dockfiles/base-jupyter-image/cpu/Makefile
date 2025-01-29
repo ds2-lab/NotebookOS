@@ -5,12 +5,13 @@ all: build
 update-pytorch-dependency:
 	update_torch_dependency.sh
 
-gen-requirements:
+gen-requirements-file:
 	python3 generate_requirements_txt.py
-	update_torch_dependency.sh
 
-docker: gen-requirements update-pytorch-dependency
-	docker build ${PARAMS} -t $(DOCKER_USER)base-jupyter-image:python3.12.6-cuda -f Dockerfile ../..
+gen-requirements: gen-requirements-file update-pytorch-dependency
+
+docker: gen-requirements
+	docker build ${PARAMS} -t $(DOCKER_USER)base-jupyter-image:python3.12.6-cpu -f Dockerfile ../..
 
 build: docker
 
