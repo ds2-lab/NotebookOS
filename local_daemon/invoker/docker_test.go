@@ -57,5 +57,20 @@ var _ = Describe("Docker Invoker Tests", func() {
 
 			Expect(snippet).To(Equal(target))
 		})
+
+		It("Should correctly generate GPU command snippets when binding all GPUs via ids", func() {
+			deviceIds := []int{0, 1, 2, 3, 4, 5, 6, 7}
+
+			dockerInvoker := &invoker.DockerInvoker{
+				SimulateTrainingUsingSleep: false,
+				BindAllGpus:                false,
+				AssignedGpuDeviceIds:       deviceIds,
+			}
+
+			target := " --gpus 'device=0,1,2,3,4,5,6,7'"
+			snippet := dockerInvoker.InitGpuCommand()
+
+			Expect(snippet).To(Equal(target))
+		})
 	})
 })
