@@ -7,6 +7,6 @@ make build || { echo 'Failed to build the Cluster Gateway...' ; exit 1; }
 echo "Finished building Jupyter debug image"
 echo "Pushing image to Docker Hub now..."
 
-docker push scusemua/jupyter-debug:latest
+docker push scusemua/jupyter-gpu:latest
 
 echo "Done"
