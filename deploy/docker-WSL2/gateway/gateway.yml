@@ -30,7 +30,7 @@ ipython-config-path: /home/jovyan/.ipython/profile_default/ipython_config.json
 kube-namespace: default
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
-notebook-image-name: scusemua/jupyter-gpu
+notebook-image-name: scusemua/jupyter-cpu:latest
 notebook-image-tag: latest
 idle-session-reclamation-policy: none
 scheduling-policy: static

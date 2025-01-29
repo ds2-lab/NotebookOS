@@ -28,11 +28,11 @@ starting-resource-port: 9007
 num-resource-ports: 4096
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
-notebook-image-name: scusemua/jupyter-gpu
+notebook-image-name: scusemua/jupyter-cpu:latest
 notebook-image-tag: latest
 scheduler-http-port: 8078
 idle-session-reclamation-policy: none
-scheduling-policy: fcfs-batch
+scheduling-policy: static
 # scheduling-policy: fcfs-batch
 subscribed-ratio-update-interval: 1
 num-virtual-gpus-per-node: 72
@@ -42,9 +42,9 @@ scaling-limit: 1.15
 scaling-in-limit: 2
 predictive_autoscaling: true
 scaling-buffer-size: 3
-min_cluster_nodes: 4
-max_cluster_nodes: 32
-gpus-per-host: 1
+min_cluster_nodes: 12
+max_cluster_nodes: 48
+gpus-per-host: 8
 local_mode: false
 deployment_mode: "docker-compose"
 debug_port: 9996
@@ -54,7 +54,7 @@ using-wsl: true
 prometheus_interval: 15
 prometheus_port: 8089
 num_resend_attempts: 1
-run_kernels_in_gdb: true
+run_kernels_in_gdb: false
 acks_enabled: false
 checkpointing_enabled: true
 docker_app_name: distributed_notebook
@@ -63,3 +63,5 @@ simulate_checkpointing_latency: true
 starting_resource_port: 16007
 num_resource_ports: 4096
 use_real_gpus: true
+bind_debugpy_port: false
+save_stopped_kernel_containers: false
