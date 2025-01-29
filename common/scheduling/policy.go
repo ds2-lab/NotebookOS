@@ -232,7 +232,7 @@ func NewScalingConfiguration(opts *SchedulerOptions) *ScalingConfiguration {
 
 	gpusPerHost := opts.GpusPerHost
 	if gpusPerHost == -1 {
-		if !opts.UseRealGPUs {
+		if !opts.SimulateTrainingUsingSleep {
 			panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d", gpusPerHost))
 		}
 

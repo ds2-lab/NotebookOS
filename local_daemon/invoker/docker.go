@@ -112,7 +112,9 @@ type DockerInvoker struct {
 	prometheusMetricsPort                int                      // prometheusMetricsPort is the port that the container should serve prometheus metrics on.
 	simulateWriteAfterExec               bool                     // Simulate network write after executing code?
 	simulateWriteAfterExecOnCriticalPath bool                     // Should the simulated network write after executing code be on the critical path?
-	useRealGpus                          bool                     // UseRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	simulateTrainingUsingSleep           bool                     // simulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	assignedGpuDeviceIds                 []int                    // assignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that we are invoking. Note that if simulateTrainingUsingSleep is true, then this option is ultimately ignored.
+	bindAllGpus                          bool                     // bindAllGpus instructs the DockerInvoker to bind ALL GPUs to the container when creating it (if simulateTrainingUsingSleep is false). Note that if simulateTrainingUsingSleep is true, then this option is ultimately ignored.
 	bindDebugpyPort                      bool                     // bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
 	saveStoppedKernelContainers          bool                     // If true, then do not fully remove stopped kernel containers.
 	workloadId                           string
@@ -174,8 +176,17 @@ type DockerInvokerOptions struct {
 
 	WorkloadId string
 
-	// UseRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
-	UseRealGpus bool
+	// BindAllGpus instructs the DockerInvoker to bind ALL GPUs to the container when creating it
+	// (if SimulateTrainingUsingSleep is false). Note that if SimulateTrainingUsingSleep is true,
+	// then this option is ultimately ignored.
+	BindAllGpus bool
+
+	// AssignedGpuDeviceIds is the list of GPU device IDs that are being assigned to the kernel replica that
+	// the DockerInvoker will be invoking.
+	AssignedGpuDeviceIds []int
+
+	// SimulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
+	SimulateTrainingUsingSleep bool
 
 	// BindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy
 	BindDebugpyPort bool
@@ -219,10 +230,14 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		simulateWriteAfterExecOnCriticalPath: opts.SimulateWriteAfterExecOnCriticalPath,
 		workloadId:                           opts.WorkloadId,
 		smrEnabled:                           opts.SmrEnabled,
-		useRealGpus:                          opts.UseRealGpus,
+		simulateTrainingUsingSleep:           opts.SimulateTrainingUsingSleep,
+		assignedGpuDeviceIds:                 opts.AssignedGpuDeviceIds,
+		bindAllGpus:                          opts.BindAllGpus,
 		bindDebugpyPort:                      opts.BindDebugpyPort,
 		saveStoppedKernelContainers:          opts.SaveStoppedKernelContainers,
 	}
+
+	config.InitLogger(&invoker.log, invoker)
 
 	// This is a DockerInvoker, so it's one of these two.
 	if opts.IsInDockerSwarm {
@@ -240,9 +255,7 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 		invoker.invokerCmd += " -e RUN_IN_GDB=1"
 	}
 
-	if invoker.useRealGpus {
-		invoker.invokerCmd += " --gpus all"
-	}
+	invoker.initGpuCommand()
 
 	if invoker.bindDebugpyPort {
 		debugpyPort := invoker.kernelDebugPort + 10000
@@ -254,11 +267,56 @@ func NewDockerInvoker(connInfo *jupyter.ConnectionInfo, opts *DockerInvokerOptio
 	}
 
 	invoker.invokerCmd += " {image}"
-	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerImage, utils.GetEnv(DockerImageName, DockerImageNameDefault))
-
-	config.InitLogger(&invoker.log, invoker)
+	invoker.invokerCmd = strings.ReplaceAll(invoker.invokerCmd, VarContainerImage,
+		utils.GetEnv(DockerImageName, DockerImageNameDefault))
 
 	return invoker
+}
+
+// initGpuCommand adds/creates the GPU-binding-related part of the docker invoke command.
+func (ivk *DockerInvoker) initGpuCommand() {
+	// If we're simulating training using time.sleep (in Python), then we can just return.
+	if ivk.simulateTrainingUsingSleep {
+		return
+	}
+
+	// If we're binding all available GPUs, then we simply append "--gpus all" to the command.
+	if ivk.bindAllGpus {
+		ivk.invokerCmd += " --gpus all"
+		return
+	}
+
+	// If no GPU device IDs were specified (and bindAllGpus is false), then we can just return.
+	if len(ivk.assignedGpuDeviceIds) == 0 {
+		ivk.log.Warn("The use of real GPUs is enabled; however, no GPU device IDs were specified, " +
+			"and we were not instructed to bind all GPUs...")
+		return
+	}
+
+	// We'll need to append something like this to the invocation command:
+	//
+	// --gpus '"device=0,2"'
+	//
+	// The snippet above would, as an example, bind GPUs 0 and 2 to the container.
+	gpuCommandSnippet := "--gpus device='\"{device_ids}\"'"
+
+	// Iterate over all the assigned GPU device IDs, building out the string to include in the GPU command snippet.
+	deviceIdsString := ""
+	for i, deviceId := range ivk.assignedGpuDeviceIds {
+		// Append the GPU device ID to the string.
+		deviceIdsString += fmt.Sprintf("%d", deviceId)
+
+		// If there is going to be another GPU device ID, then we'll append a comma before continuing with the loop.
+		if i < len(ivk.assignedGpuDeviceIds)-1 {
+			deviceIdsString += ","
+		}
+	}
+
+	// Replace the "{device_ids}" substring in the gpuCommandSnippet with the string that we just built out.
+	gpuCommandSnippet = strings.ReplaceAll(gpuCommandSnippet, "{device_ids}", deviceIdsString)
+
+	// Append the 'GPU command snippet' to the invoker command.
+	ivk.invokerCmd += gpuCommandSnippet
 }
 
 // KernelCreated returns a bool indicating whether kernel the container has been created.
@@ -650,7 +708,7 @@ func (ivk *DockerInvoker) prepareConfigFile(spec *proto.KernelReplicaSpec) (*jup
 			ElectionTimeoutSeconds:       ivk.electionTimeoutSeconds,
 			WorkloadId:                   ivk.workloadId,
 			SmrEnabled:                   ivk.smrEnabled,
-			UseRealGpus:                  ivk.useRealGpus,
+			SimulateTrainingUsingSleep:   ivk.simulateTrainingUsingSleep,
 		},
 	}
 	if spec.PersistentId != nil {

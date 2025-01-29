@@ -498,22 +498,11 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	clusterSchedulerOptions := clusterDaemonOptions.SchedulerOptions
 
 	gpusPerHost := clusterSchedulerOptions.GpusPerHost
-	if gpusPerHost == -1 {
-		if !clusterSchedulerOptions.UseRealGPUs {
-			clusterGateway.log.Error("Invalid number of simulated GPUs specified: %d", gpusPerHost)
-			panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d", gpusPerHost))
-		}
-
-		clusterGateway.log.Debug("Attempting to look up the number of real/actual GPUs available on this node.")
-
-		var err error
-		gpusPerHost, err = utils.GetNumberOfActualGPUs()
-		if err != nil {
-			clusterGateway.log.Error("Failed to look up the number of real/actual GPUs available on this node: %v", err)
-			panic(err)
-		}
-
-		clusterGateway.log.Debug("Successfully looked up the number of real/actual GPUs available on this node: %d", gpusPerHost)
+	if gpusPerHost <= 0 {
+		clusterGateway.log.Error("Invalid number of simulated GPUs specified: %d. Value must be >= 1 (even if there are no real GPUs available).",
+			gpusPerHost)
+		panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d. Value must be >= 1 (even if there are no real GPUs available).",
+			gpusPerHost))
 	}
 
 	// It's possible one of the config functions already set this, so check that it is nil first.

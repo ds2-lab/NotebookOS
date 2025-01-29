@@ -237,8 +237,9 @@ type LocalScheduler struct {
 	// localDaemonOptions is the options struct that the Local Daemon was created with.
 	localDaemonOptions *domain.LocalDaemonOptions
 
-	// useRealGpus controls whether we tell the kernels to train using real GPUs and real PyTorch code or not.
-	useRealGpus bool
+	// simulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and
+	// real PyTorch code or not.
+	simulateTrainingUsingSleep bool
 
 	// bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy.
 	bindDebugpyPort bool
@@ -312,7 +313,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		MessageAcknowledgementsEnabled:     localDaemonOptions.MessageAcknowledgementsEnabled,
 		SimulateCheckpointingLatency:       localDaemonOptions.SimulateCheckpointingLatency,
 		electionTimeoutSeconds:             localDaemonOptions.ElectionTimeoutSeconds,
-		useRealGpus:                        localDaemonOptions.UseRealGPUs,
+		simulateTrainingUsingSleep:         localDaemonOptions.SimulateTrainingUsingSleep,
 		bindDebugpyPort:                    localDaemonOptions.BindDebugPyPort,
 		saveStoppedKernelContainers:        localDaemonOptions.SaveStoppedKernelContainers,
 	}
@@ -359,7 +360,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 
 	gpusPerHost := localDaemonOptions.GpusPerHost
 	if gpusPerHost == -1 {
-		if !localDaemonOptions.UseRealGPUs {
+		if !localDaemonOptions.SimulateTrainingUsingSleep {
 			daemon.log.Error("Invalid number of simulated GPUs specified: %d", gpusPerHost)
 			panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d", gpusPerHost))
 		}
@@ -979,7 +980,7 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		SimulateWriteAfterExec:               d.schedulingPolicy.PostExecutionStatePolicy().ShouldPerformWriteOperation(),
 		SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
 		SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
-		UseRealGpus:                          d.useRealGpus,
+		SimulateTrainingUsingSleep:           d.simulateTrainingUsingSleep,
 		BindDebugpyPort:                      d.bindDebugpyPort,
 		SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
 	}
@@ -1929,7 +1930,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 			SimulateWriteAfterExecOnCriticalPath: d.schedulingPolicy.PostExecutionStatePolicy().WriteOperationIsOnCriticalPath(),
 			WorkloadId:                           in.WorkloadId,
 			SmrEnabled:                           d.schedulingPolicy.SmrEnabled(),
-			UseRealGpus:                          d.useRealGpus,
+			SimulateTrainingUsingSleep:           d.simulateTrainingUsingSleep,
 			BindDebugpyPort:                      d.bindDebugpyPort,
 			SaveStoppedKernelContainers:          d.saveStoppedKernelContainers,
 		}
