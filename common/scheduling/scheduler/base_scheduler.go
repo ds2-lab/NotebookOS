@@ -1280,7 +1280,9 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	numContainersToMigrate := host.Containers().Len()
 
 	// TODO: Can we do any of this in parallel? Because the time taken to migrate ALL kernel replicas from a host
-	//       one-at-a-time can be quite high...
+	//       one-at-a-time can be quite high... I think we can just do this in parallel. Maybe we create (N/4) - (N/2)
+	//		 goroutines, where N is the number of containers that need to be migrated. And we do a producer/consumer
+	//		 thing with a buffered channel (and either a cancellable context, or some other way for the workers to stop).
 	host.Containers().Range(func(containerId string, c scheduling.KernelContainer) (contd bool) {
 		_, failedMigrationReason, err = s.MigrateKernelReplica(c.GetClient(), "", forTraining) // Pass true for `noNewHost`, as we don't want to create a new host for this.
 		if err != nil {
