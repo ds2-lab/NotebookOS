@@ -406,6 +406,15 @@ func (h *Host) IncludeForScheduling() error {
 	return nil
 }
 
+// NumActiveSchedulingOperations returns the number of scheduling operations in which the target Host
+// is presently being considered.
+func (h *Host) NumActiveSchedulingOperations() int32 {
+	h.schedulingMutex.Lock()
+	defer h.schedulingMutex.Unlock()
+
+	return h.isBeingConsideredForScheduling.Load()
+}
+
 func (h *Host) IsBeingConsideredForScheduling() bool {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()

@@ -1244,14 +1244,25 @@ type idleSortedHost struct {
 }
 
 func (h *idleSortedHost) Compare(other interface{}) float64 {
-	// max gpu heap
+	// MaxHeap based on the number of idle GPUs.
 	diff := other.(*idleSortedHost).IdleGPUs() - h.IdleGPUs()
-	if diff == 0.0 {
-		// max subscription heap for promoting rebalancing.
-		return other.(scheduling.Host).SubscribedRatio() - h.SubscribedRatio()
-	} else {
+
+	if diff != 0 {
 		return diff
 	}
+
+	// MaxHeap based on the subscription ratio, in order to promote rebalancing.
+	diff = other.(scheduling.Host).SubscribedRatio() - h.SubscribedRatio()
+
+	if diff != 0 {
+		return diff
+	}
+
+	// MinHeap based on the number of active scheduling operations.
+	// Hosts being considered in fewer scheduling operations can be considered more idle.
+	diff = float64(h.NumActiveSchedulingOperations() - other.(scheduling.Host).NumActiveSchedulingOperations())
+
+	return diff
 }
 
 func (h *idleSortedHost) SetIdx(key types.HeapElementMetadataKey, idx int) {

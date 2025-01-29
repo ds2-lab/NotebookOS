@@ -67,6 +67,10 @@ type Host interface {
 	PlacedCPUs() decimal.Decimal
 	WillBecomeTooOversubscribed(resourceRequest types.Spec) bool
 
+	// NumActiveSchedulingOperations returns the number of scheduling operations in which the target Host
+	// is presently being considered.
+	NumActiveSchedulingOperations() int32
+
 	// CanServeContainerWithError returns nil if the target Host can serve the resource request.
 	//
 	// This method only checks against the Host's "spec" (i.e., the total HostResources available on the Host,

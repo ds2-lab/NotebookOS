@@ -162,6 +162,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			CommonOptions: configuration.CommonOptions{
 				SchedulingPolicy:             string(scheduling.Static),
 				IdleSessionReclamationPolicy: string(scheduling.NoIdleSessionReclamation),
+				GpusPerHost:                  int(hostSpec.GPU()),
 			},
 			MinimumNumNodes: 3,
 			MaximumNumNodes: 16,
