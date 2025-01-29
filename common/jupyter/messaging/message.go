@@ -91,6 +91,11 @@ func (t JupyterMessageType) GetBaseMessageType() (string, bool) {
 
 type NotificationType int32
 
+// Int32 returns the NotificationType as an int32.
+func (nt NotificationType) Int32() int32 {
+	return int32(nt)
+}
+
 // Message represents an entire message in a high-level structure.
 type Message struct {
 	Header       MessageHeader          `json:"header"`

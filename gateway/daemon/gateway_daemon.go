@@ -2825,17 +2825,35 @@ func (d *ClusterGatewayImpl) WaitKernel(_ context.Context, in *proto.KernelId) (
 }
 
 func (d *ClusterGatewayImpl) Notify(_ context.Context, in *proto.Notification) (*proto.Void, error) {
-	d.log.Debug(utils.NotificationStyles[in.NotificationType].Render("Received %s notification \"%s\": %s"), NotificationTypeNames[in.NotificationType], in.Title, in.Message)
+	var logFunc func(format string, args ...interface{})
+	if in.NotificationType == int32(messaging.ErrorNotification) {
+		logFunc = d.log.Error
+	} else if in.NotificationType == int32(messaging.WarningNotification) {
+		logFunc = d.log.Warn
+	} else {
+		logFunc = d.log.Debug
+	}
+
+	logFunc(utils.NotificationStyles[in.NotificationType].Render("Received %s notification \"%s\": %s"),
+		NotificationTypeNames[in.NotificationType], in.Title, in.Message)
 	go d.notifyDashboard(in.Title, in.Message, messaging.NotificationType(in.NotificationType))
 	return proto.VOID, nil
 }
 
 func (d *ClusterGatewayImpl) SpoofNotifications(_ context.Context, _ *proto.Void) (*proto.Void, error) {
 	go func() {
-		d.notifyDashboard("Spoofed Error", "This is a made-up error message sent by the internalCluster Gateway.", messaging.ErrorNotification)
-		d.notifyDashboard("Spoofed Warning", "This is a made-up warning message sent by the internalCluster Gateway.", messaging.WarningNotification)
-		d.notifyDashboard("Spoofed Info Notification", "This is a made-up 'info' message sent by the internalCluster Gateway.", messaging.InfoNotification)
-		d.notifyDashboard("Spoofed Success Notification", "This is a made-up 'success' message sent by the internalCluster Gateway.", messaging.SuccessNotification)
+		d.notifyDashboard("Spoofed Error",
+			"This is a made-up error message sent by the internalCluster Gateway.",
+			messaging.ErrorNotification)
+		d.notifyDashboard("Spoofed Warning",
+			"This is a made-up warning message sent by the internalCluster Gateway.",
+			messaging.WarningNotification)
+		d.notifyDashboard("Spoofed Info Notification",
+			"This is a made-up 'info' message sent by the internalCluster Gateway.",
+			messaging.InfoNotification)
+		d.notifyDashboard("Spoofed Success Notification",
+			"This is a made-up 'success' message sent by the internalCluster Gateway.",
+			messaging.SuccessNotification)
 	}()
 
 	return proto.VOID, nil

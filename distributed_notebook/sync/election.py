@@ -221,7 +221,7 @@ class Election(object):
         metadata: dict[str, any] = {
             "term_number": self._term_number,
             "election_state": self._election_state,
-            "election_state_string": self._election_state.value,
+            "election_state_string": self._election_state.get_name(),
             "winner_selected": self._winner_selected,
             "winner_id": self.winner_id,
             "proposals": {k: v.get_metadata() for k, v in self._proposals.items()},
