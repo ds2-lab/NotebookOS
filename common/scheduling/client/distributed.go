@@ -10,6 +10,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
+	"golang.org/x/sync/semaphore"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -814,15 +815,16 @@ func (c *DistributedKernelClient) getRequestContext(ctx context.Context, typ mes
 // there won't be issues with concurrently modifying the messaging.JupyterMessage instances, or with the fact that
 // each replica will want to add its own unique request trace to the messaging.JupyterMessage.
 func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targetReplica scheduling.KernelReplica,
-	jupyterMessage *messaging.JupyterMessage, typ messaging.MessageType, responseReceivedWg *sync.WaitGroup, numResponsesSoFar *atomic.Int32,
+	jupyterMessage *messaging.JupyterMessage, typ messaging.MessageType, responseReceivedSem *semaphore.Weighted, numResponsesSoFar *atomic.Int32,
 	responseHandler scheduling.KernelReplicaMessageHandler) error {
 
-	// TODO: If the ACKs fail on this and we reconnect and retry, the responseReceivedWg.Done may be called too many times.
+	// TODO: If the ACKs fail on this and we reconnect and retry, the responseReceivedSem may be called too many times.
 	// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
 	// to be cleared after the context ends; we just do it on ACK timeout.
 	err := targetReplica.RequestWithHandlerAndWaitOptionGetter(ctx, typ, jupyterMessage, responseHandler, c.getWaitResponseOption, func() {
-		if responseReceivedWg != nil {
-			responseReceivedWg.Done()
+		if responseReceivedSem != nil {
+			// responseReceivedSem.Done()
+			responseReceivedSem.Release(1)
 		}
 
 		if numResponsesSoFar != nil {
@@ -1020,9 +1022,11 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 	// message, as we don't use the original message (in the case that the replicas send cloned versions).
 	// Thus, the original message is never going to be changed, so it's safe for each replica to proceed
 	// as soon as it clones the original message.
-	var responseReceivedWg sync.WaitGroup
+	//var responseReceivedWg sync.WaitGroup
 	numResponsesExpected := 0
 	numResponsesSoFar := atomic.Int32{}
+
+	respReceivedSemaphore := semaphore.NewWeighted(int64(len(replicas)))
 
 	errorChannel := make(chan interface{}, len(replicas))
 
@@ -1033,7 +1037,8 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 			continue
 		}
 
-		responseReceivedWg.Add(1)
+		//responseReceivedWg.Add(1)
+		_ = respReceivedSemaphore.Acquire(ctx, 1)
 
 		numResponsesExpected += 1
 
@@ -1043,7 +1048,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 			typ.String(), msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), c.id)
 
 		go func() {
-			err := c.sendRequestToReplica(replicaCtx, replica, msg, typ, &responseReceivedWg, &numResponsesSoFar,
+			err := c.sendRequestToReplica(replicaCtx, replica, msg, typ, respReceivedSemaphore, &numResponsesSoFar,
 				responseHandler)
 
 			if err != nil {
@@ -1056,7 +1061,7 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 
 	if done != nil {
 		// If a `done` callback function was given to us, then we'll create a goroutine to handle it.
-		go c.handleDoneCallbackForRequest(done, &responseReceivedWg, typ, jupyterMessages[0], &numResponsesSoFar, numResponsesExpected)
+		go c.handleDoneCallbackForRequest(done, respReceivedSemaphore, typ, jupyterMessages[0], &numResponsesSoFar, numResponsesExpected)
 	}
 
 	// We'll wait at most 1 second to see if any of these send attempts immediately return an error.
@@ -1124,25 +1129,28 @@ func (c *DistributedKernelClient) LastPrimaryReplica() scheduling.KernelReplica 
 //
 // handleDoneCallbackForRequest basically listens for responses from each of the kernel replicas and calls done
 // accordingly. handleDoneCallbackForRequest will ultimately spawn its own goroutine(s) to carry out the necessary logic.
-func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), responseReceivedWg *sync.WaitGroup,
+func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), responseReceivedSem *semaphore.Weighted,
 	typ messaging.MessageType, jMsg *messaging.JupyterMessage, numResponsesSoFar *atomic.Int32, numResponsesExpected int) {
 
 	st := time.Now()
 	allResponsesReceivedNotificationChannel := make(chan interface{}, 1)
 
 	var ctx context.Context
+	var cancel context.CancelFunc
 	if typ == messaging.ShellMessage {
-		ctx = context.Background()
+		ctx, cancel = context.WithTimeout(context.Background(), time.Second*300)
 	} else {
-		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(context.Background(), time.Second*60)
-		defer cancel()
 	}
+	defer cancel()
 
 	// Spawn a goroutine to just send a notification when the sync.WaitGroup reaches 0.
 	go func() {
-		responseReceivedWg.Wait()                             // Wait til the WaitGroup reaches 0.
-		allResponsesReceivedNotificationChannel <- struct{}{} // Send the notification.
+		// responseReceivedSem.Wait()                            // Wait til the WaitGroup reaches 0.
+		err := responseReceivedSem.Acquire(ctx, int64(numResponsesExpected))
+		if err != nil {
+			allResponsesReceivedNotificationChannel <- struct{}{} // Send the notification.
+		}
 	}()
 
 	select {

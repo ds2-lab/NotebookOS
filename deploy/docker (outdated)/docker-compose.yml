@@ -23,7 +23,7 @@ services:
       - DOCKER_NETWORK_NAME=distributed_cluster_default # If you change the name of the docker compose app, then you must change this as well.
     build: 
       context: ../..
-      dockerfile: dockfiles/cpu-python3-amd64-debug/Dockerfile
+      dockerfile: ../../dockfiles/gpu-python3-amd64-debug/Dockerfile
     image: scusemua/jupyter-debug:latest
     labels:
       app: "distributed_cluster"
