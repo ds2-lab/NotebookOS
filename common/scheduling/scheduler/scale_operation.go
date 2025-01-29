@@ -391,6 +391,21 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 		log.Fatalf("Cannot execute ScaleOperation %s as its execution function is nil.", op.OperationId)
 	}
 
+	if op.ExpectedNumAffectedNodes == 0 {
+		op.log.Warn("%s operation %s is expected to affect 0 hosts...", op.OperationType, op.OperationId)
+
+		result := &ScaleInOperationResult{
+			BaseScaleOperationResult: &BaseScaleOperationResult{
+				PreviousNumNodes: op.InitialScale,
+				CurrentNumNodes:  int32(op.Cluster.Len()),
+			},
+			NumNodesTerminated: int32(op.Cluster.Len()) - op.InitialScale,
+			NodesTerminated:    op.NodesAffected,
+		}
+
+		return result, nil
+	}
+
 	// We compute a timeout interval based on the number of hosts that will be impacted and the type of operation.
 	var timeoutInterval time.Duration
 	if op.IsScaleOutOperation() {

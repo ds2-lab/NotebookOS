@@ -31,7 +31,7 @@ import (
 )
 
 var (
-	optsAsJson = `{
+	dockerSchedulerTestOpsAsJson = `{
 	"logger_options": {
 		"Debug": true,
 		"Verbose": false
@@ -55,13 +55,17 @@ var (
 		"cluster_scheduler_options": {
 			"num-virtual-gpus-per-node": 72,
 			"subscribed-ratio-update-interval": 1,
+			"mean_scale_out_per_host_sec": 1.0,
+			"std_dev_scale_out_per_host_sec": 0.0,
+			"mean_scale_in_per_host_sec": 1.0,
+			"std_dev_scale_in_per_host_sec": 0.0,
 			"scaling-factor": 1.05,
 			"scaling-interval": 15,
 			"scaling-limit": 1.1,
 			"scaling-in-limit": 2,
 			"predictive_autoscaling": false,
 			"scaling-buffer-size": 3,
-			"min_cluster_nodes": 4,
+			"min_cluster_nodes": 24,
 			"max_cluster_nodes": 32,
 			"gpu_poll_interval": 5,
 			"num-replicas": 3,
@@ -85,11 +89,7 @@ var (
 			"debug_mode": true,
 			"debug_port": 9996,
 			"simulate_checkpointing_latency": true,
-			"disable_prometheus_metrics_publishing": true,
-			"mean_scale_out_per_host_sec": 1,
-			"std_dev_scale_out_per_host_sec": 0,
-			"mean_scale_in_per_host_sec": 1,
-			"std_dev_scale_in_per_host_sec": 0
+			"disable_prometheus_metrics_publishing": true
 		}
 	},
 	"local-daemon-service-name": "local-daemon-network",
@@ -146,7 +146,7 @@ func addHost(idx int, hostSpec types.Spec, disableHost bool, cluster scheduling.
 	return host, localGatewayClient, resourceSpoofer, err
 }
 
-var _ = Describe("Docker Swarm Scheduler Tests", func() {
+var _ = Describe("Docker Scheduler Tests", func() {
 	var (
 		mockCtrl        *gomock.Controller
 		dockerScheduler *scheduler.DockerScheduler
@@ -163,10 +163,13 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 	hostSpec := types.NewDecimalSpec(8000, 64000, 8, 32)
 
 	BeforeEach(func() {
-		err := json.Unmarshal([]byte(optsAsJson), &opts)
+		err := json.Unmarshal([]byte(dockerSchedulerTestOpsAsJson), &opts)
 		if err != nil {
 			panic(err)
 		}
+
+		//optsStr, _ := json.MarshalIndent(&opts, "", "  ")
+		//fmt.Printf("%s\n", optsStr)
 	})
 
 	Context("Static Scheduling", func() {
@@ -183,6 +186,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(schedulingPolicy).ToNot(BeNil())
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(3))
 			Expect(schedulingPolicy.Name()).To(Equal("Static Scheduling"))
+
+			Expect(opts.MeanScaleInPerHostSec).To(Equal(1.0))
+			Expect(opts.MeanScaleOutPerHostSec).To(Equal(1.0))
 
 			// clusterPlacer, err = placer.NewRandomPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
 			clusterPlacer, err = schedulingPolicy.GetNewPlacer(nil)
@@ -329,6 +335,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 						localGatewayClients[hostIndex] = localGatewayClient
 						resourceSpoofers[hostIndex] = resourceSpoofer
 					}
+
+					Expect(dockerCluster.MeanScaleOutTime()).To(Equal(time.Second * 1))
+					Expect(dockerCluster.MeanScaleInTime()).To(Equal(time.Second * 1))
 
 					Expect(dockerCluster.Len()).To(Equal(5))
 
