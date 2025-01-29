@@ -12,7 +12,7 @@ else
 fi
 
 # torchvision
-NEW_TORCHVISION_ENTRY="torchvision @ https://download.pytorch.org/whl/cpu/torchvision-0.20.0%2Bcpu-cp312-cp312-linux_x86_64.whl#sha256=beddcb1b9331446502906f5a711ccffd4e42a20e4c60d9b4f9fc3e79110f29d1"
+NEW_TORCHVISION_ENTRY="torchvision @ https://download.pytorch.org/whl/cpu/torchvision-0.20.1%2Bcpu-cp312-cp312-linux_x86_64.whl#sha256=5f46c7ac7f00a065cb40bfb1e1bfc4ba16a35f5d46b3fe70cca6b3cea7f822f7"
 if grep -q "^torchvision$" "$REQUIREMENTS_FILE"; then
   sed -E -i "s|^torchvision\b.*|$NEW_TORCHVISION_ENTRY|" "$REQUIREMENTS_FILE"
   echo "Updated 'torchvision' dependency entry"
