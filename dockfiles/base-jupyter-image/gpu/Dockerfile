@@ -16,7 +16,7 @@ RUN sudo apt-get update
 
 ENV LD_LIBRARY_PATH=/home/jovyan/Python-3.12.6/debug
 
-ADD dockfiles/base-jupyter-image/distributed_notebooks_requirements.txt /home/jovyan/distributed_notebook_requirements.txt
+ADD dockfiles/base-jupyter-image/gpu/distributed_notebooks_requirements.txt /home/jovyan/distributed_notebook_requirements.txt
 
 RUN /home/jovyan/Python-3.12.6/debug/python -m pip install -r /home/jovyan/distributed_notebook_requirements.txt
 
