@@ -1276,25 +1276,36 @@ func (h *idleSortedHost) GetIdx(key types.HeapElementMetadataKey) int {
 // migrateContainersFromHost attempts to migrate all the kernels scheduled on the specified Host to other Hosts.
 func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTraining bool) (err error) {
 	var failedMigrationReason error
+
+	numContainersToMigrate := host.Containers().Len()
+
+	// TODO: Can we do any of this in parallel? Because the time taken to migrate ALL kernel replicas from a host
+	//       one-at-a-time can be quite high...
 	host.Containers().Range(func(containerId string, c scheduling.KernelContainer) (contd bool) {
 		_, failedMigrationReason, err = s.MigrateKernelReplica(c.GetClient(), "", forTraining) // Pass true for `noNewHost`, as we don't want to create a new host for this.
 		if err != nil {
 			// We cannot migrate the Container due to an actual error.
-			s.log.Error("Abandoning the release of idle host %s (ID=%s) because we encountered an error while migrating one of the containers: %v", host.GetNodeName(), host.GetID(), err)
+			s.log.Error("Abandoning the release of idle host %s (ID=%s) because we encountered an error while migrating one of the containers: %v",
+				host.GetNodeName(), host.GetID(), err)
 			return false
 		}
 
 		if failedMigrationReason != nil {
 			// We cannot migrate the Container.
-			s.log.Warn("Abandoning the release of idle host %s (ID=%s) because: %v", host.GetNodeName(), host.GetID(), err)
+			s.log.Warn("Abandoning the release of idle host %s (ID=%s) because: %v",
+				host.GetNodeName(), host.GetID(), err)
 			return false
 		}
 
-		s.log.Debug("Successfully migrated all kernels from host %s (ID=%s).", host.GetNodeName(), host.GetID())
+		s.log.Debug("Successfully migrated replica %d of kernel %s off of host %s.",
+			c.ReplicaId(), c.KernelID(), host.GetNodeName())
 
 		// Keep going.
 		return true
 	})
+
+	s.log.Debug("Successfully migrated all %d kernel replica(s) from host %s (ID=%s).",
+		numContainersToMigrate, host.GetNodeName(), host.GetID())
 
 	return err
 }
