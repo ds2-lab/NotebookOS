@@ -85,7 +85,11 @@ var (
 			"debug_mode": true,
 			"debug_port": 9996,
 			"simulate_checkpointing_latency": true,
-			"disable_prometheus_metrics_publishing": true
+			"disable_prometheus_metrics_publishing": true,
+			"mean_scale_out_per_host_sec": 1,
+			"std_dev_scale_out_per_host_sec": 0,
+			"mean_scale_in_per_host_sec": 1,
+			"std_dev_scale_in_per_host_sec": 0
 		}
 	},
 	"local-daemon-service-name": "local-daemon-network",
@@ -190,7 +194,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			_, ok = clusterPlacer.GetIndex().(*index.StaticIndex)
 			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
+			dockerCluster = cluster.NewDockerCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
 				nil, nil, schedulingPolicy, func(f func(stats *metrics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
@@ -1297,7 +1301,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			_, ok = clusterPlacer.GetIndex().(*index.RandomClusterIndex)
 			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
+			dockerCluster = cluster.NewDockerCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
 				nil, nil, schedulingPolicy, func(f func(stats *metrics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
@@ -1592,7 +1596,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			_, ok = clusterPlacer.GetIndex().(*index.RandomClusterIndex)
 			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
+			dockerCluster = cluster.NewDockerCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
 				nil, nil, schedulingPolicy, func(f func(stats *metrics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 

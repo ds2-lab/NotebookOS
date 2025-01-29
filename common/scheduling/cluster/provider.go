@@ -14,7 +14,7 @@ import (
 
 const (
 	DockerSwarm   Type = "DockerSwarmCluster"
-	DockerCompose Type = "DockerComposeCluster"
+	DockerCompose Type = "DockerCluster"
 	Kubernetes    Type = "KubernetesCluster"
 )
 
@@ -169,28 +169,19 @@ func (b *Provider) BuildCluster() (scheduling.Cluster, error) {
 		return nil, err
 	}
 
-	switch b.ClusterType {
-	case DockerSwarm:
-		{
-			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
-			return NewDockerSwarmCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
-		}
-	case DockerCompose:
-		{
-			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
-			return NewDockerComposeCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
-		}
-	case Kubernetes:
-		{
-			b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
-			return NewKubernetesCluster(b.KubeClient, b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
-				b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
-		}
-	default:
-		b.log.Error("Unknown/unsupported cluster type: %v", b.ClusterType.String())
-		log.Fatalf("Unknown/unsupported cluster type: %v\n", b.ClusterType.String())
-		return nil, nil // This line won't get executed, as the previous line will panic.
+	if b.ClusterType == DockerCompose || b.ClusterType == DockerSwarm {
+		b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
+		return NewDockerCluster(b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
+			b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
 	}
+
+	if b.ClusterType == Kubernetes {
+		b.log.Debug("Creating %s cluster now.", b.ClusterType.String())
+		return NewKubernetesCluster(b.KubeClient, b.HostSpec, b.Placer, b.HostMapper, b.KernelProvider, b.ClusterMetricsProvider,
+			b.NotificationBroker, b.SchedulingPolicy, b.StatisticsUpdaterProvider, b.Options), nil
+	}
+
+	b.log.Error("Unknown/unsupported cluster type: %v", b.ClusterType.String())
+	log.Fatalf("Unknown/unsupported cluster type: %v\n", b.ClusterType.String())
+	return nil, nil // This line won't get executed, as the previous line will panic.
 }

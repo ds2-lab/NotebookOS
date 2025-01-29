@@ -191,6 +191,10 @@ type ScalingMetricsManager interface {
 
 	// NumScaleInOperationsFailed returns the number of scale-in operations that have failed.
 	NumScaleInOperationsFailed() int
+
+	// DefaultOnScaleOperationFailed is automatically registered when scheduler.ScaleOperation instances are created
+	// DefaultOnScaleOperationFailed just updates some relevant statistics.
+	DefaultOnScaleOperationFailed(op ScaleOperation)
 }
 
 type IndexManager interface {

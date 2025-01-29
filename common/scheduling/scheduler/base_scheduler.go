@@ -438,8 +438,8 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 		hosts = append(hosts, hostBatch...)
 
 		if len(hosts) < s.schedulingPolicy.NumReplicas() {
-			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far.",
-				len(hosts), s.schedulingPolicy.NumReplicas(), kernelSpec.Id)
+			s.log.Warn("Found only %d/%d hosts to serve replicas of kernel %s so far (attempt=%d).",
+				len(hosts), s.schedulingPolicy.NumReplicas(), kernelSpec.Id, maxAttempts-retryParameters.Steps+1)
 
 			if !s.isScalingOutEnabled() {
 				s.log.Warn("Scaling-out is disabled. Giving up on finding hosts for kernel %s.", kernelSpec.Id)
