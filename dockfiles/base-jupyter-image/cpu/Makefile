@@ -11,7 +11,7 @@ gen-requirements-file:
 gen-requirements: gen-requirements-file update-pytorch-dependency
 
 docker: gen-requirements
-	docker build ${PARAMS} -t $(DOCKER_USER)base-jupyter-image:python3.12.6-cpu -f Dockerfile ../..
+	docker build ${PARAMS} -t $(DOCKER_USER)base-jupyter-image:python3.12.6-cpu -f Dockerfile ../../..
 
 build: docker
 
