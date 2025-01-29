@@ -350,7 +350,7 @@ class DistributedKernel(IPythonKernel):
 
     smr_enabled: Bool = Bool(default_value=True).tag(config=True)
 
-    use_real_gpus: Bool = Bool(default_value=False).tag(config=True)
+    simulate_training_using_sleep: Bool = Bool(default_value=False).tag(config=False)
 
     implementation = "Distributed Python 3"
     implementation_version = "0.2"
@@ -485,8 +485,8 @@ class DistributedKernel(IPythonKernel):
         #       So, at best, we would just know of a potential conflict, but not how to resolve it...
         self.model_pointers_catchup: Dict[str, ModelPointer] = {}
 
-        if "use_real_gpus" in kwargs:
-            self.use_real_gpus = kwargs["use_real_gpus"]
+        if "simulate_training_using_sleep" in kwargs:
+            self.simulate_training_using_sleep = kwargs["simulate_training_using_sleep"]
 
         ########################
         # Execution/Data State #
@@ -823,11 +823,6 @@ class DistributedKernel(IPythonKernel):
 
         # If we're part of a migration operation, then it will be set when we register with the local daemon.
         self.should_read_data_from_remote_storage: bool = False
-
-        if self.use_real_gpus:
-            self.log.info("The use of real GPUs is ENABLED.")
-        else:
-            self.log.warning("The use of real GPUs is DISABLED.")
 
         connection_info: dict[str, Any] = {}
         try:
@@ -1660,7 +1655,7 @@ class DistributedKernel(IPythonKernel):
         sys.stdout.flush()
 
         # If we're not using real GPUs, then we can simulate downloading the model and training data here.
-        if not self.use_real_gpus:
+        if self.simulate_training_using_sleep:
             (
                 download_model_duration,
                 download_training_data_duration,
@@ -2138,7 +2133,7 @@ class DistributedKernel(IPythonKernel):
         # critical path. The write operation will still block future executions from running if they arrive during the
         # write operation, but that's correct.
         if (
-                not self.use_real_gpus
+                self.simulate_training_using_sleep
                 and remote_storage_name is not None
                 and self.simulate_write_after_execute
                 and not self.simulate_write_after_execute_on_critical_path
@@ -2576,7 +2571,7 @@ class DistributedKernel(IPythonKernel):
             )
             return 0.0, 0.0
 
-        if self.use_real_gpus:
+        if self.simulate_training_using_sleep:
             self.log.debug(
                 "We're using real GPUs. No need to simulate the downloading of model and training data."
             )
@@ -2747,7 +2742,7 @@ class DistributedKernel(IPythonKernel):
 
         :return: the generated Python code to be executed by this Jupyter kernel.
         """
-        if not self.use_real_gpus:
+        if self.simulate_training_using_sleep:
             self.log.debug("We're not using real GPUs. Will spoof DL training using time.sleep().")
             return f"import time\ntime.sleep({target_training_duration_millis / 1.0e3})"
 
@@ -2921,7 +2916,7 @@ class DistributedKernel(IPythonKernel):
             )
 
         # Make sure we have some GPU device IDs if we're using real GPUs.
-        if self.use_real_gpus and (gpu_device_ids is None or len(gpu_device_ids) == 0):
+        if not self.simulate_training_using_sleep and (gpu_device_ids is None or len(gpu_device_ids) == 0):
             self.log.error(
                 "We're using real GPUs, but we've not been assigned any GPU device IDs..."
             )
@@ -2980,7 +2975,7 @@ class DistributedKernel(IPythonKernel):
             )
             self.current_execution_stats.won_election = True
 
-            if not self.use_real_gpus:
+            if self.simulate_training_using_sleep:
                 vram_size_gb = self.current_resource_request.get("vram", 0)
                 self.perform_initializations(vram_size_gb=vram_size_gb)
 
@@ -3064,7 +3059,7 @@ class DistributedKernel(IPythonKernel):
                  - (2) a bool indicating whether the training we performed used an actual (or simulated/fake) GPU
                  - (3) the code that was executed (which may have been updated/changed)
         """
-        if self.use_real_gpus:
+        if not self.simulate_training_using_sleep:
             assert gpu_device_ids is not None and len(gpu_device_ids) > 0
 
         performed_gpu_training: bool = False
@@ -3345,7 +3340,7 @@ class DistributedKernel(IPythonKernel):
             performing_gpu_training: bool = False,
             code: str = "",
     ):
-        if not self.use_real_gpus and self.data_on_gpu:
+        if self.simulate_training_using_sleep and self.data_on_gpu:
             vram_size_gb = self.current_resource_request.get("vram", 0)
             copy_data_to_cpu_start: float = time.time()
             self.copy_data_from_gpu_to_cpu(size_gb=vram_size_gb)
@@ -3381,7 +3376,7 @@ class DistributedKernel(IPythonKernel):
                 self.current_execution_stats.upload_runtime_dependencies_microseconds = (
                         duration_sec * 1.0e6
                 )
-        elif self.use_real_gpus and performing_gpu_training:
+        elif not self.simulate_training_using_sleep and performing_gpu_training:
             await self.extract_mem_copy_times(code=code)
             await self.extract_dataset_download_latency(code=code)
             await self.extract_dataset_tokenization_latency(code=code)
