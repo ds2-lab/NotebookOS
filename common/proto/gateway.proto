@@ -642,6 +642,10 @@ service LocalGateway {
   // the current resource quantities on the node.
   rpc ResourcesSnapshot(Void) returns (NodeResourcesSnapshotWithContainers) {}
 
+  // GetLocalDaemonInfo returns key information about the Local Daemon, including its current resource counts,
+  // its ID, etc.
+  rpc GetLocalDaemonInfo(Void) returns (LocalDaemonInfo) {}
+
   // Return the current GPU resource metrics on the node.
   // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
   rpc GetActualGpuInfo(Void) returns (GpuInfo) {}
@@ -667,6 +671,17 @@ service LocalGateway {
   // The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
   // to avoid causing the ReconnectToGateway to encounter an error.
   rpc ReconnectToGateway(ReconnectToGatewayRequest) returns (Void) {}
+}
+
+// LocalDaemonInfo encapsulates key information about the Local Daemon, including its current resource counts,
+// its ID, etc.
+message LocalDaemonInfo {
+//  ResourceSpec idleResources = 1;
+//  ResourceSpec pendingResources = 2;
+//  ResourceSpec committedResources = 3;
+  ResourceSpec specResources = 1;
+  string gpuSchedulerId = 2;
+  string localDaemonId = 3;
 }
 
 // ReconnectToGatewayRequest is sent as an argument to the ReconnectToGateway gRPC call.

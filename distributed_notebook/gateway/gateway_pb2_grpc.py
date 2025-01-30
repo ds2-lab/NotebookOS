@@ -1829,6 +1829,11 @@ class LocalGatewayStub(object):
                 request_serializer=gateway__pb2.Void.SerializeToString,
                 response_deserializer=gateway__pb2.NodeResourcesSnapshotWithContainers.FromString,
                 _registered_method=True)
+        self.GetLocalDaemonInfo = channel.unary_unary(
+                '/gateway.LocalGateway/GetLocalDaemonInfo',
+                request_serializer=gateway__pb2.Void.SerializeToString,
+                response_deserializer=gateway__pb2.LocalDaemonInfo.FromString,
+                _registered_method=True)
         self.GetActualGpuInfo = channel.unary_unary(
                 '/gateway.LocalGateway/GetActualGpuInfo',
                 request_serializer=gateway__pb2.Void.SerializeToString,
@@ -1961,6 +1966,14 @@ class LocalGatewayServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetLocalDaemonInfo(self, request, context):
+        """GetLocalDaemonInfo returns key information about the Local Daemon, including its current resource counts,
+        its ID, etc.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def GetActualGpuInfo(self, request, context):
         """Return the current GPU resource metrics on the node.
         @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
@@ -2078,6 +2091,11 @@ def add_LocalGatewayServicer_to_server(servicer, server):
                     servicer.ResourcesSnapshot,
                     request_deserializer=gateway__pb2.Void.FromString,
                     response_serializer=gateway__pb2.NodeResourcesSnapshotWithContainers.SerializeToString,
+            ),
+            'GetLocalDaemonInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetLocalDaemonInfo,
+                    request_deserializer=gateway__pb2.Void.FromString,
+                    response_serializer=gateway__pb2.LocalDaemonInfo.SerializeToString,
             ),
             'GetActualGpuInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.GetActualGpuInfo,
@@ -2462,6 +2480,33 @@ class LocalGateway(object):
             '/gateway.LocalGateway/ResourcesSnapshot',
             gateway__pb2.Void.SerializeToString,
             gateway__pb2.NodeResourcesSnapshotWithContainers.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetLocalDaemonInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/gateway.LocalGateway/GetLocalDaemonInfo',
+            gateway__pb2.Void.SerializeToString,
+            gateway__pb2.LocalDaemonInfo.FromString,
             options,
             channel_credentials,
             insecure,

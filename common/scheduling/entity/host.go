@@ -118,10 +118,10 @@ type Host struct {
 
 	log logger.Logger
 
+	syncMutex       sync.Mutex // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
+	schedulingMutex sync.Mutex // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
+
 	allocationManager              *resource.AllocationManager                         // allocationManager manages the resources of the Host.
-	latestGpuInfo                  *proto.GpuInfo                                      // latestGpuInfo is the latest GPU info of this host scheduler.
-	syncMutex                      sync.Mutex                                          // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
-	schedulingMutex                sync.Mutex                                          // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
 	meta                           hashmap.HashMap[string, interface{}]                // meta is a map of metadata.
 	conn                           *grpc.ClientConn                                    // conn is the gRPC connection to the Host.
 	Addr                           string                                              // Addr is the Host's address.
@@ -185,21 +185,14 @@ type Host struct {
 // newHostForRestoration always returns a non-nil error. It either returns an error returned by the network
 // call to retrieve the latest GPU info from the remote host, or it returns an ErrRestoreRequired error
 // to ensure that the Cluster Gateway knows to use the returned Host to restore an existing Host.
-func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirmedId *proto.HostId,
-	millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int) (*Host, error) {
-	gpuInfoResp, gpuFetchError := localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
-	if gpuFetchError != nil {
-		log.Printf(utils.RedStyle.Render("[ERROR] Failed to fetch latest GPU information from "+
+//
+// Old parameters: (millicpus int32, memMb int32, vramGb float64)
+func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirmedId *proto.HostId, numReplicasPerKernel int) (*Host, error) {
+	infoResponse, infoErr := localGatewayClient.GetLocalDaemonInfo(context.Background(), &proto.Void{})
+	if infoErr != nil {
+		log.Printf(utils.RedStyle.Render("[ERROR] Failed to fetch latest information from "+
 			"existing+reconnecting Local Daemon %s (ID=%s)\n"), confirmedId.NodeName, confirmedId.Id)
-		return nil, gpuFetchError
-	}
-
-	// Create the ResourceSpec defining the HostResources available on the Host.
-	resourceSpec := &types.DecimalSpec{
-		GPUs:      decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
-		Millicpus: decimal.NewFromFloat(float64(millicpus)),
-		MemoryMb:  decimal.NewFromFloat(float64(memMb)),
-		VRam:      decimal.NewFromFloat(vramGb),
+		return nil, infoErr
 	}
 
 	// Create a Host struct populated with a few key fields.
@@ -211,9 +204,8 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 	// existing Host struct has a new, valid connection to the remote Local Daemon.
 	host := &Host{
 		ID:                          confirmedId.Id,
-		resourceSpec:                resourceSpec,
+		resourceSpec:                infoResponse.SpecResources.ToDecimalSpec(),
 		NodeName:                    confirmedId.NodeName,
-		latestGpuInfo:               gpuInfoResp,
 		LocalGatewayClient:          localGatewayClient,
 		ProperlyInitialized:         false,
 		numReplicasPerKernel:        numReplicasPerKernel,
@@ -261,7 +253,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 	if confirmedId.Existing {
 		log.Printf("[INFO] New Local Daemon connection is actually from an existing Local Daemon "+
 			"(%s, ID=%s) that is reconnecting.\n", confirmedId.NodeName, confirmedId.Id)
-		return newHostForRestoration(localGatewayClient, confirmedId, millicpus, memMb, vramGb, numReplicasPerKernel)
+		return newHostForRestoration(localGatewayClient, confirmedId, numReplicasPerKernel) // millicpus, memMb, vramGb,
 	}
 
 	// Get the initial GPU info. If this fails, the creation of a new host scheduler fails.
@@ -283,7 +275,6 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 
 	host := &Host{
 		LocalGatewayClient:                  localGatewayClient,
-		latestGpuInfo:                       gpuInfoResp,
 		ID:                                  id,
 		NodeName:                            confirmedId.NodeName,
 		Addr:                                addr,
@@ -1045,10 +1036,6 @@ func (h *Host) GetResourceSpec() types.Spec {
 	return h.resourceSpec
 }
 
-func (h *Host) GetLatestGpuInfo() *proto.GpuInfo {
-	return h.latestGpuInfo
-}
-
 func (h *Host) GetLocalGatewayClient() proto.LocalGatewayClient {
 	return h.LocalGatewayClient
 }
@@ -1069,7 +1056,6 @@ func (h *Host) Restore(restoreFrom scheduling.Host, callback scheduling.ErrorCal
 	h.resourceSpec = types.ToDecimalSpec(restoreFrom.GetResourceSpec())
 	h.ID = restoreFrom.GetID()
 	h.NodeName = restoreFrom.GetNodeName()
-	h.latestGpuInfo = restoreFrom.GetLatestGpuInfo()
 
 	return nil
 }

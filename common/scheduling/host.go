@@ -50,7 +50,6 @@ type Host interface {
 
 	// AllocationManager returns the AllocationManager that manages the resources of the target Host.
 	AllocationManager() AllocationManager
-	GetLatestGpuInfo() *proto.GpuInfo
 	SetSchedulerPoolType(schedulerPoolType SchedulerPoolType)
 	SetIdx(types.HeapElementMetadataKey, int)
 	GetIdx(types.HeapElementMetadataKey) int

@@ -1486,6 +1486,18 @@ func (d *LocalScheduler) smrReadyCallback(kernelClient scheduling.KernelReplica)
 	}
 }
 
+// GetLocalDaemonInfo returns key information about the Local Daemon, including its current resource counts,
+// its ID, etc.
+func (d *LocalScheduler) GetLocalDaemonInfo(_ context.Context, _ *proto.Void) (*proto.LocalDaemonInfo, error) {
+	info := &proto.LocalDaemonInfo{
+		SpecResources:  proto.ResourceSpecFromSpec(d.resourceManager.SpecResources()),
+		GpuSchedulerId: d.resourceManager.ID,
+		LocalDaemonId:  d.id,
+	}
+
+	return info, nil
+}
+
 // GetActualGpuInfo returns the "actual" GPU resource information for the node.
 //
 // Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
@@ -1500,8 +1512,6 @@ func (d *LocalScheduler) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*pr
 		GpuSchedulerID:        d.resourceManager.ID,
 		LocalDaemonID:         d.id,
 	}
-
-	// d.log.Debug("Returning GPU information: %v", gpuInfo)
 
 	return gpuInfo, nil
 }
@@ -3302,7 +3312,7 @@ func (d *LocalScheduler) addResourceSnapshotToJupyterMessage(jMsg *messaging.Jup
 		return nil, decodeError
 	} else {
 		snapshot = d.resourceManager.ResourcesSnapshot()
-		metadata[resource.SnapshotMetadataKey] = snapshot
+		metadata[scheduling.SnapshotMetadataKey] = snapshot
 
 		// Re-encode the metadata frame. It will have the number of idle GPUs available,
 		// as well as the reason that the request was yielded (if it was yielded).

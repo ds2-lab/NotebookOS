@@ -2436,18 +2436,24 @@ func (mr *MockHostMockRecorder) GetLastRemoteSync() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLastRemoteSync", reflect.TypeOf((*MockHost)(nil).GetLastRemoteSync))
 }
 
-// GetLatestGpuInfo mocks base method.
-func (m *MockHost) GetLatestGpuInfo() *proto.GpuInfo {
+// GetLocalDaemonInfo mocks base method.
+func (m *MockHost) GetLocalDaemonInfo(ctx context.Context, in *proto.Void, opts ...grpc.CallOption) (*proto.LocalDaemonInfo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetLatestGpuInfo")
-	ret0, _ := ret[0].(*proto.GpuInfo)
-	return ret0
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetLocalDaemonInfo", varargs...)
+	ret0, _ := ret[0].(*proto.LocalDaemonInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
-// GetLatestGpuInfo indicates an expected call of GetLatestGpuInfo.
-func (mr *MockHostMockRecorder) GetLatestGpuInfo() *gomock.Call {
+// GetLocalDaemonInfo indicates an expected call of GetLocalDaemonInfo.
+func (mr *MockHostMockRecorder) GetLocalDaemonInfo(ctx, in any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestGpuInfo", reflect.TypeOf((*MockHost)(nil).GetLatestGpuInfo))
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLocalDaemonInfo", reflect.TypeOf((*MockHost)(nil).GetLocalDaemonInfo), varargs...)
 }
 
 // GetLocalGatewayClient mocks base method.
