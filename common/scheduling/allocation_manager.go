@@ -3,7 +3,6 @@ package scheduling
 import (
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
 )
@@ -45,12 +44,12 @@ type AllocationManager interface {
 	ReplicaHasPendingGPUs(replicaId int32, kernelId string) bool
 	ReplicaHasCommittedResources(replicaId int32, kernelId string) bool
 	ReplicaHasCommittedGPUs(replicaId int32, kernelId string) bool
-	AssertAllocationIsPending(allocation *resource.Allocation) bool
-	AssertAllocationIsCommitted(allocation *resource.Allocation) bool
+	AssertAllocationIsPending(allocation Allocation) bool
+	AssertAllocationIsCommitted(allocation Allocation) bool
 	NumAllocations() int
 	NumCommittedAllocations() int
 	NumPendingAllocations() int
-	GetAllocation(replicaId int32, kernelId string) (*resource.Allocation, bool)
+	GetAllocation(replicaId int32, kernelId string) (Allocation, bool)
 	PromoteReservation(replicaId int32, kernelId string) error
 	AdjustPendingResources(replicaId int32, kernelId string, updatedSpec types.Spec) error
 	CommitResources(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) ([]int, error)

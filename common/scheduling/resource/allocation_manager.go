@@ -499,7 +499,7 @@ func (m *AllocationManager) ReplicaHasCommittedGPUs(replicaId int32, kernelId st
 
 // AssertAllocationIsPending returns true if the given *Allocation IS pending.
 // If the given *Allocation is NOT pending, then this function will panic.
-func (m *AllocationManager) AssertAllocationIsPending(allocation *Allocation) bool {
+func (m *AllocationManager) AssertAllocationIsPending(allocation scheduling.Allocation) bool {
 	if allocation.IsPending() {
 		return true
 	}
@@ -509,7 +509,7 @@ func (m *AllocationManager) AssertAllocationIsPending(allocation *Allocation) bo
 
 // AssertAllocationIsCommitted returns true if the given *Allocation is NOT pending.
 // If the given *Allocation IS pending, then this function will panic.
-func (m *AllocationManager) AssertAllocationIsCommitted(allocation *Allocation) bool {
+func (m *AllocationManager) AssertAllocationIsCommitted(allocation scheduling.Allocation) bool {
 	if allocation.IsCommitted() {
 		return true
 	}
@@ -533,8 +533,8 @@ func (m *AllocationManager) NumPendingAllocations() int {
 	return m.numPendingAllocations.LoadInt()
 }
 
-// GetAllocation returns the Allocation associated with the specific kernel repliac, if one exists.
-func (m *AllocationManager) GetAllocation(replicaId int32, kernelId string) (*Allocation, bool) {
+// GetAllocation returns the Allocation associated with the specific kernel replica, if one exists.
+func (m *AllocationManager) GetAllocation(replicaId int32, kernelId string) (scheduling.Allocation, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
