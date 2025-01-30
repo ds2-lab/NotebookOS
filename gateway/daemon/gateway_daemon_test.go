@@ -2430,18 +2430,24 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedSession.EXPECT().IsIdle().AnyTimes().Return(true)
 
-			mockedKernel.EXPECT().RemoveReplicaByID(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
-				associatedHost := hosts[id-1]
+			mockedKernel.EXPECT().
+				RemoveReplicaByID(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).
+				DoAndReturn(func(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
+					associatedHost := hosts[id-1]
 
-				replica, err := mockedKernel.GetReplicaByID(id)
-				Expect(err).To(BeNil())
-				Expect(replica).ToNot(BeNil())
+					replica, err := mockedKernel.GetReplicaByID(id)
+					fmt.Printf("GetReplicaByID Error: %v\n", err)
+					GinkgoWriter.Printf("GetReplicaByID Error: %v\n", err)
+					Expect(err).To(BeNil())
+					Expect(replica).ToNot(BeNil())
 
-				err = associatedHost.ContainerRemoved(replica)
-				Expect(err).To(BeNil())
+					err = associatedHost.ContainerRemoved(replica.Container())
+					fmt.Printf("ContainerRemoved Error: %v\n", err)
+					GinkgoWriter.Printf("ContainerRemoved Error: %v\n", err)
+					Expect(err).To(BeNil())
 
-				return associatedHost, err
-			})
+					return associatedHost, err
+				})
 
 			host4Id := uuid.NewString()
 			node4Name := "TestNode4"
@@ -2604,6 +2610,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						smrNodeId, host.GetNodeName(), host.GetResourceCountsAsString())
 
 					err := host.ContainerRemoved(replicaBeingMigrated.Container())
+					fmt.Printf("ContainerRemoved Error: %v\n", err)
+					GinkgoWriter.Printf("ContainerRemoved Error: %v\n", err)
 					Expect(err).To(BeNil())
 
 					return &proto.KernelReplicaSpec{
