@@ -67,11 +67,47 @@ type AllocationManager struct {
 	// by this AllocationManager.
 	resourceManager *Manager
 
-	// numPendingAllocations is the number of active Allocation instances of type PendingAllocation.
-	numPendingAllocations types.StatInt32
+	// numPendingAllocations is the number of active Allocation instances of type scheduling.PendingAllocation.
+	//
+	// Allocation instances of type scheduling.PendingAllocation are created under scheduling policies that only
+	// (exclusively) bind or commit resources to containers while the replicas within those containers are actively
+	// executing user-submitted code.
+	numPendingAllocations atomic.Int32
 
-	// numCommittedAllocations is the number of active Allocation instances of type CommittedAllocation.
-	numCommittedAllocations types.StatInt32
+	// numCommittedAllocations is the number of active Allocation instances of type scheduling.CommittedAllocation.
+	//
+	// Allocation instances of type scheduling.CommittedAllocation are created when resources are exclusively bound or
+	// committed to a scheduling.KernelContainer. When this occurs depends upon the scheduling policy. Under scheduling
+	// policies for which the "container lifetime" is set to scheduling.SingleTrainingEvent, resources are bound to the
+	// scheduling.KernelContainer for the entire duration of the scheduling.KernelContainer's lifetime. This is because
+	// the scheduling.KernelContainer is created and exists only to execute a single code submission before terminating.
+	//
+	// Alternatively, under scheduling policies for which the "container lifetime" is set to scheduling.LongRunning, the
+	// scheduling.KernelContainer persists beyond the scope of any single code execution. In this case, resources are
+	// only exclusively bound or committed to a scheduling.KernelContainer immediately before it begins executing
+	// user-submitted code, and they are released from the scheduling.KernelContainer once the execution completes.
+	numCommittedAllocations atomic.Int32
+
+	// numPreCommitments maintains a counter of the number of "pre-committed" allocations, which are a subset of the
+	// allocations of type scheduling.CommittedAllocation. Resource pre-commitment occurs during the submission and
+	// forwarding of a messaging.ShellExecuteRequest message (i.e., an "execute_request") message to the
+	// scheduling.KernelReplica instances associated with a scheduling.Kernel. The resources are preemptively bound or
+	// committed exclusively to one or more scheduling.KernelReplica instances in anticipation of those instances
+	// beginning to train. (It is necessary for the resources to be available in order for the training to begin.)
+	//
+	// If the scheduling.KernelReplica is not selected as the "primary replica", as can be the case in multi-replica
+	// scheduling policies, then the pre-committed resources will be released. Alternatively, if a
+	// scheduling.KernelReplica with pre-committed resources is designated as the "primary replica" and begins
+	// executing user-submitted code, then the "pre-committed" resources will be semantically updated to simply
+	// being "committed". Since "pre-committed" resources are counted as a subset of "committed" resources, there will
+	// be no change in the "committed" resource count of the AllocationManager or associated scheduling.Host.
+	numPreCommitments atomic.Int32
+
+	// numReservations maintains a counter of the number of resource allocations that are made prior to a
+	// scheduling.KernelReplica actually beginning to run on a particular scheduling.Host. The resources are set aside
+	// for the scheduling.KernelReplica ahead of time, so that they are definitely available when the
+	// scheduling.KernelReplica is placed onto the scheduling.Host and begins running.
+	numReservations atomic.Int32
 
 	// availableGpuDevices is a queue.Fifo containing GPU device IDs.
 	availableGpuDevices *queue.Fifo[int]
@@ -93,8 +129,11 @@ func NewAllocationManager(resourceSpec types.Spec) *AllocationManager {
 
 	manager.resourceManager = NewManager(resourceSpec)
 
+	// Initialize all of these counters to 0.
 	manager.numPendingAllocations.Store(0)
 	manager.numCommittedAllocations.Store(0)
+	manager.numPreCommitments.Store(0)
+	manager.numReservations.Store(0)
 
 	config.InitLogger(&manager.log, manager)
 

@@ -55,7 +55,7 @@ import (
 //     on the Host, the AllocationManager will be informed of this, and the AllocationManager's records will be updated
 //     accordingly.
 //
-//   - "Reserved": Resources that are "reserved" for a KernelContainer when a decision to schedule that KernelContainer on
+//   - "Reserved": Resources are "reserved" for a KernelContainer when a decision to schedule that KernelContainer on
 //     a particular Host is made. So, when the KernelContainer is "scheduled", resources will be "reserved". When the
 //     KernelContainer is "placed", the KernelContainer will (in theory) begin to run on the Host. Once the
 //     KernelContainer enters the "running" state, the "reserved" resources are "promoted" from being a "reservation"
