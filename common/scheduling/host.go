@@ -48,8 +48,6 @@ type Host interface {
 	GetResourceSpec() types.Spec
 	IsProperlyInitialized() bool
 
-	// AllocationManager returns the AllocationManager that manages the resources of the target Host.
-	AllocationManager() AllocationManager
 	SetSchedulerPoolType(schedulerPoolType SchedulerPoolType)
 	SetIdx(types.HeapElementMetadataKey, int)
 	GetIdx(types.HeapElementMetadataKey) int
@@ -216,19 +214,26 @@ type Host interface {
 
 // UnitTestingHost is a wrapper around Host that exposes some additional methods that allow for the direct
 // manipulation of the Host's resources. This is useful for unit testing and not much else.
+//
+// UnitTestingHost is a wrapper around Host much like how UnitTestingAllocationManager is a wrapper around AllocationManager.
 type UnitTestingHost interface {
 	Host
 
 	// AddToPendingResources is only meant to be used during unit tests.
 	AddToPendingResources(spec *types.DecimalSpec) error
+
 	// AddToCommittedResources is only intended to be used during unit tests.
 	AddToCommittedResources(spec *types.DecimalSpec) error
+
 	// SubtractFromIdleResources is only intended to be used during unit tests.
 	SubtractFromIdleResources(spec *types.DecimalSpec) error
+
 	// SubtractFromCommittedResources is only intended to be used during unit tests.
 	SubtractFromCommittedResources(spec *types.DecimalSpec) error
+
 	// AddToIdleResources is only intended to be used during unit tests.
 	AddToIdleResources(spec *types.DecimalSpec) error
+
 	// AllocationManager returns the AllocationManager that manages the resources of the target UnitTestingHost.
 	AllocationManager() AllocationManager
 }

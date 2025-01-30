@@ -31,15 +31,15 @@ import (
 type AllocationManager struct {
 	mu sync.Mutex
 
-	// ID is the unique ID of the AllocationManager. This is distinct from the NodeID.
-	ID string
+	// GetId is the unique identifier of the AllocationManager. This is distinct from the NodeId.
+	Id string
 
-	// NodeID is the unique identifier of the node on which the AllocationManager exists.
+	// NodeId is the unique identifier of the node on which the AllocationManager exists.
 	// This field is not populated immediately, as the LocalDaemon does not have an ID
 	// when it is first created. Instead, the Cluster Gateway assigns an ID to the
-	// LocalDaemon via the SetID gRPC call. The NodeID field of the AllocationManager
+	// LocalDaemon via the SetID gRPC call. The NodeId field of the AllocationManager
 	// is assigned a value during the execution of the SetID RPC.
-	NodeID string
+	NodeId string
 
 	log logger.Logger // Logger.
 
@@ -79,7 +79,7 @@ type AllocationManager struct {
 // NewAllocationManager creates a new AllocationManager struct and returns a pointer to it.
 func NewAllocationManager(resourceSpec types.Spec) *AllocationManager {
 	manager := &AllocationManager{
-		ID:                         uuid.NewString(),
+		Id:                         uuid.NewString(),
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, scheduling.Allocation](128),
 		availableGpuDevices:        queue.NewFifo[int](int(resourceSpec.GPU())),
 	}
@@ -98,6 +98,17 @@ func NewAllocationManager(resourceSpec types.Spec) *AllocationManager {
 	manager.log.Debug("Resource Manager initialized: %v", manager.resourceManager.String())
 
 	return manager
+}
+
+// GetId returns the target AllocationManager's unique identifier, which is the different from the associated
+// scheduling.Host's ID.
+func (m *AllocationManager) GetId() string {
+	return m.Id
+}
+
+// GetNodeId returns the node ID or host ID of the scheduling.Host whose resources are managed by the target AllocationManager.
+func (m *AllocationManager) GetNodeId() string {
+	return m.NodeId
 }
 
 // ResourcesSnapshot returns a *ManagerSnapshot encoding the working resource quantities
@@ -138,8 +149,8 @@ func (m *AllocationManager) ResourcesSnapshot() *ManagerSnapshot {
 	snapshot := &ManagerSnapshot{
 		SnapshotId:         snapshotId,
 		Timestamp:          time.Now(),
-		NodeId:             m.NodeID,
-		ManagerId:          m.ID,
+		NodeId:             m.NodeId,
+		ManagerId:          m.Id,
 		IdleResources:      m.resourceManager.idleResourcesSnapshot(snapshotId),
 		PendingResources:   m.resourceManager.pendingResourcesSnapshot(snapshotId),
 		CommittedResources: m.resourceManager.committedResourcesSnapshot(snapshotId),
@@ -181,8 +192,8 @@ func (m *AllocationManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapsho
 	snapshot := &proto.NodeResourcesSnapshot{
 		SnapshotId:         snapshotId,
 		Timestamp:          timestamppb.Now(),
-		NodeId:             m.NodeID,
-		ManagerId:          m.ID,
+		NodeId:             m.NodeId,
+		ManagerId:          m.Id,
 		IdleResources:      idleSnapshot,
 		PendingResources:   pendingSnapshot,
 		CommittedResources: committedSnapshot,
@@ -1380,4 +1391,131 @@ func (m *AllocationManager) unsafeReleaseCommittedResources(allocation schedulin
 	allocation.ClearGpuDeviceIds()
 
 	m.log.Debug("Released committed resources. Updated resource counts: %s.", m.resourceManager.GetResourceCountsAsString())
+}
+
+// UnitTestingAllocationManager is a wrapper around AllocationManager with a few additional methods to facilitate
+// unit testing with scheduling.UnitTestingHost instances.
+type unitTestingAllocationManager struct {
+	*AllocationManager
+}
+
+func NewUnitTestingAllocationManager(manager scheduling.AllocationManager) scheduling.UnitTestingAllocationManager {
+	if _, ok := manager.(*unitTestingAllocationManager); ok {
+		panic(
+			fmt.Sprintf(
+				"Cannot wrap AllocationManager \"%s\" (NodeId=\"%s\") in a UnitTestingAllocationManager as it is already a UnitTestingAllocationManager.",
+				manager.GetId(), manager.GetNodeId()))
+	}
+
+	if _, ok := manager.(*AllocationManager); !ok {
+		panic(
+			fmt.Sprintf(
+				"Cannot wrap AllocationManager \"%s\" (NodeId=\"%s\") in a UnitTestingAllocationManager as it is of an unknown or unsupported concrete type.",
+				manager.GetId(), manager.GetNodeId()))
+	}
+
+	return &unitTestingAllocationManager{
+		AllocationManager: manager.(*AllocationManager),
+	}
+}
+
+// AddToCommittedResources is only intended to be used during unit tests.
+func (m *unitTestingAllocationManager) AddToCommittedResources(spec *types.DecimalSpec) error {
+	m.log.Debug("Incrementing committed resources by [%v]. Current committed: %s.",
+		spec.String(), m.resourceManager.CommittedResources().String())
+	err := m.resourceManager.CommittedResources().Add(spec)
+
+	if err != nil {
+		m.log.Debug("Failed to increment committed resources by [%v]. Current committed: %s.",
+			spec.String(), m.resourceManager.CommittedResources().String())
+		return err
+	}
+
+	m.log.Debug("Successfully incremented committed resources by [%v]. Current committed: %s.",
+		spec.String(), m.resourceManager.CommittedResources().String())
+	return nil
+}
+
+// SubtractFromCommittedResources is only intended to be used during unit tests.
+func (m *unitTestingAllocationManager) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
+	m.log.Debug("Decrementing committed resources by [%v]. Current committed: %s.",
+		spec.String(), m.resourceManager.CommittedResources().String())
+	err := m.resourceManager.CommittedResources().Subtract(spec)
+
+	if err != nil {
+		m.log.Debug("Failed to decrement committed resources by [%v]. Current committed: %s.",
+			spec.String(), m.resourceManager.CommittedResources().String())
+		return err
+	}
+
+	m.log.Debug("Successfully decremented committed resources by [%v]. Current committed: %s.",
+		spec.String(), m.resourceManager.CommittedResources().String())
+	return nil
+}
+
+// AddToIdleResources is only intended to be used during unit tests.
+func (m *unitTestingAllocationManager) AddToIdleResources(spec *types.DecimalSpec) error {
+	m.log.Debug("Incrementing idle resources by [%v]. Current idle: %s.",
+		spec.String(), m.resourceManager.IdleResources().String())
+	err := m.resourceManager.IdleResources().Add(spec)
+
+	if err != nil {
+		m.log.Debug("Failed to increment idle resources by [%v]. Current idle: %s.",
+			spec.String(), m.resourceManager.IdleResources().String())
+		return err
+	}
+
+	m.log.Debug("Successfully incremented idle resources by [%v]. Current idle: %s.",
+		spec.String(), m.resourceManager.IdleResources().String())
+	return nil
+}
+
+// SubtractFromIdleResources is only intended to be used during unit tests.
+func (m *unitTestingAllocationManager) SubtractFromIdleResources(spec *types.DecimalSpec) error {
+	m.log.Debug("Decrementing idle resources by [%v]. Current idle: %s.",
+		spec.String(), m.resourceManager.IdleResources().String())
+	err := m.resourceManager.IdleResources().Subtract(spec)
+
+	if err != nil {
+		m.log.Debug("Failed to decrement idle resources by [%v]. Current idle: %s.",
+			spec.String(), m.resourceManager.IdleResources().String())
+		return err
+	}
+
+	m.log.Debug("Successfully decremented idle resources by [%v]. Current idle: %s.",
+		spec.String(), m.resourceManager.IdleResources().String())
+	return nil
+}
+
+// AddToPendingResources is only meant to be used during unit tests.
+func (m *unitTestingAllocationManager) AddToPendingResources(spec *types.DecimalSpec) error {
+	m.log.Debug("Incrementing pending resources by [%v]. Current pending: %s.",
+		spec.String(), m.resourceManager.PendingResources().String())
+	err := m.resourceManager.PendingResources().Add(spec)
+
+	if err != nil {
+		m.log.Debug("Failed to increment pending resources by [%v]. Current pending: %s.",
+			spec.String(), m.resourceManager.PendingResources().String())
+		return err
+	}
+
+	m.log.Debug("Successfully incremented pending resources by [%v]. Current pending: %s.",
+		spec.String(), m.resourceManager.PendingResources().String())
+	return nil
+}
+
+func (m *unitTestingAllocationManager) SubtractFromPendingResources(spec *types.DecimalSpec) error {
+	m.log.Debug("Decrementing pending resources by [%v]. Current pending: %s.",
+		spec.String(), m.resourceManager.PendingResources().String())
+	err := m.resourceManager.PendingResources().Subtract(spec)
+
+	if err != nil {
+		m.log.Debug("Failed to decrement pending resources by [%v]. Current pending: %s.",
+			spec.String(), m.resourceManager.PendingResources().String())
+		return err
+	}
+
+	m.log.Debug("Successfully decremented pending resources by [%v]. Current pending: %s.",
+		spec.String(), m.resourceManager.PendingResources().String())
+	return nil
 }

@@ -15,6 +15,10 @@ import (
 // In general, AllocationManager elects to work with *types.DecimalSpec structs internally, rather than arbitrary
 // types.Spec interface instances, as AllocationManager stores its own state in decimal.Decimal structs.
 type AllocationManager interface {
+	// GetId returns the target AllocationManager's unique identifier, which is different from the associated Host's ID.
+	GetId() string
+	// GetNodeId returns the node ID or host ID of the scheduling.Host whose resources are managed by the target AllocationManager.
+	GetNodeId() string
 	ProtoResourcesSnapshot() *proto.NodeResourcesSnapshot
 	DebugSetIdleGPUs(value float64)
 	RegisterMetricsManager(metricsManager *metrics.LocalDaemonPrometheusManager)
@@ -108,4 +112,31 @@ type AllocationManager interface {
 	// PlacedCPUs returns the total number of scheduled Millicpus, which is computed as the
 	// sum of the AllocationManager's pending Millicpus and the Host's committed Millicpus.
 	PlacedCPUs() decimal.Decimal
+}
+
+// UnitTestingAllocationManager is a wrapper around AllocationManager much like how UnitTestingHost is a wrapper
+// around Host.
+//
+// UnitTestingAllocationManager exposes some additional methods that allow for the direct manipulation of the wrapped
+// AllocationManager's resources. This is useful for unit testing and not much else.
+type UnitTestingAllocationManager interface {
+	AllocationManager
+
+	// AddToPendingResources is only meant to be used during unit tests.
+	AddToPendingResources(spec *types.DecimalSpec) error
+
+	// AddToCommittedResources is only intended to be used during unit tests.
+	AddToCommittedResources(spec *types.DecimalSpec) error
+
+	// SubtractFromIdleResources is only intended to be used during unit tests.
+	SubtractFromIdleResources(spec *types.DecimalSpec) error
+
+	// SubtractFromCommittedResources is only intended to be used during unit tests.
+	SubtractFromCommittedResources(spec *types.DecimalSpec) error
+
+	// AddToIdleResources is only intended to be used during unit tests.
+	AddToIdleResources(spec *types.DecimalSpec) error
+
+	// SubtractFromPendingResources is only intended to be used during unit tests.
+	SubtractFromPendingResources(spec *types.DecimalSpec) error
 }

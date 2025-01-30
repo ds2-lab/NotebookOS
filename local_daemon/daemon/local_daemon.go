@@ -614,7 +614,7 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 		replicaClient.SetComponentId(d.id)
 		return true
 	})
-	d.allocationManager.NodeID = d.id
+	d.allocationManager.NodeId = d.id
 	d.finishedGatewayHandshake = true
 
 	if d.prometheusManager != nil {
@@ -1495,7 +1495,7 @@ func (d *LocalScheduler) smrReadyCallback(kernelClient scheduling.KernelReplica)
 func (d *LocalScheduler) GetLocalDaemonInfo(_ context.Context, _ *proto.Void) (*proto.LocalDaemonInfo, error) {
 	info := &proto.LocalDaemonInfo{
 		SpecResources:  proto.ResourceSpecFromSpec(d.allocationManager.SpecResources()),
-		GpuSchedulerId: d.allocationManager.ID,
+		GpuSchedulerId: d.allocationManager.Id,
 		LocalDaemonId:  d.id,
 	}
 
@@ -1513,7 +1513,7 @@ func (d *LocalScheduler) GetActualGpuInfo(_ context.Context, _ *proto.Void) (*pr
 		PendingGPUs:           int32(d.allocationManager.PendingGPUs().InexactFloat64()),
 		NumPendingAllocations: int32(d.allocationManager.NumAllocations()),
 		NumAllocations:        int32(d.allocationManager.NumPendingAllocations()),
-		GpuSchedulerID:        d.allocationManager.ID,
+		GpuSchedulerID:        d.allocationManager.Id,
 		LocalDaemonID:         d.id,
 	}
 
@@ -2686,7 +2686,7 @@ func (d *LocalScheduler) updateKernelResourceSpec(kernel scheduling.KernelReplic
 			NotificationType: messaging.ErrorNotification.Int32(),
 			Panicked:         true,
 		})
-		
+
 		panic(err)
 	}
 

@@ -100,7 +100,7 @@ func (s *ManagerSnapshot) String() string {
 		spec = s.SpecResources.String()
 	}
 
-	return fmt.Sprintf("ManagerSnapshot[SnapshotID=%d, NodeID=%s, ManagerID=%s, Timestamp=%v, Idle=%s, Pending=%s, Committed=%s, Spec=%s]",
+	return fmt.Sprintf("ManagerSnapshot[SnapshotID=%d, NodeId=%s, ManagerID=%s, Timestamp=%v, Idle=%s, Pending=%s, Committed=%s, Spec=%s]",
 		s.SnapshotId, s.NodeId, s.ManagerId, s.Timestamp, idle, pending, committed, spec)
 }
 

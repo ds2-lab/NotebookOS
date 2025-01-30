@@ -121,7 +121,7 @@ type Host struct {
 	syncMutex       sync.Mutex // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
 	schedulingMutex sync.Mutex // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
 
-	allocationManager              *resource.AllocationManager                         // allocationManager manages the resources of the Host.
+	allocationManager              scheduling.AllocationManager                        // allocationManager manages the resources of the Host.
 	meta                           hashmap.HashMap[string, interface{}]                // meta is a map of metadata.
 	conn                           *grpc.ClientConn                                    // conn is the gRPC connection to the Host.
 	Addr                           string                                              // Addr is the Host's address.
@@ -2031,25 +2031,6 @@ func (h *Host) ScaleInPriority() float64 {
 	return h.sip.Value().(float64)
 }
 
-// AddToPendingResources is only meant to be used during unit tests.
-func (h *Host) AddToPendingResources(spec *types.DecimalSpec) error {
-	h.log.Debug("Incrementing pending resources by [%v]. Current pending: %s.",
-		spec.String(), h.allocationManager.PendingResources().String())
-	err := h.resourceManager.PendingResources().Add(spec)
-
-	if err != nil {
-		h.log.Debug("Failed to increment pending resources by [%v]. Current pending: %s.",
-			spec.String(), h.allocationManager.PendingResources().String())
-		return err
-	}
-
-	h.log.Debug("Successfully incremented pending resources by [%v]. Current pending: %s.",
-		spec.String(), h.allocationManager.PendingResources().String())
-
-	h.RecomputeSubscribedRatio()
-	return nil
-}
-
 // subtractFromPendingResources is a utility function that subtracts the given resources from the Host's pending
 // resource quantity. subtractFromPendingResources prints before and after so we don't have to do that anywhere else.
 func (h *Host) subtractFromPendingResources(spec *types.DecimalSpec, kernelId string, containerId int32) error {
@@ -2102,43 +2083,78 @@ type UnitTestingHost struct {
 // NewUnitTestingHost creates a new UnitTestingHost struct wrapping the given Host and returns a pointer to the
 // new UnitTestingHost struct.
 func NewUnitTestingHost(host *Host) *UnitTestingHost {
+	// Wrap the Host's allocation manager in a scheduling.UnitTestingAllocationManager.
+	host.allocationManager = resource.NewUnitTestingAllocationManager(host.allocationManager)
+
 	return &UnitTestingHost{
 		Host: host,
 	}
 }
 
-// AddToCommittedResources is only intended to be used during unit tests.
-func (h *UnitTestingHost) AddToCommittedResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.CommittedResources().Add(spec)
+// AddToIdleResources is only intended to be used during unit tests.
+func (h *UnitTestingHost) AddToIdleResources(spec *types.DecimalSpec) error {
+	err := h.allocationManager.(scheduling.UnitTestingAllocationManager).AddToIdleResources(spec)
+	if err != nil {
+		return err
+	}
+
 	h.RecomputeSubscribedRatio()
-	return err
+	return nil
 }
 
 // SubtractFromIdleResources is only intended to be used during unit tests.
 func (h *UnitTestingHost) SubtractFromIdleResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.IdleResources().Subtract(spec)
+	err := h.allocationManager.(scheduling.UnitTestingAllocationManager).SubtractFromIdleResources(spec)
+	if err != nil {
+		return err
+	}
+
 	h.RecomputeSubscribedRatio()
-	return err
+	return nil
 }
 
-// AddToIdleResources is only intended to be used during unit tests.
-func (h *UnitTestingHost) AddToIdleResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.IdleResources().Add(spec)
+// AddToCommittedResources is only intended to be used during unit tests.
+func (h *UnitTestingHost) AddToCommittedResources(spec *types.DecimalSpec) error {
+	err := h.allocationManager.(scheduling.UnitTestingAllocationManager).AddToCommittedResources(spec)
+	if err != nil {
+		return err
+	}
+
 	h.RecomputeSubscribedRatio()
-	return err
+	return nil
 }
 
 // SubtractFromCommittedResources is only intended to be used during unit tests.
 func (h *UnitTestingHost) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.CommittedResources().Subtract(spec)
+	err := h.allocationManager.(scheduling.UnitTestingAllocationManager).SubtractFromCommittedResources(spec)
+	if err != nil {
+		return err
+	}
+
 	h.RecomputeSubscribedRatio()
-	return err
+	return nil
 }
 
-func (h *UnitTestingHost) SubtractFromPendingResources(spec *types.DecimalSpec) error {
-	err := h.resourceManager.PendingResources().Subtract(spec)
+// AddToPendingResources is only meant to be used during unit tests.
+func (h *UnitTestingHost) AddToPendingResources(spec *types.DecimalSpec) error {
+	err := h.allocationManager.(scheduling.UnitTestingAllocationManager).AddToPendingResources(spec)
+	if err != nil {
+		return err
+	}
+
 	h.RecomputeSubscribedRatio()
-	return err
+	return nil
+}
+
+// SubtractFromPendingResources is only intended to be used during unit tests.
+func (h *UnitTestingHost) SubtractFromPendingResources(spec *types.DecimalSpec) error {
+	err := h.allocationManager.(scheduling.UnitTestingAllocationManager).SubtractFromPendingResources(spec)
+	if err != nil {
+		return err
+	}
+
+	h.RecomputeSubscribedRatio()
+	return nil
 }
 
 // AllocationManager returns the resource.AllocationManager that manages the resources of the target UnitTestingHost.
