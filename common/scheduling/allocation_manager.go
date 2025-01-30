@@ -16,7 +16,6 @@ import (
 // In general, AllocationManager elects to work with *types.DecimalSpec structs internally, rather than arbitrary
 // types.Spec interface instances, as AllocationManager stores its own state in decimal.Decimal structs.
 type AllocationManager interface {
-	ResourcesSnapshot() *resource.ManagerSnapshot
 	ProtoResourcesSnapshot() *proto.NodeResourcesSnapshot
 	DebugSetIdleGPUs(value float64)
 	RegisterMetricsManager(metricsManager *metrics.LocalDaemonPrometheusManager)

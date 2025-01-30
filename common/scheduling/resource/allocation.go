@@ -87,6 +87,46 @@ type Allocation struct {
 	cachedAllocationKey string
 }
 
+// IsAReservation returns the Allocation's IsReservation value, which indicates whether the HostResources were
+// commited in anticipation of a leader election, or if they are committed to a kernel that is actively training.
+func (a *Allocation) IsAReservation() bool {
+	return a.IsReservation
+}
+
+func (a *Allocation) GetGpuDeviceIds() []int {
+	deviceIds := make([]int, 0, len(a.GpuDeviceIds))
+	copy(deviceIds, a.GpuDeviceIds)
+	return deviceIds
+}
+
+func (a *Allocation) GetMillicpus() float64 {
+	return a.Millicpus.InexactFloat64()
+}
+
+func (a *Allocation) GetMemoryMb() float64 {
+	return a.MemoryMB.InexactFloat64()
+}
+
+func (a *Allocation) GetVramGb() float64 {
+	return a.VramGB.InexactFloat64()
+}
+
+func (a *Allocation) GetGpus() float64 {
+	return a.GPUs.InexactFloat64()
+}
+
+func (a *Allocation) GetTimestamp() time.Time {
+	return a.Timestamp
+}
+
+func (a *Allocation) GetAllocationId() string {
+	return a.AllocationId
+}
+
+func (a *Allocation) GetKernelId() string {
+	return a.KernelId
+}
+
 // CloneAndReturnedAdjusted returns a copy of the target Allocation with its resource quantities
 // adjusted to patch the given types.Spec.
 //
