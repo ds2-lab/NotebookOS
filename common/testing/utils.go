@@ -57,8 +57,8 @@ func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster,
 		gomock.Any(),
 	).DoAndReturn(resourceSpoofer.ResourcesSnapshot).AnyTimes()
 
-	host, err := entity.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
-		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, 3, cluster, cluster, nil,
+	host, err := entity.NewHost(hostId, "0.0.0.0", scheduling.DefaultMillicpusPerHost,
+		scheduling.DefaultMemoryMbPerHost, scheduling.DefaultVramPerHostGb, 3, cluster, cluster, nil,
 		localGatewayClient, cluster.Scheduler().Policy(),
 		func(_ string, _ string, _ string, _ string) error { return nil })
 

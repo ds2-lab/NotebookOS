@@ -47,6 +47,8 @@ func ValidateOptions() {
 	} else if err != nil {
 		log.Fatal(err)
 	}
+
+	options.SchedulerOptions.ValidateClusterSchedulerOptions()
 }
 
 // Create and run the debug HTTP server.

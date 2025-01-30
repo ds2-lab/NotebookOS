@@ -371,9 +371,9 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 
 	daemon.resourceManager = resource.NewAllocationManager(&types.Float64Spec{
 		GPUs:      float64(gpusPerHost),
-		VRam:      scheduling.VramPerHostGb,
-		Millicpus: scheduling.MillicpusPerHost,
-		Memory:    scheduling.MemoryMbPerHost})
+		VRam:      scheduling.DefaultVramPerHostGb,
+		Millicpus: scheduling.DefaultMillicpusPerHost,
+		Memory:    scheduling.DefaultMemoryMbPerHost})
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -579,9 +579,10 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 	// If we've already done this once before, then we'll use our existing ID and whatnot.
 	if d.finishedGatewayHandshake {
 		return &proto.HostId{
-			Id:       d.id,
-			NodeName: d.nodeName,
-			Existing: true,
+			Id:            d.id,
+			NodeName:      d.nodeName,
+			Existing:      true,
+			SpecResources: proto.ResourceSpecFromSpec(d.resourceManager.SpecResources()),
 		}, nil
 	}
 
@@ -589,7 +590,8 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 	if !d.hasId() {
 		// Make sure we received a valid ID.
 		if !isValidId(in.Id) {
-			log.Fatalln(utils.RedStyle.Render("Received empty ID, and our current ID is also empty..."))
+			d.log.Error(utils.RedStyle.Render("Received empty ID, and our current ID is also empty..."))
+			return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("received invalid ID: \"%s\"", in.Id))
 		}
 
 		d.id = in.Id
@@ -602,7 +604,9 @@ func (d *LocalScheduler) SetID(_ context.Context, in *proto.HostId) (*proto.Host
 		in.Id = d.id // Pass our existing ID back
 	}
 
-	in.NodeName = d.nodeName // We're passing this value back
+	// We're passing back the following two values.
+	in.NodeName = d.nodeName
+	in.SpecResources = proto.ResourceSpecFromSpec(d.resourceManager.SpecResources())
 
 	// Update the ID field of the router and of any existing kernels.
 	d.router.SetComponentId(d.id)

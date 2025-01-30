@@ -509,9 +509,9 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	if clusterGateway.hostSpec == nil {
 		clusterGateway.hostSpec = &types.DecimalSpec{
 			GPUs:      decimal.NewFromFloat(float64(gpusPerHost)),
-			VRam:      decimal.NewFromFloat(scheduling.VramPerHostGb),
-			Millicpus: decimal.NewFromFloat(scheduling.MillicpusPerHost),
-			MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),
+			VRam:      decimal.NewFromFloat(scheduling.DefaultVramPerHostGb),
+			Millicpus: decimal.NewFromFloat(scheduling.DefaultMillicpusPerHost),
+			MemoryMb:  decimal.NewFromFloat(scheduling.DefaultMemoryMbPerHost),
 		}
 	}
 
@@ -1113,9 +1113,8 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := entity.NewHostWithConn(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
-		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, d.cluster.NumReplicas(), d.cluster, d.cluster,
-		d.metricsProvider, gConn, d.Scheduler().Policy(), d.localDaemonDisconnected)
+	host, err := entity.NewHostWithConn(uuid.NewString(), incoming.RemoteAddr().String(), d.cluster.NumReplicas(),
+		d.cluster, d.cluster, d.metricsProvider, gConn, d.Scheduler().Policy(), d.localDaemonDisconnected)
 
 	if err != nil {
 		if errors.Is(err, entity.ErrRestoreRequired) {

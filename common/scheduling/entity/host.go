@@ -219,10 +219,10 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 //
 // If NewHost is called directly, then the conn field of the Host will not be populated. To populate this field,
 // call NewHostWithConn instead.
-func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int,
-	querier SubscriptionQuerier, indexUpdater IndexUpdater, metricsProvider scheduling.MetricsProvider,
-	localGatewayClient proto.LocalGatewayClient, schedulingPolicy scheduling.Policy,
-	errorCallback scheduling.ErrorCallback) (*Host, error) {
+func NewHost(id string, addr string, defaultMillicpus int32, defaultMemoryMb int32, defaultVramGb float64,
+	numReplicasPerKernel int, querier SubscriptionQuerier, indexUpdater IndexUpdater,
+	metricsProvider scheduling.MetricsProvider, localGatewayClient proto.LocalGatewayClient,
+	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Set the ID. If this fails, the creation of a new host scheduler fails.
 	confirmedId, err := localGatewayClient.SetID(context.Background(), &proto.HostId{Id: id})
@@ -256,22 +256,8 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		return newHostForRestoration(localGatewayClient, confirmedId, numReplicasPerKernel) // millicpus, memMb, vramGb,
 	}
 
-	// Get the initial GPU info. If this fails, the creation of a new host scheduler fails.
-	gpuInfoResp, err := localGatewayClient.GetActualGpuInfo(context.Background(), &proto.Void{})
-	if err != nil {
-		return nil, err
-	}
-
 	// Create the ResourceSpec defining the HostResources available on the Host.
-	resourceSpec := &types.DecimalSpec{
-		GPUs:      decimal.NewFromFloat(float64(gpuInfoResp.SpecGPUs)),
-		Millicpus: decimal.NewFromFloat(float64(millicpus)),
-		MemoryMb:  decimal.NewFromFloat(float64(memMb)),
-		VRam:      decimal.NewFromFloat(vramGb),
-	}
-
-	log.Printf("Registering brand new Local Daemon %s (ID=%s) with the following resource spec: %s.",
-		confirmedId.NodeName, confirmedId.Id, resourceSpec.String())
+	resourceSpec := confirmedId.SpecResources.ToDecimalSpec()
 
 	host := &Host{
 		LocalGatewayClient:                  localGatewayClient,
@@ -298,30 +284,32 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 		containersWithPreCommittedResources: make(map[string]*containerWithPreCommittedResources),
 		indexUpdater:                        indexUpdater,
 		ProperlyInitialized:                 true,
+		resourceManager:                     resource.NewManager(resourceSpec),
+		allocationManager:                   resource.NewAllocationManager(resourceSpec),
+		subscribedRatio:                     decimal.Zero,
 	}
 
-	host.resourceManager = resource.NewManager(resourceSpec)
-	host.allocationManager = resource.NewAllocationManager(resourceSpec)
+	host.log.Debug("Registering brand new Local Daemon %s (ID=%s) with the following resource spec: %s.",
+		confirmedId.NodeName, confirmedId.Id, resourceSpec.String())
 
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
 	host.sip.Validator = GetClockTimeCacheValidator()
 	host.penaltyList.Producer = cache.FormalizeChainedICProducer(host.updatePenaltyList)
 	host.penaltyList.Validator = host.validatePenaltyList
 
-	host.subscribedRatio = decimal.Zero
-
 	return host, nil
 }
 
 // NewHostWithConn creates and returns a new *Host.
-func NewHostWithConn(id string, addr string, millicpus int32, memMb int32, vramGb float64, numReplicasPerKernel int,
-	querier SubscriptionQuerier, indexUpdater IndexUpdater, metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn,
-	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
+func NewHostWithConn(id string, addr string, defaultMillicpus int32, defaultMemoryMb int32, defaultVramGb float64,
+	numReplicasPerKernel int, querier SubscriptionQuerier, indexUpdater IndexUpdater,
+	metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn, schedulingPolicy scheduling.Policy,
+	errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
-	host, err := NewHost(id, addr, millicpus, memMb, vramGb, numReplicasPerKernel, querier,
+	host, err := NewHost(id, addr, defaultMillicpus, defaultMemoryMb, defaultVramGb, numReplicasPerKernel, querier,
 		indexUpdater, metricsProvider, localGatewayClient, schedulingPolicy, errorCallback)
 	if err != nil {
 		// We need to return host here, in case the error is ErrRestoreRequired, as a host IS returned in that case.

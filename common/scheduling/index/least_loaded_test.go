@@ -66,8 +66,8 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 			LocalDaemonID:         hostId,
 		}, nil)
 
-		host, err := entity.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
-			scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, 3, mockCluster, mockCluster,
+		host, err := entity.NewHost(hostId, "0.0.0.0", scheduling.DefaultMillicpusPerHost,
+			scheduling.DefaultMemoryMbPerHost, scheduling.DefaultVramPerHostGb, 3, mockCluster, mockCluster,
 			nil, localGatewayClient, mockPolicy,
 			func(_ string, _ string, _ string, _ string) error { return nil })
 
