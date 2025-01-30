@@ -126,21 +126,6 @@ type Host struct {
 	// containers is a map from kernel ID to the container from that kernel scheduled on this Host.
 	containers hashmap.HashMap[string, scheduling.KernelContainer]
 
-	// reservations is a map that really just functions as a set, whose keys are kernel IDs.
-	// These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet.
-	// The values are the times at which the reservation was created, just for logging purposes.
-	reservations hashmap.HashMap[string, *Reservation]
-
-	// Map from Kernel ID to *containerWithCommittedResources. Values are *containerWithCommittedResources representing
-	// containers who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because
-	// we use this map when reserving resources (during which we don't necessarily have the replica ID).
-	// In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
-	kernelsWithCommittedResources map[string]*containerWithCommittedResources
-
-	// containersWithPreCommittedResources keeps track of kernels for which resources were specifically pre-commited
-	// along with the IDs of the associated "execute_request" messages. Keys are container IDs.
-	containersWithPreCommittedResources map[string]*containerWithPreCommittedResources
-
 	// SubscriptionQuerier is used to query the over-subscription factor given the host's
 	// subscription ratio and the Cluster's subscription ratio.
 	SubscriptionQuerier SubscriptionQuerier
@@ -229,32 +214,32 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 	resourceSpec := confirmedId.SpecResources.ToDecimalSpec()
 
 	host := &Host{
-		LocalGatewayClient:                  localGatewayClient,
-		ID:                                  id,
-		NodeName:                            confirmedId.NodeName,
-		Addr:                                addr,
-		resourceSpec:                        resourceSpec,
-		numReplicasPerKernel:                numReplicasPerKernel,
-		numReplicasPerKernelDecimal:         decimal.NewFromFloat(float64(numReplicasPerKernel)),
-		metricsProvider:                     metricsProvider,
-		log:                                 config.GetLogger(fmt.Sprintf("Host %s ", confirmedId.NodeName)),
-		containers:                          hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
-		reservations:                        hashmap.NewCornelkMap[string, *Reservation](5),
-		trainingContainers:                  make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
-		penalties:                           make([]cachedPenalty, int(resourceSpec.GPU())),
-		seenSessions:                        make([]string, int(resourceSpec.GPU())),
-		meta:                                hashmap.NewCornelkMap[string, interface{}](64),
-		errorCallback:                       errorCallback,
-		enabled:                             true,
-		schedulingPolicy:                    schedulingPolicy,
-		CreatedAt:                           time.Now(),
-		SubscriptionQuerier:                 querier,
-		kernelsWithCommittedResources:       make(map[string]*containerWithCommittedResources),
-		containersWithPreCommittedResources: make(map[string]*containerWithPreCommittedResources),
-		indexUpdater:                        indexUpdater,
-		ProperlyInitialized:                 true,
-		allocationManager:                   resource.NewAllocationManager(resourceSpec),
-		subscribedRatio:                     decimal.Zero,
+		LocalGatewayClient:          localGatewayClient,
+		ID:                          id,
+		NodeName:                    confirmedId.NodeName,
+		Addr:                        addr,
+		resourceSpec:                resourceSpec,
+		numReplicasPerKernel:        numReplicasPerKernel,
+		numReplicasPerKernelDecimal: decimal.NewFromFloat(float64(numReplicasPerKernel)),
+		metricsProvider:             metricsProvider,
+		log:                         config.GetLogger(fmt.Sprintf("Host %s ", confirmedId.NodeName)),
+		containers:                  hashmap.NewCornelkMap[string, scheduling.KernelContainer](5),
+		trainingContainers:          make([]scheduling.KernelContainer, 0, int(resourceSpec.GPU())),
+		penalties:                   make([]cachedPenalty, int(resourceSpec.GPU())),
+		seenSessions:                make([]string, int(resourceSpec.GPU())),
+		meta:                        hashmap.NewCornelkMap[string, interface{}](64),
+		errorCallback:               errorCallback,
+		enabled:                     true,
+		schedulingPolicy:            schedulingPolicy,
+		CreatedAt:                   time.Now(),
+		SubscriptionQuerier:         querier,
+		indexUpdater:                indexUpdater,
+		ProperlyInitialized:         true,
+		allocationManager:           resource.NewAllocationManager(resourceSpec),
+		subscribedRatio:             decimal.Zero,
+		//reservations:                        hashmap.NewCornelkMap[string, *Reservation](5),
+		//kernelsWithCommittedResources:       make(map[string]*containerWithCommittedResources),
+		//containersWithPreCommittedResources: make(map[string]*containerWithPreCommittedResources),
 	}
 
 	host.log.Debug("Registering brand new Local Daemon %s (ID=%s) with the following resource spec: %s.",

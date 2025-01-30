@@ -14,6 +14,74 @@ import (
 //
 // In general, AllocationManager elects to work with *types.DecimalSpec structs internally, rather than arbitrary
 // types.Spec interface instances, as AllocationManager stores its own state in decimal.Decimal structs.
+//
+// # Scheduling Terminology
+//
+//   - 'Spec': A Host's "spec" resources are the total resources it has available for allocation to KernelContainer
+//     instances that are scheduled and placed onto the Host. The "spec" resources are (typically) a fixed quantity.
+//     For instance, if the Host has 8 GPUs on it, then its SpecGPUs would be 8. This value does not change if GPUs are
+//     allocated (exclusively or otherwise) to KernelContainer instances running on the Host. There will always be 8 GPUs
+//     on the Host, regardless of whether the GPUs are allocated or not.
+//
+//   - 'Idle': "Idle" resources are resources that have not been exclusively committed to a particular KernelContainer.
+//     Under certain scheduling policies, resources are only bound or committed (exclusively) to KernelContainer
+//     instances running on a Host when the KernelReplica instance running within the KernelContainer begins to
+//     actively train (or otherwise execute user-submitted code).
+//
+//   - 'Committed': "Committed" resources are those that have been bound or committed exclusively to a particular
+//     KernelContainer instance that is running on the Host. Under some scheduling policies, resources are only
+//     committed to KernelContainer instances when the KernelReplica instances running within those KernelContainer
+//     instances are actively executing user-submitted code. Under other scheduling policies, resources are "committed"
+//     to KernelContainer instances immediately, as soon as they are scheduled onto the Host (i.e., before they enter
+//     the "running" state).
+//
+//   - 'Pending': "Pending" resources are the sum of all the resources required by all the idle KernelContainer
+//     instances running on the Host. They are only relevant for scheduling policies that bind or commit resources to
+//     KernelContainer instances while the associated KernelReplica instances are actively-training (rather than for
+//     the entire lifetime of the KernelReplica). Resources that are actively bound or committed to a KernelContainer
+//     are not counted/included in the "pending" resource count(s) of/for a Host.
+//
+//   - 'Scheduled': a Scheduler has selected a Host to serve the KernelContainer of a particular KernelReplica.
+//     This does not mean that the KernelContainer has actually started running on that Host yet, nor does it mean that
+//     the KernelContainer will necessarily be placed onto the Host. It simply means that the Host has set aside
+//     resources such that the particular KernelContainer could run on the Host. If for whatever reason, the scheduling
+//     and creation of the KernelContainer is aborted, then the resources that were set aside for the KernelContainer
+//     will be released/made available to other KernelContainer instances.
+//
+//   - "Placed": The KernelContainer that was previously "scheduled" onto the Host has actually started running on
+//     the Host. This occurs after the Placer has sent a StartKernelReplica RPC (via the proto.LocalGatewayClient
+//     interface). Once the KernelContainer begins running, notifications will propagate from the Local Scheduler to
+//     the Cluster Gateway. When each respective component learns that the KernelContainer has actually begun running
+//     on the Host, the AllocationManager will be informed of this, and the AllocationManager's records will be updated
+//     accordingly.
+//
+//   - "Reserved": Resources that are "reserved" for a KernelContainer when a decision to schedule that KernelContainer on
+//     a particular Host is made. So, when the KernelContainer is "scheduled", resources will be "reserved". When the
+//     KernelContainer is "placed", the KernelContainer will (in theory) begin to run on the Host. Once the
+//     KernelContainer enters the "running" state, the "reserved" resources are "promoted" from being a "reservation"
+//     to simply being assigned to the KernelContainer. So, "reservation" specifically indicates that the resources have
+//     been set aside for a KernelContainer that has not yet entered the "running" state (or for which the notification
+//     that the KernelContainer has entered the "running" state has not yet reached the AllocationManager).
+//
+//   - "Pre-Allocated": Resources that are "pre-allocated" to a KernelContainer are resources that have been exclusively
+//     bound or committed to that KernelContainer in anticipating of the KernelContainer beginning to execute code. In
+//     some cases, the Global Scheduler may explicitly select a replica to serve as the "primary replica" before forwarding
+//     the user-submitted code (i.e., an "execute_request" message) to the KernelReplica. Alternatively, the configured
+//     scheduling policy may specify that only one KernelReplica should exist per Kernel, in which case it is already
+//     known which KernelReplica will serve as the "primary replica". In these cases, resources are "pre-allocated" or
+//     "pre-committed" to a KernelContainer so that they are definitively available when the forwarded "execute_request"
+//     message reaches the KernelReplica running within that KernelContainer.
+//
+//     Once the "smr_lead_task" notification that the KernelReplica running within the KernelContainer has actually
+//     started training is received, the "pre-allocated"/"pre-committed" resources are "promoted" to simply being
+//     "committed". (Note that "pre-allocated"/"pre-committed" resources are already included in a Host's "committed"
+//     resource count, so this promotion is purely semantic.) There are situations in which the execution of the user
+//     submitted code by the KernelReplica completes so quickly that the associated "execute_reply" message is received
+//     before the "smr_lead_task" notification. In this case, the "pre-allocated"/"pre-committed" resources are never
+//     semantically promoted to simply being "committed". When the "smr_lead_task" message is eventually received, it
+//     is simply ignored. The determination that a given "smr_lead_task" message should or should not be ignored is
+//     based upon a monotonically increasing counter that is assigned to each unique "execute_request" message sent to
+//     a particular Kernel. This information is managed by the scheduling.ExecutionManager assigned to each Kernel.
 type AllocationManager interface {
 	// GetId returns the target AllocationManager's unique identifier, which is different from the associated Host's ID.
 	GetId() string

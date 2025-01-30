@@ -25,9 +25,11 @@ import (
 //
 // In general, AllocationManager elects to work with *types.DecimalSpec structs internally, rather than arbitrary
 // types.Spec interface instances, as AllocationManager stores its own state in decimal.Decimal structs.
-// TODO: Verify that all the cases in which the AllocationManager panics are legitimately panic-worthy, rather than scenarios
-// that could arise during regular operation and should just be handled using the failure handler of whatever
-// scheduling procedure we have in place.
+//
+// # API Terminology
+//
+// For an overview of the scheduling-related terminology used in the API of this struct, please refer to the
+// documentation of the scheduling.AllocationManager interface.
 type AllocationManager struct {
 	mu sync.Mutex
 
@@ -67,6 +69,7 @@ type AllocationManager struct {
 
 	// numPendingAllocations is the number of active Allocation instances of type PendingAllocation.
 	numPendingAllocations types.StatInt32
+
 	// numCommittedAllocations is the number of active Allocation instances of type CommittedAllocation.
 	numCommittedAllocations types.StatInt32
 
@@ -201,48 +204,6 @@ func (m *AllocationManager) ProtoResourcesSnapshot() *proto.NodeResourcesSnapsho
 	}
 
 	return snapshot
-}
-
-// DebugSetIdleGPUs is a method used in unit tests to set the idle GPUs available within the AllocationManager
-// to a specific value (typically zero).
-func (m *AllocationManager) DebugSetIdleGPUs(value float64) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.resourceManager.idleResources.gpus = decimal.NewFromFloat(value)
-}
-
-// updatePrometheusResourceMetrics updates all the resource-related Prometheus metrics.
-// updatePrometheusResourceMetrics is used as a callback by the GPU/Resource Manager.
-func (m *AllocationManager) unsafeUpdatePrometheusResourceMetrics() {
-	if m.metricsManager == nil {
-		m.log.Warn("Cannot update Prometheus resource metrics; manager has not been registered yet.")
-		return
-	}
-
-	// CPU resource metrics.
-	m.metricsManager.IdleCpuGauge.
-		Set(m.resourceManager.idleResources.Millicpus())
-	m.metricsManager.PendingCpuGauge.
-		Set(m.resourceManager.pendingResources.Millicpus())
-	m.metricsManager.CommittedCpuGauge.
-		Set(m.resourceManager.committedResources.Millicpus())
-
-	// Memory resource metrics.
-	m.metricsManager.IdleMemoryGauge.
-		Set(m.resourceManager.idleResources.MemoryMB())
-	m.metricsManager.PendingMemoryGauge.
-		Set(m.resourceManager.pendingResources.MemoryMB())
-	m.metricsManager.CommittedMemoryGauge.
-		Set(m.resourceManager.committedResources.MemoryMB())
-
-	// GPU resource metrics.
-	m.metricsManager.IdleGpuGauge.
-		Set(m.resourceManager.idleResources.GPUs())
-	m.metricsManager.PendingGpuGauge.
-		Set(m.resourceManager.pendingResources.GPUs())
-	m.metricsManager.CommittedGpuGauge.
-		Set(m.resourceManager.committedResources.GPUs())
 }
 
 // RegisterMetricsManager is used to set the metricsManager field of the AllocationManager.
@@ -1164,6 +1125,15 @@ func (m *AllocationManager) GetResourceCountsAsString() string {
 	return m.resourceManager.GetResourceCountsAsString()
 }
 
+// DebugSetIdleGPUs is a method used in unit tests to set the idle GPUs available within the AllocationManager
+// to a specific value (typically zero).
+func (m *AllocationManager) DebugSetIdleGPUs(value float64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.resourceManager.idleResources.gpus = decimal.NewFromFloat(value)
+}
+
 // unsafePerformConsistencyCheck validates that all the internal resource counters have valid values with respect
 // to one another. For example, this function ensures that the pending, idle, and committed resource counts for
 // cpu, memory, and gpus do not exceed the spec resource amounts, and that no values are negative.
@@ -1397,6 +1367,39 @@ func (m *AllocationManager) unsafeReleaseCommittedResources(allocation schedulin
 // unit testing with scheduling.UnitTestingHost instances.
 type unitTestingAllocationManager struct {
 	*AllocationManager
+}
+
+// updatePrometheusResourceMetrics updates all the resource-related Prometheus metrics.
+// updatePrometheusResourceMetrics is used as a callback by the GPU/Resource Manager.
+func (m *AllocationManager) unsafeUpdatePrometheusResourceMetrics() {
+	if m.metricsManager == nil {
+		m.log.Warn("Cannot update Prometheus resource metrics; manager has not been registered yet.")
+		return
+	}
+
+	// CPU resource metrics.
+	m.metricsManager.IdleCpuGauge.
+		Set(m.resourceManager.idleResources.Millicpus())
+	m.metricsManager.PendingCpuGauge.
+		Set(m.resourceManager.pendingResources.Millicpus())
+	m.metricsManager.CommittedCpuGauge.
+		Set(m.resourceManager.committedResources.Millicpus())
+
+	// Memory resource metrics.
+	m.metricsManager.IdleMemoryGauge.
+		Set(m.resourceManager.idleResources.MemoryMB())
+	m.metricsManager.PendingMemoryGauge.
+		Set(m.resourceManager.pendingResources.MemoryMB())
+	m.metricsManager.CommittedMemoryGauge.
+		Set(m.resourceManager.committedResources.MemoryMB())
+
+	// GPU resource metrics.
+	m.metricsManager.IdleGpuGauge.
+		Set(m.resourceManager.idleResources.GPUs())
+	m.metricsManager.PendingGpuGauge.
+		Set(m.resourceManager.pendingResources.GPUs())
+	m.metricsManager.CommittedGpuGauge.
+		Set(m.resourceManager.committedResources.GPUs())
 }
 
 func NewUnitTestingAllocationManager(manager scheduling.AllocationManager) scheduling.UnitTestingAllocationManager {
