@@ -8137,6 +8137,18 @@ func (m *MockAllocation) EXPECT() *MockAllocationMockRecorder {
 	return m.recorder
 }
 
+// ClearGpuDeviceIds mocks base method.
+func (m *MockAllocation) ClearGpuDeviceIds() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ClearGpuDeviceIds")
+}
+
+// ClearGpuDeviceIds indicates an expected call of ClearGpuDeviceIds.
+func (mr *MockAllocationMockRecorder) ClearGpuDeviceIds() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearGpuDeviceIds", reflect.TypeOf((*MockAllocation)(nil).ClearGpuDeviceIds))
+}
+
 // CloneAndReturnedAdjusted mocks base method.
 func (m *MockAllocation) CloneAndReturnedAdjusted(spec types.Spec) scheduling.Allocation {
 	m.ctrl.T.Helper()
@@ -8163,6 +8175,20 @@ func (m *MockAllocation) GetAllocationId() string {
 func (mr *MockAllocationMockRecorder) GetAllocationId() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllocationId", reflect.TypeOf((*MockAllocation)(nil).GetAllocationId))
+}
+
+// GetAllocationType mocks base method.
+func (m *MockAllocation) GetAllocationType() scheduling.AllocationType {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllocationType")
+	ret0, _ := ret[0].(scheduling.AllocationType)
+	return ret0
+}
+
+// GetAllocationType indicates an expected call of GetAllocationType.
+func (mr *MockAllocationMockRecorder) GetAllocationType() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllocationType", reflect.TypeOf((*MockAllocation)(nil).GetAllocationType))
 }
 
 // GetGpuDeviceIds mocks base method.
@@ -8233,6 +8259,20 @@ func (m *MockAllocation) GetMillicpus() float64 {
 func (mr *MockAllocationMockRecorder) GetMillicpus() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMillicpus", reflect.TypeOf((*MockAllocation)(nil).GetMillicpus))
+}
+
+// GetReplicaId mocks base method.
+func (m *MockAllocation) GetReplicaId() int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetReplicaId")
+	ret0, _ := ret[0].(int32)
+	return ret0
+}
+
+// GetReplicaId indicates an expected call of GetReplicaId.
+func (mr *MockAllocationMockRecorder) GetReplicaId() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetReplicaId", reflect.TypeOf((*MockAllocation)(nil).GetReplicaId))
 }
 
 // GetTimestamp mocks base method.
@@ -8317,6 +8357,90 @@ func (m *MockAllocation) IsPending() bool {
 func (mr *MockAllocationMockRecorder) IsPending() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsPending", reflect.TypeOf((*MockAllocation)(nil).IsPending))
+}
+
+// SetAllocationType mocks base method.
+func (m *MockAllocation) SetAllocationType(arg0 scheduling.AllocationType) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetAllocationType", arg0)
+}
+
+// SetAllocationType indicates an expected call of SetAllocationType.
+func (mr *MockAllocationMockRecorder) SetAllocationType(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetAllocationType", reflect.TypeOf((*MockAllocation)(nil).SetAllocationType), arg0)
+}
+
+// SetGpuDeviceIds mocks base method.
+func (m *MockAllocation) SetGpuDeviceIds(deviceIds []int) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetGpuDeviceIds", deviceIds)
+}
+
+// SetGpuDeviceIds indicates an expected call of SetGpuDeviceIds.
+func (mr *MockAllocationMockRecorder) SetGpuDeviceIds(deviceIds any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGpuDeviceIds", reflect.TypeOf((*MockAllocation)(nil).SetGpuDeviceIds), deviceIds)
+}
+
+// SetGpus mocks base method.
+func (m *MockAllocation) SetGpus(arg0 decimal.Decimal) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetGpus", arg0)
+}
+
+// SetGpus indicates an expected call of SetGpus.
+func (mr *MockAllocationMockRecorder) SetGpus(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGpus", reflect.TypeOf((*MockAllocation)(nil).SetGpus), arg0)
+}
+
+// SetIsReservation mocks base method.
+func (m *MockAllocation) SetIsReservation(arg0 bool) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetIsReservation", arg0)
+}
+
+// SetIsReservation indicates an expected call of SetIsReservation.
+func (mr *MockAllocationMockRecorder) SetIsReservation(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIsReservation", reflect.TypeOf((*MockAllocation)(nil).SetIsReservation), arg0)
+}
+
+// SetMemoryMb mocks base method.
+func (m *MockAllocation) SetMemoryMb(arg0 decimal.Decimal) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetMemoryMb", arg0)
+}
+
+// SetMemoryMb indicates an expected call of SetMemoryMb.
+func (mr *MockAllocationMockRecorder) SetMemoryMb(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMemoryMb", reflect.TypeOf((*MockAllocation)(nil).SetMemoryMb), arg0)
+}
+
+// SetMillicpus mocks base method.
+func (m *MockAllocation) SetMillicpus(arg0 decimal.Decimal) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetMillicpus", arg0)
+}
+
+// SetMillicpus indicates an expected call of SetMillicpus.
+func (mr *MockAllocationMockRecorder) SetMillicpus(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMillicpus", reflect.TypeOf((*MockAllocation)(nil).SetMillicpus), arg0)
+}
+
+// SetVramGb mocks base method.
+func (m *MockAllocation) SetVramGb(arg0 decimal.Decimal) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetVramGb", arg0)
+}
+
+// SetVramGb indicates an expected call of SetVramGb.
+func (mr *MockAllocationMockRecorder) SetVramGb(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetVramGb", reflect.TypeOf((*MockAllocation)(nil).SetVramGb), arg0)
 }
 
 // String mocks base method.

@@ -4,38 +4,16 @@ import (
 	"fmt"
 	"github.com/goccy/go-json"
 	"github.com/google/uuid"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
 	"time"
-)
-
-const (
-	// PendingAllocation indicates that a Allocation is "pending" rather than "committed".
-	// This means that the HostResources are not "actually" allocated to the associated kernel replica.
-	// The kernel replica is merely scheduled locally, but it has not bound to these HostResources.
-	PendingAllocation AllocationType = "pending"
-
-	//CommittedAllocation indicates that a Allocation has been committed to the associated kernel replica.
-	//That is, the GPUs, Millicpus, and Memory specified in the allocation are actively committed and bound to the
-	//associated kernel replica. These HostResources are not available for use by other kernel replicas.
-	CommittedAllocation AllocationType = "committed"
-
-	// SnapshotMetadataKey is used as a key for the metadata dictionary of Jupyter messages
-	// when including a snapshot of the AllocationManager's working resource quantities in the message.
-	SnapshotMetadataKey string = "resource_snapshot"
 )
 
 // getKey creates and returns a string of the form "<KernelID>-<ReplicaID>".
 // This is used as a key to various maps belonging to the AllocationManager.
 func getKey(replicaId int32, kernelId string) string {
 	return fmt.Sprintf("%s-%d", kernelId, replicaId)
-}
-
-// AllocationType differentiates between "pending" and "committed" resource allocations.
-type AllocationType string
-
-func (t AllocationType) String() string {
-	return string(t)
 }
 
 // Allocation encapsulates an allocation of HostResources to a kernel replica.
@@ -74,10 +52,10 @@ type Allocation struct {
 	// "Pending" indicates that the HostResources are not "actually" allocated to the associated kernel replica.
 	// The kernel replica is merely scheduled locally, but it has not bound to these HostResources.
 	//
-	// "Committed" indicates that a Allocation has been committed to the associated kernel replica.
+	// "Committed" indicates that an Allocation has been committed to the associated kernel replica.
 	// That is, the GPUs, Millicpus, and Memory specified in the allocation are actively committed and bound to the
 	// associated kernel replica. These HostResources are not available for use by other kernel replicas.
-	AllocationType AllocationType `json:"allocation_type"`
+	AllocationType scheduling.AllocationType `json:"allocation_type"`
 
 	// IsReservation indicates whether the HostResources were commited in anticipation of a leader election,
 	// or if they are committed to a kernel that is actively training.
@@ -91,6 +69,19 @@ type Allocation struct {
 // commited in anticipation of a leader election, or if they are committed to a kernel that is actively training.
 func (a *Allocation) IsAReservation() bool {
 	return a.IsReservation
+}
+
+func (a *Allocation) GetAllocationType() scheduling.AllocationType {
+	return a.AllocationType
+}
+
+func (a *Allocation) SetGpuDeviceIds(deviceIds []int) {
+	a.GpuDeviceIds = make([]int, 0, len(deviceIds))
+	copy(a.GpuDeviceIds, deviceIds)
+}
+
+func (a *Allocation) ClearGpuDeviceIds() {
+	a.GpuDeviceIds = make([]int, 0)
 }
 
 func (a *Allocation) GetGpuDeviceIds() []int {
@@ -127,12 +118,16 @@ func (a *Allocation) GetKernelId() string {
 	return a.KernelId
 }
 
+func (a *Allocation) GetReplicaId() int32 {
+	return a.ReplicaId
+}
+
 // CloneAndReturnedAdjusted returns a copy of the target Allocation with its resource quantities
 // adjusted to patch the given types.Spec.
 //
 // If the given types.Spec is nil, then the cloned/copied Allocation struct contains the same resource
 // quantities as the original, target Allocation struct.
-func (a *Allocation) CloneAndReturnedAdjusted(spec types.Spec) *Allocation {
+func (a *Allocation) CloneAndReturnedAdjusted(spec types.Spec) scheduling.Allocation {
 	var (
 		gpus decimal.Decimal
 		vram decimal.Decimal
@@ -223,13 +218,37 @@ func (a *Allocation) IsNonZero() bool {
 // IsPending returns true if the Allocation is of type PendingAllocation.
 // If the Allocation is instead of type CommittedAllocation, then IsPending returns false.
 func (a *Allocation) IsPending() bool {
-	return a.AllocationType == PendingAllocation
+	return a.AllocationType == scheduling.PendingAllocation
 }
 
 // IsCommitted returns true if the Allocation is of type CommittedAllocation.
 // If the Allocation is instead of type PendingAllocation, then IsCommitted returns false.
 func (a *Allocation) IsCommitted() bool {
-	return a.AllocationType == CommittedAllocation
+	return a.AllocationType == scheduling.CommittedAllocation
+}
+
+func (a *Allocation) SetAllocationType(typ scheduling.AllocationType) {
+	a.AllocationType = typ
+}
+
+func (a *Allocation) SetIsReservation(isReservation bool) {
+	a.IsReservation = isReservation
+}
+
+func (a *Allocation) SetGpus(gpus decimal.Decimal) {
+	a.GPUs = gpus.Copy()
+}
+
+func (a *Allocation) SetVramGb(vram decimal.Decimal) {
+	a.VramGB = vram.Copy()
+}
+
+func (a *Allocation) SetMemoryMb(mem decimal.Decimal) {
+	a.MemoryMB = mem.Copy()
+}
+
+func (a *Allocation) SetMillicpus(millicpus decimal.Decimal) {
+	a.Millicpus = millicpus.Copy()
 }
 
 // AllocationBuilder is a utility struct whose purpose is to facilitate the creation of a
@@ -243,7 +262,7 @@ type AllocationBuilder struct {
 	gpuDeviceIds   []int
 	replicaId      int32
 	kernelId       string
-	allocationType AllocationType
+	allocationType scheduling.AllocationType
 }
 
 // NewResourceAllocationBuilder creates a new AllocationBuilder and returns a pointer to it.
@@ -264,12 +283,12 @@ func (b *AllocationBuilder) WithIdOverride(id string) *AllocationBuilder {
 }
 
 // WithAllocationType enables the specification of the AllocationType of the Allocation that is being created.
-func (b *AllocationBuilder) WithAllocationType(allocationType AllocationType) *AllocationBuilder {
+func (b *AllocationBuilder) WithAllocationType(allocationType scheduling.AllocationType) *AllocationBuilder {
 	b.allocationType = allocationType
 	return b
 }
 
-// WithGpuDeviceIds enables the specification of all of the GPU device IDs to be included within the Allocation.
+// WithGpuDeviceIds enables the specification of the GPU device IDs to be included within the Allocation.
 func (b *AllocationBuilder) WithGpuDeviceIds(deviceIds []int) *AllocationBuilder {
 	b.gpuDeviceIds = deviceIds
 	return b
