@@ -122,9 +122,43 @@ type AllocationManager interface {
 	NumCommittedAllocations() int
 	NumPendingAllocations() int
 	GetAllocation(replicaId int32, kernelId string) (Allocation, bool)
-	PromoteReservation(replicaId int32, kernelId string) error
+	PromotePreCommitment(replicaId int32, kernelId string) error
 	AdjustPendingResources(replicaId int32, kernelId string, updatedSpec types.Spec) error
-	CommitResources(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) ([]int, error)
+
+	// ReleaseReservation is to be called when a resource reservation should be released because the
+	// scheduling of the associated replica of the associated kernel is being aborted.
+	ReleaseReservation(spec *proto.KernelSpec) error
+
+	// CommitResourcesToExistingContainer commits/binds HostResources to a particular kernel replica, such that the
+	// HostResources are reserved for exclusive use by that kernel replica until the kernel replica releases them
+	// (or another entity releases them on behalf of the kernel replica).
+	//
+	// Precondition: there must already be an Allocation of type PendingAllocation associated with the specified
+	// kernel replica. If no such Allocation exists, then ErrInvalidAllocationRequest is returned.
+	//
+	// If the given types.Spec argument is non-nil, then the existing resource allocation associated with the specified
+	// kernel will be adjusted (increased or decreased) according to the given spec. If the AllocationManager finds that
+	// there are insufficient HostResources available to accommodate the requested adjustment, then an error is returned.
+	//
+	// If the given types.Spec argument is nil, then the pending resource allocation associated with the specified kernel
+	// will simply be "promoted" to a "committed" resource request as-is, without adjusting any of the individual resource
+	// values.
+	//
+	// nil is returned on success.
+	//
+	// This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
+	// The sync.Mutex is released before the function returns.
+	CommitResourcesToExistingContainer(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) ([]int, error)
+
+	// ReleaseCommittedResources uncommits/unbinds HostResources from a particular kernel replica, such that the
+	// HostResources are made available for use by other kernel replicas.
+	//
+	// ReleaseCommittedResources is intended only to be used when the replica for which committed resources are being
+	// released is still going to be running on the host. If the replica is being evicted, then ReplicaEvicted should
+	// be called instead.
+	//
+	// This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
+	// The sync.Mutex is released before the function returns.
 	ReleaseCommittedResources(replicaId int32, kernelId string) error
 	KernelReplicaScheduled(replicaId int32, kernelId string, spec types.Spec) error
 	ReplicaEvicted(replicaId int32, kernelId string) error
@@ -184,12 +218,7 @@ type AllocationManager interface {
 	// ReserveResources creates a new resource reservation for the specified replica of the specified kernel.
 	//
 	// The types.Spec argument encodes the amount of resources to reserve.
-	//
-	// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
-	// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
-	// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
-	// depending upon the scheduling.Policy configured for the AllocationManager.
-	ReserveResources(replicaId int32, kernelId string, spec types.Spec, forTraining bool) error
+	ReserveResources(replicaId int32, kernelId string, spec types.Spec, usePendingResources bool) error
 }
 
 // UnitTestingAllocationManager is a wrapper around AllocationManager much like how UnitTestingHost is a wrapper

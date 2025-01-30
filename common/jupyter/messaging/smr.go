@@ -33,7 +33,7 @@ type MessageDataDirectory struct {
 }
 
 func (m MessageDataDirectory) String() string {
-	return fmt.Sprintf("MessageDataDirectory[KernelId=%s,Status=%v,DataDirectory=%s,NodeId=%d]", m.KernelId, m.Status, m.DataDirectory, m.NodeID)
+	return fmt.Sprintf("MessageDataDirectory[KernelId=%s,Status=%v,DataDirectory=%s,HostId=%d]", m.KernelId, m.Status, m.DataDirectory, m.NodeID)
 }
 
 type MessageSMRNodeUpdated struct {
@@ -44,7 +44,7 @@ type MessageSMRNodeUpdated struct {
 }
 
 func (m MessageSMRNodeUpdated) String() string {
-	return fmt.Sprintf("MessageSMRNodeUpdated[KernelId=%s,Success=%v,PersistentID=%s,NodeId=%d,Address=%s]", m.KernelId, m.Success, m.PersistentID, m.NodeID, m.Address)
+	return fmt.Sprintf("MessageSMRNodeUpdated[KernelId=%s,Success=%v,PersistentID=%s,HostId=%d,Address=%s]", m.KernelId, m.Success, m.PersistentID, m.NodeID, m.Address)
 }
 
 type MessageSMRLeadTask struct {
@@ -74,7 +74,7 @@ type MessageSMRAddOrUpdateReplicaRequest struct {
 }
 
 func (m MessageSMRAddOrUpdateReplicaRequest) String() string {
-	return fmt.Sprintf("MessageSMRAddOrUpdateReplicaRequest[NodeId=%d, Address=%s]", m.NodeID, m.Address)
+	return fmt.Sprintf("MessageSMRAddOrUpdateReplicaRequest[HostId=%d, Address=%s]", m.NodeID, m.Address)
 }
 
 type ErrorReport struct {

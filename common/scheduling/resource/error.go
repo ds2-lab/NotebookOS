@@ -17,6 +17,8 @@ var (
 	// evicted, but no existing Allocation is found for that particular kernel replica.
 	ErrInvalidAllocationRequest = errors.New("the resource allocation could not be completed due to the request being invalid")
 
+	ErrReservationNotFound = errors.New("no reservation found for any replicas of the specified kernel")
+
 	ErrIllegalGpuAdjustment     = errors.New("requested gpu adjustment is illegal")
 	ErrAllocationNotFound       = errors.New("could not find the requested GPU allocation")
 	ErrInvalidAllocationType    = errors.New("allocation for target kernel replica is not of expected/correct type")

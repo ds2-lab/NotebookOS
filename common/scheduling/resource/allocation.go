@@ -216,6 +216,10 @@ func (a *Allocation) IsNonZero() bool {
 	return a.GPUs.GreaterThan(decimal.Zero) || a.Millicpus.GreaterThan(decimal.Zero) || a.MemoryMB.GreaterThan(decimal.Zero)
 }
 
+func (a *Allocation) SpecToString() string {
+	return a.ToSpec().String()
+}
+
 // IsPending returns true if the Allocation is of type PendingAllocation.
 // If the Allocation is instead of type CommittedAllocation, then IsPending returns false.
 func (a *Allocation) IsPending() bool {
@@ -285,15 +289,17 @@ func (a *Allocation) SetMillicpus(millicpus decimal.Decimal) {
 // AllocationBuilder is a utility struct whose purpose is to facilitate the creation of a
 // new Allocation struct.
 type AllocationBuilder struct {
-	allocationId   string
-	gpus           decimal.Decimal
-	vramGb         decimal.Decimal
-	millicpus      decimal.Decimal
-	memoryMb       decimal.Decimal
-	gpuDeviceIds   []int
-	replicaId      int32
-	kernelId       string
-	allocationType scheduling.AllocationType
+	allocationId    string
+	gpus            decimal.Decimal
+	vramGb          decimal.Decimal
+	millicpus       decimal.Decimal
+	memoryMb        decimal.Decimal
+	isReservation   bool
+	isPreCommitment bool
+	gpuDeviceIds    []int
+	replicaId       int32
+	kernelId        string
+	allocationType  scheduling.AllocationType
 }
 
 // NewResourceAllocationBuilder creates a new AllocationBuilder and returns a pointer to it.
@@ -380,19 +386,45 @@ func (b *AllocationBuilder) WithMemoryMB(memoryMb float64) *AllocationBuilder {
 	return b
 }
 
+// IsAReservation indicates that the Allocation being created is a reservation.
+func (b *AllocationBuilder) IsAReservation() *AllocationBuilder {
+	b.isReservation = true
+	return b
+}
+
+// IsNotAReservation indicates that the Allocation being created is NOT a reservation.
+func (b *AllocationBuilder) IsNotAReservation() *AllocationBuilder {
+	b.isReservation = false
+	return b
+}
+
+// IsAPreCommitment indicates that the Allocation being created is a pre-commitment of resources.
+func (b *AllocationBuilder) IsAPreCommitment() *AllocationBuilder {
+	b.isPreCommitment = true
+	return b
+}
+
+// IsNotAPreCommitment indicates that the Allocation being created is NOT a pre-commitment of resources.
+func (b *AllocationBuilder) IsNotAPreCommitment() *AllocationBuilder {
+	b.isPreCommitment = false
+	return b
+}
+
 // BuildResourceAllocation constructs the Allocation with the values specified to the AllocationBuilder.
 func (b *AllocationBuilder) BuildResourceAllocation() *Allocation {
 	return &Allocation{
-		AllocationId:        b.allocationId,
-		GpuDeviceIds:        b.gpuDeviceIds,
-		GPUs:                b.gpus,
-		VramGB:              b.vramGb,
-		Millicpus:           b.millicpus,
-		MemoryMB:            b.memoryMb,
-		ReplicaId:           b.replicaId,
-		KernelId:            b.kernelId,
-		AllocationType:      b.allocationType,
-		Timestamp:           time.Now(),
-		cachedAllocationKey: getKey(b.replicaId, b.kernelId),
+		AllocationId:             b.allocationId,
+		GpuDeviceIds:             b.gpuDeviceIds,
+		GPUs:                     b.gpus,
+		VramGB:                   b.vramGb,
+		Millicpus:                b.millicpus,
+		MemoryMB:                 b.memoryMb,
+		ReplicaId:                b.replicaId,
+		KernelId:                 b.kernelId,
+		AllocationType:           b.allocationType,
+		IsReservationAllocation:  b.isReservation,
+		IsPreCommittedAllocation: b.isPreCommitment,
+		Timestamp:                time.Now(),
+		cachedAllocationKey:      getKey(b.replicaId, b.kernelId),
 	}
 }

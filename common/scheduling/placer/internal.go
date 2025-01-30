@@ -37,6 +37,11 @@ type internalPlacer interface {
 //
 // If resources could not be reserved, then false is returned, along with an error explaining why
 // the resources could not be reserved.
+//
+// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
+// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
+// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
+// depending upon the scheduling.Policy configured for the AllocationManager.
 type kernelResourceReserver func(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) (bool, error)
 
 // replicaResourceReserver is used by placers to reserve resources on candidate hosts for specified replicas of a
@@ -46,4 +51,9 @@ type kernelResourceReserver func(candidateHost scheduling.Host, kernelSpec *prot
 //
 // If resources could not be reserved, then false is returned, along with an error explaining why
 // the resources could not be reserved.
+//
+// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
+// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
+// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
+// depending upon the scheduling.Policy configured for the AllocationManager.
 type replicaResourceReserver func(candidateHost scheduling.Host, kernelReplicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error)

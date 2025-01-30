@@ -10309,7 +10309,7 @@ func (mr *MockAllocationManagerMockRecorder) CanServeContainerWithError(resource
 // CommitResources mocks base method.
 func (m *MockAllocationManager) CommitResources(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) ([]int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CommitResources", replicaId, kernelId, resourceRequestArg, isReservation)
+	ret := m.ctrl.Call(m, "CommitResourcesToExistingContainer", replicaId, kernelId, resourceRequestArg, isReservation)
 	ret0, _ := ret[0].([]int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
@@ -10318,7 +10318,7 @@ func (m *MockAllocationManager) CommitResources(replicaId int32, kernelId string
 // CommitResources indicates an expected call of CommitResources.
 func (mr *MockAllocationManagerMockRecorder) CommitResources(replicaId, kernelId, resourceRequestArg, isReservation any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CommitResources", reflect.TypeOf((*MockAllocationManager)(nil).CommitResources), replicaId, kernelId, resourceRequestArg, isReservation)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CommitResourcesToExistingContainer", reflect.TypeOf((*MockAllocationManager)(nil).CommitResources), replicaId, kernelId, resourceRequestArg, isReservation)
 }
 
 // CommittedCPUs mocks base method.
@@ -10801,7 +10801,7 @@ func (mr *MockAllocationManagerMockRecorder) PlacedVRAM() *gomock.Call {
 // PromoteReservation mocks base method.
 func (m *MockAllocationManager) PromoteReservation(replicaId int32, kernelId string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PromoteReservation", replicaId, kernelId)
+	ret := m.ctrl.Call(m, "PromotePreCommitment", replicaId, kernelId)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -10809,7 +10809,7 @@ func (m *MockAllocationManager) PromoteReservation(replicaId int32, kernelId str
 // PromoteReservation indicates an expected call of PromoteReservation.
 func (mr *MockAllocationManagerMockRecorder) PromoteReservation(replicaId, kernelId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromoteReservation", reflect.TypeOf((*MockAllocationManager)(nil).PromoteReservation), replicaId, kernelId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePreCommitment", reflect.TypeOf((*MockAllocationManager)(nil).PromoteReservation), replicaId, kernelId)
 }
 
 // ProtoResourcesSnapshot mocks base method.

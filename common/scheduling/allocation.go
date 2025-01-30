@@ -35,6 +35,7 @@ type Allocation interface {
 	ToSpecString() string
 	ToSpec() types.Spec
 	ToDecimalSpec() *types.DecimalSpec
+	SpecToString() string
 	IsNonZero() bool
 	IsPending() bool
 	IsCommitted() bool

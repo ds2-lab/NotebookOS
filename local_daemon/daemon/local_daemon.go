@@ -382,7 +382,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		Millicpus: scheduling.DefaultMillicpusPerHost,
 		Memory:    scheduling.DefaultMemoryMbPerHost,
 	}
-	daemon.allocationManager = resource.NewAllocationManager(hostSpec, daemon.schedulingPolicy)
+	daemon.allocationManager = resource.NewAllocationManager(hostSpec, daemon.schedulingPolicy, dockerNodeId)
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -1916,7 +1916,7 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 
 	// If we're performing first-come, first-serve (FCFS) batch scheduling, then we commit resources right away.
 	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-		_, resourceError = d.allocationManager.CommitResources(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec, false)
+		_, resourceError = d.allocationManager.CommitResourcesToExistingContainer(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec, false)
 
 		if resourceError != nil {
 			d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
@@ -2810,7 +2810,7 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
 		d.log.Debug("[gid=%d] Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
 			gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
-		gpuDeviceIds, resourceAllocationError := d.allocationManager.CommitResources(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
+		gpuDeviceIds, resourceAllocationError := d.allocationManager.CommitResourcesToExistingContainer(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
 
 		if resourceAllocationError != nil {
 			d.log.Warn("[gid=%d] Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",
@@ -3258,16 +3258,16 @@ func (d *LocalScheduler) handleSMRLeadTask(kernel scheduling.KernelReplica, fram
 
 		// If we're supposed to bind resources at training start, then we'd better do that now.
 		if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
-			d.log.Debug("Promoting resource reservation of replica %d of kernel %s now.",
+			d.log.Debug("Promoting resource pre-commitment of replica %d of kernel %s now.",
 				kernel.ReplicaID(), kernel.ID())
-			err = d.allocationManager.PromoteReservation(kernel.ReplicaID(), kernel.ID())
+			err = d.allocationManager.PromotePreCommitment(kernel.ReplicaID(), kernel.ID())
 			if err != nil {
-				d.log.Error("Our attempt to promote reserved resources of replica %d of kernel %s failed because: %v.",
+				d.log.Error("Our attempt to promote pre-committed resources of replica %d of kernel %s failed because: %v.",
 					kernel.ReplicaID(), kernel.ID(), err)
 				go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
 					Id:    uuid.NewString(),
-					Title: "Promotion of Resource Reservation Failed",
-					Message: fmt.Sprintf("Could not promote resource reservation for replica %d of kernel %s because: %v",
+					Title: "Promotion of Resource Pre-Commitment Failed",
+					Message: fmt.Sprintf("Could not promote resource pre-commitment for replica %d of kernel %s because: %v",
 						kernel.ReplicaID(), kernel.ID(), err),
 					NotificationType: 0,
 					Panicked:         true,

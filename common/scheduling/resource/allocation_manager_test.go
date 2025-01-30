@@ -89,7 +89,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -108,7 +108,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		It("Will fail to promote a pending allocation to a committed allocation for a non-existent pending allocation", func() {
 			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
-			allocatedGpuResourceIds, err := resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err := resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(errors.Is(err, resource.ErrInvalidAllocationRequest)).To(BeTrue())
 			Expect(allocatedGpuResourceIds).To(BeNil())
@@ -134,7 +134,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			By("Correctly handling the scheduling of the first committed resources")
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 
 			Expect(err).To(BeNil())
 			Expect(resourceManager.NumAllocations()).To(Equal(2))
@@ -147,7 +147,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly handling the scheduling of the second committed resources")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel2", kernel2Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel2", kernel2Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -176,7 +176,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the third committed resources due to lack of available CPU")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel3", kernel3spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel3", kernel3spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -200,7 +200,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the fourth committed resources due to lack of available GPU")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel4", kernel4spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel4", kernel4spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -221,7 +221,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the fifth committed resources due to lack of available memory")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel5", kernel5spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel5", kernel5spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -242,7 +242,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the sixth committed resources due to lack of available memory")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel6", kernel6spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel6", kernel6spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -263,7 +263,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the seventh committed resources due to lack of availability for all resource types")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel7", kernel7spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel7", kernel7spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -353,7 +353,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -463,7 +463,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -578,7 +578,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -671,7 +671,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -690,7 +690,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		It("Will fail to promote a pending allocation to a committed allocation for a non-existent pending allocation", func() {
 			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
-			allocatedGpuResourceIds, err := resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err := resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(errors.Is(err, resource.ErrInvalidAllocationRequest)).To(BeTrue())
 			Expect(allocatedGpuResourceIds).To(BeNil())
@@ -716,7 +716,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			By("Correctly handling the scheduling of the first committed resources")
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 
 			Expect(err).To(BeNil())
 			Expect(resourceManager.NumAllocations()).To(Equal(2))
@@ -729,7 +729,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly handling the scheduling of the second committed resources")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel2", kernel2Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel2", kernel2Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -758,7 +758,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the third committed resources due to lack of available CPU")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel3", kernel3spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel3", kernel3spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -782,7 +782,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the fourth committed resources due to lack of available GPU")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel4", kernel4spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel4", kernel4spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -803,7 +803,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the fifth committed resources due to lack of available memory")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel5", kernel5spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel5", kernel5spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -824,7 +824,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the sixth committed resources due to lack of available memory")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel6", kernel6spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel6", kernel6spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -845,7 +845,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the seventh committed resources due to lack of availability for all resource types")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel7", kernel7spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel7", kernel7spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -935,7 +935,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -1045,7 +1045,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -1160,7 +1160,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -1253,7 +1253,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -1272,7 +1272,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 		It("Will fail to promote a pending allocation to a committed allocation for a non-existent pending allocation", func() {
 			kernel1Spec := types.NewDecimalSpec(4000, 16000, 2, 8)
-			allocatedGpuResourceIds, err := resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err := resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(errors.Is(err, resource.ErrInvalidAllocationRequest)).To(BeTrue())
 			Expect(allocatedGpuResourceIds).To(BeNil())
@@ -1298,7 +1298,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			By("Correctly handling the scheduling of the first committed resources")
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 
 			Expect(err).To(BeNil())
 			Expect(resourceManager.NumAllocations()).To(Equal(2))
@@ -1311,7 +1311,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly handling the scheduling of the second committed resources")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel2", kernel2Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel2", kernel2Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -1340,7 +1340,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the third committed resources due to lack of available CPU")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel3", kernel3spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel3", kernel3spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -1364,7 +1364,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the fourth committed resources due to lack of available GPU")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel4", kernel4spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel4", kernel4spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -1385,7 +1385,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the fifth committed resources due to lack of available memory")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel5", kernel5spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel5", kernel5spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -1406,7 +1406,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the sixth committed resources due to lack of available memory")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel6", kernel6spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel6", kernel6spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -1427,7 +1427,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			By("Correctly rejecting the scheduling of the seventh committed resources due to lack of availability for all resource types")
 
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel7", kernel7spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel7", kernel7spec, false)
 			Expect(err).ToNot(BeNil())
 			Expect(allocatedGpuResourceIds).To(BeNil())
 
@@ -1517,7 +1517,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -1627,7 +1627,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
@@ -1742,7 +1742,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 
 			var allocatedGpuResourceIds []int
-			allocatedGpuResourceIds, err = resourceManager.CommitResources(1, "Kernel1", kernel1Spec, false)
+			allocatedGpuResourceIds, err = resourceManager.CommitResourcesToExistingContainer(1, "Kernel1", kernel1Spec, false)
 			Expect(err).To(BeNil())
 			Expect(allocatedGpuResourceIds).ToNot(BeNil())
 			Expect(len(allocatedGpuResourceIds)).To(Equal(2))
