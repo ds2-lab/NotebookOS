@@ -118,6 +118,7 @@ type Host struct {
 
 	log logger.Logger
 
+	allocationManager              *resource.AllocationManager                         // allocationManager manages the resources of the Host.
 	latestGpuInfo                  *proto.GpuInfo                                      // latestGpuInfo is the latest GPU info of this host scheduler.
 	syncMutex                      sync.Mutex                                          // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
 	schedulingMutex                sync.Mutex                                          // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
@@ -309,6 +310,7 @@ func NewHost(id string, addr string, millicpus int32, memMb int32, vramGb float6
 	}
 
 	host.resourceManager = resource.NewManager(resourceSpec)
+	host.allocationManager = resource.NewAllocationManager(resourceSpec)
 
 	host.sip.Producer = cache.FormalizeICProducer(host.getSIP)
 	host.sip.Validator = GetClockTimeCacheValidator()
@@ -1053,6 +1055,11 @@ func (h *Host) GetLocalGatewayClient() proto.LocalGatewayClient {
 
 func (h *Host) GetAddress() string {
 	return h.Addr
+}
+
+// AllocationManager returns the resource.AllocationManager that manages the resources of the target Host.
+func (h *Host) AllocationManager() *resource.AllocationManager {
+	return h.allocationManager
 }
 
 // Restore restores the state of a Host from another Host.
