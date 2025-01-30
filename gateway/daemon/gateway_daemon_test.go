@@ -2431,7 +2431,16 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedSession.EXPECT().IsIdle().AnyTimes().Return(true)
 
 			mockedKernel.EXPECT().RemoveReplicaByID(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
-				return hosts[id-1], nil
+				associatedHost := hosts[id-1]
+
+				replica, err := mockedKernel.GetReplicaByID(id)
+				Expect(err).To(BeNil())
+				Expect(replica).ToNot(BeNil())
+
+				err = associatedHost.ContainerRemoved(replica)
+				Expect(err).To(BeNil())
+
+				return associatedHost, err
 			})
 
 			host4Id := uuid.NewString()

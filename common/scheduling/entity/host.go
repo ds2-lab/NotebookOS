@@ -1058,7 +1058,7 @@ func (h *Host) GetAddress() string {
 }
 
 // AllocationManager returns the resource.AllocationManager that manages the resources of the target Host.
-func (h *Host) AllocationManager() *resource.AllocationManager {
+func (h *Host) AllocationManager() scheduling.AllocationManager {
 	return h.allocationManager
 }
 

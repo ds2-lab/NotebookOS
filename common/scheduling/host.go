@@ -3,7 +3,6 @@ package scheduling
 import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
@@ -49,8 +48,8 @@ type Host interface {
 	GetResourceSpec() types.Spec
 	IsProperlyInitialized() bool
 
-	// AllocationManager returns the resource.AllocationManager that manages the resources of the target Host.
-	AllocationManager() *resource.AllocationManager
+	// AllocationManager returns the AllocationManager that manages the resources of the target Host.
+	AllocationManager() AllocationManager
 	GetLatestGpuInfo() *proto.GpuInfo
 	SetSchedulerPoolType(schedulerPoolType SchedulerPoolType)
 	SetIdx(types.HeapElementMetadataKey, int)
