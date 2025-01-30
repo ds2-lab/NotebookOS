@@ -44,7 +44,7 @@ type ManagerState interface {
 // Meanwhile, ManagerState exposes a collection of several ComputeResourceState instances to provide a convenient
 // type for reading all the relevant state of a AllocationManager.
 type ComputeResourceState interface {
-	// Status returns the Status of the HostResources encapsulated/made available for reading
+	// ResourceStatus returns the Status of the HostResources encapsulated/made available for reading
 	// by this ComputeResourceState instance.
 	ResourceStatus() Status
 

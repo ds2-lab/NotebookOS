@@ -8965,6 +8965,62 @@ func (mr *MockAllocationManagerMockRecorder) PendingVRAM() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PendingVRAM", reflect.TypeOf((*MockAllocationManager)(nil).PendingVRAM))
 }
 
+// PlacedCPUs mocks base method.
+func (m *MockAllocationManager) PlacedCPUs() decimal.Decimal {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PlacedCPUs")
+	ret0, _ := ret[0].(decimal.Decimal)
+	return ret0
+}
+
+// PlacedCPUs indicates an expected call of PlacedCPUs.
+func (mr *MockAllocationManagerMockRecorder) PlacedCPUs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlacedCPUs", reflect.TypeOf((*MockAllocationManager)(nil).PlacedCPUs))
+}
+
+// PlacedGPUs mocks base method.
+func (m *MockAllocationManager) PlacedGPUs() decimal.Decimal {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PlacedGPUs")
+	ret0, _ := ret[0].(decimal.Decimal)
+	return ret0
+}
+
+// PlacedGPUs indicates an expected call of PlacedGPUs.
+func (mr *MockAllocationManagerMockRecorder) PlacedGPUs() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlacedGPUs", reflect.TypeOf((*MockAllocationManager)(nil).PlacedGPUs))
+}
+
+// PlacedMemoryMB mocks base method.
+func (m *MockAllocationManager) PlacedMemoryMB() decimal.Decimal {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PlacedMemoryMB")
+	ret0, _ := ret[0].(decimal.Decimal)
+	return ret0
+}
+
+// PlacedMemoryMB indicates an expected call of PlacedMemoryMB.
+func (mr *MockAllocationManagerMockRecorder) PlacedMemoryMB() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlacedMemoryMB", reflect.TypeOf((*MockAllocationManager)(nil).PlacedMemoryMB))
+}
+
+// PlacedVRAM mocks base method.
+func (m *MockAllocationManager) PlacedVRAM() decimal.Decimal {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PlacedVRAM")
+	ret0, _ := ret[0].(decimal.Decimal)
+	return ret0
+}
+
+// PlacedVRAM indicates an expected call of PlacedVRAM.
+func (mr *MockAllocationManagerMockRecorder) PlacedVRAM() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlacedVRAM", reflect.TypeOf((*MockAllocationManager)(nil).PlacedVRAM))
+}
+
 // PromoteReservation mocks base method.
 func (m *MockAllocationManager) PromoteReservation(replicaId int32, kernelId string) error {
 	m.ctrl.T.Helper()

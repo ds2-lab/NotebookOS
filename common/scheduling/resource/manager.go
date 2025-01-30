@@ -318,6 +318,26 @@ func (m *Manager) PendingResources() *HostResources {
 	return m.pendingResources
 }
 
+// PendingResourcesSpec returns a *types.DecimalSpec that is created from the underlying ComputeResourceState.
+// The underlying ComputeResourceState is responsible for encoding the working pending HostResources of the target
+// Manager.
+func (m *Manager) PendingResourcesSpec() *types.DecimalSpec {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.pendingResources.ToDecimalSpec()
+}
+
+// CommittedResourcesSpec returns a *types.DecimalSpec that is created from the underlying ComputeResourceState.
+// The underlying ComputeResourceState responsible for encoding the working committed HostResources of the target
+// Manager.
+func (m *Manager) CommittedResourcesSpec() *types.DecimalSpec {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.committedResources.ToDecimalSpec()
+}
+
 // CommittedResources returns a ComputeResourceState that is responsible for encoding the working committed HostResources
 // of the target Manager.
 func (m *Manager) CommittedResources() *HostResources {

@@ -59,4 +59,20 @@ type AllocationManager interface {
 	HasSufficientIdleResourcesAvailable(spec types.Spec) bool
 	GetGpuDeviceIdsAssignedToReplica(replicaId int32, kernelId string) ([]int, error)
 	HasSufficientIdleResourcesAvailableWithError(spec types.Spec) (bool, error)
+
+	// PlacedMemoryMB returns the total amount of scheduled memory, which is computed as the
+	// sum of the AllocationManager's pending memory and the Host's committed memory, in megabytes.
+	PlacedMemoryMB() decimal.Decimal
+
+	// PlacedGPUs returns the total number of scheduled GPUs, which is computed as the
+	// sum of the AllocationManager's pending GPUs and the Host's committed GPUs.
+	PlacedGPUs() decimal.Decimal
+
+	// PlacedVRAM returns the total amount of scheduled VRAM in GB, which is computed as the
+	// sum of the AllocationManager's pending VRAM and the Host's committed VRAM.
+	PlacedVRAM() decimal.Decimal
+
+	// PlacedCPUs returns the total number of scheduled Millicpus, which is computed as the
+	// sum of the AllocationManager's pending Millicpus and the Host's committed Millicpus.
+	PlacedCPUs() decimal.Decimal
 }

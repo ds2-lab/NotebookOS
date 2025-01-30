@@ -140,7 +140,6 @@ type Host struct {
 	excludedFromScheduling         atomic.Bool                                         // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
 	isBeingConsideredForScheduling atomic.Int32                                        // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
 	CreatedAt                      time.Time                                           // CreatedAt is the time at which the Host was created.
-	resourceManager                *resource.Manager                                   // resourcesWrapper wraps all the Host's HostResources.
 	LastRemoteSync                 time.Time                                           // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
 	isContainedWithinIndex         bool                                                // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
 	ProperlyInitialized            bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
@@ -658,29 +657,25 @@ func (h *Host) SynchronizeResourceInformation() error {
 // PlacedMemoryMB returns the total amount of memory scheduled onto the Host, which is computed as the
 // sum of the Host's pending memory and the Host's committed memory, in megabytes.
 func (h *Host) PlacedMemoryMB() decimal.Decimal {
-	return h.resourceManager.PendingResources().MemoryMbAsDecimal().
-		Add(h.resourceManager.CommittedResources().MemoryMbAsDecimal())
+	return h.allocationManager.PlacedMemoryMB()
 }
 
 // PlacedGPUs returns the total number of GPUs scheduled onto the Host, which is computed as the
 // sum of the Host's pending GPUs and the Host's committed GPUs.
 func (h *Host) PlacedGPUs() decimal.Decimal {
-	return h.resourceManager.PendingResources().GPUsAsDecimal().
-		Add(h.resourceManager.CommittedResources().GPUsAsDecimal())
+	return h.allocationManager.PlacedGPUs()
 }
 
 // PlacedVRAM returns the total amount of VRAM in GB scheduled onto the Host, which is computed as the
 // sum of the Host's pending VRAM and the Host's committed VRAM.
 func (h *Host) PlacedVRAM() decimal.Decimal {
-	return h.resourceManager.PendingResources().VRAMAsDecimal().
-		Add(h.resourceManager.CommittedResources().VRAMAsDecimal())
+	return h.allocationManager.PlacedVRAM()
 }
 
 // PlacedCPUs returns the total number of Millicpus scheduled onto the Host, which is computed as the
 // sum of the Host's pending Millicpus and the Host's committed Millicpus.
 func (h *Host) PlacedCPUs() decimal.Decimal {
-	return h.resourceManager.PendingResources().MillicpusAsDecimal().
-		Add(h.resourceManager.CommittedResources().MillicpusAsDecimal())
+	return h.allocationManager.PlacedCPUs()
 }
 
 // computeHypotheticalSubscriptionRatio computes what the Host's (over)subscription ratios would be for CPU, Memory,
@@ -704,32 +699,32 @@ func (h *Host) computeHypotheticalSubscriptionRatio(resourceRequest types.Spec) 
 
 	var cpuRatio, memRatio, gpuRatio, vramRatio decimal.Decimal
 
-	if h.resourceManager.SpecResources().MillicpusAsDecimal().Equals(decimal.Zero) {
+	if h.allocationManager.SpecResources().Millicpus.IsZero() {
 		cpuRatio = decimal.Zero
 	} else {
 		totalCPUs := h.PlacedCPUs().Add(decimalSpec.Millicpus)
-		cpuRatio = totalCPUs.Div(h.resourceManager.SpecResources().MillicpusAsDecimal()).Div(divisor)
+		cpuRatio = totalCPUs.Div(h.allocationManager.SpecResources().Millicpus).Div(divisor)
 	}
 
-	if h.resourceManager.SpecResources().MemoryMbAsDecimal().Equals(decimal.Zero) {
+	if h.allocationManager.SpecResources().MemoryMb.IsZero() {
 		memRatio = decimal.Zero
 	} else {
 		totalMemory := h.PlacedMemoryMB().Add(decimalSpec.MemoryMb)
-		memRatio = totalMemory.Div(h.resourceManager.SpecResources().MemoryMbAsDecimal()).Div(divisor)
+		memRatio = totalMemory.Div(h.allocationManager.SpecResources().MemoryMb).Div(divisor)
 	}
 
-	if h.resourceManager.SpecResources().GPUsAsDecimal().Equals(decimal.Zero) {
+	if h.allocationManager.SpecResources().GPUs.IsZero() {
 		gpuRatio = decimal.Zero
 	} else {
 		totalGPUs := h.PlacedGPUs().Add(decimalSpec.GPUs)
-		gpuRatio = totalGPUs.Div(h.resourceManager.SpecResources().GPUsAsDecimal()).Div(divisor)
+		gpuRatio = totalGPUs.Div(h.allocationManager.SpecResources().GPUs).Div(divisor)
 	}
 
-	if h.resourceManager.SpecResources().VRAMAsDecimal().Equals(decimal.Zero) {
+	if h.allocationManager.SpecResources().VRam.IsZero() {
 		vramRatio = decimal.Zero
 	} else {
 		totalVRAM := h.PlacedVRAM().Add(decimalSpec.VRam)
-		vramRatio = totalVRAM.Div(h.resourceManager.SpecResources().VRAMAsDecimal()).Div(divisor)
+		vramRatio = totalVRAM.Div(h.allocationManager.SpecResources().VRam).Div(divisor)
 	}
 
 	return cpuRatio, memRatio, gpuRatio, vramRatio
