@@ -175,7 +175,7 @@ func (m *AllocationManager) ResourcesSnapshot() *ManagerSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	containers := make([]*proto.ReplicaInfo, 0, m.numPendingAllocations)
+	containers := make([]*proto.ReplicaInfo, 0, m.numPendingAllocations.Load()+m.numCommittedAllocations.Load())
 	m.allocationKernelReplicaMap.Range(func(_ string, allocation scheduling.Allocation) (contd bool) {
 		container := &proto.ReplicaInfo{
 			KernelId:  allocation.GetKernelId(),
@@ -564,12 +564,12 @@ func (m *AllocationManager) NumAllocations() int {
 
 // NumCommittedAllocations returns the Allocation instances whose AllocationType is CommittedAllocation.
 func (m *AllocationManager) NumCommittedAllocations() int {
-	return m.numCommittedAllocations.LoadInt()
+	return int(m.numCommittedAllocations.Load())
 }
 
 // NumPendingAllocations returns the Allocation instances whose AllocationType is PendingAllocation.
 func (m *AllocationManager) NumPendingAllocations() int {
-	return m.numPendingAllocations.LoadInt()
+	return int(m.numPendingAllocations.Load())
 }
 
 // GetAllocation returns the Allocation associated with the specific kernel replica, if one exists.
@@ -840,8 +840,8 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	allocation.SetGpuDeviceIds(gpuDeviceIds)
 
 	// Update the pending/committed allocation counters.
-	m.numPendingAllocations.Decr()
-	m.numCommittedAllocations.Incr()
+	m.numPendingAllocations.Add(-1)
+	m.numCommittedAllocations.Add(1)
 
 	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isReservation=%v): %v. GPUs reserved/allocated: %v.",
 		replicaId, kernelId, isReservation, requestedResources.String(), allocation.GetGpuDeviceIds())
@@ -1273,7 +1273,7 @@ func (m *AllocationManager) unsafeUnsubscribePendingResources(allocatedResources
 	m.log.Debug("Deallocated pending resources. Updated pending resources: %v",
 		m.resourceManager.pendingResources.String())
 
-	m.numPendingAllocations.Decr()
+	m.numPendingAllocations.Add(-1)
 
 	// Delete the allocation, since the replica was evicted.
 	m.allocationKernelReplicaMap.Delete(key)
@@ -1316,7 +1316,7 @@ func (m *AllocationManager) unsafeAllocatePendingResources(decimalSpec *types.De
 	m.allocationKernelReplicaMap.Store(key, allocation)
 
 	// Update the pending/committed allocation counters.
-	m.numPendingAllocations.Incr()
+	m.numPendingAllocations.Add(1)
 
 	return nil
 }
@@ -1337,8 +1337,8 @@ func (m *AllocationManager) unsafeDemoteCommittedAllocationToPendingAllocation(a
 	allocation.SetAllocationType(scheduling.PendingAllocation)
 
 	// Update the pending/committed allocation counters.
-	m.numPendingAllocations.Incr()
-	m.numCommittedAllocations.Decr()
+	m.numPendingAllocations.Add(1)
+	m.numCommittedAllocations.Add(-1)
 }
 
 // unsafeReleaseCommittedResources releases committed/bound HostResources from the kernel replica associated with
