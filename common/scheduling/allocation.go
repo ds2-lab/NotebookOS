@@ -1,13 +1,12 @@
 package scheduling
 
 import (
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"time"
 )
 
 type Allocation interface {
-	CloneAndReturnedAdjusted(spec types.Spec) *resource.Allocation
+	CloneAndReturnedAdjusted(spec types.Spec) Allocation
 	String() string
 	ToSpecString() string
 	ToSpec() types.Spec
