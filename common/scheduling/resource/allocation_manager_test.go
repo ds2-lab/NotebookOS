@@ -2,6 +2,7 @@ package resource_test
 
 import (
 	"errors"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/scusemua/distributed-notebook/common/configuration/samples"
@@ -32,7 +33,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
-			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy)
+			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString())
 		})
 
 		It("Will correctly handle the scheduling of a single pending resource request", func() {
@@ -614,7 +615,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
-			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy)
+			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString())
 		})
 
 		It("Will correctly handle the scheduling of a single pending resource request", func() {
@@ -1196,7 +1197,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
-			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy)
+			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString())
 		})
 
 		It("Will correctly handle the scheduling of a single pending resource request", func() {

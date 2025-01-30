@@ -180,6 +180,16 @@ type AllocationManager interface {
 	// PlacedCPUs returns the total number of scheduled Millicpus, which is computed as the
 	// sum of the AllocationManager's pending Millicpus and the Host's committed Millicpus.
 	PlacedCPUs() decimal.Decimal
+
+	// ReserveResources creates a new resource reservation for the specified replica of the specified kernel.
+	//
+	// The types.Spec argument encodes the amount of resources to reserve.
+	//
+	// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
+	// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
+	// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
+	// depending upon the scheduling.Policy configured for the AllocationManager.
+	ReserveResources(replicaId int32, kernelId string, spec types.Spec, forTraining bool) error
 }
 
 // UnitTestingAllocationManager is a wrapper around AllocationManager much like how UnitTestingHost is a wrapper

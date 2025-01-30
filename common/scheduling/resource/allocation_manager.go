@@ -9,6 +9,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/queue"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
@@ -17,6 +18,55 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+// kernelContainers keeps track of which scheduling.KernelContainer instances are scheduled on a particular
+// scheduling.Host for a particular scheduling.Kernel.
+type kernelContainers struct {
+	mu sync.Mutex
+
+	// NodeId is the unique identifier of the node on which the scheduledContainers exists.
+	NodeId string
+
+	// Containers is a map from replica ID to a struct{}.
+	//
+	// If an entry exists for a particular replica ID in the Containers map, then that indicates that the
+	// scheduling.KernelContainer associated with that replica is running on the scheduling.Host associated
+	// with the kernelContainers struct.
+	Containers map[int32]struct{}
+}
+
+func newKernelContainers(nodeId string) *kernelContainers {
+	return &kernelContainers{
+		NodeId:     nodeId,
+		Containers: map[int32]struct{}{},
+	}
+}
+
+// scheduledContainers maintains information about the scheduling.KernelContainer instances that are scheduled
+// on the scheduling.Host whose resources are managed by the AllocationManager associated with the scheduledContainers.
+type scheduledContainers struct {
+	mu sync.Mutex
+
+	// NodeId is the unique identifier of the node on which the scheduledContainers exists.
+	NodeId string
+
+	// Kernels is a map from kernel ID to a kernelContainers struct which keeps track of the
+	// scheduling.KernelContainer instances running on the associated scheduling.Host.
+	//
+	// The existence of an entry for a particular kernel ID in the Kernels map does NOT indicate that
+	// there is at least one scheduling.KernelContainer for that scheduling.Kernel. It does indicate that
+	// there was at least one scheduling.KernelContainer for that scheduling.Kernel running on the associated
+	// scheduling.Host at some point in time; however, there may no longer be any scheduling.KernelContainer for
+	// that scheduling.Kernel running on the associated scheduling.Host anymore.
+	Kernels map[string]*kernelContainers
+}
+
+func newScheduledContainers(nodeId string) *scheduledContainers {
+	return &scheduledContainers{
+		NodeId:  nodeId,
+		Kernels: make(map[string]*kernelContainers),
+	}
+}
 
 // AllocationManager is responsible for keeping track of resource allocations on behalf of the Local Daemon.
 // The AllocationManager allocates and deallocates HostResources to/from kernel replicas scheduled to run on the node.
@@ -44,6 +94,8 @@ type AllocationManager struct {
 	NodeId string
 
 	log logger.Logger // Logger.
+
+	scheduledContainers *scheduledContainers
 
 	// resourceSnapshotCounter is an atomic, thread-safe counter used to associate a monotonically-increasing
 	// identifier with each newly-created ComputeResourceSnapshot and *proto.NodeResourcesSnapshot struct.
@@ -119,13 +171,15 @@ type AllocationManager struct {
 }
 
 // NewAllocationManager creates a new AllocationManager struct and returns a pointer to it.
-func NewAllocationManager(resourceSpec types.Spec, schedulingPolicy scheduling.Policy) *AllocationManager {
+func NewAllocationManager(resourceSpec types.Spec, schedulingPolicy scheduling.Policy, nodeId string) *AllocationManager {
 	manager := &AllocationManager{
 		Id:                         uuid.NewString(),
+		NodeId:                     nodeId,
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, scheduling.Allocation](128),
 		availableGpuDevices:        queue.NewFifo[int](int(resourceSpec.GPU())),
 		schedulingPolicy:           schedulingPolicy,
 		resourceManager:            NewManager(resourceSpec),
+		scheduledContainers:        newScheduledContainers(nodeId),
 	}
 
 	for i := 0; i < int(resourceSpec.GPU()); i++ {
@@ -788,30 +842,24 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 		return nil, err
 	}
 
-	// Next, validate against our actual idle resource capacity.
-	if err := m.resourceManager.idleResources.ValidateWithError(requestedResources); err != nil {
-		m.log.Warn("Could not commit HostResources to replica %d of kernel %s: %s. "+
-			"Reason for commitment failure: %v.", replicaId, kernelId, requestedResources.String(), err)
-		return nil, err
-	}
-
 	m.log.Debug("Committing resources. Current resource counts: %s. Resources to be committed: %v.",
 		m.resourceManager.GetResourceCountsAsString(), requestedResources.String())
 
-	// If we've gotten this far, then we have enough HostResources available to commit the requested HostResources
-	// to the specified kernel replica. So, let's do that now. First, we'll decrement the idle HostResources.
-	if err := m.resourceManager.idleResources.Subtract(requestedResources); err != nil {
-		return nil, err
-	}
+	// Next, execute an (atomic) transaction which modifies resources of all relevant statuses/types.
+	err := m.resourceManager.RunTransaction(func(state *transaction.State) {
+		state.CommittedResources().Add(requestedResources)
 
-	// Next, we'll decrement the pending HostResources. We decrement because the HostResources are no longer "pending".
-	// Instead, they are actively bound/committed to the kernel replica.
-	if err := m.resourceManager.pendingResources.Subtract(requestedResources); err != nil {
-		return nil, err
-	}
+		if decrementPending {
+			state.PendingResources().Subtract(requestedResources)
+		}
 
-	// Next, we'll increment the committed HostResources.
-	if err := m.resourceManager.committedResources.Add(requestedResources); err != nil {
+		state.IdleResources().Subtract(requestedResources)
+	})
+
+	if err != nil {
+		m.log.Warn("Could not commit HostResources to replica %d of kernel %s: %s. "+
+			"Reason for commitment failure: %v.", replicaId, kernelId, requestedResources.String(), err)
+
 		return nil, err
 	}
 
@@ -854,8 +902,8 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	// m.resourceMetricsCallback(m.Manager)
 	m.unsafeUpdatePrometheusResourceMetrics()
 
-	// Make sure everything is OK with respect to our internal state/bookkeeping.
-	err := m.unsafePerformConsistencyCheck()
+	// Sanity Check. Make sure everything is OK with respect to our internal state/bookkeeping.
+	err = m.unsafePerformConsistencyCheck()
 	if err != nil {
 		m.log.Error("Discovered an inconsistency: %v", err)
 		return nil, err
@@ -935,8 +983,95 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 	return nil
 }
 
-func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string) error {
+// ReserveResources creates a new resource reservation for the specified replica of the specified kernel.
+//
+// The types.Spec argument encodes the amount of resources to reserve.
+//
+// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
+// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
+// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
+// depending upon the scheduling.Policy configured for the AllocationManager.
+func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, spec types.Spec, forTraining bool) error {
+	var usePendingResources bool
 
+	// If we are creating a reservation for a ready-to-train replica, then we should not use pending resources,
+	// regardless of the scheduling policy.
+	if forTraining {
+		usePendingResources = false
+	} else {
+		// We're not creating a reservation for a ready-to-train replica, so whether we use pending
+		// or committed resources for the reservations depends upon the ResourceBindingMode.
+		usePendingResources = m.reservationShouldUsePendingResources()
+	}
+
+	// Create the reservation.
+	return m.reserveResources(replicaId, kernelId, spec, usePendingResources)
+}
+
+func (m *AllocationManager) reserveResources(replicaId int32, kernelId string, spec types.Spec, usePendingResources bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var (
+		key              string
+		allocation       scheduling.Allocation
+		allocationExists bool
+		allocationType   scheduling.AllocationType
+	)
+
+	if usePendingResources {
+		allocationType = scheduling.PendingAllocation
+	} else {
+		allocationType = scheduling.CommittedAllocation
+	}
+
+	// Verify that there does not already exist an allocation associated with the specified kernel replica.
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); allocationExists {
+		m.log.Error("Cannot subscribe pending HostResources to replica %d of kernel %s: found existing resource "+
+			"allocation associated to that kernel replica: %s", replicaId, kernelId, allocation.String())
+		return fmt.Errorf("%w: existing resource allocation found for replica %d of kernel %s",
+			ErrInvalidAllocationRequest, replicaId, kernelId)
+	}
+
+	// Construct the new Allocation using the resource quantities specified in the spec argument.
+	builder := NewResourceAllocationBuilder().
+		WithAllocationType(allocationType).
+		WithKernelReplica(replicaId, kernelId).
+		WithMillicpus(spec.CPU()).
+		WithMemoryMB(spec.MemoryMB()).
+		WithGPUs(spec.GPU()).
+		WithVRAM(spec.VRAM())
+	allocation = builder.BuildResourceAllocation()
+
+	m.log.Debug("Attempting to subscribe the following pending HostResources to replica %d of kernel %s: %v",
+		replicaId, kernelId, spec.String())
+
+	// Convert the given types.Spec argument to a *types.DecimalSpec struct.
+	decimalSpec := types.ToDecimalSpec(spec)
+
+	err := m.unsafeAllocatePendingResources(decimalSpec, allocation, key, replicaId, kernelId)
+	if err != nil {
+		m.log.Error("Failed to allocate pending resources %s to replica %d of kernel %s: %v",
+			decimalSpec.String(), replicaId, kernelId, err)
+		return err
+	}
+
+	m.log.Debug("Successfully subscribed the following pending HostResources to replica %d of kernel %s: %v",
+		replicaId, kernelId, decimalSpec.String())
+
+	// Update Prometheus metrics.
+	// m.resourceMetricsCallback(m.Manager)
+	m.unsafeUpdatePrometheusResourceMetrics()
+
+	// Make sure everything is OK with respect to our internal state/bookkeeping.
+	err = m.unsafePerformConsistencyCheck()
+	if err != nil {
+		m.log.Error("Discovered an inconsistency: %v", err)
+		return err
+	}
+
+	return nil
 }
 
 // KernelReplicaScheduled is to be called whenever a kernel replica is scheduled onto this scheduling.Host.
@@ -1178,6 +1313,15 @@ func (m *AllocationManager) DebugSetIdleGPUs(value float64) {
 	defer m.mu.Unlock()
 
 	m.resourceManager.idleResources.gpus = decimal.NewFromFloat(value)
+}
+
+// reservationShouldUsePendingResources returns a boolean flag indicating whether a reservation -- which is not
+// indicated to be for a ready-to-train kernel replica -- should be created using pending or committed resources.
+//
+// The basis for what is returned by reservationShouldUsePendingResources is the scheduling.ResourceBindingMode
+// of the configured scheduling.Policy.
+func (m *AllocationManager) reservationShouldUsePendingResources() bool {
+	return m.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart
 }
 
 // unsafePerformConsistencyCheck validates that all the internal resource counters have valid values with respect
