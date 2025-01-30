@@ -53,14 +53,12 @@ type Host interface {
 	GetIdx(types.HeapElementMetadataKey) int
 	Compare(h2 interface{}) float64
 	RecomputeSubscribedRatio() decimal.Decimal
-	LastResourcesSnapshot() types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
 	SubscribedRatio() float64
 	SubscribedRatioAsDecimal() decimal.Decimal
 	OversubscriptionFactor() decimal.Decimal
 	ToVirtualDockerNode() *proto.VirtualDockerNode
 	NumContainers() int
 	NumReservations() int
-	SynchronizeResourceInformation() error
 	PlacedMemoryMB() decimal.Decimal
 	PlacedGPUs() decimal.Decimal
 	PlacedVRAM() decimal.Decimal

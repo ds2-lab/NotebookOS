@@ -59,40 +59,6 @@ type IndexUpdater interface {
 	UpdateIndex(host scheduling.Host) error
 }
 
-// unsafeApplyResourceSnapshotToHost does the actual work of the ApplyResourceSnapshotToHost function, but
-// no locks are acquired.
-//
-// unsafeApplyResourceSnapshotToHost should only be called if both the syncMutex and schedulingMutex of the specified
-// Host are already held.
-func unsafeApplyResourceSnapshotToHost(h *Host, snapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]) error {
-	if h == nil {
-		log.Fatalln(utils.RedStyle.Render("Attempted to apply (possibly nil) resource snapshot to nil Host."))
-	}
-
-	if snapshot == nil {
-		log.Fatalf(utils.RedStyle.Render("Attempted to apply nil resource snapshot to Host %s (ID=%s)."),
-			h.NodeName, h.ID)
-	}
-
-	if h.lastSnapshot != nil && snapshot.GetSnapshotId() < h.lastSnapshot.GetSnapshotId() {
-		h.log.Warn(utils.OrangeStyle.Render("Given snapshot has ID %d < our last applied snapshot (with ID=%d). Rejecting."),
-			h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
-		return fmt.Errorf("%w: last applied snapshot had ID=%d, specified snapshot had ID=%d",
-			scheduling.ErrOldSnapshot, h.lastSnapshot.GetSnapshotId(), snapshot.GetSnapshotId())
-	}
-
-	err := resource.ApplySnapshotToResourceWrapper(h.resourceManager, snapshot)
-	if err != nil {
-		h.log.Error("Failed to apply snapshot %s to host %s (ID=%s) because: %v",
-			snapshot.String(), h.NodeName, h.ID, err)
-		return err
-	}
-
-	h.lastSnapshot = snapshot
-
-	return nil
-}
-
 // containerWithPreCommittedResources encapsulates a scheduling.KernelContainer and the "msg_id" of the Jupyter
 // "execute_request" message that contained the user-submitted code associated with this pre-allocation.
 type containerWithPreCommittedResources struct {
@@ -118,61 +84,66 @@ type Host struct {
 
 	log logger.Logger
 
-	syncMutex       sync.Mutex // syncMutex ensures atomicity of the Host's SynchronizeResourceInformation method.
-	schedulingMutex sync.Mutex // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
+	schedulingMutex                sync.Mutex                           // schedulingMutex ensures that only a single kernel is scheduled at a time, to prevent over-allocating HostResources on the Host.
+	allocationManager              scheduling.AllocationManager         // allocationManager manages the resources of the Host.
+	meta                           hashmap.HashMap[string, interface{}] // meta is a map of metadata.
+	conn                           *grpc.ClientConn                     // conn is the gRPC connection to the Host.
+	Addr                           string                               // Addr is the Host's address.
+	NodeName                       string                               // NodeName is the Host's name (for printing/logging).
+	metricsProvider                scheduling.MetricsProvider           // Provides access to metrics relevant to the Host.
+	ID                             string                               // ID is the unique ID of this host.
+	seenSessions                   []string                             // seenSessions are the sessions that have been scheduled onto this host at least once.
+	resourceSpec                   *types.DecimalSpec                   // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
+	lastReschedule                 types.StatFloat64                    // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
+	errorCallback                  scheduling.ErrorCallback             // errorCallback is a function to be called if a Host appears to be dead.
+	pendingContainers              types.StatInt32                      // pendingContainers is the number of Containers that are scheduled on the host.
+	enabled                        bool                                 // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
+	excludedFromScheduling         atomic.Bool                          // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
+	isBeingConsideredForScheduling atomic.Int32                         // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
+	CreatedAt                      time.Time                            // CreatedAt is the time at which the Host was created.
+	LastRemoteSync                 time.Time                            // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
+	isContainedWithinIndex         bool                                 // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
+	ProperlyInitialized            bool                                 // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
+	numReplicasPerKernel           int                                  // The number of replicas per kernel.
+	schedulerPoolType              scheduling.SchedulerPoolType
+	HeapIndexes                    map[types.HeapElementMetadataKey]int
+	heapIndexesMutex               sync.Mutex
+	indexUpdater                   IndexUpdater
+	numReplicasPerKernelDecimal    decimal.Decimal   // numReplicasPerKernelDecimal is a cached decimal.Decimal of numReplicasPerKernel.
+	schedulingPolicy               scheduling.Policy // schedulingPolicy is the scheduling policy configured for the cluster.
 
-	allocationManager              scheduling.AllocationManager                        // allocationManager manages the resources of the Host.
-	meta                           hashmap.HashMap[string, interface{}]                // meta is a map of metadata.
-	conn                           *grpc.ClientConn                                    // conn is the gRPC connection to the Host.
-	Addr                           string                                              // Addr is the Host's address.
-	NodeName                       string                                              // NodeName is the Host's name (for printing/logging).
-	metricsProvider                scheduling.MetricsProvider                          // Provides access to metrics relevant to the Host.
-	ID                             string                                              // ID is the unique ID of this host.
-	containers                     hashmap.HashMap[string, scheduling.KernelContainer] // containers is a map from kernel ID to the container from that kernel scheduled on this Host.
-	reservations                   hashmap.HashMap[string, *Reservation]               // reservations is a map that really just functions as a set, whose keys are kernel IDs. These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet. The values are the times at which the reservation was created, just for logging purposes.
-	trainingContainers             []scheduling.KernelContainer                        // trainingContainers are the actively-training kernel replicas.
-	seenSessions                   []string                                            // seenSessions are the sessions that have been scheduled onto this host at least once.
-	resourceSpec                   *types.DecimalSpec                                  // resourceSpec is the spec describing the total HostResources available on the Host, not impacted by allocations.
-	lastReschedule                 types.StatFloat64                                   // lastReschedule returns the scale-out priority of the last Container to be migrated/evicted (I think?)
-	errorCallback                  scheduling.ErrorCallback                            // errorCallback is a function to be called if a Host appears to be dead.
-	pendingContainers              types.StatInt32                                     // pendingContainers is the number of Containers that are scheduled on the host.
-	enabled                        bool                                                // enabled indicates whether the Host is currently enabled and able to serve kernels. This is part of an abstraction to simulate dynamically changing the number of nodes in the cluster.
-	excludedFromScheduling         atomic.Bool                                         // ExcludedFromScheduling is a flag that, when true, indicates that the Host should not be considered for scheduling operations at this time.
-	isBeingConsideredForScheduling atomic.Int32                                        // IsBeingConsideredForScheduling indicates that the host has been selected as a candidate for scheduling when the value is > 0. The value is how many concurrent scheduling operations are considering this Host.
-	CreatedAt                      time.Time                                           // CreatedAt is the time at which the Host was created.
-	LastRemoteSync                 time.Time                                           // lastRemoteSync is the time at which the Host last synchronized its resource counts with the actual remote node that the Host represents.
-	isContainedWithinIndex         bool                                                // isContainedWithinIndex indicates whether this Host is currently contained within a valid ClusterIndex.
-	ProperlyInitialized            bool                                                // Indicates whether this Host was created with all the necessary fields or not. This doesn't happen when we're restoring an existing Host (i.e., we create a Host struct with many fields missing in that scenario).
-	numReplicasPerKernel           int                                                 // The number of replicas per kernel.
-	numReplicasPerKernelDecimal    decimal.Decimal                                     // numReplicasPerKernelDecimal is a cached decimal.Decimal of numReplicasPerKernel.
-	schedulingPolicy               scheduling.Policy                                   // schedulingPolicy is the scheduling policy configured for the cluster.
-	kernelsWithCommittedResources  map[string]*containerWithCommittedResources         // Map from Kernel ID to *containerWithCommittedResources. Values are *containerWithCommittedResources representing containers who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because we use this map when reserving resources (during which we don't necessarily have the replica ID). In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
+	// Cached penalties
+	sip             cache.InlineCache      // Scale-in penalty.
+	sipSession      scheduling.UserSession // Scale-in penalty session.
+	subscribedRatio decimal.Decimal
+	penaltyList     cache.InlineCache
+	penalties       []cachedPenalty
+	penaltyValidity bool
+
+	// trainingContainers are the actively-training kernel replicas.
+	trainingContainers []scheduling.KernelContainer
+
+	// containers is a map from kernel ID to the container from that kernel scheduled on this Host.
+	containers hashmap.HashMap[string, scheduling.KernelContainer]
+
+	// reservations is a map that really just functions as a set, whose keys are kernel IDs.
+	// These are kernels for which resources have been reserved, but the Container has not yet been scheduled yet.
+	// The values are the times at which the reservation was created, just for logging purposes.
+	reservations hashmap.HashMap[string, *Reservation]
+
+	// Map from Kernel ID to *containerWithCommittedResources. Values are *containerWithCommittedResources representing
+	// containers who have resources committed to them. We use kernel ID as the key, rather than ContainerID, because
+	// we use this map when reserving resources (during which we don't necessarily have the replica ID).
+	// In these cases, the value will be -1, which just indicates that we weren't able to record the specific replica.
+	kernelsWithCommittedResources map[string]*containerWithCommittedResources
 
 	// containersWithPreCommittedResources keeps track of kernels for which resources were specifically pre-commited
 	// along with the IDs of the associated "execute_request" messages. Keys are container IDs.
 	containersWithPreCommittedResources map[string]*containerWithPreCommittedResources
 
-	// lastSnapshot is the last HostResourceSnapshot to have been applied successfully to this Host.
-	lastSnapshot types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
-
 	// SubscriptionQuerier is used to query the over-subscription factor given the host's
 	// subscription ratio and the Cluster's subscription ratio.
 	SubscriptionQuerier SubscriptionQuerier
-
-	indexUpdater IndexUpdater
-
-	// Cached penalties
-	sip               cache.InlineCache      // Scale-in penalty.
-	sipSession        scheduling.UserSession // Scale-in penalty session.
-	subscribedRatio   decimal.Decimal
-	penaltyList       cache.InlineCache
-	penalties         []cachedPenalty
-	penaltyValidity   bool
-	schedulerPoolType scheduling.SchedulerPoolType
-
-	HeapIndexes      map[types.HeapElementMetadataKey]int
-	heapIndexesMutex sync.Mutex
-	// heapIndex         int
 }
 
 // newHostForRestoration creates and returns a new Host to be used only for restoring an existing Host.
@@ -533,13 +504,6 @@ func (h *Host) RecomputeSubscribedRatio() decimal.Decimal {
 	return h.subscribedRatio
 }
 
-// LastResourcesSnapshot returns the last HostResourceSnapshot to have been applied successfully to this Host.
-//
-// If the target Host has had no HostResourceSnapshot instances applied successfully, then this method returns nil.
-func (h *Host) LastResourcesSnapshot() types.HostResourceSnapshot[types.ArbitraryResourceSnapshot] {
-	return h.lastSnapshot
-}
-
 // SubscribedRatio returns the current subscription ratio of the Host as a float64.
 func (h *Host) SubscribedRatio() float64 {
 	return h.subscribedRatio.InexactFloat64()
@@ -602,52 +566,6 @@ func (h *Host) NumContainers() int {
 // NumReservations returns the number of active reservations on the Host.
 func (h *Host) NumReservations() int {
 	return h.reservations.Len()
-}
-
-// SynchronizeResourceInformation queries the remote host via gRPC to request update-to-date resource usage information.
-//
-// This method is thread-safe. Only one goroutine at a time may execute this method.
-//
-// Similarly, once the snapshot is retrieved from the remote Host, scheduling will be temporarily locked
-// until the snapshot is applied successfully.
-func (h *Host) SynchronizeResourceInformation() error {
-	h.syncMutex.Lock()
-	defer h.syncMutex.Unlock()
-
-	st := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
-	defer cancel()
-
-	snapshotWithContainers, err := h.LocalGatewayClient.ResourcesSnapshot(ctx, &proto.Void{})
-	if err != nil {
-		h.log.Error(utils.OrangeStyle.Render("Failed to retrieve Resource ManagerSnapshot from remote node %s (ID=%s) because: %v"),
-			h.NodeName, h.ID, err)
-		return err
-	}
-
-	h.schedulingMutex.Lock()
-	defer h.schedulingMutex.Unlock()
-
-	// Manager around the protobuf struct so that it satisfies the required interface.
-	protoSnapshotWrapper := &resource.ProtoNodeResourcesSnapshotWrapper{
-		NodeResourcesSnapshotWithContainers: snapshotWithContainers,
-	}
-
-	err = unsafeApplyResourceSnapshotToHost(h, protoSnapshotWrapper)
-	if err != nil {
-		h.log.Error(utils.OrangeStyle.Render("Failed to apply retrieved Resource ManagerSnapshot from remote node %s (ID=%s) because: %v"),
-			h.NodeName, h.ID, err)
-		return err
-	}
-
-	if h.metricsProvider != nil {
-		h.metricsProvider.GetHostRemoteSyncLatencyMicrosecondsHistogram().Observe(float64(time.Since(st).Microseconds()))
-	}
-
-	h.RecomputeSubscribedRatio()
-
-	h.LastRemoteSync = time.Now()
-	return nil
 }
 
 // PlacedMemoryMB returns the total amount of memory scheduled onto the Host, which is computed as the
