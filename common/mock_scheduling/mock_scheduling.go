@@ -2847,6 +2847,20 @@ func (mr *MockHostMockRecorder) LastResourcesSnapshot() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LastResourcesSnapshot", reflect.TypeOf((*MockHost)(nil).LastResourcesSnapshot))
 }
 
+// NumActiveSchedulingOperations mocks base method.
+func (m *MockHost) NumActiveSchedulingOperations() int32 {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumActiveSchedulingOperations")
+	ret0, _ := ret[0].(int32)
+	return ret0
+}
+
+// NumActiveSchedulingOperations indicates an expected call of NumActiveSchedulingOperations.
+func (mr *MockHostMockRecorder) NumActiveSchedulingOperations() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumActiveSchedulingOperations", reflect.TypeOf((*MockHost)(nil).NumActiveSchedulingOperations))
+}
+
 // NumContainers mocks base method.
 func (m *MockHost) NumContainers() int {
 	m.ctrl.T.Helper()
