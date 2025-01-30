@@ -236,11 +236,8 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 		SubscriptionQuerier:         querier,
 		indexUpdater:                indexUpdater,
 		ProperlyInitialized:         true,
-		allocationManager:           resource.NewAllocationManager(resourceSpec, schedulingPolicy),
+		allocationManager:           resource.NewAllocationManager(resourceSpec, schedulingPolicy, id),
 		subscribedRatio:             decimal.Zero,
-		//reservations:                        hashmap.NewCornelkMap[string, *Reservation](5),
-		//kernelsWithCommittedResources:       make(map[string]*containerWithCommittedResources),
-		//containersWithPreCommittedResources: make(map[string]*containerWithPreCommittedResources),
 	}
 
 	host.log.Debug("Registering brand new Local Daemon %s (ID=%s) with the following resource spec: %s.",
@@ -250,6 +247,19 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 	host.sip.Validator = GetClockTimeCacheValidator()
 	host.penaltyList.Producer = cache.FormalizeChainedICProducer(host.updatePenaltyList)
 	host.penaltyList.Validator = host.validatePenaltyList
+
+	host.allocationManager.SetUpdateSubscriptionRatio(host.RecomputeSubscribedRatio)
+	host.allocationManager.SetUpdateIndex(func(replicaId int32, kernelId string) error {
+		err = host.indexUpdater.UpdateIndex(host)
+		if err != nil {
+			host.log.Error("Failed to update index for host %s after committing resources to replica %d of kernel %s: %v",
+				host.NodeName, replicaId, kernelId, err)
+
+			return err
+		}
+
+		return nil
+	})
 
 	return host, nil
 }
@@ -1076,47 +1086,6 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 		return h.unsafeCommitResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId(), true)
 	}
 
-	return nil
-}
-
-// unsafeReleaseCommittedResources is the inverse of unsafeCommitResources.
-func (h *Host) unsafeReleaseCommittedResources(spec *types.DecimalSpec, kernelId string, incrementPending bool) error {
-	record, loaded := h.kernelsWithCommittedResources[kernelId]
-	if !loaded {
-		h.log.Error("Cannot release committed resources from replica of kernel \"%s\". No replica of kernel \"%s\" has resources committed to it. (Requested to release: %s)",
-			kernelId, kernelId, spec.String())
-		return ErrInvalidContainer
-	}
-
-	if !spec.Equals(record.ResourcesCommitted) {
-		h.log.Warn("Inconsistent committed resource release for replica of kernel %s. Requested: %v. Record: %v. AllocationID=%s.",
-			kernelId, spec.String(), record.ResourcesCommitted.String(), record.AllocationId)
-
-		spec = types.ToDecimalSpec(record.ResourcesCommitted)
-	}
-
-	err := h.resourceManager.RunTransaction(func(state *transaction.State) {
-		state.CommittedResources().Subtract(spec)
-
-		if incrementPending {
-			state.PendingResources().Add(spec)
-		}
-
-		state.IdleResources().Add(spec)
-	})
-
-	if err != nil {
-		h.log.Error("Failed to release resources committed %v ago [%s] from replica of kernel %s with AllocationID=%s.",
-			time.Since(record.CommittedAt), spec.String(), kernelId, record.AllocationId)
-		return err
-	}
-
-	err = h.indexUpdater.UpdateIndex(h)
-	if err != nil {
-		return err
-	}
-
-	delete(h.kernelsWithCommittedResources, kernelId)
 	return nil
 }
 

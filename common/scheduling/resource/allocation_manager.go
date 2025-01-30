@@ -272,6 +272,10 @@ type AllocationManager struct {
 	availableGpuDevices *queue.Fifo[int]
 
 	metricsManager *metrics.LocalDaemonPrometheusManager
+
+	updateIndex func(replicaId int32, kernelId string) error
+
+	updateSubscriptionRatio func() decimal.Decimal
 }
 
 // NewAllocationManager creates a new AllocationManager struct and returns a pointer to it.
@@ -303,6 +307,14 @@ func NewAllocationManager(resourceSpec types.Spec, schedulingPolicy scheduling.P
 	manager.log.Debug("Resource Manager initialized: %v", manager.resourceManager.String())
 
 	return manager
+}
+
+func (m *AllocationManager) SetUpdateIndex(updateIndex func(replicaId int32, kernelId string) error) {
+	m.updateIndex = updateIndex
+}
+
+func (m *AllocationManager) SetUpdateSubscriptionRatio(updateSubscriptionRatio func() decimal.Decimal) {
+	m.updateSubscriptionRatio = updateSubscriptionRatio
 }
 
 // GetId returns the target AllocationManager's unique identifier, which is the different from the associated
@@ -796,13 +808,6 @@ func (m *AllocationManager) PromotePreCommitment(replicaId int32, kernelId strin
 
 	allocation.SetIsPreCommitted(false)
 
-	// Make sure everything is still hunky-dory.
-	err := m.unsafePerformConsistencyCheck()
-	if err != nil {
-		m.log.Error("Discovered an inconsistency: %v", err)
-		return err
-	}
-
 	return nil
 }
 
@@ -846,7 +851,7 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 
 	// First, release the original amount of pending resources.
 	originalAllocatedResources := allocation.ToDecimalSpec()
-	err := m.releasePendingResources(originalAllocatedResources, key)
+	err := m.releasePendingResources(originalAllocatedResources, replicaId, kernelId)
 	if err != nil {
 		m.log.Error("Failed to release original amount of pending resources during resource adjustment of replica %d of kernel %s because: %v",
 			replicaId, kernelId, err)
@@ -1045,7 +1050,7 @@ func (m *AllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
 	if allocation.IsCommitted() {
 		err = m.releaseCommittedResources(allocation, allocation.ToDecimalSpec(), false)
 	} else {
-		err = m.releasePendingResources(allocation.ToDecimalSpec(), key)
+		err = m.releasePendingResources(allocation.ToDecimalSpec(), replicaIdForReservation, kernelId)
 	}
 
 	if err != nil {
@@ -1238,19 +1243,12 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 		return err
 	}
 
-	m.log.Debug("Successfully subscribed the following pending HostResources to replica %d of kernel %s: %v",
-		replicaId, kernelId, decimalSpec.String())
-
 	// Update Prometheus metrics.
 	// m.resourceMetricsCallback(m.Manager)
 	m.unsafeUpdatePrometheusResourceMetrics()
 
-	// Make sure everything is OK with respect to our internal state/bookkeeping.
-	err = m.unsafePerformConsistencyCheck()
-	if err != nil {
-		m.log.Error("Discovered an inconsistency: %v", err)
-		return err
-	}
+	m.log.Debug("Successfully subscribed the following pending HostResources to replica %d of kernel %s: %v",
+		replicaId, kernelId, decimalSpec.String())
 
 	return nil
 }
@@ -1273,7 +1271,7 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 		allocationExists bool
 	)
 
-	m.log.Debug("Attempting to evict replica %d of kernel %s.", replicaId, kernelId)
+	m.log.Debug("Attempting to evict replica %d of kernel %s from host %s now.", replicaId, kernelId, m.NodeId)
 
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
@@ -1288,7 +1286,8 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 	// First, check if the allocation is of type CommittedAllocation.
 	// If so, then we'll first release the committed HostResources before unsubscribing the pending HostResources.
 	if allocation.IsCommitted() {
-		m.log.Debug("Releasing resources committed to evicted replica %d of kernel %s now.", replicaId, kernelId)
+		m.log.Debug("Releasing resources committed to evicted replica %d of kernel %s on host %s now.",
+			replicaId, kernelId, m.NodeId)
 
 		// Perform the resource count adjustments associated with releasing committed HostResources.
 		// We'll pass allocatedResources ourselves (non-nil), as we need the *types.DecimalSpec
@@ -1297,22 +1296,33 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 		if err != nil {
 			m.log.Error(
 				utils.RedStyle.Render(
-					"Failed to release resources committed to replica %d of kernel %s: %v"), replicaId, kernelId, err)
+					"Failed to release resources committed to replica %d of kernel %s on host %s: %v"),
+				replicaId, kernelId, m.NodeId, err)
 
 			panic(err)
 		}
 	} else {
-		m.log.Debug("Releasing pending resources assigned to evicted replica %d of kernel %s now.", replicaId, kernelId)
+		m.log.Debug("Releasing pending resources assigned to evicted replica %d of kernel %s on host %s now.",
+			replicaId, kernelId, m.NodeId)
 
 		// Unsubscribe the pending HostResources.
-		err := m.releasePendingResources(allocatedResources, key)
+		err := m.releasePendingResources(allocatedResources, replicaId, kernelId)
 		if err != nil {
 			m.log.Error(
 				utils.RedStyle.Render(
-					"Failed to unsubscribe pending resources %s from replica %d of kernel %s because: %v"),
-				allocatedResources.String(), replicaId, kernelId, err)
+					"Failed to unsubscribe pending resources %s from replica %d of kernel %s on host %s because: %v"),
+				allocatedResources.String(), replicaId, kernelId, m.NodeId, err)
 			panic(err)
 		}
+	}
+
+	err := m.scheduledKernels.ReplicaRemoved(replicaId, kernelId)
+	if err != nil {
+		m.log.Error(
+			utils.RedStyle.Render(
+				"Failed to evict replica %d of kernel %s from host %s because: %v"),
+			replicaId, kernelId, m.NodeId, err)
+		panic(err)
 	}
 
 	m.log.Debug("Evicted replica %d of kernel %s, releasing the following pending HostResources: %v.",
@@ -1530,7 +1540,7 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 	return nil
 }
 
-func (m *AllocationManager) releasePendingResources(allocatedResources *types.DecimalSpec, key string) error {
+func (m *AllocationManager) releasePendingResources(allocatedResources *types.DecimalSpec, replicaId int32, kernelId string) error {
 	m.log.Debug("Deallocating pending resources. Current resources: %v. Resources to be deallocated: %v",
 		m.resourceManager.GetResourceCountsAsString(), allocatedResources.String())
 
@@ -1544,13 +1554,25 @@ func (m *AllocationManager) releasePendingResources(allocatedResources *types.De
 	m.numPendingAllocations.Add(-1)
 
 	// Delete the allocation, since the replica was evicted.
-	m.allocationKernelReplicaMap.Delete(key)
+	m.allocationKernelReplicaMap.Delete(getKey(replicaId, kernelId))
+
+	if m.updateSubscriptionRatio != nil {
+		m.updateSubscriptionRatio()
+	}
 
 	// Make sure everything is OK with respect to our internal state/bookkeeping.
 	err := m.unsafePerformConsistencyCheck()
 	if err != nil {
 		m.log.Error("Discovered an inconsistency: %v", err)
-		return err
+		panic(err)
+	}
+
+	if m.updateIndex != nil {
+		err = m.updateIndex(replicaId, kernelId)
+		if err != nil {
+			m.log.Error("Failed to update index for host %s", m.NodeId)
+			return err
+		}
 	}
 
 	// Update Prometheus metrics.
@@ -1589,6 +1611,28 @@ func (m *AllocationManager) allocatePendingResources(spec *types.DecimalSpec,
 
 	// Update the pending/committed allocation counters.
 	m.numPendingAllocations.Add(1)
+
+	if m.updateSubscriptionRatio != nil {
+		m.updateSubscriptionRatio()
+	}
+
+	if m.updateIndex != nil {
+		err := m.updateIndex(replicaId, kernelId)
+		if err != nil {
+			m.log.Error("Failed to update index for host %s", m.NodeId)
+			return err
+		}
+	}
+
+	// Make sure everything is OK with respect to our internal state/bookkeeping.
+	err := m.unsafePerformConsistencyCheck()
+	if err != nil {
+		m.log.Error("Discovered an inconsistency: %v", err)
+		panic(err)
+	}
+
+	// Update Prometheus metrics.
+	m.unsafeUpdatePrometheusResourceMetrics()
 
 	return nil
 }
@@ -1672,13 +1716,9 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 
 	allocation.SetGpuDeviceIds(gpuDeviceIds)
 
-	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isPreCommitment=%v): %v. GPUs reserved/allocated: %v.",
-		replicaId, kernelId, isPreCommitment, resourceRequest.String(), allocation.GetGpuDeviceIds())
-	m.log.Debug("Updated resource counts: %s.", m.resourceManager.GetResourceCountsAsString())
-
-	// Update Prometheus metrics.
-	// m.resourceMetricsCallback(m.Manager)
-	m.unsafeUpdatePrometheusResourceMetrics()
+	if m.updateSubscriptionRatio != nil {
+		m.updateSubscriptionRatio()
+	}
 
 	// Sanity Check. Make sure everything is OK with respect to our internal state/bookkeeping.
 	err = m.unsafePerformConsistencyCheck()
@@ -1686,6 +1726,22 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 		m.log.Error("Discovered an inconsistency: %v", err)
 		return err
 	}
+
+	if m.updateIndex != nil {
+		err := m.updateIndex(replicaId, kernelId)
+		if err != nil {
+			m.log.Error("Failed to update index for host %s", m.NodeId)
+			return err
+		}
+	}
+
+	// Update Prometheus metrics.
+	// m.resourceMetricsCallback(m.Manager)
+	m.unsafeUpdatePrometheusResourceMetrics()
+
+	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isPreCommitment=%v): %v. GPUs reserved/allocated: %v.",
+		replicaId, kernelId, isPreCommitment, resourceRequest.String(), allocation.GetGpuDeviceIds())
+	m.log.Debug("Updated resource counts: %s.", m.resourceManager.GetResourceCountsAsString())
 
 	return nil
 }
@@ -1740,19 +1796,31 @@ func (m *AllocationManager) releaseCommittedResources(allocation scheduling.Allo
 		m.log.Error(
 			utils.RedStyle.Render("Failed to release committed resources [%v] from replica %d of kernel %s: %v"),
 			spec.String(), allocation.GetReplicaId(), allocation.GetKernelId(), err)
-		return err
+		panic(err)
 	}
 
 	// Make sure everything is OK with respect to our internal state/bookkeeping.
 	err = m.unsafePerformConsistencyCheck()
 	if err != nil {
 		m.log.Error("Discovered an inconsistency: %v", err)
-		return err
+		panic(err)
 	}
 
 	m.numCommittedAllocations.Add(-1)
 	if incrementPending {
 		m.numPendingAllocations.Add(1)
+	}
+
+	if m.updateIndex != nil {
+		err := m.updateIndex(allocation.GetReplicaId(), allocation.GetKernelId())
+		if err != nil {
+			m.log.Error("Failed to update index for host %s", m.NodeId)
+			return err
+		}
+	}
+
+	if m.updateSubscriptionRatio != nil {
+		m.updateSubscriptionRatio()
 	}
 
 	// Update Prometheus metrics.

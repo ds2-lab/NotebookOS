@@ -124,6 +124,8 @@ type AllocationManager interface {
 	GetAllocation(replicaId int32, kernelId string) (Allocation, bool)
 	PromotePreCommitment(replicaId int32, kernelId string) error
 	AdjustPendingResources(replicaId int32, kernelId string, updatedSpec types.Spec) error
+	SetUpdateIndex(updateIndex func(replicaId int32, kernelId string) error)
+	SetUpdateSubscriptionRatio(updateSubscriptionRatio func() decimal.Decimal)
 
 	// ReleaseReservation is to be called when a resource reservation should be released because the
 	// scheduling of the associated replica of the associated kernel is being aborted.
