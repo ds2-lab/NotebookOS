@@ -596,9 +596,9 @@ func (m *AllocationManager) GetAllocation(replicaId int32, kernelId string) (sch
 // Instead, the resource allocation will indicate that they committed HostResources are being used by a kernel replica
 // that is actively running user-submitted code.
 //
-// If there is no resource reservation (i.e., committed allocation whose IsReservation flag is set to true) for the
+// If there is no resource reservation (i.e., committed allocation whose IsPreCommittedAllocation flag is set to true) for the
 // specified kernel replica, then an error is returned. Likewise, if there is no committed allocation to begin with,
-// then an error is returned (i.e., if there's no committed allocation whose IsReservation flag is either true or false).
+// then an error is returned (i.e., if there's no committed allocation whose IsPreCommittedAllocation flag is either true or false).
 func (m *AllocationManager) PromoteReservation(replicaId int32, kernelId string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -617,13 +617,13 @@ func (m *AllocationManager) PromoteReservation(replicaId int32, kernelId string)
 
 	if allocation.IsPending() {
 		m.log.Error("Found existing resource allocation for replica %d of kernel %s; "+
-			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsReservation=true.",
+			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsPreCommittedAllocation=true.",
 			replicaId, kernelId, allocation.GetAllocationType().String(), scheduling.CommittedAllocation.String())
 		return fmt.Errorf("%w: expected '%s', found '%s'",
 			ErrInvalidAllocationType, scheduling.CommittedAllocation.String(), allocation.GetAllocationType().String())
 	}
 
-	if !allocation.IsAReservation() {
+	if !allocation.IsPreCommitted() {
 		m.log.Error("Found existing '%s' resource allocation for replica %d of kernel %s; "+
 			"however, '%s' resource allocation is already not a reservation...",
 			scheduling.CommittedAllocation.String(), replicaId, kernelId, allocation.GetAllocationType().String())
@@ -631,7 +631,7 @@ func (m *AllocationManager) PromoteReservation(replicaId int32, kernelId string)
 			ErrInvalidAllocationType, scheduling.CommittedAllocation.String())
 	}
 
-	allocation.SetIsReservation(false)
+	allocation.SetIsPreCommitted(false)
 
 	// Make sure everything is still hunky-dory.
 	err := m.unsafePerformConsistencyCheck()
@@ -737,7 +737,7 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 //
 // This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
 // The sync.Mutex is released before the function returns.
-func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) ([]int, error) {
+func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, resourceRequestArg types.Spec, isPreCommitment bool) ([]int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -758,7 +758,7 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	// Sanity check, essentially. It should not already be committed.
 	if allocation.IsCommitted() {
 		m.log.Error("Found existing resource allocation for replica %d of kernel %s; "+
-			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsReservation=true.",
+			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsPreAllocation=true.",
 			replicaId, kernelId, allocation.GetAllocationType().String(), PendingResources.String())
 		return nil, fmt.Errorf("%w: expected '%s', found '%s'",
 			ErrInvalidAllocationType, PendingResources.String(), allocation.GetAllocationType().String())
@@ -774,8 +774,8 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 		m.log.Debug("Pending allocation for kernel %s-%d pre-commitment: %s", kernelId, replicaId, allocation.ToSpec())
 	}
 
-	m.log.Debug("Attempting to commit the following HostResources to replica %d of kernel %s (isReservation=%v): %v",
-		replicaId, kernelId, isReservation, requestedResources.String())
+	m.log.Debug("Attempting to commit the following HostResources to replica %d of kernel %s (isPreCommitment=%v): %v",
+		replicaId, kernelId, isPreCommitment, requestedResources.String())
 
 	// First, validate against this scheduling.Host's spec.
 	if err := m.resourceManager.specResources.ValidateWithError(requestedResources); err != nil {
@@ -823,7 +823,7 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	allocation.SetMemoryMb(requestedResources.MemoryMb)
 	allocation.SetVramGb(requestedResources.VRam)
 	allocation.SetAllocationType(scheduling.CommittedAllocation)
-	allocation.SetIsReservation(isReservation)
+	allocation.SetIsPreCommitted(isPreCommitment)
 
 	gpuDeviceIds := make([]int, 0, int(allocation.GetGpus()))
 	for len(gpuDeviceIds) < int(allocation.GetGpus()) {
@@ -843,8 +843,8 @@ func (m *AllocationManager) CommitResources(replicaId int32, kernelId string, re
 	m.numPendingAllocations.Add(-1)
 	m.numCommittedAllocations.Add(1)
 
-	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isReservation=%v): %v. GPUs reserved/allocated: %v.",
-		replicaId, kernelId, isReservation, requestedResources.String(), allocation.GetGpuDeviceIds())
+	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isPreCommitment=%v): %v. GPUs reserved/allocated: %v.",
+		replicaId, kernelId, isPreCommitment, requestedResources.String(), allocation.GetGpuDeviceIds())
 	m.log.Debug("Updated resource counts: %s.", m.resourceManager.GetResourceCountsAsString())
 
 	// Update Prometheus metrics.
@@ -894,7 +894,7 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 		// then we'll not have reserved any, and the call to ReleaseCommittedResources will "fail" (as there won't
 		// be any committed HostResources to release). In this case, it's not an error.
 		m.log.Debug("Found existing resource allocation for replica %d of kernel %s; "+
-			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsReservation=true.",
+			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsPreCommittedAllocation=true.",
 			replicaId, kernelId, allocation.GetAllocationType().String(), scheduling.CommittedAllocation.String())
 		return fmt.Errorf("%w: expected '%s', found '%s'",
 			ErrInvalidAllocationType, scheduling.CommittedAllocation.String(), allocation.GetAllocationType().String())

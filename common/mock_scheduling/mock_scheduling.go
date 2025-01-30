@@ -10018,9 +10018,9 @@ func (mr *MockAllocationMockRecorder) GetVramGb() *gomock.Call {
 }
 
 // IsAReservation mocks base method.
-func (m *MockAllocation) IsAReservation() bool {
+func (m *MockAllocation) IsPreCommitted() bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsAReservation")
+	ret := m.ctrl.Call(m, "IsPreCommitted")
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
@@ -10028,7 +10028,7 @@ func (m *MockAllocation) IsAReservation() bool {
 // IsAReservation indicates an expected call of IsAReservation.
 func (mr *MockAllocationMockRecorder) IsAReservation() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsAReservation", reflect.TypeOf((*MockAllocation)(nil).IsAReservation))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsPreCommitted", reflect.TypeOf((*MockAllocation)(nil).IsPreCommitted))
 }
 
 // IsCommitted mocks base method.
@@ -10110,15 +10110,15 @@ func (mr *MockAllocationMockRecorder) SetGpus(arg0 any) *gomock.Call {
 }
 
 // SetIsReservation mocks base method.
-func (m *MockAllocation) SetIsReservation(arg0 bool) {
+func (m *MockAllocation) SetIsPreCommitted(arg0 bool) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetIsReservation", arg0)
+	m.ctrl.Call(m, "SetIsPreCommitted", arg0)
 }
 
 // SetIsReservation indicates an expected call of SetIsReservation.
 func (mr *MockAllocationMockRecorder) SetIsReservation(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIsReservation", reflect.TypeOf((*MockAllocation)(nil).SetIsReservation), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIsPreCommitted", reflect.TypeOf((*MockAllocation)(nil).SetIsPreCommitted), arg0)
 }
 
 // SetMemoryMb mocks base method.

@@ -55,9 +55,33 @@ type Allocation interface {
 	GetGpuDeviceIds() []int
 	GetAllocationType() AllocationType
 	SetAllocationType(AllocationType)
-	SetIsReservation(bool)
 
-	// IsAReservation returns the Allocation's IsReservation value, which indicates whether the HostResources were
-	// commited in anticipation of a leader election, or if they are committed to a kernel that is actively training.
-	IsAReservation() bool
+	// IsPreCommitted returns the Allocation's IsPreCommittedAllocation value, which indicates whether the
+	// HostResources were commited in anticipation of a leader election, or if they are committed to a kernel that is
+	// actively training.
+	IsPreCommitted() bool
+
+	// SetIsPreCommitted is used to set the value of the Allocation's IsPreCommittedAllocation flag.
+	//
+	// The IsPreCommittedAllocation indicates whether the HostResources were commited in anticipation of a leader
+	// election, or if they are committed to a kernel that is actively training.
+	SetIsPreCommitted(bool)
+
+	// SetIsReservation is used to set the value of the Allocation's IsPreCommittedAllocation flag.
+	//
+	// The IsReservationAllocation indicates whether the HostResources were allocated (as either pending or committed,
+	// depending upon the configured scheduling policy) in anticipation of a scheduling.KernelContainer being placed
+	// onto the scheduling.Host. If true, then that means that the associated scheduling.KernelContainer has not yet
+	// started running on the scheduling.Host (or that the notification that the scheduling.KernelContainer has started
+	// running has not yet been received).
+	SetIsReservation(isReservation bool)
+
+	// IsReservation returns the value of the Allocation's IsReservationAllocation flag.
+	//
+	// The IsReservationAllocation indicates whether the HostResources were allocated (as either pending or committed,
+	// depending upon the configured scheduling policy) in anticipation of a scheduling.KernelContainer being placed
+	// onto the scheduling.Host. If true, then that means that the associated scheduling.KernelContainer has not yet
+	// started running on the scheduling.Host (or that the notification that the scheduling.KernelContainer has started
+	// running has not yet been received).
+	IsReservation() bool
 }

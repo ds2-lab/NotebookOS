@@ -57,18 +57,19 @@ type Allocation struct {
 	// associated kernel replica. These HostResources are not available for use by other kernel replicas.
 	AllocationType scheduling.AllocationType `json:"allocation_type"`
 
-	// IsReservation indicates whether the HostResources were commited in anticipation of a leader election,
+	// IsPreCommittedAllocation indicates whether the HostResources were commited in anticipation of a code execution occurring,
 	// or if they are committed to a kernel that is actively training.
-	IsReservation bool `json:"is_reservation"`
+	IsPreCommittedAllocation bool `json:"is_pre_committed"`
+
+	// IsReservationAllocation indicates whether the HostResources were allocated (as either pending or committed, depending
+	// upon the configured scheduling policy) in anticipation of a scheduling.KernelContainer being placed onto the
+	// scheduling.Host. If true, then that means that the associated scheduling.KernelContainer has not yet started
+	// running on the scheduling.Host (or that the notification that the scheduling.KernelContainer has started
+	// running has not yet been received).
+	IsReservationAllocation bool `json:"is_reservation"`
 
 	// cachedAllocationKey is the cached return value of getKey(Allocation.ReplicaId, Allocation.KernelId).
 	cachedAllocationKey string
-}
-
-// IsAReservation returns the Allocation's IsReservation value, which indicates whether the HostResources were
-// commited in anticipation of a leader election, or if they are committed to a kernel that is actively training.
-func (a *Allocation) IsAReservation() bool {
-	return a.IsReservation
 }
 
 func (a *Allocation) GetAllocationType() scheduling.AllocationType {
@@ -153,18 +154,18 @@ func (a *Allocation) CloneAndReturnedAdjusted(spec types.Spec) scheduling.Alloca
 	}
 
 	clonedResourceAllocation := &Allocation{
-		AllocationId:        a.AllocationId,
-		GPUs:                gpus,
-		VramGB:              vram,
-		Millicpus:           cpus,
-		MemoryMB:            mem,
-		ReplicaId:           a.ReplicaId,
-		KernelId:            a.KernelId,
-		Timestamp:           a.Timestamp,
-		AllocationType:      a.AllocationType,
-		IsReservation:       a.IsReservation,
-		cachedAllocationKey: a.cachedAllocationKey,
-		GpuDeviceIds:        clonedGpuDeviceIds,
+		AllocationId:             a.AllocationId,
+		GPUs:                     gpus,
+		VramGB:                   vram,
+		Millicpus:                cpus,
+		MemoryMB:                 mem,
+		ReplicaId:                a.ReplicaId,
+		KernelId:                 a.KernelId,
+		Timestamp:                a.Timestamp,
+		AllocationType:           a.AllocationType,
+		IsPreCommittedAllocation: a.IsPreCommittedAllocation,
+		cachedAllocationKey:      a.cachedAllocationKey,
+		GpuDeviceIds:             clonedGpuDeviceIds,
 	}
 
 	return clonedResourceAllocation
@@ -231,8 +232,38 @@ func (a *Allocation) SetAllocationType(typ scheduling.AllocationType) {
 	a.AllocationType = typ
 }
 
+// IsReservation returns the Allocation's IsReservationAllocation value, which indicates whether the HostResources were
+// allocated (as either pending or committed, depending upon the configured scheduling policy) in anticipation of a
+// scheduling.KernelContainer being placed onto the scheduling.Host. If true, then that means that the associated
+// scheduling.KernelContainer has not yet started running on the scheduling.Host (or that the notification that the
+// scheduling.KernelContainer has started running has not yet been received).
+func (a *Allocation) IsReservation() bool {
+	return a.IsReservation()
+}
+
+// SetIsReservation is used to set the value of the Allocation's IsPreCommittedAllocation flag.
+//
+// The IsReservationAllocation indicates whether the HostResources were allocated (as either pending or committed,
+// depending upon the configured scheduling policy) in anticipation of a scheduling.KernelContainer being placed onto
+// the scheduling.Host. If true, then that means that the associated scheduling.KernelContainer has not yet started
+// running on the scheduling.Host (or that the notification that the scheduling.KernelContainer has started running
+// has not yet been received).
 func (a *Allocation) SetIsReservation(isReservation bool) {
-	a.IsReservation = isReservation
+	a.IsReservationAllocation = isReservation
+}
+
+// IsPreCommitted returns the Allocation's IsPreCommittedAllocation value, which indicates whether the HostResources were
+// commited in anticipation of a leader election, or if they are committed to a kernel that is actively training.
+func (a *Allocation) IsPreCommitted() bool {
+	return a.IsPreCommittedAllocation
+}
+
+// SetIsPreCommitted is used to set the value of the Allocation's IsPreCommittedAllocation flag.
+//
+// The IsPreCommittedAllocation indicates whether the HostResources were commited in anticipation of a leader election,
+// or if they are committed to a kernel that is actively training.
+func (a *Allocation) SetIsPreCommitted(isPreCommittedAllocation bool) {
+	a.IsPreCommittedAllocation = isPreCommittedAllocation
 }
 
 func (a *Allocation) SetGpus(gpus decimal.Decimal) {
