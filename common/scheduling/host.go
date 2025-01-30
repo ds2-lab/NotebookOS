@@ -212,6 +212,12 @@ type Host interface {
 
 	// GetResourceCountsAsString returns the current resource counts of the Host as a string and is useful for printing.
 	GetResourceCountsAsString() string
+}
+
+// UnitTestingHost is a wrapper around Host that exposes some additional methods that allow for the direct
+// manipulation of the Host's resources. This is useful for unit testing and not much else.
+type UnitTestingHost interface {
+	Host
 
 	// AddToPendingResources is only meant to be used during unit tests.
 	AddToPendingResources(spec *types.DecimalSpec) error

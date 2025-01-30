@@ -1933,48 +1933,6 @@ func (mr *MockHostMockRecorder) AddReplica(ctx, in any, opts ...any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddReplica", reflect.TypeOf((*MockHost)(nil).AddReplica), varargs...)
 }
 
-// AddToCommittedResources mocks base method.
-func (m *MockHost) AddToCommittedResources(spec *types.DecimalSpec) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddToCommittedResources", spec)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// AddToCommittedResources indicates an expected call of AddToCommittedResources.
-func (mr *MockHostMockRecorder) AddToCommittedResources(spec any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddToCommittedResources", reflect.TypeOf((*MockHost)(nil).AddToCommittedResources), spec)
-}
-
-// AddToIdleResources mocks base method.
-func (m *MockHost) AddToIdleResources(spec *types.DecimalSpec) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddToIdleResources", spec)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// AddToIdleResources indicates an expected call of AddToIdleResources.
-func (mr *MockHostMockRecorder) AddToIdleResources(spec any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddToIdleResources", reflect.TypeOf((*MockHost)(nil).AddToIdleResources), spec)
-}
-
-// AddToPendingResources mocks base method.
-func (m *MockHost) AddToPendingResources(spec *types.DecimalSpec) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddToPendingResources", spec)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// AddToPendingResources indicates an expected call of AddToPendingResources.
-func (mr *MockHostMockRecorder) AddToPendingResources(spec any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddToPendingResources", reflect.TypeOf((*MockHost)(nil).AddToPendingResources), spec)
-}
-
 // AllocationManager mocks base method.
 func (m *MockHost) AllocationManager() scheduling.AllocationManager {
 	m.ctrl.T.Helper()
@@ -3535,34 +3493,6 @@ func (m *MockHost) SubscribedRatioAsDecimal() decimal.Decimal {
 func (mr *MockHostMockRecorder) SubscribedRatioAsDecimal() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribedRatioAsDecimal", reflect.TypeOf((*MockHost)(nil).SubscribedRatioAsDecimal))
-}
-
-// SubtractFromCommittedResources mocks base method.
-func (m *MockHost) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SubtractFromCommittedResources", spec)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SubtractFromCommittedResources indicates an expected call of SubtractFromCommittedResources.
-func (mr *MockHostMockRecorder) SubtractFromCommittedResources(spec any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubtractFromCommittedResources", reflect.TypeOf((*MockHost)(nil).SubtractFromCommittedResources), spec)
-}
-
-// SubtractFromIdleResources mocks base method.
-func (m *MockHost) SubtractFromIdleResources(spec *types.DecimalSpec) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SubtractFromIdleResources", spec)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SubtractFromIdleResources indicates an expected call of SubtractFromIdleResources.
-func (mr *MockHostMockRecorder) SubtractFromIdleResources(spec any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubtractFromIdleResources", reflect.TypeOf((*MockHost)(nil).SubtractFromIdleResources), spec)
 }
 
 // SynchronizeResourceInformation mocks base method.
@@ -8585,6 +8515,49 @@ func (mr *MockAllocationManagerMockRecorder) AssertAllocationIsPending(allocatio
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssertAllocationIsPending", reflect.TypeOf((*MockAllocationManager)(nil).AssertAllocationIsPending), allocation)
 }
 
+// CanCommitResources mocks base method.
+func (m *MockAllocationManager) CanCommitResources(resourceRequest types.Spec) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CanCommitResources", resourceRequest)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// CanCommitResources indicates an expected call of CanCommitResources.
+func (mr *MockAllocationManagerMockRecorder) CanCommitResources(resourceRequest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CanCommitResources", reflect.TypeOf((*MockAllocationManager)(nil).CanCommitResources), resourceRequest)
+}
+
+// CanServeContainer mocks base method.
+func (m *MockAllocationManager) CanServeContainer(resourceRequest types.Spec) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CanServeContainer", resourceRequest)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// CanServeContainer indicates an expected call of CanServeContainer.
+func (mr *MockAllocationManagerMockRecorder) CanServeContainer(resourceRequest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CanServeContainer", reflect.TypeOf((*MockAllocationManager)(nil).CanServeContainer), resourceRequest)
+}
+
+// CanServeContainerWithError mocks base method.
+func (m *MockAllocationManager) CanServeContainerWithError(resourceRequest types.Spec) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CanServeContainerWithError", resourceRequest)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CanServeContainerWithError indicates an expected call of CanServeContainerWithError.
+func (mr *MockAllocationManagerMockRecorder) CanServeContainerWithError(resourceRequest any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CanServeContainerWithError", reflect.TypeOf((*MockAllocationManager)(nil).CanServeContainerWithError), resourceRequest)
+}
+
 // CommitResources mocks base method.
 func (m *MockAllocationManager) CommitResources(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) ([]int, error) {
 	m.ctrl.T.Helper()
@@ -8668,6 +8641,20 @@ func (m *MockAllocationManager) CommittedVRamGB() decimal.Decimal {
 func (mr *MockAllocationManagerMockRecorder) CommittedVRamGB() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CommittedVRamGB", reflect.TypeOf((*MockAllocationManager)(nil).CommittedVRamGB))
+}
+
+// CurrentResourcesToString mocks base method.
+func (m *MockAllocationManager) CurrentResourcesToString() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CurrentResourcesToString")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// CurrentResourcesToString indicates an expected call of CurrentResourcesToString.
+func (mr *MockAllocationManagerMockRecorder) CurrentResourcesToString() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CurrentResourcesToString", reflect.TypeOf((*MockAllocationManager)(nil).CurrentResourcesToString))
 }
 
 // DebugSetIdleGPUs mocks base method.

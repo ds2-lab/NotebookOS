@@ -296,7 +296,7 @@ func (m *Manager) String() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return fmt.Sprintf("Manager{%s, %s, %s, %s}",
+	return fmt.Sprintf("Resources{%s, %s, %s, %s}",
 		m.idleResources.String(), m.pendingResources.String(), m.committedResources.String(), m.specResources.String())
 }
 

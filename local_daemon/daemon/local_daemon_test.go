@@ -175,7 +175,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			kernels:                            hashmap.NewCornelkMap[string, scheduling.KernelReplica](1000),
 			closed:                             make(chan struct{}),
 			cleaned:                            make(chan struct{}),
-			resourceManager:                    resourceManager,
+			allocationManager:                  resourceManager,
 			virtualGpuPluginServer:             vgpuPluginServer,
 			schedulingPolicy:                   schedulingPolicy,
 			outgoingExecuteRequestQueue:        hashmap.NewCornelkMap[string, chan *enqueuedExecOrYieldRequest](128),

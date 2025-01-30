@@ -218,8 +218,7 @@ func newHostForRestoration(localGatewayClient proto.LocalGatewayClient, confirme
 //
 // If NewHost is called directly, then the conn field of the Host will not be populated. To populate this field,
 // call NewHostWithConn instead.
-func NewHost(id string, addr string, defaultMillicpus int32, defaultMemoryMb int32, defaultVramGb float64,
-	numReplicasPerKernel int, querier SubscriptionQuerier, indexUpdater IndexUpdater,
+func NewHost(id string, addr string, numReplicasPerKernel int, querier SubscriptionQuerier, indexUpdater IndexUpdater,
 	metricsProvider scheduling.MetricsProvider, localGatewayClient proto.LocalGatewayClient,
 	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
@@ -283,7 +282,6 @@ func NewHost(id string, addr string, defaultMillicpus int32, defaultMemoryMb int
 		containersWithPreCommittedResources: make(map[string]*containerWithPreCommittedResources),
 		indexUpdater:                        indexUpdater,
 		ProperlyInitialized:                 true,
-		resourceManager:                     resource.NewManager(resourceSpec),
 		allocationManager:                   resource.NewAllocationManager(resourceSpec),
 		subscribedRatio:                     decimal.Zero,
 	}
@@ -300,16 +298,14 @@ func NewHost(id string, addr string, defaultMillicpus int32, defaultMemoryMb int
 }
 
 // NewHostWithConn creates and returns a new *Host.
-func NewHostWithConn(id string, addr string, defaultMillicpus int32, defaultMemoryMb int32, defaultVramGb float64,
-	numReplicasPerKernel int, querier SubscriptionQuerier, indexUpdater IndexUpdater,
-	metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn, schedulingPolicy scheduling.Policy,
-	errorCallback scheduling.ErrorCallback) (*Host, error) {
+func NewHostWithConn(id string, addr string, numReplicasPerKernel int, querier SubscriptionQuerier,
+	indexUpdater IndexUpdater, metricsProvider scheduling.MetricsProvider, conn *grpc.ClientConn,
+	schedulingPolicy scheduling.Policy, errorCallback scheduling.ErrorCallback) (*Host, error) {
 
 	// Create gRPC client.
 	localGatewayClient := proto.NewLocalGatewayClient(conn)
 
-	host, err := NewHost(id, addr, defaultMillicpus, defaultMemoryMb, defaultVramGb, numReplicasPerKernel, querier,
-		indexUpdater, metricsProvider, localGatewayClient, schedulingPolicy, errorCallback)
+	host, err := NewHost(id, addr, numReplicasPerKernel, querier, indexUpdater, metricsProvider, localGatewayClient, schedulingPolicy, errorCallback)
 	if err != nil {
 		// We need to return host here, in case the error is ErrRestoreRequired, as a host IS returned in that case.
 		// It's a host with only some fields filled-in so that it can be used to restore the existing host.
@@ -573,8 +569,8 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		return true
 	})
 
-	committed := h.resourceManager.CommittedResources()
-	pending := h.resourceManager.PendingResources()
+	committed := h.allocationManager.CommittedResources()
+	pending := h.allocationManager.PendingResources()
 
 	return &proto.VirtualDockerNode{
 		NodeId:          h.ID,
@@ -586,13 +582,13 @@ func (h *Host) ToVirtualDockerNode() *proto.VirtualDockerNode {
 		SpecMemory:      float32(h.resourceSpec.MemoryMB()),
 		SpecGpu:         float32(h.resourceSpec.GPU()),
 		SpecVRAM:        float32(h.resourceSpec.VRAM()),
-		AllocatedCpu:    float32(committed.Millicpus()),
+		AllocatedCpu:    float32(committed.CPU()),
 		AllocatedMemory: float32(committed.MemoryMB()),
-		AllocatedGpu:    float32(committed.GPUs()),
+		AllocatedGpu:    float32(committed.GPU()),
 		AllocatedVRAM:   float32(committed.VRAM()),
-		PendingCpu:      float32(pending.Millicpus()),
+		PendingCpu:      float32(pending.CPU()),
 		PendingMemory:   float32(pending.MemoryMB()),
-		PendingGpu:      float32(pending.GPUs()),
+		PendingGpu:      float32(pending.GPU()),
 		PendingVRAM:     float32(pending.VRAM()),
 		Enabled:         h.Enabled(),
 	}
@@ -782,12 +778,7 @@ func (h *Host) WillBecomeTooOversubscribed(resourceRequest types.Spec) bool {
 // This method only checks against the Host's "spec" (i.e., the total HostResources available on the Host,
 // not taking into account current resource allocations).
 func (h *Host) CanServeContainerWithError(resourceRequest types.Spec) (bool, error) {
-	err := h.resourceManager.SpecResources().ValidateWithError(resourceRequest)
-	if err != nil {
-		return false, err
-	}
-
-	return true, nil
+	return h.allocationManager.CanServeContainerWithError(resourceRequest)
 }
 
 // CanServeContainer returns a boolean indicating whether this Host could serve a kernel replica with the given
@@ -796,7 +787,7 @@ func (h *Host) CanServeContainerWithError(resourceRequest types.Spec) (bool, err
 //
 // CanServeContainer returns true when the Host could serve the hypothetical kernel and false when the Host could not.
 func (h *Host) CanServeContainer(resourceRequest types.Spec) bool {
-	return h.resourceManager.SpecResources().Validate(resourceRequest)
+	return h.allocationManager.CanServeContainer(resourceRequest)
 }
 
 // CanCommitResources returns a boolean indicating whether this Host could commit the specified resource request
@@ -806,7 +797,7 @@ func (h *Host) CanServeContainer(resourceRequest types.Spec) bool {
 // CanCommitResources returns true if the Host could commit/reserve the given HostResources right now.
 // Otherwise, CanCommitResources returns false.
 func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
-	return h.resourceManager.IdleResources().Validate(types.ToDecimalSpec(resourceRequest))
+	return h.allocationManager.CanCommitResources(resourceRequest)
 }
 
 func (h *Host) releaseCommittedReservation(spec *proto.KernelSpec, reservation *Reservation) error {
@@ -1456,7 +1447,7 @@ func (h *Host) PreCommitResources(container scheduling.KernelContainer, executio
 
 // GetResourceCountsAsString returns the current resource counts of the Host as a string and is useful for printing.
 func (h *Host) GetResourceCountsAsString() string {
-	return h.resourceManager.GetResourceCountsAsString()
+	return h.allocationManager.GetResourceCountsAsString()
 }
 
 // ReleasePreCommitedResources releases resources that were pre-committed to the given KernelContainer.
@@ -1813,12 +1804,10 @@ func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec 
 }
 
 func (h *Host) getRB(sessRB float64, required float64) float64 {
-	//idleGPUs := h.idleGPUs.Load()
-	idleGPUs := h.resourceManager.IdleResources().GPUs()
+	idleGPUs := h.allocationManager.IdleResources().GPU()
 	extras := 0.0
 	if idleGPUs > required {
-		//extras = idleGPUs / h.pendingGPUs.Load()
-		extras = idleGPUs / h.resourceManager.PendingResources().GPUs()
+		extras = idleGPUs / h.allocationManager.PendingResources().GPU()
 	}
 	rb := sessRB * (extras + 1) / float64(h.pendingContainers.Load())
 	h.log.Debug("Calculated RB: %.4f\n", h.ID, rb)
@@ -1974,48 +1963,48 @@ func (h *Host) Priority(session scheduling.UserSession) float64 {
 
 // IdleGPUs returns the number of GPUs that the host has not allocated to any Containers.
 func (h *Host) IdleGPUs() float64 {
-	return h.resourceManager.IdleResources().GPUs()
+	return h.allocationManager.IdleResources().GPU()
 }
 
 // PendingGPUs returns the number of GPUs that are oversubscribed by Containers scheduled on the Host.
 func (h *Host) PendingGPUs() float64 {
-	return h.resourceManager.PendingResources().GPUs()
+	return h.allocationManager.PendingResources().GPU()
 }
 
 // CommittedGPUs returns the number of GPUs that are actively bound to Containers scheduled on the Host.
 func (h *Host) CommittedGPUs() float64 {
-	return h.resourceManager.CommittedResources().GPUs()
+	return h.allocationManager.CommittedResources().GPU()
 }
 
 func (h *Host) IdleCPUs() float64 {
-	return h.resourceManager.IdleResources().Millicpus()
+	return h.allocationManager.IdleResources().CPU()
 }
 
 func (h *Host) PendingCPUs() float64 {
-	return h.resourceManager.PendingResources().Millicpus()
+	return h.allocationManager.PendingResources().CPU()
 }
 
 func (h *Host) CommittedCPUs() float64 {
-	return h.resourceManager.CommittedResources().Millicpus()
+	return h.allocationManager.CommittedResources().CPU()
 }
 
 func (h *Host) IdleMemoryMb() float64 {
-	return h.resourceManager.IdleResources().MemoryMB()
+	return h.allocationManager.IdleResources().MemoryMB()
 }
 
 func (h *Host) PendingMemoryMb() float64 {
-	return h.resourceManager.PendingResources().MemoryMB()
+	return h.allocationManager.PendingResources().MemoryMB()
 }
 
 func (h *Host) CommittedMemoryMb() float64 {
-	return h.resourceManager.CommittedResources().MemoryMB()
+	return h.allocationManager.CommittedResources().MemoryMB()
 }
 
-func (h *Host) IdleVRAM() float64 { return h.resourceManager.IdleResources().VRAM() }
+func (h *Host) IdleVRAM() float64 { return h.allocationManager.IdleResources().VRAM() }
 
-func (h *Host) PendingVRAM() float64 { return h.resourceManager.PendingResources().VRAM() }
+func (h *Host) PendingVRAM() float64 { return h.allocationManager.PendingResources().VRAM() }
 
-func (h *Host) CommittedVRAM() float64 { return h.resourceManager.CommittedResources().VRAM() }
+func (h *Host) CommittedVRAM() float64 { return h.allocationManager.CommittedResources().VRAM() }
 
 // ResourceSpec the types.Spec defining the HostResources available on the Host.
 func (h *Host) ResourceSpec() types.ValidatableResourceSpec {
@@ -2025,22 +2014,22 @@ func (h *Host) ResourceSpec() types.ValidatableResourceSpec {
 // CurrentResourcesToString calls the String method on the Manager of the Host and returns the value
 // generated by that String method.
 func (h *Host) CurrentResourcesToString() string {
-	return h.resourceManager.String()
+	return h.allocationManager.CurrentResourcesToString()
 }
 
 // IdleResources returns a types.Spec encapsulating the IdleResources on the Host.
 func (h *Host) IdleResources() *types.DecimalSpec {
-	return h.resourceManager.IdleResources().ToDecimalSpec()
+	return h.allocationManager.IdleResources()
 }
 
 // PendingResources returns a types.Spec encapsulating the PendingResources on the Host.
 func (h *Host) PendingResources() *types.DecimalSpec {
-	return h.resourceManager.PendingResources().ToDecimalSpec()
+	return h.allocationManager.PendingResources()
 }
 
 // CommittedResources returns a types.Spec encapsulating the idle HostResources on the Host.
 func (h *Host) CommittedResources() *types.DecimalSpec {
-	return h.resourceManager.CommittedResources().ToDecimalSpec()
+	return h.allocationManager.CommittedResources()
 }
 
 func (h *Host) ScaleInPriority() float64 {
@@ -2050,17 +2039,17 @@ func (h *Host) ScaleInPriority() float64 {
 // AddToPendingResources is only meant to be used during unit tests.
 func (h *Host) AddToPendingResources(spec *types.DecimalSpec) error {
 	h.log.Debug("Incrementing pending resources by [%v]. Current pending: %s.",
-		spec.String(), h.resourceManager.PendingResources().String())
+		spec.String(), h.allocationManager.PendingResources().String())
 	err := h.resourceManager.PendingResources().Add(spec)
 
 	if err != nil {
 		h.log.Debug("Failed to increment pending resources by [%v]. Current pending: %s.",
-			spec.String(), h.resourceManager.PendingResources().String())
+			spec.String(), h.allocationManager.PendingResources().String())
 		return err
 	}
 
 	h.log.Debug("Successfully incremented pending resources by [%v]. Current pending: %s.",
-		spec.String(), h.resourceManager.PendingResources().String())
+		spec.String(), h.allocationManager.PendingResources().String())
 
 	h.RecomputeSubscribedRatio()
 	return nil
@@ -2070,7 +2059,7 @@ func (h *Host) AddToPendingResources(spec *types.DecimalSpec) error {
 // resource quantity. subtractFromPendingResources prints before and after so we don't have to do that anywhere else.
 func (h *Host) subtractFromPendingResources(spec *types.DecimalSpec, kernelId string, containerId int32) error {
 	h.log.Debug(utils.DecrementPendingStyle.Render("Decrementing pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s."),
-		spec.String(), containerId, kernelId, h.resourceManager.PendingResources().String())
+		spec.String(), containerId, kernelId, h.allocationManager.PendingResources().String())
 
 	err := h.resourceManager.PendingResources().Subtract(spec)
 
@@ -2081,7 +2070,7 @@ func (h *Host) subtractFromPendingResources(spec *types.DecimalSpec, kernelId st
 	}
 
 	h.log.Debug(utils.DecrementPendingStyle.Render("Successfully decremented pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s."),
-		spec.String(), containerId, kernelId, h.resourceManager.PendingResources().String())
+		spec.String(), containerId, kernelId, h.allocationManager.PendingResources().String())
 	return nil
 }
 
@@ -2089,7 +2078,7 @@ func (h *Host) subtractFromPendingResources(spec *types.DecimalSpec, kernelId st
 // It prints before and after so we don't have to do that anywhere else.
 func (h *Host) addPendingResources(spec *types.DecimalSpec, kernelId string, containerId int32) error {
 	h.log.Debug(utils.IncrementPendingStyle.Render("Incrementing pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s."),
-		spec.String(), containerId, kernelId, h.resourceManager.PendingResources().String())
+		spec.String(), containerId, kernelId, h.allocationManager.PendingResources().String())
 
 	err := h.resourceManager.PendingResources().Add(spec)
 
@@ -2100,7 +2089,7 @@ func (h *Host) addPendingResources(spec *types.DecimalSpec, kernelId string, con
 	}
 
 	h.log.Debug(utils.IncrementPendingStyle.Render("Successfully incremented pending resources by [%v] for replica %d of kernel \"%s\". Current pending: %s."),
-		spec.String(), containerId, kernelId, h.resourceManager.PendingResources().String())
+		spec.String(), containerId, kernelId, h.allocationManager.PendingResources().String())
 	return nil
 }
 
@@ -2109,35 +2098,49 @@ func (h *Host) GetCreatedAt() time.Time {
 	return h.CreatedAt
 }
 
+// UnitTestingHost is a wrapper around Host that exposes some additional methods that allow for the direct
+// manipulation of the Host's resources. This is useful for unit testing and not much else.
+type UnitTestingHost struct {
+	*Host
+}
+
+// NewUnitTestingHost creates a new UnitTestingHost struct wrapping the given Host and returns a pointer to the
+// new UnitTestingHost struct.
+func NewUnitTestingHost(host *Host) *UnitTestingHost {
+	return &UnitTestingHost{
+		Host: host,
+	}
+}
+
 // AddToCommittedResources is only intended to be used during unit tests.
-func (h *Host) AddToCommittedResources(spec *types.DecimalSpec) error {
+func (h *UnitTestingHost) AddToCommittedResources(spec *types.DecimalSpec) error {
 	err := h.resourceManager.CommittedResources().Add(spec)
 	h.RecomputeSubscribedRatio()
 	return err
 }
 
 // SubtractFromIdleResources is only intended to be used during unit tests.
-func (h *Host) SubtractFromIdleResources(spec *types.DecimalSpec) error {
+func (h *UnitTestingHost) SubtractFromIdleResources(spec *types.DecimalSpec) error {
 	err := h.resourceManager.IdleResources().Subtract(spec)
 	h.RecomputeSubscribedRatio()
 	return err
 }
 
 // AddToIdleResources is only intended to be used during unit tests.
-func (h *Host) AddToIdleResources(spec *types.DecimalSpec) error {
+func (h *UnitTestingHost) AddToIdleResources(spec *types.DecimalSpec) error {
 	err := h.resourceManager.IdleResources().Add(spec)
 	h.RecomputeSubscribedRatio()
 	return err
 }
 
 // SubtractFromCommittedResources is only intended to be used during unit tests.
-func (h *Host) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
+func (h *UnitTestingHost) SubtractFromCommittedResources(spec *types.DecimalSpec) error {
 	err := h.resourceManager.CommittedResources().Subtract(spec)
 	h.RecomputeSubscribedRatio()
 	return err
 }
 
-func (h *Host) SubtractFromPendingResources(spec *types.DecimalSpec) error {
+func (h *UnitTestingHost) SubtractFromPendingResources(spec *types.DecimalSpec) error {
 	err := h.resourceManager.PendingResources().Subtract(spec)
 	h.RecomputeSubscribedRatio()
 	return err

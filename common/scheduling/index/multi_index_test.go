@@ -70,10 +70,7 @@ var _ = Describe("MultiIndex Tests", func() {
 			LocalDaemonID:         hostId,
 		}, nil)
 
-		host, err := entity.NewHost(hostId, "0.0.0.0", scheduling.DefaultMillicpusPerHost,
-			scheduling.DefaultMemoryMbPerHost, scheduling.DefaultVramPerHostGb, 3, mockCluster, mockCluster,
-			nil, localGatewayClient, mockPolicy,
-			func(_ string, _ string, _ string, _ string) error { return nil })
+		host, err := entity.NewHost(hostId, "0.0.0.0", 3, mockCluster, mockCluster, nil, localGatewayClient, mockPolicy, func(_ string, _ string, _ string, _ string) error { return nil })
 
 		Expect(host).ToNot(BeNil())
 		Expect(err).To(BeNil())
