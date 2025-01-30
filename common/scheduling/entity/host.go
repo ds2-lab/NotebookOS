@@ -235,7 +235,7 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 		SubscriptionQuerier:         querier,
 		indexUpdater:                indexUpdater,
 		ProperlyInitialized:         true,
-		allocationManager:           resource.NewAllocationManager(resourceSpec),
+		allocationManager:           resource.NewAllocationManager(resourceSpec, schedulingPolicy),
 		subscribedRatio:             decimal.Zero,
 		//reservations:                        hashmap.NewCornelkMap[string, *Reservation](5),
 		//kernelsWithCommittedResources:       make(map[string]*containerWithCommittedResources),

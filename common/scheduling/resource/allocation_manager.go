@@ -109,6 +109,9 @@ type AllocationManager struct {
 	// scheduling.KernelReplica is placed onto the scheduling.Host and begins running.
 	numReservations atomic.Int32
 
+	// schedulingPolicy is the configured scheduling.Policy in use by the cluster.
+	schedulingPolicy scheduling.Policy
+
 	// availableGpuDevices is a queue.Fifo containing GPU device IDs.
 	availableGpuDevices *queue.Fifo[int]
 
@@ -116,18 +119,18 @@ type AllocationManager struct {
 }
 
 // NewAllocationManager creates a new AllocationManager struct and returns a pointer to it.
-func NewAllocationManager(resourceSpec types.Spec) *AllocationManager {
+func NewAllocationManager(resourceSpec types.Spec, schedulingPolicy scheduling.Policy) *AllocationManager {
 	manager := &AllocationManager{
 		Id:                         uuid.NewString(),
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, scheduling.Allocation](128),
 		availableGpuDevices:        queue.NewFifo[int](int(resourceSpec.GPU())),
+		schedulingPolicy:           schedulingPolicy,
+		resourceManager:            NewManager(resourceSpec),
 	}
 
 	for i := 0; i < int(resourceSpec.GPU()); i++ {
 		manager.availableGpuDevices.Enqueue(i)
 	}
-
-	manager.resourceManager = NewManager(resourceSpec)
 
 	// Initialize all of these counters to 0.
 	manager.numPendingAllocations.Store(0)
@@ -930,6 +933,10 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 	}
 
 	return nil
+}
+
+func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string) error {
+
 }
 
 // KernelReplicaScheduled is to be called whenever a kernel replica is scheduled onto this scheduling.Host.

@@ -361,6 +361,13 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		daemon.numResendAttempts = DefaultNumResendAttempts
 	}
 
+	schedulingPolicy, err := scheduler.GetSchedulingPolicy(&localDaemonOptions.SchedulerOptions)
+	if err != nil {
+		panic(err)
+	}
+	daemon.schedulingPolicy = schedulingPolicy
+	daemon.log.Debug("Scheduling policy: %s", schedulingPolicy.Name())
+
 	gpusPerHost := localDaemonOptions.GpusPerHost
 	if gpusPerHost <= 0 {
 		daemon.log.Error("Invalid number of simulated GPUs specified: %d. Value must be >= 1 (even if there are no real GPUs available).",
@@ -369,11 +376,13 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 			gpusPerHost))
 	}
 
-	daemon.allocationManager = resource.NewAllocationManager(&types.Float64Spec{
+	hostSpec := &types.Float64Spec{
 		GPUs:      float64(gpusPerHost),
 		VRam:      scheduling.DefaultVramPerHostGb,
 		Millicpus: scheduling.DefaultMillicpusPerHost,
-		Memory:    scheduling.DefaultMemoryMbPerHost})
+		Memory:    scheduling.DefaultMemoryMbPerHost,
+	}
+	daemon.allocationManager = resource.NewAllocationManager(hostSpec, daemon.schedulingPolicy)
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)
@@ -397,13 +406,6 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 	if len(localDaemonOptions.RemoteStorageEndpoint) == 0 {
 		panic("remote storage endpoint is empty.")
 	}
-
-	schedulingPolicy, err := scheduler.GetSchedulingPolicy(&localDaemonOptions.SchedulerOptions)
-	if err != nil {
-		panic(err)
-	}
-	daemon.schedulingPolicy = schedulingPolicy
-	daemon.log.Debug("Scheduling policy: %s", schedulingPolicy.Name())
 
 	switch localDaemonOptions.DeploymentMode {
 	case "":

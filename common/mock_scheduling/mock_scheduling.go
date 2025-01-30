@@ -2797,20 +2797,6 @@ func (mr *MockHostMockRecorder) LastReschedule() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LastReschedule", reflect.TypeOf((*MockHost)(nil).LastReschedule))
 }
 
-// LastResourcesSnapshot mocks base method.
-func (m *MockHost) LastResourcesSnapshot() types.HostResourceSnapshot[types.ArbitraryResourceSnapshot] {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LastResourcesSnapshot")
-	ret0, _ := ret[0].(types.HostResourceSnapshot[types.ArbitraryResourceSnapshot])
-	return ret0
-}
-
-// LastResourcesSnapshot indicates an expected call of LastResourcesSnapshot.
-func (mr *MockHostMockRecorder) LastResourcesSnapshot() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LastResourcesSnapshot", reflect.TypeOf((*MockHost)(nil).LastResourcesSnapshot))
-}
-
 // NumActiveSchedulingOperations mocks base method.
 func (m *MockHost) NumActiveSchedulingOperations() int32 {
 	m.ctrl.T.Helper()
@@ -3479,20 +3465,6 @@ func (m *MockHost) SubscribedRatioAsDecimal() decimal.Decimal {
 func (mr *MockHostMockRecorder) SubscribedRatioAsDecimal() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubscribedRatioAsDecimal", reflect.TypeOf((*MockHost)(nil).SubscribedRatioAsDecimal))
-}
-
-// SynchronizeResourceInformation mocks base method.
-func (m *MockHost) SynchronizeResourceInformation() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SynchronizeResourceInformation")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SynchronizeResourceInformation indicates an expected call of SynchronizeResourceInformation.
-func (mr *MockHostMockRecorder) SynchronizeResourceInformation() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SynchronizeResourceInformation", reflect.TypeOf((*MockHost)(nil).SynchronizeResourceInformation))
 }
 
 // TimeSinceLastSynchronizationWithRemote mocks base method.
@@ -4561,20 +4533,6 @@ func (mr *MockUnitTestingHostMockRecorder) LastReschedule() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LastReschedule", reflect.TypeOf((*MockUnitTestingHost)(nil).LastReschedule))
 }
 
-// LastResourcesSnapshot mocks base method.
-func (m *MockUnitTestingHost) LastResourcesSnapshot() types.HostResourceSnapshot[types.ArbitraryResourceSnapshot] {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "LastResourcesSnapshot")
-	ret0, _ := ret[0].(types.HostResourceSnapshot[types.ArbitraryResourceSnapshot])
-	return ret0
-}
-
-// LastResourcesSnapshot indicates an expected call of LastResourcesSnapshot.
-func (mr *MockUnitTestingHostMockRecorder) LastResourcesSnapshot() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LastResourcesSnapshot", reflect.TypeOf((*MockUnitTestingHost)(nil).LastResourcesSnapshot))
-}
-
 // NumActiveSchedulingOperations mocks base method.
 func (m *MockUnitTestingHost) NumActiveSchedulingOperations() int32 {
 	m.ctrl.T.Helper()
@@ -5271,20 +5229,6 @@ func (m *MockUnitTestingHost) SubtractFromIdleResources(spec *types.DecimalSpec)
 func (mr *MockUnitTestingHostMockRecorder) SubtractFromIdleResources(spec any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SubtractFromIdleResources", reflect.TypeOf((*MockUnitTestingHost)(nil).SubtractFromIdleResources), spec)
-}
-
-// SynchronizeResourceInformation mocks base method.
-func (m *MockUnitTestingHost) SynchronizeResourceInformation() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SynchronizeResourceInformation")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// SynchronizeResourceInformation indicates an expected call of SynchronizeResourceInformation.
-func (mr *MockUnitTestingHostMockRecorder) SynchronizeResourceInformation() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SynchronizeResourceInformation", reflect.TypeOf((*MockUnitTestingHost)(nil).SynchronizeResourceInformation))
 }
 
 // TimeSinceLastSynchronizationWithRemote mocks base method.
@@ -10017,20 +9961,6 @@ func (mr *MockAllocationMockRecorder) GetVramGb() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVramGb", reflect.TypeOf((*MockAllocation)(nil).GetVramGb))
 }
 
-// IsAReservation mocks base method.
-func (m *MockAllocation) IsPreCommitted() bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsPreCommitted")
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// IsAReservation indicates an expected call of IsAReservation.
-func (mr *MockAllocationMockRecorder) IsAReservation() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsPreCommitted", reflect.TypeOf((*MockAllocation)(nil).IsPreCommitted))
-}
-
 // IsCommitted mocks base method.
 func (m *MockAllocation) IsCommitted() bool {
 	m.ctrl.T.Helper()
@@ -10073,6 +10003,34 @@ func (mr *MockAllocationMockRecorder) IsPending() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsPending", reflect.TypeOf((*MockAllocation)(nil).IsPending))
 }
 
+// IsPreCommitted mocks base method.
+func (m *MockAllocation) IsPreCommitted() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsPreCommitted")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsPreCommitted indicates an expected call of IsPreCommitted.
+func (mr *MockAllocationMockRecorder) IsPreCommitted() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsPreCommitted", reflect.TypeOf((*MockAllocation)(nil).IsPreCommitted))
+}
+
+// IsReservation mocks base method.
+func (m *MockAllocation) IsReservation() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsReservation")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// IsReservation indicates an expected call of IsReservation.
+func (mr *MockAllocationMockRecorder) IsReservation() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsReservation", reflect.TypeOf((*MockAllocation)(nil).IsReservation))
+}
+
 // SetAllocationType mocks base method.
 func (m *MockAllocation) SetAllocationType(arg0 scheduling.AllocationType) {
 	m.ctrl.T.Helper()
@@ -10109,16 +10067,28 @@ func (mr *MockAllocationMockRecorder) SetGpus(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetGpus", reflect.TypeOf((*MockAllocation)(nil).SetGpus), arg0)
 }
 
-// SetIsReservation mocks base method.
+// SetIsPreCommitted mocks base method.
 func (m *MockAllocation) SetIsPreCommitted(arg0 bool) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetIsPreCommitted", arg0)
 }
 
-// SetIsReservation indicates an expected call of SetIsReservation.
-func (mr *MockAllocationMockRecorder) SetIsReservation(arg0 any) *gomock.Call {
+// SetIsPreCommitted indicates an expected call of SetIsPreCommitted.
+func (mr *MockAllocationMockRecorder) SetIsPreCommitted(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIsPreCommitted", reflect.TypeOf((*MockAllocation)(nil).SetIsPreCommitted), arg0)
+}
+
+// SetIsReservation mocks base method.
+func (m *MockAllocation) SetIsReservation(isReservation bool) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetIsReservation", isReservation)
+}
+
+// SetIsReservation indicates an expected call of SetIsReservation.
+func (mr *MockAllocationMockRecorder) SetIsReservation(isReservation any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetIsReservation", reflect.TypeOf((*MockAllocation)(nil).SetIsReservation), isReservation)
 }
 
 // SetMemoryMb mocks base method.
@@ -10475,6 +10445,34 @@ func (m *MockAllocationManager) GetGpuDeviceIdsAssignedToReplica(replicaId int32
 func (mr *MockAllocationManagerMockRecorder) GetGpuDeviceIdsAssignedToReplica(replicaId, kernelId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGpuDeviceIdsAssignedToReplica", reflect.TypeOf((*MockAllocationManager)(nil).GetGpuDeviceIdsAssignedToReplica), replicaId, kernelId)
+}
+
+// GetId mocks base method.
+func (m *MockAllocationManager) GetId() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetId")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetId indicates an expected call of GetId.
+func (mr *MockAllocationManagerMockRecorder) GetId() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetId", reflect.TypeOf((*MockAllocationManager)(nil).GetId))
+}
+
+// GetNodeId mocks base method.
+func (m *MockAllocationManager) GetNodeId() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetNodeId")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetNodeId indicates an expected call of GetNodeId.
+func (mr *MockAllocationManagerMockRecorder) GetNodeId() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeId", reflect.TypeOf((*MockAllocationManager)(nil).GetNodeId))
 }
 
 // GetResourceCountsAsString mocks base method.

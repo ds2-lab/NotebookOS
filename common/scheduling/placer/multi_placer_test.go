@@ -116,21 +116,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 		hostSpec *types.DecimalSpec
 	)
 
-	//commitResources := func(host scheduling.Host, resources *types.DecimalSpec) {
-	//	err := host.AddToCommittedResources(resources)
-	//	Expect(err).To(BeNil())
-	//
-	//	err = host.SubtractFromIdleResources(resources)
-	//	Expect(err).To(BeNil())
-	//
-	//	fmt.Printf("Committed the following resources to Host %s (ID=%s): %v\n\n",
-	//		host.GetNodeName(), host.GetID(), resources.String())
-	//
-	//	err = dockerCluster.UpdateIndex(host)
-	//	Expect(err).To(BeNil())
-	//}
-
-	releaseResources := func(host scheduling.Host, resources *types.DecimalSpec) {
+	releaseResources := func(host scheduling.UnitTestingHost, resources *types.DecimalSpec) {
 		err := host.SubtractFromCommittedResources(resources)
 		Expect(err).To(BeNil())
 
@@ -148,7 +134,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 		Expect(err).To(BeNil())
 	}
 
-	createHost := func(idx int) (scheduling.Host, *testing.ResourceSpoofer) {
+	createHost := func(idx int) (scheduling.UnitTestingHost, *testing.ResourceSpoofer) {
 		hostId := uuid.NewString()
 		hostName := fmt.Sprintf("TestHost-%d", idx)
 		resourceSpoofer := testing.NewResourceSpoofer(hostName, hostId, hostSpec)
