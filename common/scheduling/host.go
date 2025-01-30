@@ -229,6 +229,8 @@ type UnitTestingHost interface {
 	SubtractFromCommittedResources(spec *types.DecimalSpec) error
 	// AddToIdleResources is only intended to be used during unit tests.
 	AddToIdleResources(spec *types.DecimalSpec) error
+	// AllocationManager returns the AllocationManager that manages the resources of the target UnitTestingHost.
+	AllocationManager() AllocationManager
 }
 
 type HostStatistics interface {

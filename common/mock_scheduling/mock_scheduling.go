@@ -8699,6 +8699,20 @@ func (mr *MockAllocationManagerMockRecorder) GetGpuDeviceIdsAssignedToReplica(re
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetGpuDeviceIdsAssignedToReplica", reflect.TypeOf((*MockAllocationManager)(nil).GetGpuDeviceIdsAssignedToReplica), replicaId, kernelId)
 }
 
+// GetResourceCountsAsString mocks base method.
+func (m *MockAllocationManager) GetResourceCountsAsString() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetResourceCountsAsString")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetResourceCountsAsString indicates an expected call of GetResourceCountsAsString.
+func (mr *MockAllocationManagerMockRecorder) GetResourceCountsAsString() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceCountsAsString", reflect.TypeOf((*MockAllocationManager)(nil).GetResourceCountsAsString))
+}
+
 // HasSufficientIdleResourcesAvailable mocks base method.
 func (m *MockAllocationManager) HasSufficientIdleResourcesAvailable(spec types.Spec) bool {
 	m.ctrl.T.Helper()

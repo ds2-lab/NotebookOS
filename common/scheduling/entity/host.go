@@ -1018,11 +1018,6 @@ func (h *Host) GetAddress() string {
 	return h.Addr
 }
 
-// AllocationManager returns the resource.AllocationManager that manages the resources of the target Host.
-func (h *Host) AllocationManager() scheduling.AllocationManager {
-	return h.allocationManager
-}
-
 // Restore restores the state of a Host from another Host.
 func (h *Host) Restore(restoreFrom scheduling.Host, callback scheduling.ErrorCallback) error {
 	h.SetErrorCallback(callback)
@@ -2144,4 +2139,9 @@ func (h *UnitTestingHost) SubtractFromPendingResources(spec *types.DecimalSpec) 
 	err := h.resourceManager.PendingResources().Subtract(spec)
 	h.RecomputeSubscribedRatio()
 	return err
+}
+
+// AllocationManager returns the resource.AllocationManager that manages the resources of the target UnitTestingHost.
+func (h *UnitTestingHost) AllocationManager() scheduling.AllocationManager {
+	return h.allocationManager
 }
