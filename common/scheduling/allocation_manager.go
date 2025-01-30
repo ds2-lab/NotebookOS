@@ -64,7 +64,7 @@ import (
 //     that the KernelContainer has entered the "running" state has not yet reached the AllocationManager).
 //
 //   - "Pre-Allocated": Resources that are "pre-allocated" to a KernelContainer are resources that have been exclusively
-//     bound or committed to that KernelContainer in anticipating of the KernelContainer beginning to execute code. In
+//     bound or committed to that KernelContainer in anticipation of the KernelContainer beginning to execute code. In
 //     some cases, the Global Scheduler may explicitly select a replica to serve as the "primary replica" before forwarding
 //     the user-submitted code (i.e., an "execute_request" message) to the KernelReplica. Alternatively, the configured
 //     scheduling policy may specify that only one KernelReplica should exist per Kernel, in which case it is already
