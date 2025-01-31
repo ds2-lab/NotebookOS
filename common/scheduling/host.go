@@ -145,15 +145,17 @@ type Host interface {
 	// the de-allocation request if it is outdated.
 	ReleasePreCommitedResources(container KernelContainer, executionId string) error
 
-	// KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
+	// AdjustKernelResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 	// Host is updated or changed. This ensures that the Host's resource counts are up to date.
-	KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer) error
+	AdjustKernelResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer) error
 
-	// KernelAdjustedItsResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
+	// AdjustKernelResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
 	// this Host is updated or changed. This ensures that the Host's resource counts are up to date.
 	//
 	// This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
-	KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error
+	AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer,
+		tx *transaction.CoordinatedTransaction) error
+
 	Restore(restoreFrom Host, callback ErrorCallback) error
 	Enabled() bool
 	Enable(includeInScheduling bool) error
@@ -179,7 +181,7 @@ type Host interface {
 	TimeSinceLastSynchronizationWithRemote() time.Duration
 
 	// GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
-	GetReservation(kernelId string) (ResourceReservation, bool)
+	GetReservation(kernelId string) (Allocation, bool)
 	GetMeta(key types.HeapElementMetadataKey) interface{}
 	Priority(session UserSession) float64
 

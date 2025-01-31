@@ -742,6 +742,94 @@ func (m *AllocationManager) HasReservationForKernel(kernelId string) bool {
 	return alloc != nil && alloc.IsReservation()
 }
 
+// AdjustKernelResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
+// Host is updated or changed. This ensures that the Host's resource counts are up to date.
+func (m *AllocationManager) AdjustKernelResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer) error {
+	// Ensure that we're even allowed to do this (based on the scheduling policy).
+	if !m.schedulingPolicy.SupportsDynamicResourceAdjustments() {
+		return fmt.Errorf("%w (\"%s\")", scheduling.ErrDynamicResourceAdjustmentProhibited, m.schedulingPolicy.Name())
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Verify that the container is in fact scheduled on this Host.
+	if !m.scheduledKernels.IsAnyReplicaScheduled(container.KernelID()) {
+		return fmt.Errorf("%w: replica %d of kernel %s",
+			ErrContainerNotPresent, container.ReplicaId(), container.KernelID())
+	}
+	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
+	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
+
+	err := m.resourceManager.RunTransaction(func(state *transaction.State) {
+		state.PendingResources().Subtract(oldSpecDecimal)
+		state.PendingResources().Add(newSpecDecimal)
+	})
+	return err // Will be nil on success.
+}
+
+// AdjustKernelResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
+// this Host is updated or changed. This ensures that the Host's resource counts are up to date.
+//
+// This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
+func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec,
+	container scheduling.KernelContainer, schedulingMutex *sync.Mutex, tx *transaction.CoordinatedTransaction) error {
+
+	// Ensure that we're even allowed to do this (based on the scheduling policy).
+	if !m.schedulingPolicy.SupportsDynamicResourceAdjustments() {
+		return fmt.Errorf("%w (\"%s\")", scheduling.ErrDynamicResourceAdjustmentProhibited, m.schedulingPolicy.Name())
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Verify that the container is in fact scheduled on this Host.
+	if !m.scheduledKernels.IsAnyReplicaScheduled(container.KernelID()) {
+		return fmt.Errorf("%w: replica %d of kernel %s",
+			ErrContainerNotPresent, container.ReplicaId(), container.KernelID())
+	}
+
+	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
+	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
+
+	txOperation := func(state *transaction.State) {
+		state.PendingResources().Subtract(oldSpecDecimal)
+		state.PendingResources().Add(newSpecDecimal)
+	}
+
+	err := tx.RegisterParticipant(container.ReplicaId(), m.resourceManager.GetTransactionData, txOperation, &schedulingMutex)
+	if err != nil {
+		m.log.Error("Received error upon registering for coordination transaction when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
+			container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), err)
+		return err
+	}
+
+	succeeded := tx.Wait()
+	if succeeded {
+		if m.updateIndex != nil {
+			err = m.updateIndex(container.ReplicaId(), container.KernelID())
+		}
+
+		if m.updateSubscriptionRatio != nil {
+			m.updateSubscriptionRatio()
+		}
+
+		return nil
+	}
+
+	err = tx.FailureReason()
+
+	// If the error is nil, which really shouldn't happen, then we'll just assign a generic
+	// error to the err variable before returning it.
+	if err == nil {
+		m.log.Warn("Transaction %s targeting all replicas of kernel %s has failed, but the failure reason is nil...",
+			tx.Id(), container.KernelID())
+		err = fmt.Errorf("%w: failure reason unspecified", transaction.ErrTransactionFailed)
+	}
+
+	return err
+}
+
 // AssertAllocationIsPending returns true if the given scheduling.Allocation IS pending.
 // If the given scheduling.Allocation is NOT pending, then this function will panic.
 func (m *AllocationManager) AssertAllocationIsPending(allocation scheduling.Allocation) bool {

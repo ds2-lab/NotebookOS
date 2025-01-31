@@ -3,8 +3,10 @@ package scheduling
 import (
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
+	"sync"
 )
 
 const (
@@ -131,6 +133,17 @@ type AllocationManager interface {
 	NumCommittedAllocations() int
 	NumPendingAllocations() int
 	NumReservations() int
+
+	// AdjustKernelResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
+	// Host is updated or changed. This ensures that the Host's resource counts are up to date.
+	AdjustKernelResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer) error
+
+	// AdjustKernelResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
+	// this Host is updated or changed. This ensures that the Host's resource counts are up to date.
+	//
+	// This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
+	AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer,
+		schedulingMutex *sync.Mutex, tx *transaction.CoordinatedTransaction) error
 
 	// GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
 	GetReservation(kernelId string) (Allocation, bool)

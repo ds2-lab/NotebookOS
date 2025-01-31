@@ -185,6 +185,10 @@ func NewCoordinatedTransaction(numParticipants int, kernelId string) *Coordinate
 	return coordinatedTransaction
 }
 
+func (t *CoordinatedTransaction) Id() string {
+	return t.id
+}
+
 // IsComplete returns a flag indicating whether the transaction is over.
 func (t *CoordinatedTransaction) IsComplete() bool {
 	return t.complete.Load()

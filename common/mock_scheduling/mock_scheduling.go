@@ -2738,7 +2738,7 @@ func (mr *MockHostMockRecorder) IsProperlyInitialized() *gomock.Call {
 // KernelAdjustedItsResourceRequest mocks base method.
 func (m *MockHost) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "KernelAdjustedItsResourceRequest", updatedSpec, oldSpec, container)
+	ret := m.ctrl.Call(m, "AdjustKernelResourceRequest", updatedSpec, oldSpec, container)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -2746,13 +2746,13 @@ func (m *MockHost) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec types.S
 // KernelAdjustedItsResourceRequest indicates an expected call of KernelAdjustedItsResourceRequest.
 func (mr *MockHostMockRecorder) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec, container any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelAdjustedItsResourceRequest", reflect.TypeOf((*MockHost)(nil).KernelAdjustedItsResourceRequest), updatedSpec, oldSpec, container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequest", reflect.TypeOf((*MockHost)(nil).KernelAdjustedItsResourceRequest), updatedSpec, oldSpec, container)
 }
 
 // KernelAdjustedItsResourceRequestCoordinated mocks base method.
 func (m *MockHost) KernelAdjustedItsResourceRequestCoordinated(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "KernelAdjustedItsResourceRequestCoordinated", updatedSpec, oldSpec, container, coordinatedTransaction)
+	ret := m.ctrl.Call(m, "AdjustKernelResourceRequestCoordinated", updatedSpec, oldSpec, container, coordinatedTransaction)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -2760,7 +2760,7 @@ func (m *MockHost) KernelAdjustedItsResourceRequestCoordinated(updatedSpec, oldS
 // KernelAdjustedItsResourceRequestCoordinated indicates an expected call of KernelAdjustedItsResourceRequestCoordinated.
 func (mr *MockHostMockRecorder) KernelAdjustedItsResourceRequestCoordinated(updatedSpec, oldSpec, container, coordinatedTransaction any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelAdjustedItsResourceRequestCoordinated", reflect.TypeOf((*MockHost)(nil).KernelAdjustedItsResourceRequestCoordinated), updatedSpec, oldSpec, container, coordinatedTransaction)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequestCoordinated", reflect.TypeOf((*MockHost)(nil).KernelAdjustedItsResourceRequestCoordinated), updatedSpec, oldSpec, container, coordinatedTransaction)
 }
 
 // KillKernel mocks base method.
@@ -4474,7 +4474,7 @@ func (mr *MockUnitTestingHostMockRecorder) IsProperlyInitialized() *gomock.Call 
 // KernelAdjustedItsResourceRequest mocks base method.
 func (m *MockUnitTestingHost) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "KernelAdjustedItsResourceRequest", updatedSpec, oldSpec, container)
+	ret := m.ctrl.Call(m, "AdjustKernelResourceRequest", updatedSpec, oldSpec, container)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -4482,13 +4482,13 @@ func (m *MockUnitTestingHost) KernelAdjustedItsResourceRequest(updatedSpec, oldS
 // KernelAdjustedItsResourceRequest indicates an expected call of KernelAdjustedItsResourceRequest.
 func (mr *MockUnitTestingHostMockRecorder) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec, container any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelAdjustedItsResourceRequest", reflect.TypeOf((*MockUnitTestingHost)(nil).KernelAdjustedItsResourceRequest), updatedSpec, oldSpec, container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequest", reflect.TypeOf((*MockUnitTestingHost)(nil).KernelAdjustedItsResourceRequest), updatedSpec, oldSpec, container)
 }
 
 // KernelAdjustedItsResourceRequestCoordinated mocks base method.
 func (m *MockUnitTestingHost) KernelAdjustedItsResourceRequestCoordinated(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "KernelAdjustedItsResourceRequestCoordinated", updatedSpec, oldSpec, container, coordinatedTransaction)
+	ret := m.ctrl.Call(m, "AdjustKernelResourceRequestCoordinated", updatedSpec, oldSpec, container, coordinatedTransaction)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -4496,7 +4496,7 @@ func (m *MockUnitTestingHost) KernelAdjustedItsResourceRequestCoordinated(update
 // KernelAdjustedItsResourceRequestCoordinated indicates an expected call of KernelAdjustedItsResourceRequestCoordinated.
 func (mr *MockUnitTestingHostMockRecorder) KernelAdjustedItsResourceRequestCoordinated(updatedSpec, oldSpec, container, coordinatedTransaction any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelAdjustedItsResourceRequestCoordinated", reflect.TypeOf((*MockUnitTestingHost)(nil).KernelAdjustedItsResourceRequestCoordinated), updatedSpec, oldSpec, container, coordinatedTransaction)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequestCoordinated", reflect.TypeOf((*MockUnitTestingHost)(nil).KernelAdjustedItsResourceRequestCoordinated), updatedSpec, oldSpec, container, coordinatedTransaction)
 }
 
 // KillKernel mocks base method.

@@ -318,9 +318,9 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx *t
 
 		var err error
 		if tx != nil {
-			err = container.Host().KernelAdjustedItsResourceRequestCoordinated(newSpec, oldSpec, container, tx)
+			err = container.Host().AdjustKernelResourceRequestCoordinated(newSpec, oldSpec, container, tx)
 		} else {
-			err = container.Host().KernelAdjustedItsResourceRequest(newSpec, oldSpec, container)
+			err = container.Host().AdjustKernelResourceRequest(newSpec, oldSpec, container)
 		}
 
 		if err != nil {

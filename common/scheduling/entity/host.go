@@ -713,21 +713,6 @@ func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 	return h.allocationManager.CanCommitResources(resourceRequest)
 }
 
-func (h *Host) releasePendingReservation(spec *proto.KernelSpec) error {
-	err := h.subtractFromPendingResources(spec.DecimalSpecFromKernelSpec(), spec.Id, -1)
-	if err != nil {
-		h.log.Error("Failed to release reserved pending resources associated with replica of kernel \"%s\": %v",
-			spec.Id, err)
-		return err
-	}
-
-	h.log.Debug("Successfully released pending resources [%s] from reservation made for replica of kernel \"%s\". Updated resources: %s.",
-		spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
-
-	h.RecomputeSubscribedRatio()
-	return nil
-}
-
 // ReleaseReservation is to be called when a resource reservation should be released because the
 // scheduling of the associated replica of the associated kernel is being aborted.
 func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
@@ -1105,101 +1090,56 @@ func (h *Host) getSIP(sess scheduling.UserSession) float64 {
 	return rb - penalty
 }
 
-// KernelAdjustedItsResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
+// AdjustKernelResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
 // this Host is updated or changed. This ensures that the Host's resource counts are up to date.
 //
 // This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
-func (h *Host) KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec,
-	container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
+func (h *Host) AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec,
+	container scheduling.KernelContainer, tx *transaction.CoordinatedTransaction) error {
 
 	// The CoordinatedTransaction will lock this mutex.
 	// We just need to unlock it.
 	defer h.schedulingMutex.Unlock()
 
-	// Sanity check.
-	if _, loaded := h.containers.Load(container.ContainerID()); !loaded {
-		coordinatedTransaction.Abort()
-		return fmt.Errorf("the specified KernelContainer is not running on the target Host")
-	}
-
-	// Ensure that we're even allowed to do this (based on the scheduling policy).
-	if !h.schedulingPolicy.SupportsDynamicResourceAdjustments() {
-		coordinatedTransaction.Abort()
-		return scheduling.ErrDynamicResourceAdjustmentProhibited
-	}
-
 	oldSubscribedRatio := h.subscribedRatio
 	h.log.Debug("Coordinated Transaction: updating resource reservation for for replica %d of kernel %s from [%v] to [%v]. Current resource counts: %v.",
 		container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), h.GetResourceCountsAsString())
 
-	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
-	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
-
-	txOperation := func(state *transaction.State) {
-		state.PendingResources().Subtract(oldSpecDecimal)
-		state.PendingResources().Add(newSpecDecimal)
-	}
-
-	err := coordinatedTransaction.RegisterParticipant(container.ReplicaId(), h.resourceManager.GetTransactionData, txOperation, &h.schedulingMutex)
+	err := h.allocationManager.AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec, container, &h.schedulingMutex, tx)
 	if err != nil {
-		h.log.Error("Received error upon registering for coordination transaction when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
-			container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), err)
+		h.log.Debug("Failed to update ResourceRequest for replica %d of kernel %s (possibly because of another replica).",
+			container.ReplicaId(), container.KernelID())
 		return err
 	}
 
-	succeeded := coordinatedTransaction.Wait()
-	if succeeded {
-		h.RecomputeSubscribedRatio()
-		h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s. Updated resource counts: %v.",
-			container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3),
-			h.subscribedRatio.StringFixed(3), h.GetResourceCountsAsString())
-		return nil
-	}
-
-	h.log.Debug("Failed to update ResourceRequest for replica %d of kernel %s (possibly because of another replica).",
-		container.ReplicaId(), container.KernelID())
-
+	h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Subscription ratio: %s → %s. Updated resource counts: %v.",
+		container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3),
+		h.subscribedRatio.StringFixed(3), h.GetResourceCountsAsString())
 	return nil
 }
 
-// KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
+// AdjustKernelResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 // Host is updated or changed. This ensures that the Host's resource counts are up to date.
-func (h *Host) KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer) error {
+func (h *Host) AdjustKernelResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	// Sanity check.
-	if _, loaded := h.containers.Load(container.ContainerID()); !loaded {
-		return fmt.Errorf("the specified KernelContainer is not running on the target Host")
-	}
+	kernelId := container.KernelID()
+	replicaId := container.ReplicaId()
+	oldSubRatio := h.subscribedRatio
 
-	// Ensure that we're even allowed to do this (based on the scheduling policy).
-	if !h.schedulingPolicy.SupportsDynamicResourceAdjustments() {
-		return scheduling.ErrDynamicResourceAdjustmentProhibited
-	}
+	h.log.Debug("Updating resource reservation for just replica %d of kernel %s from [%v] to [%v].",
+		replicaId, kernelId, oldSpec.String(), updatedSpec.String())
 
-	oldSubscribedRatio := h.subscribedRatio
-	h.log.Debug("Updating resource reservation for just %s", container.ContainerID())
-
-	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
-	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
-
-	err := h.resourceManager.RunTransaction(func(state *transaction.State) {
-		state.PendingResources().Subtract(oldSpecDecimal)
-		state.PendingResources().Add(newSpecDecimal)
-	})
-
+	err := h.allocationManager.AdjustKernelResourceRequest(updatedSpec, oldSpec, container)
 	if err != nil {
-		h.log.Warn("Resource update failed for replica %d of kernel \"%s\": %v",
-			container.ReplicaId(), container.KernelID(), err)
-
+		h.log.Warn("Failed to update resource reservation for just replica %d of kernel %s from [%v] to [%v].",
+			replicaId, kernelId, oldSpec.String(), updatedSpec.String())
 		return err
 	}
 
-	h.RecomputeSubscribedRatio()
-	h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Old subscription ratio: %s. New subscription ratio: %s.",
-		container.ReplicaId(), container.KernelID(), oldSubscribedRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
-
+	h.log.Debug("Successfully updated ResourceRequest for replica %d of kernel %s. Subscription ratio: %s → %s.",
+		replicaId, kernelId, oldSubRatio.StringFixed(3), h.subscribedRatio.StringFixed(3))
 	return nil
 }
 
