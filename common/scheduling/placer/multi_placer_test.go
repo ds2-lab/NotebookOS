@@ -557,7 +557,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 1))
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[1] = 1
@@ -582,7 +582,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 2))
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[2] = 1
@@ -607,7 +607,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 3))
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[4] = 1
@@ -632,7 +632,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4))
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[8] = 1
@@ -658,7 +658,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			combinedSpec := kernelSpecs[2].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
 			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
 
@@ -683,7 +683,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
 			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
 
@@ -708,7 +708,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			combinedSpec = kernelSpecs[0].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
 			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
 
@@ -733,7 +733,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // One less than before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[8] = 2
@@ -759,7 +759,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // Same as before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().Add(kernelSpecs[5].ResourceSpec.ToDecimalSpec()).Add(kernelSpec.ResourceSpec.ToDecimalSpec())
 			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
 
@@ -785,7 +785,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // Same as before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().
 				Add(kernelSpecs[5].ResourceSpec.ToDecimalSpec()).
 				Add(kernelSpecs[8].ResourceSpec.ToDecimalSpec()).
@@ -814,7 +814,7 @@ var _ = Describe("MultiPlacer Tests", func() {
 
 			Expect(multiPlacer.NumFreeHosts()).To(Equal(numHosts - 6)) // One less than before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[2] = 2

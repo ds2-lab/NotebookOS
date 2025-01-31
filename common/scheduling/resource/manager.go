@@ -32,21 +32,14 @@ const (
 	// SpecResources are a static, fixed quantity. They do not change in response to resource (de)allocations.
 	SpecResources Status = "spec"
 
-	// NoResource is a sort of default value for Kind.
-	NoResource Kind = "N/A"
-	CPU        Kind = "CPU"
-	GPU        Kind = "GPU"
-	VRAM       Kind = "VRAM"
-	Memory     Kind = "Memory"
-
 	// NegativeResourceQuantity indicates that the inconsistent/invalid resource is
 	// inconsistent/invalid because its quantity is negative.
 	NegativeResourceQuantity Inconsistency = "negative_quantity"
 
-	// ResourceQuantityGreaterThanSpec indicates that the inconsistent/invalid resource
+	// QuantityGreaterThanSpec indicates that the inconsistent/invalid resource
 	// is inconsistent/invalid because its quantity is greater than that of the scheduling.Host
 	// instances types.Spec quantity.
-	ResourceQuantityGreaterThanSpec Inconsistency = "quantity_greater_than_spec"
+	QuantityGreaterThanSpec Inconsistency = "quantity_greater_than_spec"
 
 	// IdleSpecUnequal indicates that our IdleResources and SpecResources are unequal despite having no kernel
 	// replicas scheduled locally on the node. (When the ndoe is empty, all our HostResources should be idle.)
@@ -91,54 +84,6 @@ func (t Status) String() string {
 }
 
 type Transaction func(state *transaction.State)
-
-// InsufficientResourcesError is a custom error type that is used to indicate that HostResources could not be
-// allocated because there are insufficient HostResources available for one or more HostResources (CPU, GPU, or RAM).
-type InsufficientResourcesError struct {
-	// AvailableResources are the HostResources that were available on the node at the time that the
-	// failed allocation was attempted.
-	AvailableResources types.Spec
-	// RequestedResources are the HostResources that were requested, and that could not be fulfilled in their entirety.
-	RequestedResources types.Spec
-	// OffendingResourceKinds is a slice containing each Kind for which there were insufficient
-	// HostResources available (and thus that particular Kind contributed to the inability of the node
-	// to fulfill the resource request).
-	OffendingResourceKinds []Kind
-}
-
-// NewInsufficientResourcesError constructs a new InsufficientResourcesError struct and returns a pointer to it.
-func NewInsufficientResourcesError(avail types.Spec, req types.Spec, kinds []Kind) InsufficientResourcesError {
-	return InsufficientResourcesError{
-		AvailableResources:     avail,
-		RequestedResources:     req,
-		OffendingResourceKinds: kinds,
-	}
-}
-
-func (e InsufficientResourcesError) Unwrap() error {
-	return fmt.Errorf(e.Error())
-}
-
-func (e InsufficientResourcesError) Error() string {
-	return e.String()
-}
-
-func (e InsufficientResourcesError) Is(other error) bool {
-	var insufficientResourcesError *InsufficientResourcesError
-	return errors.As(other, &insufficientResourcesError)
-}
-
-func (e InsufficientResourcesError) String() string {
-	return fmt.Sprintf("InsufficientResourcesError[Available=%s,Requested=%s]",
-		e.AvailableResources.String(), e.RequestedResources.String())
-}
-
-// Kind can be one of CPU, GPU, or Memory
-type Kind string
-
-func (k Kind) String() string {
-	return string(k)
-}
 
 // Inconsistency defines the various ways in which HostResources can be in an inconsistent or illegal state.
 // Examples include a resource being negative, a resource quantity being larger than the total available HostResources
@@ -296,7 +241,7 @@ func (m *Manager) String() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return fmt.Sprintf("Resources{%s, %s, %s, %s}",
+	return fmt.Sprintf("TransactionResources{%s, %s, %s, %s}",
 		m.idleResources.String(), m.pendingResources.String(), m.committedResources.String(), m.specResources.String())
 }
 
@@ -428,7 +373,7 @@ func (m *Manager) SpecProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesS
 	return m.specResources.ProtoSnapshot(snapshotId)
 }
 
-// ComputeResourceSnapshot returns a pointer to a ComputeResourceSnapshot created for the specified "status" of HostResources
+// ResourceSnapshot returns a pointer to a ComputeResourceSnapshot created for the specified "status" of HostResources
 // (i.e., "idle", "pending", "committed", or "spec").
 func (m *Manager) ResourceSnapshot(status Status, snapshotId int32) *ComputeResourceSnapshot {
 	switch status {

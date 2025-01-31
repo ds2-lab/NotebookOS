@@ -3,6 +3,7 @@ package resource
 import (
 	"errors"
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
 )
 
@@ -32,7 +33,7 @@ var (
 // quantity or quantities or involved, what the nature of the inconsistency or illegal state is, etc.
 type InconsistentResourcesError struct {
 	// ResourceKind indicates which kind of resource is in an inconsistent or invalid state.
-	ResourceKind Kind
+	ResourceKind ResourceKind
 
 	// ResourceStatus indicates which status of resource (idle, pending, or committed) is in an inconsistent or invalid state.
 	ResourceStatus Status
@@ -49,7 +50,7 @@ type InconsistentResourcesError struct {
 	// an invalid or inconsistent state.
 	//
 	// For example, if the CPU resource is in an invalid or inconsistent state with the ResourceInconsistency
-	// specified as ResourceQuantityGreaterThanSpec, then the ReferenceQuantity will be set to the appropriate
+	// specified as QuantityGreaterThanSpec, then the ReferenceQuantity will be set to the appropriate
 	// Quantity of the associated scheduling.Host instance's types.Spec.
 	ReferenceQuantity decimal.Decimal
 
@@ -62,7 +63,7 @@ type InconsistentResourcesError struct {
 // NewInconsistentResourcesError creates a new InconsistentResourcesError struct and returns a pointer to it.
 //
 // This function sets the ReferenceQuantityIsMeaningful field to false.
-func NewInconsistentResourcesError(kind Kind, inconsistency Inconsistency, status Status, quantity decimal.Decimal) *InconsistentResourcesError {
+func NewInconsistentResourcesError(kind ResourceKind, inconsistency Inconsistency, status Status, quantity decimal.Decimal) *InconsistentResourcesError {
 
 	return &InconsistentResourcesError{
 		ResourceKind:                  kind,
@@ -78,7 +79,7 @@ func NewInconsistentResourcesError(kind Kind, inconsistency Inconsistency, statu
 // returns a pointer to it.
 //
 // This function sets the ReferenceQuantityIsMeaningful field to true.
-func NewInconsistentResourcesErrorWithResourceQuantity(kind Kind, inconsistency Inconsistency,
+func NewInconsistentResourcesErrorWithResourceQuantity(kind ResourceKind, inconsistency Inconsistency,
 	status Status, quantity decimal.Decimal, referenceQuantity decimal.Decimal) *InconsistentResourcesError {
 
 	return &InconsistentResourcesError{
@@ -104,4 +105,45 @@ func (e *InconsistentResourcesError) Error() string {
 		return fmt.Sprintf("%s resource \"%s\" is an inconsistent or invalid state: \"%s\" (quantity=%s)",
 			e.ResourceStatus, e.ResourceKind, e.ResourceInconsistency, e.Quantity)
 	}
+}
+
+// InsufficientResourcesError is a custom error type that is used to indicate that HostResources could not be
+// allocated because there are insufficient HostResources available for one or more HostResources (CPU, GPU, or RAM).
+type InsufficientResourcesError struct {
+	// AvailableResources are the HostResources that were available on the node at the time that the
+	// failed allocation was attempted.
+	AvailableResources types.Spec
+	// RequestedResources are the HostResources that were requested, and that could not be fulfilled in their entirety.
+	RequestedResources types.Spec
+	// OffendingResourceKinds is a slice containing each ResourceKind for which there were insufficient
+	// HostResources available (and thus that particular ResourceKind contributed to the inability of the node
+	// to fulfill the resource request).
+	OffendingResourceKinds []ResourceKind
+}
+
+// NewInsufficientResourcesError constructs a new InsufficientResourcesError struct and returns a pointer to it.
+func NewInsufficientResourcesError(avail types.Spec, req types.Spec, kinds []ResourceKind) InsufficientResourcesError {
+	return InsufficientResourcesError{
+		AvailableResources:     avail,
+		RequestedResources:     req,
+		OffendingResourceKinds: kinds,
+	}
+}
+
+func (e InsufficientResourcesError) Unwrap() error {
+	return fmt.Errorf(e.Error())
+}
+
+func (e InsufficientResourcesError) Error() string {
+	return e.String()
+}
+
+func (e InsufficientResourcesError) Is(other error) bool {
+	var insufficientResourcesError *InsufficientResourcesError
+	return errors.As(other, &insufficientResourcesError)
+}
+
+func (e InsufficientResourcesError) String() string {
+	return fmt.Sprintf("InsufficientResourcesError[Available=%s,Requested=%s]",
+		e.AvailableResources.String(), e.RequestedResources.String())
 }

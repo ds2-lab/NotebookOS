@@ -190,7 +190,7 @@ type ScalingConfiguration struct {
 	// GpusPerHost is the number of virtual GPUs per host.
 	GpusPerHost int
 
-	// ScalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	// ScalingFactor defines how many hosts the cluster will provision based on busy TransactionResources.
 	// Specifically, a proposed auto-scale-out is computed as:
 	//
 	// (<Current GPU Load> * <Scaling Factor>) / <GPUs Per Host>
@@ -210,7 +210,7 @@ type ScalingConfiguration struct {
 	ScalingIntervalSec int32
 	ScalingInterval    time.Duration
 
-	// ScalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
+	// ScalingLimit defines how many hosts the cluster will provision at maximum based on busy TransactionResources.
 	ScalingLimit float64
 
 	// ScalingBufferSize is how many extra hosts we provision so that we can quickly scale if needed.

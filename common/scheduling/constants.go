@@ -1,7 +1,7 @@
 package scheduling
 
 const (
-	// DefaultMillicpusPerHost is the number of CPU Resources available on each host for
+	// DefaultMillicpusPerHost is the number of CPU TransactionResources available on each host for
 	// allocation to kernel replicas in millicpus (1/1000th of a vCPU).
 	DefaultMillicpusPerHost = 64000
 

@@ -773,7 +773,7 @@ func (m *AllocationManager) AdjustKernelResourceRequest(updatedSpec types.Spec, 
 //
 // This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
 func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec,
-	container scheduling.KernelContainer, schedulingMutex *sync.Mutex, tx *transaction.CoordinatedTransaction) error {
+	container scheduling.KernelContainer, schedulingMutex *sync.Mutex, tx scheduling.CoordinatedTransaction) error {
 
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
 	if !m.schedulingPolicy.SupportsDynamicResourceAdjustments() {
@@ -1066,7 +1066,7 @@ func (m *AllocationManager) PreCommitResourcesToExistingContainer(replicaId int3
 
 		// If the allocation exists, is a pre-commit, and the execution IDs match, then we're OK. Just return now.
 		if allocation.GetExecutionId() == executionId {
-			m.log.Debug("Resources are already pre-commited to replica %d of kernel \"%s\" for execution \"%s\". "+
+			m.log.Debug("TransactionResources are already pre-commited to replica %d of kernel \"%s\" for execution \"%s\". "+
 				"No need to pre-commit them.", replicaId, kernelId, executionId)
 
 			return allocation.GetGpuDeviceIds(), nil
@@ -1078,7 +1078,7 @@ func (m *AllocationManager) PreCommitResourcesToExistingContainer(replicaId int3
 		// We'll replace the existing allocation with the new one that is being requested now.
 		previousExecutionId := allocation.GetExecutionId()
 
-		m.log.Warn("Resources were already pre-committed to replica %d of kernel \"%s\" for execution \"%s\".",
+		m.log.Warn("TransactionResources were already pre-committed to replica %d of kernel \"%s\" for execution \"%s\".",
 			replicaId, kernelId, previousExecutionId)
 		m.log.Warn("However, we're supposed to pre-commit resources [%v] to replica %d of kernel \"%s\" for a new "+
 			"execution with ID=\"%s\".", resourceRequestArg.String(), replicaId, kernelId, executionId)
@@ -1813,7 +1813,7 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 	// Idle HostResources <= Spec HostResources.
 	isOkay, offendingKind := m.resourceManager.idleResources.LessThanOrEqual(m.resourceManager.specResources)
 	if !isOkay {
-		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, ResourceQuantityGreaterThanSpec,
+		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, QuantityGreaterThanSpec,
 			IdleResources, m.resourceManager.idleResources.GetResource(offendingKind),
 			m.resourceManager.specResources.GetResource(offendingKind))
 	}
@@ -1821,7 +1821,7 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 	// Committed HostResources <= spec HostResources.
 	isOkay, offendingKind = m.resourceManager.committedResources.LessThanOrEqual(m.resourceManager.specResources)
 	if !isOkay {
-		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, ResourceQuantityGreaterThanSpec,
+		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, QuantityGreaterThanSpec,
 			CommittedResources, m.resourceManager.committedResources.GetResource(offendingKind),
 			m.resourceManager.specResources.GetResource(offendingKind))
 	}
@@ -1854,7 +1854,7 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 }
 
 func (m *AllocationManager) releasePendingResources(allocatedResources *types.DecimalSpec, replicaId int32, kernelId string) error {
-	m.log.Debug("Deallocating pending resources. Current resources: %v. Resources to be deallocated: %v",
+	m.log.Debug("Deallocating pending resources. Current resources: %v. TransactionResources to be deallocated: %v",
 		m.resourceManager.GetResourceCountsAsString(), allocatedResources.String())
 
 	if err := m.resourceManager.pendingResources.Subtract(allocatedResources); err != nil {
@@ -1901,7 +1901,7 @@ func (m *AllocationManager) releasePendingResources(allocatedResources *types.De
 func (m *AllocationManager) allocatePendingResources(spec *types.DecimalSpec,
 	allocation scheduling.Allocation, key string, replicaId int32, kernelId string) error {
 
-	m.log.Debug("Allocating pending resources. Current resources: %s. Resources to be allocated: %v.",
+	m.log.Debug("Allocating pending resources. Current resources: %s. TransactionResources to be allocated: %v.",
 		m.resourceManager.GetResourceCountsAsString(), spec.String())
 
 	// First, validate against this scheduling.Host's spec.
@@ -1964,7 +1964,7 @@ func (m *AllocationManager) allocatePendingResources(spec *types.DecimalSpec,
 func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId string, resourceRequest *types.DecimalSpec,
 	allocation scheduling.Allocation, decrementPending bool, isPreCommitment bool, key string) error {
 
-	m.log.Debug("Allocating committed resources. Current resources: %s. Resources to be allocated: %v. DecrPending=%v. IsPreCommit=%v.",
+	m.log.Debug("Allocating committed resources. Current resources: %s. TransactionResources to be allocated: %v. DecrPending=%v. IsPreCommit=%v.",
 		m.resourceManager.GetResourceCountsAsString(), resourceRequest.String(), decrementPending, isPreCommitment)
 
 	// First, validate against this scheduling.Host's spec.
@@ -2100,7 +2100,7 @@ func (m *AllocationManager) releaseCommittedResources(allocation scheduling.Allo
 		spec = allocation.ToDecimalSpec()
 	}
 
-	m.log.Debug("Releasing committed resources. Current resource counts: %s. Resources to be deallocated: %v.",
+	m.log.Debug("Releasing committed resources. Current resource counts: %s. TransactionResources to be deallocated: %v.",
 		m.resourceManager.GetResourceCountsAsString(), spec.String())
 
 	for _, gpuDeviceId := range allocation.GetGpuDeviceIds() {

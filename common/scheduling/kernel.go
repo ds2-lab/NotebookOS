@@ -7,7 +7,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter/router"
 	"github.com/scusemua/distributed-notebook/common/jupyter/server"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"time"
 )
@@ -223,7 +222,7 @@ type KernelReplica interface {
 	// UpdateResourceSpec should only be used to update the ResourceSpec of an existing KernelReplica. When
 	// instantiating/initializing (the ResourceSpec of) a new KernelReplica, you should use the InitializeResourceSpec
 	// method instead of UpdateResourceSpec.
-	UpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error
+	UpdateResourceSpec(newSpec types.Spec, tx CoordinatedTransaction) error
 	KernelSpec() *proto.KernelSpec
 	KernelReplicaSpec() *proto.KernelReplicaSpec
 	Address() string

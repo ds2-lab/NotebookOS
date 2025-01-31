@@ -3,13 +3,14 @@ package transaction_test
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/shopspring/decimal"
 )
 
-var _ = Describe("Resources", func() {
+var _ = Describe("TransactionResources", func() {
 	It("Will correctly initialize a resource", func() {
 		res := transaction.NewResources(types.NewDecimalSpec(5, 10, 15, 20), false)
 		Expect(res).ToNot(BeNil())
@@ -40,7 +41,7 @@ var _ = Describe("Resources", func() {
 
 				lessThanOrEqual, offendingKind := res1.LessThanOrEqual(res2.Working())
 				Expect(lessThanOrEqual).To(BeTrue())
-				Expect(offendingKind).To(Equal(transaction.NoResource))
+				Expect(offendingKind).To(Equal(scheduling.NoResource))
 			})
 
 			It("Will return false when resource a > resource b", func() {
@@ -52,28 +53,28 @@ var _ = Describe("Resources", func() {
 
 				lessThanOrEqual, offendingKind := res1.LessThanOrEqual(res2.Working())
 				Expect(lessThanOrEqual).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.CPU))
+				Expect(offendingKind).To(Equal(scheduling.CPU))
 
 				res2 = transaction.NewResources(types.NewDecimalSpec(10, 0, 15, 20), false)
 				Expect(res2).ToNot(BeNil())
 
 				lessThanOrEqual, offendingKind = res1.LessThanOrEqual(res2.Working())
 				Expect(lessThanOrEqual).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.Memory))
+				Expect(offendingKind).To(Equal(scheduling.Memory))
 
 				res2 = transaction.NewResources(types.NewDecimalSpec(10, 15, 0, 20), false)
 				Expect(res2).ToNot(BeNil())
 
 				lessThanOrEqual, offendingKind = res1.LessThanOrEqual(res2.Working())
 				Expect(lessThanOrEqual).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.GPU))
+				Expect(offendingKind).To(Equal(scheduling.GPU))
 
 				res2 = transaction.NewResources(types.NewDecimalSpec(10, 10, 20, 0), false)
 				Expect(res2).ToNot(BeNil())
 
 				lessThanOrEqual, offendingKind = res1.LessThanOrEqual(res2.Working())
 				Expect(lessThanOrEqual).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.VRAM))
+				Expect(offendingKind).To(Equal(scheduling.VRAM))
 			})
 
 			It("Will return true when resource a < resource b", func() {
@@ -85,7 +86,7 @@ var _ = Describe("Resources", func() {
 
 				lessThanOrEqual, offendingKind := res1.LessThanOrEqual(res2.Working())
 				Expect(lessThanOrEqual).To(BeTrue())
-				Expect(offendingKind).To(Equal(transaction.NoResource))
+				Expect(offendingKind).To(Equal(scheduling.NoResource))
 			})
 		})
 
@@ -99,7 +100,7 @@ var _ = Describe("Resources", func() {
 
 				greaterThan, offendingKind := res1.GreaterThan(res2.Working())
 				Expect(greaterThan).To(BeTrue())
-				Expect(offendingKind).To(Equal(transaction.NoResource))
+				Expect(offendingKind).To(Equal(scheduling.NoResource))
 			})
 
 			It("Will return false when resource a is equal to resource b", func() {
@@ -111,28 +112,28 @@ var _ = Describe("Resources", func() {
 
 				greaterThan, offendingKind := res1.GreaterThan(res2.Working())
 				Expect(greaterThan).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.CPU))
+				Expect(offendingKind).To(Equal(scheduling.CPU))
 
 				res2 = transaction.NewResources(types.NewDecimalSpec(0, 10, 15, 20), false)
 				Expect(res2).ToNot(BeNil())
 
 				greaterThan, offendingKind = res1.GreaterThan(res2.Working())
 				Expect(greaterThan).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.Memory))
+				Expect(offendingKind).To(Equal(scheduling.Memory))
 
 				res2 = transaction.NewResources(types.NewDecimalSpec(0, 0, 15, 20), false)
 				Expect(res2).ToNot(BeNil())
 
 				greaterThan, offendingKind = res1.GreaterThan(res2.Working())
 				Expect(greaterThan).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.GPU))
+				Expect(offendingKind).To(Equal(scheduling.GPU))
 
 				res2 = transaction.NewResources(types.NewDecimalSpec(0, 0, 0, 20), false)
 				Expect(res2).ToNot(BeNil())
 
 				greaterThan, offendingKind = res1.GreaterThan(res2.Working())
 				Expect(greaterThan).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.VRAM))
+				Expect(offendingKind).To(Equal(scheduling.VRAM))
 			})
 
 			It("Will return false when resource a < resource b", func() {
@@ -144,28 +145,28 @@ var _ = Describe("Resources", func() {
 
 				greaterThan, offendingKind := res1.GreaterThan(res2.Working())
 				Expect(greaterThan).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.CPU))
+				Expect(offendingKind).To(Equal(scheduling.CPU))
 
 				res1 = transaction.NewResources(types.NewDecimalSpec(10, 0, 15, 20), false)
 				Expect(res1).ToNot(BeNil())
 
 				greaterThan, offendingKind = res1.GreaterThan(res2.Working())
 				Expect(greaterThan).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.Memory))
+				Expect(offendingKind).To(Equal(scheduling.Memory))
 
 				res1 = transaction.NewResources(types.NewDecimalSpec(10, 15, 0, 20), false)
 				Expect(res1).ToNot(BeNil())
 
 				greaterThan, offendingKind = res1.GreaterThan(res2.Working())
 				Expect(greaterThan).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.GPU))
+				Expect(offendingKind).To(Equal(scheduling.GPU))
 
 				res1 = transaction.NewResources(types.NewDecimalSpec(10, 15, 20, 0), false)
 				Expect(res1).ToNot(BeNil())
 
 				greaterThan, offendingKind = res1.GreaterThan(res2.Working())
 				Expect(greaterThan).To(BeFalse())
-				Expect(offendingKind).To(Equal(transaction.VRAM))
+				Expect(offendingKind).To(Equal(scheduling.VRAM))
 			})
 		})
 	})

@@ -1,24 +1,23 @@
 package transaction
 
 import (
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"sync"
 	"sync/atomic"
 )
 
-type Operation func(state *State)
-
 type Transaction struct {
 	mu sync.Mutex
 
-	operation Operation
-	state     *State
+	operation scheduling.TransactionOperation
+	state     scheduling.TransactionState
 
 	complete  atomic.Bool
 	succeeded atomic.Bool
 }
 
-func New(operation Operation, initialState *State) *Transaction {
+func New(operation scheduling.TransactionOperation, initialState scheduling.TransactionState) *Transaction {
 	if operation == nil || initialState == nil {
 		return nil
 	}
@@ -34,7 +33,7 @@ func New(operation Operation, initialState *State) *Transaction {
 	return tx
 }
 
-// validateInputs ensures that the Transaction has a valid Operation and State assigned to it before running.
+// validateInputs ensures that the Transaction has a valid TransactionOperation and State assigned to it before running.
 func (t *Transaction) validateInputs() error {
 	if t.operation == nil {
 		return ErrNilTransactionOperation
@@ -79,7 +78,7 @@ func (t *Transaction) setFinished(success bool) {
 }
 
 // Run executes the Transaction and validates the state after.
-func (t *Transaction) Run() (*State, error) {
+func (t *Transaction) Run() (scheduling.TransactionState, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 

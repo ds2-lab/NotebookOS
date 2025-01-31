@@ -3,7 +3,6 @@ package scheduling
 import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
@@ -154,7 +153,7 @@ type Host interface {
 	//
 	// This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
 	AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer,
-		tx *transaction.CoordinatedTransaction) error
+		tx CoordinatedTransaction) error
 
 	Restore(restoreFrom Host, callback ErrorCallback) error
 	Enabled() bool

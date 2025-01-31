@@ -5,13 +5,14 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 )
 
 var _ = Describe("Transaction Tests", func() {
 	It("Should commit participants that would not result in invalid resource counts", func() {
-		operation := func(s *transaction.State) {
+		operation := func(s scheduling.TransactionState) {
 			s.PendingResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 			s.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 

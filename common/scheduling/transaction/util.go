@@ -2,12 +2,13 @@ package transaction
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/shopspring/decimal"
 )
 
 // getQuantityOfResourceKind returns the (working) field corresponding to the specified Kind of the specified
 // *Resources struct.
-func getQuantityOfResourceKind(res *Resources, kind Kind) decimal.Decimal {
+func getQuantityOfResourceKind(res *Resources, kind scheduling.ResourceKind) decimal.Decimal {
 	switch kind {
 	case CPU:
 		{

@@ -225,7 +225,7 @@ func (e *Execution) SetExecuted() {
 }
 
 func (e *Execution) String() string {
-	return fmt.Sprintf("Execution[ExecuteRequestMsgId=%s,Kernel=%s,Session=%s,State=%s,Attempt=%d,NumReplicas=%d,"+
+	return fmt.Sprintf("Execution[ExecuteRequestMsgId=%s,Kernel=%s,Session=%s,TransactionState=%s,Attempt=%d,NumReplicas=%d,"+
 		"NumLeadProposals=%d,NumYieldProposals=%d,HasNextAttempt=%v,HasPrevAttempt=%v,OriginalSendTimestamp=%v,"+
 		"CreatedAtTimestamp=%v]",
 		e.ExecuteRequestMessageId, e.KernelId, e.SessionId, e.State.String(), e.AttemptNumber, e.NumReplicas,

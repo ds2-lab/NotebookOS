@@ -2623,7 +2623,7 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 			d.log.Error(errorMessage)
 			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
 				Id:               uuid.NewString(),
-				Title:            "Failed to Release Committed Resources",
+				Title:            "Failed to Release Committed TransactionResources",
 				Message:          errorMessage,
 				NotificationType: 0,
 				Panicked:         false,
@@ -3238,7 +3238,7 @@ func (d *LocalScheduler) handleSMRLeadTask(kernel scheduling.KernelReplica, fram
 			return err
 		}
 
-		d.log.Debug("%v leads the task, GPU required (%v), notify the scheduler. Resources required: %v.",
+		d.log.Debug("%v leads the task, GPU required (%v), notify the scheduler. TransactionResources required: %v.",
 			kernel, leadMessage.GPURequired, kernel.ResourceSpec())
 
 		// If we're supposed to commit the resources when the container is scheduled, then it should already have
@@ -3250,9 +3250,9 @@ func (d *LocalScheduler) handleSMRLeadTask(kernel scheduling.KernelReplica, fram
 				kernel.ReplicaID(), kernel.ID())
 			go d.notifyClusterGatewayOfError(context.Background(), &proto.Notification{
 				Id: uuid.NewString(),
-				Title: fmt.Sprintf("Replica %d of Kernel %s Does Not Already Have Resources Committed to It",
+				Title: fmt.Sprintf("Replica %d of Kernel %s Does Not Already Have TransactionResources Committed to It",
 					kernel.ReplicaID(), kernel.ID()),
-				Message:          "Resources should already be committed to the kernel because we're using FCFS batch scheduling.",
+				Message:          "TransactionResources should already be committed to the kernel because we're using FCFS batch scheduling.",
 				NotificationType: 0,
 				Panicked:         true,
 			})

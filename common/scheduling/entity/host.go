@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
-	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/connectivity"
@@ -901,7 +900,7 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	// committed to the container, and so we don't have to do anything else and can just return nil,
 	// as we do below.
 	if !h.allocationManager.ReplicaHasCommittedResources(container.ReplicaId(), container.KernelID()) {
-		panic(fmt.Sprintf("Replica %d of kernel %s has started training. Resources should be committed.",
+		panic(fmt.Sprintf("Replica %d of kernel %s has started training. TransactionResources should be committed.",
 			container.ReplicaId(), container.KernelID()))
 	}
 
@@ -1095,7 +1094,7 @@ func (h *Host) getSIP(sess scheduling.UserSession) float64 {
 //
 // This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
 func (h *Host) AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec,
-	container scheduling.KernelContainer, tx *transaction.CoordinatedTransaction) error {
+	container scheduling.KernelContainer, tx scheduling.CoordinatedTransaction) error {
 
 	// The CoordinatedTransaction will lock this mutex.
 	// We just need to unlock it.

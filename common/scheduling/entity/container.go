@@ -130,7 +130,7 @@ func (c *Container) KernelID() string {
 }
 
 func (c *Container) String() string {
-	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,State=%v,StartedAt=%v,ResourceSpec=%v,Host=%v]",
+	return fmt.Sprintf("Container[ID=%s,ReplicaID=%d,TransactionState=%v,StartedAt=%v,ResourceSpec=%v,Host=%v]",
 		c.id, c.replicaId, c.containerState, c.startedAt, c.ResourceSpec(), c.host)
 }
 
@@ -286,7 +286,7 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 		return err
 	}
 
-	c.log.Debug("Training stopping on host %s (ID=%s) after %v. Outputting Resources before training officially stops. ResourceSpec of %s: %s",
+	c.log.Debug("Training stopping on host %s (ID=%s) after %v. Outputting TransactionResources before training officially stops. ResourceSpec of %s: %s",
 		c.host.GetNodeName(), c.host.GetID(), time.Since(c.trainingStartedAt), c.ContainerID(), c.spec.String())
 	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
@@ -300,7 +300,7 @@ func (c *Container) ContainerStoppedTraining( /*snapshot types.HostResourceSnaps
 		return err
 	}
 
-	c.log.Debug("Training stopped. Outputting Resources now that training has officially stopped.")
+	c.log.Debug("Training stopped. Outputting TransactionResources now that training has officially stopped.")
 	c.log.Debug("Pending CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",
 		c.host.Stats().PendingCPUs(), c.host.Stats().PendingMemoryMb(), c.host.Stats().PendingGPUs(), c.host.Stats().PendingVRAM())
 	c.log.Debug("Idle CPU: %.0f, Memory: %.2f, GPUs: %.0f, VRAM: %.2f.",

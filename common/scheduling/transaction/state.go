@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 )
 
 type State struct {
@@ -22,26 +23,34 @@ func NewState(idleResources *Resources, pendingResources *Resources, committedRe
 	}
 }
 
-func (t *State) IdleResources() *Resources {
+func (t *State) SetParticipantId(id int32) {
+	t.ParticipantId = id
+}
+
+func (t *State) GetParticipantId() int32 {
+	return t.ParticipantId
+}
+
+func (t *State) IdleResources() scheduling.TransactionResources {
 	return t.idleResources
 }
 
-func (t *State) PendingResources() *Resources {
+func (t *State) PendingResources() scheduling.TransactionResources {
 	return t.pendingResources
 }
 
-func (t *State) CommittedResources() *Resources {
+func (t *State) CommittedResources() scheduling.TransactionResources {
 	return t.committedResources
 }
 
-func (t *State) SpecResources() *Resources {
+func (t *State) SpecResources() scheduling.TransactionResources {
 	return t.specResources
 }
 
 // Validate checks that the operation state is in a valid state. Validate error returns nil if so.
 func (t *State) Validate() error {
 	if hasNegativeField, kind := t.idleResources.hasNegativeWorkingField(); hasNegativeField {
-		return fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
+		return fmt.Errorf("%w: %w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
 			IdleResources.String(), kind.String(), getQuantityOfResourceKind(t.idleResources, kind))
 	}
 

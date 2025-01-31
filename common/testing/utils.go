@@ -10,7 +10,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func ContainsOffendingResourceKind(lst []resource.Kind, target resource.Kind) bool {
+func ContainsOffendingResourceKind(lst []resource.ResourceKind, target resource.ResourceKind) bool {
 	for _, elem := range lst {
 		if elem == target {
 			return true

@@ -6,6 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/config"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/google/uuid"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"math/rand/v2"
 	"sync"
 	"sync/atomic"
@@ -22,16 +23,6 @@ var (
 	ErrMissingParticipants          = errors.New("transaction cannot run as one or more participants are missing")
 )
 
-// CommitTransactionResult defines a function that is used to commit the result of a transaction.
-type CommitTransactionResult func(state *State)
-
-// GetInitialStateForTransaction is a function that returns the initial state and the commit function for a transaction
-// participant. Participants pass this function when registering.
-//
-// The expectation is that any necessary mutexes will already be held before a GetInitialStateForTransaction
-// function is called.
-type GetInitialStateForTransaction func() (*State, CommitTransactionResult)
-
 // CoordinatedParticipant represents a participant in a coordinated transaction.
 //
 // Each CoordinatedParticipant is typically associated with a specific replica of a kernel.
@@ -40,19 +31,19 @@ type CoordinatedParticipant struct {
 	id int32
 
 	// commit defines how the committed state should be used/applied if the transaction succeeds for the CoordinatedParticipant.
-	commit CommitTransactionResult
+	commit scheduling.CommitTransactionResult
 
 	// tx defines the operations that should be applied to the CoordinatedParticipant's resources during the transaction.
 	tx *Transaction
 
 	// Operation is the operation that is executed by the CoordinatedParticipant during the CoordinatedTransaction.
-	operation Operation
+	operation scheduling.TransactionOperation
 
 	// getInitialState obtains the initial state for the CoordinatedTransaction.
 	// getInitialState is called after the mu is acquired.
-	getInitialState GetInitialStateForTransaction
+	getInitialState scheduling.GetInitialStateForTransaction
 
-	initialState *State
+	initialState scheduling.TransactionState
 
 	// mu is the CoordinatedParticipant's mutex. The CoordinatedTransaction will acquire the mutexes of all
 	// the CoordinatedParticipant structs that are involved at the very beginning of the transaction.
@@ -88,7 +79,7 @@ func (p *CoordinatedParticipant) initialize(txId string) error {
 		return ErrNilInitialState
 	}
 
-	p.initialState.ParticipantId = p.id
+	p.initialState.SetParticipantId(p.id)
 
 	p.tx = New(p.operation, p.initialState)
 	if p.tx == nil {
@@ -237,7 +228,7 @@ func (t *CoordinatedTransaction) Abort() {
 // The expectation is that any necessary mutexes will already be held before the initial state function is called.
 //
 // The given mutex will be locked by the CoordinatedTransaction, but it is the caller's responsibility to unlock it.
-func (t *CoordinatedTransaction) RegisterParticipant(id int32, getInitialState GetInitialStateForTransaction, operation Operation, mu *sync.Mutex) error {
+func (t *CoordinatedTransaction) RegisterParticipant(id int32, getInitialState scheduling.GetInitialStateForTransaction, operation scheduling.TransactionOperation, mu *sync.Mutex) error {
 	if getInitialState == nil {
 		return errors.Join(ErrTransactionRegistrationError, ErrNilInitialStateFunction)
 	}

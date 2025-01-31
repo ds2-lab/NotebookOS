@@ -238,7 +238,7 @@ func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) 
 			err = fmt.Errorf("%w: submitted execution \"%s\" with index %d, and cannot find newer execution with index %d",
 				ErrInvalidState, msg.JupyterMessageId(), executionIndex, m.submittedExecutionIndex)
 
-			m.sendNotification("Execution Manager in Invalid State", err.Error(), messaging.ErrorNotification, true)
+			m.sendNotification("Execution Manager in Invalid TransactionState", err.Error(), messaging.ErrorNotification, true)
 
 			return err
 		}

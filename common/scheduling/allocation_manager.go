@@ -3,7 +3,6 @@ package scheduling
 import (
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
 	"sync"
@@ -44,7 +43,7 @@ const (
 //   - 'Pending': "Pending" resources are the sum of all the resources required by all the idle KernelContainer
 //     instances running on the Host. They are only relevant for scheduling policies that bind or commit resources to
 //     KernelContainer instances while the associated KernelReplica instances are actively-training (rather than for
-//     the entire lifetime of the KernelReplica). Resources that are actively bound or committed to a KernelContainer
+//     the entire lifetime of the KernelReplica). TransactionResources that are actively bound or committed to a KernelContainer
 //     are not counted/included in the "pending" resource count(s) of/for a Host.
 //
 //   - 'Scheduled': a Scheduler has selected a Host to serve the KernelContainer of a particular KernelReplica.
@@ -61,7 +60,7 @@ const (
 //     on the Host, the AllocationManager will be informed of this, and the AllocationManager's records will be updated
 //     accordingly.
 //
-//   - "Reserved": Resources are "reserved" for a KernelContainer when a decision to schedule that KernelContainer on
+//   - "Reserved": TransactionResources are "reserved" for a KernelContainer when a decision to schedule that KernelContainer on
 //     a particular Host is made. So, when the KernelContainer is "scheduled", resources will be "reserved". When the
 //     KernelContainer is "placed", the KernelContainer will (in theory) begin to run on the Host. Once the
 //     KernelContainer enters the "running" state, the "reserved" resources are "promoted" from being a "reservation"
@@ -69,7 +68,7 @@ const (
 //     been set aside for a KernelContainer that has not yet entered the "running" state (or for which the notification
 //     that the KernelContainer has entered the "running" state has not yet reached the AllocationManager).
 //
-//   - "Pre-Allocated": Resources that are "pre-allocated" to a KernelContainer are resources that have been exclusively
+//   - "Pre-Allocated": TransactionResources that are "pre-allocated" to a KernelContainer are resources that have been exclusively
 //     bound or committed to that KernelContainer in anticipation of the KernelContainer beginning to execute code. In
 //     some cases, the Global Scheduler may explicitly select a replica to serve as the "primary replica" before forwarding
 //     the user-submitted code (i.e., an "execute_request" message) to the KernelReplica. Alternatively, the configured
@@ -143,7 +142,7 @@ type AllocationManager interface {
 	//
 	// This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
 	AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer,
-		schedulingMutex *sync.Mutex, tx *transaction.CoordinatedTransaction) error
+		schedulingMutex *sync.Mutex, tx CoordinatedTransaction) error
 
 	// GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
 	GetReservation(kernelId string) (Allocation, bool)

@@ -6,6 +6,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"sync"
@@ -20,8 +21,8 @@ type resourceContainer struct {
 	Spec      *types.DecimalSpec
 }
 
-func (rc *resourceContainer) getCommit() func(state *transaction.State) {
-	return func(state *transaction.State) {
+func (rc *resourceContainer) getCommit() func(state scheduling.TransactionState) {
+	return func(state scheduling.TransactionState) {
 		rc.Idle = types.ToDecimalSpec(state.IdleResources().Working())
 		rc.Pending = types.ToDecimalSpec(state.PendingResources().Working())
 		rc.Committed = types.ToDecimalSpec(state.CommittedResources().Working())
@@ -29,7 +30,7 @@ func (rc *resourceContainer) getCommit() func(state *transaction.State) {
 	}
 }
 
-func (rc *resourceContainer) getStateForTransaction() *transaction.State {
+func (rc *resourceContainer) getStateForTransaction() scheduling.TransactionState {
 	idle := transaction.NewResources(rc.Idle, true)
 	pending := transaction.NewResources(rc.Pending, true)
 	committed := transaction.NewResources(rc.Committed, true)
@@ -70,7 +71,7 @@ var _ = Describe("Coordinated", func() {
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
 		container3 := newResourceContainer(3, types.NewDecimalSpec(100, 100, 100, 100))
 
-		tx := func(state *transaction.State) {
+		tx := func(state scheduling.TransactionState) {
 			state.PendingResources().Add(spec1)
 
 			state.PendingResources().Add(spec1)
@@ -84,7 +85,7 @@ var _ = Describe("Coordinated", func() {
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
@@ -97,7 +98,7 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
@@ -110,7 +111,7 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
@@ -141,7 +142,7 @@ var _ = Describe("Coordinated", func() {
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
 		container3 := newResourceContainer(3, types.NewDecimalSpec(100, 100, 100, 100))
 
-		tx := func(state *transaction.State) {
+		tx := func(state scheduling.TransactionState) {
 			state.PendingResources().Add(spec1)
 
 			state.PendingResources().Add(spec1)
@@ -152,12 +153,12 @@ var _ = Describe("Coordinated", func() {
 			state.IdleResources().Subtract(spec1)
 			state.CommittedResources().Add(spec1)
 
-			fmt.Printf("Participant %d has executed the tx and is waiting for commit\n", state.ParticipantId)
+			fmt.Printf("Participant %d has executed the tx and is waiting for commit\n", state.GetParticipantId())
 		}
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
@@ -170,7 +171,7 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
@@ -186,7 +187,7 @@ var _ = Describe("Coordinated", func() {
 		mu3.Lock()
 
 		go func() {
-			err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+			err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				state := container3.getStateForTransaction()
 				commit := container3.getCommit()
 
@@ -226,13 +227,13 @@ var _ = Describe("Coordinated", func() {
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
 		container3 := newResourceContainer(3, types.NewDecimalSpec(100, 100, 100, 100))
 
-		tx := func(state *transaction.State) {
+		tx := func(state scheduling.TransactionState) {
 			state.PendingResources().Subtract(spec1)
 		}
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
@@ -245,7 +246,7 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
@@ -258,7 +259,7 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeFalse())
 		Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
@@ -285,13 +286,13 @@ var _ = Describe("Coordinated", func() {
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
 		container3 := newResourceContainer(3, types.NewDecimalSpec(100, 100, 100, 100))
 
-		tx := func(state *transaction.State) {
+		tx := func(state scheduling.TransactionState) {
 			state.PendingResources().Add(spec1)
 		}
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
@@ -299,7 +300,7 @@ var _ = Describe("Coordinated", func() {
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
@@ -307,7 +308,7 @@ var _ = Describe("Coordinated", func() {
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
@@ -323,7 +324,7 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeTrue())
 		Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
@@ -340,13 +341,13 @@ var _ = Describe("Coordinated", func() {
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
 		container3 := newResourceContainer(3, types.NewDecimalSpec(100, 100, 100, 100))
 
-		tx := func(state *transaction.State) {
+		tx := func(state scheduling.TransactionState) {
 			state.PendingResources().Add(spec1)
 		}
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
@@ -354,7 +355,7 @@ var _ = Describe("Coordinated", func() {
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
@@ -362,7 +363,7 @@ var _ = Describe("Coordinated", func() {
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			commit := container3.getCommit()
 
 			return nil, commit
@@ -379,13 +380,13 @@ var _ = Describe("Coordinated", func() {
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
 		container3 := newResourceContainer(3, types.NewDecimalSpec(100, 100, 100, 100))
 
-		tx := func(state *transaction.State) {
+		tx := func(state scheduling.TransactionState) {
 			state.PendingResources().Add(spec1)
 		}
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
@@ -393,7 +394,7 @@ var _ = Describe("Coordinated", func() {
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
@@ -401,7 +402,7 @@ var _ = Describe("Coordinated", func() {
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
@@ -419,13 +420,13 @@ var _ = Describe("Coordinated", func() {
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
 		container3 := newResourceContainer(3, types.NewDecimalSpec(100, 100, 100, 100))
 
-		tx := func(state *transaction.State) {
+		tx := func(state scheduling.TransactionState) {
 			state.PendingResources().Add(spec1)
 		}
 
 		var mu1, mu2 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
@@ -433,7 +434,7 @@ var _ = Describe("Coordinated", func() {
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 
@@ -441,7 +442,7 @@ var _ = Describe("Coordinated", func() {
 		}, tx, &mu2)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container3.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container3.getStateForTransaction()
 			commit := container3.getCommit()
 
@@ -457,13 +458,13 @@ var _ = Describe("Coordinated", func() {
 		container2 := newResourceContainer(2, types.NewDecimalSpec(100, 100, 100, 100))
 		container3 := newResourceContainer(3, types.NewDecimalSpec(100, 100, 100, 100))
 
-		tx := func(state *transaction.State) {
+		tx := func(state scheduling.TransactionState) {
 			state.PendingResources().Add(spec1)
 		}
 
 		var mu1, mu2, mu3 sync.Mutex
 
-		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container1.getStateForTransaction()
 			commit := container1.getCommit()
 
@@ -471,7 +472,7 @@ var _ = Describe("Coordinated", func() {
 		}, tx, &mu1)
 		Expect(err).To(BeNil())
 
-		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (*transaction.State, transaction.CommitTransactionResult) {
+		err = coordinatedTransaction.RegisterParticipant(container2.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 			state := container2.getStateForTransaction()
 			commit := container2.getCommit()
 

@@ -332,7 +332,7 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []s
 func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	st := time.Now()
 
-	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.",
+	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. TransactionResources required: %s.",
 		s.schedulingPolicy.NumReplicas(), in.Id, in.ResourceSpec.String())
 
 	deadline, ok := ctx.Deadline()
@@ -356,9 +356,9 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.Ke
 	for len(responsesReceived) < responsesRequired {
 		select {
 		// Context time-out, meaning the operation itself has timed-out or been cancelled.
-		// TODO: We ultimately need to handle this somehow, as we'll have allocated Resources to the kernel replicas
+		// TODO: We ultimately need to handle this somehow, as we'll have allocated TransactionResources to the kernel replicas
 		// 		 on the hosts that we selected. If this operation fails or times-out, then we need to potentially
-		//		 terminate the replicas that we know were scheduled successfully and release the Resources on those hosts.
+		//		 terminate the replicas that we know were scheduled successfully and release the TransactionResources on those hosts.
 		case <-ctx.Done():
 			{
 				err := ctx.Err()
@@ -418,7 +418,7 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.Ke
 					}
 				}
 
-				// TODO: kill orphaned replicas so that they don't just sit there, taking up Resources unnecessarily.
+				// TODO: kill orphaned replicas so that they don't just sit there, taking up TransactionResources unnecessarily.
 				if len(responsesReceived) > 0 {
 					s.log.Error("Scheduling of kernel %s has failed after %v. Only managed to schedule replicas %s (%d/%d).",
 						in.Id, time.Since(st), replicasScheduledBuilder.String(), len(responsesReceived), responsesRequired)

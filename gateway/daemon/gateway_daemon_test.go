@@ -769,7 +769,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					mutexes[i].Lock()
 					defer mutexes[i].Unlock()
 
-					fmt.Printf("[DEBUG] Precommitting resources on host %s for replica %d. Resources: %v.\n",
+					fmt.Printf("[DEBUG] Precommitting resources on host %s for replica %d. TransactionResources: %v.\n",
 						host.GetNodeName(), container.ReplicaId(), container.ResourceSpec())
 
 					Expect(container.ReplicaId()).To(Equal(currReplica.ReplicaID()))

@@ -381,7 +381,7 @@ func (op *ScaleOperation) IsScaleInOperation() bool {
 
 // String returns a string representation of the target ScaleOperation struct that is suitable for printing/logging.
 func (op *ScaleOperation) String() string {
-	return fmt.Sprintf("%s[Initial: %d, Target: %d, State: %s, ID: %s]",
+	return fmt.Sprintf("%s[Initial: %d, Target: %d, TransactionState: %s, ID: %s]",
 		op.OperationType, op.InitialScale, op.TargetScale, op.Status.String(), op.OperationId)
 }
 
@@ -432,7 +432,7 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 	select {
 	case <-childContext.Done():
 		{
-			op.log.Error("Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
+			op.log.Error("TransactionOperation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
 			if ctxErr := childContext.Err(); ctxErr != nil {
 				op.log.Error("Additional error information regarding failed adjustment of virtual Docker nodes: %v", ctxErr)
 				if transitionError := op.SetOperationErred(ctxErr, false); transitionError != nil {
@@ -446,7 +446,7 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 				}
 
 				return nil, fmt.Errorf("operation to adjust scale of virtual Docker nodes timed-out after %v", timeoutInterval)
-				// status.Errorf(codes.Internal, "Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
+				// status.Errorf(codes.Internal, "TransactionOperation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
 			}
 		}
 	case notification := <-op.CoreLogicDoneChan: // Wait for the shell command above to finish.
