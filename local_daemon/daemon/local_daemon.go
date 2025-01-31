@@ -1916,7 +1916,8 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 
 	// If we're performing first-come, first-serve (FCFS) batch scheduling, then we commit resources right away.
 	if d.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-		_, resourceError = d.allocationManager.CommitResourcesToExistingContainer(in.ReplicaId, in.Kernel.Id, in.Kernel.ResourceSpec, false)
+		_, resourceError = d.allocationManager.CommitResourcesToExistingContainer(
+			in.ReplicaId, in.Kernel.Id, scheduling.DefaultExecutionId, in.Kernel.ResourceSpec, false)
 
 		if resourceError != nil {
 			d.log.Error("Failed to allocate %d committed GPUs for new replica %d of kernel %s because: %v",
@@ -2614,7 +2615,9 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 		// proposed 'YIELD' during its leader election (like if there were not enough resources available on
 		// the node for it to train if it were to have won).
 		d.log.Debug("Attempting to release committed resources from replica %d of kernel %s.", kernelClient.ReplicaID(), kernel.ID())
-		if err = d.allocationManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID()); err != nil && releaseResourcesMustSucceed {
+		err = d.allocationManager.ReleaseCommittedResources(kernelClient.ReplicaID(), kernel.ID(), msg.JupyterParentMessageId())
+
+		if err != nil && releaseResourcesMustSucceed {
 			errorMessage := fmt.Sprintf("Failed to release GPUs allocated to leader replica %d of kernel %s because: %v",
 				kernelClient.ReplicaID(), kernel.ID(), err)
 			d.log.Error(errorMessage)
@@ -2625,13 +2628,14 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 				NotificationType: 0,
 				Panicked:         false,
 			})
-		} else if err == nil {
-			// Again, if the error is non-nil, that doesn't necessarily mean the system is in an error state.
-			// There are cases where we'll have told the replica to yield and did not reserve any resources for it.
-			// These are described in greater detail in the comment(s) above.
-			d.log.Debug("Successfully released committed resources from replica %d of kernel %s.",
-				kernelClient.ReplicaID(), kernel.ID())
+			return err
 		}
+
+		// Again, if the error is non-nil, that doesn't necessarily mean the system is in an error state.
+		// There are cases where we'll have told the replica to yield and did not reserve any resources for it.
+		// These are described in greater detail in the comment(s) above.
+		d.log.Debug("Successfully released committed resources from replica %d of kernel %s.",
+			kernelClient.ReplicaID(), kernel.ID())
 	}
 
 	if shouldCallTrainingStopped {
@@ -2808,9 +2812,10 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 		// We didn't want to bother reserving resources for this kernel replica if its either been explicitly told
 		// to yield, or if another replica of the same kernel was explicitly expected to yield. But now that we know
 		// that neither of those two things are true, we can go ahead and try to reserve the resources.
-		d.log.Debug("[gid=%d] Attempting to reserve the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
+		d.log.Debug("[gid=%d] Attempting to pre-commit the following resources resources for replica %d of kernel %s in anticipation of its leader election: %s",
 			gid, kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec().String())
-		gpuDeviceIds, resourceAllocationError := d.allocationManager.CommitResourcesToExistingContainer(kernel.ReplicaID(), kernel.ID(), kernel.ResourceSpec(), true)
+		gpuDeviceIds, resourceAllocationError := d.allocationManager.CommitResourcesToExistingContainer(
+			kernel.ReplicaID(), kernel.ID(), msg.JupyterMessageId(), kernel.ResourceSpec(), true)
 
 		if resourceAllocationError != nil {
 			d.log.Warn("[gid=%d] Could not reserve resources for replica %d of kernel %s in anticipation of its leader election because: %v.",

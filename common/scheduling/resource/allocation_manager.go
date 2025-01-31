@@ -35,6 +35,7 @@ var (
 	ErrContainerAlreadyPresent   = errors.New("container for specified replica is already present")
 	ErrContainerNotPresent       = errors.New("container is not present; cannot remove container for specified replica")
 	ErrDifferentContainerPresent = errors.New("a different replica than the one specified is present")
+	ErrMismatchedExecutionIds    = errors.New("cannot complete requested operation, as existing allocation is associated with a different execution")
 )
 
 // scheduledKernels maintains information about the scheduling.Kernel instances for which an associated
@@ -213,6 +214,9 @@ type AllocationManager struct {
 	// allocationIdMap contains Allocation structs of both types (CommittedAllocation and PendingAllocation).
 	allocationKernelReplicaMap hashmap.HashMap[string, scheduling.Allocation]
 
+	// kernelAllocationMap is a map from Kernel ID to the allocation associated with any replica of that kernel.
+	kernelAllocationMap hashmap.HashMap[string, scheduling.Allocation]
+
 	// resourceManager encapsulates the state of all HostResources (idle, pending, committed, and spec) managed
 	// by this AllocationManager.
 	resourceManager *Manager
@@ -284,6 +288,7 @@ func NewAllocationManager(resourceSpec types.Spec, schedulingPolicy scheduling.P
 		Id:                         uuid.NewString(),
 		NodeId:                     nodeId,
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, scheduling.Allocation](128),
+		kernelAllocationMap:        hashmap.NewCornelkMap[string, scheduling.Allocation](128),
 		availableGpuDevices:        queue.NewFifo[int](int(resourceSpec.GPU())),
 		schedulingPolicy:           schedulingPolicy,
 		resourceManager:            NewManager(resourceSpec),
@@ -693,7 +698,7 @@ func (m *AllocationManager) ReplicaHasCommittedResources(replicaId int32, kernel
 	//
 	// Some sessions will not request any resources.
 	// return alloc.IsNonZero()
-	return alloc != nil
+	return alloc != nil && alloc.IsCommitted()
 }
 
 // ReplicaHasCommittedGPUs returns true if the specified kernel replica has GPUs committed to it.
@@ -709,6 +714,32 @@ func (m *AllocationManager) ReplicaHasCommittedGPUs(replicaId int32, kernelId st
 
 	// It is an "actual" GPU allocation.
 	return alloc.GetGpus() > 0
+}
+
+// KernelHasCommittedResources returns true if any replica of the specified kernel has resources committed to it.
+func (m *AllocationManager) KernelHasCommittedResources(kernelId string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	alloc, ok := m.kernelAllocationMap.Load(kernelId)
+	if !ok {
+		return false
+	}
+
+	return alloc != nil && alloc.IsCommitted()
+}
+
+// HasReservationForKernel returns true if the target Host has a reservation for the specified kernel.
+func (m *AllocationManager) HasReservationForKernel(kernelId string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	alloc, ok := m.kernelAllocationMap.Load(kernelId)
+	if !ok {
+		return false
+	}
+
+	return alloc != nil && alloc.IsReservation()
 }
 
 // AssertAllocationIsPending returns true if the given scheduling.Allocation IS pending.
@@ -786,7 +817,7 @@ func (m *AllocationManager) GetAllocation(replicaId int32, kernelId string) (sch
 	return allocation, true
 }
 
-// PromoteReservation should be called when a kernel replica has won its leader election and begins executing code.
+// PromotePreCommitment should be called when a kernel replica has won its leader election and begins executing code.
 // This method simply records that the HostResources committed to the kernel are no longer "merely" a reservation.
 // Instead, the resource allocation will indicate that they committed HostResources are being used by a kernel replica
 // that is actively running user-submitted code.
@@ -827,6 +858,7 @@ func (m *AllocationManager) PromotePreCommitment(replicaId int32, kernelId strin
 	}
 
 	allocation.SetIsPreCommitted(false)
+	m.numPreCommitments.Add(-1)
 
 	return nil
 }
@@ -906,6 +938,92 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 	return nil
 }
 
+func (m *AllocationManager) PreCommitResourcesToExistingContainer(replicaId int32, kernelId string, executionId string,
+	resourceRequestArg types.Spec) ([]int, error) {
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.scheduledKernels.IsAnyReplicaScheduled(kernelId) {
+		m.log.Warn("Cannot pre-commit resources to replica %d of kernel %s, as no replicas of kernel %s exist on host %s.",
+			replicaId, kernelId, kernelId, m.NodeId)
+		return nil, fmt.Errorf("%w: no replicas of kernel %s are scheduled (including specified replica %d)",
+			ErrContainerNotPresent, kernelId, replicaId)
+	}
+
+	var (
+		key              string
+		allocation       scheduling.Allocation
+		allocationExists bool
+	)
+
+	key = getKey(replicaId, kernelId)
+	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		m.log.Error("Cannot commit HostResources to replica %d of kernel %s: no existing resource allocation "+
+			"found for that kernel replica.", replicaId, kernelId)
+		return nil, fmt.Errorf("%w: no resource allocation found for replica %d of kernel %s",
+			ErrInvalidAllocationRequest, replicaId, kernelId)
+	}
+
+	// Check if there's already an existing committed allocation for the specified kernel replica.
+	if allocation.IsCommitted() {
+		// Check if the existing committed allocation for the specified kernel replica is a pre-commit.
+		// If it isn't, then that's very problematic.
+		if !allocation.IsPreCommitted() {
+			m.log.Error("Found existing (non-pre) committed allocation for replica %d of kernel %s with resources %v while trying to commit resources %v for execution \"%s\"...",
+				replicaId, kernelId, allocation.ToSpecString(), resourceRequestArg.String(), executionId)
+			panic(fmt.Sprintf("Found existing, non-pre committed allocation for replica %d of kernel %s while trying to pre-commit for execution \"%s\"",
+				replicaId, kernelId, executionId))
+		}
+
+		// If the allocation exists, is a pre-commit, and the execution IDs match, then we're OK. Just return now.
+		if allocation.GetExecutionId() == executionId {
+			m.log.Debug("Resources are already pre-commited to replica %d of kernel \"%s\" for execution \"%s\". "+
+				"No need to pre-commit them.", replicaId, kernelId, executionId)
+
+			return allocation.GetGpuDeviceIds(), nil
+		}
+
+		// The allocation exists, it's a pre-commit, but the execution IDs do NOT match.
+		// So, there were some resources that were already pre-committed, but they were for a different execution.
+		// We'll assume that the existing pre-committed resources are now old/out-of-date.
+		// We'll replace the existing allocation with the new one that is being requested now.
+		previousExecutionId := allocation.GetExecutionId()
+
+		m.log.Warn("Resources were already pre-committed to replica %d of kernel \"%s\" for execution \"%s\".",
+			replicaId, kernelId, previousExecutionId)
+		m.log.Warn("However, we're supposed to pre-commit resources [%v] to replica %d of kernel \"%s\" for a new "+
+			"execution with ID=\"%s\".", resourceRequestArg.String(), replicaId, kernelId, executionId)
+		m.log.Warn("Will replace pre-commitment for execution \"%s\" with pre-commitment for execution \"%s\" "+
+			"(for replica %d of kernel \"%s\")", previousExecutionId, executionId, replicaId, kernelId)
+
+		// Release the old pre-committed resources (for the previous execution ID).
+		// We hold the schedulingMutex right now, so this is all occurring atomically.
+		// We'll create the new pre-committed resource reservation down below.
+		err := m.releaseCommittedResources(allocation, nil, true)
+		if err != nil {
+			m.log.Error("Failed to release pre-committed resources for replica %d of kernel \"%s\" during "+
+				"replacement of pre-commitment for execution \"%s\" with pre-commitment for execution \"%s\": %v",
+				replicaId, kernelId, previousExecutionId, executionId)
+			return nil, err
+		}
+	}
+
+	// Ensure this is set to false in case there's an issue with our attempt to pre-commit.
+	allocation.SetIsPreCommitted(false)
+
+	decimalSpec := types.ToDecimalSpec(resourceRequestArg)
+
+	err := m.allocateCommittedResources(replicaId, kernelId, decimalSpec, allocation, true, true, key)
+	if err != nil {
+		m.log.Warn("Failed to pre-commit resources [%v] to replica %d of kernel %s: %v",
+			decimalSpec.String(), replicaId, kernelId, err)
+		return nil, err
+	}
+
+	return allocation.GetGpuDeviceIds(), nil
+}
+
 // CommitResourcesToExistingContainer commits/binds HostResources to a particular kernel replica, such that the HostResources are reserved for
 // exclusive use by that kernel replica until the kernel replica releases them (or another entity releases them
 // on behalf of the kernel replica).
@@ -925,7 +1043,12 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 //
 // This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
 // The sync.Mutex is released before the function returns.
-func (m *AllocationManager) CommitResourcesToExistingContainer(replicaId int32, kernelId string, resourceRequestArg types.Spec, isPreCommitment bool) ([]int, error) {
+func (m *AllocationManager) CommitResourcesToExistingContainer(replicaId int32, kernelId string, executionId string,
+	resourceRequestArg types.Spec, isPreCommitment bool) ([]int, error) {
+	if isPreCommitment {
+		return m.PreCommitResourcesToExistingContainer(replicaId, kernelId, executionId, resourceRequestArg)
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -945,7 +1068,7 @@ func (m *AllocationManager) CommitResourcesToExistingContainer(replicaId int32, 
 
 	// Sanity check, essentially. It should not already be committed.
 	if allocation.IsCommitted() {
-		m.log.Error("Found existing resource allocation for replica %d of kernel %s; "+
+		m.log.Warn("Found existing resource allocation for replica %d of kernel %s; "+
 			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsPreAllocation=true.",
 			replicaId, kernelId, allocation.GetAllocationType().String(), PendingResources.String())
 		return nil, fmt.Errorf("%w: expected '%s', found '%s'",
@@ -981,7 +1104,7 @@ func (m *AllocationManager) CommitResourcesToExistingContainer(replicaId int32, 
 //
 // This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
 // The sync.Mutex is released before the function returns.
-func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId string, executionId int32) error {
+func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId string, executionId string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -993,9 +1116,13 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
+		// It's OK for there to be an error in some cases -- if we receive the "execute_reply" from the leader
+		// first, and we pre-committed resources to all replicas, then we release the pre-commitments at that
+		// point. So, if we attempt to release the same pre-commitment when we receive "execute_reply" from
+		// the follower replicas, then that release will fail (because it will have already occurred).
 		m.log.Warn("Cannot release committed HostResources bound to replica %d of kernel %s: no existing resource "+
 			"allocation found for that kernel replica.", replicaId, kernelId)
-		return fmt.Errorf("%w: no pending resource allocation found for replica %d of kernel %s",
+		return fmt.Errorf("%w: no committed resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
 	}
 
@@ -1013,6 +1140,19 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 			replicaId, kernelId, allocation.GetAllocationType().String(), scheduling.CommittedAllocation.String())
 		return fmt.Errorf("%w: expected '%s', found '%s'",
 			ErrInvalidAllocationType, scheduling.CommittedAllocation.String(), allocation.GetAllocationType().String())
+	}
+
+	prevExecutionId := allocation.GetExecutionId()
+
+	// If this allocation is actually associated with a particular "execute_request" message, and the execution ID
+	// we received is valid (i.e., it isn't equal to scheduling.DefaultExecutionId), then let's make sure that we're
+	// deallocating resources for the correct "execute_request" message.
+	if prevExecutionId != scheduling.DefaultExecutionId && executionId != scheduling.DefaultExecutionId && allocation.GetExecutionId() != executionId {
+		m.log.Warn("Committed allocation of [%v] for replica %d of kernel %s is associated with execution \"%s\"; however, de-commit request is for execution \"%s\". Ignoring.",
+			allocation.ToSpecString(), replicaId, kernelId, prevExecutionId, executionId)
+
+		return fmt.Errorf("%w: \"%s\" (requested execution = \"%s\"",
+			ErrMismatchedExecutionIds, prevExecutionId, executionId)
 	}
 
 	// Perform the resource count adjustments, as we've validated that everything is correct/as it should be.
@@ -1225,6 +1365,16 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Verify that there are no other replicas of the specified kernel scheduled on this host.
+	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica != -1 {
+		numFailedReservations := m.numFailedReservations.Add(1)
+		m.log.Debug("Cannot reserve resources for replica of kernel %s: found existing resource "+
+			"allocation associated to that another replica of that kernel (replica %d) [numFailedReservations=%d].",
+			kernelId, scheduledReplica, numFailedReservations)
+		return fmt.Errorf("%w: existing resource allocation found for another replica of kernel %s (%d)",
+			ErrInvalidAllocationRequest, kernelId, scheduledReplica)
+	}
+
 	var (
 		key              string
 		allocation       scheduling.Allocation
@@ -1239,6 +1389,7 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 		if allocation.IsReservation() {
 			allocation.SetIsReservation(false)
 			m.allocationKernelReplicaMap.Store(key, allocation)
+			m.kernelAllocationMap.Store(kernelId, allocation)
 			m.numReservations.Add(-1)
 			return nil
 		}
@@ -1263,11 +1414,13 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 				replicaId, kernelId)
 
 			m.allocationKernelReplicaMap.Delete(key)
+			m.kernelAllocationMap.Delete(kernelId)
 			key = getKey(replicaId, kernelId)
 
 			allocation.SetIsReservation(false)
 			allocation.SetReplicaId(replicaId)
 			m.allocationKernelReplicaMap.Store(key, allocation)
+			m.kernelAllocationMap.Store(kernelId, allocation)
 			m.numReservations.Add(-1)
 			return nil
 		}
@@ -1294,6 +1447,13 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 		m.log.Error("Failed to allocate pending resources %s to replica %d of kernel %s: %v",
 			decimalSpec.String(), replicaId, kernelId, err)
 		return err
+	}
+
+	err = m.scheduledKernels.ReplicaScheduled(replicaId, kernelId)
+	if err != nil {
+		m.log.Error("Error while recording that replica %d of kernel %s was scheduled onto host %s: %v",
+			replicaId, kernelId, m.NodeId, err)
+		panic(err) // We just checked up above that no other replica was scheduled, so this should never happen.
 	}
 
 	// Update Prometheus metrics.
@@ -1608,6 +1768,7 @@ func (m *AllocationManager) releasePendingResources(allocatedResources *types.De
 
 	// Delete the allocation, since the replica was evicted.
 	m.allocationKernelReplicaMap.Delete(getKey(replicaId, kernelId))
+	m.kernelAllocationMap.Delete(kernelId)
 
 	if m.updateSubscriptionRatio != nil {
 		m.updateSubscriptionRatio()
@@ -1661,6 +1822,7 @@ func (m *AllocationManager) allocatePendingResources(spec *types.DecimalSpec,
 
 	// Store the allocation in the mapping.
 	m.allocationKernelReplicaMap.Store(key, allocation)
+	m.kernelAllocationMap.Store(kernelId, allocation)
 
 	// Update the pending/committed allocation counters.
 	m.numPendingAllocations.Add(1)
@@ -1733,6 +1895,7 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 
 	// Store the allocation in the mapping.
 	m.allocationKernelReplicaMap.Store(key, allocation)
+	m.kernelAllocationMap.Store(kernelId, allocation)
 
 	if decrementPending {
 		// Update the pending/committed allocation counters.
@@ -1786,6 +1949,10 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 			m.log.Error("Failed to update index for host %s", m.NodeId)
 			return err
 		}
+	}
+
+	if isPreCommitment {
+		m.numPreCommitments.Add(1)
 	}
 
 	// Update Prometheus metrics.
@@ -1874,6 +2041,11 @@ func (m *AllocationManager) releaseCommittedResources(allocation scheduling.Allo
 
 	if m.updateSubscriptionRatio != nil {
 		m.updateSubscriptionRatio()
+	}
+
+	if allocation.IsPreCommitted() {
+		m.numPreCommitments.Add(-1)
+		allocation.SetIsPreCommitted(false)
 	}
 
 	// Update Prometheus metrics.

@@ -7,6 +7,10 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const (
+	DefaultExecutionId = "N/A"
+)
+
 // AllocationManager is responsible for keeping track of resource allocations on behalf of the Local Daemon.
 // The AllocationManager allocates and deallocates HostResources to/from kernel replicas scheduled to run on the node.
 //
@@ -114,6 +118,11 @@ type AllocationManager interface {
 	PendingResources() *types.DecimalSpec
 	AdjustSpecGPUs(numGpus float64) error
 	ReplicaHasPendingGPUs(replicaId int32, kernelId string) bool
+	// KernelHasCommittedResources returns true if any replica of the specified kernel has resources committed to it.
+	KernelHasCommittedResources(kernelId string) bool
+	// HasReservationForKernel returns true if the target Host has a reservation for the specified kernel.
+	HasReservationForKernel(kernelId string) bool
+	// ReplicaHasCommittedResources returns true if the specified replica has resources committed to it.
 	ReplicaHasCommittedResources(replicaId int32, kernelId string) bool
 	ReplicaHasCommittedGPUs(replicaId int32, kernelId string) bool
 	AssertAllocationIsPending(allocation Allocation) bool
@@ -154,7 +163,8 @@ type AllocationManager interface {
 	//
 	// This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
 	// The sync.Mutex is released before the function returns.
-	CommitResourcesToExistingContainer(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) ([]int, error)
+	CommitResourcesToExistingContainer(replicaId int32, kernelId string, executionId string,
+		resourceRequestArg types.Spec, isReservation bool) ([]int, error)
 
 	// ReleaseCommittedResources uncommits/unbinds HostResources from a particular kernel replica, such that the
 	// HostResources are made available for use by other kernel replicas.
@@ -165,12 +175,13 @@ type AllocationManager interface {
 	//
 	// This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
 	// The sync.Mutex is released before the function returns.
-	ReleaseCommittedResources(replicaId int32, kernelId string, executionId int32) error
+	ReleaseCommittedResources(replicaId int32, kernelId string, executionId string) error
 	KernelReplicaScheduled(replicaId int32, kernelId string, spec types.Spec) error
 	ReplicaEvicted(replicaId int32, kernelId string) error
 	HasSufficientIdleResourcesAvailable(spec types.Spec) bool
 	GetGpuDeviceIdsAssignedToReplica(replicaId int32, kernelId string) ([]int, error)
 	HasSufficientIdleResourcesAvailableWithError(spec types.Spec) (bool, error)
+	PreCommitResourcesToExistingContainer(replicaId int32, kernelId string, executionId string, resourceRequestArg types.Spec) ([]int, error)
 
 	// CanServeContainerWithError returns nil if the target AllocationManager can serve the resource request.
 	//

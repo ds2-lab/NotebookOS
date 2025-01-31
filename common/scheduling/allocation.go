@@ -40,6 +40,8 @@ type Allocation interface {
 	IsPending() bool
 	IsCommitted() bool
 	GetKernelId() string
+	GetExecutionId() string
+	SetExecutionId(executionId string)
 	GetReplicaId() int32
 	SetReplicaId(replicaId int32)
 	SetGpuDeviceIds(deviceIds []int)

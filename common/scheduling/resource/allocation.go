@@ -47,6 +47,9 @@ type Allocation struct {
 	// Timestamp is the time at which the HostResources were allocated to the replica.
 	Timestamp time.Time `json:"timestamp"`
 
+	// ExecutionId is the Jupyter message ID ("msg_id" from the header) of the associated "execute_request" message.
+	ExecutionId string
+
 	// AllocationType indicates whether the Allocation is "pending" or "committed".
 	//
 	// "Pending" indicates that the HostResources are not "actually" allocated to the associated kernel replica.
@@ -290,6 +293,14 @@ func (a *Allocation) SetReplicaId(replicaId int32) {
 	a.ReplicaId = replicaId
 }
 
+func (a *Allocation) GetExecutionId() string {
+	return a.ExecutionId
+}
+
+func (a *Allocation) SetExecutionId(executionId string) {
+	a.ExecutionId = executionId
+}
+
 // AllocationBuilder is a utility struct whose purpose is to facilitate the creation of a
 // new Allocation struct.
 type AllocationBuilder struct {
@@ -303,6 +314,7 @@ type AllocationBuilder struct {
 	gpuDeviceIds    []int
 	replicaId       int32
 	kernelId        string
+	executionId     string
 	allocationType  scheduling.AllocationType
 }
 
@@ -313,6 +325,13 @@ func NewResourceAllocationBuilder() *AllocationBuilder {
 		allocationId: uuid.NewString(),
 		gpuDeviceIds: make([]int, 0),
 	}
+}
+
+// WithExecutionId allows the specification of the ExecutionId field, which is the Jupyter message ID ("msg_id" from
+// the header) of the associated "execute_request" message.
+func (b *AllocationBuilder) WithExecutionId(executionId string) *AllocationBuilder {
+	b.executionId = executionId
+	return b
 }
 
 // WithIdOverride enables the specification of a specific ID to be used as the Allocation ID of the Allocation
