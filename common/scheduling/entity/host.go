@@ -561,7 +561,7 @@ func (h *Host) NumContainers() int {
 
 // NumReservations returns the number of active reservations on the Host.
 func (h *Host) NumReservations() int {
-	return h.reservations.Len()
+	return h.allocationManager.NumReservations()
 }
 
 // PlacedMemoryMB returns the total amount of memory scheduled onto the Host, which is computed as the
@@ -714,23 +714,6 @@ func (h *Host) CanCommitResources(resourceRequest types.Spec) bool {
 	return h.allocationManager.CanCommitResources(resourceRequest)
 }
 
-func (h *Host) releaseCommittedReservation(spec *proto.KernelSpec, reservation *Reservation) error {
-	h.log.Debug("Releasing committed resources [%s] from reservation made for replica of kernel \"%s\". Current resources: %s.",
-		spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
-	err := h.unsafeReleaseCommittedResources(spec.DecimalSpecFromKernelSpec(), spec.Id, false)
-	if err != nil {
-		h.log.Error("Failed to release committed resource reservation for a replica of kernel %s: %v.",
-			spec.Id, err)
-		return err
-	}
-
-	h.log.Debug("Successfully released committed resources [%s] from reservation made for replica of kernel \"%s\". Updated resources: %s.",
-		spec.ResourceSpec.String(), spec.Id, h.GetResourceCountsAsString())
-
-	h.RecomputeSubscribedRatio()
-	return nil
-}
-
 func (h *Host) releasePendingReservation(spec *proto.KernelSpec) error {
 	err := h.subtractFromPendingResources(spec.DecimalSpecFromKernelSpec(), spec.Id, -1)
 	if err != nil {
@@ -752,20 +735,15 @@ func (h *Host) ReleaseReservation(spec *proto.KernelSpec) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	reservation, loadedReservation := h.reservations.LoadAndDelete(spec.Id)
-	if !loadedReservation {
-		h.log.Error("Cannot release resource reservation associated with kernel %s; no reservations found.", spec.Id)
-		return fmt.Errorf("%w: kernel %s", ErrReservationNotFound, spec.Id)
+	err := h.allocationManager.ReleaseReservation(spec)
+	if err != nil {
+		panic(err)
 	}
 
 	// No longer being considered.
 	h.isBeingConsideredForScheduling.Add(-1)
 
-	if !reservation.CreatedUsingPendingResources {
-		return h.releaseCommittedReservation(spec, reservation)
-	}
-
-	return h.releasePendingReservation(spec)
+	return nil
 }
 
 // ReserveResourcesForSpecificReplica attempts to reserve the resources required by the specified kernel replica,
@@ -824,8 +802,8 @@ func (h *Host) reserveResources(replicaId int32, kernelId string, resourceReques
 }
 
 // GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
-func (h *Host) GetReservation(kernelId string) (scheduling.ResourceReservation, bool) {
-	return h.reservations.Load(kernelId)
+func (h *Host) GetReservation(kernelId string) (scheduling.Allocation, bool) {
+	return h.allocationManager.GetReservation(kernelId)
 }
 
 func (h *Host) GetResourceSpec() types.Spec {
@@ -890,44 +868,6 @@ func (h *Host) Disable() error {
 	return nil
 }
 
-// doContainerRemovedResourceUpdate updates the local resource counts of the target Host following (or as a part of)
-// the removal of the parameterized Container.
-//
-// If there's an error while updating the local view of the resource counts of the Host, then we attempt to
-// synchronize with the remote Host and try again. If that fails, then we just return an error.
-func (h *Host) doContainerRemovedResourceUpdate(container scheduling.KernelContainer) error {
-	if h.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
-		h.log.Debug("Releasing committed resources [%s] from replica %d of kernel \"%s\" during eviction process. Current resources: %s.",
-			container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
-		err := h.unsafeReleaseCommittedResources(container.ResourceSpec(), container.KernelID(), true)
-		if err != nil {
-			h.log.Error("Failed to release committed resources %s from container for replica %d of kernel %s during eviction process: %v",
-				container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), err)
-
-			err2 := h.unsafeHandleResourceError()
-			if err2 != nil {
-				err = errors.Join(err, err2)
-			}
-
-			return err
-		} else {
-			h.log.Debug("Successfully released committed resources [%s] from replica %d of kernel \"%s\" during eviction process. Updated resources: %s.",
-				container.ResourceSpec().String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
-		}
-	}
-
-	err := h.subtractFromPendingResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId())
-	if err != nil {
-		err2 := h.unsafeHandleResourceError()
-		if err2 != nil {
-			err = errors.Join(err, err2)
-		}
-
-		return err
-	}
-	return nil
-}
-
 // ContainerStoppedTraining is to be called when a Container stops training on a Host.
 func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) error {
 	h.schedulingMutex.Lock()
@@ -948,106 +888,11 @@ func (h *Host) ContainerStoppedTraining(container scheduling.KernelContainer) er
 		h.log.Debug("Releasing committed resources [%s] from replica %d of kernel \"%s\". Current resources: %s.",
 			spec.String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
 
-		err := h.unsafeReleaseCommittedResources(spec, container.KernelID(), true)
-		if err != nil {
-			h.log.Error("Failed to deallocate resources from previously-training replica %d of kernel %s: %v",
-				container.ReplicaId(), container.KernelID(), err)
-			err2 := h.unsafeHandleResourceError()
-			if err2 != nil {
-				// If we encountered ANOTHER error while trying to rebuild our resource information, then
-				// we'll just join them together and return them both.
-				err = errors.Join(err2)
-			}
-		} else {
-			h.log.Debug("Released committed resources [%s] from replica %d of kernel \"%s\". Updated resources: %s.",
-				spec.String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
-		}
-
 		// TODO: Check against execute request ID.
-		if _, loaded := h.containersWithPreCommittedResources[container.ContainerID()]; loaded {
-			h.log.Debug("Removing 'pre-committed resources' record for replica %d of kernel \"%s\" "+
-				"now that it is done training.", container.ReplicaId(), container.KernelID())
-
-			delete(h.containersWithPreCommittedResources, container.ContainerID())
-		}
+		err := h.allocationManager.ReleaseCommittedResources(container.ReplicaId(), container.KernelID(), -1)
 
 		return err // Will be nil if nothing bad happened when un-committing the resources.
 	}
-
-	return nil
-}
-
-func (h *Host) unsafeHandleResourceError() error {
-	h.log.Warn("Recomputing all resource quantities. There are %d container(s) scheduled on the host.",
-		h.containers.Len())
-
-	// Recompute allocated resources.
-	idle := h.resourceSpec.CloneDecimalSpec()
-	pending := types.NewDecimalSpec(0, 0, 0, 0)
-	committed := types.NewDecimalSpec(0, 0, 0, 0)
-
-	h.containers.Range(func(containerId string, container scheduling.KernelContainer) bool {
-		containerSpec := types.ToDecimalSpec(container.ResourceSpec())
-
-		record, containerHasPreCommittedResources := h.containersWithPreCommittedResources[container.ContainerID()]
-
-		// Depending on the state of the container, we'll recompute the resources differently.
-		if containerHasPreCommittedResources {
-			h.log.Warn("Container for replica %d of kernel %s has the following resources pre-committed to it: %v.",
-				container.ReplicaId(), container.KernelID(), record.PreCommittedResources.String())
-
-			// Print a warning if they're no longer equal. I don't think this should happen, but maybe with
-			// certain particularly rough message delays, it could?
-			if !containerSpec.Equals(record.PreCommittedResources) {
-				h.log.Warn("Container for replica %d of kernel %s has current spec: %s. This is different than the pre-committed resources: %s.",
-					container.ReplicaId(), container.KernelID(), containerSpec.String(), record.PreCommittedResources.String())
-			}
-
-			committed = types.ToDecimalSpec(committed.Add(record.PreCommittedResources))
-			idle = idle.Subtract(record.PreCommittedResources)
-
-			h.log.Warn("Updated WIP committed resources: %v; Updated WIP idle resources: %v", committed.String(), idle.String())
-		} else if container.IsTraining() {
-			h.log.Warn("Container for replica %d of kernel %s is actively training with the following resources committed to it: %v",
-				container.ReplicaId(), container.KernelID(), containerSpec.String())
-
-			record, ok := h.kernelsWithCommittedResources[container.KernelID()]
-			if !ok {
-				h.log.Error("Container for replica %d of kernel %s is supposedly training, but no record of allocated resources available...",
-					container.ReplicaId(), container.KernelID())
-
-				// Skip
-				return true
-			}
-
-			// Print a warning if they're no longer equal. I don't think this should happen, but maybe with
-			// certain particularly rough message delays, it could?
-			if !containerSpec.Equals(record.ResourcesCommitted) {
-				h.log.Warn("Container for replica %d of kernel %s has current spec: %s. This is different than the pre-committed resources: %s.",
-					container.ReplicaId(), container.KernelID(), containerSpec.String(), record.ResourcesCommitted.String())
-			}
-
-			committed = types.ToDecimalSpec(committed.Add(record.ResourcesCommitted))
-			idle = idle.Subtract(record.ResourcesCommitted)
-
-			h.log.Warn("Updated WIP committed resources: %v; Updated WIP idle resources: %v", committed.String(), idle.String())
-		} else {
-			h.log.Warn("Container for replica %d of kernel %s is idle with the following pending resources: %v",
-				container.ReplicaId(), container.KernelID(), containerSpec.String())
-
-			pending = types.ToDecimalSpec(pending.Add(containerSpec))
-
-			h.log.Warn("Updated WIP pending resources: %v", pending.String())
-		}
-
-		return true
-	})
-
-	h.resourceManager.IdleResources().SetTo(idle)
-	h.resourceManager.PendingResources().SetTo(pending)
-	h.resourceManager.CommittedResources().SetTo(committed)
-
-	h.log.Warn("Recomputed resources: %s", h.GetResourceCountsAsString())
 
 	return nil
 }
@@ -1071,47 +916,10 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	// If the resource binding mode is instead BindResourcesWhenContainerScheduled, then they're already
 	// committed to the container, and so we don't have to do anything else and can just return nil,
 	// as we do below.
-	if h.schedulingPolicy.ResourceBindingMode() == scheduling.BindResourcesAtTrainingStart {
-		existingContainer, loaded := h.kernelsWithCommittedResources[container.KernelID()]
-		if loaded {
-			h.log.Debug("Resources were already committed to replica %d of kernel \"%s\" upon training start %v ago. Must have been migrated recently. Resources committed: %v.",
-				container.ReplicaId(), container.KernelID(), time.Since(existingContainer.CommittedAt), existingContainer.ResourcesCommitted)
-
-			return nil
-		}
-
-		h.log.Debug("Committing resources %v to container for replica %d of kernel \"%s\" so it can train.",
-			container.ResourceSpec().String(), container.ReplicaId(), container.KernelID())
-
-		return h.unsafeCommitResources(container.ResourceSpec(), container.KernelID(), container.ReplicaId(), true)
+	if !h.allocationManager.ReplicaHasCommittedResources(container.ReplicaId(), container.KernelID()) {
+		panic(fmt.Sprintf("Replica %d of kernel %s has started training. Resources should be committed.",
+			container.ReplicaId(), container.KernelID()))
 	}
-
-	return nil
-}
-
-// unsafeReleaseCommittedResources releases the specified resources and returns nil on success.
-// unsafeReleaseCommittedResources is not thread safe and should only be called with the schedulingMutex already held.
-func (h *Host) unsafeUncommitResourcesOld(spec *types.DecimalSpec, kernelId string) error {
-	if _, loaded := h.kernelsWithCommittedResources[kernelId]; !loaded {
-		h.log.Error("Cannot release committed resources from replica of kernel \"%s\". No replica of kernel \"%s\" has resources committed to it. (Requested to release: %s)",
-			kernelId, kernelId, spec.String())
-		return fmt.Errorf("%w: cannot release pre-committed resources from replica of kernel %s on host %s (ID=%s)",
-			ErrInvalidContainer, kernelId, h.NodeName, h.ID)
-	}
-
-	if err := h.resourceManager.CommittedResources().Subtract(spec); err != nil {
-		return err
-	}
-
-	if err := h.resourceManager.PendingResources().Add(spec); err != nil {
-		return err
-	}
-
-	if err := h.resourceManager.IdleResources().Add(spec); err != nil {
-		return err
-	}
-
-	delete(h.kernelsWithCommittedResources, kernelId)
 
 	return nil
 }
@@ -1244,114 +1052,17 @@ func (h *Host) ReleasePreCommitedResources(container scheduling.KernelContainer,
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
-	return h.unsafeReleasePreCommitedResources(container, executionId)
-}
-
-// unsafeReleasePreCommitedResources does the work of ReleasePreCommitedResources but does not acquire any
-// mutexes itself.
-//
-// unsafeReleasePreCommitedResources should only be called if the Host's schedulingMutex is already held.
-func (h *Host) unsafeReleasePreCommitedResources(container scheduling.KernelContainer, executionId string) error {
-	record, loaded := h.containersWithPreCommittedResources[container.ContainerID()]
-
-	if !loaded {
-		h.log.Warn("Resources are not pre-commited to replica %d of kernel \"%s\" in any capacity.",
-			container.ReplicaId(), container.KernelID())
-		return fmt.Errorf("%w: resources are not pre-committed to container for replica %d of kernel %s on host %s (ID=%s)",
-			ErrInvalidContainer, container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
-	}
+	err := h.allocationManager.ReleaseCommittedResources(container.ReplicaId(), container.KernelID(), executionId)
 
 	// We know we found a pre-committed resource allocation.
 	// Let's check if the execution ID matches.
 	// If not, we'll assume that we already released it and just return.
-	if record.ExecutionId != executionId {
-		h.log.Warn("Resources are pre-committed to replica %d of kernel \"%s\" for execution \"%s\", not execution \"%s\". Resources committed: %v.",
-			container.ReplicaId(), container.KernelID(), record.ExecutionId, executionId,
-			record.PreCommittedResources.String())
-
+	if errors.Is(err, resource.ErrInvalidAllocationType) {
 		return nil
 	}
 
-	// Print a warning if they're no longer equal. I don't think this should happen, but maybe with
-	// certain particularly rough message delays, it could?
-	if !container.ResourceSpec().Equals(record.PreCommittedResources) {
-		h.log.Warn("Container for replica %d of kernel %s has current spec: %s. This is different than the pre-committed resources: %s.",
-			container.ReplicaId(), container.KernelID(), container.ResourceSpec().String(), record.PreCommittedResources.String())
-	}
-
-	spec := record.PreCommittedResources
-	err := h.unsafeReleaseCommittedResources(spec, container.KernelID(), true)
 	if err != nil {
-		h.log.Error("Failed to release pre-committed resources (%s) from replica %d of kernel \"%s\": %v",
-			spec.String(), container.ReplicaId(), container.KernelID(), err)
-		return err
-	}
-
-	delete(h.containersWithPreCommittedResources, container.ContainerID())
-	h.log.Debug("Released pre-committed resources [%s] from replica %d of kernel \"%s\". Updated resource counts: %s.",
-		spec.String(), container.ReplicaId(), container.KernelID(), h.GetResourceCountsAsString())
-
-	return nil
-}
-
-// unsafeCommitResources is the inverse of unsafeReleaseCommittedResources.
-func (h *Host) unsafeCommitResources(spec *types.DecimalSpec, kernelId string, replicaId int32, decrementPending bool) error {
-	if existingContainerWithCommittedResource, loaded := h.kernelsWithCommittedResources[kernelId]; loaded {
-		h.log.Error("Attempting to commit resources [%s] to replica %d of kernel %s, but we've already committed resources to replica %d of kernel %s.",
-			spec.String(), replicaId, kernelId, existingContainerWithCommittedResource.ReplicaId, kernelId)
-		return fmt.Errorf("%w (replica %d of kernel \"%s\")",
-			ErrResourcesAlreadyCommitted, existingContainerWithCommittedResource.ReplicaId, kernelId)
-	}
-
-	if replicaId > 0 {
-		h.log.Debug("Attempting to commit resources [%v] to replica %d of kernel %s. Host resource counts: %v.",
-			spec.String(), replicaId, kernelId, h.GetResourceCountsAsString())
-	} else {
-		h.log.Debug("Attempting to commit resources [%v] to replica of kernel %s. Host resource counts: %v.",
-			spec.String(), kernelId, h.GetResourceCountsAsString())
-	}
-
-	err := h.resourceManager.RunTransaction(func(state *transaction.State) {
-		state.CommittedResources().Add(spec)
-
-		if decrementPending {
-			state.PendingResources().Subtract(spec)
-		}
-
-		state.IdleResources().Subtract(spec)
-	})
-
-	if err != nil {
-		h.log.Warn("Failed to commit resources [%s] to replica %d of kernel %s: %v",
-			spec.String(), replicaId, kernelId, err)
-		return err
-	}
-
-	err = h.indexUpdater.UpdateIndex(h)
-	if err != nil {
-		h.log.Error("Failed to update index for host %s after committing resources to replica %d of kernel %s: %v",
-			h.NodeName, replicaId, kernelId, err)
-		// Ignore error for now...
-		// TODO: Should we really ignore it?
-	}
-
-	// Save the exact resources that were allocated to the kernel so that we can
-	// deallocate the right amount in the future.
-	record := &containerWithCommittedResources{
-		AllocationId:       uuid.NewString(),
-		KernelId:           kernelId,
-		ReplicaId:          replicaId,
-		ResourcesCommitted: spec,
-		CommittedAt:        time.Now(),
-	}
-	h.kernelsWithCommittedResources[kernelId] = record
-
-	if replicaId > 0 {
-		h.log.Debug("Successfully committed resources [%v] to replica %d of kernel %s with AllocationID=%s. Host resource counts: %v.",
-			spec.String(), replicaId, kernelId, record.AllocationId, h.GetResourceCountsAsString())
-	} else {
-		h.log.Debug("Successfully committed resources [%v] to replica of kernel %s with AllocationID=%s. Host resource counts: %v.",
-			spec.String(), kernelId, record.AllocationId, h.GetResourceCountsAsString())
+		panic(err)
 	}
 
 	return nil
@@ -1369,10 +1080,9 @@ func (h *Host) ContainerRemoved(container scheduling.KernelContainer) error {
 	}
 
 	h.containers.Delete(container.ContainerID())
-
 	h.pendingContainers.Sub(1)
 
-	err := h.doContainerRemovedResourceUpdate(container)
+	err := h.allocationManager.ReplicaEvicted(container.ReplicaId(), container.Ker)
 	if err != nil {
 		h.log.Error("Error while updating resources of host while evicting container %s: %v",
 			container.ContainerID(), err)
@@ -1392,26 +1102,9 @@ func (h *Host) ContainerScheduled(container scheduling.KernelContainer) error {
 	h.containers.Store(container.ContainerID(), container)
 	h.pendingContainers.Add(1)
 
-	// Delete the reservation. Log an error message if there is no reservation.
-	reservation, loadedReservation := h.reservations.LoadAndDelete(container.KernelID())
-	if !loadedReservation {
-		h.log.Error("No reservation found for replica of kernel %s; "+
-			"however, we just received a notification that replica %d of kernel %s has started on host %s (ID=%s)...",
-			container.KernelID(), container.ReplicaId(), container.KernelID(), h.ID, h.NodeName)
-
-		return fmt.Errorf("%w: kernel %s", ErrReservationNotFound, container.KernelID())
-	}
-
-	h.log.Debug("Container %s was officially started on onto Host %s %v after reservation was created.",
-		container.ContainerID(), h.ID, time.Since(reservation.CreationTimestamp))
-
-	if !reservation.CreatedUsingPendingResources {
-		record, loaded := h.kernelsWithCommittedResources[container.KernelID()]
-		if loaded && record.ReplicaId == -1 {
-			h.log.Debug("Updating missing ReplicaId field of committed resource record for replica %d of kernel %s",
-				container.ReplicaId(), container.KernelID())
-			record.ReplicaId = container.ReplicaId()
-		}
+	err := h.allocationManager.KernelReplicaScheduled(container.ReplicaId(), container.KernelID(), container.ResourceSpec())
+	if err != nil {
+		panic(err)
 	}
 
 	// Container was scheduled onto us, so we're no longer being considered for scheduling, as the scheduling

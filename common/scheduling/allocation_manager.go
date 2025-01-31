@@ -121,6 +121,10 @@ type AllocationManager interface {
 	NumAllocations() int
 	NumCommittedAllocations() int
 	NumPendingAllocations() int
+	NumReservations() int
+
+	// GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
+	GetReservation(kernelId string) (Allocation, bool)
 	GetAllocation(replicaId int32, kernelId string) (Allocation, bool)
 	PromotePreCommitment(replicaId int32, kernelId string) error
 	AdjustPendingResources(replicaId int32, kernelId string, updatedSpec types.Spec) error
@@ -161,7 +165,7 @@ type AllocationManager interface {
 	//
 	// This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
 	// The sync.Mutex is released before the function returns.
-	ReleaseCommittedResources(replicaId int32, kernelId string) error
+	ReleaseCommittedResources(replicaId int32, kernelId string, executionId int32) error
 	KernelReplicaScheduled(replicaId int32, kernelId string, spec types.Spec) error
 	ReplicaEvicted(replicaId int32, kernelId string) error
 	HasSufficientIdleResourcesAvailable(spec types.Spec) bool

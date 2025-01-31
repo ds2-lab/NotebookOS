@@ -747,6 +747,26 @@ func (m *AllocationManager) NumPendingAllocations() int {
 	return int(m.numPendingAllocations.Load())
 }
 
+// GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
+func (m *AllocationManager) GetReservation(kernelId string) (scheduling.Allocation, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	key := getKey(replicaIdForReservation, kernelId)
+
+	alloc, loaded := m.allocationKernelReplicaMap.Load(key)
+	if !alloc.IsReservation() {
+		return nil, false
+	}
+
+	return alloc, loaded
+}
+
+// NumReservations returns the number of active reservations on the scheduling.Host.
+func (m *AllocationManager) NumReservations() int {
+	return int(m.numReservations.Load())
+}
+
 // GetAllocation returns the Allocation associated with the specific kernel replica, if one exists.
 func (m *AllocationManager) GetAllocation(replicaId int32, kernelId string) (scheduling.Allocation, bool) {
 	m.mu.Lock()
@@ -961,7 +981,7 @@ func (m *AllocationManager) CommitResourcesToExistingContainer(replicaId int32, 
 //
 // This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
 // The sync.Mutex is released before the function returns.
-func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId string) error {
+func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId string, executionId int32) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -973,7 +993,7 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Error("Cannot release committed HostResources bound to replica %d of kernel %s: no existing resource "+
+		m.log.Warn("Cannot release committed HostResources bound to replica %d of kernel %s: no existing resource "+
 			"allocation found for that kernel replica.", replicaId, kernelId)
 		return fmt.Errorf("%w: no pending resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
@@ -1211,13 +1231,46 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 		allocationExists bool
 	)
 
-	// Verify that there does not already exist an allocation associated with the specified kernel replica.
+	// Verify that there does not already exist an allocation or reservation associated with the specified kernel replica.
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); allocationExists {
-		m.log.Error("Cannot subscribe pending HostResources to replica %d of kernel %s: found existing resource "+
-			"allocation associated to that kernel replica: %s", replicaId, kernelId, allocation.String())
+		// If the existing allocation is a reservation, then just "promote" the reservation to a standard
+		// allocation, decrement the "number of reservations" counter, and return nil (i.e., no error).
+		if allocation.IsReservation() {
+			allocation.SetIsReservation(false)
+			m.allocationKernelReplicaMap.Store(key, allocation)
+			m.numReservations.Add(-1)
+			return nil
+		}
+
+		m.log.Error("Cannot subscribe pending HostResources to replica %d of kernel %s: found existing, non-reservation "+
+			"allocation associated with that kernel replica: %s", replicaId, kernelId, allocation.String())
 		return fmt.Errorf("%w: existing resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
+	}
+
+	// Verify that there does not already exist a reservation associated with an unspecified kernel replica.
+	if replicaId != replicaIdForReservation {
+		key = getKey(replicaIdForReservation, kernelId)
+		if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); allocationExists {
+			// If the existing allocation is a reservation, then just "promote" the reservation to a standard
+			// allocation, decrement the "number of reservations" counter, and return nil (i.e., no error).
+			if !allocation.IsReservation() {
+				panic(fmt.Sprintf("Reservation for unspecified replica of kernel %s is not a reservation...", kernelId))
+			}
+
+			m.log.Debug("Promoting reservation for replica %d of kernel %s to 'regular' allocation.",
+				replicaId, kernelId)
+
+			m.allocationKernelReplicaMap.Delete(key)
+			key = getKey(replicaId, kernelId)
+
+			allocation.SetIsReservation(false)
+			allocation.SetReplicaId(replicaId)
+			m.allocationKernelReplicaMap.Store(key, allocation)
+			m.numReservations.Add(-1)
+			return nil
+		}
 	}
 
 	// Construct the new Allocation using the resource quantities specified in the spec argument.

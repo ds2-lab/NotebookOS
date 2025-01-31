@@ -41,6 +41,7 @@ type Allocation interface {
 	IsCommitted() bool
 	GetKernelId() string
 	GetReplicaId() int32
+	SetReplicaId(replicaId int32)
 	SetGpuDeviceIds(deviceIds []int)
 	ClearGpuDeviceIds()
 	GetTimestamp() time.Time

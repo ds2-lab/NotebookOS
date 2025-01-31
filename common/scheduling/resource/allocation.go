@@ -286,6 +286,10 @@ func (a *Allocation) SetMillicpus(millicpus decimal.Decimal) {
 	a.Millicpus = millicpus.Copy()
 }
 
+func (a *Allocation) SetReplicaId(replicaId int32) {
+	a.ReplicaId = replicaId
+}
+
 // AllocationBuilder is a utility struct whose purpose is to facilitate the creation of a
 // new Allocation struct.
 type AllocationBuilder struct {
