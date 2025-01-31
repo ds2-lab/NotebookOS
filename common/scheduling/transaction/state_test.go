@@ -27,7 +27,7 @@ var _ = Describe("State", func() {
 			Expect(state.CommittedResources().Equals(spec1)).To(BeTrue())
 			Expect(state.SpecResources().Equals(spec2)).To(BeTrue())
 
-			err := state.Validate()
+			_, err := state.Validate()
 			if err != nil {
 				GinkgoWriter.Printf("Validation error: %v\n", err)
 			}
@@ -48,7 +48,7 @@ var _ = Describe("State", func() {
 
 				state := transaction.NewState(idle, pending, committed, spec)
 
-				err := state.Validate()
+				_, err := state.Validate()
 				if err != nil {
 					GinkgoWriter.Printf("Validation error: %v\n", err)
 				}
@@ -69,7 +69,7 @@ var _ = Describe("State", func() {
 
 				state := transaction.NewState(idle, pending, committed, spec)
 
-				err := state.Validate()
+				_, err := state.Validate()
 				if err != nil {
 					GinkgoWriter.Printf("Validation error: %v\n", err)
 				}
@@ -90,7 +90,7 @@ var _ = Describe("State", func() {
 
 				state := transaction.NewState(idle, pending, committed, spec)
 
-				err := state.Validate()
+				_, err := state.Validate()
 				if err != nil {
 					GinkgoWriter.Printf("Validation error: %v\n", err)
 				}
@@ -113,7 +113,7 @@ var _ = Describe("State", func() {
 
 					state := transaction.NewState(idle, pending, committed, spec)
 
-					err := state.Validate()
+					_, err := state.Validate()
 					if err != nil {
 						GinkgoWriter.Printf("Validation error: %v\n", err)
 					}
@@ -133,7 +133,7 @@ var _ = Describe("State", func() {
 
 					state := transaction.NewState(idle, pending, committed, spec)
 
-					err := state.Validate()
+					_, err := state.Validate()
 					if err != nil {
 						GinkgoWriter.Printf("Validation error: %v\n", err)
 					}
@@ -153,7 +153,7 @@ var _ = Describe("State", func() {
 
 					state := transaction.NewState(idle, pending, committed, spec)
 
-					err := state.Validate()
+					_, err := state.Validate()
 					if err != nil {
 						GinkgoWriter.Printf("Validation error: %v\n", err)
 					}
@@ -172,7 +172,7 @@ var _ = Describe("State", func() {
 
 					state := transaction.NewState(idle, pending, committed, spec)
 
-					err := state.Validate()
+					_, err := state.Validate()
 					if err != nil {
 						GinkgoWriter.Printf("Validation error: %v\n", err)
 					}

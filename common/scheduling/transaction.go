@@ -39,12 +39,17 @@ type TransactionState interface {
 	PendingResources() TransactionResources
 	CommittedResources() TransactionResources
 	SpecResources() TransactionResources
-	Validate() error
+	Clone() TransactionState
+
+	// Validate checks if the Transaction can be committed or if it results in an invalid state.
+	// If the state is invalid, then the offending ResourceKind is returned, if applicable.
+	Validate() (ResourceKind, error)
 	SetParticipantId(id int32)
 	GetParticipantId() int32
 }
 
 type TransactionResources interface {
+	Clone() TransactionResources
 	Sanitize(min types.Spec, max types.Spec)
 	Initial() types.Spec
 	IsMutable() bool

@@ -731,7 +731,7 @@ func (res *HostResources) ValidateWithError(spec types.Spec) error {
 	}
 
 	if len(offendingKinds) > 0 {
-		return NewInsufficientResourcesError(res.unsafeToDecimalSpec(), spec, offendingKinds)
+		return scheduling.NewInsufficientResourcesError(res.unsafeToDecimalSpec(), spec, offendingKinds)
 	} else {
 		return nil
 	}

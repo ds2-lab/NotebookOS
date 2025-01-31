@@ -11368,6 +11368,20 @@ func (m *MockTransactionState) EXPECT() *MockTransactionStateMockRecorder {
 	return m.recorder
 }
 
+// Clone mocks base method.
+func (m *MockTransactionState) Clone() scheduling.TransactionState {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Clone")
+	ret0, _ := ret[0].(scheduling.TransactionState)
+	return ret0
+}
+
+// Clone indicates an expected call of Clone.
+func (mr *MockTransactionStateMockRecorder) Clone() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Clone", reflect.TypeOf((*MockTransactionState)(nil).Clone))
+}
+
 // CommittedResources mocks base method.
 func (m *MockTransactionState) CommittedResources() scheduling.TransactionResources {
 	m.ctrl.T.Helper()
@@ -11451,11 +11465,12 @@ func (mr *MockTransactionStateMockRecorder) SpecResources() *gomock.Call {
 }
 
 // Validate mocks base method.
-func (m *MockTransactionState) Validate() error {
+func (m *MockTransactionState) Validate() (scheduling.ResourceKind, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Validate")
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(scheduling.ResourceKind)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // Validate indicates an expected call of Validate.
@@ -11498,6 +11513,20 @@ func (m *MockTransactionResources) Add(spec types.Spec) {
 func (mr *MockTransactionResourcesMockRecorder) Add(spec any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockTransactionResources)(nil).Add), spec)
+}
+
+// Clone mocks base method.
+func (m *MockTransactionResources) Clone() scheduling.TransactionResources {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Clone")
+	ret0, _ := ret[0].(scheduling.TransactionResources)
+	return ret0
+}
+
+// Clone indicates an expected call of Clone.
+func (mr *MockTransactionResourcesMockRecorder) Clone() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Clone", reflect.TypeOf((*MockTransactionResources)(nil).Clone))
 }
 
 // Equals mocks base method.

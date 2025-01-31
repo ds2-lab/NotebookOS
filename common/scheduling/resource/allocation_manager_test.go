@@ -187,7 +187,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			GinkgoWriter.Printf("Error: %v\n", err)
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			ok := errors.As(err, &insufficientResourcesError)
 			Expect(ok).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
@@ -402,7 +402,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 			Expect(err).ToNot(BeNil())
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 			Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
@@ -417,7 +417,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 			Expect(err).ToNot(BeNil())
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 			Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
@@ -457,7 +457,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err = resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 			Expect(err).ToNot(BeNil())
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 			Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
@@ -781,7 +781,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			GinkgoWriter.Printf("Error: %v\n", err)
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			ok := errors.As(err, &insufficientResourcesError)
 			Expect(ok).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
@@ -996,7 +996,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 			Expect(err).ToNot(BeNil())
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 			Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
@@ -1011,7 +1011,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 			Expect(err).ToNot(BeNil())
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 			Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
@@ -1051,7 +1051,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err = resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 			Expect(err).ToNot(BeNil())
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 			Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
@@ -1375,7 +1375,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			GinkgoWriter.Printf("Error: %v\n", err)
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			ok := errors.As(err, &insufficientResourcesError)
 			Expect(ok).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
@@ -1590,7 +1590,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 			Expect(err).ToNot(BeNil())
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 			Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
@@ -1605,7 +1605,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err := resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 			Expect(err).ToNot(BeNil())
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 			Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))
@@ -1645,7 +1645,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			err = resourceManager.KernelReplicaScheduled(1, "Kernel1", kernel1Spec)
 			Expect(err).ToNot(BeNil())
 
-			var insufficientResourcesError resource.InsufficientResourcesError
+			var insufficientResourcesError scheduling.InsufficientResourcesError
 			Expect(errors.As(err, &insufficientResourcesError)).To(BeTrue())
 			Expect(insufficientResourcesError).ToNot(BeNil())
 			Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(1))

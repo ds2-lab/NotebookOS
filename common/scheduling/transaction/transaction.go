@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"errors"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"sync"
@@ -12,6 +13,7 @@ type Transaction struct {
 
 	operation scheduling.TransactionOperation
 	state     scheduling.TransactionState
+	//initialState scheduling.TransactionState
 
 	complete  atomic.Bool
 	succeeded atomic.Bool
@@ -25,6 +27,7 @@ func New(operation scheduling.TransactionOperation, initialState scheduling.Tran
 	tx := &Transaction{
 		operation: operation,
 		state:     initialState,
+		//initialState: initialState.Clone(),
 	}
 
 	tx.complete.Store(false)
@@ -66,7 +69,15 @@ func (t *Transaction) run() {
 //
 // This is NOT thread-safe.
 func (t *Transaction) validateState() error {
-	return t.state.Validate()
+	offendingKind, err := t.state.Validate()
+
+	if errors.Is(err, ErrNegativeResourceCount) {
+		return errors.Join(
+			scheduling.NewInsufficientResourcesError(
+				nil, nil, []scheduling.ResourceKind{offendingKind}), err)
+	}
+
+	return err
 }
 
 // setFinished is used internally to mark the Transaction as complete and to record whether it succeeded.

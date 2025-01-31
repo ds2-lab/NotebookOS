@@ -24,6 +24,11 @@ func NewResources(initial *types.DecimalSpec, isMutable bool) *Resources {
 	}
 }
 
+func (t *Resources) Clone() scheduling.TransactionResources {
+	clone := *t
+	return &clone
+}
+
 // Sanitize attempts to round all of its working resource values to either the min or the max, if any corresponding
 // quantities are within epsilon of the quantity in min or max.
 func (t *Resources) Sanitize(min types.Spec, max types.Spec) {

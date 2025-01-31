@@ -23,6 +23,16 @@ func NewState(idleResources *Resources, pendingResources *Resources, committedRe
 	}
 }
 
+func (t *State) Clone() scheduling.TransactionState {
+	return &State{
+		ParticipantId:      t.ParticipantId,
+		idleResources:      t.idleResources.Clone().(*Resources),
+		pendingResources:   t.pendingResources.Clone().(*Resources),
+		committedResources: t.committedResources.Clone().(*Resources),
+		specResources:      t.specResources.Clone().(*Resources),
+	}
+}
+
 func (t *State) SetParticipantId(id int32) {
 	t.ParticipantId = id
 }
@@ -48,29 +58,29 @@ func (t *State) SpecResources() scheduling.TransactionResources {
 }
 
 // Validate checks that the operation state is in a valid state. Validate error returns nil if so.
-func (t *State) Validate() error {
+func (t *State) Validate() (scheduling.ResourceKind, error) {
 	if hasNegativeField, kind := t.idleResources.hasNegativeWorkingField(); hasNegativeField {
-		return fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
+		return kind, fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
 			IdleResources.String(), kind.String(), getQuantityOfResourceKind(t.idleResources, kind))
 	}
 
 	if hasNegativeField, kind := t.pendingResources.hasNegativeWorkingField(); hasNegativeField {
-		return fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
+		return kind, fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
 			PendingResources.String(), kind.String(), getQuantityOfResourceKind(t.pendingResources, kind))
 	}
 
 	if hasNegativeField, kind := t.committedResources.hasNegativeWorkingField(); hasNegativeField {
-		return fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
+		return kind, fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
 			CommittedResources.String(), kind.String(), getQuantityOfResourceKind(t.committedResources, kind))
 	}
 
 	if hasNegativeField, kind := t.specResources.hasNegativeWorkingField(); hasNegativeField {
-		return fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
+		return kind, fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
 			SpecResources.String(), kind.String(), getQuantityOfResourceKind(t.specResources, kind))
 	}
 
 	if isLessThanOrEqual, offendingKind := t.committedResources.LessThanOrEqual(t.specResources.initial); !isLessThanOrEqual {
-		return fmt.Errorf("%w: %s %s (%s) would exceed %s %s (%s)",
+		return offendingKind, fmt.Errorf("%w: %s %s (%s) would exceed %s %s (%s)",
 			ErrTransactionFailed, CommittedResources.String(), offendingKind.String(),
 			getQuantityOfResourceKind(t.committedResources, offendingKind).StringFixed(4),
 			offendingKind.String(), SpecResources.String(),
@@ -78,7 +88,7 @@ func (t *State) Validate() error {
 	}
 
 	if isLessThanOrEqual, offendingKind := t.idleResources.LessThanOrEqual(t.specResources.initial); !isLessThanOrEqual {
-		return fmt.Errorf("%w: %s %s (%s) would exceed %s %s (%s)",
+		return offendingKind, fmt.Errorf("%w: %s %s (%s) would exceed %s %s (%s)",
 			ErrTransactionFailed, IdleResources.String(), offendingKind.String(),
 			getQuantityOfResourceKind(t.idleResources, offendingKind).StringFixed(4),
 			offendingKind.String(), SpecResources.String(),
@@ -90,9 +100,9 @@ func (t *State) Validate() error {
 	combinedSpec := idleSpec.Add(committedSpec)
 
 	if !combinedSpec.Equals(t.specResources.working) {
-		return fmt.Errorf("%w: idle resources [%s] + committed resources [%s] should equal spec resources [%s]; instead, they equal [%s]",
+		return scheduling.NoResource, fmt.Errorf("%w: idle resources [%s] + committed resources [%s] should equal spec resources [%s]; instead, they equal [%s]",
 			ErrTransactionFailed, idleSpec.String(), committedSpec.String(), combinedSpec.String(), t.specResources.working.String())
 	}
 
-	return nil
+	return scheduling.NoResource, nil
 }
