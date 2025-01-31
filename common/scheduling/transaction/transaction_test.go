@@ -47,7 +47,7 @@ var _ = Describe("Transaction Tests", func() {
 	})
 
 	It("Should reject participants that would result in invalid resource counts", func() {
-		operation := func(state *transaction.State) {
+		operation := func(state scheduling.TransactionState) {
 			state.PendingResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 			state.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 

@@ -10,19 +10,19 @@ import (
 // *Resources struct.
 func getQuantityOfResourceKind(res *Resources, kind scheduling.ResourceKind) decimal.Decimal {
 	switch kind {
-	case CPU:
+	case scheduling.CPU:
 		{
 			return res.working.Millicpus
 		}
-	case Memory:
+	case scheduling.Memory:
 		{
 			return res.working.MemoryMb
 		}
-	case GPU:
+	case scheduling.GPU:
 		{
 			return res.working.GPUs
 		}
-	case VRAM:
+	case scheduling.VRAM:
 		{
 			return res.working.VRam
 		}

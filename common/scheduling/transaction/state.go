@@ -50,7 +50,7 @@ func (t *State) SpecResources() scheduling.TransactionResources {
 // Validate checks that the operation state is in a valid state. Validate error returns nil if so.
 func (t *State) Validate() error {
 	if hasNegativeField, kind := t.idleResources.hasNegativeWorkingField(); hasNegativeField {
-		return fmt.Errorf("%w: %w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
+		return fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
 			IdleResources.String(), kind.String(), getQuantityOfResourceKind(t.idleResources, kind))
 	}
 
