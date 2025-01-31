@@ -3,6 +3,7 @@ package resource
 import (
 	"errors"
 	"fmt"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
 )
@@ -33,7 +34,7 @@ var (
 // quantity or quantities or involved, what the nature of the inconsistency or illegal state is, etc.
 type InconsistentResourcesError struct {
 	// ResourceKind indicates which kind of resource is in an inconsistent or invalid state.
-	ResourceKind ResourceKind
+	ResourceKind scheduling.ResourceKind
 
 	// ResourceStatus indicates which status of resource (idle, pending, or committed) is in an inconsistent or invalid state.
 	ResourceStatus Status
@@ -63,7 +64,7 @@ type InconsistentResourcesError struct {
 // NewInconsistentResourcesError creates a new InconsistentResourcesError struct and returns a pointer to it.
 //
 // This function sets the ReferenceQuantityIsMeaningful field to false.
-func NewInconsistentResourcesError(kind ResourceKind, inconsistency Inconsistency, status Status, quantity decimal.Decimal) *InconsistentResourcesError {
+func NewInconsistentResourcesError(kind scheduling.ResourceKind, inconsistency Inconsistency, status Status, quantity decimal.Decimal) *InconsistentResourcesError {
 
 	return &InconsistentResourcesError{
 		ResourceKind:                  kind,
@@ -79,7 +80,7 @@ func NewInconsistentResourcesError(kind ResourceKind, inconsistency Inconsistenc
 // returns a pointer to it.
 //
 // This function sets the ReferenceQuantityIsMeaningful field to true.
-func NewInconsistentResourcesErrorWithResourceQuantity(kind ResourceKind, inconsistency Inconsistency,
+func NewInconsistentResourcesErrorWithResourceQuantity(kind scheduling.ResourceKind, inconsistency Inconsistency,
 	status Status, quantity decimal.Decimal, referenceQuantity decimal.Decimal) *InconsistentResourcesError {
 
 	return &InconsistentResourcesError{
@@ -118,11 +119,11 @@ type InsufficientResourcesError struct {
 	// OffendingResourceKinds is a slice containing each ResourceKind for which there were insufficient
 	// HostResources available (and thus that particular ResourceKind contributed to the inability of the node
 	// to fulfill the resource request).
-	OffendingResourceKinds []ResourceKind
+	OffendingResourceKinds []scheduling.ResourceKind
 }
 
 // NewInsufficientResourcesError constructs a new InsufficientResourcesError struct and returns a pointer to it.
-func NewInsufficientResourcesError(avail types.Spec, req types.Spec, kinds []ResourceKind) InsufficientResourcesError {
+func NewInsufficientResourcesError(avail types.Spec, req types.Spec, kinds []scheduling.ResourceKind) InsufficientResourcesError {
 	return InsufficientResourcesError{
 		AvailableResources:     avail,
 		RequestedResources:     req,

@@ -147,19 +147,19 @@ func (m *Manager) GetTransactionState() *transaction.State {
 
 // unsafeCommitTransaction commits the final working resource counts from the Transaction
 // to the resource counts of the Manager.
-func (m *Manager) unsafeCommitTransaction(t *transaction.State) {
+func (m *Manager) unsafeCommitTransaction(t scheduling.TransactionState) {
 	m.idleResources.SetTo(t.IdleResources().Working())
 	m.pendingResources.SetTo(t.PendingResources().Working())
 	m.committedResources.SetTo(t.CommittedResources().Working())
 }
 
 // GetTransactionData returns the data required to perform a transaction.CoordinatedTransaction.
-func (m *Manager) GetTransactionData() (*transaction.State, transaction.CommitTransactionResult) {
+func (m *Manager) GetTransactionData() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	initialState := m.unsafeGetTransactionState()
-	commit := func(state *transaction.State) {
+	commit := func(state scheduling.TransactionState) {
 		m.unsafeCommitTransaction(state)
 	}
 
@@ -172,7 +172,7 @@ func (m *Manager) GetTransactionData() (*transaction.State, transaction.CommitTr
 // will be applied to the resource counts of the Manager.
 //
 // If there are any errors, then the Transaction is discarded entirely.
-func (m *Manager) RunTransaction(operation transaction.Operation) error {
+func (m *Manager) RunTransaction(operation scheduling.TransactionOperation) error {
 	if operation == nil {
 		return transaction.ErrNilTransactionOperation
 	}

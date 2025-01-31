@@ -6,11 +6,10 @@ import (
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"go.uber.org/mock/gomock"
 )
 
-func ContainsOffendingResourceKind(lst []resource.ResourceKind, target resource.ResourceKind) bool {
+func ContainsOffendingResourceKind(lst []scheduling.ResourceKind, target scheduling.ResourceKind) bool {
 	for _, elem := range lst {
 		if elem == target {
 			return true

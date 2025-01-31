@@ -761,7 +761,7 @@ func (m *AllocationManager) AdjustKernelResourceRequest(updatedSpec types.Spec, 
 	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
 	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
 
-	err := m.resourceManager.RunTransaction(func(state *transaction.State) {
+	err := m.resourceManager.RunTransaction(func(state scheduling.TransactionState) {
 		state.PendingResources().Subtract(oldSpecDecimal)
 		state.PendingResources().Add(newSpecDecimal)
 	})
@@ -792,7 +792,7 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec t
 	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
 	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
 
-	txOperation := func(state *transaction.State) {
+	txOperation := func(state scheduling.TransactionState) {
 		state.PendingResources().Subtract(oldSpecDecimal)
 		state.PendingResources().Add(newSpecDecimal)
 	}
@@ -1975,7 +1975,7 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 		return err
 	}
 
-	err := m.resourceManager.RunTransaction(func(state *transaction.State) {
+	err := m.resourceManager.RunTransaction(func(state scheduling.TransactionState) {
 		state.CommittedResources().Add(resourceRequest)
 
 		if decrementPending {
@@ -2110,7 +2110,7 @@ func (m *AllocationManager) releaseCommittedResources(allocation scheduling.Allo
 	// Clear the GpuDeviceIds field of the allocation.
 	allocation.ClearGpuDeviceIds()
 
-	err := m.resourceManager.RunTransaction(func(state *transaction.State) {
+	err := m.resourceManager.RunTransaction(func(state scheduling.TransactionState) {
 		state.CommittedResources().Subtract(spec)
 
 		if incrementPending {
