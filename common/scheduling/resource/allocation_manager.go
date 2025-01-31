@@ -797,7 +797,7 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec t
 		state.PendingResources().Add(newSpecDecimal)
 	}
 
-	err := tx.RegisterParticipant(container.ReplicaId(), m.resourceManager.GetTransactionData, txOperation, &schedulingMutex)
+	err := tx.RegisterParticipant(container.ReplicaId(), m.resourceManager.GetTransactionData, txOperation, schedulingMutex)
 	if err != nil {
 		m.log.Error("Received error upon registering for coordination transaction when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
 			container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), err)

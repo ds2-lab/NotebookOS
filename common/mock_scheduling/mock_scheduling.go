@@ -12,6 +12,7 @@ package mock_scheduling
 import (
 	context "context"
 	reflect "reflect"
+	sync "sync"
 	time "time"
 
 	promise "github.com/Scusemua/go-utils/promise"
@@ -1933,6 +1934,34 @@ func (mr *MockHostMockRecorder) AddReplica(ctx, in any, opts ...any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddReplica", reflect.TypeOf((*MockHost)(nil).AddReplica), varargs...)
 }
 
+// AdjustKernelResourceRequest mocks base method.
+func (m *MockHost) AdjustKernelResourceRequest(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdjustKernelResourceRequest", updatedSpec, oldSpec, container)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AdjustKernelResourceRequest indicates an expected call of AdjustKernelResourceRequest.
+func (mr *MockHostMockRecorder) AdjustKernelResourceRequest(updatedSpec, oldSpec, container any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequest", reflect.TypeOf((*MockHost)(nil).AdjustKernelResourceRequest), updatedSpec, oldSpec, container)
+}
+
+// AdjustKernelResourceRequestCoordinated mocks base method.
+func (m *MockHost) AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer, tx *transaction.CoordinatedTransaction) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdjustKernelResourceRequestCoordinated", updatedSpec, oldSpec, container, tx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AdjustKernelResourceRequestCoordinated indicates an expected call of AdjustKernelResourceRequestCoordinated.
+func (mr *MockHostMockRecorder) AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec, container, tx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequestCoordinated", reflect.TypeOf((*MockHost)(nil).AdjustKernelResourceRequestCoordinated), updatedSpec, oldSpec, container, tx)
+}
+
 // CanCommitResources mocks base method.
 func (m *MockHost) CanCommitResources(resourceRequest types.Spec) bool {
 	m.ctrl.T.Helper()
@@ -2443,10 +2472,10 @@ func (mr *MockHostMockRecorder) GetNodeName() *gomock.Call {
 }
 
 // GetReservation mocks base method.
-func (m *MockHost) GetReservation(kernelId string) (scheduling.ResourceReservation, bool) {
+func (m *MockHost) GetReservation(kernelId string) (scheduling.Allocation, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetReservation", kernelId)
-	ret0, _ := ret[0].(scheduling.ResourceReservation)
+	ret0, _ := ret[0].(scheduling.Allocation)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -2733,34 +2762,6 @@ func (m *MockHost) IsProperlyInitialized() bool {
 func (mr *MockHostMockRecorder) IsProperlyInitialized() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsProperlyInitialized", reflect.TypeOf((*MockHost)(nil).IsProperlyInitialized))
-}
-
-// KernelAdjustedItsResourceRequest mocks base method.
-func (m *MockHost) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AdjustKernelResourceRequest", updatedSpec, oldSpec, container)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// KernelAdjustedItsResourceRequest indicates an expected call of KernelAdjustedItsResourceRequest.
-func (mr *MockHostMockRecorder) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec, container any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequest", reflect.TypeOf((*MockHost)(nil).KernelAdjustedItsResourceRequest), updatedSpec, oldSpec, container)
-}
-
-// KernelAdjustedItsResourceRequestCoordinated mocks base method.
-func (m *MockHost) KernelAdjustedItsResourceRequestCoordinated(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AdjustKernelResourceRequestCoordinated", updatedSpec, oldSpec, container, coordinatedTransaction)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// KernelAdjustedItsResourceRequestCoordinated indicates an expected call of KernelAdjustedItsResourceRequestCoordinated.
-func (mr *MockHostMockRecorder) KernelAdjustedItsResourceRequestCoordinated(updatedSpec, oldSpec, container, coordinatedTransaction any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequestCoordinated", reflect.TypeOf((*MockHost)(nil).KernelAdjustedItsResourceRequestCoordinated), updatedSpec, oldSpec, container, coordinatedTransaction)
 }
 
 // KillKernel mocks base method.
@@ -3655,6 +3656,34 @@ func (mr *MockUnitTestingHostMockRecorder) AddToPendingResources(spec any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddToPendingResources", reflect.TypeOf((*MockUnitTestingHost)(nil).AddToPendingResources), spec)
 }
 
+// AdjustKernelResourceRequest mocks base method.
+func (m *MockUnitTestingHost) AdjustKernelResourceRequest(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdjustKernelResourceRequest", updatedSpec, oldSpec, container)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AdjustKernelResourceRequest indicates an expected call of AdjustKernelResourceRequest.
+func (mr *MockUnitTestingHostMockRecorder) AdjustKernelResourceRequest(updatedSpec, oldSpec, container any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequest", reflect.TypeOf((*MockUnitTestingHost)(nil).AdjustKernelResourceRequest), updatedSpec, oldSpec, container)
+}
+
+// AdjustKernelResourceRequestCoordinated mocks base method.
+func (m *MockUnitTestingHost) AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer, tx *transaction.CoordinatedTransaction) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdjustKernelResourceRequestCoordinated", updatedSpec, oldSpec, container, tx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AdjustKernelResourceRequestCoordinated indicates an expected call of AdjustKernelResourceRequestCoordinated.
+func (mr *MockUnitTestingHostMockRecorder) AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec, container, tx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequestCoordinated", reflect.TypeOf((*MockUnitTestingHost)(nil).AdjustKernelResourceRequestCoordinated), updatedSpec, oldSpec, container, tx)
+}
+
 // AllocationManager mocks base method.
 func (m *MockUnitTestingHost) AllocationManager() scheduling.AllocationManager {
 	m.ctrl.T.Helper()
@@ -4179,10 +4208,10 @@ func (mr *MockUnitTestingHostMockRecorder) GetNodeName() *gomock.Call {
 }
 
 // GetReservation mocks base method.
-func (m *MockUnitTestingHost) GetReservation(kernelId string) (scheduling.ResourceReservation, bool) {
+func (m *MockUnitTestingHost) GetReservation(kernelId string) (scheduling.Allocation, bool) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetReservation", kernelId)
-	ret0, _ := ret[0].(scheduling.ResourceReservation)
+	ret0, _ := ret[0].(scheduling.Allocation)
 	ret1, _ := ret[1].(bool)
 	return ret0, ret1
 }
@@ -4469,34 +4498,6 @@ func (m *MockUnitTestingHost) IsProperlyInitialized() bool {
 func (mr *MockUnitTestingHostMockRecorder) IsProperlyInitialized() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsProperlyInitialized", reflect.TypeOf((*MockUnitTestingHost)(nil).IsProperlyInitialized))
-}
-
-// KernelAdjustedItsResourceRequest mocks base method.
-func (m *MockUnitTestingHost) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AdjustKernelResourceRequest", updatedSpec, oldSpec, container)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// KernelAdjustedItsResourceRequest indicates an expected call of KernelAdjustedItsResourceRequest.
-func (mr *MockUnitTestingHostMockRecorder) KernelAdjustedItsResourceRequest(updatedSpec, oldSpec, container any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequest", reflect.TypeOf((*MockUnitTestingHost)(nil).KernelAdjustedItsResourceRequest), updatedSpec, oldSpec, container)
-}
-
-// KernelAdjustedItsResourceRequestCoordinated mocks base method.
-func (m *MockUnitTestingHost) KernelAdjustedItsResourceRequestCoordinated(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AdjustKernelResourceRequestCoordinated", updatedSpec, oldSpec, container, coordinatedTransaction)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// KernelAdjustedItsResourceRequestCoordinated indicates an expected call of KernelAdjustedItsResourceRequestCoordinated.
-func (mr *MockUnitTestingHostMockRecorder) KernelAdjustedItsResourceRequestCoordinated(updatedSpec, oldSpec, container, coordinatedTransaction any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequestCoordinated", reflect.TypeOf((*MockUnitTestingHost)(nil).KernelAdjustedItsResourceRequestCoordinated), updatedSpec, oldSpec, container, coordinatedTransaction)
 }
 
 // KillKernel mocks base method.
@@ -9849,6 +9850,20 @@ func (mr *MockAllocationMockRecorder) GetAllocationType() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllocationType", reflect.TypeOf((*MockAllocation)(nil).GetAllocationType))
 }
 
+// GetExecutionId mocks base method.
+func (m *MockAllocation) GetExecutionId() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetExecutionId")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetExecutionId indicates an expected call of GetExecutionId.
+func (mr *MockAllocationMockRecorder) GetExecutionId() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExecutionId", reflect.TypeOf((*MockAllocation)(nil).GetExecutionId))
+}
+
 // GetGpuDeviceIds mocks base method.
 func (m *MockAllocation) GetGpuDeviceIds() []int {
 	m.ctrl.T.Helper()
@@ -10043,6 +10058,18 @@ func (mr *MockAllocationMockRecorder) SetAllocationType(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetAllocationType", reflect.TypeOf((*MockAllocation)(nil).SetAllocationType), arg0)
 }
 
+// SetExecutionId mocks base method.
+func (m *MockAllocation) SetExecutionId(executionId string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetExecutionId", executionId)
+}
+
+// SetExecutionId indicates an expected call of SetExecutionId.
+func (mr *MockAllocationMockRecorder) SetExecutionId(executionId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetExecutionId", reflect.TypeOf((*MockAllocation)(nil).SetExecutionId), executionId)
+}
+
 // SetGpuDeviceIds mocks base method.
 func (m *MockAllocation) SetGpuDeviceIds(deviceIds []int) {
 	m.ctrl.T.Helper()
@@ -10115,6 +10142,18 @@ func (mr *MockAllocationMockRecorder) SetMillicpus(arg0 any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMillicpus", reflect.TypeOf((*MockAllocation)(nil).SetMillicpus), arg0)
 }
 
+// SetReplicaId mocks base method.
+func (m *MockAllocation) SetReplicaId(replicaId int32) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetReplicaId", replicaId)
+}
+
+// SetReplicaId indicates an expected call of SetReplicaId.
+func (mr *MockAllocationMockRecorder) SetReplicaId(replicaId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetReplicaId", reflect.TypeOf((*MockAllocation)(nil).SetReplicaId), replicaId)
+}
+
 // SetVramGb mocks base method.
 func (m *MockAllocation) SetVramGb(arg0 decimal.Decimal) {
 	m.ctrl.T.Helper()
@@ -10125,6 +10164,20 @@ func (m *MockAllocation) SetVramGb(arg0 decimal.Decimal) {
 func (mr *MockAllocationMockRecorder) SetVramGb(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetVramGb", reflect.TypeOf((*MockAllocation)(nil).SetVramGb), arg0)
+}
+
+// SpecToString mocks base method.
+func (m *MockAllocation) SpecToString() string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SpecToString")
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// SpecToString indicates an expected call of SpecToString.
+func (mr *MockAllocationMockRecorder) SpecToString() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SpecToString", reflect.TypeOf((*MockAllocation)(nil).SpecToString))
 }
 
 // String mocks base method.
@@ -10205,6 +10258,34 @@ func NewMockAllocationManager(ctrl *gomock.Controller) *MockAllocationManager {
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockAllocationManager) EXPECT() *MockAllocationManagerMockRecorder {
 	return m.recorder
+}
+
+// AdjustKernelResourceRequest mocks base method.
+func (m *MockAllocationManager) AdjustKernelResourceRequest(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdjustKernelResourceRequest", updatedSpec, oldSpec, container)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AdjustKernelResourceRequest indicates an expected call of AdjustKernelResourceRequest.
+func (mr *MockAllocationManagerMockRecorder) AdjustKernelResourceRequest(updatedSpec, oldSpec, container any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequest", reflect.TypeOf((*MockAllocationManager)(nil).AdjustKernelResourceRequest), updatedSpec, oldSpec, container)
+}
+
+// AdjustKernelResourceRequestCoordinated mocks base method.
+func (m *MockAllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec types.Spec, container scheduling.KernelContainer, schedulingMutex *sync.Mutex, tx *transaction.CoordinatedTransaction) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdjustKernelResourceRequestCoordinated", updatedSpec, oldSpec, container, schedulingMutex, tx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AdjustKernelResourceRequestCoordinated indicates an expected call of AdjustKernelResourceRequestCoordinated.
+func (mr *MockAllocationManagerMockRecorder) AdjustKernelResourceRequestCoordinated(updatedSpec, oldSpec, container, schedulingMutex, tx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdjustKernelResourceRequestCoordinated", reflect.TypeOf((*MockAllocationManager)(nil).AdjustKernelResourceRequestCoordinated), updatedSpec, oldSpec, container, schedulingMutex, tx)
 }
 
 // AdjustPendingResources mocks base method.
@@ -10306,19 +10387,19 @@ func (mr *MockAllocationManagerMockRecorder) CanServeContainerWithError(resource
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CanServeContainerWithError", reflect.TypeOf((*MockAllocationManager)(nil).CanServeContainerWithError), resourceRequest)
 }
 
-// CommitResources mocks base method.
-func (m *MockAllocationManager) CommitResources(replicaId int32, kernelId string, resourceRequestArg types.Spec, isReservation bool) ([]int, error) {
+// CommitResourcesToExistingContainer mocks base method.
+func (m *MockAllocationManager) CommitResourcesToExistingContainer(replicaId int32, kernelId, executionId string, resourceRequestArg types.Spec, isReservation bool) ([]int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CommitResourcesToExistingContainer", replicaId, kernelId, resourceRequestArg, isReservation)
+	ret := m.ctrl.Call(m, "CommitResourcesToExistingContainer", replicaId, kernelId, executionId, resourceRequestArg, isReservation)
 	ret0, _ := ret[0].([]int)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// CommitResources indicates an expected call of CommitResources.
-func (mr *MockAllocationManagerMockRecorder) CommitResources(replicaId, kernelId, resourceRequestArg, isReservation any) *gomock.Call {
+// CommitResourcesToExistingContainer indicates an expected call of CommitResourcesToExistingContainer.
+func (mr *MockAllocationManagerMockRecorder) CommitResourcesToExistingContainer(replicaId, kernelId, executionId, resourceRequestArg, isReservation any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CommitResourcesToExistingContainer", reflect.TypeOf((*MockAllocationManager)(nil).CommitResources), replicaId, kernelId, resourceRequestArg, isReservation)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CommitResourcesToExistingContainer", reflect.TypeOf((*MockAllocationManager)(nil).CommitResourcesToExistingContainer), replicaId, kernelId, executionId, resourceRequestArg, isReservation)
 }
 
 // CommittedCPUs mocks base method.
@@ -10475,6 +10556,21 @@ func (mr *MockAllocationManagerMockRecorder) GetNodeId() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeId", reflect.TypeOf((*MockAllocationManager)(nil).GetNodeId))
 }
 
+// GetReservation mocks base method.
+func (m *MockAllocationManager) GetReservation(kernelId string) (scheduling.Allocation, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetReservation", kernelId)
+	ret0, _ := ret[0].(scheduling.Allocation)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// GetReservation indicates an expected call of GetReservation.
+func (mr *MockAllocationManagerMockRecorder) GetReservation(kernelId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetReservation", reflect.TypeOf((*MockAllocationManager)(nil).GetReservation), kernelId)
+}
+
 // GetResourceCountsAsString mocks base method.
 func (m *MockAllocationManager) GetResourceCountsAsString() string {
 	m.ctrl.T.Helper()
@@ -10487,6 +10583,20 @@ func (m *MockAllocationManager) GetResourceCountsAsString() string {
 func (mr *MockAllocationManagerMockRecorder) GetResourceCountsAsString() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResourceCountsAsString", reflect.TypeOf((*MockAllocationManager)(nil).GetResourceCountsAsString))
+}
+
+// HasReservationForKernel mocks base method.
+func (m *MockAllocationManager) HasReservationForKernel(kernelId string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasReservationForKernel", kernelId)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// HasReservationForKernel indicates an expected call of HasReservationForKernel.
+func (mr *MockAllocationManagerMockRecorder) HasReservationForKernel(kernelId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasReservationForKernel", reflect.TypeOf((*MockAllocationManager)(nil).HasReservationForKernel), kernelId)
 }
 
 // HasSufficientIdleResourcesAvailable mocks base method.
@@ -10588,6 +10698,20 @@ func (mr *MockAllocationManagerMockRecorder) IdleVRamGB() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IdleVRamGB", reflect.TypeOf((*MockAllocationManager)(nil).IdleVRamGB))
 }
 
+// KernelHasCommittedResources mocks base method.
+func (m *MockAllocationManager) KernelHasCommittedResources(kernelId string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "KernelHasCommittedResources", kernelId)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// KernelHasCommittedResources indicates an expected call of KernelHasCommittedResources.
+func (mr *MockAllocationManagerMockRecorder) KernelHasCommittedResources(kernelId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelHasCommittedResources", reflect.TypeOf((*MockAllocationManager)(nil).KernelHasCommittedResources), kernelId)
+}
+
 // KernelReplicaScheduled mocks base method.
 func (m *MockAllocationManager) KernelReplicaScheduled(replicaId int32, kernelId string, spec types.Spec) error {
 	m.ctrl.T.Helper()
@@ -10670,6 +10794,20 @@ func (m *MockAllocationManager) NumPendingAllocations() int {
 func (mr *MockAllocationManagerMockRecorder) NumPendingAllocations() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumPendingAllocations", reflect.TypeOf((*MockAllocationManager)(nil).NumPendingAllocations))
+}
+
+// NumReservations mocks base method.
+func (m *MockAllocationManager) NumReservations() int {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NumReservations")
+	ret0, _ := ret[0].(int)
+	return ret0
+}
+
+// NumReservations indicates an expected call of NumReservations.
+func (mr *MockAllocationManagerMockRecorder) NumReservations() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NumReservations", reflect.TypeOf((*MockAllocationManager)(nil).NumReservations))
 }
 
 // PendingCPUs mocks base method.
@@ -10798,18 +10936,33 @@ func (mr *MockAllocationManagerMockRecorder) PlacedVRAM() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PlacedVRAM", reflect.TypeOf((*MockAllocationManager)(nil).PlacedVRAM))
 }
 
-// PromoteReservation mocks base method.
-func (m *MockAllocationManager) PromoteReservation(replicaId int32, kernelId string) error {
+// PreCommitResourcesToExistingContainer mocks base method.
+func (m *MockAllocationManager) PreCommitResourcesToExistingContainer(replicaId int32, kernelId, executionId string, resourceRequestArg types.Spec) ([]int, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PreCommitResourcesToExistingContainer", replicaId, kernelId, executionId, resourceRequestArg)
+	ret0, _ := ret[0].([]int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PreCommitResourcesToExistingContainer indicates an expected call of PreCommitResourcesToExistingContainer.
+func (mr *MockAllocationManagerMockRecorder) PreCommitResourcesToExistingContainer(replicaId, kernelId, executionId, resourceRequestArg any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreCommitResourcesToExistingContainer", reflect.TypeOf((*MockAllocationManager)(nil).PreCommitResourcesToExistingContainer), replicaId, kernelId, executionId, resourceRequestArg)
+}
+
+// PromotePreCommitment mocks base method.
+func (m *MockAllocationManager) PromotePreCommitment(replicaId int32, kernelId string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "PromotePreCommitment", replicaId, kernelId)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// PromoteReservation indicates an expected call of PromoteReservation.
-func (mr *MockAllocationManagerMockRecorder) PromoteReservation(replicaId, kernelId any) *gomock.Call {
+// PromotePreCommitment indicates an expected call of PromotePreCommitment.
+func (mr *MockAllocationManagerMockRecorder) PromotePreCommitment(replicaId, kernelId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePreCommitment", reflect.TypeOf((*MockAllocationManager)(nil).PromoteReservation), replicaId, kernelId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PromotePreCommitment", reflect.TypeOf((*MockAllocationManager)(nil).PromotePreCommitment), replicaId, kernelId)
 }
 
 // ProtoResourcesSnapshot mocks base method.
@@ -10839,17 +10992,31 @@ func (mr *MockAllocationManagerMockRecorder) RegisterMetricsManager(metricsManag
 }
 
 // ReleaseCommittedResources mocks base method.
-func (m *MockAllocationManager) ReleaseCommittedResources(replicaId int32, kernelId string) error {
+func (m *MockAllocationManager) ReleaseCommittedResources(replicaId int32, kernelId, executionId string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReleaseCommittedResources", replicaId, kernelId)
+	ret := m.ctrl.Call(m, "ReleaseCommittedResources", replicaId, kernelId, executionId)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ReleaseCommittedResources indicates an expected call of ReleaseCommittedResources.
-func (mr *MockAllocationManagerMockRecorder) ReleaseCommittedResources(replicaId, kernelId any) *gomock.Call {
+func (mr *MockAllocationManagerMockRecorder) ReleaseCommittedResources(replicaId, kernelId, executionId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseCommittedResources", reflect.TypeOf((*MockAllocationManager)(nil).ReleaseCommittedResources), replicaId, kernelId)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseCommittedResources", reflect.TypeOf((*MockAllocationManager)(nil).ReleaseCommittedResources), replicaId, kernelId, executionId)
+}
+
+// ReleaseReservation mocks base method.
+func (m *MockAllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReleaseReservation", spec)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReleaseReservation indicates an expected call of ReleaseReservation.
+func (mr *MockAllocationManagerMockRecorder) ReleaseReservation(spec any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReleaseReservation", reflect.TypeOf((*MockAllocationManager)(nil).ReleaseReservation), spec)
 }
 
 // ReplicaEvicted mocks base method.
@@ -10906,6 +11073,44 @@ func (m *MockAllocationManager) ReplicaHasPendingGPUs(replicaId int32, kernelId 
 func (mr *MockAllocationManagerMockRecorder) ReplicaHasPendingGPUs(replicaId, kernelId any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplicaHasPendingGPUs", reflect.TypeOf((*MockAllocationManager)(nil).ReplicaHasPendingGPUs), replicaId, kernelId)
+}
+
+// ReserveResources mocks base method.
+func (m *MockAllocationManager) ReserveResources(replicaId int32, kernelId string, spec types.Spec, usePendingResources bool) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReserveResources", replicaId, kernelId, spec, usePendingResources)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ReserveResources indicates an expected call of ReserveResources.
+func (mr *MockAllocationManagerMockRecorder) ReserveResources(replicaId, kernelId, spec, usePendingResources any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReserveResources", reflect.TypeOf((*MockAllocationManager)(nil).ReserveResources), replicaId, kernelId, spec, usePendingResources)
+}
+
+// SetUpdateIndex mocks base method.
+func (m *MockAllocationManager) SetUpdateIndex(updateIndex func(int32, string) error) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetUpdateIndex", updateIndex)
+}
+
+// SetUpdateIndex indicates an expected call of SetUpdateIndex.
+func (mr *MockAllocationManagerMockRecorder) SetUpdateIndex(updateIndex any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpdateIndex", reflect.TypeOf((*MockAllocationManager)(nil).SetUpdateIndex), updateIndex)
+}
+
+// SetUpdateSubscriptionRatio mocks base method.
+func (m *MockAllocationManager) SetUpdateSubscriptionRatio(updateSubscriptionRatio func() decimal.Decimal) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetUpdateSubscriptionRatio", updateSubscriptionRatio)
+}
+
+// SetUpdateSubscriptionRatio indicates an expected call of SetUpdateSubscriptionRatio.
+func (mr *MockAllocationManagerMockRecorder) SetUpdateSubscriptionRatio(updateSubscriptionRatio any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUpdateSubscriptionRatio", reflect.TypeOf((*MockAllocationManager)(nil).SetUpdateSubscriptionRatio), updateSubscriptionRatio)
 }
 
 // SpecCPUs mocks base method.
