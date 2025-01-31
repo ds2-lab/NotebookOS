@@ -925,8 +925,8 @@ func (m *AllocationManager) PromotePreCommitment(replicaId int32, kernelId strin
 
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Error("Cannot promote reserved HostResources for replica %d of kernel %s: no existing resource allocation found for that kernel replica.",
-			replicaId, kernelId)
+		m.log.Error("Cannot promote reserved HostResources for replica %d of kernel %s: no existing resource allocation found for that kernel replica (under key \"%s\").",
+			replicaId, kernelId, key)
 	}
 
 	if allocation.IsPending() {
@@ -1048,7 +1048,7 @@ func (m *AllocationManager) PreCommitResourcesToExistingContainer(replicaId int3
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
 		m.log.Error("Cannot commit HostResources to replica %d of kernel %s: no existing resource allocation "+
-			"found for that kernel replica.", replicaId, kernelId)
+			"found for that kernel replica (under key \"%s\").", replicaId, kernelId, key)
 		return nil, fmt.Errorf("%w: no resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
 	}
@@ -1134,6 +1134,8 @@ func (m *AllocationManager) PreCommitResourcesToExistingContainer(replicaId int3
 func (m *AllocationManager) CommitResourcesToExistingContainer(replicaId int32, kernelId string, executionId string,
 	resourceRequestArg types.Spec, isPreCommitment bool) ([]int, error) {
 	if isPreCommitment {
+		m.log.Warn("Request to pre-commit resources to replica %d of kernel %s is using CommitResourcesToExistingContainer instead of PreCommitResourcesToExistingContainer. Please update the API call.",
+			replicaId, kernelId)
 		return m.PreCommitResourcesToExistingContainer(replicaId, kernelId, executionId, resourceRequestArg)
 	}
 
@@ -1149,7 +1151,7 @@ func (m *AllocationManager) CommitResourcesToExistingContainer(replicaId int32, 
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
 		m.log.Error("Cannot commit HostResources to replica %d of kernel %s: no existing resource allocation "+
-			"found for that kernel replica.", replicaId, kernelId)
+			"found for that kernel replica (under key \"%s\").", replicaId, kernelId, key)
 		return nil, fmt.Errorf("%w: no resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
 	}
@@ -1209,7 +1211,7 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 		// point. So, if we attempt to release the same pre-commitment when we receive "execute_reply" from
 		// the follower replicas, then that release will fail (because it will have already occurred).
 		m.log.Warn("Cannot release committed HostResources bound to replica %d of kernel %s: no existing resource "+
-			"allocation found for that kernel replica.", replicaId, kernelId)
+			"allocation found for that kernel replica. (under key \"%s\").", replicaId, kernelId, key)
 		return fmt.Errorf("%w: no committed resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
 	}
@@ -1286,7 +1288,8 @@ func (m *AllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
 	// Verify that there does not already exist an allocation associated with the specified kernel replica.
 	key = getKey(replicaIdForReservation, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Warn("Cannot release reservation for replica of kernel %s: no reservation found.", kernelId)
+		m.log.Warn("Cannot release reservation for replica of kernel %s: no reservation found. (under key \"%s\").",
+			replicaIdForReservation, kernelId, key)
 		return fmt.Errorf("%w: \"%s\"", ErrReservationNotFound, kernelId)
 	}
 
@@ -1476,6 +1479,10 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 		// allocation, decrement the "number of reservations" counter, and return nil (i.e., no error).
 		if allocation.IsReservation() {
 			allocation.SetIsReservation(false)
+
+			m.log.Debug("Updated existing allocation for replica %d of kernel %s stored under key \"%s\". Changed reservation flag to false.",
+				replicaId, kernelId, key)
+
 			m.allocationKernelReplicaMap.Store(key, allocation)
 			m.kernelAllocationMap.Store(kernelId, allocation)
 			m.numReservations.Add(-1)
@@ -1490,8 +1497,8 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 
 	// Verify that there does not already exist a reservation associated with an unspecified kernel replica.
 	if replicaId != replicaIdForReservation {
-		key = getKey(replicaIdForReservation, kernelId)
-		if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); allocationExists {
+		genericKey := getKey(replicaIdForReservation, kernelId)
+		if allocation, allocationExists = m.allocationKernelReplicaMap.Load(genericKey); allocationExists {
 			// If the existing allocation is a reservation, then just "promote" the reservation to a standard
 			// allocation, decrement the "number of reservations" counter, and return nil (i.e., no error).
 			if !allocation.IsReservation() {
@@ -1501,13 +1508,17 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 			m.log.Debug("Promoting reservation for replica %d of kernel %s to 'regular' allocation.",
 				replicaId, kernelId)
 
-			m.allocationKernelReplicaMap.Delete(key)
+			m.allocationKernelReplicaMap.Delete(genericKey)
 			m.kernelAllocationMap.Delete(kernelId)
-			key = getKey(replicaId, kernelId)
+			genericKey = getKey(replicaId, kernelId)
 
 			allocation.SetIsReservation(false)
 			allocation.SetReplicaId(replicaId)
-			m.allocationKernelReplicaMap.Store(key, allocation)
+
+			m.log.Debug("Updated existing allocation for previously-unknown replica %d of kernel %s stored under key \"%s\". Changed reservation flag to false.",
+				replicaId, kernelId, genericKey)
+
+			m.allocationKernelReplicaMap.Store(genericKey, allocation)
 			m.kernelAllocationMap.Store(kernelId, allocation)
 			m.numReservations.Add(-1)
 			return nil
@@ -1577,7 +1588,8 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
 		m.log.Error("Error while evicting kernel replica within AllocationManager. "+
-			"Could not find Allocation associated with replica %d of kernel %s...", replicaId, kernelId)
+			"Could not find Allocation associated with replica %d of kernel %s... (under key \"%s\").",
+			replicaId, kernelId, key)
 		return fmt.Errorf("%w: no resource allocation found for evicted replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
 	}
@@ -1653,7 +1665,7 @@ func (m *AllocationManager) GetGpuDeviceIdsAssignedToReplica(replicaId int32, ke
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
 		m.log.Error("Cannot retrieve GPU device IDs committed to replica %d of kernel %s: no existing resource "+
-			"allocation found for that kernel replica.", replicaId, kernelId)
+			"allocation found for that kernel replica. (under key \"%s\").", replicaId, kernelId, key)
 		return nil, fmt.Errorf("%w: no resource allocation found for replica %d of kernel %s",
 			ErrAllocationNotFound, replicaId, kernelId)
 	}
@@ -1912,6 +1924,9 @@ func (m *AllocationManager) allocatePendingResources(spec *types.DecimalSpec,
 	m.allocationKernelReplicaMap.Store(key, allocation)
 	m.kernelAllocationMap.Store(kernelId, allocation)
 
+	m.log.Debug("Stored new pending allocation for replica %d of kernel %s stored under key \"%s\".",
+		replicaId, kernelId, key)
+
 	// Update the pending/committed allocation counters.
 	m.numPendingAllocations.Add(1)
 
@@ -1985,6 +2000,9 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 	m.allocationKernelReplicaMap.Store(key, allocation)
 	m.kernelAllocationMap.Store(kernelId, allocation)
 
+	m.log.Debug("Stored committed allocation for replica %d of kernel %s stored under key \"%s\".",
+		replicaId, kernelId, key)
+
 	if decrementPending {
 		// Update the pending/committed allocation counters.
 		m.numPendingAllocations.Add(-1)
@@ -2019,6 +2037,8 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 	}
 
 	allocation.SetGpuDeviceIds(gpuDeviceIds)
+
+	m.log.Debug("Updated GPU device IDs: %v", allocation.GetGpuDeviceIds())
 
 	if m.updateSubscriptionRatio != nil {
 		m.updateSubscriptionRatio()

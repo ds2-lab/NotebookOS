@@ -33,7 +33,7 @@ device-plugin-path: /var/lib/kubelet/device-plugins/
 notebook-image-name: scusemua/jupyter-gpu
 notebook-image-tag: latest
 idle-session-reclamation-policy: none
-scheduling-policy: fcfs
+scheduling-policy: fcfs-batch
 num-virtual-gpus-per-node: 72
 scaling-factor: 1.10
 scaling-interval: 15

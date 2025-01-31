@@ -80,7 +80,7 @@ func (a *Allocation) GetAllocationType() scheduling.AllocationType {
 }
 
 func (a *Allocation) SetGpuDeviceIds(deviceIds []int) {
-	a.GpuDeviceIds = make([]int, 0, len(deviceIds))
+	a.GpuDeviceIds = make([]int, len(deviceIds))
 	copy(a.GpuDeviceIds, deviceIds)
 }
 
@@ -89,7 +89,7 @@ func (a *Allocation) ClearGpuDeviceIds() {
 }
 
 func (a *Allocation) GetGpuDeviceIds() []int {
-	deviceIds := make([]int, 0, len(a.GpuDeviceIds))
+	deviceIds := make([]int, len(a.GpuDeviceIds))
 	copy(deviceIds, a.GpuDeviceIds)
 	return deviceIds
 }
