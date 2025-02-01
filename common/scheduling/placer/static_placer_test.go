@@ -15,7 +15,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/mock_scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"go.uber.org/mock/gomock"
@@ -116,53 +115,6 @@ var _ = Describe("Static Placer Tests", func() {
 		hostSpec *types.DecimalSpec
 	)
 
-	releaseResources := func(host scheduling.UnitTestingHost, resources *types.DecimalSpec) {
-		err := host.SubtractFromCommittedResources(resources)
-		Expect(err).To(BeNil())
-
-		err = host.AddToIdleResources(resources)
-		Expect(err).To(BeNil())
-
-		fmt.Printf("\nReleased the following resources from Host %s (ID=%s): %v\n",
-			host.GetNodeName(), host.GetID(), resources.String())
-		fmt.Printf("Host %s now has the following idle resources: %v\n",
-			host.GetNodeName(), host.IdleResources().String())
-		fmt.Printf("Host %s now has the following committed resources: %v\n\n",
-			host.GetNodeName(), host.CommittedResources().String())
-
-		err = dockerCluster.UpdateIndex(host)
-		Expect(err).To(BeNil())
-	}
-
-	createHost := func(idx int) (scheduling.UnitTestingHost, *testing.ResourceSpoofer) {
-		hostId := uuid.NewString()
-		hostName := fmt.Sprintf("TestHost-%d", idx)
-		resourceSpoofer := testing.NewResourceSpoofer(hostName, hostId, hostSpec)
-		host, _, err := testing.NewHostWithSpoofedGRPC(mockCtrl, dockerCluster, hostId, hostName, resourceSpoofer)
-		Expect(err).To(BeNil())
-		Expect(host).ToNot(BeNil())
-
-		err = dockerCluster.NewHostAddedOrConnected(host)
-		Expect(err).To(BeNil())
-
-		return host, resourceSpoofer
-	}
-
-	createKernelSpec := func(spec types.Spec) *proto.KernelSpec {
-		kernelId := uuid.NewString()
-		kernelKey := uuid.NewString()
-		resourceSpec := proto.NewResourceSpec(int32(spec.CPU()), float32(spec.MemoryMB()),
-			int32(spec.GPU()), float32(spec.VRAM()))
-		return &proto.KernelSpec{
-			Id:              kernelId,
-			Session:         kernelId,
-			Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-			SignatureScheme: jupyter.JupyterSignatureScheme,
-			Key:             kernelKey,
-			ResourceSpec:    resourceSpec,
-		}
-	}
-
 	Context("Static Placer Backed By MultiIndex of LeastLoadedIndex Using FCFS-Batch", func() {
 		BeforeEach(func() {
 			err := json.Unmarshal([]byte(staticPlacerSchedulerTestOpts), &opts)
@@ -255,11 +207,11 @@ var _ = Describe("Static Placer Tests", func() {
 			Expect(ok).To(BeTrue())
 			Expect(staticPlacer).ToNot(BeNil())
 
-			_, _ = createHost(1)
+			_, _ = createHost(1, dockerCluster, mockCtrl, hostSpec)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(1))
 			Expect(dockerCluster.Len()).To(Equal(1))
 
-			_, _ = createHost(2)
+			_, _ = createHost(2, dockerCluster, mockCtrl, hostSpec)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(2))
 			Expect(dockerCluster.Len()).To(Equal(2))
 
@@ -322,7 +274,7 @@ var _ = Describe("Static Placer Tests", func() {
 				Expect(staticPlacer.HasHostPool(poolNumber)).To(BeTrue())
 			}
 
-			host1, _ := createHost(1)
+			host1, _ := createHost(1, dockerCluster, mockCtrl, hostSpec)
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(1))
 
@@ -385,11 +337,11 @@ var _ = Describe("Static Placer Tests", func() {
 			Expect(ok).To(BeTrue())
 			Expect(staticPlacer).ToNot(BeNil())
 
-			host1, _ := createHost(1)
+			host1, _ := createHost(1, dockerCluster, mockCtrl, hostSpec)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(1))
 			Expect(dockerCluster.Len()).To(Equal(1))
 
-			host2, _ := createHost(2)
+			host2, _ := createHost(2, dockerCluster, mockCtrl, hostSpec)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(2))
 			Expect(dockerCluster.Len()).To(Equal(2))
 
@@ -488,7 +440,7 @@ var _ = Describe("Static Placer Tests", func() {
 			By("Returning the correct host after further resource adjustments have occurred")
 
 			// Artificially increase the resources available on Host #1.
-			releaseResources(host1, types.NewDecimalSpec(128, 128, 2, 2))
+			releaseResources(host1, types.NewDecimalSpec(128, 128, 2, 2), dockerCluster, []int{8, 9})
 
 			kernel3Id := uuid.NewString()
 			kernel3Key := uuid.NewString()
@@ -540,7 +492,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			expectedHostPoolSizes := map[int32]int{1: 0, 2: 0, 4: 0, 8: 0}
 			for i := 0; i < numHosts; i++ {
-				host, _ := createHost(1)
+				host, _ := createHost(1, dockerCluster, mockCtrl, hostSpec)
 				hosts = append(hosts, host)
 			}
 

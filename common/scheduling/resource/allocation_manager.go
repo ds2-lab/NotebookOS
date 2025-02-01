@@ -22,15 +22,15 @@ import (
 )
 
 const (
-	// replicaIdForReservation is used when constructing keys for reservation-based allocations.
+	// ReplicaIdForReservation is used when constructing keys for reservation-based allocations.
 	//
 	// Reservations are handled in a replica-agnostic manner. If and when the replica is fully scheduled
 	// and the reservation is promoted, the associated Allocation is then remapped using the replica's
 	// actual replica ID.
-	replicaIdForReservation int32 = 0
+	ReplicaIdForReservation int32 = 0
 
-	// replicaIdForReplicaNotFound is used/returned for replicaId returns when there is no such replica
-	replicaIdForReplicaNotFound int32 = -999
+	// ReplicaIdForReplicaNotFound is used/returned for replicaId returns when there is no such replica
+	ReplicaIdForReplicaNotFound int32 = -999
 )
 
 var (
@@ -64,7 +64,7 @@ type scheduledKernels struct {
 // GetScheduledReplica returns the replica ID of the scheduling.KernelReplica that is scheduled for the
 // specified scheduling.Kernel.
 //
-// If no scheduling.KernelReplica of the specified scheduling.Kernel is scheduled, then replicaIdForReplicaNotFound
+// If no scheduling.KernelReplica of the specified scheduling.Kernel is scheduled, then ReplicaIdForReplicaNotFound
 // is returned.
 func (sk *scheduledKernels) GetScheduledReplica(kernelId string) int32 {
 	sk.mu.Lock()
@@ -75,7 +75,7 @@ func (sk *scheduledKernels) GetScheduledReplica(kernelId string) int32 {
 		return scheduledReplica
 	}
 
-	return replicaIdForReplicaNotFound
+	return ReplicaIdForReplicaNotFound
 }
 
 // IsAnyReplicaScheduled returns true if any scheduling.KernelReplica of the specified scheduling.Kernel is
@@ -112,7 +112,7 @@ func (sk *scheduledKernels) ReservationCreated(kernelId string) error {
 		return fmt.Errorf("%w: '%d'", ErrSomeReplicaAlreadyPresent, scheduledReplica)
 	}
 
-	sk.Kernels[kernelId] = replicaIdForReservation
+	sk.Kernels[kernelId] = ReplicaIdForReservation
 	return nil
 }
 
@@ -884,7 +884,7 @@ func (m *AllocationManager) GetReservation(kernelId string) (scheduling.Allocati
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	key := getKey(replicaIdForReservation, kernelId)
+	key := getKey(ReplicaIdForReservation, kernelId)
 
 	alloc, loaded := m.allocationKernelReplicaMap.Load(key)
 	if !alloc.IsReservation() {
@@ -1287,7 +1287,7 @@ func (m *AllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
 	kernelId := spec.Id
 
 	// First, verify that there is in fact a reservation for the specified kernel.
-	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica == replicaIdForReplicaNotFound {
+	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica == ReplicaIdForReplicaNotFound {
 		m.log.Warn("Cannot release reservation for replica of kernel %s: no reservation found.", kernelId)
 		return fmt.Errorf("%w: \"%s\"", ErrReservationNotFound, kernelId)
 	}
@@ -1299,10 +1299,10 @@ func (m *AllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
 	)
 
 	// Verify that there does not already exist an allocation associated with the specified kernel replica.
-	key = getKey(replicaIdForReservation, kernelId)
+	key = getKey(ReplicaIdForReservation, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
 		m.log.Warn("Cannot release reservation for replica of kernel %s: no reservation found. (under key \"%s\").",
-			replicaIdForReservation, kernelId, key)
+			ReplicaIdForReservation, kernelId, key)
 		return fmt.Errorf("%w: \"%s\"", ErrReservationNotFound, kernelId)
 	}
 
@@ -1314,7 +1314,7 @@ func (m *AllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
 	if allocation.IsCommitted() {
 		err = m.releaseCommittedResources(allocation, allocation.ToDecimalSpec(), false)
 	} else {
-		err = m.releasePendingResources(allocation.ToDecimalSpec(), replicaIdForReservation, kernelId)
+		err = m.releasePendingResources(allocation.ToDecimalSpec(), ReplicaIdForReservation, kernelId)
 	}
 
 	if err != nil {
@@ -1357,7 +1357,7 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 	defer m.mu.Unlock()
 
 	// Verify that there are no other replicas of the specified kernel scheduled on this host.
-	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica != replicaIdForReplicaNotFound {
+	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica != ReplicaIdForReplicaNotFound {
 		numFailedReservations := m.numFailedReservations.Add(1)
 		m.log.Debug("Cannot reserve resources for replica of kernel %s: found existing resource "+
 			"allocation associated to that another replica of that kernel (replica %d) [numFailedReservations=%d].",
@@ -1395,7 +1395,7 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 	}
 
 	// Verify that there does not already exist an allocation associated with an unspecified kernel replica.
-	key = getKey(replicaIdForReservation, kernelId)
+	key = getKey(ReplicaIdForReservation, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); allocationExists {
 		numFailedReservations := m.numFailedReservations.Add(1)
 		m.log.Debug("Cannot create reservation for new replica of kernel %s: found existing resource "+
@@ -1408,7 +1408,7 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 	// Construct the new Allocation using the resource quantities specified in the spec argument.
 	allocation = NewResourceAllocationBuilder().
 		WithAllocationType(allocationType).
-		WithKernelReplica(replicaIdForReservation, kernelId).
+		WithKernelReplica(ReplicaIdForReservation, kernelId).
 		WithMillicpus(spec.CPU()).
 		WithMemoryMB(spec.MemoryMB()).
 		WithGPUs(spec.GPU()).
@@ -1432,14 +1432,14 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 		m.log.Debug("Attempting to create %v reservation for replica of kernel %s: %v",
 			status, kernelId, spec.String())
 
-		err = m.allocatePendingResources(requestedResources, allocation, key, replicaIdForReservation, kernelId)
+		err = m.allocatePendingResources(requestedResources, allocation, key, ReplicaIdForReservation, kernelId)
 	} else {
 		status = scheduling.CommittedResources
 
 		m.log.Debug("Attempting to create %v reservation for replica of kernel %s: %v",
 			status, kernelId, spec.String())
 
-		err = m.allocateCommittedResources(replicaIdForReservation, kernelId, requestedResources, allocation, false,
+		err = m.allocateCommittedResources(ReplicaIdForReservation, kernelId, requestedResources, allocation, false,
 			false, key)
 	}
 
@@ -1473,7 +1473,7 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 
 	// Verify that there are no other replicas of the specified kernel scheduled on this host.
 	scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId)
-	if scheduledReplica != replicaIdForReplicaNotFound && scheduledReplica != replicaIdForReservation {
+	if scheduledReplica != ReplicaIdForReplicaNotFound && scheduledReplica != ReplicaIdForReservation {
 		numFailedReservations := m.numFailedReservations.Add(1)
 		m.log.Debug("Cannot reserve resources for replica of kernel %s: found existing resource "+
 			"allocation associated to that another replica of that kernel (replica %d) [numFailedReservations=%d].",
@@ -1512,8 +1512,8 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 	}
 
 	// Verify that there does not already exist a reservation associated with an unspecified kernel replica.
-	if replicaId != replicaIdForReservation {
-		genericKey := getKey(replicaIdForReservation, kernelId)
+	if replicaId != ReplicaIdForReservation {
+		genericKey := getKey(ReplicaIdForReservation, kernelId)
 		if allocation, allocationExists = m.allocationKernelReplicaMap.Load(genericKey); allocationExists {
 			// If the existing allocation is a reservation, then just "promote" the reservation to a standard
 			// allocation, decrement the "number of reservations" counter, and return nil (i.e., no error).
@@ -2038,7 +2038,7 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 	m.log.Debug(
 		utils.LightBlueStyle.Render(
 			"Allocated committed resources [%v] to replica %d of kernel %s. New resource counts: %s."),
-		resourceRequest.String(), m.resourceManager.GetResourceCountsAsString())
+		resourceRequest.String(), replicaId, kernelId, m.resourceManager.GetResourceCountsAsString())
 
 	// Store the allocation in the mapping.
 	m.allocationKernelReplicaMap.Store(key, allocation)
@@ -2067,8 +2067,17 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 	allocation.SetAllocationType(scheduling.CommittedAllocation)
 	allocation.SetIsPreCommitted(isPreCommitment)
 
+	if int(allocation.GetGpus()) > m.availableGpuDevices.Len() {
+		panic(fmt.Sprintf("Require %d GPU device ID(s) for replica %d of kernel %s, but only %d is/are available. Committed GPUs: %.0f.",
+			int(allocation.GetGpus()), replicaId, kernelId, m.availableGpuDevices.Len(), m.resourceManager.CommittedResources().GPUs()))
+	}
+
 	// TODO: Needs to be possible for these to already be specified, or perhaps that should be the only way.
 	gpuDeviceIds := make([]int, 0, int(allocation.GetGpus()))
+
+	m.log.Debug("Allocating %d/%d remaining, available GPU device IDs.",
+		int(allocation.GetGpus()), m.availableGpuDevices.Len())
+
 	for len(gpuDeviceIds) < int(allocation.GetGpus()) {
 		gpuDeviceId, ok := m.availableGpuDevices.Dequeue()
 
@@ -2144,12 +2153,18 @@ func (m *AllocationManager) releaseCommittedResources(allocation scheduling.Allo
 		spec = allocation.ToDecimalSpec()
 	}
 
-	m.log.Debug("Releasing committed resources. Current resource counts: %s. TransactionResources to be deallocated: %v.",
+	m.log.Debug("Releasing committed resources. Current resource counts: %s. Resources to be deallocated: %v.",
 		m.resourceManager.GetResourceCountsAsString(), spec.String())
 
-	for _, gpuDeviceId := range allocation.GetGpuDeviceIds() {
+	deviceIdsToReturn := allocation.GetGpuDeviceIds()
+	numToReturn := len(deviceIdsToReturn)
+	m.log.Debug("Returning %d GPU device ID(s): %v. Current device ID pool size: %d.",
+		numToReturn, deviceIdsToReturn, m.availableGpuDevices.Len())
+	for _, gpuDeviceId := range deviceIdsToReturn {
 		m.availableGpuDevices.Enqueue(gpuDeviceId)
 	}
+	m.log.Debug("Returned %d GPU device ID(s). GPU device ID pool %d → %d.",
+		numToReturn, m.availableGpuDevices.Len()-numToReturn, m.availableGpuDevices.Len())
 
 	// Clear the GpuDeviceIds field of the allocation.
 	allocation.ClearGpuDeviceIds()
@@ -2365,4 +2380,15 @@ func (m *unitTestingAllocationManager) SubtractFromPendingResources(spec *types.
 	m.log.Debug("Successfully decremented pending resources by [%v]. Current pending: %s.",
 		spec.String(), m.resourceManager.PendingResources().String())
 	return nil
+}
+
+// AddGpuDeviceIds makes the specified GPU device IDs available for allocation on the target UnitTestingHost.
+func (m *unitTestingAllocationManager) AddGpuDeviceIds(gpuDeviceIds []int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, gpuDeviceId := range gpuDeviceIds {
+		m.log.Debug("Artificially adding GPU device ID: %d", gpuDeviceId)
+		m.availableGpuDevices.Enqueue(gpuDeviceId)
+	}
 }

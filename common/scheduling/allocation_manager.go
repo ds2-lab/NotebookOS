@@ -275,4 +275,8 @@ type UnitTestingAllocationManager interface {
 
 	// SubtractFromPendingResources is only intended to be used during unit tests.
 	SubtractFromPendingResources(spec *types.DecimalSpec) error
+
+	// AddGpuDeviceIds makes the specified GPU device IDs available for allocation on the target
+	// UnitTestingAllocationManager.
+	AddGpuDeviceIds(gpuDeviceIds []int)
 }

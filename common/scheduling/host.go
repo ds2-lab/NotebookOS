@@ -235,6 +235,9 @@ type UnitTestingHost interface {
 
 	// AllocationManager returns the AllocationManager that manages the resources of the target UnitTestingHost.
 	AllocationManager() AllocationManager
+
+	// AddGpuDeviceIds makes the specified GPU device IDs available for allocation on the target UnitTestingHost.
+	AddGpuDeviceIds([]int)
 }
 
 type HostStatistics interface {

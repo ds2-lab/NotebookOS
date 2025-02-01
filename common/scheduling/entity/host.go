@@ -747,7 +747,7 @@ func (h *Host) ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelRepli
 //
 // If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
 func (h *Host) ReserveResources(spec *proto.KernelSpec, usePendingResources bool) (bool, error) {
-	err := h.reserveResources(-1, spec.Id, spec.ResourceSpec.ToDecimalSpec(), usePendingResources)
+	err := h.reserveResources(resource.ReplicaIdForReservation, spec.Id, spec.ResourceSpec.ToDecimalSpec(), usePendingResources)
 	if err != nil {
 		return false, err
 	}
@@ -1467,4 +1467,9 @@ func (h *UnitTestingHost) SubtractFromPendingResources(spec *types.DecimalSpec) 
 // AllocationManager returns the resource.AllocationManager that manages the resources of the target UnitTestingHost.
 func (h *UnitTestingHost) AllocationManager() scheduling.AllocationManager {
 	return h.allocationManager
+}
+
+// AddGpuDeviceIds makes the specified GPU device IDs available for allocation on the target UnitTestingHost.
+func (h *UnitTestingHost) AddGpuDeviceIds(gpuDeviceIds []int) {
+	h.allocationManager.(scheduling.UnitTestingAllocationManager).AddGpuDeviceIds(gpuDeviceIds)
 }
