@@ -252,7 +252,7 @@ func (a *Allocation) SetAllocationType(typ scheduling.AllocationType) {
 // scheduling.KernelContainer has not yet started running on the scheduling.Host (or that the notification that the
 // scheduling.KernelContainer has started running has not yet been received).
 func (a *Allocation) IsReservation() bool {
-	return a.IsReservation()
+	return a.IsReservationAllocation
 }
 
 // SetIsReservation is used to set the value of the Allocation's IsPreCommittedAllocation flag.
