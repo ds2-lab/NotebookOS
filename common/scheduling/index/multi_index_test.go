@@ -17,9 +17,10 @@ var (
 
 var _ = Describe("MultiIndex Tests", func() {
 	var (
-		mockCtrl    *gomock.Controller
-		mockCluster *mock_scheduling.MockCluster
-		mockPolicy  *mock_scheduling.MockPolicy
+		mockCtrl      *gomock.Controller
+		mockCluster   *mock_scheduling.MockCluster
+		mockScheduler *mock_scheduling.MockScheduler
+		mockPolicy    *mock_scheduling.MockPolicy
 	)
 
 	hostSpec := types.NewDecimalSpec(64000, 128000, 8, 40)
@@ -27,6 +28,9 @@ var _ = Describe("MultiIndex Tests", func() {
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		mockCluster = mock_scheduling.NewMockCluster(mockCtrl)
+		mockScheduler = mock_scheduling.NewMockScheduler(mockCtrl)
+		mockCluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
+		mockScheduler.EXPECT().Policy().AnyTimes().Return(mockPolicy)
 		mockPolicy = mock_scheduling.NewMockPolicy(mockCtrl)
 
 		mockPolicy.EXPECT().ResourceBindingMode().AnyTimes().Return(scheduling.BindResourcesWhenContainerScheduled)

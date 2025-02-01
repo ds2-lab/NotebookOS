@@ -13,9 +13,10 @@ import (
 
 var _ = Describe("LeastLoadedIndex Tests", func() {
 	var (
-		mockCtrl    *gomock.Controller
-		mockCluster *mock_scheduling.MockCluster
-		mockPolicy  *mock_scheduling.MockPolicy
+		mockCtrl      *gomock.Controller
+		mockCluster   *mock_scheduling.MockCluster
+		mockScheduler *mock_scheduling.MockScheduler
+		mockPolicy    *mock_scheduling.MockPolicy
 	)
 
 	hostSpec := types.NewDecimalSpec(64000, 128000, 8, 40)
@@ -24,6 +25,10 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		mockCluster = mock_scheduling.NewMockCluster(mockCtrl)
 		mockPolicy = mock_scheduling.NewMockPolicy(mockCtrl)
+		mockScheduler = mock_scheduling.NewMockScheduler(mockCtrl)
+
+		mockScheduler.EXPECT().Policy().AnyTimes().Return(mockPolicy)
+		mockCluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
 
 		mockPolicy.EXPECT().ResourceBindingMode().AnyTimes().Return(scheduling.BindResourcesWhenContainerScheduled)
 	})
