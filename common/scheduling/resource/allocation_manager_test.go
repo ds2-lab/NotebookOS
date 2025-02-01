@@ -33,7 +33,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
-			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString())
+			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString(), "TestNode")
 		})
 
 		It("Will correctly handle the scheduling of a single pending resource request", func() {
@@ -631,7 +631,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
-			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString())
+			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString(), "TestNode")
 		})
 
 		It("Will correctly handle the scheduling of a single pending resource request", func() {
@@ -1225,7 +1225,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 			Expect(err).To(BeNil())
 			Expect(schedulingPolicy).ToNot(BeNil())
 
-			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString())
+			resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, uuid.NewString(), "TestNode")
 		})
 
 		It("Will correctly handle the scheduling of a single pending resource request", func() {

@@ -234,7 +234,7 @@ func NewHost(id string, addr string, numReplicasPerKernel int, querier Subscript
 		SubscriptionQuerier:         querier,
 		indexUpdater:                indexUpdater,
 		ProperlyInitialized:         true,
-		allocationManager:           resource.NewAllocationManager(resourceSpec, schedulingPolicy, id),
+		allocationManager:           resource.NewAllocationManager(resourceSpec, schedulingPolicy, id, confirmedId.NodeName),
 		subscribedRatio:             decimal.Zero,
 	}
 

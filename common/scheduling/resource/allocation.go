@@ -53,6 +53,8 @@ type Allocation struct {
 	// HostId is the ID of the host on which this Allocation exists/is made.
 	HostId string
 
+	HostName string
+
 	// AllocationType indicates whether the Allocation is "pending" or "committed".
 	//
 	// "Pending" indicates that the HostResources are not "actually" allocated to the associated kernel replica.
@@ -80,6 +82,10 @@ type Allocation struct {
 
 func (a *Allocation) GetHostId() string {
 	return a.HostId
+}
+
+func (a *Allocation) GetHostName() string {
+	return a.HostName
 }
 
 func (a *Allocation) GetAllocationType() scheduling.AllocationType {
@@ -319,6 +325,7 @@ type AllocationBuilder struct {
 	isReservation   bool
 	isPreCommitment bool
 	hostId          string
+	hostName        string
 	gpuDeviceIds    []int
 	replicaId       int32
 	kernelId        string
@@ -338,6 +345,12 @@ func NewResourceAllocationBuilder() *AllocationBuilder {
 // WithHostId enables the specification of the Allocation's HostId field.
 func (b *AllocationBuilder) WithHostId(hostId string) *AllocationBuilder {
 	b.hostId = hostId
+	return b
+}
+
+// WithHostName enables the specification of the Allocation's HostName field.
+func (b *AllocationBuilder) WithHostName(hostName string) *AllocationBuilder {
+	b.hostName = hostName
 	return b
 }
 
@@ -459,6 +472,7 @@ func (b *AllocationBuilder) BuildResourceAllocation() *Allocation {
 		ReplicaId:                b.replicaId,
 		KernelId:                 b.kernelId,
 		AllocationType:           b.allocationType,
+		HostName:                 b.hostName,
 		HostId:                   b.hostId,
 		IsReservationAllocation:  b.isReservation,
 		IsPreCommittedAllocation: b.isPreCommitment,

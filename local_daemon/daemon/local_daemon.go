@@ -382,7 +382,7 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		Millicpus: scheduling.DefaultMillicpusPerHost,
 		Memory:    scheduling.DefaultMemoryMbPerHost,
 	}
-	daemon.allocationManager = resource.NewAllocationManager(hostSpec, daemon.schedulingPolicy, dockerNodeId)
+	daemon.allocationManager = resource.NewAllocationManager(hostSpec, daemon.schedulingPolicy, dockerNodeId, nodeName)
 
 	if daemon.prometheusInterval == time.Duration(0) {
 		daemon.log.Debug("Using default Prometheus interval: %v.", DefaultPrometheusInterval)

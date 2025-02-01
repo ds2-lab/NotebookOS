@@ -185,6 +185,8 @@ type AllocationManager struct {
 	// GetId is the unique identifier of the AllocationManager. This is distinct from the NodeId.
 	Id string
 
+	NodeName string
+
 	// NodeId is the unique identifier of the node on which the AllocationManager exists.
 	// This field is not populated immediately, as the LocalDaemon does not have an ID
 	// when it is first created. Instead, the Cluster Gateway assigns an ID to the
@@ -283,9 +285,10 @@ type AllocationManager struct {
 }
 
 // NewAllocationManager creates a new AllocationManager struct and returns a pointer to it.
-func NewAllocationManager(resourceSpec types.Spec, schedulingPolicy scheduling.Policy, nodeId string) *AllocationManager {
+func NewAllocationManager(resourceSpec types.Spec, schedulingPolicy scheduling.Policy, nodeId string, nodeName string) *AllocationManager {
 	manager := &AllocationManager{
 		Id:                         uuid.NewString(),
+		NodeName:                   nodeName,
 		NodeId:                     nodeId,
 		allocationKernelReplicaMap: hashmap.NewCornelkMap[string, scheduling.Allocation](128),
 		kernelAllocationMap:        hashmap.NewCornelkMap[string, scheduling.Allocation](128),
@@ -293,6 +296,7 @@ func NewAllocationManager(resourceSpec types.Spec, schedulingPolicy scheduling.P
 		schedulingPolicy:           schedulingPolicy,
 		resourceManager:            NewManager(resourceSpec),
 		scheduledKernels:           newScheduledKernels(nodeId),
+		log:                        config.GetLogger(fmt.Sprintf("AllocationManager %s ", nodeName)),
 	}
 
 	for i := 0; i < int(resourceSpec.GPU()); i++ {
@@ -306,8 +310,6 @@ func NewAllocationManager(resourceSpec types.Spec, schedulingPolicy scheduling.P
 	manager.numReservations.Store(0)
 	manager.numFailedReservations.Store(0)
 	manager.numFailedPreCommitments.Store(0)
-
-	config.InitLogger(&manager.log, manager)
 
 	manager.log.Debug("Resource Manager initialized: %v", manager.resourceManager.String())
 
@@ -331,6 +333,10 @@ func (m *AllocationManager) GetId() string {
 // GetNodeId returns the node ID or host ID of the scheduling.Host whose resources are managed by the target AllocationManager.
 func (m *AllocationManager) GetNodeId() string {
 	return m.NodeId
+}
+
+func (m *AllocationManager) GetNodeName() string {
+	return m.NodeName
 }
 
 // ResourcesSnapshot returns a *ManagerSnapshot encoding the working resource quantities
@@ -1037,7 +1043,7 @@ func (m *AllocationManager) PreCommitResourcesToExistingContainer(replicaId int3
 
 	if !m.scheduledKernels.IsAnyReplicaScheduled(kernelId) {
 		m.log.Warn("Cannot pre-commit resources to replica %d of kernel %s, as no replicas of kernel %s exist on host %s.",
-			replicaId, kernelId, kernelId, m.NodeId)
+			replicaId, kernelId, kernelId, m.NodeName)
 		return nil, fmt.Errorf("%w: no replicas of kernel %s are scheduled (including specified replica %d)",
 			ErrContainerNotPresent, kernelId, replicaId)
 	}
@@ -1311,7 +1317,7 @@ func (m *AllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
 		m.log.Error(
 			utils.RedStyle.Render(
 				"Failed to release resources reserved for replica of kernel %s from host %s: %v"),
-			kernelId, m.NodeId, err)
+			kernelId, m.NodeName, err)
 
 		panic(err)
 	}
@@ -1321,7 +1327,7 @@ func (m *AllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
 		m.log.Error(
 			utils.RedStyle.Render(
 				"Failed to release resources reserved for replica of kernel %s from host %s: %v"),
-			kernelId, m.NodeId, err)
+			kernelId, m.NodeName, err)
 
 		panic(err)
 	}
@@ -1404,6 +1410,7 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 		WithGPUs(spec.GPU()).
 		WithVRAM(spec.VRAM()).
 		WithHostId(m.NodeId).
+		WithHostName(m.NodeName).
 		IsAReservation().
 		IsNotAPreCommitment().
 		BuildResourceAllocation()
@@ -1538,6 +1545,7 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 		WithGPUs(spec.GPU()).
 		WithVRAM(spec.VRAM()).
 		WithHostId(m.NodeId).
+		WithHostName(m.NodeName).
 		IsNotAReservation().
 		IsNotAPreCommitment().
 		BuildResourceAllocation()
@@ -1558,7 +1566,7 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 	err = m.scheduledKernels.ReplicaScheduled(replicaId, kernelId)
 	if err != nil {
 		m.log.Error("Error while recording that replica %d of kernel %s was scheduled onto host %s: %v",
-			replicaId, kernelId, m.NodeId, err)
+			replicaId, kernelId, m.NodeName, err)
 		panic(err) // We just checked up above that no other replica was scheduled, so this should never happen.
 	}
 
@@ -1590,7 +1598,7 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 		allocationExists bool
 	)
 
-	m.log.Debug("Attempting to evict replica %d of kernel %s from host %s now.", replicaId, kernelId, m.NodeId)
+	m.log.Debug("Attempting to evict replica %d of kernel %s from host %s now.", replicaId, kernelId, m.NodeName)
 
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
@@ -1607,7 +1615,7 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 	// If so, then we'll first release the committed HostResources before unsubscribing the pending HostResources.
 	if allocation.IsCommitted() {
 		m.log.Debug("Releasing resources committed to evicted replica %d of kernel %s on host %s now.",
-			replicaId, kernelId, m.NodeId)
+			replicaId, kernelId, m.NodeName)
 
 		// Perform the resource count adjustments associated with releasing committed HostResources.
 		// We'll pass allocatedResources ourselves (non-nil), as we need the *types.DecimalSpec
@@ -1617,13 +1625,13 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 			m.log.Error(
 				utils.RedStyle.Render(
 					"Failed to release resources committed to replica %d of kernel %s on host %s: %v"),
-				replicaId, kernelId, m.NodeId, err)
+				replicaId, kernelId, m.NodeName, err)
 
 			panic(err)
 		}
 	} else {
 		m.log.Debug("Releasing pending resources assigned to evicted replica %d of kernel %s on host %s now.",
-			replicaId, kernelId, m.NodeId)
+			replicaId, kernelId, m.NodeName)
 
 		// Unsubscribe the pending HostResources.
 		err := m.releasePendingResources(allocatedResources, replicaId, kernelId)
@@ -1631,7 +1639,7 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 			m.log.Error(
 				utils.RedStyle.Render(
 					"Failed to unsubscribe pending resources %s from replica %d of kernel %s on host %s because: %v"),
-				allocatedResources.String(), replicaId, kernelId, m.NodeId, err)
+				allocatedResources.String(), replicaId, kernelId, m.NodeName, err)
 			panic(err)
 		}
 	}
@@ -1641,7 +1649,7 @@ func (m *AllocationManager) ReplicaEvicted(replicaId int32, kernelId string) err
 		m.log.Error(
 			utils.RedStyle.Render(
 				"Failed to evict replica %d of kernel %s from host %s because: %v"),
-			replicaId, kernelId, m.NodeId, err)
+			replicaId, kernelId, m.NodeName, err)
 		panic(err)
 	}
 
@@ -1900,7 +1908,7 @@ func (m *AllocationManager) releasePendingResources(allocatedResources *types.De
 	if m.updateIndex != nil {
 		err = m.updateIndex(replicaId, kernelId)
 		if err != nil {
-			m.log.Error("Failed to update index for host %s", m.NodeId)
+			m.log.Error("Failed to update index for host %s", m.NodeName)
 			return err
 		}
 	}
@@ -1953,7 +1961,7 @@ func (m *AllocationManager) allocatePendingResources(spec *types.DecimalSpec,
 	if m.updateIndex != nil {
 		err := m.updateIndex(replicaId, kernelId)
 		if err != nil {
-			m.log.Error("Failed to update index for host %s", m.NodeId)
+			m.log.Error("Failed to update index for host %s", m.NodeName)
 			return err
 		}
 	}
@@ -2085,7 +2093,7 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 	if m.updateIndex != nil {
 		err := m.updateIndex(replicaId, kernelId)
 		if err != nil {
-			m.log.Error("Failed to update index for host %s", m.NodeId)
+			m.log.Error("Failed to update index for host %s", m.NodeName)
 			return err
 		}
 	}
@@ -2173,7 +2181,7 @@ func (m *AllocationManager) releaseCommittedResources(allocation scheduling.Allo
 	if m.updateIndex != nil {
 		err := m.updateIndex(allocation.GetReplicaId(), allocation.GetKernelId())
 		if err != nil {
-			m.log.Error("Failed to update index for host %s", m.NodeId)
+			m.log.Error("Failed to update index for host %s", m.NodeName)
 			return err
 		}
 	}

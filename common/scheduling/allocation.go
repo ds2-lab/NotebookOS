@@ -41,6 +41,7 @@ type Allocation interface {
 	IsCommitted() bool
 	GetKernelId() string
 	GetHostId() string
+	GetHostName() string
 	GetExecutionId() string
 	SetExecutionId(executionId string)
 	GetReplicaId() int32
