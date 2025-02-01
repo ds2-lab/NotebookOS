@@ -2,6 +2,7 @@ package transaction
 
 import (
 	"errors"
+	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 )
 
@@ -33,7 +34,8 @@ func NewErrTransactionFailed(reason error, offendingKind scheduling.ResourceKind
 }
 
 func (err ErrTransactionFailed) Error() string {
-	return ""
+	return fmt.Sprintf("the transaction failed offending kind '%v', offending status '%v', and reason: %v",
+		err.OffendingKind, err.OffendingStatus, err.Reason)
 }
 
 func (err ErrTransactionFailed) String() string {
