@@ -2126,7 +2126,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// Add the Container to the Host.
 	d.log.Debug("Adding scheduling.Container for replica %d of kernel %s onto Host %s",
 		replicaSpec.ReplicaId, addReplicaOp.KernelId(), host.GetID())
-	if err = host.ContainerScheduled(container); err != nil {
+	if err = host.ContainerStartedRunningOnHost(container); err != nil {
 		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
 		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
 		panic(err)
@@ -2263,7 +2263,8 @@ func (d *ClusterGatewayImpl) printKernelRegistrationNotification(in *proto.Kerne
 }
 
 func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
-	d.log.Info("Received kernel registration notification.")
+	d.log.Info("Received kernel registration notification for replica %d of kernel %s from host %s (ID=%s).",
+		in.ReplicaId, in.KernelId, in.NodeName, in.HostId)
 
 	connectionInfo := in.ConnectionInfo
 	sessionId := in.SessionId
@@ -2409,10 +2410,10 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		panic(err)
 	}
 
-	d.mu.Unlock() // Need to unlock before calling ContainerScheduled, or deadlock can occur.
+	d.mu.Unlock() // Need to unlock before calling ContainerStartedRunningOnHost, or deadlock can occur.
 
 	// Add the Container to the Host.
-	if err := host.ContainerScheduled(container); err != nil {
+	if err := host.ContainerStartedRunningOnHost(container); err != nil {
 		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
 		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
 		panic(err)

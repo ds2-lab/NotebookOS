@@ -648,7 +648,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host1.ContainerScheduled(container1)
+					err = host1.ContainerStartedRunningOnHost(container1)
 					Expect(err).To(BeNil())
 					container1.EXPECT().Host().AnyTimes().Return(host1)
 					kernelReplica1.EXPECT().Host().AnyTimes().Return(host1)
@@ -657,7 +657,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host2.ContainerScheduled(container2)
+					err = host2.ContainerStartedRunningOnHost(container2)
 					Expect(err).To(BeNil())
 					container2.EXPECT().Host().AnyTimes().Return(host2)
 					kernelReplica2.EXPECT().Host().AnyTimes().Return(host2)
@@ -666,7 +666,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host3.ContainerScheduled(container3)
+					err = host3.ContainerStartedRunningOnHost(container3)
 					Expect(err).To(BeNil())
 					container3.EXPECT().Host().AnyTimes().Return(host3)
 					kernelReplica3.EXPECT().Host().AnyTimes().Return(host3)
@@ -910,7 +910,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host1.ContainerScheduled(container1)
+					err = host1.ContainerStartedRunningOnHost(container1)
 					Expect(err).To(BeNil())
 					container1.EXPECT().Host().AnyTimes().Return(host1)
 					kernelReplica1.EXPECT().Host().AnyTimes().Return(host1)
@@ -919,7 +919,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host2.ContainerScheduled(container2)
+					err = host2.ContainerStartedRunningOnHost(container2)
 					Expect(err).To(BeNil())
 					container2.EXPECT().Host().AnyTimes().Return(host2)
 					kernelReplica2.EXPECT().Host().AnyTimes().Return(host2)
@@ -928,7 +928,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host3.ContainerScheduled(container3)
+					err = host3.ContainerStartedRunningOnHost(container3)
 					Expect(err).To(BeNil())
 					container3.EXPECT().Host().AnyTimes().Return(host3)
 					kernelReplica3.EXPECT().Host().AnyTimes().Return(host3)

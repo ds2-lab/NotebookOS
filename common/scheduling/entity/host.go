@@ -989,7 +989,8 @@ func (h *Host) ContainerRemoved(container scheduling.KernelContainer) error {
 	defer h.schedulingMutex.Unlock()
 
 	if _, ok := h.containers.Load(container.ContainerID()); !ok {
-		h.log.Error("Cannot remove specified Container from Host. Container is not on specified Host.")
+		h.log.Error("Cannot remove specified Container for replica %d of kernel %s from Host. Container is not on specified Host.",
+			container.ReplicaId(), container.KernelID())
 		return fmt.Errorf("%w: cannot find container for replica %d of kernel %s on host %s (ID=%s) for removal",
 			ErrInvalidContainer, container.ReplicaId(), container.KernelID(), h.NodeName, h.ID)
 	}
@@ -1009,15 +1010,18 @@ func (h *Host) ContainerRemoved(container scheduling.KernelContainer) error {
 	return nil
 }
 
-// ContainerScheduled is to be called when a Container is scheduled onto the Host.
-func (h *Host) ContainerScheduled(container scheduling.KernelContainer) error {
+// ContainerStartedRunningOnHost is to be called when a Container officially begins running on the target Host.
+func (h *Host) ContainerStartedRunningOnHost(container scheduling.KernelContainer) error {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
+
+	h.log.Debug("Container for replica %d of kernel %s has officially started running on host %s.",
+		container.ReplicaId(), container.KernelID(), h.NodeName)
 
 	h.containers.Store(container.ContainerID(), container)
 	h.pendingContainers.Add(1)
 
-	err := h.allocationManager.KernelReplicaScheduled(container.ReplicaId(), container.KernelID(), container.ResourceSpec())
+	err := h.allocationManager.ContainerStartedRunningOnHost(container.ReplicaId(), container.KernelID(), container.ResourceSpec())
 	if err != nil {
 		panic(err)
 	}

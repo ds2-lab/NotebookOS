@@ -162,7 +162,8 @@ type Host interface {
 	ContainerStoppedTraining(container KernelContainer) error
 	ContainerStartedTraining(container KernelContainer) error
 	ContainerRemoved(container KernelContainer) error
-	ContainerScheduled(container KernelContainer) error
+	// ContainerStartedRunningOnHost is to be called when a Container officially begins running on the target Host.
+	ContainerStartedRunningOnHost(container KernelContainer) error
 	ErrorCallback() ErrorCallback
 	SetErrorCallback(callback ErrorCallback)
 	Penalty(gpus float64) (float64, PreemptionInfo, error)

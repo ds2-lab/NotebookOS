@@ -188,7 +188,13 @@ type AllocationManager interface {
 	// This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
 	// The sync.Mutex is released before the function returns.
 	ReleaseCommittedResources(replicaId int32, kernelId string, executionId string) error
-	KernelReplicaScheduled(replicaId int32, kernelId string, spec types.Spec) error
+	// ContainerStartedRunningOnHost is to be called whenever a kernel replica is scheduled onto this scheduling.Host.
+	// ContainerStartedRunningOnHost creates an Allocation of type PendingAllocation that is then associated with the
+	// newly-scheduled kernel replica.
+	//
+	// This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
+	// The sync.Mutex is released before the function returns.
+	ContainerStartedRunningOnHost(replicaId int32, kernelId string, spec types.Spec) error
 	ReplicaEvicted(replicaId int32, kernelId string) error
 	HasSufficientIdleResourcesAvailable(spec types.Spec) bool
 	GetGpuDeviceIdsAssignedToReplica(replicaId int32, kernelId string) ([]int, error)

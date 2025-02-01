@@ -131,6 +131,27 @@ func (sk *scheduledKernels) ReservationReleased(kernelId string) error {
 	return nil
 }
 
+// ReplicaStartedRunning is called when a replica of a kernel begins running after originally
+// having a reservation created for it.
+func (sk *scheduledKernels) ReplicaStartedRunning(replicaId int32, kernelId string) error {
+	sk.mu.Lock()
+	defer sk.mu.Unlock()
+
+	scheduledReplica, loaded := sk.Kernels[kernelId]
+	if !loaded {
+		return fmt.Errorf("%w: expected to find generic reference to container of kernel \"%s\"",
+			ErrContainerNotPresent, kernelId)
+	}
+
+	if scheduledReplica != ReplicaIdForReservation {
+		return fmt.Errorf("%w: expected to find generic reference to container of kernel \"%s\", instead found replica %d",
+			ErrSomeReplicaAlreadyPresent, kernelId, scheduledReplica)
+	}
+
+	sk.Kernels[kernelId] = replicaId
+	return nil
+}
+
 // ReplicaScheduled is called to record that the specified replica of the specified kernel has been scheduled.
 func (sk *scheduledKernels) ReplicaScheduled(replicaId int32, kernelId string) error {
 	sk.mu.Lock()
@@ -1461,13 +1482,13 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 	return nil
 }
 
-// KernelReplicaScheduled is to be called whenever a kernel replica is scheduled onto this scheduling.Host.
-// KernelReplicaScheduled creates an Allocation of type PendingAllocation that is then associated with the
+// ContainerStartedRunningOnHost is to be called whenever a kernel replica is scheduled onto this scheduling.Host.
+// ContainerStartedRunningOnHost creates an Allocation of type PendingAllocation that is then associated with the
 // newly-scheduled kernel replica.
 //
 // This operation is performed atomically by acquiring the AllocationManager::mu sync.Mutex.
 // The sync.Mutex is released before the function returns.
-func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId string, spec types.Spec) error {
+func (m *AllocationManager) ContainerStartedRunningOnHost(replicaId int32, kernelId string, spec types.Spec) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1494,6 +1515,13 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 		// If the existing allocation is a reservation, then just "promote" the reservation to a standard
 		// allocation, decrement the "number of reservations" counter, and return nil (i.e., no error).
 		if allocation.IsReservation() {
+			err := m.scheduledKernels.ReplicaStartedRunning(replicaId, kernelId)
+			if err != nil {
+				m.log.Error("Failed to record that replica %d of kernel %s started running: %v",
+					replicaId, kernelId, err)
+				return err
+			}
+
 			allocation.SetIsReservation(false)
 
 			m.log.Debug("Updated existing allocation for replica %d of kernel %s stored under key \"%s\". Changed reservation flag to false.",
@@ -1505,7 +1533,7 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 			return nil
 		}
 
-		m.log.Error("Cannot subscribe pending HostResources to replica %d of kernel %s: found existing, non-reservation "+
+		m.log.Error("Cannot subscribe pending resources to replica %d of kernel %s: found existing, non-reservation "+
 			"allocation associated with that kernel replica: %s", replicaId, kernelId, allocation.String())
 		return fmt.Errorf("%w: existing resource allocation found for replica %d of kernel %s",
 			ErrInvalidAllocationRequest, replicaId, kernelId)
@@ -1519,6 +1547,13 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 			// allocation, decrement the "number of reservations" counter, and return nil (i.e., no error).
 			if !allocation.IsReservation() {
 				panic(fmt.Sprintf("Reservation for unspecified replica of kernel %s is not a reservation...", kernelId))
+			}
+
+			err := m.scheduledKernels.ReplicaStartedRunning(replicaId, kernelId)
+			if err != nil {
+				m.log.Error("Failed to record that replica %d of kernel %s started running: %v",
+					replicaId, kernelId, err)
+				return err
 			}
 
 			m.log.Debug("Promoting reservation for replica %d of kernel %s to 'regular' allocation.",

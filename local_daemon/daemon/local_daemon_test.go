@@ -358,7 +358,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			kernel1Replica1.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 			kernel1Replica1.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
@@ -477,7 +477,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			kernel2Replica2.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 			kernel2Replica2.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -486,7 +486,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(resourceManager.PendingGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
 			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(8))).To(BeTrue())
 
-			err = resourceManager.KernelReplicaScheduled(kernel2Replica2.ReplicaID(), kernel2Replica2.ID(), kernel2Replica2.ResourceSpec())
+			err = resourceManager.ContainerStartedRunningOnHost(kernel2Replica2.ReplicaID(), kernel2Replica2.ID(), kernel2Replica2.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(2))
@@ -564,7 +564,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			kernel1Replica1.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 			kernel1Replica1.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -689,7 +689,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -819,7 +819,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -899,7 +899,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -1059,7 +1059,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -1253,12 +1253,12 @@ var _ = Describe("Local Daemon Tests", func() {
 			schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 			schedulerDaemon.kernels.Store(kernel2Replica2.ID(), kernel2Replica2)
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			validatePending([]scheduling.KernelReplica{kernel1Replica1})
 
-			err = resourceManager.KernelReplicaScheduled(kernel2Replica2.ReplicaID(), kernel2Replica2.ID(), kernel2Replica2.ResourceSpec())
+			err = resourceManager.ContainerStartedRunningOnHost(kernel2Replica2.ReplicaID(), kernel2Replica2.ID(), kernel2Replica2.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			validatePending([]scheduling.KernelReplica{kernel1Replica1, kernel2Replica2})
@@ -1386,7 +1386,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-				err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+				err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 				Expect(err).To(BeNil())
 
 				validatePending([]scheduling.KernelReplica{kernel1Replica1})
@@ -1516,7 +1516,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-				err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+				err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 				Expect(err).To(BeNil())
 
 				validatePending([]scheduling.KernelReplica{kernel1Replica1})

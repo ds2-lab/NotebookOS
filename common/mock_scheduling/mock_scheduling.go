@@ -2117,9 +2117,9 @@ func (mr *MockHostMockRecorder) ContainerRemoved(container any) *gomock.Call {
 }
 
 // ContainerScheduled mocks base method.
-func (m *MockHost) ContainerScheduled(container scheduling.KernelContainer) error {
+func (m *MockHost) ContainerStartedRunningOnHost(container scheduling.KernelContainer) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ContainerScheduled", container)
+	ret := m.ctrl.Call(m, "ContainerStartedRunningOnHost", container)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -2127,7 +2127,7 @@ func (m *MockHost) ContainerScheduled(container scheduling.KernelContainer) erro
 // ContainerScheduled indicates an expected call of ContainerScheduled.
 func (mr *MockHostMockRecorder) ContainerScheduled(container any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerScheduled", reflect.TypeOf((*MockHost)(nil).ContainerScheduled), container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerStartedRunningOnHost", reflect.TypeOf((*MockHost)(nil).ContainerStartedRunningOnHost), container)
 }
 
 // ContainerStartedTraining mocks base method.
@@ -3853,9 +3853,9 @@ func (mr *MockUnitTestingHostMockRecorder) ContainerRemoved(container any) *gomo
 }
 
 // ContainerScheduled mocks base method.
-func (m *MockUnitTestingHost) ContainerScheduled(container scheduling.KernelContainer) error {
+func (m *MockUnitTestingHost) ContainerStartedRunningOnHost(container scheduling.KernelContainer) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ContainerScheduled", container)
+	ret := m.ctrl.Call(m, "ContainerStartedRunningOnHost", container)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -3863,7 +3863,7 @@ func (m *MockUnitTestingHost) ContainerScheduled(container scheduling.KernelCont
 // ContainerScheduled indicates an expected call of ContainerScheduled.
 func (mr *MockUnitTestingHostMockRecorder) ContainerScheduled(container any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerScheduled", reflect.TypeOf((*MockUnitTestingHost)(nil).ContainerScheduled), container)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerStartedRunningOnHost", reflect.TypeOf((*MockUnitTestingHost)(nil).ContainerStartedRunningOnHost), container)
 }
 
 // ContainerStartedTraining mocks base method.
@@ -10712,9 +10712,9 @@ func (mr *MockAllocationManagerMockRecorder) KernelHasCommittedResources(kernelI
 }
 
 // KernelReplicaScheduled mocks base method.
-func (m *MockAllocationManager) KernelReplicaScheduled(replicaId int32, kernelId string, spec types.Spec) error {
+func (m *MockAllocationManager) ContainerStartedRunningOnHost(replicaId int32, kernelId string, spec types.Spec) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "KernelReplicaScheduled", replicaId, kernelId, spec)
+	ret := m.ctrl.Call(m, "ContainerStartedRunningOnHost", replicaId, kernelId, spec)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -10722,7 +10722,7 @@ func (m *MockAllocationManager) KernelReplicaScheduled(replicaId int32, kernelId
 // KernelReplicaScheduled indicates an expected call of KernelReplicaScheduled.
 func (mr *MockAllocationManagerMockRecorder) KernelReplicaScheduled(replicaId, kernelId, spec any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "KernelReplicaScheduled", reflect.TypeOf((*MockAllocationManager)(nil).KernelReplicaScheduled), replicaId, kernelId, spec)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContainerStartedRunningOnHost", reflect.TypeOf((*MockAllocationManager)(nil).ContainerStartedRunningOnHost), replicaId, kernelId, spec)
 }
 
 // NumAllocations mocks base method.
