@@ -19,17 +19,17 @@ type HostResources struct {
 	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this HostResources struct.
 	lastAppliedSnapshotId int32
 
-	resourceStatus Status          // resourceStatus is the ResourceStatus represented/encoded by this struct.
-	millicpus      decimal.Decimal // millicpus is CPU in 1/1000th of CPU core.
-	gpus           decimal.Decimal // gpus is the number of GPUs.
-	memoryMB       decimal.Decimal // memoryMB is the amount of memory in MB.
-	vramGB         decimal.Decimal // vram is the amount of GPU memory in GB.
+	resourceStatus scheduling.ResourceStatus // resourceStatus is the ResourceStatus represented/encoded by this struct.
+	millicpus      decimal.Decimal           // millicpus is CPU in 1/1000th of CPU core.
+	gpus           decimal.Decimal           // gpus is the number of GPUs.
+	memoryMB       decimal.Decimal           // memoryMB is the amount of memory in MB.
+	vramGB         decimal.Decimal           // vram is the amount of GPU memory in GB.
 
 	// maximum provides a maximum of each ResourceKind of resource so we can clamp from above as well.
 	maximum *types.DecimalSpec
 }
 
-func NewHostResources(spec *types.DecimalSpec, maximum *types.DecimalSpec, status Status) *HostResources {
+func NewHostResources(spec *types.DecimalSpec, maximum *types.DecimalSpec, status scheduling.ResourceStatus) *HostResources {
 	return &HostResources{
 		resourceStatus: status,
 		millicpus:      spec.Millicpus,
@@ -418,7 +418,7 @@ func (res *HostResources) String() string {
 		res.gpus.StringFixed(1), res.vramGB.StringFixed(4), res.memoryMB.StringFixed(4))
 }
 
-func (res *HostResources) ResourceStatus() Status {
+func (res *HostResources) ResourceStatus() scheduling.ResourceStatus {
 	return res.resourceStatus
 }
 

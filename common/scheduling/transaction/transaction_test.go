@@ -77,8 +77,10 @@ var _ = Describe("Transaction Tests", func() {
 		fmt.Printf("Post-operation: %s\n", container.GetResourceCountsAsString())
 
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
-		Expect(errors.Is(err, transaction.ErrNegativeResourceCount)).To(BeTrue())
+		var txFailedError transaction.ErrTransactionFailed
+		Expect(errors.As(err, &txFailedError)).To(BeTrue())
+		Expect(txFailedError).ToNot(BeNil())
+		Expect(errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount)).To(BeTrue())
 
 		Expect(idle.Equals(container.Idle)).To(BeTrue())
 		Expect(pending.Equals(container.Pending)).To(BeTrue())

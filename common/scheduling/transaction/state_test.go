@@ -54,7 +54,8 @@ var _ = Describe("State", func() {
 				}
 
 				Expect(err).ToNot(BeNil())
-				Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
+				var txFailedError transaction.ErrTransactionFailed
+				Expect(errors.As(err, &txFailedError)).To(BeTrue())
 			})
 
 			It("Will correctly identify a state in which committed > spec as invalid", func() {
@@ -75,7 +76,8 @@ var _ = Describe("State", func() {
 				}
 
 				Expect(err).ToNot(BeNil())
-				Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
+				var txFailedError transaction.ErrTransactionFailed
+				Expect(errors.As(err, &txFailedError)).To(BeTrue())
 			})
 
 			It("Will correctly identify a state in which idle + committed != spec as invalid", func() {
@@ -96,7 +98,8 @@ var _ = Describe("State", func() {
 				}
 
 				Expect(err).ToNot(BeNil())
-				Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
+				var txFailedError transaction.ErrTransactionFailed
+				Expect(errors.As(err, &txFailedError)).To(BeTrue())
 			})
 
 			Context("Negative quantities", func() {
@@ -119,8 +122,10 @@ var _ = Describe("State", func() {
 					}
 
 					Expect(err).ToNot(BeNil())
-					Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
-					Expect(errors.Is(err, transaction.ErrNegativeResourceCount)).To(BeTrue())
+					var txFailedError transaction.ErrTransactionFailed
+					Expect(errors.As(err, &txFailedError)).To(BeTrue())
+					Expect(txFailedError).ToNot(BeNil())
+					Expect(errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount)).To(BeTrue())
 				})
 				It("Will correctly identify a state in which pending has a negative field as invalid", func() {
 					spec1 := types.NewDecimalSpec(50, 50, 50, 50)
@@ -139,8 +144,10 @@ var _ = Describe("State", func() {
 					}
 
 					Expect(err).ToNot(BeNil())
-					Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
-					Expect(errors.Is(err, transaction.ErrNegativeResourceCount)).To(BeTrue())
+					var txFailedError transaction.ErrTransactionFailed
+					Expect(errors.As(err, &txFailedError)).To(BeTrue())
+					Expect(txFailedError).ToNot(BeNil())
+					Expect(errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount)).To(BeTrue())
 				})
 				It("Will correctly identify a state in which committed has a negative field as invalid", func() {
 					spec1 := types.NewDecimalSpec(50, 50, 50, 50)
@@ -159,8 +166,10 @@ var _ = Describe("State", func() {
 					}
 
 					Expect(err).ToNot(BeNil())
-					Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
-					Expect(errors.Is(err, transaction.ErrNegativeResourceCount)).To(BeTrue())
+					var txFailedError transaction.ErrTransactionFailed
+					Expect(errors.As(err, &txFailedError)).To(BeTrue())
+					Expect(txFailedError).ToNot(BeNil())
+					Expect(errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount)).To(BeTrue())
 				})
 				It("Will correctly identify a state in which spec has a negative field as invalid", func() {
 					spec1 := types.NewDecimalSpec(50, 50, 50, 50)
@@ -178,8 +187,10 @@ var _ = Describe("State", func() {
 					}
 
 					Expect(err).ToNot(BeNil())
-					Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
-					Expect(errors.Is(err, transaction.ErrNegativeResourceCount)).To(BeTrue())
+					var txFailedError transaction.ErrTransactionFailed
+					Expect(errors.As(err, &txFailedError)).To(BeTrue())
+					Expect(txFailedError).ToNot(BeNil())
+					Expect(errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount)).To(BeTrue())
 				})
 			})
 		})

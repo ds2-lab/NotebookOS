@@ -1252,7 +1252,7 @@ func (d *LocalScheduler) registerKernelReplica(_ context.Context, kernelRegistra
 					registrationPayload.ReplicaId, kernel.ID())
 			}
 
-			// Convert the golang error to a gRPC Status struct for additional information.
+			// Convert the golang error to a gRPC ResourceStatus struct for additional information.
 			if statusError, ok := status.FromError(err); ok {
 				d.log.Error("Received gRPC error with statusError code %d: %s.",
 					statusError.Code(), statusError.Message())
@@ -2587,11 +2587,11 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 		shouldCallTrainingStopped bool
 	)
 	if msgErr.Status == messaging.MessageStatusOK {
-		d.log.Debug("Status of \"execute_reply\" message from replica %d of kernel %s is OK.", kernelClient.ReplicaID(), kernelClient.ID())
+		d.log.Debug("ResourceStatus of \"execute_reply\" message from replica %d of kernel %s is OK.", kernelClient.ReplicaID(), kernelClient.ID())
 		releaseResourcesMustSucceed = true // Replica was leader and is done executing.
 		shouldCallTrainingStopped = true
 	} else if msgErr.Status == messaging.MessageStatusError {
-		d.log.Warn("Status of \"execute_reply\" message from replica %d of kernel %s is \"%s\": %v", kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status, msgErr.String())
+		d.log.Warn("ResourceStatus of \"execute_reply\" message from replica %d of kernel %s is \"%s\": %v", kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status, msgErr.String())
 
 		// We should only call KernelStoppedTraining if the replica was actively training.
 		// We can check this by inspecting the type of error encoded in the "execute_reply" message.
@@ -2603,7 +2603,7 @@ func (d *LocalScheduler) processExecuteReply(msg *messaging.JupyterMessage, kern
 		errorMessage := fmt.Sprintf("Unexpected message status in \"execute_reply\" message from replica %d of kernel %s: \"%s\"",
 			kernelClient.ReplicaID(), kernelClient.ID(), msgErr.Status)
 		d.log.Error(errorMessage)
-		d.notifyClusterGatewayAndPanic("Unexpected Message Status in \"execute_reply\" Message", errorMessage, errorMessage)
+		d.notifyClusterGatewayAndPanic("Unexpected Message ResourceStatus in \"execute_reply\" Message", errorMessage, errorMessage)
 	}
 
 	// Check if we should be releasing resources at this point or not.

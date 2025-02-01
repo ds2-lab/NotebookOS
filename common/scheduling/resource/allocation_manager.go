@@ -824,7 +824,10 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec t
 	if err == nil {
 		m.log.Warn("Transaction %s targeting all replicas of kernel %s has failed, but the failure reason is nil...",
 			tx.Id(), container.KernelID())
-		err = fmt.Errorf("%w: failure reason unspecified", transaction.ErrTransactionFailed)
+		// err = fmt.Errorf("%w: failure reason unspecified", transaction.ErrTransactionFailed)
+
+		err = transaction.NewErrTransactionFailed(fmt.Errorf("failure reason unspecified"),
+			scheduling.UnknownResource, scheduling.UnknownStatus)
 	}
 
 	return err
@@ -1160,9 +1163,9 @@ func (m *AllocationManager) CommitResourcesToExistingContainer(replicaId int32, 
 	if allocation.IsCommitted() {
 		m.log.Warn("Found existing resource allocation for replica %d of kernel %s; "+
 			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsPreAllocation=true.",
-			replicaId, kernelId, allocation.GetAllocationType().String(), PendingResources.String())
+			replicaId, kernelId, allocation.GetAllocationType().String(), scheduling.PendingResources.String())
 		return nil, fmt.Errorf("%w: expected '%s', found '%s'",
-			ErrInvalidAllocationType, PendingResources.String(), allocation.GetAllocationType().String())
+			ErrInvalidAllocationType, scheduling.PendingResources.String(), allocation.GetAllocationType().String())
 	}
 
 	var requestedResources *types.DecimalSpec
@@ -1408,18 +1411,18 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 		// Convert the given types.Spec argument to a *types.DecimalSpec struct.
 		requestedResources = types.ToDecimalSpec(spec)
 		err                error
-		status             Status
+		status             scheduling.ResourceStatus
 	)
 
 	if usePending {
-		status = PendingResources
+		status = scheduling.PendingResources
 
 		m.log.Debug("Attempting to create %v reservation for replica of kernel %s: %v",
 			status, kernelId, spec.String())
 
 		err = m.allocatePendingResources(requestedResources, allocation, key, replicaIdForReservation, kernelId)
 	} else {
-		status = CommittedResources
+		status = scheduling.CommittedResources
 
 		m.log.Debug("Attempting to create %v reservation for replica of kernel %s: %v",
 			status, kernelId, spec.String())
@@ -1785,25 +1788,29 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 	// Idle HostResources.
 	hasNegative, kind := m.resourceManager.idleResources.HasNegativeField()
 	if hasNegative {
-		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, IdleResources, m.resourceManager.idleResources.GetResource(kind))
+		return scheduling.NewInconsistentResourcesError(kind, scheduling.NegativeResourceQuantity,
+			scheduling.IdleResources, m.resourceManager.idleResources.GetResource(kind))
 	}
 
 	// Pending HostResources.
 	hasNegative, kind = m.resourceManager.pendingResources.HasNegativeField()
 	if hasNegative {
-		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, PendingResources, m.resourceManager.idleResources.GetResource(kind))
+		return scheduling.NewInconsistentResourcesError(kind, scheduling.NegativeResourceQuantity,
+			scheduling.PendingResources, m.resourceManager.idleResources.GetResource(kind))
 	}
 
 	// Committed HostResources.
 	hasNegative, kind = m.resourceManager.committedResources.HasNegativeField()
 	if hasNegative {
-		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, CommittedResources, m.resourceManager.idleResources.GetResource(kind))
+		return scheduling.NewInconsistentResourcesError(kind, scheduling.NegativeResourceQuantity,
+			scheduling.CommittedResources, m.resourceManager.idleResources.GetResource(kind))
 	}
 
 	// Spec HostResources.
 	hasNegative, kind = m.resourceManager.specResources.HasNegativeField()
 	if hasNegative {
-		return NewInconsistentResourcesError(kind, NegativeResourceQuantity, SpecResources, m.resourceManager.idleResources.GetResource(kind))
+		return scheduling.NewInconsistentResourcesError(kind, scheduling.NegativeResourceQuantity,
+			scheduling.SpecResources, m.resourceManager.idleResources.GetResource(kind))
 	}
 
 	////////////////////////////////////////////////////////////////////////////////////////
@@ -1813,16 +1820,18 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 	// Idle HostResources <= Spec HostResources.
 	isOkay, offendingKind := m.resourceManager.idleResources.LessThanOrEqual(m.resourceManager.specResources)
 	if !isOkay {
-		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, QuantityGreaterThanSpec,
-			IdleResources, m.resourceManager.idleResources.GetResource(offendingKind),
+		return scheduling.NewInconsistentResourcesErrorWithResourceQuantity(offendingKind,
+			scheduling.QuantityGreaterThanSpec, scheduling.IdleResources,
+			m.resourceManager.idleResources.GetResource(offendingKind),
 			m.resourceManager.specResources.GetResource(offendingKind))
 	}
 
 	// Committed HostResources <= spec HostResources.
 	isOkay, offendingKind = m.resourceManager.committedResources.LessThanOrEqual(m.resourceManager.specResources)
 	if !isOkay {
-		return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, QuantityGreaterThanSpec,
-			CommittedResources, m.resourceManager.committedResources.GetResource(offendingKind),
+		return scheduling.NewInconsistentResourcesErrorWithResourceQuantity(offendingKind,
+			scheduling.QuantityGreaterThanSpec, scheduling.CommittedResources,
+			m.resourceManager.committedResources.GetResource(offendingKind),
 			m.resourceManager.specResources.GetResource(offendingKind))
 	}
 
@@ -1835,18 +1844,21 @@ func (m *AllocationManager) unsafePerformConsistencyCheck() error {
 		// resource counts should be 0 and our idle resource count should be max (equal to spec).
 
 		// First, check that our idle HostResources are equal to our spec HostResources.
-		areEqual, offendingKind := m.resourceManager.idleResources.EqualTo(m.resourceManager.specResources)
+		var areEqual bool
+		areEqual, offendingKind = m.resourceManager.idleResources.EqualTo(m.resourceManager.specResources)
 		if !areEqual {
-			return NewInconsistentResourcesErrorWithResourceQuantity(offendingKind, IdleSpecUnequal,
-				IdleResources, m.resourceManager.idleResources.GetResource(offendingKind),
+			return scheduling.NewInconsistentResourcesErrorWithResourceQuantity(offendingKind,
+				scheduling.IdleSpecUnequal, scheduling.IdleResources,
+				m.resourceManager.idleResources.GetResource(offendingKind),
 				m.resourceManager.specResources.GetResource(offendingKind))
 		}
 
 		// Next, check that our pending HostResources are equal to zero.
 		isZero, offendingKind := m.resourceManager.pendingResources.IsZero()
 		if !isZero {
-			return NewInconsistentResourcesError(offendingKind, PendingNonzero,
-				PendingResources, m.resourceManager.pendingResources.GetResource(offendingKind))
+			return scheduling.NewInconsistentResourcesError(offendingKind,
+				scheduling.PendingNonzero, scheduling.PendingResources,
+				m.resourceManager.pendingResources.GetResource(offendingKind))
 		}
 	}
 

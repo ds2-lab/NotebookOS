@@ -11,44 +11,6 @@ import (
 	"sync"
 )
 
-const (
-	// IdleResources can overlap with pending HostResources. These are HostResources that are not actively bound
-	// to any containers/replicas. They are available for use by a locally-running container/replica.
-	IdleResources Status = "idle"
-
-	// PendingResources are "subscribed to" by a locally-running container/replica; however, they are not
-	// bound to that container/replica, and thus are available for use by any of the locally-running replicas.
-	//
-	// Pending HostResources indicate the presence of locally-running replicas that are not actively training.
-	// The sum of all pending HostResources on a node is the amount of HostResources that would be required if all
-	// locally-scheduled replicas began training at the same time.
-	PendingResources Status = "pending"
-
-	// CommittedResources are actively bound/committed to a particular, locally-running container.
-	// As such, they are unavailable for use by any other locally-running replicas.
-	CommittedResources Status = "committed"
-
-	// SpecResources are the total allocatable HostResources available on the Host.
-	// SpecResources are a static, fixed quantity. They do not change in response to resource (de)allocations.
-	SpecResources Status = "spec"
-
-	// NegativeResourceQuantity indicates that the inconsistent/invalid resource is
-	// inconsistent/invalid because its quantity is negative.
-	NegativeResourceQuantity Inconsistency = "negative_quantity"
-
-	// QuantityGreaterThanSpec indicates that the inconsistent/invalid resource
-	// is inconsistent/invalid because its quantity is greater than that of the scheduling.Host
-	// instances types.Spec quantity.
-	QuantityGreaterThanSpec Inconsistency = "quantity_greater_than_spec"
-
-	// IdleSpecUnequal indicates that our IdleResources and SpecResources are unequal despite having no kernel
-	// replicas scheduled locally on the node. (When the ndoe is empty, all our HostResources should be idle.)
-	IdleSpecUnequal Inconsistency = "idle_and_spec_resources_unequal"
-
-	// PendingNonzero indicates that our PendingResources are non-zero despite having no replicas scheduled locally.
-	PendingNonzero Inconsistency = "pending_nonzero"
-)
-
 var (
 	// ErrInsufficientMemory indicates that there was insufficient memory HostResources available to validate/support/serve
 	// the given resource request/types.Spec.
@@ -72,27 +34,11 @@ var (
 	ErrInvalidSnapshot = errors.New("the specified snapshot could not be applied")
 
 	// ErrIncompatibleResourceStatus is a specific reason for why the application of a snapshot may fail.
-	// If the source and target Status values do not match, then the snapshot will be rejected.
-	ErrIncompatibleResourceStatus = errors.New("source and target Status values are not the same")
+	// If the source and target ResourceStatus values do not match, then the snapshot will be rejected.
+	ErrIncompatibleResourceStatus = errors.New("source and target ResourceStatus values are not the same")
 )
 
-// Status differentiates between idle, pending, committed, and spec HostResources.
-type Status string
-
-func (t Status) String() string {
-	return string(t)
-}
-
 type Transaction func(state *transaction.State)
-
-// Inconsistency defines the various ways in which HostResources can be in an inconsistent or illegal state.
-// Examples include a resource being negative, a resource quantity being larger than the total available HostResources
-// of that kind on the node, and so on.
-type Inconsistency string
-
-func (i Inconsistency) String() string {
-	return string(i)
-}
 
 // Manager is a wrapper around several HostResources structs, each of which corresponds to idle, pending,
 // committed, or spec HostResources.
@@ -118,10 +64,10 @@ func NewManager(spec types.Spec) *Manager {
 	return &Manager{
 		// ManagerSnapshot IDs begin at 0, so -1 will always be less than the first snapshot to be applied.
 		lastAppliedSnapshotId: -1,
-		idleResources:         NewHostResources(resourceSpec, resourceSpec, IdleResources),
-		pendingResources:      NewHostResources(types.ZeroDecimalSpec, nil, PendingResources),
-		committedResources:    NewHostResources(types.ZeroDecimalSpec, resourceSpec, CommittedResources),
-		specResources:         NewHostResources(resourceSpec, resourceSpec, SpecResources),
+		idleResources:         NewHostResources(resourceSpec, resourceSpec, scheduling.IdleResources),
+		pendingResources:      NewHostResources(types.ZeroDecimalSpec, nil, scheduling.PendingResources),
+		committedResources:    NewHostResources(types.ZeroDecimalSpec, resourceSpec, scheduling.CommittedResources),
+		specResources:         NewHostResources(resourceSpec, resourceSpec, scheduling.SpecResources),
 	}
 }
 
@@ -375,27 +321,27 @@ func (m *Manager) SpecProtoResourcesSnapshot(snapshotId int32) *proto.ResourcesS
 
 // ResourceSnapshot returns a pointer to a ComputeResourceSnapshot created for the specified "status" of HostResources
 // (i.e., "idle", "pending", "committed", or "spec").
-func (m *Manager) ResourceSnapshot(status Status, snapshotId int32) *ComputeResourceSnapshot {
+func (m *Manager) ResourceSnapshot(status scheduling.ResourceStatus, snapshotId int32) *ComputeResourceSnapshot {
 	switch status {
-	case IdleResources:
+	case scheduling.IdleResources:
 		{
 			return m.idleResourcesSnapshot(snapshotId)
 		}
-	case PendingResources:
+	case scheduling.PendingResources:
 		{
 			return m.pendingResourcesSnapshot(snapshotId)
 		}
-	case CommittedResources:
+	case scheduling.CommittedResources:
 		{
 			return m.committedResourcesSnapshot(snapshotId)
 		}
-	case SpecResources:
+	case scheduling.SpecResources:
 		{
 			return m.specResourcesSnapshot(snapshotId)
 		}
 	default:
 		{
-			log.Fatalf("Unknown or unexpected Status specified: \"%s\"", status)
+			log.Fatalf("Unknown or unexpected ResourceStatus specified: \"%s\"", status)
 			return nil
 		}
 	}

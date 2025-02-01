@@ -68,7 +68,9 @@ var _ = Describe("Manager Tests", func() {
 
 			err := manager.RunTransaction(tx)
 			Expect(err).ToNot(BeNil())
-			Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
+
+			var txFailedError transaction.ErrTransactionFailed
+			Expect(errors.As(err, &txFailedError)).To(BeTrue())
 
 			fmt.Printf("Post-operation: %s\n", manager.GetResourceCountsAsString())
 
@@ -212,8 +214,11 @@ var _ = Describe("Manager Tests", func() {
 			Expect(coordinatedTransaction.Started()).To(BeTrue())
 			Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
 			Expect(coordinatedTransaction.FailureReason()).ToNot(BeNil())
-			Expect(errors.Is(coordinatedTransaction.FailureReason(), transaction.ErrTransactionFailed)).To(BeTrue())
-			Expect(errors.Is(coordinatedTransaction.FailureReason(), transaction.ErrNegativeResourceCount)).To(BeTrue())
+
+			var txFailedError transaction.ErrTransactionFailed
+			Expect(errors.As(coordinatedTransaction.FailureReason(), &txFailedError)).To(BeTrue())
+			Expect(txFailedError).ToNot(BeNil())
+			Expect(errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount)).To(BeTrue())
 		})
 	})
 })

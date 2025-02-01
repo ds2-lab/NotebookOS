@@ -3,6 +3,7 @@ package resource
 import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/shopspring/decimal"
 	"log"
@@ -147,11 +148,11 @@ func (s *ManagerSnapshot) GetSpecResources() types.ArbitraryResourceSnapshot {
 // ComputeResourceSnapshot is a snapshot of a HostResources struct with exported
 // fields so that it can be marshalled and unmarshalled to JSON.
 type ComputeResourceSnapshot struct {
-	ResourceStatus Status          `json:"resource_status"` // resourceStatus is the ResourceStatus represented/encoded by this struct.
-	Millicpus      decimal.Decimal `json:"cpus"`            // millicpus is CPU in 1/1000th of CPU core.
-	Gpus           decimal.Decimal `json:"gpus"`            // gpus is the number of GPUs.
-	VRamGB         decimal.Decimal `json:"vram"`            // VRamGB is the amount of VRAM (GPU memory) in GBs.
-	MemoryMB       decimal.Decimal `json:"memoryMB"`        // memoryMB is the amount of memory in MB.
+	ResourceStatus scheduling.ResourceStatus `json:"resource_status"` // resourceStatus is the ResourceStatus represented/encoded by this struct.
+	Millicpus      decimal.Decimal           `json:"cpus"`            // millicpus is CPU in 1/1000th of CPU core.
+	Gpus           decimal.Decimal           `json:"gpus"`            // gpus is the number of GPUs.
+	VRamGB         decimal.Decimal           `json:"vram"`            // VRamGB is the amount of VRAM (GPU memory) in GBs.
+	MemoryMB       decimal.Decimal           `json:"memoryMB"`        // memoryMB is the amount of memory in MB.
 
 	// SnapshotId uniquely identifies the HostResourceSnapshot in which this ComputeResourceSnapshot struct will be included.
 	// Specifically, the SnapshotId and defines a total order amongst all HostResourceSnapshot instances that originate
@@ -186,7 +187,7 @@ func (s *ComputeResourceSnapshot) GetVramGb() float32 {
 
 // String returns a string representation of the target ComputeResourceSnapshot struct that is suitable for logging.
 func (s *ComputeResourceSnapshot) String() string {
-	return fmt.Sprintf("ComputeResourceSnapshot[Status=%s,Millicpus=%s,MemoryMB=%s,GPUs=%s,VRAM=%s",
+	return fmt.Sprintf("ComputeResourceSnapshot[ResourceStatus=%s,Millicpus=%s,MemoryMB=%s,GPUs=%s,VRAM=%s",
 		s.ResourceStatus.String(), s.Millicpus.StringFixed(4), s.MemoryMB.StringFixed(4),
 		s.Gpus.StringFixed(1), s.VRamGB.StringFixed(4))
 }

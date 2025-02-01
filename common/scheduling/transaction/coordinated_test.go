@@ -275,8 +275,10 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.Started()).To(BeTrue())
 		Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
 		Expect(coordinatedTransaction.FailureReason()).ToNot(BeNil())
-		Expect(errors.Is(coordinatedTransaction.FailureReason(), transaction.ErrTransactionFailed)).To(BeTrue())
-		Expect(errors.Is(coordinatedTransaction.FailureReason(), transaction.ErrNegativeResourceCount)).To(BeTrue())
+
+		var txFailedError transaction.ErrTransactionFailed
+		Expect(errors.As(coordinatedTransaction.FailureReason(), &txFailedError)).To(BeTrue())
+		Expect(errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount)).To(BeTrue())
 	})
 
 	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the transaction has already started", func() {
