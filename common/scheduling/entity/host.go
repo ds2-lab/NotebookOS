@@ -442,25 +442,25 @@ func (h *Host) Compare(h2 interface{}) float64 {
 			return h.IdleGPUs() - v // Seeking value, simply follow normal logic.
 		}
 
-		host2 := h2.(*Host)
+		host2 := h2.(scheduling.Host)
 		if h == host2 {
 			return 0
 		}
 
-		ret := h2.(*Host).IdleGPUs() - h.IdleGPUs()
+		ret := h2.(scheduling.Host).IdleGPUs() - h.IdleGPUs()
 
 		// For the pool to provide all GPUs to one container, idle gpus are either 0 or all.
 		if ret != 0.0 {
 			return ret
 		}
 
-		diff := h.subscribedRatio.Sub(h2.(*Host).SubscribedRatioAsDecimal()).InexactFloat64()
+		diff := h.subscribedRatio.Sub(h2.(scheduling.Host).SubscribedRatioAsDecimal()).InexactFloat64()
 		if diff != 0 {
 			return diff
 		}
 
 		// For otherwise equal hosts, compare their IDs for stable ordering
-		return float64(strings.Compare(h.ID, host2.ID))
+		return float64(strings.Compare(h.ID, host2.GetID()))
 	default:
 		// SchedulerPoolTypeOversubscribed
 		// Min heap.
@@ -469,13 +469,13 @@ func (h *Host) Compare(h2 interface{}) float64 {
 			log.Printf("Non-updated schedulerPoolType: host %s", h.ID)
 		}
 
-		diff := h.subscribedRatio.Sub(h2.(*Host).SubscribedRatioAsDecimal()).InexactFloat64()
+		diff := h.subscribedRatio.Sub(h2.(scheduling.Host).SubscribedRatioAsDecimal()).InexactFloat64()
 		if diff != 0 {
 			return diff
 		}
 
 		// For otherwise equal hosts, compare their IDs for stable ordering
-		return float64(strings.Compare(h.ID, h2.(*Host).ID))
+		return float64(strings.Compare(h.ID, h2.(scheduling.Host).GetID()))
 	}
 }
 
