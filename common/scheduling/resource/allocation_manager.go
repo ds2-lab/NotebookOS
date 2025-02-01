@@ -27,7 +27,10 @@ const (
 	// Reservations are handled in a replica-agnostic manner. If and when the replica is fully scheduled
 	// and the reservation is promoted, the associated Allocation is then remapped using the replica's
 	// actual replica ID.
-	replicaIdForReservation int32 = -1
+	replicaIdForReservation int32 = 0
+
+	// replicaIdForReplicaNotFound is used/returned for replicaId returns when there is no such replica
+	replicaIdForReplicaNotFound int32 = -999
 )
 
 var (
@@ -61,7 +64,8 @@ type scheduledKernels struct {
 // GetScheduledReplica returns the replica ID of the scheduling.KernelReplica that is scheduled for the
 // specified scheduling.Kernel.
 //
-// If no scheduling.KernelReplica of the specified scheduling.Kernel is scheduled, then -1 is returned.
+// If no scheduling.KernelReplica of the specified scheduling.Kernel is scheduled, then replicaIdForReplicaNotFound
+// is returned.
 func (sk *scheduledKernels) GetScheduledReplica(kernelId string) int32 {
 	sk.mu.Lock()
 	defer sk.mu.Unlock()
@@ -71,7 +75,7 @@ func (sk *scheduledKernels) GetScheduledReplica(kernelId string) int32 {
 		return scheduledReplica
 	}
 
-	return -1
+	return replicaIdForReplicaNotFound
 }
 
 // IsAnyReplicaScheduled returns true if any scheduling.KernelReplica of the specified scheduling.Kernel is
@@ -1283,7 +1287,7 @@ func (m *AllocationManager) ReleaseReservation(spec *proto.KernelSpec) error {
 	kernelId := spec.Id
 
 	// First, verify that there is in fact a reservation for the specified kernel.
-	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica == -1 {
+	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica == replicaIdForReplicaNotFound {
 		m.log.Warn("Cannot release reservation for replica of kernel %s: no reservation found.", kernelId)
 		return fmt.Errorf("%w: \"%s\"", ErrReservationNotFound, kernelId)
 	}
@@ -1353,7 +1357,7 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 	defer m.mu.Unlock()
 
 	// Verify that there are no other replicas of the specified kernel scheduled on this host.
-	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica != -1 {
+	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica != replicaIdForReplicaNotFound {
 		numFailedReservations := m.numFailedReservations.Add(1)
 		m.log.Debug("Cannot reserve resources for replica of kernel %s: found existing resource "+
 			"allocation associated to that another replica of that kernel (replica %d) [numFailedReservations=%d].",
@@ -1468,7 +1472,7 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 	defer m.mu.Unlock()
 
 	// Verify that there are no other replicas of the specified kernel scheduled on this host.
-	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica != -1 {
+	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica != replicaIdForReplicaNotFound {
 		numFailedReservations := m.numFailedReservations.Add(1)
 		m.log.Debug("Cannot reserve resources for replica of kernel %s: found existing resource "+
 			"allocation associated to that another replica of that kernel (replica %d) [numFailedReservations=%d].",
