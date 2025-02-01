@@ -3,8 +3,6 @@ package transaction
 import (
 	"errors"
 	"fmt"
-	"github.com/Scusemua/go-utils/config"
-	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/shopspring/decimal"
 )
@@ -17,7 +15,7 @@ type State struct {
 	committedResources *Resources
 	specResources      *Resources
 
-	log logger.Logger
+	//log logger.Logger
 }
 
 func NewState(idleResources *Resources, pendingResources *Resources, committedResources *Resources, specResources *Resources) *State {
@@ -28,7 +26,7 @@ func NewState(idleResources *Resources, pendingResources *Resources, committedRe
 		specResources:      specResources,
 	}
 
-	config.InitLogger(&state.log, state)
+	//config.InitLogger(&state.log, state)
 
 	return state
 }
@@ -151,9 +149,9 @@ func (t *State) Validate() ([]scheduling.ResourceKind, error) {
 	}
 
 	if negativeResourceErrors != nil && len(negativeResourceErrors) > 0 {
-		t.log.Warn("Number of 'negative resource' errors: %d", len(negativeResourceErrors))
-		t.log.Warn("Offending kinds: %v", offendingKinds)
-		t.log.Warn("Offending statuses: %v", offendingStatuses)
+		//t.log.Warn("Number of 'negative resource' errors: %d", len(negativeResourceErrors))
+		//t.log.Warn("Offending kinds: %v", offendingKinds)
+		//t.log.Warn("Offending statuses: %v", offendingStatuses)
 
 		var err error
 		for _, negativeResourceError := range negativeResourceErrors {
