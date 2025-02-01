@@ -1,7 +1,6 @@
 package testing
 
 import (
-	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/mock_proto"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
@@ -23,7 +22,7 @@ func ContainsOffendingResourceKind(lst []scheduling.ResourceKind, target schedul
 func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string,
 	resourceSpoofer *ResourceSpoofer) (scheduling.UnitTestingHost, *mock_proto.MockLocalGatewayClient, error) {
 
-	gpuSchedulerId := uuid.NewString()
+	//gpuSchedulerId := uuid.NewString()
 
 	localGatewayClient := mock_proto.NewMockLocalGatewayClient(ctrl)
 
@@ -35,21 +34,27 @@ func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster,
 	).Return(&proto.HostId{
 		Id:       hostId,
 		NodeName: nodeName,
+		SpecResources: &proto.ResourceSpec{
+			Cpu:    int32(resourceSpoofer.Manager.SpecResources().Millicpus()),
+			Memory: float32(resourceSpoofer.Manager.SpecResources().MemoryMB()),
+			Gpu:    int32(resourceSpoofer.Manager.SpecResources().GPUs()),
+			Vram:   float32(resourceSpoofer.Manager.SpecResources().VRAM()),
+		},
 	}, nil)
 
-	localGatewayClient.EXPECT().GetActualGpuInfo(
-		gomock.Any(),
-		&proto.Void{},
-	).Return(&proto.GpuInfo{
-		SpecGPUs:              int32(resourceSpoofer.Manager.SpecResources().GPUs()),
-		IdleGPUs:              int32(resourceSpoofer.Manager.SpecResources().GPUs()),
-		CommittedGPUs:         0,
-		PendingGPUs:           0,
-		NumPendingAllocations: 0,
-		NumAllocations:        0,
-		GpuSchedulerID:        gpuSchedulerId,
-		LocalDaemonID:         hostId,
-	}, nil)
+	//localGatewayClient.EXPECT().GetActualGpuInfo(
+	//	gomock.Any(),
+	//	&proto.Void{},
+	//).Return(&proto.GpuInfo{
+	//	SpecGPUs:              int32(resourceSpoofer.Manager.SpecResources().GPUs()),
+	//	IdleGPUs:              int32(resourceSpoofer.Manager.SpecResources().GPUs()),
+	//	CommittedGPUs:         0,
+	//	PendingGPUs:           0,
+	//	NumPendingAllocations: 0,
+	//	NumAllocations:        0,
+	//	GpuSchedulerID:        gpuSchedulerId,
+	//	LocalDaemonID:         hostId,
+	//}, nil).MaxTimes(1)
 
 	localGatewayClient.EXPECT().ResourcesSnapshot(
 		gomock.Any(),
