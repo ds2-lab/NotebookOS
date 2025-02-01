@@ -979,8 +979,8 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 	// Verify that there already exists an allocation associated with the specified kernel replica.
 	key = getKey(replicaId, kernelId)
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
-		m.log.Error("Cannot adjust pending resources of replica %d of kernel %s: could not found existing resource "+
-			"allocation associated with that kernel replica: %s", replicaId, kernelId, allocation.String())
+		m.log.Error("Cannot adjust pending resources of replica %d of kernel %s: "+
+			"no existing resource allocation associated with that kernel replica.", replicaId, kernelId)
 		return fmt.Errorf("%w: could not find existing pending resource allocation for replica %d of kernel %s",
 			ErrAllocationNotFound, replicaId, kernelId)
 	}
