@@ -827,7 +827,7 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec t
 		// err = fmt.Errorf("%w: failure reason unspecified", transaction.ErrTransactionFailed)
 
 		err = transaction.NewErrTransactionFailed(fmt.Errorf("failure reason unspecified"),
-			scheduling.UnknownResource, scheduling.UnknownStatus)
+			[]scheduling.ResourceKind{scheduling.UnknownResource}, []scheduling.ResourceStatus{scheduling.UnknownStatus})
 	}
 
 	return err
@@ -2012,8 +2012,7 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 
 		// If the reason is ErrNegativeResourceCount, then we'll return an InsufficientResourcesError.
 		if errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount) {
-			offendingKinds := []scheduling.ResourceKind{txFailedError.OffendingKind}
-			return scheduling.NewInsufficientResourcesError(m.IdleResources(), resourceRequest, offendingKinds)
+			return scheduling.NewInsufficientResourcesError(m.IdleResources(), resourceRequest, txFailedError.OffendingKinds)
 		}
 
 		return err
