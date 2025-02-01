@@ -2,14 +2,10 @@ package index_test
 
 import (
 	"fmt"
-	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/scusemua/distributed-notebook/common/mock_proto"
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
-	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"go.uber.org/mock/gomock"
@@ -36,51 +32,13 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 		mockCtrl.Finish()
 	})
 
-	createHost := func(idx int) scheduling.Host {
-		localGatewayClient := mock_proto.NewMockLocalGatewayClient(mockCtrl)
-
-		hostId := fmt.Sprintf("Host%d", idx)
-		nodeName := fmt.Sprintf("Host%d", idx)
-
-		localGatewayClient.EXPECT().SetID(
-			gomock.Any(),
-			&proto.HostId{
-				Id: hostId,
-			},
-		).Return(&proto.HostId{
-			Id:       hostId,
-			NodeName: nodeName,
-		}, nil)
-
-		localGatewayClient.EXPECT().GetActualGpuInfo(
-			gomock.Any(),
-			&proto.Void{},
-		).Return(&proto.GpuInfo{
-			SpecGPUs:              int32(hostSpec.GPU()),
-			IdleGPUs:              int32(hostSpec.GPU()),
-			CommittedGPUs:         0,
-			PendingGPUs:           0,
-			NumPendingAllocations: 0,
-			NumAllocations:        0,
-			GpuSchedulerID:        uuid.NewString(),
-			LocalDaemonID:         hostId,
-		}, nil)
-
-		host, err := entity.NewHost(hostId, "0.0.0.0", 3, mockCluster, mockCluster, nil, localGatewayClient, mockPolicy, func(_ string, _ string, _ string, _ string) error { return nil })
-
-		Expect(host).ToNot(BeNil())
-		Expect(err).To(BeNil())
-
-		return host
-	}
-
 	Context("Adding and Removing Hosts", func() {
 		Context("Empty Hosts", func() {
 			It("Will handle a single add operation correctly", func() {
 				leastLoadedIndex := index.NewLeastLoadedIndex()
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
-				host1 := createHost(1)
+				host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
 				leastLoadedIndex.Add(host1)
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
@@ -109,7 +67,7 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 				leastLoadedIndex := index.NewLeastLoadedIndex()
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
-				host1 := createHost(1)
+				host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
 				leastLoadedIndex.Add(host1)
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
@@ -131,7 +89,7 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 				leastLoadedIndex := index.NewLeastLoadedIndex()
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
-				host1 := createHost(1)
+				host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
 				leastLoadedIndex.Add(host1)
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
@@ -145,7 +103,7 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 				Expect(ret).To(Equal(host1))
 				Expect(leastLoadedIndex.Len()).To(Equal(1))
 
-				host2 := createHost(2)
+				host2 := createHost(2, mockCtrl, mockCluster, hostSpec)
 				leastLoadedIndex.Add(host2)
 				Expect(leastLoadedIndex.Len()).To(Equal(2))
 
@@ -203,18 +161,18 @@ var _ = Describe("LeastLoadedIndex Tests", func() {
 		Context("Non-Empty Hosts", func() {
 			var (
 				leastLoadedIndex *index.LeastLoadedIndex
-				host1            scheduling.Host
-				host2            scheduling.Host
-				host3            scheduling.Host
+				host1            scheduling.UnitTestingHost
+				host2            scheduling.UnitTestingHost
+				host3            scheduling.UnitTestingHost
 			)
 
 			BeforeEach(func() {
 				leastLoadedIndex = index.NewLeastLoadedIndex()
 				Expect(leastLoadedIndex).ToNot(BeNil())
 
-				host1 = createHost(1)
-				host2 = createHost(2)
-				host3 = createHost(3)
+				host1 = createHost(1, mockCtrl, mockCluster, hostSpec)
+				host2 = createHost(2, mockCtrl, mockCluster, hostSpec)
+				host3 = createHost(3, mockCtrl, mockCluster, hostSpec)
 
 				err := host1.AddToCommittedResources(types.NewDecimalSpec(128, 256, 2, 2))
 				Expect(err).To(BeNil())

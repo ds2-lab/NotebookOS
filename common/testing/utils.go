@@ -42,20 +42,6 @@ func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster,
 		},
 	}, nil)
 
-	//localGatewayClient.EXPECT().GetActualGpuInfo(
-	//	gomock.Any(),
-	//	&proto.Void{},
-	//).Return(&proto.GpuInfo{
-	//	SpecGPUs:              int32(resourceSpoofer.Manager.SpecResources().GPUs()),
-	//	IdleGPUs:              int32(resourceSpoofer.Manager.SpecResources().GPUs()),
-	//	CommittedGPUs:         0,
-	//	PendingGPUs:           0,
-	//	NumPendingAllocations: 0,
-	//	NumAllocations:        0,
-	//	GpuSchedulerID:        gpuSchedulerId,
-	//	LocalDaemonID:         hostId,
-	//}, nil).MaxTimes(1)
-
 	localGatewayClient.EXPECT().ResourcesSnapshot(
 		gomock.Any(),
 		gomock.Any(),
