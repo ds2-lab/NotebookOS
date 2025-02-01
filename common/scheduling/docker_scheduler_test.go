@@ -152,17 +152,17 @@ var _ = Describe("Docker Scheduler Tests", func() {
 		dockerScheduler *scheduler.DockerScheduler
 		dockerCluster   scheduling.Cluster
 		clusterPlacer   scheduling.Placer
-		// hostMapper      scheduler.HostMapper
-		opts *domain.ClusterGatewayOptions
+		hostSpec        *types.DecimalSpec
+		opts            *domain.ClusterGatewayOptions
 
 		kernelProvider *mock_scheduler.MockKernelProvider
 		hostMapper     *mock_scheduler.MockHostMapper
 		// notificationBroker *mock_scheduler.MockNotificationBroker
 	)
 
-	hostSpec := types.NewDecimalSpec(8000, 64000, 8, 32)
-
 	BeforeEach(func() {
+		hostSpec = types.NewDecimalSpec(8000, 64000, 8, 32)
+
 		err := json.Unmarshal([]byte(dockerSchedulerTestOpsAsJson), &opts)
 		if err != nil {
 			panic(err)
@@ -488,6 +488,8 @@ var _ = Describe("Docker Scheduler Tests", func() {
 				})
 
 				It("Will select a host with available idle resources when doing so for a replica that is training", func() {
+					// hostSpec = types.NewDecimalSpec(8000, 64000, 8, 64)
+
 					validateVariablesNonNil()
 
 					numAdditionalHosts := 3
@@ -500,9 +502,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						Expect(resourceSpoofer).ToNot(BeNil())
 
 						if i != (numAdditionalHosts + numHosts - 1) {
-							err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+							err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
 							Expect(err).To(BeNil())
-							err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 40))
+							err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 32))
 							Expect(err).To(BeNil())
 						}
 

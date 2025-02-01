@@ -305,6 +305,8 @@ func (index *StaticIndex) Add(host scheduling.Host) {
 	index.MultiIndex.mu.Lock()
 	defer index.MultiIndex.mu.Unlock()
 
+	index.log.Debug("Adding host %s (ID=%s) to StaticIndex.", host.GetNodeName(), host.GetID())
+
 	index.MultiIndex.FreeHosts.Enqueue(host)
 	index.MultiIndex.FreeHostsMap[host.GetID()] = host
 

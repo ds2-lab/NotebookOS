@@ -75,6 +75,8 @@ func (index *LeastLoadedIndex) Add(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
+	index.log.Debug("Adding host %s (ID=%s) to LeastLoadedIndex.", host.GetNodeName(), host.GetID())
+
 	index.unsafeAdd(host)
 }
 
