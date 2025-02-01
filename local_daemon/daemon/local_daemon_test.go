@@ -81,6 +81,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		hostSpec         *types.DecimalSpec
 		schedulingPolicy *mock_scheduling.MockPolicy
 		hostId           string
+		hostName         string
 
 		kernel1Key = "23d90942-8c3de3a713a5c3611792b7a5"
 		kernel2Key = "d2324990-3563adca181e235c77317a9b"
@@ -146,6 +147,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 	BeforeEach(func() {
 		hostId = uuid.NewString()
+		hostName = "TestNode"
 		mockCtrl = gomock.NewController(GinkgoT())
 		schedulingPolicy = mock_scheduling.NewMockPolicy(mockCtrl)
 		vgpuPluginServer = mock_device.NewMockVirtualGpuPluginServer(mockCtrl)
@@ -163,7 +165,7 @@ var _ = Describe("Local Daemon Tests", func() {
 		kernel1Replica1 = createKernelReplica(mockCtrl, kernel1Id, kernel1Key, workloadId, 1, kernel1Spec, kernel1ResourceSpec)
 		kernel2Replica2 = createKernelReplica(mockCtrl, kernel2Id, kernel2Key, workloadId, 2, kernel2Spec, kernel2ResourceSpec)
 		//kernel3Replica3 = createKernelReplica(mockCtrl, kernel3Id, kernel3Key, workloadId, 3, kernel3Spec, kernel3ResourceSpec)
-		resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, hostId)
+		resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, hostId, hostName)
 
 		schedulingPolicy, err := scheduler.GetSchedulingPolicy(&scheduling.SchedulerOptions{
 			CommonOptions: configuration.CommonOptions{

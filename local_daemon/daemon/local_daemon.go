@@ -2785,7 +2785,7 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 	// Will store the return value of `AllocatePendingGPUs`. If it is non-nil, then the allocation failed due to insufficient resources.
 	var allocationFailedDueToInsufficientResources bool
 
-	var targetError resource.InsufficientResourcesError
+	var targetError scheduling.InsufficientResourcesError
 	if err != nil && errors.As(err, &targetError) {
 		d.log.Debug("Received InsufficientResourcesError while processing metadata of 'execute_request'. " +
 			"Must've tried to update resource request to some invalid value.")
@@ -2828,7 +2828,7 @@ func (d *LocalScheduler) processExecOrYieldRequest(msg *messaging.JupyterMessage
 			// There are other errors that could be returned here aside from "insufficient resources".
 			// So, we should only set allocationFailedDueToInsufficientResources to false if the returned error is
 			// in fact an "insufficient resources" type of error.
-			if errors.As(resourceAllocationError, &resource.InsufficientResourcesError{}) {
+			if errors.As(resourceAllocationError, &scheduling.InsufficientResourcesError{}) {
 				allocationFailedDueToInsufficientResources = true
 			}
 

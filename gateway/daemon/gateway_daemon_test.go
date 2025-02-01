@@ -768,6 +768,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				host.EXPECT().PreCommitResources(currReplica.Container(), jupyterExecuteRequestId).AnyTimes().DoAndReturn(func(container scheduling.KernelContainer, executeId string) error {
 					mutexes[i].Lock()
 					defer mutexes[i].Unlock()
+					hostIdleGpus := idleGpus[hostIndex]
+					idle := hostIdleGpus.Load()
 
 					fmt.Printf("[DEBUG] Precommitting resources on host %s for replica %d. TransactionResources: %v.\n",
 						host.GetNodeName(), container.ReplicaId(), container.ResourceSpec())
@@ -778,15 +780,24 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					hostCommittedGpus := committedGpus[hostIndex]
 					committed := hostCommittedGpus.Load()
 					if committed+int64(container.ResourceSpec().GPU()) > int64(hostSpec.GPU()) {
-						return fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
-							transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
+
+						reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
+							container.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+						return transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+							[]scheduling.ResourceStatus{scheduling.IdleResources})
+
+						//return fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
+						//	transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
 					}
 
-					hostIdleGpus := idleGpus[hostIndex]
-					idle := hostIdleGpus.Load()
 					if idle-int64(container.ResourceSpec().GPU()) < 0 {
-						return fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
-							transaction.ErrNegativeResourceCount, idle)
+						reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
+							container.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+						return transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+							[]scheduling.ResourceStatus{scheduling.IdleResources})
+
+						//return fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
+						//	transaction.ErrNegativeResourceCount, idle)
 					}
 
 					hostCommittedGpus.Add(int64(container.ResourceSpec().GPU()))
@@ -809,18 +820,26 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(replicaSpec.ReplicaId).To(Equal(currReplica.ReplicaID()))
 
 					if !usePending {
+						hostIdleGpus := idleGpus[hostIndex]
+						idle := hostIdleGpus.Load()
+
 						hostCommittedGpus := committedGpus[hostIndex]
 						committed := hostCommittedGpus.Load()
 						if committed+int64(replicaSpec.ResourceSpec().GPU()) > int64(hostSpec.GPU()) {
-							return false, fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
-								transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
+							reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
+								replicaSpec.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+							return false, transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+								[]scheduling.ResourceStatus{scheduling.CommittedResources})
+							//return false, fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
+							//	transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
 						}
-
-						hostIdleGpus := idleGpus[hostIndex]
-						idle := hostIdleGpus.Load()
 						if idle-int64(replicaSpec.ResourceSpec().GPU()) < 0 {
-							return false, fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
-								transaction.ErrNegativeResourceCount, idle)
+							reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
+								replicaSpec.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+							return false, transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+								[]scheduling.ResourceStatus{scheduling.IdleResources})
+							//return false, fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
+							//	transaction.ErrNegativeResourceCount, idle)
 						}
 
 						hostCommittedGpus.Add(int64(replicaSpec.ResourceSpec().GPU()))
@@ -830,8 +849,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						hostPendingGpus := pendingGpus[hostIndex]
 						pending := hostPendingGpus.Load()
 						if pending-int64(replicaSpec.ResourceSpec().GPU()) < 0 {
-							return false, fmt.Errorf("%w: %w (Pending GPUs = %d)", transaction.ErrTransactionFailed,
-								transaction.ErrNegativeResourceCount, pending)
+							reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(pending), 0),
+								replicaSpec.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+							return false, transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+								[]scheduling.ResourceStatus{scheduling.PendingResources})
+							//return false, fmt.Errorf("%w: %w (Pending GPUs = %d)", transaction.ErrTransactionFailed,
+							//	transaction.ErrNegativeResourceCount, pending)
 						}
 
 						hostPendingGpus.Add(int64(replicaSpec.ResourceSpec().GPU()))
