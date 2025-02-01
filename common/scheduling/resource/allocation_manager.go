@@ -2000,6 +2000,22 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 	if err != nil {
 		m.log.Warn("Could not commit HostResources to replica %d of kernel %s: %s. "+
 			"Reason for commitment failure: %v.", replicaId, kernelId, resourceRequest.String(), err)
+
+		// This error should be of type transaction.ErrTransactionFailed.
+		// If it's not, then we'll just return it directly...
+		var txFailedError transaction.ErrTransactionFailed
+		if !errors.As(err, &txFailedError) {
+			m.log.Warn("Could not commit resources [%v] to replica %d of kernel %s for unexpected reason: %v",
+				resourceRequest.String(), replicaId, kernelId, err)
+			return err
+		}
+
+		// If the reason is ErrNegativeResourceCount, then we'll return an InsufficientResourcesError.
+		if errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount) {
+			offendingKinds := []scheduling.ResourceKind{txFailedError.OffendingKind}
+			return scheduling.NewInsufficientResourcesError(m.IdleResources(), resourceRequest, offendingKinds)
+		}
+
 		return err
 	}
 

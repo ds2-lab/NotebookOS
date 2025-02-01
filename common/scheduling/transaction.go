@@ -43,7 +43,7 @@ type TransactionState interface {
 
 	// Validate checks if the Transaction can be committed or if it results in an invalid state.
 	// If the state is invalid, then the offending ResourceKind is returned, if applicable.
-	Validate() (ResourceKind, error)
+	Validate() ([]ResourceKind, error)
 	SetParticipantId(id int32)
 	GetParticipantId() int32
 }

@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"errors"
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/shopspring/decimal"
@@ -59,38 +60,91 @@ func (t *State) SpecResources() scheduling.TransactionResources {
 }
 
 // Validate checks that the operation state is in a valid state. Validate error returns nil if so.
-func (t *State) Validate() (scheduling.ResourceKind, error) {
+func (t *State) Validate() ([]scheduling.ResourceKind, error) {
+	var (
+		negativeResourceErrors []error
+		offendingKinds         []scheduling.ResourceKind
+		offendingStatuses      []scheduling.ResourceStatus
+	)
+
 	if hasNegativeField, kind := t.idleResources.hasNegativeWorkingField(); hasNegativeField {
 		reason := fmt.Errorf("%w (%s %s = %s)", ErrNegativeResourceCount, scheduling.IdleResources.String(),
 			kind.String(), getQuantityOfResourceKind(t.idleResources, kind))
-		return kind, NewErrTransactionFailed(reason, kind, scheduling.IdleResources)
+
+		negativeResourceErrors = make([]error, 0, 1)
+		offendingKinds = make([]scheduling.ResourceKind, 0, 1)
+		offendingStatuses = make([]scheduling.ResourceStatus, 0, 1)
+
+		negativeResourceErrors = append(negativeResourceErrors, reason)
+		offendingKinds = append(offendingKinds, kind)
+		offendingStatuses = append(offendingStatuses, scheduling.IdleResources)
+
+		// kind, NewErrTransactionFailed(reason, kind, scheduling.IdleResources)
 	}
 
 	if hasNegativeField, kind := t.pendingResources.hasNegativeWorkingField(); hasNegativeField {
 		//return kind, fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
 		//	scheduling.PendingResources.String(), kind.String(), getQuantityOfResourceKind(t.pendingResources, kind))
 
+		if negativeResourceErrors == nil {
+			negativeResourceErrors = make([]error, 0, 1)
+			offendingKinds = make([]scheduling.ResourceKind, 0, 1)
+			offendingStatuses = make([]scheduling.ResourceStatus, 0, 1)
+		}
+
 		reason := fmt.Errorf("%w (%s %s = %s)", ErrNegativeResourceCount, scheduling.PendingResources.String(),
 			kind.String(), getQuantityOfResourceKind(t.pendingResources, kind))
-		return kind, NewErrTransactionFailed(reason, kind, scheduling.PendingResources)
+
+		negativeResourceErrors = append(negativeResourceErrors, reason)
+		offendingKinds = append(offendingKinds, kind)
+		offendingStatuses = append(offendingStatuses, scheduling.PendingResources)
 	}
 
 	if hasNegativeField, kind := t.committedResources.hasNegativeWorkingField(); hasNegativeField {
 		//return kind, fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
 		//	scheduling.CommittedResources.String(), kind.String(), getQuantityOfResourceKind(t.committedResources, kind))
 
+		if negativeResourceErrors == nil {
+			negativeResourceErrors = make([]error, 0, 1)
+			offendingKinds = make([]scheduling.ResourceKind, 0, 1)
+		}
+
 		reason := fmt.Errorf("%w (%s %s = %s)", ErrNegativeResourceCount, scheduling.CommittedResources.String(),
 			kind.String(), getQuantityOfResourceKind(t.committedResources, kind))
-		return kind, NewErrTransactionFailed(reason, kind, scheduling.CommittedResources)
+
+		negativeResourceErrors = append(negativeResourceErrors, reason)
+		offendingKinds = append(offendingKinds, kind)
+		offendingStatuses = append(offendingStatuses, scheduling.CommittedResources)
 	}
 
 	if hasNegativeField, kind := t.specResources.hasNegativeWorkingField(); hasNegativeField {
 		//return kind, fmt.Errorf("%w: %w (%s %s = %s)", ErrTransactionFailed, ErrNegativeResourceCount,
 		//	scheduling.SpecResources.String(), kind.String(), getQuantityOfResourceKind(t.specResources, kind))
 
+		if negativeResourceErrors == nil {
+			negativeResourceErrors = make([]error, 0, 1)
+			offendingKinds = make([]scheduling.ResourceKind, 0, 1)
+		}
+
 		reason := fmt.Errorf("%w (%s %s = %s)", ErrNegativeResourceCount, scheduling.SpecResources.String(),
 			kind.String(), getQuantityOfResourceKind(t.specResources, kind))
-		return kind, NewErrTransactionFailed(reason, kind, scheduling.SpecResources)
+
+		negativeResourceErrors = append(negativeResourceErrors, reason)
+		offendingKinds = append(offendingKinds, kind)
+		offendingStatuses = append(offendingStatuses, scheduling.SpecResources)
+	}
+
+	if negativeResourceErrors != nil && len(negativeResourceErrors) > 0 {
+		var err error
+		for _, negativeResourceError := range negativeResourceErrors {
+			if err == nil {
+				err = negativeResourceError
+			} else {
+				err = errors.Join(err, negativeResourceError)
+			}
+		}
+
+		return offendingKinds, NewErrTransactionFailed(err, offendingKinds, offendingStatuses)
 	}
 
 	if isLessThanOrEqual, offendingKind := t.committedResources.LessThanOrEqual(t.specResources.initial); !isLessThanOrEqual {
@@ -110,7 +164,10 @@ func (t *State) Validate() (scheduling.ResourceKind, error) {
 		//	getQuantityOfResourceKind(t.committedResources, offendingKind).StringFixed(4),
 		//	offendingKind.String(), scheduling.SpecResources.String(),
 		//	getQuantityOfResourceKind(t.specResources, offendingKind).StringFixed(4))
-		return offendingKind, NewErrTransactionFailed(inconsistentResourcesError, offendingKind, scheduling.SpecResources)
+
+		return []scheduling.ResourceKind{offendingKind},
+			NewErrTransactionFailed(inconsistentResourcesError, []scheduling.ResourceKind{offendingKind},
+				[]scheduling.ResourceStatus{scheduling.SpecResources})
 	}
 
 	if isLessThanOrEqual, offendingKind := t.idleResources.LessThanOrEqual(t.specResources.initial); !isLessThanOrEqual {
@@ -130,7 +187,9 @@ func (t *State) Validate() (scheduling.ResourceKind, error) {
 			offendingKind, scheduling.IdleSpecUnequal, scheduling.IdleResources,
 			getQuantityOfResourceKind(t.idleResources, offendingKind),
 			getQuantityOfResourceKind(t.specResources, offendingKind))
-		return offendingKind, NewErrTransactionFailed(inconsistentResourcesError, offendingKind, scheduling.IdleResources)
+		return []scheduling.ResourceKind{offendingKind},
+			NewErrTransactionFailed(inconsistentResourcesError, []scheduling.ResourceKind{offendingKind},
+				[]scheduling.ResourceStatus{scheduling.IdleResources})
 	}
 
 	idleSpec := t.idleResources.working
@@ -144,8 +203,10 @@ func (t *State) Validate() (scheduling.ResourceKind, error) {
 		inconsistentResourcesError := scheduling.NewInconsistentResourcesErrorWithResourceQuantity(
 			scheduling.UnknownResource, scheduling.IdleCommittedSumDoesNotEqualSpec, scheduling.IdleResources,
 			decimal.Zero, decimal.Zero)
-		return scheduling.UnknownResource, NewErrTransactionFailed(inconsistentResourcesError, scheduling.UnknownResource, scheduling.IdleResources)
+		return []scheduling.ResourceKind{scheduling.UnknownResource},
+			NewErrTransactionFailed(inconsistentResourcesError, []scheduling.ResourceKind{scheduling.UnknownResource},
+				[]scheduling.ResourceStatus{scheduling.IdleResources, scheduling.CommittedResources})
 	}
 
-	return scheduling.NoResource, nil
+	return []scheduling.ResourceKind{scheduling.NoResource}, nil
 }

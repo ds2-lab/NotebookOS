@@ -16,26 +16,26 @@ var (
 )
 
 type ErrTransactionFailed struct {
-	Reason          error
-	OffendingKind   scheduling.ResourceKind
-	OffendingStatus scheduling.ResourceStatus
+	Reason            error
+	OffendingKinds    []scheduling.ResourceKind
+	OffendingStatuses []scheduling.ResourceStatus
 }
 
-func NewErrTransactionFailed(reason error, offendingKind scheduling.ResourceKind,
-	offendingStatus scheduling.ResourceStatus) ErrTransactionFailed {
+func NewErrTransactionFailed(reason error, offendingKinds []scheduling.ResourceKind,
+	offendingStatuses []scheduling.ResourceStatus) ErrTransactionFailed {
 
 	err := ErrTransactionFailed{
-		Reason:          reason,
-		OffendingKind:   offendingKind,
-		OffendingStatus: offendingStatus,
+		Reason:            reason,
+		OffendingKinds:    offendingKinds,
+		OffendingStatuses: offendingStatuses,
 	}
 
 	return err
 }
 
 func (err ErrTransactionFailed) Error() string {
-	return fmt.Sprintf("the transaction failed offending kind '%v', offending status '%v', and reason: %v",
-		err.OffendingKind, err.OffendingStatus, err.Reason)
+	return fmt.Sprintf("the transaction failed offending kind(s)=%v, offending status(es)=%v, and reason: %v",
+		err.OffendingKinds, err.OffendingStatuses, err.Reason)
 }
 
 func (err ErrTransactionFailed) String() string {

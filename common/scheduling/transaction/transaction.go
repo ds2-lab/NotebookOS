@@ -69,12 +69,12 @@ func (t *Transaction) run() {
 //
 // This is NOT thread-safe.
 func (t *Transaction) validateState() error {
-	offendingKind, err := t.state.Validate()
+	offendingKinds, err := t.state.Validate()
 
 	if errors.Is(err, ErrNegativeResourceCount) {
 		return errors.Join(
 			scheduling.NewInsufficientResourcesError(
-				nil, nil, []scheduling.ResourceKind{offendingKind}), err)
+				nil, nil, offendingKinds), err)
 	}
 
 	return err

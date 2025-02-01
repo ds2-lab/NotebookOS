@@ -276,6 +276,9 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
 		Expect(coordinatedTransaction.FailureReason()).ToNot(BeNil())
 
+		GinkgoWriter.Printf("Error: %v\n", err)
+		GinkgoWriter.Printf("coordinatedTransaction.FailureReason(): %v\n", coordinatedTransaction.FailureReason())
+
 		var txFailedError transaction.ErrTransactionFailed
 		Expect(errors.As(coordinatedTransaction.FailureReason(), &txFailedError)).To(BeTrue())
 		Expect(errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount)).To(BeTrue())
