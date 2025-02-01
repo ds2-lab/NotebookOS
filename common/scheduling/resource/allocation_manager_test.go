@@ -282,10 +282,14 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			Expect(len(insufficientResourcesError.OffendingResourceKinds)).To(Equal(4))
 
-			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.CPU)).To(BeTrue())
-			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.Memory)).To(BeTrue())
-			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.GPU)).To(BeTrue())
-			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.VRAM)).To(BeTrue())
+			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.CPU)).
+				To(BeTrue())
+			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.Memory)).
+				To(BeTrue())
+			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.GPU)).
+				To(BeTrue())
+			Expect(distNbTesting.ContainsOffendingResourceKind(insufficientResourcesError.OffendingResourceKinds, scheduling.VRAM)).
+				To(BeTrue())
 
 			Expect(insufficientResourcesError.RequestedResources).To(Equal(kernel7spec))
 			Expect(insufficientResourcesError.AvailableResources).To(Equal(resourceManager.IdleResources()))

@@ -63,24 +63,48 @@ func (t *Resources) IsMutable() bool {
 // working *types.DecimalSpec.
 //
 // If there is at least one negative resource Kind, then that Kind is also returned.
-func (t *Resources) hasNegativeWorkingField() (bool, scheduling.ResourceKind) {
+func (t *Resources) hasNegativeWorkingField() (bool, []scheduling.ResourceKind) {
+	var (
+		hasNegativeField bool
+		offendingKinds   []scheduling.ResourceKind
+	)
+
 	if t.working.Millicpus.LessThan(decimal.Zero) {
-		return true, scheduling.CPU
+		hasNegativeField = true
+		offendingKinds = []scheduling.ResourceKind{scheduling.CPU}
 	}
 
 	if t.working.MemoryMb.LessThan(decimal.Zero) {
-		return true, scheduling.Memory
+		hasNegativeField = true
+
+		if offendingKinds == nil {
+			offendingKinds = make([]scheduling.ResourceKind, 0)
+		}
+
+		offendingKinds = append(offendingKinds, scheduling.Memory)
 	}
 
 	if t.working.GPUs.LessThan(decimal.Zero) {
-		return true, scheduling.GPU
+		hasNegativeField = true
+
+		if offendingKinds == nil {
+			offendingKinds = make([]scheduling.ResourceKind, 0)
+		}
+
+		offendingKinds = append(offendingKinds, scheduling.GPU)
 	}
 
 	if t.working.VRam.LessThan(decimal.Zero) {
-		return true, scheduling.VRAM
+		hasNegativeField = true
+
+		if offendingKinds == nil {
+			offendingKinds = make([]scheduling.ResourceKind, 0)
+		}
+
+		offendingKinds = append(offendingKinds, scheduling.VRAM)
 	}
 
-	return false, scheduling.NoResource
+	return hasNegativeField, offendingKinds
 }
 
 // Working returns the current/working resource quantities.

@@ -1998,8 +1998,8 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 	})
 
 	if err != nil {
-		m.log.Warn("Could not commit HostResources to replica %d of kernel %s: %s. "+
-			"Reason for commitment failure: %v.", replicaId, kernelId, resourceRequest.String(), err)
+		m.log.Warn("Could not commit resources [%v] to replica %d of kernel %s because: %v.",
+			resourceRequest.String(), replicaId, kernelId, err)
 
 		// This error should be of type transaction.ErrTransactionFailed.
 		// If it's not, then we'll just return it directly...
