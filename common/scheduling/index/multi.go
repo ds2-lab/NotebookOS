@@ -250,6 +250,9 @@ func (index *MultiIndex[T]) Add(host scheduling.Host) {
 
 	index.log.Debug("Adding host %s (ID=%s) to MultiIndex.", host.GetNodeName(), host.GetID())
 
+	host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
+	host.SetMeta(scheduling.HostIndexKeyMetadata, expectedMultiIndexValue)
+
 	index.FreeHosts.Enqueue(host)
 	index.FreeHostsMap[host.GetID()] = host
 

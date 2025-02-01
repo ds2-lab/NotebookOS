@@ -696,9 +696,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 					for i := 0; i < numHosts; i++ {
 						host := hosts[i]
-						err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+						err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
 						Expect(err).To(BeNil())
-						err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 40))
+						err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 32))
 						Expect(err).To(BeNil())
 					}
 
@@ -761,9 +761,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						Expect(resourceSpoofer).ToNot(BeNil())
 
 						if i != (numAdditionalHosts + numHosts - 1) {
-							err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+							err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
 							Expect(err).To(BeNil())
-							err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 40))
+							err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 32))
 							Expect(err).To(BeNil())
 						}
 
@@ -945,9 +945,9 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 					for i := 0; i < numHosts; i++ {
 						host := hosts[i]
-						err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+						err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
 						Expect(err).To(BeNil())
-						err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 40))
+						err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 32))
 						Expect(err).To(BeNil())
 					}
 

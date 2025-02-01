@@ -1472,7 +1472,8 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 	defer m.mu.Unlock()
 
 	// Verify that there are no other replicas of the specified kernel scheduled on this host.
-	if scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId); scheduledReplica != replicaIdForReplicaNotFound {
+	scheduledReplica := m.scheduledKernels.GetScheduledReplica(kernelId)
+	if scheduledReplica != replicaIdForReplicaNotFound && scheduledReplica != replicaIdForReservation {
 		numFailedReservations := m.numFailedReservations.Add(1)
 		m.log.Debug("Cannot reserve resources for replica of kernel %s: found existing resource "+
 			"allocation associated to that another replica of that kernel (replica %d) [numFailedReservations=%d].",
