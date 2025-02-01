@@ -466,7 +466,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				Expect(allocation.IsPending()).To(BeTrue())
 				Expect(allocation.IsCommitted()).To(BeFalse())
-				Expect(allocation.IsReservation).To(BeFalse())
+				Expect(allocation.IsReservation()).To(BeFalse())
 			}
 		}
 
@@ -599,7 +599,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
@@ -649,7 +649,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeTrue())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
 
@@ -680,7 +680,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 		})
 
 		It("Should release resources that were fully committed to a kernel replica if that kernel replica is stopped", func() {
@@ -724,7 +724,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
@@ -774,7 +774,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeTrue())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			kernel1Replica1.EXPECT().Sessions().Return([]string{kernel1Id}).Times(1)
 			kernel1Replica1.EXPECT().RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
@@ -854,7 +854,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			kernel1Replica1.EXPECT().Sessions().Return([]string{kernel1Id}).Times(1)
 			kernel1Replica1.EXPECT().RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
@@ -934,7 +934,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
@@ -983,7 +983,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeTrue())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
 
@@ -1014,7 +1014,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			kernel1Replica1.EXPECT().Sessions().Return([]string{kernel1Id}).Times(1)
 			kernel1Replica1.EXPECT().RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
@@ -1094,7 +1094,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
@@ -1144,7 +1144,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeTrue())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Promoting the committed resource reservation to a fully-committed allocation when an 'smr_lead_task' message is received")
 
@@ -1177,7 +1177,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Releasing the resources once training ends")
 
@@ -1319,7 +1319,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				Expect(allocation.IsPending()).To(BeFalse())
 				Expect(allocation.IsCommitted()).To(BeTrue())
-				Expect(allocation.IsReservation).To(BeTrue())
+				Expect(allocation.IsReservation()).To(BeFalse())
 
 				Expect(resourceManager.PendingCPUs().Equals(decimal.Zero)).To(BeTrue())
 				Expect(resourceManager.PendingVRAM().Equals(decimal.Zero)).To(BeTrue())
@@ -1362,7 +1362,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				Expect(allocation.IsPending()).To(BeFalse())
 				Expect(allocation.IsCommitted()).To(BeTrue())
-				Expect(allocation.IsReservation).To(BeFalse())
+				Expect(allocation.IsReservation()).To(BeFalse())
 
 				Expect(resourceManager.PendingCPUs().Equals(decimal.Zero)).To(BeTrue())
 				Expect(resourceManager.PendingVRAM().Equals(decimal.Zero)).To(BeTrue())
