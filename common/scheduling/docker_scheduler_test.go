@@ -121,7 +121,7 @@ func (m *dockerSchedulerTestHostMapper) GetHostsOfKernel(kernelId string) ([]sch
 	return nil, nil
 }
 
-func addHost(idx int, hostSpec types.Spec, disableHost bool, cluster scheduling.Cluster, mockCtrl *gomock.Controller) (scheduling.Host, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
+func addHost(idx int, hostSpec types.Spec, disableHost bool, cluster scheduling.Cluster, mockCtrl *gomock.Controller) (scheduling.UnitTestingHost, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
 	hostId := uuid.NewString()
 	nodeName := fmt.Sprintf("TestNode%d", idx)
 	resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, hostSpec)
@@ -222,13 +222,13 @@ var _ = Describe("Docker Scheduler Tests", func() {
 
 		Context("Will handle basic scheduling operations correctly", func() {
 			var numHosts int
-			var hosts map[int]scheduling.Host
+			var hosts map[int]scheduling.UnitTestingHost
 			var localGatewayClients map[int]*mock_proto.MockLocalGatewayClient
 			var resourceSpoofers map[int]*distNbTesting.ResourceSpoofer
 
 			Context("Starting with 3 hosts", func() {
 				BeforeEach(func() {
-					hosts = make(map[int]scheduling.Host)
+					hosts = make(map[int]scheduling.UnitTestingHost)
 					localGatewayClients = make(map[int]*mock_proto.MockLocalGatewayClient)
 					resourceSpoofers = make(map[int]*distNbTesting.ResourceSpoofer)
 					numHosts = 3
@@ -288,11 +288,11 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						// Matches host.
 						Expect(reservation.GetHostId()).To(Equal(host.GetID()))
 						// Not pending.
-						Expect(reservation.GetCreatedUsingPendingResources()).To(BeTrue())
+						Expect(reservation.IsPending()).To(BeTrue())
 						// Created recently.
-						Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+						Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 						// Correct amount of resources.
-						Expect(reservation.GetResourcesReserved().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+						Expect(reservation.ToSpec().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 					}
 				})
 
@@ -479,11 +479,11 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						// Matches host.
 						Expect(reservation.GetHostId()).To(Equal(host.GetID()))
 						// Not pending.
-						Expect(reservation.GetCreatedUsingPendingResources()).To(BeTrue())
+						Expect(reservation.IsPending()).To(BeTrue())
 						// Created recently.
-						Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+						Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 						// Correct amount of resources.
-						Expect(reservation.GetResourcesReserved().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+						Expect(reservation.ToSpec().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 					}
 				})
 
@@ -1050,7 +1050,7 @@ var _ = Describe("Docker Scheduler Tests", func() {
 			})
 
 			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the FindCandidateHosts method", func() {
-				hosts = make(map[int]scheduling.Host)
+				hosts = make(map[int]scheduling.UnitTestingHost)
 				localGatewayClients = make(map[int]*mock_proto.MockLocalGatewayClient)
 				resourceSpoofers = make(map[int]*distNbTesting.ResourceSpoofer)
 
@@ -1392,11 +1392,11 @@ var _ = Describe("Docker Scheduler Tests", func() {
 					// Matches host.
 					Expect(reservation.GetHostId()).To(Equal(host.GetID()))
 					// Not pending.
-					Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+					Expect(reservation.IsPending()).To(BeFalse())
 					// Created recently.
-					Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+					Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 					// Correct amount of resources.
-					Expect(reservation.GetResourcesReserved().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+					Expect(reservation.ToSpec().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 				}
 			})
 
@@ -1491,11 +1491,11 @@ var _ = Describe("Docker Scheduler Tests", func() {
 				// Matches host.
 				Expect(reservation.GetHostId()).To(Equal(bigHost1.GetID()))
 				// Not pending.
-				Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+				Expect(reservation.IsPending()).To(BeFalse())
 				// Created recently.
-				Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+				Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 				// Correct amount of resources.
-				Expect(reservation.GetResourcesReserved().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+				Expect(reservation.ToSpec().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 
 				Expect(bigHost1.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeFalse())
 				Expect(bigHost1.CommittedResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
@@ -1688,11 +1688,11 @@ var _ = Describe("Docker Scheduler Tests", func() {
 						// Matches host.
 						Expect(reservation.GetHostId()).To(Equal(host.GetID()))
 						// Not pending.
-						Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+						Expect(reservation.IsPending()).To(BeFalse())
 						// Created recently.
-						Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+						Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 						// Correct amount of resources.
-						Expect(reservation.GetResourcesReserved().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+						Expect(reservation.ToSpec().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 					}
 				})
 
@@ -1786,11 +1786,11 @@ var _ = Describe("Docker Scheduler Tests", func() {
 				// Matches host.
 				Expect(reservation.GetHostId()).To(Equal(bigHost1.GetID()))
 				// Not pending.
-				Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+				Expect(reservation.IsPending()).To(BeFalse())
 				// Created recently.
-				Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+				Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 				// Correct amount of resources.
-				Expect(reservation.GetResourcesReserved().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+				Expect(reservation.ToSpec().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 
 				Expect(bigHost1.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeFalse())
 				Expect(bigHost1.CommittedResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())

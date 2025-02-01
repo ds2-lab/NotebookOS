@@ -50,6 +50,9 @@ type Allocation struct {
 	// ExecutionId is the Jupyter message ID ("msg_id" from the header) of the associated "execute_request" message.
 	ExecutionId string
 
+	// HostId is the ID of the host on which this Allocation exists/is made.
+	HostId string
+
 	// AllocationType indicates whether the Allocation is "pending" or "committed".
 	//
 	// "Pending" indicates that the HostResources are not "actually" allocated to the associated kernel replica.
@@ -73,6 +76,10 @@ type Allocation struct {
 
 	// cachedAllocationKey is the cached return value of getKey(Allocation.ReplicaId, Allocation.KernelId).
 	cachedAllocationKey string
+}
+
+func (a *Allocation) GetHostId() string {
+	return a.HostId
 }
 
 func (a *Allocation) GetAllocationType() scheduling.AllocationType {
@@ -311,6 +318,7 @@ type AllocationBuilder struct {
 	memoryMb        decimal.Decimal
 	isReservation   bool
 	isPreCommitment bool
+	hostId          string
 	gpuDeviceIds    []int
 	replicaId       int32
 	kernelId        string
@@ -325,6 +333,12 @@ func NewResourceAllocationBuilder() *AllocationBuilder {
 		allocationId: uuid.NewString(),
 		gpuDeviceIds: make([]int, 0),
 	}
+}
+
+// WithHostId enables the specification of the Allocation's HostId field.
+func (b *AllocationBuilder) WithHostId(hostId string) *AllocationBuilder {
+	b.hostId = hostId
+	return b
 }
 
 // WithExecutionId allows the specification of the ExecutionId field, which is the Jupyter message ID ("msg_id" from
@@ -445,6 +459,7 @@ func (b *AllocationBuilder) BuildResourceAllocation() *Allocation {
 		ReplicaId:                b.replicaId,
 		KernelId:                 b.kernelId,
 		AllocationType:           b.allocationType,
+		HostId:                   b.hostId,
 		IsReservationAllocation:  b.isReservation,
 		IsPreCommittedAllocation: b.isPreCommitment,
 		Timestamp:                time.Now(),

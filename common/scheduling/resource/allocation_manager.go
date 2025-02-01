@@ -1403,6 +1403,7 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 		WithMemoryMB(spec.MemoryMB()).
 		WithGPUs(spec.GPU()).
 		WithVRAM(spec.VRAM()).
+		WithHostId(m.NodeId).
 		IsAReservation().
 		IsNotAPreCommitment().
 		BuildResourceAllocation()
@@ -1529,14 +1530,17 @@ func (m *AllocationManager) KernelReplicaScheduled(replicaId int32, kernelId str
 	}
 
 	// Construct the new Allocation using the resource quantities specified in the spec argument.
-	builder := NewResourceAllocationBuilder().
+	allocation = NewResourceAllocationBuilder().
 		WithAllocationType(scheduling.PendingAllocation).
 		WithKernelReplica(replicaId, kernelId).
 		WithMillicpus(spec.CPU()).
 		WithMemoryMB(spec.MemoryMB()).
 		WithGPUs(spec.GPU()).
-		WithVRAM(spec.VRAM())
-	allocation = builder.BuildResourceAllocation()
+		WithVRAM(spec.VRAM()).
+		WithHostId(m.NodeId).
+		IsNotAReservation().
+		IsNotAPreCommitment().
+		BuildResourceAllocation()
 
 	m.log.Debug("Attempting to subscribe the following pending HostResources to replica %d of kernel %s: %v",
 		replicaId, kernelId, spec.String())

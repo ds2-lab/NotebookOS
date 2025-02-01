@@ -40,6 +40,7 @@ type Allocation interface {
 	IsPending() bool
 	IsCommitted() bool
 	GetKernelId() string
+	GetHostId() string
 	GetExecutionId() string
 	SetExecutionId(executionId string)
 	GetReplicaId() int32
