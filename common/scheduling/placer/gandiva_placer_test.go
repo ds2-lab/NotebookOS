@@ -128,7 +128,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 	//	Expect(err).To(BeNil())
 	//}
 
-	releaseResources := func(host scheduling.Host, resources *types.DecimalSpec) {
+	releaseResources := func(host scheduling.UnitTestingHost, resources *types.DecimalSpec) {
 		err := host.SubtractFromCommittedResources(resources)
 		Expect(err).To(BeNil())
 
@@ -146,7 +146,7 @@ var _ = Describe("Gandiva Placer Tests", func() {
 		Expect(err).To(BeNil())
 	}
 
-	createHost := func(idx int) (scheduling.Host, *testing.ResourceSpoofer) {
+	createHost := func(idx int) (scheduling.UnitTestingHost, *testing.ResourceSpoofer) {
 		hostId := uuid.NewString()
 		hostName := fmt.Sprintf("TestHost-%d", idx)
 		resourceSpoofer := testing.NewResourceSpoofer(hostName, hostId, hostSpec)
