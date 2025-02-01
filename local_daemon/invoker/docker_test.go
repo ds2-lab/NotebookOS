@@ -12,6 +12,7 @@ var _ = Describe("Docker Invoker Tests", func() {
 		It("Should generate an empty GPU command snippet when simulating training using sleep", func() {
 			dockerInvoker := &invoker.DockerInvoker{
 				SimulateTrainingUsingSleep: true,
+				BindGPUs:                   false,
 			}
 
 			snippet := dockerInvoker.InitGpuCommand()
@@ -22,6 +23,7 @@ var _ = Describe("Docker Invoker Tests", func() {
 			dockerInvoker := &invoker.DockerInvoker{
 				SimulateTrainingUsingSleep: false,
 				BindAllGpus:                true,
+				BindGPUs:                   true,
 			}
 
 			snippet := dockerInvoker.InitGpuCommand()
@@ -33,6 +35,7 @@ var _ = Describe("Docker Invoker Tests", func() {
 				dockerInvoker := &invoker.DockerInvoker{
 					SimulateTrainingUsingSleep: false,
 					BindAllGpus:                false,
+					BindGPUs:                   true,
 					AssignedGpuDeviceIds:       []int32{deviceId},
 				}
 
@@ -49,6 +52,7 @@ var _ = Describe("Docker Invoker Tests", func() {
 			dockerInvoker := &invoker.DockerInvoker{
 				SimulateTrainingUsingSleep: false,
 				BindAllGpus:                false,
+				BindGPUs:                   true,
 				AssignedGpuDeviceIds:       deviceIds,
 			}
 
@@ -64,6 +68,7 @@ var _ = Describe("Docker Invoker Tests", func() {
 			dockerInvoker := &invoker.DockerInvoker{
 				SimulateTrainingUsingSleep: false,
 				BindAllGpus:                false,
+				BindGPUs:                   true,
 				AssignedGpuDeviceIds:       deviceIds,
 			}
 
