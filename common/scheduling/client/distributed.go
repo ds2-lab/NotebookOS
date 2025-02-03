@@ -1126,7 +1126,7 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 	go func() {
 		// responseReceivedSem.Wait()                            // Wait til the WaitGroup reaches 0.
 		err := responseReceivedSem.Acquire(ctx, int64(numResponsesExpected))
-		if err != nil {
+		if err == nil {
 			allResponsesReceivedNotificationChannel <- struct{}{} // Send the notification.
 		} else {
 			cancel()

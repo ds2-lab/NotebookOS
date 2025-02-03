@@ -885,7 +885,7 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 	// committed to the container, and so we don't have to do anything else and can just return nil,
 	// as we do below.
 	if !h.allocationManager.ReplicaHasCommittedResources(container.ReplicaId(), container.KernelID()) {
-		panic(fmt.Sprintf("Replica %d of kernel %s has started training. TransactionResources should be committed.",
+		panic(fmt.Sprintf("Replica %d of kernel %s has started training. Resources should be committed.",
 			container.ReplicaId(), container.KernelID()))
 	}
 
