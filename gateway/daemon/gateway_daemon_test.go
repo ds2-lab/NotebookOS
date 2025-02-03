@@ -3451,6 +3451,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			})
 
 			It("Will correctly schedule a new kernel using non-spoofed scheduling.Host instances", func() {
+				clusterGateway.DistributedClientProvider = &client.DistributedKernelClientProvider{}
+
 				kernelId := uuid.NewString()
 				kernelKey := uuid.NewString()
 				resourceSpec := &proto.ResourceSpec{
@@ -3512,6 +3514,28 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				}
 
 				connInfoChannel := make(chan *proto.KernelConnectionInfo)
+
+				for _, localGatewayClient := range localGatewayClients {
+					localGatewayClient.EXPECT().
+						StartKernelReplica(gomock.Any(), gomock.Any()).
+						Times(1).
+						DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+							connInfo := &proto.KernelConnectionInfo{
+								Ip:              "127.0.0.1",
+								Transport:       "tcp",
+								ControlPort:     int32(36000),
+								ShellPort:       int32(shell.Port),
+								StdinPort:       int32(36002),
+								HbPort:          int32(36003),
+								IopubPort:       int32(36004),
+								IosubPort:       int32(36005),
+								SignatureScheme: messaging.JupyterSignatureScheme,
+								Key:             kernelKey,
+							}
+
+							return connInfo, nil
+						})
+				}
 
 				By("Scheduling the kernel")
 

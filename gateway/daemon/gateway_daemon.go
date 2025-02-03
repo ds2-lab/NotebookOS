@@ -1658,6 +1658,7 @@ func (d *ClusterGatewayImpl) KubernetesMode() bool {
 // startNewKernel is called by StartKernel when creating a brand-new kernel, rather than restarting an existing kernel.
 func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Kernel, error) {
 	d.log.Debug("Did not find existing DistributedKernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
+
 	// Initialize kernel with new context.
 	kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
 		d.connectionOptions, uuid.NewString(), d.DebugMode, d.executionFailed, d.executionLatencyCallback,
@@ -1895,6 +1896,17 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	startTime := time.Now()
 	d.log.Info("ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v.",
 		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in)
+
+	if in.ResourceSpec == nil {
+		d.log.Warn("Kernel %s does not have a ResourceSpec...")
+
+		in.ResourceSpec = &proto.ResourceSpec{
+			Cpu:    0,
+			Memory: 0,
+			Gpu:    0,
+			Vram:   0,
+		}
+	}
 
 	d.clusterStatisticsMutex.Lock()
 	now := time.Now()
@@ -2172,7 +2184,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		SmrPort:                         int32(d.smrPort),
 	}
 
-	d.mu.Unlock()
+	// d.mu.Unlock()
 
 	d.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during AddOperation \"%s\".",
 		replicaSpec.ReplicaId, in.KernelId, addReplicaOp.OperationID())
@@ -2309,13 +2321,14 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
 	}
 
-	d.mu.Lock()
+	// d.mu.Lock()
 
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {
 		d.log.Error("Could not find kernel with ID \"%s\"; however, just received 'kernel registered' notification for that kernel...", kernelId)
 		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find Kernel \"%s\" Despite Receiving 'Kernel Registered' Notification for that Kernel", kernelId), "See notification title.")
 
+		// d.mu.Unlock()
 		return nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, kernelId)
 	}
 
@@ -2410,7 +2423,7 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		panic(err)
 	}
 
-	d.mu.Unlock() // Need to unlock before calling ContainerStartedRunningOnHost, or deadlock can occur.
+	// d.mu.Unlock() // Need to unlock before calling ContainerStartedRunningOnHost, or deadlock can occur.
 
 	// Add the Container to the Host.
 	if err := host.ContainerStartedRunningOnHost(container); err != nil {

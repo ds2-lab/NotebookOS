@@ -262,6 +262,9 @@ func (t *CoordinatedTransaction) RegisterParticipant(id int32, getInitialState s
 		_ = t.run()
 	}
 
+	t.log.Debug("Registered participant %d/%d (with ID=%d) for tx %s targeting kernel %s.",
+		len(t.participants), t.expectedNumParticipants, id, t.id, t.kernelId)
+
 	return nil
 }
 
@@ -307,6 +310,9 @@ func (t *CoordinatedTransaction) initializeAndLockParticipants() error {
 		return fmt.Errorf("%w: expected %d participants, have only %d registered",
 			ErrMissingParticipants, t.expectedNumParticipants, len(t.participants))
 	}
+
+	t.log.Debug("Coordinated TX %s targeting kernel %s is acquiring locks of all %d participant(s).",
+		t.id, t.kernelId, len(t.participants))
 
 	// Keep track of the mutexes that we've already locked successfully.
 	lockedMutexes := make([]*sync.Mutex, 0, len(t.participants))
