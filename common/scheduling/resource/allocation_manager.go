@@ -811,13 +811,16 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec t
 		return fmt.Errorf("%w (\"%s\")", scheduling.ErrDynamicResourceAdjustmentProhibited, m.schedulingPolicy.Name())
 	}
 
+	kernelId := container.KernelID()
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	targetReplicaIsScheduled := m.scheduledKernels.IsAnySpecificScheduled(container.ReplicaId(), kernelId)
+	m.mu.Unlock()
 
 	// Verify that the container is in fact scheduled on this Host.
-	if !m.scheduledKernels.IsAnyReplicaScheduled(container.KernelID()) {
+	if !targetReplicaIsScheduled {
 		return fmt.Errorf("%w: replica %d of kernel %s",
-			ErrContainerNotPresent, container.ReplicaId(), container.KernelID())
+			ErrContainerNotPresent, container.ReplicaId(), kernelId)
 	}
 
 	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
@@ -828,17 +831,28 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec t
 		state.PendingResources().Add(newSpecDecimal)
 	}
 
+	m.log.Debug("Preparing to register replica %d of kernel %s from host %s for coordinated transaction %s.",
+		container.ReplicaId(), container.KernelID(), m.NodeName, tx.Id())
+
 	err := tx.RegisterParticipant(container.ReplicaId(), m.resourceManager.GetTransactionData, txOperation, schedulingMutex)
 	if err != nil {
-		m.log.Error("Received error upon registering for coordination transaction when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
-			container.ReplicaId(), container.KernelID(), oldSpec.String(), updatedSpec.String(), err)
+		m.log.Error("Received error upon registering for coordination transaction %s when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
+			tx.Id(), container.ReplicaId(), kernelId, oldSpec.String(), updatedSpec.String(), err)
 		return err
 	}
 
-	succeeded := tx.Wait()
-	if succeeded {
+	tx.WaitForParticipantsToBeInitialized()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	err = tx.Run() // This will block until the other AllocationManager's also call Run.
+	if err == nil {
+		m.log.Debug("Successfully updated resource spec of replica %d of kernel %s.",
+			container.ReplicaId(), container.KernelID())
+
 		if m.updateIndex != nil {
-			err = m.updateIndex(container.ReplicaId(), container.KernelID())
+			err = m.updateIndex(container.ReplicaId(), kernelId)
 		}
 
 		if m.updateSubscriptionRatio != nil {
@@ -848,17 +862,39 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec t
 		return nil
 	}
 
+	//if err != nil {
+	//	m.log.Error("Error while running CoordinatedTransaction %s targeting replica%d of kernel %s:",
+	//		tx.Id(), container.ReplicaId(), kernelId, err)
+	//	return err
+	//}
+	//
+	//succeeded := tx.Wait()
+	//if succeeded {
+	//	if m.updateIndex != nil {
+	//		err = m.updateIndex(container.ReplicaId(), kernelId)
+	//	}
+	//
+	//	if m.updateSubscriptionRatio != nil {
+	//		m.updateSubscriptionRatio()
+	//	}
+	//
+	//	return nil
+	//}
+
 	err = tx.FailureReason()
 
 	// If the error is nil, which really shouldn't happen, then we'll just assign a generic
 	// error to the err variable before returning it.
 	if err == nil {
 		m.log.Warn("Transaction %s targeting all replicas of kernel %s has failed, but the failure reason is nil...",
-			tx.Id(), container.KernelID())
+			tx.Id(), kernelId)
 		// err = fmt.Errorf("%w: failure reason unspecified", transaction.ErrTransactionFailed)
 
 		err = transaction.NewErrTransactionFailed(fmt.Errorf("failure reason unspecified"),
 			[]scheduling.ResourceKind{scheduling.UnknownResource}, []scheduling.ResourceStatus{scheduling.UnknownStatus})
+	} else {
+		m.log.Debug("Transaction %s targeting replica %d of kernel %s has failed because: %v",
+			tx.Id(), container.ReplicaId(), kernelId, err)
 	}
 
 	return err

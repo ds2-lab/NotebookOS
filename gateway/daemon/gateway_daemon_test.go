@@ -23,6 +23,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc"
 	"log"
 	"math/rand"
 	"net"
@@ -3515,16 +3516,56 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 				connInfoChannel := make(chan *proto.KernelConnectionInfo)
 
-				for _, localGatewayClient := range localGatewayClients {
+				var notifyKernelRegisteredWg sync.WaitGroup
+				notifyKernelRegisteredWg.Add(3)
+
+				callNotifyKernelRegistered := func(host scheduling.Host, replicaId int32) {
+					defer GinkgoRecover()
+
+					time.Sleep(time.Millisecond * 10)
+
+					resp, err := clusterGateway.NotifyKernelRegistered(context.Background(), &proto.KernelRegistrationNotification{
+						ConnectionInfo: &proto.KernelConnectionInfo{
+							Ip:              "127.0.0.1",
+							Transport:       "tcp",
+							ControlPort:     int32(35000),
+							ShellPort:       int32(35001),
+							StdinPort:       int32(35002),
+							HbPort:          int32(35003),
+							IopubPort:       int32(35004),
+							IosubPort:       int32(35005),
+							SignatureScheme: messaging.JupyterSignatureScheme,
+							Key:             kernelKey,
+						},
+						KernelId:           kernelId,
+						HostId:             host.GetID(),
+						SessionId:          "N/A",
+						ReplicaId:          replicaId,
+						KernelIp:           "127.0.0.1",
+						PodOrContainerName: fmt.Sprintf("Kernel1-Replica%d", replicaId),
+						NodeName:           host.GetNodeName(),
+						NotificationId:     uuid.NewString(),
+					})
+					Expect(err).To(BeNil())
+					Expect(resp).ToNot(BeNil())
+
+					notifyKernelRegisteredWg.Done()
+				}
+
+				for idx, localGatewayClient := range localGatewayClients {
 					localGatewayClient.EXPECT().
-						StartKernelReplica(gomock.Any(), gomock.Any()).
+						StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
 						Times(1).
-						DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec) (*proto.KernelConnectionInfo, error) {
+						DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+							defer GinkgoRecover()
+
+							fmt.Printf("LocalDaemon::StartKernelReplica called for LocalDaemon-%d\n", idx)
+
 							connInfo := &proto.KernelConnectionInfo{
 								Ip:              "127.0.0.1",
 								Transport:       "tcp",
 								ControlPort:     int32(36000),
-								ShellPort:       int32(shell.Port),
+								ShellPort:       int32(36001),
 								StdinPort:       int32(36002),
 								HbPort:          int32(36003),
 								IopubPort:       int32(36004),
@@ -3533,12 +3574,15 @@ var _ = Describe("Cluster Gateway Tests", func() {
 								Key:             kernelKey,
 							}
 
+							go callNotifyKernelRegistered(hosts[idx], int32(idx+1))
+
 							return connInfo, nil
 						})
 				}
 
 				By("Scheduling the kernel")
 
+				startTime := time.Now()
 				go func() {
 					defer GinkgoRecover()
 
@@ -3547,6 +3591,11 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					connInfoChannel <- connInfo
 				}()
+
+				notifyKernelRegisteredWg.Wait()
+
+				fmt.Printf("All 3 replicas of kernel \"%s\" have registered after %v.\n",
+					kernelId, time.Since(startTime))
 
 				kernelConnInfo := <-connInfoChannel
 				Expect(kernelConnInfo).ToNot(BeNil())

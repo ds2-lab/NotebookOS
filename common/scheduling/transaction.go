@@ -32,6 +32,35 @@ type CoordinatedTransaction interface {
 	NumExpectedParticipants() int
 	NumRegisteredParticipants() int
 	FailureReason() error
+
+	// WaitForParticipantsToBeInitialized blocks until the target CoordinatedTransaction's
+	// CoordinatedParticipant instances have all registered and been initialized.
+	WaitForParticipantsToBeInitialized()
+
+	// Run will run the target CoordinatedTransaction if the target CoordinatedTransaction is ready.
+	// The CoordinatedTransaction is ready when all CoordinatedParticipants have registered, and when all
+	// possible driver goroutines have called TryRun.
+	//
+	// If the target CoordinatedTransaction is NOT ready, then TryRun will block until the target CoordinatedTransaction
+	// has executed (and either failed or succeeded).
+	//
+	// This motivation for this is that the initialization of CoordinatedParticipants acquires all the Host-level
+	// mutexes, whereas calling TryRun ensures that the AllocationManager locks have been acquired. The order in
+	// which these locks are acquired is important in order to avoid deadlocks.
+	//
+	// The parameter sync.Mutex is an optional mutex that will be locked AFTER all the CoordinatedTransaction's
+	// CoordinatedParticipant instances have been locked.
+	Run() error
+
+	// ParticipantsInitialized returns true if all the CoordinatedParticipant instances have been initialized.
+	ParticipantsInitialized() bool
+
+	// IsReady returns true if the target CoordinatedTransaction has registered all CoordinatedParticipant instances.
+	//
+	// IsReady will only return true if the target CoordinatedParticipant has not yet run.
+	//
+	// isReady is thread safe.
+	//IsReady() bool
 }
 
 type TransactionState interface {
