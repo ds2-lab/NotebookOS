@@ -702,10 +702,10 @@ func (c *BaseCluster) DefaultOnScaleOperationFailed(op scheduling.ScaleOperation
 	}
 
 	if op.IsScaleInOperation() {
-		c.log.Debug("Scale-In Operation \"%s\" has failed.", op.GetOperationId())
+		c.log.Debug("Scale-In TransactionOperation \"%s\" has failed.", op.GetOperationId())
 		c.numFailedScaleInOps += 1
 	} else if op.IsScaleOutOperation() {
-		c.log.Debug("Scale-Out Operation \"%s\" has failed.", op.GetOperationId())
+		c.log.Debug("Scale-Out TransactionOperation \"%s\" has failed.", op.GetOperationId())
 		c.numFailedScaleOutOps += 1
 	} else {
 		c.log.Error("Received ScaleOperation that is neither a scale-out operation nor a scale-in operation...")

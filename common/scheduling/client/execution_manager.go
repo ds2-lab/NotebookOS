@@ -238,7 +238,7 @@ func (m *ExecutionManager) SendingExecuteRequest(msg *messaging.JupyterMessage) 
 			err = fmt.Errorf("%w: submitted execution \"%s\" with index %d, and cannot find newer execution with index %d",
 				ErrInvalidState, msg.JupyterMessageId(), executionIndex, m.submittedExecutionIndex)
 
-			m.sendNotification("Execution Manager in Invalid State", err.Error(), messaging.ErrorNotification, true)
+			m.sendNotification("Execution Manager in Invalid TransactionState", err.Error(), messaging.ErrorNotification, true)
 
 			return err
 		}
@@ -501,23 +501,17 @@ func (m *ExecutionManager) HandleExecuteReplyMessage(msg *messaging.JupyterMessa
 //
 // ExecutionComplete returns nil on success.
 func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, replica scheduling.KernelReplica) (scheduling.Execution, error) {
-	// We'll notify ALL replicas that we received a response, so the next execute requests can be sent (at least
-	// to the local daemons).
-	for _, kernelReplica := range m.Kernel.Replicas() {
-		kernelReplica.ReceivedExecuteReply(msg, kernelReplica.ReplicaID() == replica.ReplicaID())
-	}
-
 	err := validateReply(msg)
 	if err != nil {
 		return nil, err
 	}
 
-	requestId := msg.JupyterParentMessageId()
+	executeRequestId := msg.JupyterParentMessageId()
 
 	// Attempt to load the execution from the "active" map.
-	activeExecution, loaded := m.activeExecutions[requestId]
+	activeExecution, loaded := m.activeExecutions[executeRequestId]
 	if !loaded {
-		return nil, fmt.Errorf("%w: \"%s\"", ErrUnknownActiveExecution, requestId)
+		return nil, fmt.Errorf("%w: \"%s\"", ErrUnknownActiveExecution, executeRequestId)
 	}
 
 	if activeExecution.HasValidOriginalSentTimestamp() {
@@ -540,10 +534,10 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	activeExecution.State = Completed
 
 	// Remove the execution from the "active" map.
-	delete(m.activeExecutions, requestId)
+	delete(m.activeExecutions, executeRequestId)
 
 	// Store the execution in the "finished" map.
-	m.finishedExecutions[requestId] = activeExecution
+	m.finishedExecutions[executeRequestId] = activeExecution
 
 	if m.statisticsProvider != nil && m.statisticsProvider.PrometheusMetricsEnabled() {
 		m.statisticsProvider.IncrementNumTrainingEventsCompletedCounterVec()
@@ -593,6 +587,22 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 		m.log.Error("Error while calling KernelStoppedTraining on active replica %d for execution \"%s\": %v",
 			activeExecution.ActiveReplica.ReplicaID(), msg.JupyterParentMessageId(), err)
 		return nil, err
+	}
+
+	// We'll notify ALL replicas that we received a response, so the next execute requests can be sent (at least
+	// to the local daemons).
+	for _, kernelReplica := range m.Kernel.Replicas() {
+		m.log.Debug("Notifying non-primary replica %d of kernel %s that execution \"%s\" has concluded successfully.",
+			kernelReplica.ReplicaID(), kernelReplica.ID(), executeRequestId)
+
+		kernelReplica.ReceivedExecuteReply(msg, kernelReplica.ReplicaID() == replica.ReplicaID())
+
+		// Make sure all pre-committed resources for this request are released.
+		// Skip the active replica, as we already called these methods on/for that replica.
+		if kernelReplica.ReplicaID() != activeExecution.ActiveReplica.ReplicaID() {
+			container := kernelReplica.Container()
+			_ = container.Host().ReleasePreCommitedResources(container, executeRequestId)
+		}
 	}
 
 	if activeExecution.ActiveReplica.ReplicaID() != replica.ReplicaID() {

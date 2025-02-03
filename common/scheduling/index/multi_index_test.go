@@ -2,14 +2,10 @@ package index_test
 
 import (
 	"fmt"
-	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/scusemua/distributed-notebook/common/mock_proto"
 	"github.com/scusemua/distributed-notebook/common/mock_scheduling"
-	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
-	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
 	"github.com/scusemua/distributed-notebook/common/scheduling/index"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"go.uber.org/mock/gomock"
@@ -21,9 +17,10 @@ var (
 
 var _ = Describe("MultiIndex Tests", func() {
 	var (
-		mockCtrl    *gomock.Controller
-		mockCluster *mock_scheduling.MockCluster
-		mockPolicy  *mock_scheduling.MockPolicy
+		mockCtrl      *gomock.Controller
+		mockCluster   *mock_scheduling.MockCluster
+		mockScheduler *mock_scheduling.MockScheduler
+		mockPolicy    *mock_scheduling.MockPolicy
 	)
 
 	hostSpec := types.NewDecimalSpec(64000, 128000, 8, 40)
@@ -31,6 +28,9 @@ var _ = Describe("MultiIndex Tests", func() {
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		mockCluster = mock_scheduling.NewMockCluster(mockCtrl)
+		mockScheduler = mock_scheduling.NewMockScheduler(mockCtrl)
+		mockCluster.EXPECT().Scheduler().AnyTimes().Return(mockScheduler)
+		mockScheduler.EXPECT().Policy().AnyTimes().Return(mockPolicy)
 		mockPolicy = mock_scheduling.NewMockPolicy(mockCtrl)
 
 		mockPolicy.EXPECT().ResourceBindingMode().AnyTimes().Return(scheduling.BindResourcesWhenContainerScheduled)
@@ -40,47 +40,6 @@ var _ = Describe("MultiIndex Tests", func() {
 		mockCtrl.Finish()
 	})
 
-	createHost := func(idx int) scheduling.Host {
-		localGatewayClient := mock_proto.NewMockLocalGatewayClient(mockCtrl)
-
-		hostId := fmt.Sprintf("Host%d", idx)
-		nodeName := fmt.Sprintf("Host%d", idx)
-
-		localGatewayClient.EXPECT().SetID(
-			gomock.Any(),
-			&proto.HostId{
-				Id: hostId,
-			},
-		).Return(&proto.HostId{
-			Id:       hostId,
-			NodeName: nodeName,
-		}, nil)
-
-		localGatewayClient.EXPECT().GetActualGpuInfo(
-			gomock.Any(),
-			&proto.Void{},
-		).Return(&proto.GpuInfo{
-			SpecGPUs:              int32(hostSpec.GPU() + 1),
-			IdleGPUs:              int32(hostSpec.GPU() + 1),
-			CommittedGPUs:         0,
-			PendingGPUs:           0,
-			NumPendingAllocations: 0,
-			NumAllocations:        0,
-			GpuSchedulerID:        uuid.NewString(),
-			LocalDaemonID:         hostId,
-		}, nil)
-
-		host, err := entity.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
-			scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, 3, mockCluster, mockCluster,
-			nil, localGatewayClient, mockPolicy,
-			func(_ string, _ string, _ string, _ string) error { return nil })
-
-		Expect(host).ToNot(BeNil())
-		Expect(err).To(BeNil())
-
-		return host
-	}
-
 	Context("Multi-Index of LeastLoadedIndex HostPools", func() {
 		Context("Adding and Removing Hosts", func() {
 			Context("Empty Hosts", func() {
@@ -88,7 +47,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					multiIndex := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(multiIndex).ToNot(BeNil())
 
-					host1 := createHost(1)
+					host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
 					multiIndex.Add(host1)
 					Expect(multiIndex.Len()).To(Equal(1))
 
@@ -118,7 +77,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					multiIndex := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(multiIndex).ToNot(BeNil())
 
-					host1 := createHost(1)
+					host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
 					multiIndex.Add(host1)
 					Expect(multiIndex.Len()).To(Equal(1))
 
@@ -139,7 +98,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					multiIndex := index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(multiIndex).ToNot(BeNil())
 
-					host1 := createHost(1)
+					host1 := createHost(1, mockCtrl, mockCluster, hostSpec)
 					multiIndex.Add(host1)
 					Expect(multiIndex.Len()).To(Equal(1))
 
@@ -156,7 +115,7 @@ var _ = Describe("MultiIndex Tests", func() {
 					Expect(meta).ToNot(BeNil())
 					Expect(meta.(int32)).To(Equal(int32(0)))
 
-					host2 := createHost(2)
+					host2 := createHost(2, mockCtrl, mockCluster, hostSpec)
 					multiIndex.Add(host2)
 					Expect(multiIndex.Len()).To(Equal(2))
 
@@ -219,18 +178,18 @@ var _ = Describe("MultiIndex Tests", func() {
 			Context("Non-Empty Hosts", func() {
 				var (
 					multiIndex *index.MultiIndex[*index.LeastLoadedIndex]
-					host1      scheduling.Host
-					host2      scheduling.Host
-					host3      scheduling.Host
+					host1      scheduling.UnitTestingHost
+					host2      scheduling.UnitTestingHost
+					host3      scheduling.UnitTestingHost
 				)
 
 				BeforeEach(func() {
 					multiIndex = index.NewMultiIndex[*index.LeastLoadedIndex](int32(hostSpec.GPU()+1), index.NewLeastLoadedIndexWrapper)
 					Expect(multiIndex).ToNot(BeNil())
 
-					host1 = createHost(1)
-					host2 = createHost(2)
-					host3 = createHost(3)
+					host1 = createHost(1, mockCtrl, mockCluster, hostSpec)
+					host2 = createHost(2, mockCtrl, mockCluster, hostSpec)
+					host3 = createHost(3, mockCtrl, mockCluster, hostSpec)
 
 					err := host1.AddToCommittedResources(types.NewDecimalSpec(128, 256, 2, 2))
 					Expect(err).To(BeNil())

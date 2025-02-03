@@ -61,6 +61,10 @@ func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas i
 // reservationShouldUsePendingResources, which may differ depending on the placer implementation and
 // configured scheduling policy.
 func (placer *AbstractPlacer) getReplicaResourceReserver() replicaResourceReserver {
+	// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
+	// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
+	// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
+	// depending upon the scheduling.Policy configured for the AllocationManager.
 	return func(candidateHost scheduling.Host, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
 		var usePendingReservation bool
 
@@ -95,6 +99,10 @@ func (placer *AbstractPlacer) getReplicaResourceReserver() replicaResourceReserv
 // reservationShouldUsePendingResources, which may differ depending on the placer implementation and
 // configured scheduling policy.
 func (placer *AbstractPlacer) getKernelResourceReserver() kernelResourceReserver {
+	// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
+	// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
+	// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
+	// depending upon the scheduling.Policy configured for the AllocationManager.
 	return func(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) (bool, error) {
 		var usePendingReservation bool
 

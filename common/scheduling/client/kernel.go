@@ -9,7 +9,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
 	"sync"
@@ -287,7 +286,7 @@ func (c *KernelReplicaClient) WaitForTrainingToStop() {
 //
 // Note for internal usage: this method is thread safe. Do not call this method if the lock for the kernel
 // is already held. If the lock is already held, then call the unsafeUpdateResourceSpec method instead.
-func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, tx scheduling.CoordinatedTransaction) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -302,7 +301,7 @@ func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, tx *transac
 // On success, nil is returned.
 //
 // Note: this method is thread safe. Do not call this method if the lock for the kernel is already held.
-func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx scheduling.CoordinatedTransaction) error {
 	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
 		err := fmt.Errorf("%w: %s", ErrInvalidResourceSpec, newSpec.String())
 		return err
@@ -318,9 +317,9 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx *t
 
 		var err error
 		if tx != nil {
-			err = container.Host().KernelAdjustedItsResourceRequestCoordinated(newSpec, oldSpec, container, tx)
+			err = container.Host().AdjustKernelResourceRequestCoordinated(newSpec, oldSpec, container, tx)
 		} else {
-			err = container.Host().KernelAdjustedItsResourceRequest(newSpec, oldSpec, container)
+			err = container.Host().AdjustKernelResourceRequest(newSpec, oldSpec, container)
 		}
 
 		if err != nil {
@@ -578,6 +577,7 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v",
 				c.ID(), c.ReplicaID(), err)
+
 			return err
 		}
 	}

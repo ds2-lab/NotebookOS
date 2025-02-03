@@ -45,7 +45,7 @@ func (s *ResourceSpoofer) ResourcesSnapshot(_ context.Context, _ *proto.Void, _ 
 		// structs originating from the same node. Each newly-created NodeResourcesSnapshot is assigned an ID from a
 		// monotonically-increasing counter by the ResourceManager.
 		SnapshotId: snapshotId,
-		// NodeId is the ID of the node from which the resourceSnapshot originates.
+		// HostId is the ID of the node from which the resourceSnapshot originates.
 		NodeId: s.HostId,
 		// ManagerId is the unique ID of the ResourceManager struct from which the NodeResourcesSnapshot was constructed.
 		ManagerId: s.ManagerId,

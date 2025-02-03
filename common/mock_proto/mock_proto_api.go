@@ -22,6 +22,7 @@ import (
 type MockClusterGatewayClient struct {
 	ctrl     *gomock.Controller
 	recorder *MockClusterGatewayClientMockRecorder
+	isgomock struct{}
 }
 
 // MockClusterGatewayClientMockRecorder is the mock recorder for MockClusterGatewayClient.
@@ -205,6 +206,7 @@ func (mr *MockClusterGatewayClientMockRecorder) SmrReady(ctx, in any, opts ...an
 type MockClusterGatewayServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockClusterGatewayServerMockRecorder
+	isgomock struct{}
 }
 
 // MockClusterGatewayServerMockRecorder is the mock recorder for MockClusterGatewayServer.
@@ -360,6 +362,7 @@ func (mr *MockClusterGatewayServerMockRecorder) mustEmbedUnimplementedClusterGat
 type MockUnsafeClusterGatewayServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockUnsafeClusterGatewayServerMockRecorder
+	isgomock struct{}
 }
 
 // MockUnsafeClusterGatewayServerMockRecorder is the mock recorder for MockUnsafeClusterGatewayServer.
@@ -395,6 +398,7 @@ func (mr *MockUnsafeClusterGatewayServerMockRecorder) mustEmbedUnimplementedClus
 type MockDistributedClusterClient struct {
 	ctrl     *gomock.Controller
 	recorder *MockDistributedClusterClientMockRecorder
+	isgomock struct{}
 }
 
 // MockDistributedClusterClientMockRecorder is the mock recorder for MockDistributedClusterClient.
@@ -434,6 +438,26 @@ func (mr *MockDistributedClusterClientMockRecorder) AddClusterNodes(ctx, in any,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddClusterNodes", reflect.TypeOf((*MockDistributedClusterClient)(nil).AddClusterNodes), varargs...)
 }
 
+// ClearClusterStatistics mocks base method.
+func (m *MockDistributedClusterClient) ClearClusterStatistics(ctx context.Context, in *proto.Void, opts ...grpc.CallOption) (*proto.ClusterStatisticsResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ClearClusterStatistics", varargs...)
+	ret0, _ := ret[0].(*proto.ClusterStatisticsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearClusterStatistics indicates an expected call of ClearClusterStatistics.
+func (mr *MockDistributedClusterClientMockRecorder) ClearClusterStatistics(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearClusterStatistics", reflect.TypeOf((*MockDistributedClusterClient)(nil).ClearClusterStatistics), varargs...)
+}
+
 // ClusterAge mocks base method.
 func (m *MockDistributedClusterClient) ClusterAge(ctx context.Context, in *proto.Void, opts ...grpc.CallOption) (*proto.ClusterAgeResponse, error) {
 	m.ctrl.T.Helper()
@@ -452,6 +476,26 @@ func (mr *MockDistributedClusterClientMockRecorder) ClusterAge(ctx, in any, opts
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, in}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterAge", reflect.TypeOf((*MockDistributedClusterClient)(nil).ClusterAge), varargs...)
+}
+
+// ClusterStatistics mocks base method.
+func (m *MockDistributedClusterClient) ClusterStatistics(ctx context.Context, in *proto.ClusterStatisticsRequest, opts ...grpc.CallOption) (*proto.ClusterStatisticsResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ClusterStatistics", varargs...)
+	ret0, _ := ret[0].(*proto.ClusterStatisticsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClusterStatistics indicates an expected call of ClusterStatistics.
+func (mr *MockDistributedClusterClientMockRecorder) ClusterStatistics(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterStatistics", reflect.TypeOf((*MockDistributedClusterClient)(nil).ClusterStatistics), varargs...)
 }
 
 // FailNextExecution mocks base method.
@@ -878,6 +922,7 @@ func (mr *MockDistributedClusterClientMockRecorder) SpoofNotifications(ctx, in a
 type MockDistributedClusterServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockDistributedClusterServerMockRecorder
+	isgomock struct{}
 }
 
 // MockDistributedClusterServerMockRecorder is the mock recorder for MockDistributedClusterServer.
@@ -912,6 +957,21 @@ func (mr *MockDistributedClusterServerMockRecorder) AddClusterNodes(arg0, arg1 a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddClusterNodes", reflect.TypeOf((*MockDistributedClusterServer)(nil).AddClusterNodes), arg0, arg1)
 }
 
+// ClearClusterStatistics mocks base method.
+func (m *MockDistributedClusterServer) ClearClusterStatistics(arg0 context.Context, arg1 *proto.Void) (*proto.ClusterStatisticsResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearClusterStatistics", arg0, arg1)
+	ret0, _ := ret[0].(*proto.ClusterStatisticsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearClusterStatistics indicates an expected call of ClearClusterStatistics.
+func (mr *MockDistributedClusterServerMockRecorder) ClearClusterStatistics(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearClusterStatistics", reflect.TypeOf((*MockDistributedClusterServer)(nil).ClearClusterStatistics), arg0, arg1)
+}
+
 // ClusterAge mocks base method.
 func (m *MockDistributedClusterServer) ClusterAge(arg0 context.Context, arg1 *proto.Void) (*proto.ClusterAgeResponse, error) {
 	m.ctrl.T.Helper()
@@ -925,6 +985,21 @@ func (m *MockDistributedClusterServer) ClusterAge(arg0 context.Context, arg1 *pr
 func (mr *MockDistributedClusterServerMockRecorder) ClusterAge(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterAge", reflect.TypeOf((*MockDistributedClusterServer)(nil).ClusterAge), arg0, arg1)
+}
+
+// ClusterStatistics mocks base method.
+func (m *MockDistributedClusterServer) ClusterStatistics(arg0 context.Context, arg1 *proto.ClusterStatisticsRequest) (*proto.ClusterStatisticsResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClusterStatistics", arg0, arg1)
+	ret0, _ := ret[0].(*proto.ClusterStatisticsResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClusterStatistics indicates an expected call of ClusterStatistics.
+func (mr *MockDistributedClusterServerMockRecorder) ClusterStatistics(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClusterStatistics", reflect.TypeOf((*MockDistributedClusterServer)(nil).ClusterStatistics), arg0, arg1)
 }
 
 // FailNextExecution mocks base method.
@@ -1258,6 +1333,7 @@ func (mr *MockDistributedClusterServerMockRecorder) mustEmbedUnimplementedDistri
 type MockUnsafeDistributedClusterServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockUnsafeDistributedClusterServerMockRecorder
+	isgomock struct{}
 }
 
 // MockUnsafeDistributedClusterServerMockRecorder is the mock recorder for MockUnsafeDistributedClusterServer.
@@ -1293,6 +1369,7 @@ func (mr *MockUnsafeDistributedClusterServerMockRecorder) mustEmbedUnimplemented
 type MockClusterDashboardClient struct {
 	ctrl     *gomock.Controller
 	recorder *MockClusterDashboardClientMockRecorder
+	isgomock struct{}
 }
 
 // MockClusterDashboardClientMockRecorder is the mock recorder for MockClusterDashboardClient.
@@ -1336,6 +1413,7 @@ func (mr *MockClusterDashboardClientMockRecorder) SendNotification(ctx, in any, 
 type MockClusterDashboardServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockClusterDashboardServerMockRecorder
+	isgomock struct{}
 }
 
 // MockClusterDashboardServerMockRecorder is the mock recorder for MockClusterDashboardServer.
@@ -1386,6 +1464,7 @@ func (mr *MockClusterDashboardServerMockRecorder) mustEmbedUnimplementedClusterD
 type MockUnsafeClusterDashboardServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockUnsafeClusterDashboardServerMockRecorder
+	isgomock struct{}
 }
 
 // MockUnsafeClusterDashboardServerMockRecorder is the mock recorder for MockUnsafeClusterDashboardServer.
@@ -1421,6 +1500,7 @@ func (mr *MockUnsafeClusterDashboardServerMockRecorder) mustEmbedUnimplementedCl
 type MockKernelErrorReporterClient struct {
 	ctrl     *gomock.Controller
 	recorder *MockKernelErrorReporterClientMockRecorder
+	isgomock struct{}
 }
 
 // MockKernelErrorReporterClientMockRecorder is the mock recorder for MockKernelErrorReporterClient.
@@ -1464,6 +1544,7 @@ func (mr *MockKernelErrorReporterClientMockRecorder) Notify(ctx, in any, opts ..
 type MockKernelErrorReporterServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockKernelErrorReporterServerMockRecorder
+	isgomock struct{}
 }
 
 // MockKernelErrorReporterServerMockRecorder is the mock recorder for MockKernelErrorReporterServer.
@@ -1514,6 +1595,7 @@ func (mr *MockKernelErrorReporterServerMockRecorder) mustEmbedUnimplementedKerne
 type MockUnsafeKernelErrorReporterServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockUnsafeKernelErrorReporterServerMockRecorder
+	isgomock struct{}
 }
 
 // MockUnsafeKernelErrorReporterServerMockRecorder is the mock recorder for MockUnsafeKernelErrorReporterServer.
@@ -1549,6 +1631,7 @@ func (mr *MockUnsafeKernelErrorReporterServerMockRecorder) mustEmbedUnimplemente
 type MockLocalGatewayClient struct {
 	ctrl     *gomock.Controller
 	recorder *MockLocalGatewayClientMockRecorder
+	isgomock struct{}
 }
 
 // MockLocalGatewayClientMockRecorder is the mock recorder for MockLocalGatewayClient.
@@ -1626,6 +1709,26 @@ func (mr *MockLocalGatewayClientMockRecorder) GetKernelStatus(ctx, in any, opts 
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, in}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKernelStatus", reflect.TypeOf((*MockLocalGatewayClient)(nil).GetKernelStatus), varargs...)
+}
+
+// GetLocalDaemonInfo mocks base method.
+func (m *MockLocalGatewayClient) GetLocalDaemonInfo(ctx context.Context, in *proto.Void, opts ...grpc.CallOption) (*proto.LocalDaemonInfo, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetLocalDaemonInfo", varargs...)
+	ret0, _ := ret[0].(*proto.LocalDaemonInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLocalDaemonInfo indicates an expected call of GetLocalDaemonInfo.
+func (mr *MockLocalGatewayClientMockRecorder) GetLocalDaemonInfo(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLocalDaemonInfo", reflect.TypeOf((*MockLocalGatewayClient)(nil).GetLocalDaemonInfo), varargs...)
 }
 
 // GetVirtualGpuAllocations mocks base method.
@@ -1952,6 +2055,7 @@ func (mr *MockLocalGatewayClientMockRecorder) YieldNextExecution(ctx, in any, op
 type MockLocalGatewayServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockLocalGatewayServerMockRecorder
+	isgomock struct{}
 }
 
 // MockLocalGatewayServerMockRecorder is the mock recorder for MockLocalGatewayServer.
@@ -2014,6 +2118,21 @@ func (m *MockLocalGatewayServer) GetKernelStatus(arg0 context.Context, arg1 *pro
 func (mr *MockLocalGatewayServerMockRecorder) GetKernelStatus(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetKernelStatus", reflect.TypeOf((*MockLocalGatewayServer)(nil).GetKernelStatus), arg0, arg1)
+}
+
+// GetLocalDaemonInfo mocks base method.
+func (m *MockLocalGatewayServer) GetLocalDaemonInfo(arg0 context.Context, arg1 *proto.Void) (*proto.LocalDaemonInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLocalDaemonInfo", arg0, arg1)
+	ret0, _ := ret[0].(*proto.LocalDaemonInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLocalDaemonInfo indicates an expected call of GetLocalDaemonInfo.
+func (mr *MockLocalGatewayServerMockRecorder) GetLocalDaemonInfo(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLocalDaemonInfo", reflect.TypeOf((*MockLocalGatewayServer)(nil).GetLocalDaemonInfo), arg0, arg1)
 }
 
 // GetVirtualGpuAllocations mocks base method.
@@ -2272,6 +2391,7 @@ func (mr *MockLocalGatewayServerMockRecorder) mustEmbedUnimplementedLocalGateway
 type MockUnsafeLocalGatewayServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockUnsafeLocalGatewayServerMockRecorder
+	isgomock struct{}
 }
 
 // MockUnsafeLocalGatewayServerMockRecorder is the mock recorder for MockUnsafeLocalGatewayServer.

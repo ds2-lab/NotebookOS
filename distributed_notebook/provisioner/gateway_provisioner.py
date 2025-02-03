@@ -178,7 +178,7 @@ class GatewayProvisioner(KernelProvisionerBase):
             resource_spec: dict[str, float | int] = {"cpu": 0, "gpu": 0, "memory": 0}
             self.log.error("Did not receive a resource spec for kernel %s." % self.kernel_id)
 
-        spec = gateway_pb2.ResourceSpec(
+        resourceSpec = gateway_pb2.ResourceSpec(
             cpu=resource_spec.get("cpu", 0),
             gpu=resource_spec.get("gpu", 0),
             memory=resource_spec.get("memory", 0),
@@ -186,18 +186,18 @@ class GatewayProvisioner(KernelProvisionerBase):
         )
 
         try:
-            spec = gateway_pb2.KernelSpec(
+            kernelSpec = gateway_pb2.KernelSpec(
                 id=self._kernel_id,
                 session=self.parent.session.session,
                 argv=cmd,
                 signatureScheme=self.parent.session.signature_scheme,
                 key=self.parent.session.key,
-                resourceSpec=spec,
+                resourceSpec=resourceSpec,
                 workloadId = kwargs.get("workload_id", ""))
 
-            self.log.debug(f"Launching kernel {self.kernel_id} with spec: {str(spec)}")
+            self.log.debug(f"Launching kernel {self.kernel_id} with spec: {str(kernelSpec)}")
 
-            connectionInfo = await self._get_stub().StartKernel(spec)
+            connectionInfo = await self._get_stub().StartKernel(kernelSpec)
             self.launched = True
 
             self.log.info(

@@ -211,7 +211,7 @@ type BaseScheduler struct {
 	// by multiple concurrent RPC requests).
 	addReplicaMutex sync.Mutex
 
-	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from Operation ID to AddReplicaOperation.
+	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from TransactionOperation ID to AddReplicaOperation.
 	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]]
 
 	// Mapping from new kernel-replica key (i.e., <kernel-id>-<replica-id>) to AddReplicaOperation.
@@ -235,11 +235,11 @@ type BaseScheduler struct {
 	//-//-//-//-//-//-//-//-//-//
 	//gpusPerHost                  float64       // The number of actual GPUs that are available for use on each node/host.
 	//virtualGpusPerHost           int32         // The number of virtual GPUs per host.
-	//scalingFactor                float64       // scalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	//scalingFactor                float64       // scalingFactor defines how many hosts the cluster will provision based on busy TransactionResources.
 	//maximumHostsToReleaseAtOnce  int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
 	//scalingIntervalSec           int32         // How often to call UpdateRatio in seconds.
 	//scalingInterval              time.Duration // How often to call UpdateRatio .
-	//scalingLimit                 float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
+	//scalingLimit                 float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy TransactionResources.
 	//predictiveAutoscalingEnabled bool          // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
 	//scalingBufferSize            int32         // How many extra hosts we provision so that we can quickly scale if needed.
 	//minimumCapacity              int32         // The minimum number of nodes we must have available at any time.
@@ -515,7 +515,7 @@ func (s *BaseScheduler) GetCandidateHosts(ctx context.Context, kernelSpec *proto
 // explicitly placed that metadata there, or following a migration when the ClusterGateway has a specific
 // replica that should be able to serve the execution request.
 //
-// NOTE: Resources are always COMMITTED to the target scheduling.KernelReplica when using ReserveResourcesForReplica.
+// NOTE: TransactionResources are always COMMITTED to the target scheduling.KernelReplica when using ReserveResourcesForReplica.
 //
 // PRECONDITION: The specified scheduling.KernelReplica should already be scheduled on the scheduling.Host
 // on which the resources are to be reserved.
@@ -1147,7 +1147,7 @@ func (s *BaseScheduler) issuePrepareToMigrateRequest(kernelReplica scheduling.Ke
 			s.log.Warn(utils.OrangeStyle.Render(err.Error()))
 			// resultChan <- err
 		} else {
-			s.log.Debug("State of gRPC ClientConn with host %s (ID=%s): %s (%v)", originalHost.GetNodeName(),
+			s.log.Debug("TransactionState of gRPC ClientConn with host %s (ID=%s): %s (%v)", originalHost.GetNodeName(),
 				originalHost.GetID(), gRpcClientConnection.GetState().String(), gRpcClientConnection.GetState())
 		}
 
@@ -1506,15 +1506,24 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	}
 }
 
-// includeHostsInScheduling iterates over the given slice of scheduling.Host instances and sets their ExcludedFromScheduling
-// field to false.
+// includeHostsInScheduling iterates over the given slice of scheduling.Host instances and sets their
+// ExcludedFromScheduling field to false.
+//
+// includeHostsInScheduling then pushes the host back into the idleHosts heap.
 func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host) {
 	for _, host := range hosts {
 		err := host.IncludeForScheduling()
 		if err != nil {
 			s.log.Error("Host %s (ID=%s) is already allowed to be considered for scheduling (%v)",
 				host.GetNodeName(), host.GetID(), err)
+			continue
 		}
+
+		heap.Push(s.idleHosts, &idleSortedHost{
+			Host: host,
+		})
+
+		s.log.Debug("Added host %s back to 'idle hosts' heap.", host.GetNodeName())
 	}
 }
 
@@ -1526,7 +1535,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	// For now, just ensure the heap is in a valid order.
 	heap.Init(s.idleHosts)
 
-	s.log.Debug("Attempting to release %d idle host(s). There are currently %d host(s) in the Cluster. Length of idle hosts: %d.",
+	s.log.Debug("Attempting to release %d idle host(s). Currently %d host(s) in the Cluster. Length of idle hosts: %d.",
 		n, s.cluster.Len(), s.idleHosts.Len())
 
 	toBeReleased := make([]scheduling.Host, 0, n)
@@ -1543,6 +1552,14 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 			// If we failed to exclude the host, then we won't reclaim it.
 			toBeReleased = append(toBeReleased, idleHost.Host)
 			s.log.Debug("Selected host \"%s\" (ID=%s) as candidate for release.", idleHost.GetNodeName(), idleHost.GetID())
+
+			// Remove the host so that we can get to the next host.
+			tmpHost := heap.Pop(s.idleHosts)
+
+			// Sanity check.
+			if tmpHost.(scheduling.Host).GetID() != idleHost.GetID() {
+				panic("Host popped off of idleHosts heap does not equal host peeked from idleHosts.")
+			}
 		} else {
 			s.log.Debug("Host \"%s\" (ID=%s) is ineligible for release: it's being considered in >= 1 scheduling operation(s).",
 				idleHost.Host.GetNodeName(), idleHost.Host.GetID())

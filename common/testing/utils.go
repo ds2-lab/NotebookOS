@@ -1,16 +1,14 @@
 package testing
 
 import (
-	"github.com/google/uuid"
 	"github.com/scusemua/distributed-notebook/common/mock_proto"
 	"github.com/scusemua/distributed-notebook/common/proto"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"go.uber.org/mock/gomock"
 )
 
-func ContainsOffendingResourceKind(lst []resource.Kind, target resource.Kind) bool {
+func ContainsOffendingResourceKind(lst []scheduling.ResourceKind, target scheduling.ResourceKind) bool {
 	for _, elem := range lst {
 		if elem == target {
 			return true
@@ -22,9 +20,7 @@ func ContainsOffendingResourceKind(lst []resource.Kind, target resource.Kind) bo
 
 // NewHostWithSpoofedGRPC creates a new scheduling.Host struct with a spoofed proto.LocalGatewayClient.
 func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string,
-	resourceSpoofer *ResourceSpoofer) (scheduling.Host, *mock_proto.MockLocalGatewayClient, error) {
-
-	gpuSchedulerId := uuid.NewString()
+	resourceSpoofer *ResourceSpoofer) (scheduling.UnitTestingHost, *mock_proto.MockLocalGatewayClient, error) {
 
 	localGatewayClient := mock_proto.NewMockLocalGatewayClient(ctrl)
 
@@ -36,20 +32,12 @@ func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster,
 	).Return(&proto.HostId{
 		Id:       hostId,
 		NodeName: nodeName,
-	}, nil)
-
-	localGatewayClient.EXPECT().GetActualGpuInfo(
-		gomock.Any(),
-		&proto.Void{},
-	).Return(&proto.GpuInfo{
-		SpecGPUs:              int32(resourceSpoofer.Manager.SpecResources().GPUs()),
-		IdleGPUs:              int32(resourceSpoofer.Manager.SpecResources().GPUs()),
-		CommittedGPUs:         0,
-		PendingGPUs:           0,
-		NumPendingAllocations: 0,
-		NumAllocations:        0,
-		GpuSchedulerID:        gpuSchedulerId,
-		LocalDaemonID:         hostId,
+		SpecResources: &proto.ResourceSpec{
+			Cpu:    int32(resourceSpoofer.Manager.SpecResources().Millicpus()),
+			Memory: float32(resourceSpoofer.Manager.SpecResources().MemoryMB()),
+			Gpu:    int32(resourceSpoofer.Manager.SpecResources().GPUs()),
+			Vram:   float32(resourceSpoofer.Manager.SpecResources().VRAM()),
+		},
 	}, nil)
 
 	localGatewayClient.EXPECT().ResourcesSnapshot(
@@ -57,10 +45,9 @@ func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster,
 		gomock.Any(),
 	).DoAndReturn(resourceSpoofer.ResourcesSnapshot).AnyTimes()
 
-	host, err := entity.NewHost(hostId, "0.0.0.0", scheduling.MillicpusPerHost,
-		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, 3, cluster, cluster, nil,
+	host, err := entity.NewHost(hostId, "0.0.0.0", 3, cluster, cluster, nil,
 		localGatewayClient, cluster.Scheduler().Policy(),
 		func(_ string, _ string, _ string, _ string) error { return nil })
 
-	return host, localGatewayClient, err
+	return entity.NewUnitTestingHost(host), localGatewayClient, err
 }

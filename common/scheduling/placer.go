@@ -8,7 +8,7 @@ import (
 // Placer defines the interface for a placer that is responsible for:
 // 1. Finding hosts that can satisfy the resourceSpec.
 //   - A host satisfies the resourceSpec as long as the over-subscription rate is below a threshold given the assumption that an interactive session:
-//     i. requires minimum Resources to restore the runtime state.
+//     i. requires minimum TransactionResources to restore the runtime state.
 //     ii. has multiple replicas as candidates to meet the resource requirement.
 //
 // 2. Placing a replica on a host.

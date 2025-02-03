@@ -1794,6 +1794,7 @@ const (
 	LocalGateway_UpdateReplicaAddr_FullMethodName        = "/gateway.LocalGateway/UpdateReplicaAddr"
 	LocalGateway_PrepareToMigrate_FullMethodName         = "/gateway.LocalGateway/PrepareToMigrate"
 	LocalGateway_ResourcesSnapshot_FullMethodName        = "/gateway.LocalGateway/ResourcesSnapshot"
+	LocalGateway_GetLocalDaemonInfo_FullMethodName       = "/gateway.LocalGateway/GetLocalDaemonInfo"
 	LocalGateway_GetActualGpuInfo_FullMethodName         = "/gateway.LocalGateway/GetActualGpuInfo"
 	LocalGateway_GetVirtualGpuInfo_FullMethodName        = "/gateway.LocalGateway/GetVirtualGpuInfo"
 	LocalGateway_SetTotalVirtualGPUs_FullMethodName      = "/gateway.LocalGateway/SetTotalVirtualGPUs"
@@ -1839,6 +1840,9 @@ type LocalGatewayClient interface {
 	// ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of
 	// the current resource quantities on the node.
 	ResourcesSnapshot(ctx context.Context, in *Void, opts ...grpc.CallOption) (*NodeResourcesSnapshotWithContainers, error)
+	// GetLocalDaemonInfo returns key information about the Local Daemon, including its current resource counts,
+	// its ID, etc.
+	GetLocalDaemonInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*LocalDaemonInfo, error)
 	// Return the current GPU resource metrics on the node.
 	// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 	GetActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GpuInfo, error)
@@ -1999,6 +2003,16 @@ func (c *localGatewayClient) ResourcesSnapshot(ctx context.Context, in *Void, op
 	return out, nil
 }
 
+func (c *localGatewayClient) GetLocalDaemonInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*LocalDaemonInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LocalDaemonInfo)
+	err := c.cc.Invoke(ctx, LocalGateway_GetLocalDaemonInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *localGatewayClient) GetActualGpuInfo(ctx context.Context, in *Void, opts ...grpc.CallOption) (*GpuInfo, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GpuInfo)
@@ -2096,6 +2110,9 @@ type LocalGatewayServer interface {
 	// ResourcesSnapshot returns a NodeResourcesSnapshot struct encoding a snapshot of
 	// the current resource quantities on the node.
 	ResourcesSnapshot(context.Context, *Void) (*NodeResourcesSnapshotWithContainers, error)
+	// GetLocalDaemonInfo returns key information about the Local Daemon, including its current resource counts,
+	// its ID, etc.
+	GetLocalDaemonInfo(context.Context, *Void) (*LocalDaemonInfo, error)
 	// Return the current GPU resource metrics on the node.
 	// @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
 	GetActualGpuInfo(context.Context, *Void) (*GpuInfo, error)
@@ -2164,6 +2181,9 @@ func (UnimplementedLocalGatewayServer) PrepareToMigrate(context.Context, *Replic
 }
 func (UnimplementedLocalGatewayServer) ResourcesSnapshot(context.Context, *Void) (*NodeResourcesSnapshotWithContainers, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ResourcesSnapshot not implemented")
+}
+func (UnimplementedLocalGatewayServer) GetLocalDaemonInfo(context.Context, *Void) (*LocalDaemonInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLocalDaemonInfo not implemented")
 }
 func (UnimplementedLocalGatewayServer) GetActualGpuInfo(context.Context, *Void) (*GpuInfo, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetActualGpuInfo not implemented")
@@ -2438,6 +2458,24 @@ func _LocalGateway_ResourcesSnapshot_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _LocalGateway_GetLocalDaemonInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Void)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LocalGatewayServer).GetLocalDaemonInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: LocalGateway_GetLocalDaemonInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LocalGatewayServer).GetLocalDaemonInfo(ctx, req.(*Void))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _LocalGateway_GetActualGpuInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Void)
 	if err := dec(in); err != nil {
@@ -2604,6 +2642,10 @@ var LocalGateway_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResourcesSnapshot",
 			Handler:    _LocalGateway_ResourcesSnapshot_Handler,
+		},
+		{
+			MethodName: "GetLocalDaemonInfo",
+			Handler:    _LocalGateway_GetLocalDaemonInfo_Handler,
 		},
 		{
 			MethodName: "GetActualGpuInfo",

@@ -23,6 +23,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"github.com/shopspring/decimal"
+	"google.golang.org/grpc"
 	"log"
 	"math/rand"
 	"net"
@@ -768,8 +769,10 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				host.EXPECT().PreCommitResources(currReplica.Container(), jupyterExecuteRequestId).AnyTimes().DoAndReturn(func(container scheduling.KernelContainer, executeId string) error {
 					mutexes[i].Lock()
 					defer mutexes[i].Unlock()
+					hostIdleGpus := idleGpus[hostIndex]
+					idle := hostIdleGpus.Load()
 
-					fmt.Printf("[DEBUG] Precommitting resources on host %s for replica %d. Resources: %v.\n",
+					fmt.Printf("[DEBUG] Precommitting resources on host %s for replica %d. TransactionResources: %v.\n",
 						host.GetNodeName(), container.ReplicaId(), container.ResourceSpec())
 
 					Expect(container.ReplicaId()).To(Equal(currReplica.ReplicaID()))
@@ -778,15 +781,24 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					hostCommittedGpus := committedGpus[hostIndex]
 					committed := hostCommittedGpus.Load()
 					if committed+int64(container.ResourceSpec().GPU()) > int64(hostSpec.GPU()) {
-						return fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
-							transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
+
+						reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
+							container.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+						return transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+							[]scheduling.ResourceStatus{scheduling.IdleResources})
+
+						//return fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
+						//	transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
 					}
 
-					hostIdleGpus := idleGpus[hostIndex]
-					idle := hostIdleGpus.Load()
 					if idle-int64(container.ResourceSpec().GPU()) < 0 {
-						return fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
-							transaction.ErrNegativeResourceCount, idle)
+						reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
+							container.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+						return transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+							[]scheduling.ResourceStatus{scheduling.IdleResources})
+
+						//return fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
+						//	transaction.ErrNegativeResourceCount, idle)
 					}
 
 					hostCommittedGpus.Add(int64(container.ResourceSpec().GPU()))
@@ -809,18 +821,26 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(replicaSpec.ReplicaId).To(Equal(currReplica.ReplicaID()))
 
 					if !usePending {
+						hostIdleGpus := idleGpus[hostIndex]
+						idle := hostIdleGpus.Load()
+
 						hostCommittedGpus := committedGpus[hostIndex]
 						committed := hostCommittedGpus.Load()
 						if committed+int64(replicaSpec.ResourceSpec().GPU()) > int64(hostSpec.GPU()) {
-							return false, fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
-								transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
+							reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
+								replicaSpec.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+							return false, transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+								[]scheduling.ResourceStatus{scheduling.CommittedResources})
+							//return false, fmt.Errorf("%w: committed GPUs (%d) would exceed spec GPUs (%d)",
+							//	transaction.ErrTransactionFailed, committed, int(hostSpec.GPU()))
 						}
-
-						hostIdleGpus := idleGpus[hostIndex]
-						idle := hostIdleGpus.Load()
 						if idle-int64(replicaSpec.ResourceSpec().GPU()) < 0 {
-							return false, fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
-								transaction.ErrNegativeResourceCount, idle)
+							reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(idle), 0),
+								replicaSpec.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+							return false, transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+								[]scheduling.ResourceStatus{scheduling.IdleResources})
+							//return false, fmt.Errorf("%w: %w (Idle GPUs = %d)", transaction.ErrTransactionFailed,
+							//	transaction.ErrNegativeResourceCount, idle)
 						}
 
 						hostCommittedGpus.Add(int64(replicaSpec.ResourceSpec().GPU()))
@@ -830,8 +850,12 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						hostPendingGpus := pendingGpus[hostIndex]
 						pending := hostPendingGpus.Load()
 						if pending-int64(replicaSpec.ResourceSpec().GPU()) < 0 {
-							return false, fmt.Errorf("%w: %w (Pending GPUs = %d)", transaction.ErrTransactionFailed,
-								transaction.ErrNegativeResourceCount, pending)
+							reason := scheduling.NewInsufficientResourcesError(types.NewDecimalSpec(0, 0, float64(pending), 0),
+								replicaSpec.ResourceSpec(), []scheduling.ResourceKind{scheduling.GPU})
+							return false, transaction.NewErrTransactionFailed(reason, []scheduling.ResourceKind{scheduling.GPU},
+								[]scheduling.ResourceStatus{scheduling.PendingResources})
+							//return false, fmt.Errorf("%w: %w (Pending GPUs = %d)", transaction.ErrTransactionFailed,
+							//	transaction.ErrNegativeResourceCount, pending)
 						}
 
 						hostPendingGpus.Add(int64(replicaSpec.ResourceSpec().GPU()))
@@ -1760,7 +1784,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			mockedSession                         *mock_scheduling.MockUserSession
 			resourceSpec                          *proto.ResourceSpec
 			activeExecution                       scheduling.Execution
-			host1, host2, host3, host4            scheduling.Host
+			host1, host2, host3, host4            scheduling.UnitTestingHost
 
 			host1Spoofer, host2Spoofer, host3Spoofer, host4Spoofer                             *distNbTesting.ResourceSpoofer
 			localGatewayClient1, localGatewayClient2, localGatewayClient3, localGatewayClient4 *mock_proto.MockLocalGatewayClient
@@ -1901,17 +1925,17 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			By("Correctly registering the first Host")
 
 			// Add first host.
-			err = clusterGateway.registerNewHost(host1)
+			err = clusterGateway.RegisterNewHost(host1)
 
 			By("Correctly registering the second Host")
 
 			// Add second host.
-			err = clusterGateway.registerNewHost(host2)
+			err = clusterGateway.RegisterNewHost(host2)
 
 			By("Correctly registering the third Host")
 
 			// Add third host.
-			err = clusterGateway.registerNewHost(host3)
+			err = clusterGateway.RegisterNewHost(host3)
 
 			var startKernelReplicaCalled sync.WaitGroup
 			startKernelReplicaCalled.Add(3)
@@ -2430,9 +2454,27 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			mockedSession.EXPECT().IsIdle().AnyTimes().Return(true)
 
-			mockedKernel.EXPECT().RemoveReplicaByID(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
-				return hosts[id-1], nil
-			})
+			mockedKernel.EXPECT().
+				RemoveReplicaByID(gomock.Any(), gomock.Any(), gomock.Any()).Times(1).
+				DoAndReturn(func(id int32, remover scheduling.ReplicaRemover, noop bool) (scheduling.Host, error) {
+					associatedHost := hosts[id-1]
+
+					fmt.Printf("\n\nGoing to remove container from replica %d from host %s. Current resource counts: %v\n\n",
+						id, associatedHost.GetNodeName(), associatedHost.GetResourceCountsAsString())
+
+					replica, err := mockedKernel.GetReplicaByID(id)
+					fmt.Printf("GetReplicaByID Error: %v\n", err)
+					GinkgoWriter.Printf("GetReplicaByID Error: %v\n", err)
+					Expect(err).To(BeNil())
+					Expect(replica).ToNot(BeNil())
+
+					err = associatedHost.ContainerRemoved(replica.Container())
+					fmt.Printf("ContainerRemoved Error: %v\n", err)
+					GinkgoWriter.Printf("ContainerRemoved Error: %v\n", err)
+					Expect(err).To(BeNil())
+
+					return associatedHost, err
+				})
 
 			host4Id := uuid.NewString()
 			node4Name := "TestNode4"
@@ -2588,14 +2630,16 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				DoAndReturn(func(persistentId string, smrNodeId int32) *proto.KernelReplicaSpec {
 					preparedReplicaIdChan <- smrNodeId
 
-					replicaBeingMigrated, _ := mockedKernel.GetReplicaByID(smrNodeId)
-					host := replicaBeingMigrated.(*mock_scheduling.MockKernelReplica).Host()
+					//replicaBeingMigrated, _ := mockedKernel.GetReplicaByID(smrNodeId)
+					//host := replicaBeingMigrated.(*mock_scheduling.MockKernelReplica).Host()
 
-					fmt.Printf("\n\nGoing to remove container from replica %d from host %s. Current resource counts: %v\n\n",
-						smrNodeId, host.GetNodeName(), host.GetResourceCountsAsString())
-
-					err := host.ContainerRemoved(replicaBeingMigrated.Container())
-					Expect(err).To(BeNil())
+					//fmt.Printf("\n\nGoing to remove container from replica %d from host %s. Current resource counts: %v\n\n",
+					//	smrNodeId, host.GetNodeName(), host.GetResourceCountsAsString())
+					//
+					//err := host.ContainerRemoved(replicaBeingMigrated.Container())
+					//fmt.Printf("ContainerRemoved Error: %v\n", err)
+					//GinkgoWriter.Printf("ContainerRemoved Error: %v\n", err)
+					//Expect(err).To(BeNil())
 
 					return &proto.KernelReplicaSpec{
 						Kernel:       mockedKernel.KernelSpec(),
@@ -2963,7 +3007,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host).ToNot(BeNil())
 					Expect(localGatewayClient).ToNot(BeNil())
 
-					err = clusterGateway.registerNewHost(host)
+					err = clusterGateway.RegisterNewHost(host)
 					Expect(err).To(BeNil())
 					clusterSize += 1
 
@@ -2993,7 +3037,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host).ToNot(BeNil())
 					Expect(localGatewayClient).ToNot(BeNil())
 
-					err = clusterGateway.registerNewHost(host)
+					err = clusterGateway.RegisterNewHost(host)
 					Expect(err).To(BeNil())
 					numDisabledHosts += 1
 
@@ -3023,7 +3067,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host).ToNot(BeNil())
 					Expect(localGatewayClient).ToNot(BeNil())
 
-					err = clusterGateway.registerNewHost(host)
+					err = clusterGateway.RegisterNewHost(host)
 					Expect(err).To(BeNil())
 					clusterSize += 1
 
@@ -3087,7 +3131,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				InitialConnectionTimeSeconds := 1
 				InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
 
-				Hosts := make([]scheduling.Host, 0)
+				Hosts := make([]scheduling.UnitTestingHost, 0)
 
 				// Relatively quick, but long enough that we can see individual scale-outs.
 				MeanScaleInPerHostSec := 1.0
@@ -3152,7 +3196,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host).ToNot(BeNil())
 					Expect(localGatewayClient).ToNot(BeNil())
 
-					err = clusterGateway.registerNewHost(host)
+					err = clusterGateway.RegisterNewHost(host)
 					Expect(err).To(BeNil())
 
 					Hosts = append(Hosts, host)
@@ -3296,7 +3340,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				dockerCluster.RangeOverHosts(func(key string, host scheduling.Host) bool {
 					// Add 7-<Current Committed>, since one of the hosts already had 1 committed GPU.
 					spec := types.NewDecimalSpec(0, 0, 7-host.CommittedGPUs(), 0)
-					err := host.AddToCommittedResources(spec)
+					err := host.(scheduling.UnitTestingHost).AddToCommittedResources(spec)
 					Expect(err).To(BeNil())
 
 					lastHost = host
@@ -3312,7 +3356,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
 				Expect(dockerCluster.HasActiveScalingOperation()).To(BeFalse())
 
-				err = lastHost.AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
+				err = lastHost.(scheduling.UnitTestingHost).
+					AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
 				Expect(err).To(BeNil())
 
 				// Cluster GPU load is 50, which is less than 50.9.
@@ -3323,7 +3368,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(clusterSize).To(Equal(InitialClusterSize + 3))
 				Expect(dockerCluster.HasActiveScalingOperation()).To(BeFalse())
 
-				err = lastHost.AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
+				err = lastHost.(scheduling.UnitTestingHost).
+					AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
 				Expect(err).To(BeNil())
 
 				// Cluster GPU load is 51, which is greater than 50.9.
@@ -3342,7 +3388,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				dockerCluster.RangeOverHosts(func(key string, host scheduling.Host) bool {
 					// Remove all committed GPUs from all hosts.
 					spec := types.NewDecimalSpec(0, 0, host.CommittedGPUs(), 0)
-					err := host.SubtractFromCommittedResources(spec)
+					err := host.(scheduling.UnitTestingHost).SubtractFromCommittedResources(spec)
 					Expect(err).To(BeNil())
 
 					lastHost = host
@@ -3351,7 +3397,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				})
 
 				// Except make sure there's 1 host with committed resources.
-				err = lastHost.AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
+				err = lastHost.(scheduling.UnitTestingHost).
+					AddToCommittedResources(types.NewDecimalSpec(0, 0, 1, 0))
 
 				// Now we should scale back in...
 				Expect(err).To(BeNil())
@@ -3402,6 +3449,158 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						clusterGateway.log.Error("Failed to cleanly shutdown listener because: %v", err)
 					}
 				}
+			})
+
+			It("Will correctly schedule a new kernel using non-spoofed scheduling.Host instances", func() {
+				clusterGateway.DistributedClientProvider = &client.DistributedKernelClientProvider{}
+
+				kernelId := uuid.NewString()
+				kernelKey := uuid.NewString()
+				resourceSpec := &proto.ResourceSpec{
+					Gpu:    2,
+					Vram:   2,
+					Cpu:    1250,
+					Memory: 2048,
+				}
+
+				cluster := clusterGateway.cluster
+				index, ok := cluster.GetIndex(scheduling.CategoryClusterIndex, "*")
+				Expect(ok).To(BeTrue())
+				Expect(index).ToNot(BeNil())
+
+				placer := cluster.Placer()
+				Expect(placer).ToNot(BeNil())
+
+				scheduler := cluster.Scheduler()
+				Expect(scheduler.Placer()).To(Equal(cluster.Placer()))
+
+				Expect(cluster.Len()).To(Equal(0))
+				Expect(index.Len()).To(Equal(0))
+				Expect(placer.NumHostsInIndex()).To(Equal(0))
+				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
+
+				numHosts := 3
+				hosts := make([]scheduling.Host, 0, numHosts)
+				localGatewayClients := make([]*mock_proto.MockLocalGatewayClient, 0, numHosts)
+
+				for i := 0; i < numHosts; i++ {
+					hostId := uuid.NewString()
+					hostName := fmt.Sprintf("TestNode-%d", i)
+					hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
+					host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, hostName, hostSpoofer)
+					Expect(err).To(BeNil())
+					Expect(host).ToNot(BeNil())
+					Expect(localGatewayClient).ToNot(BeNil())
+
+					hosts = append(hosts, host)
+					localGatewayClients = append(localGatewayClients, localGatewayClient)
+				}
+
+				By("Registering hosts")
+
+				for i, host := range hosts {
+					err := clusterGateway.RegisterNewHost(host)
+					Expect(err).To(BeNil())
+
+					Expect(cluster.Len()).To(Equal(i + 1))
+				}
+
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+					SignatureScheme: messaging.JupyterSignatureScheme,
+					Key:             kernelKey,
+					ResourceSpec:    resourceSpec,
+				}
+
+				connInfoChannel := make(chan *proto.KernelConnectionInfo)
+
+				var notifyKernelRegisteredWg sync.WaitGroup
+				notifyKernelRegisteredWg.Add(3)
+
+				callNotifyKernelRegistered := func(host scheduling.Host, replicaId int32) {
+					defer GinkgoRecover()
+
+					time.Sleep(time.Millisecond * 10)
+
+					resp, err := clusterGateway.NotifyKernelRegistered(context.Background(), &proto.KernelRegistrationNotification{
+						ConnectionInfo: &proto.KernelConnectionInfo{
+							Ip:              "127.0.0.1",
+							Transport:       "tcp",
+							ControlPort:     int32(35000),
+							ShellPort:       int32(35001),
+							StdinPort:       int32(35002),
+							HbPort:          int32(35003),
+							IopubPort:       int32(35004),
+							IosubPort:       int32(35005),
+							SignatureScheme: messaging.JupyterSignatureScheme,
+							Key:             kernelKey,
+						},
+						KernelId:           kernelId,
+						HostId:             host.GetID(),
+						SessionId:          "N/A",
+						ReplicaId:          replicaId,
+						KernelIp:           "127.0.0.1",
+						PodOrContainerName: fmt.Sprintf("Kernel1-Replica%d", replicaId),
+						NodeName:           host.GetNodeName(),
+						NotificationId:     uuid.NewString(),
+					})
+					Expect(err).To(BeNil())
+					Expect(resp).ToNot(BeNil())
+
+					notifyKernelRegisteredWg.Done()
+				}
+
+				for idx, localGatewayClient := range localGatewayClients {
+					localGatewayClient.EXPECT().
+						StartKernelReplica(gomock.Any(), gomock.Any(), gomock.Any()).
+						Times(1).
+						DoAndReturn(func(ctx context.Context, in *proto.KernelReplicaSpec, opts ...grpc.CallOption) (*proto.KernelConnectionInfo, error) {
+							defer GinkgoRecover()
+
+							fmt.Printf("LocalDaemon::StartKernelReplica called for LocalDaemon-%d\n", idx)
+
+							connInfo := &proto.KernelConnectionInfo{
+								Ip:              "127.0.0.1",
+								Transport:       "tcp",
+								ControlPort:     int32(36000),
+								ShellPort:       int32(36001),
+								StdinPort:       int32(36002),
+								HbPort:          int32(36003),
+								IopubPort:       int32(36004),
+								IosubPort:       int32(36005),
+								SignatureScheme: messaging.JupyterSignatureScheme,
+								Key:             kernelKey,
+							}
+
+							go callNotifyKernelRegistered(hosts[idx], int32(idx+1))
+
+							return connInfo, nil
+						})
+				}
+
+				By("Scheduling the kernel")
+
+				startTime := time.Now()
+				go func() {
+					defer GinkgoRecover()
+
+					connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpec)
+					Expect(err).To(BeNil())
+
+					connInfoChannel <- connInfo
+				}()
+
+				notifyKernelRegisteredWg.Wait()
+
+				fmt.Printf("All 3 replicas of kernel \"%s\" have registered after %v.\n",
+					kernelId, time.Since(startTime))
+
+				kernelConnInfo := <-connInfoChannel
+				Expect(kernelConnInfo).ToNot(BeNil())
+
+				Expect(clusterGateway.NumKernels()).To(Equal(1))
 			})
 
 			It("Will correctly schedule a new kernel", func() {
@@ -3456,7 +3655,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the first Host")
 
 				// Add first host.
-				err = clusterGateway.registerNewHost(host1)
+				err = clusterGateway.RegisterNewHost(host1)
 				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(1))
@@ -3467,7 +3666,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the second Host")
 
 				// Add second host.
-				err = clusterGateway.registerNewHost(host2)
+				err = clusterGateway.RegisterNewHost(host2)
 				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(2))
@@ -3478,7 +3677,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the third Host")
 
 				// Add third host.
-				err = clusterGateway.registerNewHost(host3)
+				err = clusterGateway.RegisterNewHost(host3)
 				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(3))
@@ -3826,7 +4025,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				size := 0
 				for i, host := range hosts {
 					By(fmt.Sprintf("Correctly registering Host %d (%d/%d)", i, size+1, len(hosts)))
-					err := clusterGateway.registerNewHost(host)
+					err := clusterGateway.RegisterNewHost(host)
 					Expect(err).To(BeNil())
 					size += 1
 

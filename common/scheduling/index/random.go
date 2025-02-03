@@ -88,6 +88,8 @@ func (index *RandomClusterIndex) Add(host scheduling.Host) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 
+	index.log.Debug("Adding host %s (ID=%s) to RandomClusterIndex.", host.GetNodeName(), host.GetID())
+
 	i := index.freeStart
 	if i < int32(len(index.hosts)) {
 		index.hosts[i] = host

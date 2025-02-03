@@ -13,7 +13,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/client"
 	"github.com/scusemua/distributed-notebook/common/scheduling/cluster"
 	"github.com/scusemua/distributed-notebook/common/scheduling/entity"
-	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
 	"github.com/shopspring/decimal"
 	"log"
@@ -509,9 +508,9 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 	if clusterGateway.hostSpec == nil {
 		clusterGateway.hostSpec = &types.DecimalSpec{
 			GPUs:      decimal.NewFromFloat(float64(gpusPerHost)),
-			VRam:      decimal.NewFromFloat(scheduling.VramPerHostGb),
-			Millicpus: decimal.NewFromFloat(scheduling.MillicpusPerHost),
-			MemoryMb:  decimal.NewFromFloat(scheduling.MemoryMbPerHost),
+			VRam:      decimal.NewFromFloat(scheduling.DefaultVramPerHostGb),
+			Millicpus: decimal.NewFromFloat(scheduling.DefaultMillicpusPerHost),
+			MemoryMb:  decimal.NewFromFloat(scheduling.DefaultMemoryMbPerHost),
 		}
 	}
 
@@ -1019,9 +1018,11 @@ func (d *ClusterGatewayImpl) acceptHostConnection() (*grpc.ClientConn, net.Conn,
 }
 
 // restoreHost is used to restore an existing Host when a Local Daemon loses connection with the Cluster Gateway
-// and then reconnects.
+// and then reconnects. This will return nil on success.
 //
-// This will return nil on success.
+// If the cluster gateway recently crashed and the container restarted, then the restoration will fail, and
+// restoreHost will simply treat the scheduling.Host as if it were a new host and pass it to RegisterNewHost,
+// the result of which will be returned from restoreHost.
 func (d *ClusterGatewayImpl) restoreHost(host scheduling.Host) error {
 	d.log.Warn("Newly-connected Local Daemon actually already exists.")
 
@@ -1052,28 +1053,19 @@ func (d *ClusterGatewayImpl) restoreHost(host scheduling.Host) error {
 		return nil
 	}
 
-	errorMessage := fmt.Sprintf("Supposedly existing Local Daemon (re)connected, but cannot find associated Host struct... "+
+	// This may occur if the Cluster Gateway crashes and restarts.
+	d.log.Warn("Supposedly existing Local Daemon (re)connected, but cannot find associated Host struct... "+
 		"Node claims to be Local Daemon %s (ID=%s).", host.GetID(), host.GetNodeName())
-	d.log.Error(errorMessage)
 
-	go d.notifyDashboardOfError(
-		fmt.Sprintf("Local Daemon %s Restoration has Failed", registered.GetNodeName()),
-		fmt.Sprintf(errorMessage,
-			registered.GetID(),
-			registered.GetNodeName()))
-
-	// TODO: We could conceivably just register the Host as a new Local Daemon, despite the fact
-	// 		 that the Host thinks it already exists. We may have to re-contact the Host through the
-	//	     SetID procedure, though. We'll at least have to re-create the Host struct, as it was only
-	//		 populated with some of the required fields.
-	return entity.ErrRestorationFailed
+	// Just register the Host as a new Local Daemon, despite the fact that the Host thinks it already exists.
+	return d.RegisterNewHost(host)
 }
 
-// registerNewHost is used to register a new Host (i.e., Local Daemon) with the Cluster after the Host connects
+// RegisterNewHost is used to register a new Host (i.e., Local Daemon) with the Cluster after the Host connects
 // to the Cluster Gateway.
 //
 // This will return nil on success.
-func (d *ClusterGatewayImpl) registerNewHost(host scheduling.Host) error {
+func (d *ClusterGatewayImpl) RegisterNewHost(host scheduling.Host) error {
 	if !host.IsProperlyInitialized() {
 		log.Fatalf(utils.RedStyle.Render("Newly-connected Host %s (ID=%s) was NOT properly initialized..."),
 			host.GetNodeName(), host.GetID())
@@ -1113,9 +1105,8 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 	}
 
 	// Create a host scheduler client and register it.
-	host, err := entity.NewHostWithConn(uuid.NewString(), incoming.RemoteAddr().String(), scheduling.MillicpusPerHost,
-		scheduling.MemoryMbPerHost, scheduling.VramPerHostGb, d.cluster.NumReplicas(), d.cluster, d.cluster,
-		d.metricsProvider, gConn, d.Scheduler().Policy(), d.localDaemonDisconnected)
+	host, err := entity.NewHostWithConn(uuid.NewString(), incoming.RemoteAddr().String(), d.cluster.NumReplicas(),
+		d.cluster, d.cluster, d.metricsProvider, gConn, d.Scheduler().Policy(), d.localDaemonDisconnected)
 
 	if err != nil {
 		if errors.Is(err, entity.ErrRestoreRequired) {
@@ -1131,7 +1122,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 		}
 	}
 
-	registrationError := d.registerNewHost(host)
+	registrationError := d.RegisterNewHost(host)
 	if registrationError != nil {
 		d.log.Error("Failed to register new host %s (ID=%s) because: %v", host.GetNodeName(), host.GetID(), registrationError)
 		return nil, registrationError
@@ -1660,6 +1651,7 @@ func (d *ClusterGatewayImpl) KubernetesMode() bool {
 // startNewKernel is called by StartKernel when creating a brand-new kernel, rather than restarting an existing kernel.
 func (d *ClusterGatewayImpl) initNewKernel(in *proto.KernelSpec) (scheduling.Kernel, error) {
 	d.log.Debug("Did not find existing DistributedKernelClient with KernelID=\"%s\". Creating new DistributedKernelClient now.", in.Id)
+
 	// Initialize kernel with new context.
 	kernel := d.DistributedClientProvider.NewDistributedKernelClient(context.Background(), in, d.NumReplicas(), d.id,
 		d.connectionOptions, uuid.NewString(), d.DebugMode, d.executionFailed, d.executionLatencyCallback,
@@ -1755,7 +1747,7 @@ func (d *ClusterGatewayImpl) scheduleReplicas(ctx context.Context, kernel schedu
 		}
 
 		// Only notify if there's an "actual" error.
-		if !errors.Is(err, scheduling.ErrInsufficientHostsAvailable) && !errors.As(err, &resource.InsufficientResourcesError{}) {
+		if !errors.Is(err, scheduling.ErrInsufficientHostsAvailable) && !errors.As(err, &scheduling.InsufficientResourcesError{}) {
 			go d.notifyDashboardOfError(fmt.Sprintf("Failed to Create Kernel \"%s\"", in.Id), err.Error())
 		}
 
@@ -1897,6 +1889,17 @@ func (d *ClusterGatewayImpl) StartKernel(ctx context.Context, in *proto.KernelSp
 	startTime := time.Now()
 	d.log.Info("ClusterGatewayImpl::StartKernel[KernelId=%s, Session=%s, ResourceSpec=%v]. NumKernelsStarting: %d. Spec: %v.",
 		in.Id, in.Session, in.ResourceSpec, d.kernelsStarting.Len(), in)
+
+	if in.ResourceSpec == nil {
+		d.log.Warn("Kernel %s does not have a ResourceSpec...")
+
+		in.ResourceSpec = &proto.ResourceSpec{
+			Cpu:    0,
+			Memory: 0,
+			Gpu:    0,
+			Vram:   0,
+		}
+	}
 
 	d.clusterStatisticsMutex.Lock()
 	now := time.Now()
@@ -2128,7 +2131,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 	// Add the Container to the Host.
 	d.log.Debug("Adding scheduling.Container for replica %d of kernel %s onto Host %s",
 		replicaSpec.ReplicaId, addReplicaOp.KernelId(), host.GetID())
-	if err = host.ContainerScheduled(container); err != nil {
+	if err = host.ContainerStartedRunningOnHost(container); err != nil {
 		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
 		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
 		panic(err)
@@ -2174,7 +2177,7 @@ func (d *ClusterGatewayImpl) handleAddedReplicaRegistration(in *proto.KernelRegi
 		SmrPort:                         int32(d.smrPort),
 	}
 
-	d.mu.Unlock()
+	// d.mu.Unlock()
 
 	d.log.Debug("Sending notification that replica %d of kernel \"%s\" has registered during AddOperation \"%s\".",
 		replicaSpec.ReplicaId, in.KernelId, addReplicaOp.OperationID())
@@ -2265,7 +2268,8 @@ func (d *ClusterGatewayImpl) printKernelRegistrationNotification(in *proto.Kerne
 }
 
 func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *proto.KernelRegistrationNotification) (*proto.KernelRegistrationNotificationResponse, error) {
-	d.log.Info("Received kernel registration notification.")
+	d.log.Info("Received kernel registration notification for replica %d of kernel %s from host %s (ID=%s).",
+		in.ReplicaId, in.KernelId, in.NodeName, in.HostId)
 
 	connectionInfo := in.ConnectionInfo
 	sessionId := in.SessionId
@@ -2310,13 +2314,14 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		return nil, status.Error(codes.InvalidArgument, types.ErrDuplicateRegistrationNotification.Error())
 	}
 
-	d.mu.Lock()
+	// d.mu.Lock()
 
 	kernel, loaded := d.kernels.Load(kernelId)
 	if !loaded {
 		d.log.Error("Could not find kernel with ID \"%s\"; however, just received 'kernel registered' notification for that kernel...", kernelId)
 		go d.notifyDashboardOfError(fmt.Sprintf("Failed to Find Kernel \"%s\" Despite Receiving 'Kernel Registered' Notification for that Kernel", kernelId), "See notification title.")
 
+		// d.mu.Unlock()
 		return nil, fmt.Errorf("%w: kernel \"%s\"", types.ErrKernelNotFound, kernelId)
 	}
 
@@ -2411,10 +2416,10 @@ func (d *ClusterGatewayImpl) NotifyKernelRegistered(ctx context.Context, in *pro
 		panic(err)
 	}
 
-	d.mu.Unlock() // Need to unlock before calling ContainerScheduled, or deadlock can occur.
+	// d.mu.Unlock() // Need to unlock before calling ContainerStartedRunningOnHost, or deadlock can occur.
 
 	// Add the Container to the Host.
-	if err := host.ContainerScheduled(container); err != nil {
+	if err := host.ContainerStartedRunningOnHost(container); err != nil {
 		d.log.Error("Error while placing container %v onto host %v: %v", container, host, err)
 		d.notifyDashboardOfError("Failed to Place Container onto Host", err.Error())
 		panic(err)

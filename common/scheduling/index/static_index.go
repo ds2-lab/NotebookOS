@@ -302,13 +302,18 @@ func (index *StaticIndex) Len() int {
 
 // Add adds a scheduling.Host to the index.
 func (index *StaticIndex) Add(host scheduling.Host) {
-	index.MultiIndex.mu.Lock()
-	defer index.MultiIndex.mu.Unlock()
+	index.log.Debug("Adding host %s (ID=%s) to StaticIndex.", host.GetNodeName(), host.GetID())
+	//index.MultiIndex.mu.Lock()
+	//defer index.MultiIndex.mu.Unlock()
+	//
+	//host.SetMeta(scheduling.HostIndexCategoryMetadata, scheduling.CategoryClusterIndex)
+	//
+	//index.MultiIndex.FreeHosts.Enqueue(host)
+	//index.MultiIndex.FreeHostsMap[host.GetID()] = host
+	//
+	//index.MultiIndex.Size += 1
 
-	index.MultiIndex.FreeHosts.Enqueue(host)
-	index.MultiIndex.FreeHostsMap[host.GetID()] = host
-
-	index.MultiIndex.Size += 1
+	index.MultiIndex.Add(host)
 }
 
 // Update updates a scheduling.Host in the index.

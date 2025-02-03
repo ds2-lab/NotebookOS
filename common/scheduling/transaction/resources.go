@@ -1,6 +1,7 @@
 package transaction
 
 import (
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/shopspring/decimal"
@@ -21,6 +22,11 @@ func NewResources(initial *types.DecimalSpec, isMutable bool) *Resources {
 		working:   initial.CloneDecimalSpec(),
 		isMutable: isMutable,
 	}
+}
+
+func (t *Resources) Clone() scheduling.TransactionResources {
+	clone := *t
+	return &clone
 }
 
 // Sanitize attempts to round all of its working resource values to either the min or the max, if any corresponding
@@ -57,24 +63,48 @@ func (t *Resources) IsMutable() bool {
 // working *types.DecimalSpec.
 //
 // If there is at least one negative resource Kind, then that Kind is also returned.
-func (t *Resources) hasNegativeWorkingField() (bool, Kind) {
+func (t *Resources) hasNegativeWorkingField() (bool, []scheduling.ResourceKind) {
+	var (
+		hasNegativeField bool
+		offendingKinds   []scheduling.ResourceKind
+	)
+
 	if t.working.Millicpus.LessThan(decimal.Zero) {
-		return true, CPU
+		hasNegativeField = true
+		offendingKinds = []scheduling.ResourceKind{scheduling.CPU}
 	}
 
 	if t.working.MemoryMb.LessThan(decimal.Zero) {
-		return true, Memory
+		hasNegativeField = true
+
+		if offendingKinds == nil {
+			offendingKinds = make([]scheduling.ResourceKind, 0)
+		}
+
+		offendingKinds = append(offendingKinds, scheduling.Memory)
 	}
 
 	if t.working.GPUs.LessThan(decimal.Zero) {
-		return true, GPU
+		hasNegativeField = true
+
+		if offendingKinds == nil {
+			offendingKinds = make([]scheduling.ResourceKind, 0)
+		}
+
+		offendingKinds = append(offendingKinds, scheduling.GPU)
 	}
 
 	if t.working.VRam.LessThan(decimal.Zero) {
-		return true, VRAM
+		hasNegativeField = true
+
+		if offendingKinds == nil {
+			offendingKinds = make([]scheduling.ResourceKind, 0)
+		}
+
+		offendingKinds = append(offendingKinds, scheduling.VRAM)
 	}
 
-	return false, NoResource
+	return hasNegativeField, offendingKinds
 }
 
 // Working returns the current/working resource quantities.
@@ -147,7 +177,7 @@ func (t *Resources) Equals(other interface{}) bool {
 }
 
 // GreaterThan returns a flag indicating whether the current transactional state is greater than the given types.Spec.
-func (t *Resources) GreaterThan(spec types.Spec) (bool, Kind) {
+func (t *Resources) GreaterThan(spec types.Spec) (bool, scheduling.ResourceKind) {
 	if t.working == nil {
 		t.working = t.initial.CloneDecimalSpec()
 	}
@@ -155,26 +185,26 @@ func (t *Resources) GreaterThan(spec types.Spec) (bool, Kind) {
 	decimalSpec := types.ToDecimalSpec(spec)
 
 	if !t.working.Millicpus.GreaterThan(decimalSpec.Millicpus) {
-		return false, CPU
+		return false, scheduling.CPU
 	}
 
 	if !t.working.MemoryMb.GreaterThan(decimalSpec.MemoryMb) {
-		return false, Memory
+		return false, scheduling.Memory
 	}
 
 	if !t.working.GPUs.GreaterThan(decimalSpec.GPUs) {
-		return false, GPU
+		return false, scheduling.GPU
 	}
 
 	if !t.working.VRam.GreaterThan(decimalSpec.VRam) {
-		return false, VRAM
+		return false, scheduling.VRAM
 	}
 
-	return true, NoResource
+	return true, scheduling.NoResource
 }
 
 // LessThanOrEqual returns a flag indicating whether the current transactional state is <= than the given types.Spec.
-func (t *Resources) LessThanOrEqual(spec types.Spec) (bool, Kind) {
+func (t *Resources) LessThanOrEqual(spec types.Spec) (bool, scheduling.ResourceKind) {
 	if t.working == nil {
 		t.working = t.initial.CloneDecimalSpec()
 	}
@@ -182,20 +212,20 @@ func (t *Resources) LessThanOrEqual(spec types.Spec) (bool, Kind) {
 	decimalSpec := types.ToDecimalSpec(spec)
 
 	if !t.working.Millicpus.LessThanOrEqual(decimalSpec.Millicpus) {
-		return false, CPU
+		return false, scheduling.CPU
 	}
 
 	if !t.working.MemoryMb.LessThanOrEqual(decimalSpec.MemoryMb) {
-		return false, Memory
+		return false, scheduling.Memory
 	}
 
 	if !t.working.GPUs.LessThanOrEqual(decimalSpec.GPUs) {
-		return false, GPU
+		return false, scheduling.GPU
 	}
 
 	if !t.working.VRam.LessThanOrEqual(decimalSpec.VRam) {
-		return false, VRAM
+		return false, scheduling.VRAM
 	}
 
-	return true, NoResource
+	return true, scheduling.NoResource
 }
