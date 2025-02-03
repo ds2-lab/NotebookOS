@@ -22,8 +22,8 @@ type smrContext interface {
 
 type SMRContext struct {
 	context.Context
-	id     string
 	cancel context.CancelFunc
+	id     string
 }
 
 func (ctx *SMRContext) ID() string {

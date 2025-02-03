@@ -13,16 +13,15 @@ import (
 
 type LocalDaemonOptions struct {
 	config.LoggerOptions
-	jupyter.ConnectionInfo
+	ProvisionerAddr string `name:"provisioner" description:"Provisioner address."`
+	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address."`
+	ConsulAddr      string `name:"consul" description:"Consul agent address."`
+	NodeName        string `name:"node_name" description:"Node name used only for debugging in local mode."`
 	SchedulerDaemonOptions
 	VirtualGpuPluginServerOptions
-
-	Port               int    `name:"port" usage:"Port that the gRPC service listens on."`
-	KernelRegistryPort int    `name:"kernel-registry-port" usage:"Port on which the Kernel Registry Server listens."`
-	ProvisionerAddr    string `name:"provisioner" description:"Provisioner address."`
-	JaegerAddr         string `name:"jaeger" description:"Jaeger agent address."`
-	ConsulAddr         string `name:"consul" description:"Consul agent address."`
-	NodeName           string `name:"node_name" description:"Node name used only for debugging in local mode."`
+	jupyter.ConnectionInfo
+	Port               int `name:"port" usage:"Port that the gRPC service listens on."`
+	KernelRegistryPort int `name:"kernel-registry-port" usage:"Port on which the Kernel Registry Server listens."`
 }
 
 // PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
@@ -52,12 +51,10 @@ func (o *LocalDaemonOptions) String() string {
 type SchedulerDaemonConfig func(SchedulerDaemon)
 
 type SchedulerDaemonOptions struct {
+	DockerStorageBase           string `name:"docker-storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
 	scheduling.SchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
-
-	// If the scheduler serves jupyter notebook directly, set this to true.
-	DirectServer      bool   `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
-	DockerStorageBase string `name:"docker-storage-base" description:"Base directory in which the persistent store data is stored when running in docker mode."`
-	RunKernelsInGdb   bool   `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
+	DirectServer                bool `name:"direct" description:"True if the scheduler serves jupyter notebook directly."`
+	RunKernelsInGdb             bool `name:"run_kernels_in_gdb" description:"If true, then the kernels will be run in GDB."`
 }
 
 // IsKubernetesMode returns true if the deployment mode is specified as "kubernetes".

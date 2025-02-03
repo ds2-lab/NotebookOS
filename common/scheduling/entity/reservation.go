@@ -7,12 +7,12 @@ import (
 )
 
 type Reservation struct {
+	CreationTimestamp            time.Time
+	ResourcesReserved            types.Spec
 	ReservationId                string
 	HostId                       string
 	KernelId                     string
-	CreationTimestamp            time.Time
 	CreatedUsingPendingResources bool
-	ResourcesReserved            types.Spec
 }
 
 func NewReservation(hostId string, kernelId string, creationTimestamp time.Time, createdUsingPendingResources bool, resourcesReserved types.Spec) *Reservation {

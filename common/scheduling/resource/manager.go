@@ -43,15 +43,12 @@ type Transaction func(state *transaction.State)
 // Manager is a wrapper around several HostResources structs, each of which corresponds to idle, pending,
 // committed, or spec HostResources.
 type Manager struct {
-	mu sync.Mutex
-
-	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this Manager.
+	idleResources         *HostResources
+	pendingResources      *HostResources
+	committedResources    *HostResources
+	specResources         *HostResources
+	mu                    sync.Mutex
 	lastAppliedSnapshotId int32
-
-	idleResources      *HostResources
-	pendingResources   *HostResources
-	committedResources *HostResources
-	specResources      *HostResources
 }
 
 // NewManager creates a new Manager struct from the given types.Spec and returns

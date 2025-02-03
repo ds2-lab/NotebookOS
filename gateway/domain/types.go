@@ -29,21 +29,20 @@ const (
 )
 
 type ClusterDaemonOptions struct {
-	scheduling.SchedulerOptions `yaml:",inline" json:"cluster_scheduler_options"`
-
-	SubmitExecuteRequestsOneAtATime   bool   `name:"submit_execute_requests_one_at_a_time" json:"submit_execute_requests_one_at_a_time" yaml:"submit_execute_requests_one_at_a_time" description:"If true, the Cluster Gateway will submit 'execute_request' messages one-at-a-time to kernels."`
-	LocalDaemonServiceName            string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
-	LocalDaemonServicePort            int    `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
-	GlobalDaemonServiceName           string `name:"global-daemon-service-name"       json:"global-daemon-service-name"        yaml:"global-daemon-service-name"          description:"Name of the Kubernetes service that manages the global networking of local daemons."`
-	GlobalDaemonServicePort           int    `name:"global-daemon-service-port"       json:"global-daemon-service-port"        yaml:"global-daemon-service-port"          description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
+	NotebookImageTag                  string `name:"notebook-image-tag"               json:"notebook-image-tag"                yaml:"notebook-image-tag"                  description:"Name of the docker image to use for the jupyter notebook/kernel image"`
 	KubeNamespace                     string `name:"kubernetes-namespace"             json:"kubernetes-namespace"              yaml:"kubernetes-namespace"                description:"Kubernetes namespace that all of these components reside in."`
-	UseStatefulSet                    bool   `name:"use-stateful-set"                 json:"use-stateful-set"                  yaml:"use-stateful-set"                    description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
-	NotebookImageName                 string `name:"notebook-image-name"              json:"notebook-image-name"               yaml:"notebook-image-name"                 description:"Name of the docker image to use for the jupyter notebook/kernel image"` // Name of the docker image to use for the jupyter notebook/kernel image
-	NotebookImageTag                  string `name:"notebook-image-tag"               json:"notebook-image-tag"                yaml:"notebook-image-tag"                  description:"Name of the docker image to use for the jupyter notebook/kernel image"` // Tag to use for the jupyter notebook/kernel image
-	DistributedClusterServicePort     int    `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
-	RemoteDockerEventAggregatorPort   int    `name:"remote-docker-event-aggregator-port" json:"remote-docker-event-aggregator-port" yaml:"remote-docker-event-aggregator-port" description:"The port to be used by the Docker Remote Event Aggregator when running in Docker Swarm mode."`
-	InitialClusterSize                int    `name:"initial-cluster-size" json:"initial-cluster-size" yaml:"initial-cluster-size" description:"The initial size of the cluster. If more than this many Local Daemons connect during the 'initial connection period', then the extra nodes will be disabled until a scale-out event occurs."`
-	InitialClusterConnectionPeriodSec int    `name:"initial-connection-period" json:"initial-connection-period" yaml:"initial-connection-period" description:"The initial connection period is the time immediately after the Cluster Gateway begins running during which it expects all Local Daemons to connect. If greater than N local daemons connect during this period, where N is the initial cluster size, then those extra daemons will be disabled."`
+	LocalDaemonServiceName            string `name:"local-daemon-service-name"        json:"local-daemon-service-name"         yaml:"local-daemon-service-name"           description:"Name of the Kubernetes service that manages the local-only networking of local daemons."`
+	NotebookImageName                 string `name:"notebook-image-name"              json:"notebook-image-name"               yaml:"notebook-image-name"                 description:"Name of the docker image to use for the jupyter notebook/kernel image"`
+	GlobalDaemonServiceName           string `name:"global-daemon-service-name"       json:"global-daemon-service-name"        yaml:"global-daemon-service-name"          description:"Name of the Kubernetes service that manages the global networking of local daemons."`
+	scheduling.SchedulerOptions       `yaml:",inline" json:"cluster_scheduler_options"`
+	GlobalDaemonServicePort           int  `name:"global-daemon-service-port"       json:"global-daemon-service-port"        yaml:"global-daemon-service-port"          description:"Port exposed by the Kubernetes service that manages the global networking of local daemons."`
+	DistributedClusterServicePort     int  `name:"distributed-cluster-service-port" json:"distributed-cluster-service-port"  yaml:"distributed-cluster-service-port"    description:"Port to use for the 'distributed cluster' service, which is used by the Dashboard."`
+	LocalDaemonServicePort            int  `name:"local-daemon-service-port"        json:"local-daemon-service-port"         yaml:"local-daemon-service-port"           description:"Port exposed by the Kubernetes service that manages the local-only  networking of local daemons."`
+	RemoteDockerEventAggregatorPort   int  `name:"remote-docker-event-aggregator-port" json:"remote-docker-event-aggregator-port" yaml:"remote-docker-event-aggregator-port" description:"The port to be used by the Docker Remote Event Aggregator when running in Docker Swarm mode."`
+	InitialClusterSize                int  `name:"initial-cluster-size" json:"initial-cluster-size" yaml:"initial-cluster-size" description:"The initial size of the cluster. If more than this many Local Daemons connect during the 'initial connection period', then the extra nodes will be disabled until a scale-out event occurs."`
+	InitialClusterConnectionPeriodSec int  `name:"initial-connection-period" json:"initial-connection-period" yaml:"initial-connection-period" description:"The initial connection period is the time immediately after the Cluster Gateway begins running during which it expects all Local Daemons to connect. If greater than N local daemons connect during this period, where N is the initial cluster size, then those extra daemons will be disabled."`
+	SubmitExecuteRequestsOneAtATime   bool `name:"submit_execute_requests_one_at_a_time" json:"submit_execute_requests_one_at_a_time" yaml:"submit_execute_requests_one_at_a_time" description:"If true, the Cluster Gateway will submit 'execute_request' messages one-at-a-time to kernels."`
+	UseStatefulSet                    bool `name:"use-stateful-set"                 json:"use-stateful-set"                  yaml:"use-stateful-set"                    description:"If true, use StatefulSet for the distributed kernel Pods; if false, use CloneSet."`
 }
 
 // PrettyString is the same as String, except that PrettyString calls json.MarshalIndent instead of json.Marshal.
@@ -122,13 +121,12 @@ func (o *ClusterDaemonOptions) String() string {
 
 type ClusterGatewayOptions struct {
 	config.LoggerOptions   `yaml:",inline" json:"logger_options"`
-	jupyter.ConnectionInfo `yaml:",inline" json:"connection_info"`
+	JaegerAddr             string `name:"jaeger" description:"Jaeger agent address." json:"jaeger_addr"`
+	ConsulAddr             string `name:"consul" description:"Consul agent address." json:"consul_addr"`
 	ClusterDaemonOptions   `yaml:",inline" json:"cluster_daemon_options"`
-
-	Port            int    `name:"port" usage:"Port the gRPC service listen on." json:"port"`
-	ProvisionerPort int    `name:"provisioner-port" usage:"Port for provisioning host schedulers." json:"provisioner_port"`
-	JaegerAddr      string `name:"jaeger" description:"Jaeger agent address." json:"jaeger_addr"`
-	ConsulAddr      string `name:"consul" description:"Consul agent address." json:"consul_addr"`
+	jupyter.ConnectionInfo `yaml:",inline" json:"connection_info"`
+	Port                   int `name:"port" usage:"Port the gRPC service listen on." json:"port"`
+	ProvisionerPort        int `name:"provisioner-port" usage:"Port for provisioning host schedulers." json:"provisioner_port"`
 }
 
 func (opts *ClusterGatewayOptions) String() string {
