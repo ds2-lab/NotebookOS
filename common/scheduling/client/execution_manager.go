@@ -438,17 +438,17 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	}
 
 	if activeExecution.ExecutionIndex == m.submittedExecutionIndex {
-		m.log.Debug("Received \"execute_reply\" with index %d matching last-submitted execution's index.",
-			activeExecution.ExecutionIndex)
+		m.log.Debug("Received \"execute_reply\" for execution \"%s\" with index=%d matching last-submitted execution's index. 'Completed' execution index %d → %d.",
+			executeRequestId, activeExecution.ExecutionIndex, m.completedExecutionIndex, activeExecution.ExecutionIndex)
 
 		m.completedExecutionIndex = activeExecution.ExecutionIndex
 	} else {
-		m.log.Warn("Received \"execute_reply\" for execution %d; however, latest submitted execution has index %d.",
-			activeExecution.ExecutionIndex, m.submittedExecutionIndex)
+		m.log.Warn("Received \"execute_reply\" for execution \"%s\" with index=%d; however, latest submitted execution has index=%d.",
+			executeRequestId, activeExecution.ExecutionIndex, m.submittedExecutionIndex)
 
 		if activeExecution.ExecutionIndex > m.completedExecutionIndex {
-			m.log.Warn("\"execute_reply\" index (%d) is still greater than last completed index (%d).",
-				activeExecution.ExecutionIndex, m.completedExecutionIndex)
+			m.log.Warn("\"execute_reply\" for execution \"%s\" with index=%d is still greater than last completed index (%d). 'Completed' execution index %d → %d.",
+				executeRequestId, activeExecution.ExecutionIndex, m.completedExecutionIndex, m.completedExecutionIndex, activeExecution.ExecutionIndex)
 
 			m.completedExecutionIndex = activeExecution.ExecutionIndex
 		}
