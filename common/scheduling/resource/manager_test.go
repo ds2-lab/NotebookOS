@@ -141,8 +141,14 @@ var _ = Describe("Manager Tests", func() {
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
-			succeeded := coordinatedTransaction.Wait()
-			Expect(succeeded).To(BeTrue())
+			for i := 0; i < 2; i++ {
+				go func() {
+					_ = coordinatedTransaction.Run()
+				}()
+			}
+
+			err = coordinatedTransaction.Run()
+			Expect(err).To(BeNil())
 			Expect(coordinatedTransaction.Succeeded()).To(BeTrue())
 			Expect(coordinatedTransaction.Started()).To(BeTrue())
 			Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
@@ -208,8 +214,15 @@ var _ = Describe("Manager Tests", func() {
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
-			succeeded := coordinatedTransaction.Wait()
-			Expect(succeeded).To(BeFalse())
+			for i := 0; i < 2; i++ {
+				go func() {
+					_ = coordinatedTransaction.Run()
+				}()
+			}
+
+			err = coordinatedTransaction.Run()
+			Expect(err).ToNot(BeNil())
+
 			Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
 			Expect(coordinatedTransaction.Started()).To(BeTrue())
 			Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
