@@ -96,181 +96,80 @@ type GRPCServerWrapper struct {
 // TODO: Synchronize resource status using replica network (e.g., control socket).
 // Synchronization message should load-balance between replicas mapped the same host.
 type LocalScheduler struct {
-	// SchedulerOptions
-	id       string
-	nodeName string
-
-	// finishedGatewayHandshake is set in setID when the Local Daemon completes to registration
-	// procedure with the cluster gateway for the first time.
-	finishedGatewayHandshake bool
-
-	tracer       opentracing.Tracer
-	consulClient *consul.Client
-
-	// The gRPC server used by the Local Daemon and Cluster Gateway.
-	grpcServer *GRPCServerWrapper
-	listener   net.Listener
-
-	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
-	executeRequestForwarder *client.ExecuteRequestForwarder[*messaging.JupyterMessage]
-
-	// connectingToGateway indicates whether the scheduler is actively trying to connect to the Cluster Gateway.
-	// If its value is > 0, then it is. If its value is 0, then it is not.
-	connectingToGateway atomic.Int32
-
-	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
-	// as the request history.
-	DebugMode bool
-
-	virtualGpuPluginServer device.VirtualGpuPluginServer
-
-	schedulingPolicy scheduling.Policy
-
-	kernelsStopping hashmap.HashMap[string, chan struct{}]
-
 	proto.UnimplementedLocalGatewayServer
 	proto.UnimplementedKernelErrorReporterServer
-	router *router.Router
-
-	// SchedulerOptions
-	connectionOptions      *jupyter.ConnectionInfo
-	schedulerDaemonOptions domain.SchedulerDaemonOptions
-
-	// internalCluster client
-	provisioner                     proto.ClusterGatewayClient
-	provisionerClientConnectionGRPC *grpc.ClientConn
-
-	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
-	prometheusManager *metrics.LocalDaemonPrometheusManager
-	// Indicates that a goroutine has been started to publish metrics to Prometheus.
-	servingPrometheus atomic.Int32
-	// prometheusStarted is a sync.WaitGroup used to signal to the metric-publishing goroutine
-	// that it should start publishing metrics now.
-	prometheusStarted sync.WaitGroup
-	// prometheusInterval is how often we publish metrics to Prometheus.
-	prometheusInterval time.Duration
-	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
-	prometheusPort int
-
-	// electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before electing a leader
-	electionTimeoutSeconds int
-
-	// outgoingExecuteRequestQueue is used to send "execute_request" messages one-at-a-time to their target kernels.
-	outgoingExecuteRequestQueue hashmap.HashMap[string, chan *enqueuedExecOrYieldRequest]
-	// outgoingExecuteRequestQueueMutexes is a map of mutexes. Keys are kernel IDs. Values are the mutex for the
-	// associated kernel's outgoing "execute_request" message queue.
-	outgoingExecuteRequestQueueMutexes hashmap.HashMap[string, *sync.Mutex]
-	// executeRequestQueueStopChans is a map from kernel ID to the channel used to tell the goroutine responsible
-	// for forwarding that kernel's "execute_request" messages to stop running (such as when we are stopping
-	// the kernel replica).
-	executeRequestQueueStopChannels hashmap.HashMap[string, chan interface{}]
-
-	smrPort int
-
-	// members
-	transport                    string
-	ip                           string
-	kernels                      hashmap.HashMap[string, scheduling.KernelReplica]
-	kernelClientCreationChannels hashmap.HashMap[string, chan *proto.KernelConnectionInfo]
-
-	log logger.Logger
-
-	// SimulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of
-	// performing checkpointing after a migration (read) and after executing code (write).
-	SimulateCheckpointingLatency bool
-
-	// The IOPub socket that the Gateway subscribes to.
-	// All pub/sub messages are forwarded from kernels to the gateway (through us, the local daemon) using this socket.
-	// We wrap the messages in another message that just has a header that is the kernel ID.
-	// This enables the Gateway's SUB sockets to filter messages from each kernel.
-	// iopub *jupyter.Socket
-
-	// When deployed in Docker Swarm mode, the dockerEventObserver listens for "container-created"
-	// events from the node's Docker daemon socket.
-	//
-	// This is only used (and is only non-nil) when deployed in Docker Swarm/Compose mode.
-	dockerEventObserver *observer.EventObserver
-
-	// containerStartedNotificationManager keeps track of observer.ContainerStartedNotification structs
-	// associated with various kernels. Specifically, it maintains the most recent notification associated
-	// with a particular kernel.
-	//
-	// This is only used (and is only non-nil) when deployed in Docker Swarm/Compose mode.
+	tracer                              opentracing.Tracer
+	log                                 logger.Logger
+	kernelClientCreationChannels        hashmap.HashMap[string, chan *proto.KernelConnectionInfo]
+	kernels                             hashmap.HashMap[string, scheduling.KernelReplica]
+	provisioner                         proto.ClusterGatewayClient
+	executeRequestQueueStopChannels     hashmap.HashMap[string, chan interface{}]
+	outgoingExecuteRequestQueueMutexes  hashmap.HashMap[string, *sync.Mutex]
+	outgoingExecuteRequestQueue         hashmap.HashMap[string, chan *enqueuedExecOrYieldRequest]
+	schedulingPolicy                    scheduling.Policy
+	kernelsStopping                     hashmap.HashMap[string, chan struct{}]
+	virtualGpuPluginServer              device.VirtualGpuPluginServer
+	listener                            net.Listener
+	kernelDebugPorts                    hashmap.HashMap[string, int]
+	closed                              chan struct{}
+	executeRequestForwarder             *client.ExecuteRequestForwarder[*messaging.JupyterMessage]
+	connectionOptions                   *jupyter.ConnectionInfo
+	provisionerClientConnectionGRPC     *grpc.ClientConn
+	prometheusManager                   *metrics.LocalDaemonPrometheusManager
+	localDaemonOptions                  *domain.LocalDaemonOptions
 	containerStartedNotificationManager *notification_manager.ContainerStartedNotificationManager
-
-	// There's a simple TCP server that listens for kernel registration notifications on this port.
-	kernelRegistryPort int
-
-	// numResendAttempts is the number of times to try resending a message before giving up.
-	numResendAttempts int
-
-	// Manages resource allocations on behalf of the Local Daemon.
-	allocationManager *resource.AllocationManager
-
-	// Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
-	remoteStorageEndpoint string
-
-	// Type of remote storage, 'hdfs' or 'redis'
-	remoteStorage string
-
-	// Base directory in which the persistent store data is stored when running in docker mode.
-	dockerStorageBase string
-
-	// Kubernetes or Docker.
-	deploymentMode types.DeploymentMode
-
-	// When using Docker mode, we assign "debug ports" to kernels so that they can serve a Go HTTP server for debugging.
-	kernelDebugPorts hashmap.HashMap[string, int]
-
-	// MessageAcknowledgementsEnabled indicates whether we send/expect to receive message acknowledgements
-	// for the ZMQ messages that we're forwarding back and forth between the Cluster Gateway and kernel replicas.
-	//
-	// MessageAcknowledgementsEnabled is controlled by the "acks_enabled" field of the configuration file.
-	MessageAcknowledgementsEnabled bool
-
-	// If true, then the kernels will be executed within GDB.
-	runKernelsInGdb bool
-
-	// kernelErrorReporterServerPort is the port on which the proto.KernelErrorReporterServer gRPC service is listening.
-	kernelErrorReporterServerPort int
-
-	// localDaemonOptions is the options struct that the Local Daemon was created with.
-	localDaemonOptions *domain.LocalDaemonOptions
-
-	// simulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and
-	// real PyTorch code or not.
-	simulateTrainingUsingSleep bool
-
-	// bindDebugpyPort specifies whether to bind a port to kernel containers for DebugPy.
-	bindDebugpyPort bool
-
-	// If true, rename stopped kernel containers to save/persist them. Enables you to persist their state, logs, etc.
-	saveStoppedKernelContainers bool
-
-	// realGpusAvailable indicates whether there are real GPUs available that should be bound to kernel containers.
-	realGpusAvailable bool
-
-	// lifetime
-	closed  chan struct{}
-	cleaned chan struct{}
+	router                              *router.Router
+	dockerEventObserver                 *observer.EventObserver
+	consulClient                        *consul.Client
+	allocationManager                   *resource.AllocationManager
+	cleaned                             chan struct{}
+	grpcServer                          *GRPCServerWrapper
+	id                                  string
+	transport                           string
+	ip                                  string
+	nodeName                            string
+	dockerStorageBase                   string
+	remoteStorage                       string
+	remoteStorageEndpoint               string
+	deploymentMode                      types.DeploymentMode
+	schedulerDaemonOptions              domain.SchedulerDaemonOptions
+	prometheusStarted                   sync.WaitGroup
+	smrPort                             int
+	numResendAttempts                   int
+	kernelRegistryPort                  int
+	electionTimeoutSeconds              int
+	prometheusPort                      int
+	prometheusInterval                  time.Duration
+	kernelErrorReporterServerPort       int
+	connectingToGateway                 atomic.Int32
+	servingPrometheus                   atomic.Int32
+	runKernelsInGdb                     bool
+	MessageAcknowledgementsEnabled      bool
+	DebugMode                           bool
+	simulateTrainingUsingSleep          bool
+	bindDebugpyPort                     bool
+	saveStoppedKernelContainers         bool
+	realGpusAvailable                   bool
+	finishedGatewayHandshake            bool
+	SimulateCheckpointingLatency        bool
 }
 
 type KernelRegistrationPayload struct {
+	Kernel             *proto.KernelSpec       `json:"kernel,omitempty"`
+	ConnectionInfo     *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
+	PersistentId       *string                 `json:"persistentId,omitempty"`
+	NodeName           string                  `json:"nodeName,omitempty"`
+	Key                string                  `json:"key"`
+	PodOrContainerName string                  `json:"podName,omitempty"`
 	Op                 string                  `json:"op"`
 	SignatureScheme    string                  `json:"signatureScheme"`
-	Key                string                  `json:"key"`
-	Kernel             *proto.KernelSpec       `json:"kernel,omitempty"`
+	WorkloadId         string                  `json:"workload_id"`
 	ReplicaId          int32                   `json:"replicaId,omitempty"`
 	NumReplicas        int32                   `json:"numReplicas,omitempty"`
-	Join               bool                    `json:"join,omitempty"`
-	PersistentId       *string                 `json:"persistentId,omitempty"`
-	PodOrContainerName string                  `json:"podName,omitempty"`
-	NodeName           string                  `json:"nodeName,omitempty"`
 	Cpu                int32                   `json:"cpu,omitempty"`
 	Memory             int32                   `json:"memory,omitempty"`
 	Gpu                int32                   `json:"gpu,omitempty"`
-	ConnectionInfo     *jupyter.ConnectionInfo `json:"connection-info,omitempty"`
-	WorkloadId         string                  `json:"workload_id"`
+	Join               bool                    `json:"join,omitempty"`
 }
 
 // KernelRegistrationClient represents an incoming connection from local distributed kernel.
