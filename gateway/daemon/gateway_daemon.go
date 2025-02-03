@@ -1018,9 +1018,11 @@ func (d *ClusterGatewayImpl) acceptHostConnection() (*grpc.ClientConn, net.Conn,
 }
 
 // restoreHost is used to restore an existing Host when a Local Daemon loses connection with the Cluster Gateway
-// and then reconnects.
+// and then reconnects. This will return nil on success.
 //
-// This will return nil on success.
+// If the cluster gateway recently crashed and the container restarted, then the restoration will fail, and
+// restoreHost will simply treat the scheduling.Host as if it were a new host and pass it to RegisterNewHost,
+// the result of which will be returned from restoreHost.
 func (d *ClusterGatewayImpl) restoreHost(host scheduling.Host) error {
 	d.log.Warn("Newly-connected Local Daemon actually already exists.")
 
@@ -1051,21 +1053,12 @@ func (d *ClusterGatewayImpl) restoreHost(host scheduling.Host) error {
 		return nil
 	}
 
-	errorMessage := fmt.Sprintf("Supposedly existing Local Daemon (re)connected, but cannot find associated Host struct... "+
+	// This may occur if the Cluster Gateway crashes and restarts.
+	d.log.Warn("Supposedly existing Local Daemon (re)connected, but cannot find associated Host struct... "+
 		"Node claims to be Local Daemon %s (ID=%s).", host.GetID(), host.GetNodeName())
-	d.log.Error(errorMessage)
 
-	go d.notifyDashboardOfError(
-		fmt.Sprintf("Local Daemon %s Restoration has Failed", host.GetNodeName()),
-		fmt.Sprintf(errorMessage,
-			host.GetID(),
-			host.GetNodeName()))
-
-	// TODO: We could conceivably just register the Host as a new Local Daemon, despite the fact
-	// 		 that the Host thinks it already exists. We may have to re-contact the Host through the
-	//	     SetID procedure, though. We'll at least have to re-create the Host struct, as it was only
-	//		 populated with some of the required fields.
-	return entity.ErrRestorationFailed
+	// Just register the Host as a new Local Daemon, despite the fact that the Host thinks it already exists.
+	return d.RegisterNewHost(host)
 }
 
 // RegisterNewHost is used to register a new Host (i.e., Local Daemon) with the Cluster after the Host connects

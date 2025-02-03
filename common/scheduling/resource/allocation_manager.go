@@ -668,7 +668,7 @@ func (m *AllocationManager) AdjustSpecGPUs(numGpus float64) error {
 	numGpusDecimal := decimal.NewFromFloat(numGpus)
 	if numGpusDecimal.LessThan(m.resourceManager.committedResources.gpus) {
 		return fmt.Errorf("%w: cannot set GPUs to value < number of committed GPUs (%s). Requested: %s",
-			ErrIllegalGpuAdjustment, m.CommittedGPUs().StringFixed(1), numGpusDecimal.StringFixed(1))
+			ErrIllegalResourceAdjustment, m.CommittedGPUs().StringFixed(1), numGpusDecimal.StringFixed(1))
 	}
 
 	difference := m.SpecGPUs().Sub(numGpusDecimal)
@@ -775,7 +775,7 @@ func (m *AllocationManager) HasReservationForKernel(kernelId string) bool {
 
 // AdjustKernelResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 // Host is updated or changed. This ensures that the Host's resource counts are up to date.
-func (m *AllocationManager) AdjustKernelResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer) error {
+func (m *AllocationManager) AdjustKernelResourceRequest(newSpec types.Spec, oldSpec types.Spec, container scheduling.KernelContainer) error {
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
 	if !m.schedulingPolicy.SupportsDynamicResourceAdjustments() {
 		return fmt.Errorf("%w (\"%s\")", scheduling.ErrDynamicResourceAdjustmentProhibited, m.schedulingPolicy.Name())
@@ -784,26 +784,63 @@ func (m *AllocationManager) AdjustKernelResourceRequest(updatedSpec types.Spec, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	kernelId := container.KernelID()
+	replicaId := container.ReplicaId()
+
+	m.log.Debug("Attempting to adjust resource request for replica %d of kernel %s from [%v] to [%v].",
+		replicaId, kernelId, oldSpec, newSpec)
+
 	// Verify that the container is in fact scheduled on this Host.
-	if !m.scheduledKernels.IsAnyReplicaScheduled(container.KernelID()) {
+	if !m.scheduledKernels.IsAnyReplicaScheduled(kernelId) {
 		return fmt.Errorf("%w: replica %d of kernel %s",
-			ErrContainerNotPresent, container.ReplicaId(), container.KernelID())
+			ErrContainerNotPresent, replicaId, kernelId)
 	}
-	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
-	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
+
+	// Retrieve the allocation, as we'll have to update it.
+	key := getKey(replicaId, kernelId)
+	allocation, loaded := m.allocationKernelReplicaMap.Load(key)
+	if !loaded {
+		m.log.Warn("Cannot adjust resource request for replica %d of kernel %s because no allocation exists...",
+			replicaId, kernelId)
+		return fmt.Errorf("%w: replica %d of kernel %s", ErrAllocationNotFound, replicaId, kernelId)
+	}
 
 	err := m.resourceManager.RunTransaction(func(state scheduling.TransactionState) {
-		state.PendingResources().Subtract(oldSpecDecimal)
-		state.PendingResources().Add(newSpecDecimal)
+		if allocation.IsPending() {
+			state.PendingResources().Subtract(oldSpec)
+			state.PendingResources().Add(newSpec)
+		} else {
+			m.log.Warn("Adjusting resource request of replica %d of kernel %s while resources are COMMITTED...",
+				replicaId, kernelId)
+
+			state.CommittedResources().Subtract(oldSpec)
+			state.CommittedResources().Add(newSpec)
+		}
 	})
-	return err // Will be nil on success.
+
+	if err != nil {
+		m.log.Debug("Could not adjust resource request for replica %d of kernel %s from [%v] to [%v] because: %v",
+			replicaId, kernelId, oldSpec, newSpec, err)
+		return err
+	}
+
+	decimalSpec := types.ToDecimalSpec(newSpec)
+	allocation.SetGpus(decimalSpec.GPUs)
+	allocation.SetMillicpus(decimalSpec.Millicpus)
+	allocation.SetMemoryMb(decimalSpec.MemoryMb)
+	allocation.SetVramGb(decimalSpec.VRam)
+
+	m.allocationKernelReplicaMap.Store(key, allocation)
+	m.kernelAllocationMap.Store(kernelId, allocation)
+
+	return nil
 }
 
 // AdjustKernelResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
 // this Host is updated or changed. This ensures that the Host's resource counts are up to date.
 //
 // This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
-func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec,
+func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(newSpec types.Spec, oldSpec types.Spec,
 	container scheduling.KernelContainer, schedulingMutex *sync.Mutex, tx scheduling.CoordinatedTransaction) error {
 
 	// Ensure that we're even allowed to do this (based on the scheduling policy).
@@ -812,35 +849,53 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec t
 	}
 
 	kernelId := container.KernelID()
+	replicaId := container.ReplicaId()
 
 	m.mu.Lock()
-	targetReplicaIsScheduled := m.scheduledKernels.IsAnySpecificScheduled(container.ReplicaId(), kernelId)
-	m.mu.Unlock()
+	targetReplicaIsScheduled := m.scheduledKernels.IsAnySpecificScheduled(replicaId, kernelId)
 
 	// Verify that the container is in fact scheduled on this Host.
 	if !targetReplicaIsScheduled {
+		m.mu.Unlock()
 		return fmt.Errorf("%w: replica %d of kernel %s",
-			ErrContainerNotPresent, container.ReplicaId(), kernelId)
+			ErrContainerNotPresent, replicaId, kernelId)
 	}
 
-	oldSpecDecimal := types.ToDecimalSpec(oldSpec)
-	newSpecDecimal := types.ToDecimalSpec(updatedSpec)
+	// Retrieve the allocation, as we'll have to update it.
+	key := getKey(replicaId, kernelId)
+	allocation, loaded := m.allocationKernelReplicaMap.Load(key)
+	if !loaded {
+		m.log.Warn("Cannot adjust resource request for replica %d of kernel %s because no allocation exists...",
+			replicaId, kernelId)
+		m.mu.Unlock()
+		return fmt.Errorf("%w: replica %d of kernel %s", ErrAllocationNotFound, replicaId, kernelId)
+	}
+	m.mu.Unlock()
+
+	// Verify that the allocation is not committed.
+	if allocation.IsCommitted() {
+		return fmt.Errorf("%w: allocation for replica %d of kernel %s is committed; cannot dynamically adjust",
+			ErrInvalidAllocationType, replicaId, kernelId)
+	}
 
 	txOperation := func(state scheduling.TransactionState) {
-		state.PendingResources().Subtract(oldSpecDecimal)
-		state.PendingResources().Add(newSpecDecimal)
+		state.PendingResources().Subtract(oldSpec)
+		state.PendingResources().Add(newSpec)
 	}
 
 	m.log.Debug("Preparing to register replica %d of kernel %s from host %s for coordinated transaction %s.",
-		container.ReplicaId(), container.KernelID(), m.NodeName, tx.Id())
+		replicaId, container.KernelID(), m.NodeName, tx.Id())
 
-	err := tx.RegisterParticipant(container.ReplicaId(), m.resourceManager.GetTransactionData, txOperation, schedulingMutex)
+	// Register ourselves as a participant.
+	// If we're the last participant to do so, then this will also initialize all of the participants.
+	err := tx.RegisterParticipant(replicaId, m.resourceManager.GetTransactionData, txOperation, schedulingMutex)
 	if err != nil {
 		m.log.Error("Received error upon registering for coordination transaction %s when updating spec of replica %d of kernel %s from [%s] to [%s]: %v",
-			tx.Id(), container.ReplicaId(), kernelId, oldSpec.String(), updatedSpec.String(), err)
+			tx.Id(), replicaId, kernelId, oldSpec.String(), newSpec.String(), err)
 		return err
 	}
 
+	// Ensure that we're all initialized. We may not have been the last to register.
 	tx.WaitForParticipantsToBeInitialized()
 
 	m.mu.Lock()
@@ -849,10 +904,19 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec t
 	err = tx.Run() // This will block until the other AllocationManager's also call Run.
 	if err == nil {
 		m.log.Debug("Successfully updated resource spec of replica %d of kernel %s.",
-			container.ReplicaId(), container.KernelID())
+			replicaId, container.KernelID())
+
+		decimalSpec := types.ToDecimalSpec(newSpec)
+		allocation.SetGpus(decimalSpec.GPUs)
+		allocation.SetMillicpus(decimalSpec.Millicpus)
+		allocation.SetMemoryMb(decimalSpec.MemoryMb)
+		allocation.SetVramGb(decimalSpec.VRam)
+
+		m.allocationKernelReplicaMap.Store(key, allocation)
+		m.kernelAllocationMap.Store(kernelId, allocation)
 
 		if m.updateIndex != nil {
-			err = m.updateIndex(container.ReplicaId(), kernelId)
+			err = m.updateIndex(replicaId, kernelId)
 		}
 
 		if m.updateSubscriptionRatio != nil {
@@ -861,25 +925,6 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec t
 
 		return nil
 	}
-
-	//if err != nil {
-	//	m.log.Error("Error while running CoordinatedTransaction %s targeting replica%d of kernel %s:",
-	//		tx.Id(), container.ReplicaId(), kernelId, err)
-	//	return err
-	//}
-	//
-	//succeeded := tx.Wait()
-	//if succeeded {
-	//	if m.updateIndex != nil {
-	//		err = m.updateIndex(container.ReplicaId(), kernelId)
-	//	}
-	//
-	//	if m.updateSubscriptionRatio != nil {
-	//		m.updateSubscriptionRatio()
-	//	}
-	//
-	//	return nil
-	//}
 
 	err = tx.FailureReason()
 
@@ -892,10 +937,10 @@ func (m *AllocationManager) AdjustKernelResourceRequestCoordinated(updatedSpec t
 
 		err = transaction.NewErrTransactionFailed(fmt.Errorf("failure reason unspecified"),
 			[]scheduling.ResourceKind{scheduling.UnknownResource}, []scheduling.ResourceStatus{scheduling.UnknownStatus})
-	} else {
-		m.log.Debug("Transaction %s targeting replica %d of kernel %s has failed because: %v",
-			tx.Id(), container.ReplicaId(), kernelId, err)
 	}
+
+	m.log.Debug("Transaction %s targeting replica %d of kernel %s has failed because: %v",
+		tx.Id(), replicaId, kernelId, err)
 
 	return err
 }
@@ -1021,7 +1066,9 @@ func (m *AllocationManager) PromotePreCommitment(replicaId int32, kernelId strin
 	return nil
 }
 
-// AdjustPendingResources will attempt to adjust the resources committed to a particular kernel.
+// AdjustPendingResources will attempt to adjust the pending resources assigned to a particular kernel.
+//
+// AdjustPendingResources is really only used by the Local Daemon.
 //
 // On success, nil is returned.
 //
@@ -1048,8 +1095,7 @@ func (m *AllocationManager) AdjustPendingResources(replicaId int32, kernelId str
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
 		m.log.Error("Cannot adjust pending resources of replica %d of kernel %s: "+
 			"no existing resource allocation associated with that kernel replica.", replicaId, kernelId)
-		return fmt.Errorf("%w: could not find existing pending resource allocation for replica %d of kernel %s",
-			ErrAllocationNotFound, replicaId, kernelId)
+		return fmt.Errorf("%w: replica %d of kernel %s", ErrAllocationNotFound, replicaId, kernelId)
 	}
 
 	if allocation.IsCommitted() {
@@ -1760,8 +1806,7 @@ func (m *AllocationManager) GetGpuDeviceIdsAssignedToReplica(replicaId int32, ke
 	if allocation, allocationExists = m.allocationKernelReplicaMap.Load(key); !allocationExists {
 		m.log.Error("Cannot retrieve GPU device IDs committed to replica %d of kernel %s: no existing resource "+
 			"allocation found for that kernel replica. (under key \"%s\").", replicaId, kernelId, key)
-		return nil, fmt.Errorf("%w: no resource allocation found for replica %d of kernel %s",
-			ErrAllocationNotFound, replicaId, kernelId)
+		return nil, fmt.Errorf("%w: replica %d of kernel %s", ErrAllocationNotFound, replicaId, kernelId)
 	}
 
 	return allocation.GetGpuDeviceIds(), nil

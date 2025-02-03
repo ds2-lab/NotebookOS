@@ -17,8 +17,8 @@ var (
 
 	ErrReservationNotFound = errors.New("no reservation found for any replicas of the specified kernel")
 
-	ErrIllegalGpuAdjustment     = errors.New("requested gpu adjustment is illegal")
-	ErrAllocationNotFound       = errors.New("could not find the requested GPU allocation")
-	ErrInvalidAllocationType    = errors.New("allocation for target kernel replica is not of expected/correct type")
-	ErrNoPendingAllocationFound = errors.New("a pending allocation could not be found when allocating actual GPUs")
+	ErrIllegalResourceAdjustment = errors.New("requested resource adjustment is illegal")
+	ErrAllocationNotFound        = errors.New("could not find the resource allocation for specified kernel replica")
+	ErrInvalidAllocationType     = errors.New("allocation for target kernel replica is not of expected/correct type")
+	ErrNoPendingAllocationFound  = errors.New("a pending allocation could not be found when allocating actual GPUs")
 )

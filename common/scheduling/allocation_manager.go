@@ -148,6 +148,19 @@ type AllocationManager interface {
 	GetReservation(kernelId string) (Allocation, bool)
 	GetAllocation(replicaId int32, kernelId string) (Allocation, bool)
 	PromotePreCommitment(replicaId int32, kernelId string) error
+
+	// AdjustPendingResources will attempt to adjust the pending resources assigned to a particular kernel.
+	//
+	// AdjustPendingResources is really only used by the Local Daemon.
+	//
+	// On success, nil is returned.
+	//
+	// If the specified kernel replica does not already have an associated pending resource allocation, then
+	// an ErrAllocationNotFound error is returned.
+	//
+	// If the requested resource adjustment cannot be applied, then an ErrInvalidOperation error is returned.
+	//
+	// Note: if the rollback fails for any reason, then this will panic.
 	AdjustPendingResources(replicaId int32, kernelId string, updatedSpec types.Spec) error
 	SetUpdateIndex(updateIndex func(replicaId int32, kernelId string) error)
 	SetUpdateSubscriptionRatio(updateSubscriptionRatio func() decimal.Decimal)

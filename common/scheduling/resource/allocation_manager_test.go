@@ -493,7 +493,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			err = resourceManager.AdjustSpecGPUs(1)
 			Expect(err).ToNot(BeNil())
-			Expect(errors.Is(err, resource.ErrIllegalGpuAdjustment)).To(BeTrue())
+			Expect(errors.Is(err, resource.ErrIllegalResourceAdjustment)).To(BeTrue())
 		})
 
 		It("Will correctly return an error when trying to release committed resources from a non-existent kernel replica", func() {
@@ -1087,7 +1087,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			err = resourceManager.AdjustSpecGPUs(1)
 			Expect(err).ToNot(BeNil())
-			Expect(errors.Is(err, resource.ErrIllegalGpuAdjustment)).To(BeTrue())
+			Expect(errors.Is(err, resource.ErrIllegalResourceAdjustment)).To(BeTrue())
 		})
 
 		It("Will correctly return an error when trying to release committed resources from a non-existent kernel replica", func() {
@@ -1681,7 +1681,7 @@ var _ = Describe("AllocationManager Standard Tests", func() {
 
 			err = resourceManager.AdjustSpecGPUs(1)
 			Expect(err).ToNot(BeNil())
-			Expect(errors.Is(err, resource.ErrIllegalGpuAdjustment)).To(BeTrue())
+			Expect(errors.Is(err, resource.ErrIllegalResourceAdjustment)).To(BeTrue())
 		})
 
 		It("Will correctly return an error when trying to release committed resources from a non-existent kernel replica", func() {
