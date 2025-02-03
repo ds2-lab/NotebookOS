@@ -3529,7 +3529,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Reservation))
 
 						// Sleep for a bit to let the Cluster/Scheduler do their thing(s).
-						time.Sleep(time.Second * 3)git 
+						time.Sleep(time.Second * 3)
 
 						Expect(dockerCluster.Len()).To(Equal(clusterSize))
 						Expect(dockerCluster.Len()).To(Equal(InitialClusterSize))
