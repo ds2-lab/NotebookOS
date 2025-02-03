@@ -64,13 +64,22 @@ func (p *FcfsBatchSchedulingPolicy) SelectReplicaForMigration(kernel scheduling.
 // FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
 // been ruled out.
 func (p *FcfsBatchSchedulingPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
-	return checkSingleReplica(kernel, p.supportsMigration, executionId)
+	return defaultFindReadyReplicaSingleReplicaPolicy(kernel, p.supportsMigration, executionId)
 }
 
 // ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
 // Adjust the Cluster's capacity as directed by scaling policy.
-func (p *FcfsBatchSchedulingPolicy) ValidateCapacity(_ scheduling.Cluster) {
-	return // No-op, not supported
+func (p *FcfsBatchSchedulingPolicy) ValidateCapacity(cluster scheduling.Cluster) {
+	// Ensure we don't double-up on capacity validations. Only one at a time.
+	if !p.isValidatingCapacity.CompareAndSwap(0, 1) {
+		return
+	}
+
+	singleReplicaValidateCapacity(p, cluster, p.log)
+
+	if !p.isValidatingCapacity.CompareAndSwap(1, 0) {
+		panic("Failed to swap isValidatingCapacity 1 → 0 after finishing call to FcfsBatchSchedulingPolicy::ValidateCapacity")
+	}
 }
 
 // SupportsPredictiveAutoscaling returns true if the Policy supports "predictive auto-scaling", in which

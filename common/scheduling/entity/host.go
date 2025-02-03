@@ -411,7 +411,7 @@ func (h *Host) SetIdx(key types.HeapElementMetadataKey, idx int) {
 
 	h.HeapIndexes[key] = idx
 
-	//h.heapIndex = idx
+	//h.log.Debug("Updated heap index \"%s\": %d", key, idx)
 }
 
 // GetIdx returns the target Host's heapIndex.
@@ -421,7 +421,7 @@ func (h *Host) GetIdx(key types.HeapElementMetadataKey) int {
 
 	if h.HeapIndexes == nil {
 		h.HeapIndexes = make(map[types.HeapElementMetadataKey]int)
-		return 0
+		return -1
 	}
 
 	idx, loaded := h.HeapIndexes[key]
@@ -429,8 +429,7 @@ func (h *Host) GetIdx(key types.HeapElementMetadataKey) int {
 		return idx
 	}
 
-	return 0
-	//return h.heapIndex
+	return -1
 }
 
 func (h *Host) Compare(h2 interface{}) float64 {

@@ -261,8 +261,8 @@ func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, 
 	// Ensure that the caller isn't trying to scale-in by too many hosts. There needs to be at least `NUM_REPLICAS`
 	// hosts in the Cluster, where `NUM_REPLICAS` is the number of replicas of each Jupyter kernel.
 	targetScale := initialScale - int32(len(targetHosts))
-	if targetScale <= int32(cluster.NumReplicas()) {
-		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: too many target hosts specified (%d, with initial scale of %d); Cluster's minimum scale is %d", ErrInvalidTargetScale, targetScale, initialScale, cluster.NumReplicas()).Error())
+	if targetScale < int32(cluster.NumReplicas()) {
+		return nil, status.Error(codes.InvalidArgument, fmt.Errorf("%w: too many target hosts specified (%d, with initial scale of %d); Cluster's minimum scale is %d", ErrInvalidTargetScale, len(targetHosts), initialScale, cluster.NumReplicas()).Error())
 	}
 
 	// We're necessarily creating a scale-in operation here, so the target scale must be less than the initial scale.
@@ -304,7 +304,7 @@ func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, 
 
 	scaleOperation.executionFunc = executionFunc
 	scaleOperation.log = config.GetLogger(
-		fmt.Sprintf("%s-%s", scaleOperation.OperationType, scaleOperation.OperationId))
+		fmt.Sprintf("%s-%s ", scaleOperation.OperationType, scaleOperation.OperationId))
 	return scaleOperation, nil
 }
 

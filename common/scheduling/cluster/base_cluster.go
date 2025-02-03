@@ -10,6 +10,7 @@ import (
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
 	"strings"
@@ -803,8 +804,9 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 		return promise.Resolved(nil, err) // status.Error(codes.Internal, err.Error()))
 	}
 
-	c.log.Debug("Scale-out operation %s from %d nodes to %d nodes succeeded.",
+	c.log.Debug(utils.LightGreenStyle.Render("Scale-out operation %s from %d nodes to %d nodes succeeded."),
 		scaleOp.OperationId, scaleOp.InitialScale, scaleOp.TargetScale)
+	
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
@@ -929,7 +931,9 @@ func (c *BaseCluster) ReleaseSpecificHosts(ctx context.Context, ids []string) pr
 		return promise.Resolved(nil, err) // status.Error(codes.Internal, err.Error()))
 	}
 
-	c.log.Debug("Scale-in from %d nodes down to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
+	c.log.Debug(utils.LightGreenStyle.Render("Scale-in from %d nodes down to %d nodes succeeded."),
+		scaleOp.InitialScale, scaleOp.TargetScale)
+
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}
