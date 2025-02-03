@@ -595,13 +595,13 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 		m.log.Debug("Notifying non-primary replica %d of kernel %s that execution \"%s\" has concluded successfully.",
 			kernelReplica.ReplicaID(), kernelReplica.ID(), executeRequestId)
 
-		// Make sure all pre-committed resources for this request are released.
-		container := kernelReplica.Container()
-		_ = container.Host().ReleasePreCommitedResources(container, executeRequestId)
+		kernelReplica.ReceivedExecuteReply(msg, kernelReplica.ReplicaID() == replica.ReplicaID())
 
+		// Make sure all pre-committed resources for this request are released.
 		// Skip the active replica, as we already called these methods on/for that replica.
 		if kernelReplica.ReplicaID() != activeExecution.ActiveReplica.ReplicaID() {
-			kernelReplica.ReceivedExecuteReply(msg, kernelReplica.ReplicaID() == replica.ReplicaID())
+			container := kernelReplica.Container()
+			_ = container.Host().ReleasePreCommitedResources(container, executeRequestId)
 		}
 	}
 
