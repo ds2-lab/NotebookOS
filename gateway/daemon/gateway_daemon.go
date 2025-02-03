@@ -1056,10 +1056,10 @@ func (d *ClusterGatewayImpl) restoreHost(host scheduling.Host) error {
 	d.log.Error(errorMessage)
 
 	go d.notifyDashboardOfError(
-		fmt.Sprintf("Local Daemon %s Restoration has Failed", registered.GetNodeName()),
+		fmt.Sprintf("Local Daemon %s Restoration has Failed", host.GetNodeName()),
 		fmt.Sprintf(errorMessage,
-			registered.GetID(),
-			registered.GetNodeName()))
+			host.GetID(),
+			host.GetNodeName()))
 
 	// TODO: We could conceivably just register the Host as a new Local Daemon, despite the fact
 	// 		 that the Host thinks it already exists. We may have to re-contact the Host through the
