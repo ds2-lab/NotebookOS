@@ -95,8 +95,8 @@ func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvi
 
 // ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
 // Adjust the Cluster's capacity as directed by scaling policy.
-func (p *ReservationPolicy) ValidateCapacity(_ scheduling.Cluster) {
-	return // No-op, not supported
+func (p *ReservationPolicy) ValidateCapacity(cluster scheduling.Cluster) {
+	singleReplicaValidateCapacity(p, cluster, p.log)
 }
 
 // SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the
@@ -120,7 +120,7 @@ func (p *ReservationPolicy) SupportsDynamicResourceAdjustments() bool {
 // FindReadyReplica also returns a map of ineligible replicas, or replicas that have already
 // been ruled out.
 func (p *ReservationPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
-	return checkSingleReplica(kernel, p.supportsMigration, executionId)
+	return defaultFindReadyReplicaSingleReplicaPolicy(kernel, p.supportsMigration, executionId)
 }
 
 //////////////////////////////////

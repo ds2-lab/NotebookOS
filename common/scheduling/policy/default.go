@@ -5,16 +5,17 @@ import (
 	"fmt"
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/scusemua/distributed-notebook/common/utils"
 	"math"
 	"time"
 )
 
-// checkSingleReplica provides a common implementation of FindReadyReplica for scheduling.Policy instances
-// that use just a single kernel replica.
-func checkSingleReplica(kernel scheduling.Kernel, migrationAllowed bool, executionId string) (scheduling.KernelReplica, error) {
+// defaultFindReadyReplicaSingleReplicaPolicy provides a common implementation of FindReadyReplica for scheduling.Policy
+// instances that use just a single kernel replica.
+func defaultFindReadyReplicaSingleReplicaPolicy(kernel scheduling.Kernel, migrationAllowed bool, executionId string) (scheduling.KernelReplica, error) {
 	// Sanity check: make sure there's only one replica.
 	if len(kernel.Replicas()) > 1 {
-		panic(fmt.Sprintf("checkSingleReplica called for kernel with more than one replica: %d replicas, kernel %s",
+		panic(fmt.Sprintf("defaultFindReadyReplicaSingleReplicaPolicy called for kernel with more than one replica: %d replicas, kernel %s",
 			len(kernel.Replicas()), kernel.ID()))
 	}
 
@@ -42,13 +43,14 @@ func checkSingleReplica(kernel scheduling.Kernel, migrationAllowed bool, executi
 	return replica, nil
 }
 
-func multiReplicaTryScaleIn(policy scheduling.Policy, cluster scheduling.Cluster, log logger.Logger, limit int32, load int32) {
+// defaultTryScaleIn is a basic auto-scaling mechanism for scaling in.
+func defaultTryScaleIn(policy scheduling.Policy, cluster scheduling.Cluster, log logger.Logger, limit int32, load int32) {
 	// Should we scale in?
 	if !cluster.Scheduler().CanScaleIn() {
 		return
 	}
 
-	oldNumHosts := int32(cluster.Len())
+	oldClusterSize := int32(cluster.Len())
 
 	maximumHostsToReleaseAtOnce := policy.ScalingConfiguration().MaximumHostsToReleaseAtOnce
 
@@ -60,52 +62,66 @@ func multiReplicaTryScaleIn(policy scheduling.Policy, cluster scheduling.Cluster
 	// Scaling in.
 	// NOTE: Jingyuan's algorithm uses initial capacity here, rather than minimum capacity.
 	if limit < cluster.Scheduler().MinimumCapacity() {
-		limit = cluster.Scheduler().MinimumCapacity()
+		// [02/03/2025] Added '+ policy.ScalingConfiguration().ScalingBufferSize' because otherwise,
+		// we'll just end up thrashing back and forth. That is, if we scale to just MinimumCapacity, then
+		// we'll scale-out to MinimumCapacity + ScalingBufferSize.
+		limit = cluster.Scheduler().MinimumCapacity() + policy.ScalingConfiguration().ScalingBufferSize
 	}
 
 	numToRelease := int32(cluster.Len()) - limit
 
+	// If we're not supposed to release any hosts, then just return.
 	if numToRelease <= 0 {
 		return
 	}
 
+	// Clamp the value.
 	if numToRelease > maximumHostsToReleaseAtOnce {
-		log.Debug("Decreased the number of idle hosts to release from %d to the maximum allowed value of %s.",
-			numToRelease, maximumHostsToReleaseAtOnce)
-
 		numToRelease = maximumHostsToReleaseAtOnce
 	}
 
-	log.Debug("Scaling in %d hosts", numToRelease)
+	log.Debug("Preparing to scale-in %d (idle) hosts. Current cluster size: %d.", numToRelease, oldClusterSize)
 	numReleased, err := cluster.Scheduler().ReleaseIdleHosts(numToRelease)
 	if err != nil {
 		log.Error("Error while releasing idle hosts: %v", err)
 	}
 
 	if numReleased > 0 {
-		log.Debug("Released %d idle hosts based on #CommittedGPUs (%d). Prev #hosts: %s. New #hosts: %s.",
-			numReleased, load, oldNumHosts, cluster.Len())
+		log.Debug(utils.LightBlueStyle.Render("Released %d idle hosts based on #CommittedGPUs (%d). Cluster size: %d → %d."),
+			numReleased, load, oldClusterSize, cluster.Len())
 	}
 }
 
-// multiReplicaTryScaleOut tries to scale-out and returns the limit and load values.
-func multiReplicaTryScaleOut(policy scheduling.Policy, cluster scheduling.Cluster, log logger.Logger) (int32, int32) {
+// defaultComputeLimitAndLoad computes the current cluster GPU load and current scale-out limit.
+func defaultComputeLimitAndLoad(policy scheduling.Policy, cluster scheduling.Cluster) (int32, int32) {
 	var load int32
 	cluster.RangeOverHosts(func(_ string, host scheduling.Host) bool {
 		load += int32(host.CommittedGPUs())
 		return true
 	})
 
-	scalingFactor := policy.ScalingConfiguration().ScalingFactor
 	gpusPerHost := policy.ScalingConfiguration().GpusPerHost
 	scalingLimit := policy.ScalingConfiguration().ScalingLimit
+
+	limit := int32(math.Ceil(float64(load) * scalingLimit / float64(gpusPerHost))) // The maximum number of hosts we're permitted to scale-out to.
+
+	return limit, load
+}
+
+// multiReplicaTryScaleOut tries to scale-out and returns the limit and load values.
+func multiReplicaTryScaleOut(policy scheduling.Policy, cluster scheduling.Cluster, log logger.Logger) (int32, int32) {
+	scalingFactor := policy.ScalingConfiguration().ScalingFactor
+	gpusPerHost := policy.ScalingConfiguration().GpusPerHost
 	scalingBufferSize := policy.ScalingConfiguration().ScalingBufferSize
 	numReplicas := int32(policy.NumReplicas())
 
-	// minNumHosts := int32(math.Ceil(float64(load) / s.gpusPerHost))                      // The minimum number of hosts required to satisfy the Cluster's current committed GPUs.
+	// The minimum number of hosts required to satisfy the Cluster's current committed GPUs.
 	minNumHosts := policy.ScalingConfiguration().MinimumCapacity
-	scaledOutNumHosts := int32(math.Ceil(float64(load) * scalingFactor / float64(gpusPerHost))) // The number of hosts we would scale-out to based on the configured scaling factor.
-	limit := int32(math.Ceil(float64(load) * scalingLimit / float64(gpusPerHost)))              // The maximum number of hosts we're permitted to scale-out to.
+
+	limit, load := defaultComputeLimitAndLoad(policy, cluster)
+
+	// The number of hosts we would scale-out to based on the configured scaling factor.
+	scaledOutNumHosts := int32(math.Ceil(float64(load) * scalingFactor / float64(gpusPerHost)))
 
 	// Make some room for fluctuation.
 	//
@@ -116,12 +132,13 @@ func multiReplicaTryScaleOut(policy scheduling.Policy, cluster scheduling.Cluste
 	// to take advantage of reserved pricing.
 	if scaledOutNumHosts < (minNumHosts + scalingBufferSize) {
 		scaledOutNumHosts = minNumHosts + scalingBufferSize
-		log.Debug("Adjusted scaledOutNumHosts: %d.", scaledOutNumHosts)
 	}
 
-	if limit < minNumHosts+numReplicas { // Used to be minNumHosts + 4
+	// [02/03/2025] I added the clause 'minNumHosts < numReplicas'.
+	// The idea is that, if the minimum number of hosts is > the number of replicas,
+	// then we do not need to artificially increase the limit.
+	if minNumHosts < numReplicas && limit < minNumHosts+numReplicas { // Used to be minNumHosts + 4
 		limit = minNumHosts + numReplicas // Used to be minNumHosts + 4
-		log.Debug("Adjusted limit: %d.", limit)
 	}
 
 	log.Debug("Load (CommittedGPUs): %d. Current #Hosts: %d. Minimum #Hosts to Satisfy Load: %d. Target #Hosts: %d. Max Scaled-Out #Hosts: %d.",
@@ -179,9 +196,7 @@ func multiReplicaTryScaleOut(policy scheduling.Policy, cluster scheduling.Cluste
 // multiReplicaValidateCapacity will return immediately if the scheduling.Policy does not support
 // predictive auto-scaling (i.e., if policy.SupportsPredictiveAutoscaling() were to return false).
 func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.Cluster, log logger.Logger) {
-	defer func() {
-		cluster.Scheduler().SetLastCapacityValidation(time.Now())
-	}()
+	defer cluster.Scheduler().SetLastCapacityValidation(time.Now())
 
 	// Sanity check. The multiReplicaValidateCapacity function should only be called by
 	// policies that support predictive auto-scaling, but just in case...
@@ -191,5 +206,20 @@ func multiReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.C
 
 	limit, load := multiReplicaTryScaleOut(policy, cluster, log)
 
-	multiReplicaTryScaleIn(policy, cluster, log, limit, load)
+	defaultTryScaleIn(policy, cluster, log, limit, load)
+}
+
+// singleReplicaValidateCapacity is used by single-replica policies like Reservation and FCFS to scale up/down.
+func singleReplicaValidateCapacity(policy scheduling.Policy, cluster scheduling.Cluster, log logger.Logger) {
+	defer cluster.Scheduler().SetLastCapacityValidation(time.Now())
+
+	// Sanity check. The multiReplicaValidateCapacity function should only be called by
+	// policies that support predictive auto-scaling, but just in case...
+	if !policy.SupportsPredictiveAutoscaling() {
+		return
+	}
+
+	limit, load := defaultComputeLimitAndLoad(policy, cluster)
+
+	defaultTryScaleIn(policy, cluster, log, limit, load)
 }

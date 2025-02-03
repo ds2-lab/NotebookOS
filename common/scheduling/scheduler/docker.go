@@ -153,8 +153,14 @@ func (s *DockerScheduler) HostAdded(host scheduling.Host) {
 
 // HostRemoved is called by the Cluster when a Host is removed from the Cluster.
 func (s *DockerScheduler) HostRemoved(host scheduling.Host) {
+	idleHostIndex := host.GetIdx(IdleHostMetadataKey)
+	if idleHostIndex >= 0 {
+		s.log.Debug("Host %s (ID=%s) has a valid idle host index (\"%s\") of %d. Removing.",
+			host.GetNodeName(), host.GetID(), IdleHostMetadataKey, idleHostIndex)
+		heap.Remove(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
+	}
+
 	s.log.Debug("Host %s (ID=%s) has been removed.", host.GetNodeName(), host.GetID())
-	heap.Remove(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
 }
 
 // findCandidateHosts is a scheduler-specific implementation for finding candidate hosts for the given kernel.

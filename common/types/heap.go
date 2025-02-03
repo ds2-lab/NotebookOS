@@ -16,6 +16,8 @@ type HeapElement interface {
 	String() string
 
 	SetMeta(HeapElementMetadataKey, interface{})
+
+	GetMeta(HeapElementMetadataKey) interface{}
 }
 
 type HeapElementMetadataKey string
@@ -27,13 +29,19 @@ func (k HeapElementMetadataKey) String() string {
 type Heap struct {
 	Elements    []HeapElement
 	MetadataKey HeapElementMetadataKey
+
+	//log logger.Logger
 }
 
 func NewHeap(metadataKey HeapElementMetadataKey) *Heap {
-	return &Heap{
+	h := &Heap{
 		Elements:    make([]HeapElement, 0),
 		MetadataKey: metadataKey,
 	}
+
+	//config.InitLogger(&h.log, fmt.Sprintf("Heap[%s] ", metadataKey.String()))
+
+	return h
 }
 
 func (h *Heap) Len() int {
@@ -46,7 +54,8 @@ func (h *Heap) Less(i, j int) bool {
 }
 
 func (h *Heap) Swap(i, j int) {
-	// fmt.Printf("Swap %d, %d (%v, %v) of %d\n", i, j, h[i], h[j], len(h))
+	//h.log.Debug("Swapping elem %d and elem %d (%v, %v)\n", i, j, h.Elements[i], h.Elements[j])
+
 	h.Elements[i].SetIdx(h.MetadataKey, j)
 	h.Elements[j].SetIdx(h.MetadataKey, i)
 
@@ -60,6 +69,9 @@ func (h *Heap) Push(x interface{}) {
 	x.(HeapElement).SetIdx(h.MetadataKey, len(h.Elements))
 	x.(HeapElement).SetMeta(h.MetadataKey, int32(len(h.Elements)))
 	h.Elements = append(h.Elements, x.(HeapElement))
+
+	//h.log.Debug("Pushed element: %v. Assigned metadata and index (both with key \"%s\") to %d.",
+	//	x, h.MetadataKey, len(h.Elements))
 }
 
 func (h *Heap) Pop() interface{} {
@@ -68,6 +80,12 @@ func (h *Heap) Pop() interface{} {
 	ret := old[n-1]
 	old[n-1] = nil // avoid memory leak
 	h.Elements = old[0 : n-1]
+
+	//h.log.Debug("Popped element: %v. Updating metadata \"%s\" from %v to -1 and index \"%s\" from %v to -1. New heap size: %d.",
+	//	ret, h.MetadataKey, ret.(HeapElement).GetMeta(h.MetadataKey), h.MetadataKey, ret.(HeapElement).GetIdx(h.MetadataKey), h.Len())
+
+	ret.(HeapElement).SetIdx(h.MetadataKey, -1)
+	ret.(HeapElement).SetMeta(h.MetadataKey, -1)
 
 	// fmt.Printf("Popped value %v off of heap.\n", ret)
 	return ret

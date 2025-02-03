@@ -207,7 +207,7 @@ type ScalingConfiguration struct {
 	// UpdateRatio updates the subscription ratio, which is used to determine the ratio of subscribed GPUs
 	// to how many are actually being used (by actively-training kernel replicas).
 	// We use that information to inform if we should scale in or out.
-	ScalingIntervalSec int32
+	ScalingIntervalSec float64
 	ScalingInterval    time.Duration
 
 	// ScalingLimit defines how many hosts the cluster will provision at maximum based on busy TransactionResources.
@@ -242,8 +242,8 @@ func NewScalingConfiguration(opts *SchedulerOptions) *ScalingConfiguration {
 		GpusPerHost:                 gpusPerHost,
 		ScalingFactor:               opts.ScalingFactor,
 		MaximumHostsToReleaseAtOnce: int32(opts.MaximumHostsToReleaseAtOnce),
-		ScalingIntervalSec:          int32(opts.ScalingIntervalSec),
-		ScalingInterval:             time.Second * time.Duration(opts.ScalingIntervalSec),
+		ScalingIntervalSec:          opts.ScalingIntervalSec,
+		ScalingInterval:             time.Millisecond * time.Duration(1000*opts.ScalingIntervalSec),
 		ScalingLimit:                opts.ScalingLimit,
 		// PredictiveAutoscalingEnabled: opts.PredictiveAutoscalingEnabled,
 		ScalingBufferSize: int32(opts.ScalingBufferSize),

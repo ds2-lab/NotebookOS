@@ -154,17 +154,6 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 		kernelProvider:                           b.kernelProvider,
 		notificationBroker:                       b.notificationBroker,
 		schedulingPolicy:                         b.schedulingPolicy,
-		//gpusPerHost:                              float64(b.options.GpusPerHost),
-		//virtualGpusPerHost:                       int32(b.options.VirtualGpusPerHost),
-		//scalingFactor:                            b.options.ScalingFactor,
-		//scalingLimit:                             b.options.ScalingLimit,
-		//scalingInterval:                          time.Second * time.Duration(b.options.ScalingIntervalSec),
-		//maximumHostsToReleaseAtOnce:              int32(b.options.MaximumHostsToReleaseAtOnce),
-		//scalingIntervalSec:                       int32(b.options.ScalingIntervalSec),
-		//predictiveAutoscalingEnabled:             b.options.PredictiveAutoscalingEnabled,
-		//scalingBufferSize:                        int32(b.options.ScalingBufferSize),
-		//maximumCapacity:                          int32(b.options.MaximumNumNodes),
-		//minimumCapacity:                          int32(b.options.MinimumNumNodes),
 	}
 	config.InitLogger(&clusterScheduler.log, clusterScheduler)
 
@@ -204,7 +193,6 @@ type BaseScheduler struct {
 	placer             scheduling.Placer
 	kernelProvider     KernelProvider
 	notificationBroker NotificationBroker
-	policyKey          scheduling.PolicyKey
 
 	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
 	// kernels (or other resources) and could occur in-parallel (such as being triggered
@@ -268,6 +256,9 @@ type BaseScheduler struct {
 	lastSubscribedRatio    float64
 	pendingSubscribedRatio float64
 
+	// numCapacityValidations is a counter for the number of times we call scheduling.Policy::ValidateCapacity.
+	numCapacityValidations atomic.Int64
+
 	log logger.Logger
 }
 
@@ -304,7 +295,7 @@ func (s *BaseScheduler) SetHostSpec(spec types.Spec) {
 }
 
 func (s *BaseScheduler) PolicyKey() scheduling.PolicyKey {
-	return s.policyKey
+	return s.schedulingPolicy.PolicyKey()
 }
 
 func (s *BaseScheduler) Policy() scheduling.Policy {
@@ -791,15 +782,29 @@ func (s *BaseScheduler) UpdateRatio(skipValidateCapacity bool) bool {
 		s.log.Debug("Recomputed subscription ratio as %s.", s.subscriptionRatio.StringFixed(4))
 		s.rebalance(avg)
 
-		if !skipValidateCapacity && s.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec > 0 &&
-			time.Since(s.lastCapacityValidation) >= s.schedulingPolicy.ScalingConfiguration().ScalingInterval {
+		scalingInterval := s.schedulingPolicy.ScalingConfiguration().ScalingInterval
+		scalingIntervalSec := s.schedulingPolicy.ScalingConfiguration().ScalingIntervalSec
+		itHasBeenAWhileSinceLastCapacityValidation := time.Since(s.lastCapacityValidation) >= scalingInterval
+		if !skipValidateCapacity && scalingIntervalSec > 0 && itHasBeenAWhileSinceLastCapacityValidation {
+			s.log.Debug("Validating capacity.")
 
 			s.schedulingPolicy.ValidateCapacity(s.cluster)
+
+			s.numCapacityValidations.Add(1)
 		}
+
+		s.log.Debug("Time until next capacity validation: %v (interval=%v).",
+			scalingInterval-time.Since(s.lastCapacityValidation), scalingInterval)
 
 		return true
 	}
 	return false
+}
+
+// NumCapacityValidation returns the number of times that the BaseScheduler has validated the scheduling.Cluster's
+// host capacity (and potentially invoked the auto-scaling policy).
+func (s *BaseScheduler) NumCapacityValidation() int64 {
+	return s.numCapacityValidations.Load()
 }
 
 func (s *BaseScheduler) rebalance(newRatio float64) {
@@ -1569,15 +1574,14 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 	var released int
 	for i, host := range toBeReleased {
-		s.log.Debug("Releasing idle host %d/%d: Virtual Machine  %s. NumContainers: %d.",
-			i+1, len(toBeReleased), host.GetID(), host.NumContainers())
+		s.log.Debug("Releasing idle host %d/%d: host %s. NumContainers: %d.",
+			i+1, len(toBeReleased), host.GetNodeName(), host.NumContainers())
 
 		// If the host has no containers running on it at all, then we can simply release the host.
 		if host.NumContainers() > 0 {
 			err := s.migrateContainersFromHost(host, false) // Host is completely idle, so no training.
 			if err != nil {
-				s.log.Warn("Failed to migrate all kernels from host %s (ID=%s) because: %v",
-					host.GetNodeName(), host.GetID(), err)
+				s.log.Warn("Failed to migrate all kernels from host %s because: %v", host.GetNodeName(), err)
 
 				s.includeHostsInScheduling(toBeReleased[i:])
 
@@ -1587,7 +1591,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 
 		err := s.RemoveHost(host.GetID())
 		if err != nil {
-			s.log.Error("Failed to remove host %s (ID=%s) because: %v", host.GetNodeName(), host.GetID(), err)
+			s.log.Error("Failed to remove host %s because: %v", host.GetNodeName(), err)
 
 			s.includeHostsInScheduling(toBeReleased[i:])
 
@@ -1595,7 +1599,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 		}
 
 		released += 1
-		s.log.Debug("Successfully released idle host %d/%d: Virtual Machine  %s.", i+1, len(toBeReleased), host.GetID())
+		s.log.Debug("Successfully released idle host %d/%d: host %s.", i+1, len(toBeReleased), host.GetNodeName())
 	}
 
 	return released, nil

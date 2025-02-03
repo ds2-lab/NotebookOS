@@ -70,7 +70,11 @@ func (s *KubernetesScheduler) HostAdded(host scheduling.Host) {
 
 // HostRemoved is called by the Cluster when a Host is removed from the Cluster.
 func (s *KubernetesScheduler) HostRemoved(host scheduling.Host) {
-	heap.Remove(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
+	idleHostIndex := host.GetIdx(IdleHostMetadataKey)
+	if idleHostIndex >= 0 {
+		heap.Remove(s.idleHosts, host.GetIdx(IdleHostMetadataKey))
+	}
+
 	s.log.Debug("Host %s (ID=%s) has been removed. Cluster size: %d. Length of idle hosts: %d",
 		host.GetNodeName(), host.GetID(), s.cluster.Len(), s.idleHosts.Len())
 }
