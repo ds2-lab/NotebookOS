@@ -16,8 +16,8 @@ const (
 
 type HostPool[T scheduling.ClusterIndex] struct {
 	Pool       T
-	PoolNumber int32
 	Identifier string
+	PoolNumber int32
 }
 
 func NewHostPool[T scheduling.ClusterIndex](pool T, poolNumber int32) *HostPool[T] {
@@ -91,30 +91,15 @@ func initializeHostPoolsDefault[T scheduling.ClusterIndex](numPools int32, index
 // The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
 // For example, LeastLoadedIndex, StaticIndex, RandomClusterIndex, etc.
 type MultiIndex[T scheduling.ClusterIndex] struct {
-	// FreeHosts are scheduling.Host instances that have not been placed into a particular HostPool yet.
-	FreeHosts *queue.Fifo[scheduling.Host]
-
-	// FreeHostsMap is used to keep track of the scheduling.Host instances that are in the FreeHosts queue.
-	FreeHostsMap map[string]scheduling.Host
-
-	// HostPools is a map from pool index to a scheduling.ClusterIndex.
-	HostPools map[int32]*HostPool[T]
-
-	// IndexProvider provides the individual indices used by a MultiIndex.
-	IndexProvider Provider[T]
-
-	// HostGroupsInitialized indicates whether the host pools have been initialized.
+	log                   logger.Logger
+	FreeHosts             *queue.Fifo[scheduling.Host]
+	FreeHostsMap          map[string]scheduling.Host
+	HostPools             map[int32]*HostPool[T]
+	IndexProvider         Provider[T]
+	HostIdToHostPool      map[string]*HostPool[T]
+	Size                  int
+	mu                    sync.Mutex
 	HostGroupsInitialized bool
-
-	// HostIdToHostPool is a mapping from Host ID to the Host Pool in which the Host is contained.
-	HostIdToHostPool map[string]*HostPool[T]
-
-	// Size encodes the total number of scheduling.Host instances contained within this MultiIndex.
-	// Size includes scheduling.Host instances in FreeHosts as well as those in the HostPools.
-	Size int
-
-	log logger.Logger
-	mu  sync.Mutex
 }
 
 // NewMultiIndexWithHostPoolInitializer creates and returns a new MultiIndex.
