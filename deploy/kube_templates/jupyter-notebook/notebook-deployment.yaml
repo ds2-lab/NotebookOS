@@ -28,7 +28,7 @@ spec:
             - start-notebook.sh
             - --NotebookApp.token=
             - --log-level=DEBUG
-          image: scusemua/jupyter:latest
+          image: scusemua/jupyter-gpu:latest
           name: jupyter-notebook
           ports:
             - containerPort: 8888

@@ -9,7 +9,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/status"
 	"strings"
 	"sync/atomic"
@@ -67,11 +66,6 @@ func newDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 
 	dockerScheduler.dockerModeKernelDebugPort.Store(DockerKernelDebugPortDefault)
 
-	err := dockerScheduler.refreshClusterNodes()
-	if err != nil {
-		dockerScheduler.log.Error("Initial retrieval of Docker nodes failed: %v", err)
-	}
-
 	return dockerScheduler, nil
 }
 
@@ -86,11 +80,6 @@ func NewDockerScheduler(cluster scheduling.Cluster, placer scheduling.Placer, ho
 	}
 
 	dockerScheduler.BaseScheduler.instance = dockerScheduler
-
-	err = dockerScheduler.refreshClusterNodes()
-	if err != nil {
-		dockerScheduler.log.Error("Initial retrieval of Docker nodes failed: %v", err)
-	}
 
 	return dockerScheduler, nil
 }
@@ -136,7 +125,7 @@ func (s *DockerScheduler) selectViableHostForReplica(replicaSpec *proto.KernelRe
 		blacklist = append(blacklist, host)
 	}
 
-	host, err := s.placer.FindHost(blacklist, replicaSpec.Kernel, forTraining)
+	host, err := s.placer.FindHost(blacklist, replicaSpec, forTraining)
 	if err != nil {
 		s.log.Error("Error while finding host for replica %d of kernel %s: %v",
 			replicaSpec.ReplicaId, replicaSpec.Kernel.Id, err)
@@ -343,7 +332,7 @@ func (s *DockerScheduler) scheduleKernelReplicas(in *proto.KernelSpec, hosts []s
 func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	st := time.Now()
 
-	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. Resources required: %s.",
+	s.log.Debug("Preparing to search for %d hosts to serve replicas of kernel %s. TransactionResources required: %s.",
 		s.schedulingPolicy.NumReplicas(), in.Id, in.ResourceSpec.String())
 
 	deadline, ok := ctx.Deadline()
@@ -367,9 +356,9 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.Ke
 	for len(responsesReceived) < responsesRequired {
 		select {
 		// Context time-out, meaning the operation itself has timed-out or been cancelled.
-		// TODO: We ultimately need to handle this somehow, as we'll have allocated Resources to the kernel replicas
+		// TODO: We ultimately need to handle this somehow, as we'll have allocated TransactionResources to the kernel replicas
 		// 		 on the hosts that we selected. If this operation fails or times-out, then we need to potentially
-		//		 terminate the replicas that we know were scheduled successfully and release the Resources on those hosts.
+		//		 terminate the replicas that we know were scheduled successfully and release the TransactionResources on those hosts.
 		case <-ctx.Done():
 			{
 				err := ctx.Err()
@@ -429,7 +418,7 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.Ke
 					}
 				}
 
-				// TODO: kill orphaned replicas so that they don't just sit there, taking up Resources unnecessarily.
+				// TODO: kill orphaned replicas so that they don't just sit there, taking up TransactionResources unnecessarily.
 				if len(responsesReceived) > 0 {
 					s.log.Error("Scheduling of kernel %s has failed after %v. Only managed to schedule replicas %s (%d/%d).",
 						in.Id, time.Since(st), replicasScheduledBuilder.String(), len(responsesReceived), responsesRequired)
@@ -467,120 +456,6 @@ func (s *DockerScheduler) DeployKernelReplicas(ctx context.Context, in *proto.Ke
 
 	s.log.Debug("Successfully scheduled all %d replica(s) of kernel %s in %v.",
 		s.schedulingPolicy.NumReplicas(), in.Id, time.Since(st))
-
-	return nil
-}
-
-// pollForResourceData queries each Host in the Cluster for updated resource usage information.
-// These queries are issued at a configurable frequency specified in the Cluster Gateway's configuration file.
-func (s *DockerScheduler) pollForResourceData() {
-	// Keep track of failed gRPC requests.
-	// If too many requests fail in a row, then we'll assume that the Host is dead.
-	numConsecutiveFailuresPerHost := make(map[string]int)
-	lastSync := time.Now()
-
-	for {
-		s.cluster.ReadLockHosts()
-
-		// If we've forcibly synchronized this Host recently (i.e., within half the synchronization interval ago),
-		// then we'll just skip it to save network bandwidth.
-
-		// This should be approximately equal to s.remoteSynchronizationInterval
-		timeSinceLastSync := time.Since(lastSync)
-
-		// ts is the time exactly "a quarter of the interval since the last synchronization" ago.
-		// So, if we last synchronized 16 min ago, then ts is equal to whatever time it was 4 min ago.
-		ts := time.Now().Add(-1 * time.Duration(float64(timeSinceLastSync)*0.25))
-
-		hosts := make([]scheduling.Host, 0, s.cluster.Len())
-		s.cluster.RangeOverHosts(func(_ string, host scheduling.Host) (contd bool) {
-			// If we've not synchronized this host within the last <interval of time since last sync> / 4,
-			// then we'll synchronize it again now.
-			//
-			// So, for example, if the last round of synchronizations was 16 minutes ago, then we'll synchronize
-			// this Host now as long as we've not done so within the last 4 minutes.
-			if host.GetLastRemoteSync().Before(ts) {
-				hosts = append(hosts, host)
-			}
-			return true
-		})
-		s.cluster.ReadUnlockHosts()
-
-		for _, host := range hosts {
-			hostId := host.GetID()
-			err := host.SynchronizeResourceInformation()
-			if err != nil {
-				var (
-					numConsecutiveFailures int
-					ok                     bool
-				)
-				if numConsecutiveFailures, ok = numConsecutiveFailuresPerHost[hostId]; !ok {
-					numConsecutiveFailures = 0
-				}
-
-				numConsecutiveFailures += 1
-				numConsecutiveFailuresPerHost[hostId] = numConsecutiveFailures
-
-				s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s (consecutive: %d): %v",
-					hostId, host.GetNodeName(), numConsecutiveFailures, err)
-
-				// If we've failed 3 or more consecutive times, then we may just assume that the scheduler is dead.
-				if numConsecutiveFailures >= ConsecutiveFailuresWarning {
-					// If the gRPC connection to the scheduler is in the transient failure or shutdown state, then we'll just assume it is dead.
-					if host.GetConnectionState() == connectivity.TransientFailure || host.GetConnectionState() == connectivity.Shutdown {
-						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, and gRPC client connection is in state %v. Assuming scheduler %s is dead.",
-							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String(), host.GetID())
-						s.log.Error(errorMessage)
-						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "Local Daemon Connectivity Error", errorMessage)
-					} else if numConsecutiveFailures >= ConsecutiveFailuresBad {
-						// If we've failed 5 or more times, then we'll assume it is dead regardless of the state of the gRPC connection.
-						errorMessage := fmt.Sprintf("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s. Although gRPC client connection is in state %v, we're assuming scheduler %s is dead.",
-							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String(), host.GetID())
-						s.log.Error(errorMessage)
-						_ = host.ErrorCallback()(host.GetID(), host.GetNodeName(), "Local Daemon Connectivity Error", errorMessage)
-					} else {
-						// Otherwise, we won't assume it is dead yet...
-						s.log.Warn("Failed %d consecutive times to retrieve GPU info from Local Daemon %s on node %s, but gRPC client connection is in state %v. Not assuming scheduler is dead yet...",
-							numConsecutiveFailures, host.GetID(), host.GetNodeName(), host.GetConnectionState().String())
-					}
-				}
-			} else {
-				// We succeeded, so reset the consecutive failure counter, in case it is non-zero.
-				numConsecutiveFailuresPerHost[hostId] = 0
-			}
-		}
-
-		lastSync = time.Now()
-		time.Sleep(s.remoteSynchronizationInterval)
-	}
-}
-
-// refreshClusterNodes updates the cached list of Host nodes.
-// Returns nil on success; returns an error on one or more failures.
-// If there are multiple failures, then their associated errors will be joined together via errors.Join(...).
-func (s *DockerScheduler) refreshClusterNodes() error {
-	s.cluster.ReadLockHosts()
-	hosts := make([]scheduling.Host, 0, s.cluster.Len())
-	s.cluster.RangeOverHosts(func(_ string, host scheduling.Host) (contd bool) {
-		hosts = append(hosts, host)
-		return true
-	})
-	s.cluster.ReadUnlockHosts()
-
-	errs := make([]error, 0)
-	for _, host := range hosts {
-		hostId := host.GetID()
-		err := host.SynchronizeResourceInformation()
-		if err != nil {
-			s.log.Error("Failed to refresh resource usage information from Local Daemon %s on Node %s: %v",
-				hostId, host.GetNodeName(), err)
-			errs = append(errs, err)
-		}
-	}
-
-	if len(errs) > 1 {
-		return errors.Join(errs...)
-	}
 
 	return nil
 }

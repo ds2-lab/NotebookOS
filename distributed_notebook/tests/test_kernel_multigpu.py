@@ -130,7 +130,7 @@ async def create_kernel(
         persistent_id: Optional[str] = None,
         resource_request: Optional[Dict[str, Any]] = None,
         remote_storage_definitions: Optional[Dict[str, Any]] = None,
-        use_real_gpus: bool = False,
+        simulate_training_using_sleep: bool = False,
         smr_enabled: bool = True,
         **kwargs
 ) -> DistributedKernel:
@@ -161,7 +161,7 @@ async def create_kernel(
         "local_tcp_server_port": local_tcp_server_port,
         "persistent_id": persistent_id,
         "simulate_checkpointing_latency": simulate_checkpointing_latency,
-        "use_real_gpus": use_real_gpus,
+        "simulate_training_using_sleep": simulate_training_using_sleep,
         "smr_enabled": smr_enabled,
     }
 
@@ -395,7 +395,7 @@ async def perform_training(
         pod_name="TestPod",
         node_name="TestNode",
         debug_port=-1,
-        use_real_gpus=True,
+        simulate_training_using_sleep=False,
         remote_storage="local",
         smr_enabled=True,
     )

@@ -30,7 +30,7 @@ ipython-config-path: /home/jovyan/.ipython/profile_default/ipython_config.json
 kube-namespace: default
 use-stateful-set: false
 device-plugin-path: /var/lib/kubelet/device-plugins/
-notebook-image-name: scusemua/jupyter
+notebook-image-name: scusemua/jupyter-cpu:latest
 notebook-image-tag: latest
 idle-session-reclamation-policy: none
 scheduling-policy: static
@@ -43,7 +43,7 @@ scaling-limit: 1.15
 scaling-in-limit: 2
 predictive_autoscaling: false
 scaling-buffer-size: 3
-min_cluster_nodes: 12
+min_cluster_nodes: 6
 max_cluster_nodes: 48
 gpus-per-host: 8
 local_mode: false
@@ -71,3 +71,4 @@ starting_resource_port: 9007
 num_resource_ports: 4096
 use_real_gpus: false
 assign_kernel_debug_ports: false
+submit_execute_requests_one_at_a_time: true

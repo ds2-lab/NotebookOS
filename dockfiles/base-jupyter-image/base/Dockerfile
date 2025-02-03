@@ -1,5 +1,4 @@
 FROM quay.io/jupyter/base-notebook:latest
-# FROM quay.io/jupyter/scipy-notebook:latest
 
 # IMPORTANT: This is expected to be built using the provided Makefile from the build context ../.. 
 
@@ -52,18 +51,9 @@ RUN mkdir -p /storage && chown jovyan:users /storage
 # For debugging.
 RUN apt-get update && apt-get install iputils-ping dnsutils unzip vim gdb screen sox -y
 
-ADD dockfiles/base-jupyter-image/distributed_notebooks_requirements.txt /home/jovyan/distributed_notebook_requirements.txt
-
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install torch torchdata torchaudio transformers datasets sox librosa
-
-RUN /home/jovyan/Python-3.12.6/debug/python -m pip install -r /home/jovyan/distributed_notebook_requirements.txt
-
 # Install Golang for debugging.
 RUN cd /tmp && wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
 
 RUN mkdir /cores
-RUN chmod -R 777 /cores 
+RUN chmod -R 777 /cores
 RUN chown jovyan /cores
-
-# Update path.
-ENV PATH=/usr/local/go/bin:/usr/local/bin:/opt/conda/condabin:/opt/conda/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin

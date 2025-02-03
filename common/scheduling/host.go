@@ -3,7 +3,6 @@ package scheduling
 import (
 	"fmt"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"github.com/shopspring/decimal"
@@ -47,25 +46,27 @@ type Host interface {
 	SchedulerPoolType() SchedulerPoolType
 	GetResourceSpec() types.Spec
 	IsProperlyInitialized() bool
-	GetLatestGpuInfo() *proto.GpuInfo
+
 	SetSchedulerPoolType(schedulerPoolType SchedulerPoolType)
 	SetIdx(types.HeapElementMetadataKey, int)
 	GetIdx(types.HeapElementMetadataKey) int
 	Compare(h2 interface{}) float64
 	RecomputeSubscribedRatio() decimal.Decimal
-	LastResourcesSnapshot() types.HostResourceSnapshot[types.ArbitraryResourceSnapshot]
 	SubscribedRatio() float64
 	SubscribedRatioAsDecimal() decimal.Decimal
 	OversubscriptionFactor() decimal.Decimal
 	ToVirtualDockerNode() *proto.VirtualDockerNode
 	NumContainers() int
 	NumReservations() int
-	SynchronizeResourceInformation() error
 	PlacedMemoryMB() decimal.Decimal
 	PlacedGPUs() decimal.Decimal
 	PlacedVRAM() decimal.Decimal
 	PlacedCPUs() decimal.Decimal
 	WillBecomeTooOversubscribed(resourceRequest types.Spec) bool
+
+	// NumActiveSchedulingOperations returns the number of scheduling operations in which the target Host
+	// is presently being considered.
+	NumActiveSchedulingOperations() int32
 
 	// CanServeContainerWithError returns nil if the target Host can serve the resource request.
 	//
@@ -94,6 +95,12 @@ type Host interface {
 	//
 	// If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
 	ReserveResources(spec *proto.KernelSpec, usePendingResources bool) (bool, error)
+
+	// ReserveResourcesForSpecificReplica attempts to reserve the resources required by the specified kernel replica,
+	// returning a boolean flag indicating whether the resource reservation was completed successfully.
+	//
+	// If the Host is already hosting a replica of this kernel, then ReserveResources immediately returns false.
+	ReserveResourcesForSpecificReplica(replicaSpec *proto.KernelReplicaSpec, usePendingResources bool) (bool, error)
 
 	// PreCommitResources pre-commits resources to the given KernelContainer.
 	//
@@ -137,15 +144,17 @@ type Host interface {
 	// the de-allocation request if it is outdated.
 	ReleasePreCommitedResources(container KernelContainer, executionId string) error
 
-	// KernelAdjustedItsResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
+	// AdjustKernelResourceRequest when the ResourceSpec of a KernelContainer that is already scheduled on this
 	// Host is updated or changed. This ensures that the Host's resource counts are up to date.
-	KernelAdjustedItsResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer) error
+	AdjustKernelResourceRequest(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer) error
 
-	// KernelAdjustedItsResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
+	// AdjustKernelResourceRequestCoordinated when the ResourceSpec of a KernelContainer that is already scheduled on
 	// this Host is updated or changed. This ensures that the Host's resource counts are up to date.
 	//
 	// This version runs in a coordination fashion and is used when updating the resources of multi-replica kernels.
-	KernelAdjustedItsResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer, coordinatedTransaction *transaction.CoordinatedTransaction) error
+	AdjustKernelResourceRequestCoordinated(updatedSpec types.Spec, oldSpec types.Spec, container KernelContainer,
+		tx CoordinatedTransaction) error
+
 	Restore(restoreFrom Host, callback ErrorCallback) error
 	Enabled() bool
 	Enable(includeInScheduling bool) error
@@ -153,12 +162,15 @@ type Host interface {
 	ContainerStoppedTraining(container KernelContainer) error
 	ContainerStartedTraining(container KernelContainer) error
 	ContainerRemoved(container KernelContainer) error
-	ContainerScheduled(container KernelContainer) error
+	// ContainerStartedRunningOnHost is to be called when a Container officially begins running on the target Host.
+	ContainerStartedRunningOnHost(container KernelContainer) error
 	ErrorCallback() ErrorCallback
 	SetErrorCallback(callback ErrorCallback)
 	Penalty(gpus float64) (float64, PreemptionInfo, error)
 	HasAnyReplicaOfKernel(kernelId string) bool
 	HasReservationForKernel(kernelId string) bool
+	// HasResourcesCommittedToKernel returns true if the Host has resources committed to a replica of the specified kernel.
+	HasResourcesCommittedToKernel(kernelId string) bool
 	HasSpecificReplicaOfKernel(kernelId string, replicaId int32) bool
 	GetAnyReplicaOfKernel(kernelId string) KernelContainer
 	GetSpecificReplicaOfKernel(kernelId string, replicaId int32) KernelContainer
@@ -169,7 +181,7 @@ type Host interface {
 	TimeSinceLastSynchronizationWithRemote() time.Duration
 
 	// GetReservation returns the scheduling.ResourceReservation associated with the specified kernel, if one exists.
-	GetReservation(kernelId string) (ResourceReservation, bool)
+	GetReservation(kernelId string) (Allocation, bool)
 	GetMeta(key types.HeapElementMetadataKey) interface{}
 	Priority(session UserSession) float64
 
@@ -198,17 +210,35 @@ type Host interface {
 
 	// GetResourceCountsAsString returns the current resource counts of the Host as a string and is useful for printing.
 	GetResourceCountsAsString() string
+}
+
+// UnitTestingHost is a wrapper around Host that exposes some additional methods that allow for the direct
+// manipulation of the Host's resources. This is useful for unit testing and not much else.
+//
+// UnitTestingHost is a wrapper around Host much like how UnitTestingAllocationManager is a wrapper around AllocationManager.
+type UnitTestingHost interface {
+	Host
 
 	// AddToPendingResources is only meant to be used during unit tests.
 	AddToPendingResources(spec *types.DecimalSpec) error
+
 	// AddToCommittedResources is only intended to be used during unit tests.
 	AddToCommittedResources(spec *types.DecimalSpec) error
+
 	// SubtractFromIdleResources is only intended to be used during unit tests.
 	SubtractFromIdleResources(spec *types.DecimalSpec) error
+
 	// SubtractFromCommittedResources is only intended to be used during unit tests.
 	SubtractFromCommittedResources(spec *types.DecimalSpec) error
+
 	// AddToIdleResources is only intended to be used during unit tests.
 	AddToIdleResources(spec *types.DecimalSpec) error
+
+	// AllocationManager returns the AllocationManager that manages the resources of the target UnitTestingHost.
+	AllocationManager() AllocationManager
+
+	// AddGpuDeviceIds makes the specified GPU device IDs available for allocation on the target UnitTestingHost.
+	AddGpuDeviceIds([]int)
 }
 
 type HostStatistics interface {

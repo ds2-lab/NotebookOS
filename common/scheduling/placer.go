@@ -8,7 +8,7 @@ import (
 // Placer defines the interface for a placer that is responsible for:
 // 1. Finding hosts that can satisfy the resourceSpec.
 //   - A host satisfies the resourceSpec as long as the over-subscription rate is below a threshold given the assumption that an interactive session:
-//     i. requires minimum Resources to restore the runtime state.
+//     i. requires minimum TransactionResources to restore the runtime state.
 //     ii. has multiple replicas as candidates to meet the resource requirement.
 //
 // 2. Placing a replica on a host.
@@ -22,7 +22,7 @@ type Placer interface {
 
 	// FindHost returns a host that can satisfy the resourceSpec.
 	// This method is provided for development. Implementation are not required to implement this method.
-	FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) (Host, error)
+	FindHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (Host, error)
 
 	// Place atomically places a replica on a host.
 	// The subscription rate of the host will be checked before placing the replica. If the rate is above the threshold, a new host will be launched to place the replica.
@@ -50,6 +50,18 @@ type Placer interface {
 
 	// GetIndex returns the placer's index.ClusterIndex.
 	GetIndex() ClusterIndex
+
+	// ReserveResourcesForReplica is used to instruct the scheduling.Placer to explicitly reserve resources for a
+	// particular KernelReplica of a particular Kernel.
+	//
+	// The primary use case for ReserveResourcesForReplica is when a specific KernelReplica is specified to serve as
+	// the primary replica within the metadata of an "execute_request" message. This may occur because the user
+	// explicitly placed that metadata there, or following a migration when the ClusterGateway has a specific
+	// replica that should be able to serve the execution request.
+	//
+	// PRECONDITION: The specified KernelReplica should already be scheduled on the Host on which the resources are
+	// to be reserved.
+	ReserveResourcesForReplica(kernel Kernel, replica KernelReplica, commitResources bool) error
 }
 
 type PlacerStats interface {

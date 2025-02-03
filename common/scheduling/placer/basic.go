@@ -94,9 +94,10 @@ func (placer *BasicPlacer) findHosts(blacklist []interface{}, spec *proto.Kernel
 		err   error
 	)
 
-	// Create a wrapper around the 'resourceReserver' field so that it can be called by the index.
+	// Create a wrapper around the 'kernelResourceReserver' field so that it can be called by the index.
 	reserveResources := func(candidateHost scheduling.Host) bool {
-		return placer.resourceReserver(candidateHost, spec, forTraining)
+		reserved, _ := placer.kernelResourceReserver(candidateHost, spec, forTraining)
+		return reserved
 	}
 
 	// Seek `numHosts` Hosts from the Placer's index.
@@ -106,20 +107,33 @@ func (placer *BasicPlacer) findHosts(blacklist []interface{}, spec *proto.Kernel
 }
 
 // FindHost returns a single host that can satisfy the resourceSpec.
-func (placer *BasicPlacer) findHost(blacklist []interface{}, spec *proto.KernelSpec, forTraining bool,
+func (placer *BasicPlacer) findHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool,
 	metrics ...[]float64) (scheduling.Host, error) {
 
-	hosts, err := placer.findHosts(blacklist, spec, 1, forTraining, metrics...)
+	// Our index will expect the first metric to be the number of GPUs.
+	metrics = append([][]float64{{replicaSpec.ResourceSpec().GPU()}}, metrics...)
 
-	if err != nil {
-		placer.log.Error("Error while finding hosts for replica of kernel %s: %v", spec.Id, err)
-		return nil, err
+	var (
+		pos   interface{}
+		hosts []scheduling.Host
+		// err   error
+	)
+
+	// Create a wrapper around the 'kernelResourceReserver' field so that it can be called by the index.
+	reserveResources := func(candidateHost scheduling.Host) bool {
+		reserved, _ := placer.replicaResourceReserver(candidateHost, replicaSpec, forTraining)
+		return reserved
 	}
 
-	if hosts == nil || len(hosts) == 0 {
+	// Seek `numHosts` Hosts from the Placer's index.
+	hosts, _, _ /* err */ = placer.index.SeekMultipleFrom(pos, 1, reserveResources, blacklist, metrics...)
+
+	if len(hosts) == 0 {
+		// TODO: Why don't we return an error?
 		return nil, nil
 	}
 
+	// TODO: Why don't we return an error?
 	return hosts[0], nil
 }
 

@@ -15,7 +15,7 @@ services:
     build: 
       context: ../..
       dockerfile: dockfiles/cpu-python3-arm64/Dockerfile
-    image: scusemua/jupyter:latest
+    image: scusemua/jupyter-gpu:latest
     deploy:
       labels:
         app: "distributed_cluster"
@@ -43,7 +43,7 @@ services:
   daemon:
     environment:
       - KERNEL_TEMP_BASE_IN_CONTAINER=/kernel_base
-      - KERNEL_IMAGE=scusemua/jupyter:latest
+      - KERNEL_IMAGE=scusemua/jupyter-gpu:latest
       - KERNEL_NETWORK=local_daemon_default
       - HOST_MOUNT_DIR=/home/$USER/kernel_base
       - TARGET_MOUNT_DIR=/kernel_base

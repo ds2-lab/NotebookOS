@@ -120,13 +120,13 @@ func (p *RedisProvider) WriteDataDirectory(serializedState []byte, datadir strin
 		return err
 	}
 
-	// Write the WAL directory to HDFS.
+	// Write the WAL directory to Redis.
 	walDirectoryPaths, walDirErr := p.writeLocalDirectoryToRedis(waldir)
 	if walDirErr != nil {
 		return walDirErr
 	}
 
-	// Write the snapshot directory to HDFS.
+	// Write the snapshot directory to Redis.
 	snapDirectoryPaths, snapDirErr := p.writeLocalDirectoryToRedis(snapdir)
 	if snapDirErr != nil {
 		return snapDirErr
@@ -157,7 +157,7 @@ func (p *RedisProvider) WriteDataDirectory(serializedState []byte, datadir strin
 func (p *RedisProvider) writeLocalDirectoryToRedis(targetDirectory string) ([]interface{}, error) {
 	paths := make([]interface{}, 0)
 
-	// Walk through the entire etcd-raft data directory, copying each file one-at-a-time to HDFS.
+	// Walk through the entire etcd-raft data directory, copying each file one-at-a-time to Redis.
 	walkdirErr := filepath.WalkDir(targetDirectory, func(path string, d os.DirEntry, errArg error) error {
 		// Note: the first entry found is the base directory passed to filepath.WalkDir (p.data_dir in this case).
 		if d.IsDir() {
@@ -193,7 +193,7 @@ func (p *RedisProvider) writeLocalDirectoryToRedis(targetDirectory string) ([]in
 			prefixedPath := fmt.Sprintf("%s%s", filePrefix, path)
 			paths = append(paths, prefixedPath)
 
-			p.logger.Info(fmt.Sprintf("Successfully copied local file to HDFS: '%s'", path), zap.String("file", path))
+			p.logger.Info(fmt.Sprintf("Successfully copied local file to Redis: '%s'", path), zap.String("file", path))
 		}
 		return nil
 	})
@@ -213,6 +213,9 @@ func (p *RedisProvider) writeSerializedState(datadir string, serializedState []b
 			zap.String("redis_key", redisKey),
 			zap.Error(err))
 	}
+
+	p.logger.Debug("Successfully wrote serialized state to Redis.",
+		zap.String("redis_key", redisKey))
 
 	return err
 }

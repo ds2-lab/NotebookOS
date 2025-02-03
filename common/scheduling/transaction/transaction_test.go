@@ -5,13 +5,14 @@ import (
 	"fmt"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
 )
 
 var _ = Describe("Transaction Tests", func() {
 	It("Should commit participants that would not result in invalid resource counts", func() {
-		operation := func(s *transaction.State) {
+		operation := func(s scheduling.TransactionState) {
 			s.PendingResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 			s.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 
@@ -46,7 +47,7 @@ var _ = Describe("Transaction Tests", func() {
 	})
 
 	It("Should reject participants that would result in invalid resource counts", func() {
-		operation := func(state *transaction.State) {
+		operation := func(state scheduling.TransactionState) {
 			state.PendingResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 			state.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 
@@ -76,8 +77,10 @@ var _ = Describe("Transaction Tests", func() {
 		fmt.Printf("Post-operation: %s\n", container.GetResourceCountsAsString())
 
 		Expect(err).ToNot(BeNil())
-		Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
-		Expect(errors.Is(err, transaction.ErrNegativeResourceCount)).To(BeTrue())
+		var txFailedError transaction.ErrTransactionFailed
+		Expect(errors.As(err, &txFailedError)).To(BeTrue())
+		Expect(txFailedError).ToNot(BeNil())
+		Expect(errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount)).To(BeTrue())
 
 		Expect(idle.Equals(container.Idle)).To(BeTrue())
 		Expect(pending.Equals(container.Pending)).To(BeTrue())

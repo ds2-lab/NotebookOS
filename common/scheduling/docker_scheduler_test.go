@@ -31,7 +31,7 @@ import (
 )
 
 var (
-	optsAsJson = `{
+	dockerSchedulerTestOpsAsJson = `{
 	"logger_options": {
 		"Debug": true,
 		"Verbose": false
@@ -55,13 +55,17 @@ var (
 		"cluster_scheduler_options": {
 			"num-virtual-gpus-per-node": 72,
 			"subscribed-ratio-update-interval": 1,
+			"mean_scale_out_per_host_sec": 1.0,
+			"std_dev_scale_out_per_host_sec": 0.0,
+			"mean_scale_in_per_host_sec": 1.0,
+			"std_dev_scale_in_per_host_sec": 0.0,
 			"scaling-factor": 1.05,
 			"scaling-interval": 15,
 			"scaling-limit": 1.1,
 			"scaling-in-limit": 2,
 			"predictive_autoscaling": false,
 			"scaling-buffer-size": 3,
-			"min_cluster_nodes": 4,
+			"min_cluster_nodes": 24,
 			"max_cluster_nodes": 32,
 			"gpu_poll_interval": 5,
 			"num-replicas": 3,
@@ -94,7 +98,7 @@ var (
 	"global-daemon-service-port": 0,
 	"kubernetes-namespace": "",
 	"use-stateful-set": false,
-	"notebook-image-name": "scusemua/jupyter",
+	"notebook-image-name": "scusemua/jupyter-gpu",
 	"notebook-image-tag": "latest",
 	"distributed-cluster-service-port": 8079,
 	"remote-docker-event-aggregator-port": 5821,
@@ -117,7 +121,7 @@ func (m *dockerSchedulerTestHostMapper) GetHostsOfKernel(kernelId string) ([]sch
 	return nil, nil
 }
 
-func addHost(idx int, hostSpec types.Spec, disableHost bool, cluster scheduling.Cluster, mockCtrl *gomock.Controller) (scheduling.Host, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
+func addHost(idx int, hostSpec types.Spec, disableHost bool, cluster scheduling.Cluster, mockCtrl *gomock.Controller) (scheduling.UnitTestingHost, *mock_proto.MockLocalGatewayClient, *distNbTesting.ResourceSpoofer, error) {
 	hostId := uuid.NewString()
 	nodeName := fmt.Sprintf("TestNode%d", idx)
 	resourceSpoofer := distNbTesting.NewResourceSpoofer(nodeName, hostId, hostSpec)
@@ -142,27 +146,30 @@ func addHost(idx int, hostSpec types.Spec, disableHost bool, cluster scheduling.
 	return host, localGatewayClient, resourceSpoofer, err
 }
 
-var _ = Describe("Docker Swarm Scheduler Tests", func() {
+var _ = Describe("Docker Scheduler Tests", func() {
 	var (
 		mockCtrl        *gomock.Controller
 		dockerScheduler *scheduler.DockerScheduler
 		dockerCluster   scheduling.Cluster
 		clusterPlacer   scheduling.Placer
-		// hostMapper      scheduler.HostMapper
-		opts *domain.ClusterGatewayOptions
+		hostSpec        *types.DecimalSpec
+		opts            *domain.ClusterGatewayOptions
 
 		kernelProvider *mock_scheduler.MockKernelProvider
 		hostMapper     *mock_scheduler.MockHostMapper
 		// notificationBroker *mock_scheduler.MockNotificationBroker
 	)
 
-	hostSpec := types.NewDecimalSpec(8000, 64000, 8, 32)
-
 	BeforeEach(func() {
-		err := json.Unmarshal([]byte(optsAsJson), &opts)
+		hostSpec = types.NewDecimalSpec(8000, 64000, 8, 32)
+
+		err := json.Unmarshal([]byte(dockerSchedulerTestOpsAsJson), &opts)
 		if err != nil {
 			panic(err)
 		}
+
+		//optsStr, _ := json.MarshalIndent(&opts, "", "  ")
+		//fmt.Printf("%s\n", optsStr)
 	})
 
 	Context("Static Scheduling", func() {
@@ -180,6 +187,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			Expect(schedulingPolicy.NumReplicas()).To(Equal(3))
 			Expect(schedulingPolicy.Name()).To(Equal("Static Scheduling"))
 
+			Expect(opts.MeanScaleInPerHostSec).To(Equal(1.0))
+			Expect(opts.MeanScaleOutPerHostSec).To(Equal(1.0))
+
 			// clusterPlacer, err = placer.NewRandomPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
 			clusterPlacer, err = schedulingPolicy.GetNewPlacer(nil)
 			Expect(err).To(BeNil())
@@ -190,7 +200,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			_, ok = clusterPlacer.GetIndex().(*index.StaticIndex)
 			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
+			dockerCluster = cluster.NewDockerCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
 				nil, nil, schedulingPolicy, func(f func(stats *metrics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
@@ -212,13 +222,13 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 		Context("Will handle basic scheduling operations correctly", func() {
 			var numHosts int
-			var hosts map[int]scheduling.Host
+			var hosts map[int]scheduling.UnitTestingHost
 			var localGatewayClients map[int]*mock_proto.MockLocalGatewayClient
 			var resourceSpoofers map[int]*distNbTesting.ResourceSpoofer
 
 			Context("Starting with 3 hosts", func() {
 				BeforeEach(func() {
-					hosts = make(map[int]scheduling.Host)
+					hosts = make(map[int]scheduling.UnitTestingHost)
 					localGatewayClients = make(map[int]*mock_proto.MockLocalGatewayClient)
 					resourceSpoofers = make(map[int]*distNbTesting.ResourceSpoofer)
 					numHosts = 3
@@ -278,11 +288,11 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 						// Matches host.
 						Expect(reservation.GetHostId()).To(Equal(host.GetID()))
 						// Not pending.
-						Expect(reservation.GetCreatedUsingPendingResources()).To(BeTrue())
+						Expect(reservation.IsPending()).To(BeTrue())
 						// Created recently.
-						Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+						Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 						// Correct amount of resources.
-						Expect(reservation.GetResourcesReserved().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+						Expect(reservation.ToSpec().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 					}
 				})
 
@@ -325,6 +335,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 						localGatewayClients[hostIndex] = localGatewayClient
 						resourceSpoofers[hostIndex] = resourceSpoofer
 					}
+
+					Expect(dockerCluster.MeanScaleOutTime()).To(Equal(time.Second * 1))
+					Expect(dockerCluster.MeanScaleInTime()).To(Equal(time.Second * 1))
 
 					Expect(dockerCluster.Len()).To(Equal(5))
 
@@ -466,15 +479,17 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 						// Matches host.
 						Expect(reservation.GetHostId()).To(Equal(host.GetID()))
 						// Not pending.
-						Expect(reservation.GetCreatedUsingPendingResources()).To(BeTrue())
+						Expect(reservation.IsPending()).To(BeTrue())
 						// Created recently.
-						Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+						Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 						// Correct amount of resources.
-						Expect(reservation.GetResourcesReserved().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+						Expect(reservation.ToSpec().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 					}
 				})
 
 				It("Will select a host with available idle resources when doing so for a replica that is training", func() {
+					// hostSpec = types.NewDecimalSpec(8000, 64000, 8, 64)
+
 					validateVariablesNonNil()
 
 					numAdditionalHosts := 3
@@ -487,9 +502,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 						Expect(resourceSpoofer).ToNot(BeNil())
 
 						if i != (numAdditionalHosts + numHosts - 1) {
-							err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+							err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
 							Expect(err).To(BeNil())
-							err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 40))
+							err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 32))
 							Expect(err).To(BeNil())
 						}
 
@@ -633,7 +648,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host1.ContainerScheduled(container1)
+					err = host1.ContainerStartedRunningOnHost(container1)
 					Expect(err).To(BeNil())
 					container1.EXPECT().Host().AnyTimes().Return(host1)
 					kernelReplica1.EXPECT().Host().AnyTimes().Return(host1)
@@ -642,7 +657,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host2.ContainerScheduled(container2)
+					err = host2.ContainerStartedRunningOnHost(container2)
 					Expect(err).To(BeNil())
 					container2.EXPECT().Host().AnyTimes().Return(host2)
 					kernelReplica2.EXPECT().Host().AnyTimes().Return(host2)
@@ -651,7 +666,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host3.ContainerScheduled(container3)
+					err = host3.ContainerStartedRunningOnHost(container3)
 					Expect(err).To(BeNil())
 					container3.EXPECT().Host().AnyTimes().Return(host3)
 					kernelReplica3.EXPECT().Host().AnyTimes().Return(host3)
@@ -681,9 +696,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 					for i := 0; i < numHosts; i++ {
 						host := hosts[i]
-						err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+						err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
 						Expect(err).To(BeNil())
-						err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 40))
+						err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 32))
 						Expect(err).To(BeNil())
 					}
 
@@ -746,9 +761,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 						Expect(resourceSpoofer).ToNot(BeNil())
 
 						if i != (numAdditionalHosts + numHosts - 1) {
-							err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+							err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
 							Expect(err).To(BeNil())
-							err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 40))
+							err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 32))
 							Expect(err).To(BeNil())
 						}
 
@@ -895,7 +910,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host1.ContainerScheduled(container1)
+					err = host1.ContainerStartedRunningOnHost(container1)
 					Expect(err).To(BeNil())
 					container1.EXPECT().Host().AnyTimes().Return(host1)
 					kernelReplica1.EXPECT().Host().AnyTimes().Return(host1)
@@ -904,7 +919,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host2.ContainerScheduled(container2)
+					err = host2.ContainerStartedRunningOnHost(container2)
 					Expect(err).To(BeNil())
 					container2.EXPECT().Host().AnyTimes().Return(host2)
 					kernelReplica2.EXPECT().Host().AnyTimes().Return(host2)
@@ -913,7 +928,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					Expect(success).To(BeTrue())
 					Expect(err).To(BeNil())
 
-					err = host3.ContainerScheduled(container3)
+					err = host3.ContainerStartedRunningOnHost(container3)
 					Expect(err).To(BeNil())
 					container3.EXPECT().Host().AnyTimes().Return(host3)
 					kernelReplica3.EXPECT().Host().AnyTimes().Return(host3)
@@ -930,9 +945,9 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 
 					for i := 0; i < numHosts; i++ {
 						host := hosts[i]
-						err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 40))
+						err := host.AddToCommittedResources(types.NewDecimalSpec(0, 0, 8, 32))
 						Expect(err).To(BeNil())
-						err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 40))
+						err = host.SubtractFromIdleResources(types.NewDecimalSpec(0, 0, 8, 32))
 						Expect(err).To(BeNil())
 					}
 
@@ -1037,7 +1052,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			})
 
 			It("Will correctly return whatever viable hosts it finds, even if it cannot find all of them, via the FindCandidateHosts method", func() {
-				hosts = make(map[int]scheduling.Host)
+				hosts = make(map[int]scheduling.UnitTestingHost)
 				localGatewayClients = make(map[int]*mock_proto.MockLocalGatewayClient)
 				resourceSpoofers = make(map[int]*distNbTesting.ResourceSpoofer)
 
@@ -1297,7 +1312,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			_, ok = clusterPlacer.GetIndex().(*index.RandomClusterIndex)
 			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
+			dockerCluster = cluster.NewDockerCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
 				nil, nil, schedulingPolicy, func(f func(stats *metrics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
@@ -1379,11 +1394,11 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 					// Matches host.
 					Expect(reservation.GetHostId()).To(Equal(host.GetID()))
 					// Not pending.
-					Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+					Expect(reservation.IsPending()).To(BeFalse())
 					// Created recently.
-					Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+					Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 					// Correct amount of resources.
-					Expect(reservation.GetResourcesReserved().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+					Expect(reservation.ToSpec().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 				}
 			})
 
@@ -1478,11 +1493,11 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				// Matches host.
 				Expect(reservation.GetHostId()).To(Equal(bigHost1.GetID()))
 				// Not pending.
-				Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+				Expect(reservation.IsPending()).To(BeFalse())
 				// Created recently.
-				Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+				Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 				// Correct amount of resources.
-				Expect(reservation.GetResourcesReserved().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+				Expect(reservation.ToSpec().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 
 				Expect(bigHost1.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeFalse())
 				Expect(bigHost1.CommittedResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
@@ -1592,7 +1607,7 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 			_, ok = clusterPlacer.GetIndex().(*index.RandomClusterIndex)
 			Expect(ok).To(BeTrue())
 
-			dockerCluster = cluster.NewDockerSwarmCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
+			dockerCluster = cluster.NewDockerCluster(hostSpec, clusterPlacer, hostMapper, kernelProvider,
 				nil, nil, schedulingPolicy, func(f func(stats *metrics.ClusterStatistics)) {},
 				&opts.ClusterDaemonOptions.SchedulerOptions)
 
@@ -1675,11 +1690,11 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 						// Matches host.
 						Expect(reservation.GetHostId()).To(Equal(host.GetID()))
 						// Not pending.
-						Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+						Expect(reservation.IsPending()).To(BeFalse())
 						// Created recently.
-						Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+						Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 						// Correct amount of resources.
-						Expect(reservation.GetResourcesReserved().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+						Expect(reservation.ToSpec().Equals(kernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 					}
 				})
 
@@ -1773,11 +1788,11 @@ var _ = Describe("Docker Swarm Scheduler Tests", func() {
 				// Matches host.
 				Expect(reservation.GetHostId()).To(Equal(bigHost1.GetID()))
 				// Not pending.
-				Expect(reservation.GetCreatedUsingPendingResources()).To(BeFalse())
+				Expect(reservation.IsPending()).To(BeFalse())
 				// Created recently.
-				Expect(time.Since(reservation.GetCreationTimestamp()) < (time.Second * 5)).To(BeTrue())
+				Expect(time.Since(reservation.GetTimestamp()) < (time.Second * 5)).To(BeTrue())
 				// Correct amount of resources.
-				Expect(reservation.GetResourcesReserved().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
+				Expect(reservation.ToSpec().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())
 
 				Expect(bigHost1.PendingResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeFalse())
 				Expect(bigHost1.CommittedResources().Equals(bigKernelSpec.DecimalSpecFromKernelSpec())).To(BeTrue())

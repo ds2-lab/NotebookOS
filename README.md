@@ -1,6 +1,36 @@
-# distributed_notebook
+# A Jupyter Notebooks-as-a-Service Platform (Project Name Pending)
+
+Welcome to the "A Jupyter Notebooks-as-a-Service Platform (Project Name Pending)" — a fully-featured prototype designed for GPU-based machine learning training workloads. 
+This platform provides seamless integration with powerful monitoring and analytics tools, making it ideal for data scientists and machine learning engineers.
+It is also designed to provide a high degree of interactivity, making it well-suited for interactive programming sessions and thus a great tool for students.
+
+## Key Features
+
+- **GPU-Accelerated Notebooks** 🚀: Leverage GPU power for machine learning and deep learning workloads.
+
+- **Fully-Featured Jupyter Environment** 💻: Provides a robust Jupyter environment for interactive data analysis and model development.
+
+- **Integrated Monitoring & Analytics** 📈:
+
+  - Prometheus for time-series data monitoring 🔍
+
+  - Promtail for log collection 🪵
+
+  - Loki for efficient log aggregation ♻️
+
+  - Grafana for real-time data visualization and log viewing 📊
 
 ## System Installation
+
+### Prerequisites
+
+Ensure you have the following installed:
+
+- Docker & Docker Compose (for single-node deployments)
+  
+- NVIDIA Container Toolkit (optional for GPU support)  
+
+- Docker Swarm or Kubernetes (optional for large-scale deployments)
 
 For instructions concerning the setup and installation of `distributed-notebook` on either a single machine or on a 
 cluster, please refer to the `setup` directory.

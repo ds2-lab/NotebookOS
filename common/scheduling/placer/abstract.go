@@ -23,8 +23,23 @@ type AbstractPlacer struct {
 	instance         internalPlacer
 	schedulingPolicy scheduling.Policy
 
-	// resourceReserver is a function used by placers to reserve resources on candidate hosts.
-	resourceReserver resourceReserver
+	// kernelResourceReserver is used by placers to reserve resources on candidate hosts for arbitrary/unspecified
+	// replicas of a particular kernel.
+	//
+	// kernelResourceReserver returns true (and nil) if resources were reserved.
+	//
+	// If resources could not be reserved, then false is returned, along with an error explaining why
+	// the resources could not be reserved.
+	kernelResourceReserver kernelResourceReserver
+
+	// replicaResourceReserver is used by placers to reserve resources on candidate hosts for specified replicas of a
+	// particular kernel.
+	//
+	// replicaResourceReserver returns true (and nil) if resources were reserved.
+	//
+	// If resources could not be reserved, then false is returned, along with an error explaining why
+	// the resources could not be reserved.
+	replicaResourceReserver replicaResourceReserver
 }
 
 // NewAbstractPlacer creates a new AbstractPlacer struct and returns a pointer to it.
@@ -35,17 +50,60 @@ func NewAbstractPlacer(metricsProvider scheduling.MetricsProvider, numReplicas i
 		schedulingPolicy: schedulingPolicy,
 	}
 
-	placer.resourceReserver = placer.getResourceReserver()
+	placer.kernelResourceReserver = placer.getKernelResourceReserver()
+	placer.replicaResourceReserver = placer.getReplicaResourceReserver()
 
 	config.InitLogger(&placer.log, placer)
 	return placer
 }
 
-// getResourceReserver returns a resourceReserver based on the closure created by passing a value for
+// getKernelResourceReserver returns a kernelResourceReserver based on the closure created by passing a value for
 // reservationShouldUsePendingResources, which may differ depending on the placer implementation and
 // configured scheduling policy.
-func (placer *AbstractPlacer) getResourceReserver() resourceReserver {
-	return func(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) bool {
+func (placer *AbstractPlacer) getReplicaResourceReserver() replicaResourceReserver {
+	// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
+	// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
+	// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
+	// depending upon the scheduling.Policy configured for the AllocationManager.
+	return func(candidateHost scheduling.Host, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (bool, error) {
+		var usePendingReservation bool
+
+		// If we are migrating a replica that needs to begin training right away,
+		// then we should not use a pending reservation.
+		//
+		// The container will need resources committed to it immediately.
+		//
+		// Alternatively, if we aren't going to be creating reservations for a kernel container that intends to
+		// begin training immediately upon being created, then we defer to the configured scheduling policy.
+		// To do this, we simply query the resource binding mode of the configured scheduling policy by calling
+		// the placer's 'reservationShouldUsePendingResources' method.
+		if forTraining {
+			usePendingReservation = false
+		} else {
+			usePendingReservation = placer.reservationShouldUsePendingResources()
+		}
+
+		reserved, err := candidateHost.ReserveResourcesForSpecificReplica(replicaSpec, usePendingReservation)
+		if err != nil {
+			// Sanity check. If there was an error, then reserved should be false, so we'll panic if it is true.
+			if reserved {
+				panic("We successfully reserved resources on a Host despite ReserveResources also returning an error...")
+			}
+		}
+
+		return reserved, err
+	}
+}
+
+// getKernelResourceReserver returns a kernelResourceReserver based on the closure created by passing a value for
+// reservationShouldUsePendingResources, which may differ depending on the placer implementation and
+// configured scheduling policy.
+func (placer *AbstractPlacer) getKernelResourceReserver() kernelResourceReserver {
+	// The 'forTraining' argument indicates whether the reservation is for a "ready-to-train" replica, in which case it
+	// will be created as a scheduling.CommittedAllocation, or if it for a "regular" (i.e., not "ready-to-train") replica,
+	// in which case it will be created as either a scheduling.CommittedAllocation or scheduling.PendingAllocation
+	// depending upon the scheduling.Policy configured for the AllocationManager.
+	return func(candidateHost scheduling.Host, kernelSpec *proto.KernelSpec, forTraining bool) (bool, error) {
 		var usePendingReservation bool
 
 		// If we are migrating a replica that needs to begin training right away,
@@ -71,7 +129,7 @@ func (placer *AbstractPlacer) getResourceReserver() resourceReserver {
 			}
 		}
 
-		return reserved
+		return reserved, err
 	}
 }
 
@@ -137,18 +195,47 @@ func (placer *AbstractPlacer) FindHosts(blacklist []interface{}, kernelSpec *pro
 	return hosts, err
 }
 
+// ReserveResourcesForReplica is used to instruct the scheduling.Placer to explicitly reserve resources for a
+// particular KernelReplica of a particular Kernel.
+//
+// The primary use case for ReserveResourcesForReplica is when a specific scheduling.KernelReplica is specified to
+// serve as the primary replica within the metadata of an "execute_request" message. This may occur because the user
+// explicitly placed that metadata there, or following a migration when the ClusterGateway has a specific
+// replica that should be able to serve the execution request.
+//
+// PRECONDITION: The specified scheduling.KernelReplica should already be scheduled on the scheduling.Host
+// on which the resources are to be reserved.
+func (placer *AbstractPlacer) ReserveResourcesForReplica(kernel scheduling.Kernel, replica scheduling.KernelReplica, commitResources bool) error {
+	host := replica.Host()
+
+	decimalSpec := kernel.ResourceSpec()
+	placer.log.Debug("Explicitly reserving resources [%v] for replica %d of kernel %s [commitResources=%v].",
+		decimalSpec, replica.ReplicaID(), kernel.ID(), commitResources)
+	reserved, err := host.ReserveResourcesForSpecificReplica(replica.KernelReplicaSpec(), !commitResources)
+
+	if reserved {
+		placer.log.Debug("Explicitly reserved [%v] resources for replica %d of kernel %s [commitResources=%v].",
+			decimalSpec, replica.ReplicaID(), kernel.ID(), commitResources)
+		return nil
+	}
+
+	placer.log.Warn("Failed to explicitly reserve resources [%v] for replica %d of kernel %s [commitResources=%v]: %v",
+		decimalSpec, replica.ReplicaID(), kernel.ID(), commitResources, err)
+	return err
+}
+
 // FindHost returns a single Host instance that can satisfy the resourceSpec.
-func (placer *AbstractPlacer) FindHost(blacklist []interface{}, kernelSpec *proto.KernelSpec, forTraining bool) (scheduling.Host, error) {
+func (placer *AbstractPlacer) FindHost(blacklist []interface{}, replicaSpec *proto.KernelReplicaSpec, forTraining bool) (scheduling.Host, error) {
 	placer.mu.Lock()
 	defer placer.mu.Unlock()
 
 	st := time.Now()
-	metrics := []float64{kernelSpec.ResourceSpec.GPU()}
+	metrics := []float64{replicaSpec.ResourceSpec().GPU()}
 
 	// Invoke internalPlacer's implementation of the findHost method for the core logic of FindHost.
-	host, err := placer.instance.findHost(blacklist, kernelSpec, forTraining, metrics)
+	host, err := placer.instance.findHost(blacklist, replicaSpec, forTraining, metrics)
 	if err != nil {
-		placer.log.Error("Error while finding host for replica of kernel %s: %v", kernelSpec.Id, err)
+		placer.log.Error("Error while finding host for replica of kernel %s: %v", replicaSpec.Kernel.Id, err)
 		return nil, err
 	}
 

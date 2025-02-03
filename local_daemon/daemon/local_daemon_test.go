@@ -33,7 +33,7 @@ const (
 	signatureScheme string = "hmac-sha256"
 )
 
-func processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon *SchedulerDaemonImpl, messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica, updatedResourceSpec *types.Float64Spec) *messaging.JupyterMessage {
+func processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon *LocalScheduler, messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica, updatedResourceSpec *types.Float64Spec) *messaging.JupyterMessage {
 	metadata := map[string]interface{}{
 		"resource_request": updatedResourceSpec,
 	}
@@ -44,7 +44,7 @@ func processExecuteRequestWithUpdatedResourceSpec(schedulerDaemon *SchedulerDaem
 	return processedMessage
 }
 
-func processExecuteRequest(schedulerDaemon *SchedulerDaemonImpl, messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica) *messaging.JupyterMessage {
+func processExecuteRequest(schedulerDaemon *LocalScheduler, messageType messaging.JupyterMessageType, kernelReplica scheduling.KernelReplica) *messaging.JupyterMessage {
 	jMsg := test_utils.CreateJupyterMessage(messageType, kernelReplica.ID(), kernelReplica.ConnectionInfo().Key)
 	processedMessage := schedulerDaemon.processExecOrYieldRequest(jMsg, kernelReplica) // , header, offset)
 
@@ -72,14 +72,16 @@ func createKernelReplica(mockController *gomock.Controller, kernelId string, ker
 
 var _ = Describe("Local Daemon Tests", func() {
 	var (
-		schedulerDaemon  *SchedulerDaemonImpl
+		schedulerDaemon  *LocalScheduler
 		vgpuPluginServer device.VirtualGpuPluginServer
 		mockCtrl         *gomock.Controller
 		kernel1Replica1  *mock_scheduling.MockKernelReplica
 		kernel2Replica2  *mock_scheduling.MockKernelReplica
-		//kernel3Replica3  *mock_scheduling.MockKernelReplica
-		resourceManager *resource.AllocationManager
-		hostSpec        *types.DecimalSpec
+		resourceManager  *resource.AllocationManager
+		hostSpec         *types.DecimalSpec
+		schedulingPolicy *mock_scheduling.MockPolicy
+		hostId           string
+		hostName         string
 
 		kernel1Key = "23d90942-8c3de3a713a5c3611792b7a5"
 		kernel2Key = "d2324990-3563adca181e235c77317a9b"
@@ -144,7 +146,10 @@ var _ = Describe("Local Daemon Tests", func() {
 	)
 
 	BeforeEach(func() {
+		hostId = uuid.NewString()
+		hostName = "TestNode"
 		mockCtrl = gomock.NewController(GinkgoT())
+		schedulingPolicy = mock_scheduling.NewMockPolicy(mockCtrl)
 		vgpuPluginServer = mock_device.NewMockVirtualGpuPluginServer(mockCtrl)
 		hostSpec = &types.DecimalSpec{
 			GPUs:      decimal.NewFromFloat(8),
@@ -153,15 +158,20 @@ var _ = Describe("Local Daemon Tests", func() {
 			VRam:      decimal.NewFromFloat(32),
 		}
 
+		schedulingPolicy.EXPECT().ResourceBindingMode().AnyTimes().Return(scheduling.BindResourcesAtTrainingStart)
+		schedulingPolicy.EXPECT().ContainerLifetime().AnyTimes().Return(scheduling.LongRunning)
+		schedulingPolicy.EXPECT().NumReplicas().AnyTimes().Return(3)
+
 		kernel1Replica1 = createKernelReplica(mockCtrl, kernel1Id, kernel1Key, workloadId, 1, kernel1Spec, kernel1ResourceSpec)
 		kernel2Replica2 = createKernelReplica(mockCtrl, kernel2Id, kernel2Key, workloadId, 2, kernel2Spec, kernel2ResourceSpec)
 		//kernel3Replica3 = createKernelReplica(mockCtrl, kernel3Id, kernel3Key, workloadId, 3, kernel3Spec, kernel3ResourceSpec)
-		resourceManager = resource.NewAllocationManager(hostSpec)
+		resourceManager = resource.NewAllocationManager(hostSpec, schedulingPolicy, hostId, hostName)
 
 		schedulingPolicy, err := scheduler.GetSchedulingPolicy(&scheduling.SchedulerOptions{
 			CommonOptions: configuration.CommonOptions{
 				SchedulingPolicy:             string(scheduling.Static),
 				IdleSessionReclamationPolicy: string(scheduling.NoIdleSessionReclamation),
+				GpusPerHost:                  int(hostSpec.GPU()),
 			},
 			MinimumNumNodes: 3,
 			MaximumNumNodes: 16,
@@ -169,12 +179,13 @@ var _ = Describe("Local Daemon Tests", func() {
 		Expect(err).To(BeNil())
 		Expect(schedulingPolicy).ToNot(BeNil())
 
-		schedulerDaemon = &SchedulerDaemonImpl{
+		schedulerDaemon = &LocalScheduler{
+			id:                                 hostId,
 			transport:                          "tcp",
 			kernels:                            hashmap.NewCornelkMap[string, scheduling.KernelReplica](1000),
 			closed:                             make(chan struct{}),
 			cleaned:                            make(chan struct{}),
-			resourceManager:                    resourceManager,
+			allocationManager:                  resourceManager,
 			virtualGpuPluginServer:             vgpuPluginServer,
 			schedulingPolicy:                   schedulingPolicy,
 			outgoingExecuteRequestQueue:        hashmap.NewCornelkMap[string, chan *enqueuedExecOrYieldRequest](128),
@@ -347,7 +358,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			kernel1Replica1.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 			kernel1Replica1.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			GinkgoWriter.Printf("NumPendingAllocations: %d\n", resourceManager.NumPendingAllocations())
@@ -445,17 +456,17 @@ var _ = Describe("Local Daemon Tests", func() {
 				Expect(exists).To(BeTrue())
 				Expect(allocation).ToNot(BeNil())
 
-				Expect(allocation.ReplicaId).To(Equal(pendingKernelReplica.ReplicaID()))
-				Expect(allocation.KernelId).To(Equal(pendingKernelReplica.ID()))
+				Expect(allocation.GetReplicaId()).To(Equal(pendingKernelReplica.ReplicaID()))
+				Expect(allocation.GetKernelId()).To(Equal(pendingKernelReplica.ID()))
 
-				Expect(allocation.GPUs.Equal(pendingKernelReplica.ResourceSpec().GPUs)).To(BeTrue())
-				Expect(allocation.Millicpus.Equal(pendingKernelReplica.ResourceSpec().Millicpus)).To(BeTrue())
-				Expect(allocation.MemoryMB.Equal(pendingKernelReplica.ResourceSpec().MemoryMb)).To(BeTrue())
-				Expect(allocation.VramGB.Equal(pendingKernelReplica.ResourceSpec().VRam)).To(BeTrue())
+				Expect(allocation.GetGpus()).To(Equal(pendingKernelReplica.ResourceSpec().GPU()))
+				Expect(allocation.GetMillicpus()).To(Equal(pendingKernelReplica.ResourceSpec().CPU()))
+				Expect(allocation.GetMemoryMb()).To(Equal(pendingKernelReplica.ResourceSpec().MemoryMB()))
+				Expect(allocation.GetVramGb()).To(Equal(pendingKernelReplica.ResourceSpec().VRAM()))
 
 				Expect(allocation.IsPending()).To(BeTrue())
 				Expect(allocation.IsCommitted()).To(BeFalse())
-				Expect(allocation.IsReservation).To(BeFalse())
+				Expect(allocation.IsReservation()).To(BeFalse())
 			}
 		}
 
@@ -466,7 +477,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			kernel2Replica2.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 			kernel2Replica2.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -475,7 +486,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(resourceManager.PendingGPUs().Equals(decimal.NewFromFloat(2))).To(BeTrue())
 			Expect(resourceManager.IdleGPUs().Equals(decimal.NewFromFloat(8))).To(BeTrue())
 
-			err = resourceManager.KernelReplicaScheduled(kernel2Replica2.ReplicaID(), kernel2Replica2.ID(), kernel2Replica2.ResourceSpec())
+			err = resourceManager.ContainerStartedRunningOnHost(kernel2Replica2.ReplicaID(), kernel2Replica2.ID(), kernel2Replica2.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(2))
@@ -553,7 +564,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			kernel1Replica1.EXPECT().SupposedToYieldNextExecutionRequest().Return(false).AnyTimes()
 			kernel1Replica1.EXPECT().YieldedNextExecutionRequest().Return().AnyTimes()
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -578,17 +589,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
@@ -628,17 +639,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeTrue())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
 
@@ -659,17 +670,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 		})
 
 		It("Should release resources that were fully committed to a kernel replica if that kernel replica is stopped", func() {
@@ -678,7 +689,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -703,17 +714,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
@@ -753,17 +764,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeTrue())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			kernel1Replica1.EXPECT().Sessions().Return([]string{kernel1Id}).Times(1)
 			kernel1Replica1.EXPECT().RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
@@ -808,7 +819,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -833,17 +844,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			kernel1Replica1.EXPECT().Sessions().Return([]string{kernel1Id}).Times(1)
 			kernel1Replica1.EXPECT().RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
@@ -888,7 +899,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -913,17 +924,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
@@ -962,17 +973,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeTrue())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
 
@@ -993,17 +1004,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			kernel1Replica1.EXPECT().Sessions().Return([]string{kernel1Id}).Times(1)
 			kernel1Replica1.EXPECT().RequestWithHandler(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Times(1).DoAndReturn(func(ctx context.Context, _ string, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, done func()) error {
@@ -1048,7 +1059,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			Expect(resourceManager.NumPendingAllocations()).To(Equal(1))
@@ -1073,17 +1084,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeTrue())
 			Expect(allocation.IsCommitted()).To(BeFalse())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Committing resources (as a reservation) when an 'execute_request' message is received")
 
@@ -1123,17 +1134,17 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeTrue())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Promoting the committed resource reservation to a fully-committed allocation when an 'smr_lead_task' message is received")
 
@@ -1156,21 +1167,21 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(exists).To(BeTrue())
 			Expect(allocation).ToNot(BeNil())
 
-			Expect(allocation.ReplicaId).To(Equal(kernel1Replica1.ReplicaID()))
-			Expect(allocation.KernelId).To(Equal(kernel1Replica1.ID()))
+			Expect(allocation.GetReplicaId()).To(Equal(kernel1Replica1.ReplicaID()))
+			Expect(allocation.GetKernelId()).To(Equal(kernel1Replica1.ID()))
 
-			Expect(allocation.GPUs.Equal(kernel1Replica1.ResourceSpec().GPUs)).To(BeTrue())
-			Expect(allocation.Millicpus.Equal(kernel1Replica1.ResourceSpec().Millicpus)).To(BeTrue())
-			Expect(allocation.MemoryMB.Equal(kernel1Replica1.ResourceSpec().MemoryMb)).To(BeTrue())
-			Expect(allocation.VramGB.Equal(kernel1Replica1.ResourceSpec().VRam)).To(BeTrue())
+			Expect(allocation.GetGpus()).To(Equal(kernel1Replica1.ResourceSpec().GPU()))
+			Expect(allocation.GetMillicpus()).To(Equal(kernel1Replica1.ResourceSpec().CPU()))
+			Expect(allocation.GetMemoryMb()).To(Equal(kernel1Replica1.ResourceSpec().MemoryMB()))
+			Expect(allocation.GetVramGb()).To(Equal(kernel1Replica1.ResourceSpec().VRAM()))
 
 			Expect(allocation.IsPending()).To(BeFalse())
 			Expect(allocation.IsCommitted()).To(BeTrue())
-			Expect(allocation.IsReservation).To(BeFalse())
+			Expect(allocation.IsReservation()).To(BeFalse())
 
 			By("Releasing the resources once training ends")
 
-			kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any()).Times(1)
+			kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
 			kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
 
 			executeReplyContent := map[string]interface{}{"status": "ok"}
@@ -1242,12 +1253,12 @@ var _ = Describe("Local Daemon Tests", func() {
 			schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 			schedulerDaemon.kernels.Store(kernel2Replica2.ID(), kernel2Replica2)
 
-			err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+			err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			validatePending([]scheduling.KernelReplica{kernel1Replica1})
 
-			err = resourceManager.KernelReplicaScheduled(kernel2Replica2.ReplicaID(), kernel2Replica2.ID(), kernel2Replica2.ResourceSpec())
+			err = resourceManager.ContainerStartedRunningOnHost(kernel2Replica2.ReplicaID(), kernel2Replica2.ID(), kernel2Replica2.ResourceSpec())
 			Expect(err).To(BeNil())
 
 			validatePending([]scheduling.KernelReplica{kernel1Replica1, kernel2Replica2})
@@ -1298,17 +1309,17 @@ var _ = Describe("Local Daemon Tests", func() {
 				Expect(exists).To(BeTrue())
 				Expect(allocation).ToNot(BeNil())
 
-				Expect(allocation.ReplicaId).To(Equal(kernelReplica.ReplicaID()))
-				Expect(allocation.KernelId).To(Equal(kernelReplica.ID()))
+				Expect(allocation.GetReplicaId()).To(Equal(kernelReplica.ReplicaID()))
+				Expect(allocation.GetKernelId()).To(Equal(kernelReplica.ID()))
 
-				Expect(allocation.GPUs.Equal(kernelReplica.ResourceSpec().GPUs)).To(BeTrue())
-				Expect(allocation.Millicpus.Equal(kernelReplica.ResourceSpec().Millicpus)).To(BeTrue())
-				Expect(allocation.MemoryMB.Equal(kernelReplica.ResourceSpec().MemoryMb)).To(BeTrue())
-				Expect(allocation.VramGB.Equal(kernelReplica.ResourceSpec().VRam)).To(BeTrue())
+				Expect(allocation.GetGpus()).To(Equal(kernelReplica.ResourceSpec().GPU()))
+				Expect(allocation.GetMillicpus()).To(Equal(kernelReplica.ResourceSpec().CPU()))
+				Expect(allocation.GetMemoryMb()).To(Equal(kernelReplica.ResourceSpec().MemoryMB()))
+				Expect(allocation.GetVramGb()).To(Equal(kernelReplica.ResourceSpec().VRAM()))
 
 				Expect(allocation.IsPending()).To(BeFalse())
 				Expect(allocation.IsCommitted()).To(BeTrue())
-				Expect(allocation.IsReservation).To(BeTrue())
+				Expect(allocation.IsReservation()).To(BeFalse())
 
 				Expect(resourceManager.PendingCPUs().Equals(decimal.Zero)).To(BeTrue())
 				Expect(resourceManager.PendingVRAM().Equals(decimal.Zero)).To(BeTrue())
@@ -1341,17 +1352,17 @@ var _ = Describe("Local Daemon Tests", func() {
 				Expect(exists).To(BeTrue())
 				Expect(allocation).ToNot(BeNil())
 
-				Expect(allocation.ReplicaId).To(Equal(kernelReplica.ReplicaID()))
-				Expect(allocation.KernelId).To(Equal(kernelReplica.ID()))
+				Expect(allocation.GetReplicaId()).To(Equal(kernelReplica.ReplicaID()))
+				Expect(allocation.GetKernelId()).To(Equal(kernelReplica.ID()))
 
-				Expect(allocation.GPUs.Equal(kernelReplica.ResourceSpec().GPUs)).To(BeTrue())
-				Expect(allocation.Millicpus.Equal(kernelReplica.ResourceSpec().Millicpus)).To(BeTrue())
-				Expect(allocation.MemoryMB.Equal(kernelReplica.ResourceSpec().MemoryMb)).To(BeTrue())
-				Expect(allocation.VramGB.Equal(kernelReplica.ResourceSpec().VRam)).To(BeTrue())
+				Expect(allocation.GetGpus()).To(Equal(kernelReplica.ResourceSpec().GPU()))
+				Expect(allocation.GetMillicpus()).To(Equal(kernelReplica.ResourceSpec().CPU()))
+				Expect(allocation.GetMemoryMb()).To(Equal(kernelReplica.ResourceSpec().MemoryMB()))
+				Expect(allocation.GetVramGb()).To(Equal(kernelReplica.ResourceSpec().VRAM()))
 
 				Expect(allocation.IsPending()).To(BeFalse())
 				Expect(allocation.IsCommitted()).To(BeTrue())
-				Expect(allocation.IsReservation).To(BeFalse())
+				Expect(allocation.IsReservation()).To(BeFalse())
 
 				Expect(resourceManager.PendingCPUs().Equals(decimal.Zero)).To(BeTrue())
 				Expect(resourceManager.PendingVRAM().Equals(decimal.Zero)).To(BeTrue())
@@ -1375,7 +1386,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-				err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+				err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 				Expect(err).To(BeNil())
 
 				validatePending([]scheduling.KernelReplica{kernel1Replica1})
@@ -1414,7 +1425,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				By("Releasing the resources once training ends")
 
-				kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any()).Times(1)
+				kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
 				kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
 
 				executeReplyContent := map[string]interface{}{"status": "ok"}
@@ -1483,7 +1494,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 					By("Releasing the resources once training ends")
 
-					kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any()).Times(1)
+					kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
 					kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
 					executeReplyContent = map[string]interface{}{"status": "ok"}
 					executeReplyMsg = test_utils.CreateJupyterMessageWithContent(messaging.ShellExecuteReply, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key, executeReplyContent)
@@ -1505,7 +1516,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				schedulerDaemon.kernels.Store(kernel1Replica1.ID(), kernel1Replica1)
 
-				err := resourceManager.KernelReplicaScheduled(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
+				err := resourceManager.ContainerStartedRunningOnHost(kernel1Replica1.ReplicaID(), kernel1Replica1.ID(), kernel1Replica1.ResourceSpec())
 				Expect(err).To(BeNil())
 
 				validatePending([]scheduling.KernelReplica{kernel1Replica1})

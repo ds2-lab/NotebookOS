@@ -14,6 +14,17 @@ func NewResourceSpec(cpu int32, memory float32, gpu int32, vram float32) *Resour
 	}
 }
 
+// ResourceSpecFromSpec creates a new ResourceSpec struct from the given types.Spec and returns a
+// pointer to the newly-created ResourceSpec struct.
+func ResourceSpecFromSpec(spec types.Spec) *ResourceSpec {
+	return &ResourceSpec{
+		Cpu:    int32(spec.CPU()),
+		Memory: float32(spec.MemoryMB()),
+		Gpu:    int32(spec.GPU()),
+		Vram:   float32(spec.VRAM()),
+	}
+}
+
 // GPU returns the number of GPUs required.
 //
 // Although the return type is float64, this is merely because it is often compared to other float64s and rarely

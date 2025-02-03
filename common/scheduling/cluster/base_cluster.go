@@ -128,7 +128,7 @@ func newBaseCluster(opts *scheduling.SchedulerOptions, placer scheduling.Placer,
 		//
 		// instead of
 		//
-		// "DockerComposeCluster Hello, world"
+		// "DockerCluster Hello, world"
 		if !strings.HasSuffix(loggerPrefix, " ") {
 			loggerPrefix = loggerPrefix + " "
 		}
@@ -693,6 +693,25 @@ func (c *BaseCluster) registerScaleInOperation(operationId string, targetCluster
 	return scaleOperation, nil
 }
 
+// DefaultOnScaleOperationFailed is automatically registered when scheduler.ScaleOperation instances are created.
+// DefaultOnScaleOperationFailed just updates some relevant statistics.
+func (c *BaseCluster) DefaultOnScaleOperationFailed(op scheduling.ScaleOperation) {
+	if op == nil {
+		c.log.Error("Received nil ScaleOperation in call to BaseCluster::DefaultOnScaleOperationFailed...")
+		return
+	}
+
+	if op.IsScaleInOperation() {
+		c.log.Debug("Scale-In TransactionOperation \"%s\" has failed.", op.GetOperationId())
+		c.numFailedScaleInOps += 1
+	} else if op.IsScaleOutOperation() {
+		c.log.Debug("Scale-Out TransactionOperation \"%s\" has failed.", op.GetOperationId())
+		c.numFailedScaleOutOps += 1
+	} else {
+		c.log.Error("Received ScaleOperation that is neither a scale-out operation nor a scale-in operation...")
+	}
+}
+
 // MeanScaleOutTime returns the average time to scale-out and add a Host to the Cluster.
 func (c *BaseCluster) MeanScaleOutTime() time.Duration {
 	return c.MeanScaleOutPerHost
@@ -767,13 +786,14 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 		})
 	}
 
-	c.log.Debug("Beginning scale-out from %d nodes to %d nodes.", scaleOp.InitialScale, scaleOp.TargetScale)
+	c.log.Debug("Beginning scale-out operation %s from %d nodes to %d nodes.",
+		scaleOp.OperationId, scaleOp.InitialScale, scaleOp.TargetScale)
 
 	// Start the operation.
 	result, err := scaleOp.Start(ctx)
 	if err != nil {
-		c.log.Warn("Scale-out from %d nodes to %d nodes failed because: %v",
-			scaleOp.InitialScale, scaleOp.TargetScale, err)
+		c.log.Warn("Scale-out operation %s from %d nodes to %d nodes failed because: %v",
+			scaleOp.OperationId, scaleOp.InitialScale, scaleOp.TargetScale, err)
 
 		// Unregister the failed scale-out operation.
 		if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
@@ -783,7 +803,8 @@ func (c *BaseCluster) RequestHosts(ctx context.Context, n int32) promise.Promise
 		return promise.Resolved(nil, err) // status.Error(codes.Internal, err.Error()))
 	}
 
-	c.log.Debug("Scale-out from %d nodes to %d nodes succeeded.", scaleOp.InitialScale, scaleOp.TargetScale)
+	c.log.Debug("Scale-out operation %s from %d nodes to %d nodes succeeded.",
+		scaleOp.OperationId, scaleOp.InitialScale, scaleOp.TargetScale)
 	if unregistered := c.unregisterActiveScaleOp(false); !unregistered {
 		c.log.Error("Failed to unregister active scale operation %v.", c.activeScaleOperation)
 	}

@@ -1,15 +1,18 @@
 package scheduling
 
 const (
-	// MillicpusPerHost is the number of CPU Resources available on each host for
+	// DefaultMillicpusPerHost is the number of CPU TransactionResources available on each host for
 	// allocation to kernel replicas in millicpus (1/1000th of a vCPU).
-	MillicpusPerHost = 64000
+	DefaultMillicpusPerHost = 64000
 
-	// MemoryMbPerHost is the amount of memory (i.e., RAM) available on each host for
+	// DefaultMemoryMbPerHost is the amount of memory (i.e., RAM) available on each host for
 	// allocation to kernel replicas in megabytes (MB).
-	MemoryMbPerHost = 128000
+	DefaultMemoryMbPerHost = 128000
 
-	// VramPerHostGb is the amount of VRAM (i.e., video memory, GPU memory, etc.) available on each host for
+	// DefaultVramPerHostGb is the amount of VRAM (i.e., video memory, GPU memory, etc.) available on each host for
 	// allocation to kernel replicas in gigabytes (GB).
-	VramPerHostGb float64 = 40.0
+	DefaultVramPerHostGb float64 = 40.0
+
+	DefaultScalingIntervalSeconds = 30
+	DefaultMaxSubscribedRatio     = 7.0
 )

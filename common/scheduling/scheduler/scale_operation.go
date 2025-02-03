@@ -175,39 +175,10 @@ func (s *ScaleOutOperationResult) String() string {
 	return string(m)
 }
 
-// ScaleOperation encapsulates the bookkeeping required for adjusting the scale of the Cluster.
-// As of right now, the actual business logic required for performing the scale operation (i.e., adding or removing
-// nodes from the Cluster) is not implemented, referenced by, or contained within a ScaleOperation struct.
-//
-// Instead, the associated business logic is implemented directly within the ClusterGateway.
-type ScaleOperation struct {
-	OperationId              string               `json:"request_id"`
-	InitialScale             int32                `json:"initial_scale"`
-	TargetScale              int32                `json:"target_scale"`
-	OperationType            ScaleOperationType   `json:"scale_operation_type"`
-	RegistrationTime         time.Time            `json:"registration_time"`
-	StartTime                time.Time            `json:"start_time"`
-	EndTime                  time.Time            `json:"end_time"`
-	Status                   ScaleOperationStatus `json:"status"`
-	Error                    error                `json:"error"`                       // Error is the error that caused ScaleOperation to enter the ScaleOperationErred state/status.
-	ExpectedNumAffectedNodes int                  `json:"expected_num_affected_nodes"` // ExpectedNumAffectedNodes is the expected number of Host instances to be added/removed.
-	NodesAffected            []string             `json:"nodes_affected"`              // NodesAffected are the Host instances added/removed because of the ScaleOperation.
-	Result                   ScaleOperationResult `json:"result"`
-	NotificationChan         chan struct{}        `json:"-"`
-	CoreLogicDoneChan        chan interface{}     `json:"-"`
-	Cluster                  scheduling.Cluster   `json:"-"`
-
-	// cond exists so that goroutines can wait for the scale operation to complete.
-	cond   *sync.Cond
-	condMu sync.Mutex
-	mu     sync.Mutex
-
-	// This is what actually performs the scaling operation.
-	// It is supplied by the Cluster implementation.
-	executionFunc func()
-
-	log logger.Logger
-}
+// OnScaleOperationFailedCallback is registered to be called if the ScaleOperation fails.
+// An OnScaleOperationFailedCallback function is called before signaling on the condition variable to wake up anybody
+// waiting on the associated ScaleOperation.
+type OnScaleOperationFailedCallback func(scaleOperation scheduling.ScaleOperation)
 
 // getScaleOperationType returns the appropriate ScaleOperationType given the initial scale and target scale
 // values for a particular ScaleOperation.
@@ -226,6 +197,51 @@ func getScaleOperationType(initialScale int32, targetScale int32) ScaleOperation
 	} else {
 		return ScaleOutOperation
 	}
+}
+
+// ScaleOperation encapsulates the bookkeeping required for adjusting the scale of the Cluster.
+// As of right now, the actual business logic required for performing the scale operation (i.e., adding or removing
+// nodes from the Cluster) is not implemented, referenced by, or contained within a ScaleOperation struct.
+//
+// Instead, the associated business logic is implemented directly within the ClusterGateway.
+type ScaleOperation struct {
+	OperationId      string               `json:"request_id"`
+	InitialScale     int32                `json:"initial_scale"`
+	TargetScale      int32                `json:"target_scale"`
+	OperationType    ScaleOperationType   `json:"scale_operation_type"`
+	RegistrationTime time.Time            `json:"registration_time"`
+	StartTime        time.Time            `json:"start_time"`
+	EndTime          time.Time            `json:"end_time"`
+	Status           ScaleOperationStatus `json:"status"`
+	Result           ScaleOperationResult `json:"result"`
+
+	// Error is the error that caused ScaleOperation to enter the ScaleOperationErred state/status.
+	Error error `json:"error"`
+
+	// ExpectedNumAffectedNodes is the expected number of Host instances to be added/removed.
+	ExpectedNumAffectedNodes int `json:"expected_num_affected_nodes"`
+
+	// NodesAffected are the Host instances added/removed because of the ScaleOperation.
+	NodesAffected []string `json:"nodes_affected"`
+
+	NotificationChan  chan struct{}      `json:"-"`
+	CoreLogicDoneChan chan interface{}   `json:"-"`
+	Cluster           scheduling.Cluster `json:"-"`
+
+	// onScaleOperationFailedCallback is called when transition to an Erred state.
+	// It is called before signaling on the condition variable to wake up anybody waiting on us.
+	onScaleOperationFailedCallback OnScaleOperationFailedCallback
+
+	// cond exists so that goroutines can wait for the scale operation to complete.
+	cond   *sync.Cond
+	condMu sync.Mutex
+	mu     sync.Mutex
+
+	// This is what actually performs the scaling operation.
+	// It is supplied by the Cluster implementation.
+	executionFunc func()
+
+	log logger.Logger
 }
 
 // NewScaleInOperationWithTargetHosts creates a new ScaleOperation struct and returns a pointer to it.
@@ -265,17 +281,18 @@ func NewScaleInOperationWithTargetHosts(operationId string, initialScale int32, 
 	}
 
 	scaleOperation := &ScaleOperation{
-		OperationId:              operationId,
-		NotificationChan:         make(chan struct{}, 1),
-		ExpectedNumAffectedNodes: expectedNumAffectedNodes,
-		NodesAffected:            make([]string, 0, int(math.Abs(float64(targetScale-initialScale)))),
-		InitialScale:             initialScale,
-		TargetScale:              targetScale,
-		RegistrationTime:         time.Now(),
-		Status:                   ScaleOperationAwaitingStart,
-		Cluster:                  cluster,
-		OperationType:            getScaleOperationType(initialScale, targetScale),
-		CoreLogicDoneChan:        make(chan interface{}),
+		OperationId:                    operationId,
+		NotificationChan:               make(chan struct{}, 1),
+		ExpectedNumAffectedNodes:       expectedNumAffectedNodes,
+		NodesAffected:                  make([]string, 0, int(math.Abs(float64(targetScale-initialScale)))),
+		InitialScale:                   initialScale,
+		TargetScale:                    targetScale,
+		RegistrationTime:               time.Now(),
+		Status:                         ScaleOperationAwaitingStart,
+		Cluster:                        cluster,
+		OperationType:                  getScaleOperationType(initialScale, targetScale),
+		CoreLogicDoneChan:              make(chan interface{}),
+		onScaleOperationFailedCallback: cluster.DefaultOnScaleOperationFailed,
 	}
 
 	scaleOperation.cond = sync.NewCond(&scaleOperation.condMu)
@@ -308,17 +325,18 @@ func NewScaleOperation(operationId string, initialScale int32, targetScale int32
 	}
 
 	scaleOperation := &ScaleOperation{
-		OperationId:              operationId,
-		NotificationChan:         make(chan struct{}, 1),
-		ExpectedNumAffectedNodes: int(math.Abs(float64(targetScale - initialScale))),
-		NodesAffected:            make([]string, 0, int(math.Abs(float64(targetScale-initialScale)))),
-		InitialScale:             initialScale,
-		TargetScale:              targetScale,
-		RegistrationTime:         time.Now(),
-		Status:                   ScaleOperationAwaitingStart,
-		Cluster:                  cluster,
-		OperationType:            getScaleOperationType(initialScale, targetScale),
-		CoreLogicDoneChan:        make(chan interface{}),
+		OperationId:                    operationId,
+		NotificationChan:               make(chan struct{}, 1),
+		ExpectedNumAffectedNodes:       int(math.Abs(float64(targetScale - initialScale))),
+		NodesAffected:                  make([]string, 0, int(math.Abs(float64(targetScale-initialScale)))),
+		InitialScale:                   initialScale,
+		TargetScale:                    targetScale,
+		RegistrationTime:               time.Now(),
+		Status:                         ScaleOperationAwaitingStart,
+		Cluster:                        cluster,
+		OperationType:                  getScaleOperationType(initialScale, targetScale),
+		CoreLogicDoneChan:              make(chan interface{}),
+		onScaleOperationFailedCallback: cluster.DefaultOnScaleOperationFailed,
 	}
 
 	scaleOperation.cond = sync.NewCond(&scaleOperation.condMu)
@@ -344,6 +362,13 @@ func NewScaleOperation(operationId string, initialScale int32, targetScale int32
 	return scaleOperation, nil
 }
 
+// Commented out because unused, and it would overwrite the default callback, which IS used.
+//
+// RegisterOnFailureCallback registers an OnScaleOperationFailedCallback with the target ScaleOperation.
+//func (op *ScaleOperation) RegisterOnFailureCallback(callback OnScaleOperationFailedCallback) {
+//	op.onScaleOperationFailedCallback = callback
+//}
+
 // IsScaleOutOperation returns true if the ScaleOperation is of type ScaleOutOperation.
 func (op *ScaleOperation) IsScaleOutOperation() bool {
 	return op.OperationType == ScaleOutOperation
@@ -356,7 +381,7 @@ func (op *ScaleOperation) IsScaleInOperation() bool {
 
 // String returns a string representation of the target ScaleOperation struct that is suitable for printing/logging.
 func (op *ScaleOperation) String() string {
-	return fmt.Sprintf("%s[Initial: %d, Target: %d, State: %s, ID: %s]",
+	return fmt.Sprintf("%s[Initial: %d, Target: %d, TransactionState: %s, ID: %s]",
 		op.OperationType, op.InitialScale, op.TargetScale, op.Status.String(), op.OperationId)
 }
 
@@ -366,9 +391,39 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 		log.Fatalf("Cannot execute ScaleOperation %s as its execution function is nil.", op.OperationId)
 	}
 
-	op.log.Debug("%s %s is beginning to execute.", op.OperationType, op.OperationId)
+	if op.ExpectedNumAffectedNodes == 0 {
+		op.log.Warn("%s operation %s is expected to affect 0 hosts...", op.OperationType, op.OperationId)
 
-	timeoutInterval := time.Second * 30
+		result := &ScaleInOperationResult{
+			BaseScaleOperationResult: &BaseScaleOperationResult{
+				PreviousNumNodes: op.InitialScale,
+				CurrentNumNodes:  int32(op.Cluster.Len()),
+			},
+			NumNodesTerminated: int32(op.Cluster.Len()) - op.InitialScale,
+			NodesTerminated:    op.NodesAffected,
+		}
+
+		return result, nil
+	}
+
+	// We compute a timeout interval based on the number of hosts that will be impacted and the type of operation.
+	var timeoutInterval time.Duration
+	if op.IsScaleOutOperation() {
+		timeoutInterval = time.Duration(op.ExpectedNumAffectedNodes) * op.Cluster.MeanScaleOutTime() * 2
+	} else {
+		timeoutInterval = time.Duration(op.ExpectedNumAffectedNodes) * op.Cluster.MeanScaleInTime() * 2
+	}
+
+	// We'll default to 30 seconds.
+	if timeoutInterval == 0 {
+		op.log.Warn("Calculated timeout interval for %s operation %s as 0 seconds. Defaulting to 30 seconds.",
+			op.OperationType.String(), op.OperationId)
+		timeoutInterval = time.Second * 30
+	}
+
+	op.log.Debug("%s %s from %d to %d host(s) is beginning to execute with timeout of %v.",
+		op.OperationType, op.OperationId, op.InitialScale, op.TargetScale, timeoutInterval)
+
 	childContext, cancel := context.WithTimeout(parentContext, timeoutInterval)
 	defer cancel()
 
@@ -377,7 +432,7 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 	select {
 	case <-childContext.Done():
 		{
-			op.log.Error("Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
+			op.log.Error("TransactionOperation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
 			if ctxErr := childContext.Err(); ctxErr != nil {
 				op.log.Error("Additional error information regarding failed adjustment of virtual Docker nodes: %v", ctxErr)
 				if transitionError := op.SetOperationErred(ctxErr, false); transitionError != nil {
@@ -391,7 +446,7 @@ func (op *ScaleOperation) execute(parentContext context.Context) (ScaleOperation
 				}
 
 				return nil, fmt.Errorf("operation to adjust scale of virtual Docker nodes timed-out after %v", timeoutInterval)
-				// status.Errorf(codes.Internal, "Operation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
+				// status.Errorf(codes.Internal, "TransactionOperation to adjust scale of virtual Docker nodes timed-out after %v.", timeoutInterval)
 			}
 		}
 	case notification := <-op.CoreLogicDoneChan: // Wait for the shell command above to finish.
@@ -622,6 +677,10 @@ func (op *ScaleOperation) SetOperationErred(err error, override bool) error {
 	op.Error = err
 	op.mu.Unlock()
 
+	if op.onScaleOperationFailedCallback != nil {
+		op.onScaleOperationFailedCallback(op)
+	}
+
 	// Wake up anybody waiting for the operation to complete.
 	// Note: it is allowed but not required for the caller to hold cond.L during the call.
 	op.condMu.Lock()
@@ -629,6 +688,11 @@ func (op *ScaleOperation) SetOperationErred(err error, override bool) error {
 	op.cond.Broadcast()
 
 	return nil
+}
+
+// GetOperationId returns the OperationId of the target ScaleOperation.
+func (op *ScaleOperation) GetOperationId() string {
+	return op.OperationId
 }
 
 // GetDuration returns the duration of the ScaleOperation, if the ScaleOperation has finished.

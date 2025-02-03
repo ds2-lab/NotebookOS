@@ -8,11 +8,6 @@ import (
 	"strings"
 )
 
-const (
-	DefaultScalingIntervalSeconds = 30
-	DefaultMaxSubscribedRatio     = 7.0
-)
-
 var (
 	DefaultStaticSchedulerOptions = &SchedulerOptions{
 		CommonOptions: configuration.CommonOptions{
@@ -34,7 +29,7 @@ var (
 			SimulateCheckpointingLatency:       true,
 			DisablePrometheusMetricsPublishing: true,
 			ElectionTimeoutSeconds:             3,
-			UseRealGPUs:                        false,
+			SimulateTrainingUsingSleep:         false,
 			BindDebugPyPort:                    false,
 			SaveStoppedKernelContainers:        false,
 		},
@@ -79,7 +74,7 @@ var (
 			SimulateCheckpointingLatency:       true,
 			DisablePrometheusMetricsPublishing: true,
 			ElectionTimeoutSeconds:             3,
-			UseRealGPUs:                        false,
+			SimulateTrainingUsingSleep:         false,
 			BindDebugPyPort:                    false,
 			SaveStoppedKernelContainers:        false,
 		},
@@ -116,9 +111,9 @@ type SchedulerOptions struct {
 	configuration.CommonOptions         `yaml:",inline" name:"common_options" json:"common_options"`
 	CustomIdleSessionReclamationOptions `yaml:",inline" name:"custom_idle_session_reclamation_options" json:"custom_idle_session_reclamation_options"`
 	SubscribedRatioUpdateInterval       float64 `name:"subscribed-ratio-update-interval"  json:"subscribed-ratio-update-interval" yaml:"subscribed-ratio-update-interval"                        description:"The interval to update the subscribed ratio."`
-	ScalingFactor                       float64 `name:"scaling-factor"                    json:"scaling-factor"                   yaml:"scaling-factor"                        description:"Defines how many hosts the Cluster will provision based on busy Resources"`
+	ScalingFactor                       float64 `name:"scaling-factor"                    json:"scaling-factor"                   yaml:"scaling-factor"                        description:"Defines how many hosts the Cluster will provision based on busy TransactionResources"`
 	ScalingIntervalSec                  float64 `name:"scaling-interval"                  json:"scaling-interval"                 yaml:"scaling-interval"                        description:"Interval to call validateCapacity, in seconds. Set to 0 to disable routing scaling."`
-	ScalingLimit                        float64 `name:"scaling-limit"                     json:"scaling-limit"                    yaml:"scaling-limit"                        description:"Defines how many hosts the Cluster will provision at maximum based on busy Resources"`
+	ScalingLimit                        float64 `name:"scaling-limit"                     json:"scaling-limit"                    yaml:"scaling-limit"                        description:"Defines how many hosts the Cluster will provision at maximum based on busy TransactionResources"`
 	MaximumHostsToReleaseAtOnce         int     `name:"scaling-in-limit"                  json:"scaling-in-limit"                 yaml:"scaling-in-limit"                        description:"Sort of the inverse of the ScalingLimit parameter (maybe?)"`
 	PredictiveAutoscalingEnabled        bool    `name:"predictive_autoscaling"            json:"predictive_autoscaling"           yaml:"predictive_autoscaling"                        description:"If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the Cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation."`
 	ScalingBufferSize                   int     `name:"scaling-buffer-size"               json:"scaling-buffer-size"              yaml:"scaling-buffer-size"                        description:"Buffer size is how many extra hosts we provision so that we can quickly scale if needed."`
@@ -134,11 +129,17 @@ type SchedulerOptions struct {
 	MeanScaleInPerHostSec               float64 `name:"mean_scale_in_per_host_sec" json:"mean_scale_in_per_host_sec" yaml:"mean_scale_in_per_host_sec"`
 	StdDevScaleInPerHostSec             float64 `name:"std_dev_scale_in_per_host_sec" json:"std_dev_scale_in_per_host_sec" yaml:"std_dev_scale_in_per_host_sec"`
 
+	MillicpusPerHost int     `name:"millicpus_per_host" json:"millicpus_per_host" yaml:"millicpus_per_host" description:"Amount of allocatable CPU available on each Host, in millicpus (1 millicpu = 1/1000 vCPU)."`
+	MemoryMbPerHost  float64 `name:"memory_mb_per_host" json:"memory_mb_per_host" yaml:"memory_mb_per_host" description:"Amount of allocatable main memory (RAM) available on each Host, in megabytes."`
+	VramGbPerHost    float64 `name:"vram_gb_per_host" json:"vram_gb_per_host" yaml:"vram_gb_per_host" description:"Amount of allocatable VRAM (GPU/video memory) available on each Host, in gigabytes."`
+
 	// If true, then assign debug ports to kernel containers that will be passed to their Golang backend to start a net/pprof debug server.
 	AssignKernelDebugPorts bool `name:"assign_kernel_debug_ports" json:"assign_kernel_debug_ports" yaml:"assign_kernel_debug_ports" description:"If true, then assign debug ports to kernel containers that will be passed to their Golang backend to start a net/pprof debug server."`
 }
 
 func (opts *SchedulerOptions) Validate() error {
+	opts.ValidateClusterSchedulerOptions()
+
 	return nil
 }
 
@@ -149,6 +150,10 @@ func (opts *SchedulerOptions) GetGpusPerHost() int {
 
 // GetScalingIntervalSec returns the interval at which the Cluster will attempt to auto-scale.
 func (opts *SchedulerOptions) GetScalingIntervalSec() float64 {
+	if opts.ScalingIntervalSec <= 0 {
+		opts.ScalingIntervalSec = DefaultScalingIntervalSeconds
+	}
+
 	return opts.ScalingIntervalSec
 }
 
@@ -185,25 +190,13 @@ func (opts *SchedulerOptions) String() string {
 // respect to one another, and/or with respect to certain requirements/constraints on their values (unrelated of
 // other configuration parameters).
 func (opts *SchedulerOptions) ValidateClusterSchedulerOptions() {
-	// Validate the minimum capacity.
-	// It must be at least equal to the number of replicas per kernel.
-	//if opts.MinimumNumNodes < opts.NumReplicas {
-	//	log.Printf("[WARNING] minimum number of nodes specified (%d). Value is less than the configured number of replicas (%d). Setting minimum nodes to %d.\n",
-	//		opts.MinimumNumNodes, opts.NumReplicas, opts.NumReplicas)
-	//	opts.MinimumNumNodes = opts.NumReplicas
-	//}
-
 	// Validate the maximum capacity.
 	// It must be at least equal to the number of replicas per kernel.
 	// It also cannot be less than the minimum capacity (it must be at least equal).
 	if opts.MaximumNumNodes < 0 {
 		opts.MaximumNumNodes = math.MaxInt // Essentially unbounded.
 	}
-	//if opts.MaximumNumNodes < opts.NumReplicas {
-	//	log.Printf("[WARNING] Invalid maximum number of nodes specified (%d). Value is less than the configured number of replicas (%d). Setting maximum nodes to %d.\n",
-	//		opts.MaximumNumNodes, opts.NumReplicas, opts.NumReplicas)
-	//	opts.MaximumNumNodes = opts.NumReplicas
-	//}
+
 	if opts.MaximumNumNodes < opts.MinimumNumNodes {
 		log.Printf("[WARNING] Invalid maximum number of nodes specified (%d). Value is less than the configured minimum number of nodes (%d). Setting maximum nodes to %d.\n",
 			opts.MaximumNumNodes, opts.MinimumNumNodes, opts.MinimumNumNodes)
@@ -212,15 +205,23 @@ func (opts *SchedulerOptions) ValidateClusterSchedulerOptions() {
 
 	// Validate the maximum subscribed/subscription ratio, which must be greater than zero (i.e., strictly positive).
 	if opts.MaxSubscribedRatio <= 0 {
-		log.Printf("[WARNING] Invalid maximum \"subscribed\" ratio specified: %.2f. Defaulting to %.2f.\n",
-			opts.MaxSubscribedRatio, DefaultMaxSubscribedRatio)
 		opts.MaxSubscribedRatio = DefaultMaxSubscribedRatio
 	}
 
 	// Validate the scaling interval, which must be strictly positive
 	if opts.ScalingIntervalSec <= 0 {
-		log.Printf("[WARNING] Invalid scaling interval specified: %f. Defaulting to every %d seconds.",
-			opts.ScalingIntervalSec, DefaultScalingIntervalSeconds)
 		opts.ScalingIntervalSec = DefaultScalingIntervalSeconds
+	}
+
+	if opts.MillicpusPerHost <= 0 {
+		opts.MillicpusPerHost = DefaultMillicpusPerHost
+	}
+
+	if opts.MemoryMbPerHost <= 0 {
+		opts.MemoryMbPerHost = DefaultMemoryMbPerHost
+	}
+
+	if opts.VramGbPerHost <= 0 {
+		opts.VramGbPerHost = DefaultVramPerHostGb
 	}
 }

@@ -15,7 +15,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/scheduling/mock_scheduler"
 	"github.com/scusemua/distributed-notebook/common/scheduling/placer"
 	"github.com/scusemua/distributed-notebook/common/scheduling/scheduler"
-	"github.com/scusemua/distributed-notebook/common/testing"
 	"github.com/scusemua/distributed-notebook/common/types"
 	"github.com/scusemua/distributed-notebook/gateway/domain"
 	"go.uber.org/mock/gomock"
@@ -86,7 +85,7 @@ var (
 	"global-daemon-service-port": 0,
 	"kubernetes-namespace": "",
 	"use-stateful-set": false,
-	"notebook-image-name": "scusemua/jupyter",
+	"notebook-image-name": "scusemua/jupyter-gpu",
 	"notebook-image-tag": "latest",
 	"distributed-cluster-service-port": 8079,
 	"remote-docker-event-aggregator-port": 5821,
@@ -107,61 +106,14 @@ var _ = Describe("Static Placer Tests", func() {
 		mockedHostMapper     *mock_scheduler.MockHostMapper
 		mockedKernelProvider *mock_scheduler.MockKernelProvider
 
-		dockerSwarmCluster *cluster.DockerSwarmCluster
-		dockerScheduler    *scheduler.DockerScheduler
-		schedulingPolicy   scheduling.Policy
+		dockerCluster    *cluster.DockerCluster
+		dockerScheduler  *scheduler.DockerScheduler
+		schedulingPolicy scheduling.Policy
 
 		opts *domain.ClusterGatewayOptions
 
 		hostSpec *types.DecimalSpec
 	)
-
-	releaseResources := func(host scheduling.Host, resources *types.DecimalSpec) {
-		err := host.SubtractFromCommittedResources(resources)
-		Expect(err).To(BeNil())
-
-		err = host.AddToIdleResources(resources)
-		Expect(err).To(BeNil())
-
-		fmt.Printf("\nReleased the following resources from Host %s (ID=%s): %v\n",
-			host.GetNodeName(), host.GetID(), resources.String())
-		fmt.Printf("Host %s now has the following idle resources: %v\n",
-			host.GetNodeName(), host.IdleResources().String())
-		fmt.Printf("Host %s now has the following committed resources: %v\n\n",
-			host.GetNodeName(), host.CommittedResources().String())
-
-		err = dockerSwarmCluster.UpdateIndex(host)
-		Expect(err).To(BeNil())
-	}
-
-	createHost := func(idx int) (scheduling.Host, *testing.ResourceSpoofer) {
-		hostId := uuid.NewString()
-		hostName := fmt.Sprintf("TestHost-%d", idx)
-		resourceSpoofer := testing.NewResourceSpoofer(hostName, hostId, hostSpec)
-		host, _, err := testing.NewHostWithSpoofedGRPC(mockCtrl, dockerSwarmCluster, hostId, hostName, resourceSpoofer)
-		Expect(err).To(BeNil())
-		Expect(host).ToNot(BeNil())
-
-		err = dockerSwarmCluster.NewHostAddedOrConnected(host)
-		Expect(err).To(BeNil())
-
-		return host, resourceSpoofer
-	}
-
-	createKernelSpec := func(spec types.Spec) *proto.KernelSpec {
-		kernelId := uuid.NewString()
-		kernelKey := uuid.NewString()
-		resourceSpec := proto.NewResourceSpec(int32(spec.CPU()), float32(spec.MemoryMB()),
-			int32(spec.GPU()), float32(spec.VRAM()))
-		return &proto.KernelSpec{
-			Id:              kernelId,
-			Session:         kernelId,
-			Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
-			SignatureScheme: jupyter.JupyterSignatureScheme,
-			Key:             kernelKey,
-			ResourceSpec:    resourceSpec,
-		}
-	}
 
 	Context("Static Placer Backed By MultiIndex of LeastLoadedIndex Using FCFS-Batch", func() {
 		BeforeEach(func() {
@@ -186,12 +138,12 @@ var _ = Describe("Static Placer Tests", func() {
 			staticPlacer := placer.NewStaticPlacer(nil, schedulingPolicy.NumReplicas(), schedulingPolicy)
 			Expect(staticPlacer).ToNot(BeNil())
 
-			dockerSwarmCluster = cluster.NewDockerSwarmCluster(hostSpec, staticPlacer, mockedHostMapper,
+			dockerCluster = cluster.NewDockerCluster(hostSpec, staticPlacer, mockedHostMapper,
 				mockedKernelProvider, nil, nil, schedulingPolicy.(scheduler.SchedulingPolicy), // TODO: Fix these messy types
 				func(f func(stats *metrics.ClusterStatistics)) {}, &opts.SchedulerOptions)
 
 			var ok bool
-			dockerScheduler, ok = dockerSwarmCluster.Scheduler().(*scheduler.DockerScheduler)
+			dockerScheduler, ok = dockerCluster.Scheduler().(*scheduler.DockerScheduler)
 			Expect(ok).To(BeTrue())
 			Expect(dockerScheduler).ToNot(BeNil())
 
@@ -255,13 +207,13 @@ var _ = Describe("Static Placer Tests", func() {
 			Expect(ok).To(BeTrue())
 			Expect(staticPlacer).ToNot(BeNil())
 
-			_, _ = createHost(1)
+			_, _ = createHost(1, dockerCluster, mockCtrl, hostSpec)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(1))
-			Expect(dockerSwarmCluster.Len()).To(Equal(1))
+			Expect(dockerCluster.Len()).To(Equal(1))
 
-			_, _ = createHost(2)
+			_, _ = createHost(2, dockerCluster, mockCtrl, hostSpec)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(2))
-			Expect(dockerSwarmCluster.Len()).To(Equal(2))
+			Expect(dockerCluster.Len()).To(Equal(2))
 
 			kernelResourceSpec := types.NewDecimalSpec(128, 128, 5, 2)
 			kernel1Spec := createKernelSpec(kernelResourceSpec)
@@ -322,7 +274,7 @@ var _ = Describe("Static Placer Tests", func() {
 				Expect(staticPlacer.HasHostPool(poolNumber)).To(BeTrue())
 			}
 
-			host1, _ := createHost(1)
+			host1, _ := createHost(1, dockerCluster, mockCtrl, hostSpec)
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(1))
 
@@ -385,13 +337,13 @@ var _ = Describe("Static Placer Tests", func() {
 			Expect(ok).To(BeTrue())
 			Expect(staticPlacer).ToNot(BeNil())
 
-			host1, _ := createHost(1)
+			host1, _ := createHost(1, dockerCluster, mockCtrl, hostSpec)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(1))
-			Expect(dockerSwarmCluster.Len()).To(Equal(1))
+			Expect(dockerCluster.Len()).To(Equal(1))
 
-			host2, _ := createHost(2)
+			host2, _ := createHost(2, dockerCluster, mockCtrl, hostSpec)
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(2))
-			Expect(dockerSwarmCluster.Len()).To(Equal(2))
+			Expect(dockerCluster.Len()).To(Equal(2))
 
 			Expect(staticPlacer.Len()).To(Equal(2))
 			Expect(staticPlacer.GetIndex().Len()).To(Equal(2))
@@ -488,7 +440,7 @@ var _ = Describe("Static Placer Tests", func() {
 			By("Returning the correct host after further resource adjustments have occurred")
 
 			// Artificially increase the resources available on Host #1.
-			releaseResources(host1, types.NewDecimalSpec(128, 128, 2, 2))
+			releaseResources(host1, types.NewDecimalSpec(128, 128, 2, 2), dockerCluster, []int{8, 9})
 
 			kernel3Id := uuid.NewString()
 			kernel3Key := uuid.NewString()
@@ -540,7 +492,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			expectedHostPoolSizes := map[int32]int{1: 0, 2: 0, 4: 0, 8: 0}
 			for i := 0; i < numHosts; i++ {
-				host, _ := createHost(1)
+				host, _ := createHost(1, dockerCluster, mockCtrl, hostSpec)
 				hosts = append(hosts, host)
 			}
 
@@ -580,7 +532,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(numHosts - 1))
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[index.GetStaticIndexBucket(1, gpusPerHost)] = 1
@@ -605,7 +557,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(numHosts - 2))
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[index.GetStaticIndexBucket(2, gpusPerHost)] = 1
@@ -630,7 +582,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(numHosts - 3))
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[index.GetStaticIndexBucket(4, gpusPerHost)] = 1
@@ -655,7 +607,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(numHosts - 4))
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[index.GetStaticIndexBucket(8, gpusPerHost)] = 1
@@ -681,7 +633,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			combinedSpec := kernelSpecs[2].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
 			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
 
@@ -706,7 +658,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
 			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
 
@@ -731,7 +683,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(numHosts - 4)) // Same as before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			combinedSpec = kernelSpecs[0].ResourceSpec.ToDecimalSpec().Add(kernelSpec.ResourceSpec.ToDecimalSpec())
 			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
 
@@ -756,7 +708,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // One less than before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[index.GetStaticIndexBucket(8, gpusPerHost)] = 2
@@ -782,7 +734,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // Same as before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().Add(kernelSpecs[5].ResourceSpec.ToDecimalSpec()).Add(kernelSpec.ResourceSpec.ToDecimalSpec())
 			Expect(candidateHost.CommittedResources().Equals(combinedSpec)).To(BeTrue())
 
@@ -808,7 +760,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(numHosts - 5)) // Same as before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			combinedSpec = kernelSpecs[1].ResourceSpec.ToDecimalSpec().
 				Add(kernelSpecs[5].ResourceSpec.ToDecimalSpec()).
 				Add(kernelSpecs[8].ResourceSpec.ToDecimalSpec()).
@@ -837,7 +789,7 @@ var _ = Describe("Static Placer Tests", func() {
 
 			Expect(staticPlacer.NumFreeHosts()).To(Equal(numHosts - 6)) // One less than before
 
-			GinkgoWriter.Printf("Committed Resources: %s\n", candidateHost.CommittedResources().String())
+			GinkgoWriter.Printf("Committed TransactionResources: %s\n", candidateHost.CommittedResources().String())
 			Expect(candidateHost.CommittedResources().Equals(kernelSpec.ResourceSpec)).To(BeTrue())
 
 			expectedHostPoolSizes[index.GetStaticIndexBucket(2, gpusPerHost)] = 2

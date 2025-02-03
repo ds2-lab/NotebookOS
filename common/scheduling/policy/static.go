@@ -116,6 +116,8 @@ func (p *StaticPolicy) SelectReplicaForMigration(kernel scheduling.Kernel) (sche
 // This method will only ever be called by one of the scheduling.Scheduler implementations, and they will
 // always use a lock around the call to SelectReadyReplica, so the execution of this method is atomic.
 func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+	p.log.Debug("Searching for ready replica of kernel \"%s\" for execution \"%s\"", kernel.ID(), executionId)
+
 	replicas := kernel.Replicas()
 
 	// First, we try to select the same primary replica as last time, if possible.

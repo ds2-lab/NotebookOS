@@ -135,7 +135,7 @@ func (s *KubernetesScheduler) ScheduleKernelReplica(spec *proto.KernelReplicaSpe
 // kernel onto Host instances.
 //
 // In the case of KubernetesScheduler, DeployNewKernel uses the Kubernetes API to deploy the necessary Kubernetes
-// Resources to create the new Kernel replicas.
+// TransactionResources to create the new Kernel replicas.
 func (s *KubernetesScheduler) DeployKernelReplicas(ctx context.Context, in *proto.KernelSpec, blacklistedHosts []scheduling.Host) error {
 	if len(blacklistedHosts) > 0 {
 		panic("Support for blacklisted hosts with Kubernetes scheduler may not have been implemented yet (I don't think it has)...")
@@ -143,7 +143,7 @@ func (s *KubernetesScheduler) DeployKernelReplicas(ctx context.Context, in *prot
 
 	_, err := s.kubeClient.DeployDistributedKernels(ctx, in)
 	if err != nil {
-		s.log.Error("Error encountered while attempting to create the Kubernetes Resources for Session %s: %v", in.Id, err)
+		s.log.Error("Error encountered while attempting to create the Kubernetes TransactionResources for Session %s: %v", in.Id, err)
 		return status.Errorf(codes.Internal, "Failed to start kernel")
 	}
 

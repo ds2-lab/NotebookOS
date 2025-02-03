@@ -15,4 +15,4 @@ def generate_requirements(pyproject_path="pyproject.toml", output_path="./distri
     print(f"Generated {output_path} from {pyproject_path}")
 
 if __name__ == "__main__":
-    generate_requirements(pyproject_path = "../../pyproject.toml")
+    generate_requirements(pyproject_path ="../../../pyproject.toml")

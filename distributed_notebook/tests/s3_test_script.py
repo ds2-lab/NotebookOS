@@ -4,7 +4,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import boto3
-import os
+
+from .util import create_s3_bucket_if_not_exists
+
+create_s3_bucket_if_not_exists("distributed-notebook-storage")
 
 # Define a simple PyTorch model
 class SimpleModel(nn.Module):

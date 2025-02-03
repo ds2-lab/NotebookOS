@@ -19,17 +19,17 @@ type HostResources struct {
 	// lastAppliedSnapshotId is the ID of the last snapshot that was applied to this HostResources struct.
 	lastAppliedSnapshotId int32
 
-	resourceStatus Status          // resourceStatus is the ResourceStatus represented/encoded by this struct.
-	millicpus      decimal.Decimal // millicpus is CPU in 1/1000th of CPU core.
-	gpus           decimal.Decimal // gpus is the number of GPUs.
-	memoryMB       decimal.Decimal // memoryMB is the amount of memory in MB.
-	vramGB         decimal.Decimal // vram is the amount of GPU memory in GB.
+	resourceStatus scheduling.ResourceStatus // resourceStatus is the ResourceStatus represented/encoded by this struct.
+	millicpus      decimal.Decimal           // millicpus is CPU in 1/1000th of CPU core.
+	gpus           decimal.Decimal           // gpus is the number of GPUs.
+	memoryMB       decimal.Decimal           // memoryMB is the amount of memory in MB.
+	vramGB         decimal.Decimal           // vram is the amount of GPU memory in GB.
 
-	// maximum provides a maximum of each Kind of resource so we can clamp from above as well.
+	// maximum provides a maximum of each ResourceKind of resource so we can clamp from above as well.
 	maximum *types.DecimalSpec
 }
 
-func NewHostResources(spec *types.DecimalSpec, maximum *types.DecimalSpec, status Status) *HostResources {
+func NewHostResources(spec *types.DecimalSpec, maximum *types.DecimalSpec, status scheduling.ResourceStatus) *HostResources {
 	return &HostResources{
 		resourceStatus: status,
 		millicpus:      spec.Millicpus,
@@ -161,9 +161,9 @@ func (res *HostResources) unsafeToDecimalSpec() *types.DecimalSpec {
 // If any field of the target 'HostResources' struct is not less than the corresponding field of the other 'HostResources'
 // struct, then false is returned.
 //
-// The Kind are checked in the following order: CPU, Memory, GPU.
-// The Kind of the first offending quantity will be returned, along with false, based on that order.
-func (res *HostResources) LessThan(other *HostResources) (bool, Kind) {
+// The ResourceKind are checked in the following order: CPU, Memory, GPU.
+// The ResourceKind of the first offending quantity will be returned, along with false, based on that order.
+func (res *HostResources) LessThan(other *HostResources) (bool, scheduling.ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -171,22 +171,22 @@ func (res *HostResources) LessThan(other *HostResources) (bool, Kind) {
 	defer other.Unlock()
 
 	if !res.millicpus.LessThan(other.millicpus) {
-		return false, CPU
+		return false, scheduling.CPU
 	}
 
 	if !res.memoryMB.LessThan(other.memoryMB) {
-		return false, Memory
+		return false, scheduling.Memory
 	}
 
 	if !res.gpus.LessThan(other.gpus) {
-		return false, GPU
+		return false, scheduling.GPU
 	}
 
 	if !res.vramGB.LessThan(other.vramGB) {
-		return false, VRAM
+		return false, scheduling.VRAM
 	}
 
-	return true, NoResource
+	return true, scheduling.NoResource
 }
 
 // LessThanOrEqual returns true if each field of the target 'HostResources' struct is less than or equal to the
@@ -196,7 +196,7 @@ func (res *HostResources) LessThan(other *HostResources) (bool, Kind) {
 //
 // If any field of the target 'HostResources' struct is not less than or equal to the corresponding field of the
 // other 'HostResources' struct, then false is returned.
-func (res *HostResources) LessThanOrEqual(other *HostResources) (bool, Kind) {
+func (res *HostResources) LessThanOrEqual(other *HostResources) (bool, scheduling.ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -204,22 +204,22 @@ func (res *HostResources) LessThanOrEqual(other *HostResources) (bool, Kind) {
 	defer other.Unlock()
 
 	if !res.millicpus.LessThanOrEqual(other.millicpus) {
-		return false, CPU
+		return false, scheduling.CPU
 	}
 
 	if !res.memoryMB.LessThanOrEqual(other.memoryMB) {
-		return false, Memory
+		return false, scheduling.Memory
 	}
 
 	if !res.gpus.LessThanOrEqual(other.gpus) {
-		return false, GPU
+		return false, scheduling.GPU
 	}
 
 	if !res.vramGB.LessThanOrEqual(other.vramGB) {
-		return false, VRAM
+		return false, scheduling.VRAM
 	}
 
-	return true, NoResource
+	return true, scheduling.NoResource
 }
 
 // GreaterThan returns true if each field of the target 'HostResources' struct is strictly greater than to the
@@ -229,7 +229,7 @@ func (res *HostResources) LessThanOrEqual(other *HostResources) (bool, Kind) {
 //
 // If any field of the target 'HostResources' struct is not strictly greater than the corresponding field of the
 // other 'HostResources' struct, then false is returned.
-func (res *HostResources) GreaterThan(other *HostResources) (bool, Kind) {
+func (res *HostResources) GreaterThan(other *HostResources) (bool, scheduling.ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -237,22 +237,22 @@ func (res *HostResources) GreaterThan(other *HostResources) (bool, Kind) {
 	defer other.Unlock()
 
 	if !res.millicpus.GreaterThan(other.millicpus) {
-		return false, CPU
+		return false, scheduling.CPU
 	}
 
 	if !res.memoryMB.GreaterThan(other.memoryMB) {
-		return false, Memory
+		return false, scheduling.Memory
 	}
 
 	if !res.gpus.GreaterThan(other.gpus) {
-		return false, GPU
+		return false, scheduling.GPU
 	}
 
 	if !res.vramGB.GreaterThan(other.vramGB) {
-		return false, VRAM
+		return false, scheduling.VRAM
 	}
 
-	return true, NoResource
+	return true, scheduling.NoResource
 }
 
 // GreaterThanOrEqual returns true if each field of the target 'HostResources' struct is greater than or equal to the
@@ -262,7 +262,7 @@ func (res *HostResources) GreaterThan(other *HostResources) (bool, Kind) {
 //
 // If any field of the target 'HostResources' struct is not greater than or equal to the corresponding field of the
 // other 'HostResources' struct, then false is returned.
-func (res *HostResources) GreaterThanOrEqual(other *HostResources) (bool, Kind) {
+func (res *HostResources) GreaterThanOrEqual(other *HostResources) (bool, scheduling.ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -270,22 +270,22 @@ func (res *HostResources) GreaterThanOrEqual(other *HostResources) (bool, Kind) 
 	defer other.Unlock()
 
 	if !res.millicpus.GreaterThanOrEqual(other.millicpus) {
-		return false, CPU
+		return false, scheduling.CPU
 	}
 
 	if !res.memoryMB.GreaterThanOrEqual(other.memoryMB) {
-		return false, Memory
+		return false, scheduling.Memory
 	}
 
 	if !res.gpus.GreaterThanOrEqual(other.gpus) {
-		return false, GPU
+		return false, scheduling.GPU
 	}
 
 	if !res.vramGB.GreaterThanOrEqual(other.vramGB) {
-		return false, VRAM
+		return false, scheduling.VRAM
 	}
 
-	return true, NoResource
+	return true, scheduling.NoResource
 }
 
 // EqualTo returns true if each field of the target 'HostResources' struct is exactly equal to the corresponding field of
@@ -295,7 +295,7 @@ func (res *HostResources) GreaterThanOrEqual(other *HostResources) (bool, Kind) 
 //
 // If any field of the target 'HostResources' struct is not equal to the corresponding field of the other 'HostResources'
 // struct, then false is returned.
-func (res *HostResources) EqualTo(other *HostResources) (bool, Kind) {
+func (res *HostResources) EqualTo(other *HostResources) (bool, scheduling.ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
@@ -303,22 +303,22 @@ func (res *HostResources) EqualTo(other *HostResources) (bool, Kind) {
 	defer other.Unlock()
 
 	if !res.millicpus.Equals(other.millicpus) {
-		return false, CPU
+		return false, scheduling.CPU
 	}
 
 	if !res.memoryMB.Equals(other.memoryMB) {
-		return false, Memory
+		return false, scheduling.Memory
 	}
 
 	if !res.gpus.Equals(other.gpus) {
-		return false, GPU
+		return false, scheduling.GPU
 	}
 
 	if !res.vramGB.Equals(other.vramGB) {
-		return false, VRAM
+		return false, scheduling.VRAM
 	}
 
-	return true, NoResource
+	return true, scheduling.NoResource
 }
 
 // IsZero returns true if each field of the target 'HostResources' struct is exactly equal to 0.
@@ -326,87 +326,87 @@ func (res *HostResources) EqualTo(other *HostResources) (bool, Kind) {
 // This method locks both 'HostResources' instances, beginning with the target instance.
 //
 // If any field of the target 'HostResources' struct is not equal to 0, then false is returned.
-func (res *HostResources) IsZero() (bool, Kind) {
+func (res *HostResources) IsZero() (bool, scheduling.ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
 	if !res.millicpus.Equals(decimal.Zero) {
-		return false, CPU
+		return false, scheduling.CPU
 	}
 
 	if !res.memoryMB.Equals(decimal.Zero) {
-		return false, Memory
+		return false, scheduling.Memory
 	}
 
 	if !res.gpus.Equals(decimal.Zero) {
-		return false, GPU
+		return false, scheduling.GPU
 	}
 
 	if !res.vramGB.Equals(decimal.Zero) {
-		return false, VRAM
+		return false, scheduling.VRAM
 	}
 
-	return true, NoResource
+	return true, scheduling.NoResource
 }
 
-// GetResource returns a copy of the decimal.Decimal corresponding with the specified Kind.
+// GetResource returns a copy of the decimal.Decimal corresponding with the specified ResourceKind.
 //
 // This method is thread-safe.
 //
 // If kind is equal to NoResource, then this method will panic.
-func (res *HostResources) GetResource(kind Kind) decimal.Decimal {
+func (res *HostResources) GetResource(kind scheduling.ResourceKind) decimal.Decimal {
 	res.Lock()
 	defer res.Unlock()
 
-	if kind == CPU {
+	if kind == scheduling.CPU {
 		return res.millicpus.Copy()
 	}
 
-	if kind == Memory {
+	if kind == scheduling.Memory {
 		return res.memoryMB.Copy()
 	}
 
-	if kind == GPU {
+	if kind == scheduling.GPU {
 		return res.gpus.Copy()
 	}
 
-	if kind == VRAM {
+	if kind == scheduling.VRAM {
 		return res.vramGB.Copy()
 	}
 
-	panic(fmt.Sprintf("Invalid Kind specified: \"%s\"", kind))
+	panic(fmt.Sprintf("Invalid ResourceKind specified: \"%s\"", kind))
 }
 
 // HasNegativeField returns true if millicpus, gpus, or memoryMB is negative.
-// It also returns the Kind of the negative field.
+// It also returns the ResourceKind of the negative field.
 //
 // This method is thread-safe.
 //
 // The HostResources are checked in the following order: CPU, Memory, GPU.
-// This method will return true and the associated Kind for the first negative Kind encountered.
+// This method will return true and the associated ResourceKind for the first negative ResourceKind encountered.
 //
 // If no HostResources are negative, then this method returns false and NoResource.
-func (res *HostResources) HasNegativeField() (bool, Kind) {
+func (res *HostResources) HasNegativeField() (bool, scheduling.ResourceKind) {
 	res.Lock()
 	defer res.Unlock()
 
 	if res.millicpus.IsNegative() {
-		return true, CPU
+		return true, scheduling.CPU
 	}
 
 	if res.memoryMB.IsNegative() {
-		return true, Memory
+		return true, scheduling.Memory
 	}
 
 	if res.gpus.IsNegative() {
-		return true, GPU
+		return true, scheduling.GPU
 	}
 
 	if res.vramGB.IsNegative() {
-		return true, VRAM
+		return true, scheduling.VRAM
 	}
 
-	return false, NoResource
+	return false, scheduling.NoResource
 }
 
 func (res *HostResources) String() string {
@@ -418,7 +418,7 @@ func (res *HostResources) String() string {
 		res.gpus.StringFixed(1), res.vramGB.StringFixed(4), res.memoryMB.StringFixed(4))
 }
 
-func (res *HostResources) ResourceStatus() Status {
+func (res *HostResources) ResourceStatus() scheduling.ResourceStatus {
 	return res.resourceStatus
 }
 
@@ -713,25 +713,25 @@ func (res *HostResources) ValidateWithError(spec types.Spec) error {
 	sufficientMemoryAvailable := res.memoryMB.GreaterThanOrEqual(decimalSpec.MemoryMb)
 	sufficientVRamAvailable := res.vramGB.GreaterThanOrEqual(decimalSpec.VRam)
 
-	offendingKinds := make([]Kind, 0)
+	offendingKinds := make([]scheduling.ResourceKind, 0)
 	if !sufficientGPUsAvailable {
-		offendingKinds = append(offendingKinds, GPU)
+		offendingKinds = append(offendingKinds, scheduling.GPU)
 	}
 
 	if !sufficientCPUsAvailable {
-		offendingKinds = append(offendingKinds, CPU)
+		offendingKinds = append(offendingKinds, scheduling.CPU)
 	}
 
 	if !sufficientMemoryAvailable {
-		offendingKinds = append(offendingKinds, Memory)
+		offendingKinds = append(offendingKinds, scheduling.Memory)
 	}
 
 	if !sufficientVRamAvailable {
-		offendingKinds = append(offendingKinds, VRAM)
+		offendingKinds = append(offendingKinds, scheduling.VRAM)
 	}
 
 	if len(offendingKinds) > 0 {
-		return NewInsufficientResourcesError(res.unsafeToDecimalSpec(), spec, offendingKinds)
+		return scheduling.NewInsufficientResourcesError(res.unsafeToDecimalSpec(), spec, offendingKinds)
 	} else {
 		return nil
 	}

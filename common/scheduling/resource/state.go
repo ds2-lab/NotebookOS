@@ -1,6 +1,9 @@
 package resource
 
-import "github.com/shopspring/decimal"
+import (
+	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"github.com/shopspring/decimal"
+)
 
 // ManagerState defines a public interface for accessing (i.e., reading) but not mutating (i.e., writing)
 // the working state of a ManagerState.
@@ -44,9 +47,9 @@ type ManagerState interface {
 // Meanwhile, ManagerState exposes a collection of several ComputeResourceState instances to provide a convenient
 // type for reading all the relevant state of a AllocationManager.
 type ComputeResourceState interface {
-	// Status returns the Status of the HostResources encapsulated/made available for reading
+	// ResourceStatus returns the ResourceStatus of the HostResources encapsulated/made available for reading
 	// by this ComputeResourceState instance.
-	ResourceStatus() Status
+	ResourceStatus() scheduling.ResourceStatus
 
 	// Millicpus returns the gpus as a float64.
 	// The units are millicpus, or 1/1000th of a CPU core.

@@ -183,7 +183,7 @@ class DeepLearningModel(ABC):
             for samples, labels in loader:
                 if self.gpu_available:
                     samples, labels = samples.to(self.gpu_device), labels.to(self.gpu_device)
-                torch.cuda.synchronize()
+                    torch.cuda.synchronize()
 
                 outputs = self.model(samples)
                 loss = self._criterion(outputs, labels)

@@ -9,7 +9,6 @@ import (
 	"github.com/scusemua/distributed-notebook/common/jupyter"
 	"github.com/scusemua/distributed-notebook/common/metrics"
 	"github.com/scusemua/distributed-notebook/common/proto"
-	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/utils/hashmap"
 	"log"
 	"sync"
@@ -94,10 +93,12 @@ type KernelReplicaClient struct {
 	lastTrainingTimePrometheusUpdate time.Time                                          // lastTrainingTimePrometheusUpdate records the current time as the last instant in which we published an updated training time metric to Prometheus. We use this to determine how much more to increment the training time Prometheus metric when we stop training, since any additional training time since the last scheduled publish won't be pushed to Prometheus automatically by the publisher-goroutine.
 	isTraining                       bool                                               // isTraining indicates whether the kernel replica associated with this client is actively training.
 	pendingExecuteRequestIds         hashmap.HashMap[string, *messaging.JupyterMessage] // pendingExecuteRequestIds is a map from Jupyter message ID to the message, containing execute requests sent to this kernel (whose replies have not yet been received).
+	receivedExecuteRequestReplies    hashmap.HashMap[string, *messaging.JupyterMessage] // receivedExecuteRequestReplies is a map from Jupyter message ID (of execute_request messages) to the responses.
 	pendingExecuteRequestIdsMutex    sync.Mutex                                         // pendingExecuteRequestIdsMutex ensures atomic access to pendingExecuteRequestIds.
 	pendingExecuteRequestCond        *sync.Cond                                         // Used to notify goroutines when the number of outstanding/pending "execute_request" messages reaches 0.
 	trainingFinishedCond             *sync.Cond                                         // Used to notify the goroutine responsible for sending "execute_requests" to the kernel that the kernel has finished training.
 	trainingFinishedMu               sync.Mutex                                         // Goes with the trainingFinishedCond field.
+	submitRequestsOneAtATime         bool
 
 	connectionRevalidationFailedCallback ConnectionRevalidationFailedCallback // Callback for when we try to forward a message to a kernel replica, don't get back any ACKs, and then fail to reconnect.
 
@@ -140,7 +141,7 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 	host scheduling.Host, nodeType metrics.NodeType, shouldAckMessages bool, isGatewayClient bool, debugMode bool,
 	messagingMetricsProvider server.MessagingMetricsProvider, connRevalFailedCallback ConnectionRevalidationFailedCallback,
 	resubmissionAfterSuccessfulRevalidationFailedCallback ResubmissionAfterSuccessfulRevalidationFailedCallback,
-	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))) *KernelReplicaClient {
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics)), submitRequestsOneAtATime bool) *KernelReplicaClient {
 
 	// Validate that the `spec` argument is non-nil.
 	if spec == nil {
@@ -170,9 +171,11 @@ func NewKernelReplicaClient(ctx context.Context, spec *proto.KernelReplicaSpec, 
 		host:                                 host,
 		hostId:                               hostId,
 		pendingExecuteRequestIds:             hashmap.NewCornelkMap[string, *messaging.JupyterMessage](64),
+		receivedExecuteRequestReplies:        hashmap.NewCornelkMap[string, *messaging.JupyterMessage](64),
 		isGatewayClient:                      isGatewayClient,
 		connectionRevalidationFailedCallback: connRevalFailedCallback,
 		statisticsUpdaterProvider:            statisticsUpdaterProvider,
+		submitRequestsOneAtATime:             submitRequestsOneAtATime,
 		resubmissionAfterSuccessfulRevalidationFailedCallback: resubmissionAfterSuccessfulRevalidationFailedCallback,
 		client: server.New(ctx, info, nodeType, func(s *server.AbstractServer) {
 			var remoteComponentName string
@@ -283,7 +286,7 @@ func (c *KernelReplicaClient) WaitForTrainingToStop() {
 //
 // Note for internal usage: this method is thread safe. Do not call this method if the lock for the kernel
 // is already held. If the lock is already held, then call the unsafeUpdateResourceSpec method instead.
-func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, tx scheduling.CoordinatedTransaction) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -298,7 +301,7 @@ func (c *KernelReplicaClient) UpdateResourceSpec(newSpec types.Spec, tx *transac
 // On success, nil is returned.
 //
 // Note: this method is thread safe. Do not call this method if the lock for the kernel is already held.
-func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx *transaction.CoordinatedTransaction) error {
+func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx scheduling.CoordinatedTransaction) error {
 	if newSpec.GPU() < 0 || newSpec.CPU() < 0 || newSpec.VRAM() < 0 || newSpec.MemoryMB() < 0 {
 		err := fmt.Errorf("%w: %s", ErrInvalidResourceSpec, newSpec.String())
 		return err
@@ -314,9 +317,9 @@ func (c *KernelReplicaClient) unsafeUpdateResourceSpec(newSpec types.Spec, tx *t
 
 		var err error
 		if tx != nil {
-			err = container.Host().KernelAdjustedItsResourceRequestCoordinated(newSpec, oldSpec, container, tx)
+			err = container.Host().AdjustKernelResourceRequestCoordinated(newSpec, oldSpec, container, tx)
 		} else {
-			err = container.Host().KernelAdjustedItsResourceRequest(newSpec, oldSpec, container)
+			err = container.Host().AdjustKernelResourceRequest(newSpec, oldSpec, container)
 		}
 
 		if err != nil {
@@ -469,9 +472,9 @@ func (c *KernelReplicaClient) NumPendingExecuteRequests() int {
 	return c.pendingExecuteRequestIds.Len()
 }
 
-// SentExecuteRequest records that an "execute_request" message has been sent to the kernel.
+// SendingExecuteRequest records that an "execute_request" message has been sent to the kernel.
 //
-// SentExecuteRequest will panic if the given messaging.JupyterMessage is not an "execute_request"
+// SendingExecuteRequest will panic if the given messaging.JupyterMessage is not an "execute_request"
 // message or a "yield_request" message.
 func (c *KernelReplicaClient) SendingExecuteRequest(msg *messaging.JupyterMessage) {
 	c.pendingExecuteRequestIdsMutex.Lock()
@@ -490,11 +493,11 @@ func (c *KernelReplicaClient) SendingExecuteRequest(msg *messaging.JupyterMessag
 		// Print a warning, as we shouldn't be sending concurrent execute requests to the kernel, and we just recorded
 		// that an execute request has been resolved, yet there is still at least one outstanding "execute_request"...
 		c.log.Warn(utils.OrangeStyle.Render("Recorded that \"%s\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
-			"Updated number of outstanding \"execute_request\" messages: %d."), msg.JupyterMessageType(),
+			"Updated number of outstanding \"execute_request\" msg: %d."), msg.JupyterMessageType(),
 			msg.JupyterMessageId(), c.id, c.pendingExecuteRequestIds.Len())
 	} else {
 		c.log.Debug("Recorded that \"%s\" message \"%s\" has been (or is about to be) sent to kernel %s. "+
-			"Updated number of outstanding \"execute_request\" messages: %d.", msg.JupyterMessageType(),
+			"Updated number of outstanding \"execute_request\" msg: %d.", msg.JupyterMessageType(),
 			msg.JupyterMessageId(), c.id, c.pendingExecuteRequestIds.Len())
 	}
 }
@@ -505,39 +508,42 @@ func (c *KernelReplicaClient) SendingExecuteRequest(msg *messaging.JupyterMessag
 //
 // If there is no associated "execute_request" or "yield_request" message to match against, then this will just
 // print an error message but will not panic (for now).
-func (c *KernelReplicaClient) ReceivedExecuteReply(msg *messaging.JupyterMessage) {
+func (c *KernelReplicaClient) ReceivedExecuteReply(msg *messaging.JupyterMessage, own bool) {
 	c.pendingExecuteRequestIdsMutex.Lock()
 	defer c.pendingExecuteRequestIdsMutex.Unlock()
 
 	if msg.JupyterMessageType() != messaging.ShellExecuteReply {
 		// This really shouldn't happen.
-		c.log.Error(utils.RedStyle.Render("[ERROR] Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
+		c.log.Error(utils.RedStyle.Render("Invalid message type: \"%s\"\n"), msg.JupyterMessageType())
 		return
 	}
 
-	_, found := c.pendingExecuteRequestIds.LoadAndDelete(msg.JupyterParentMessageId())
-	if !found {
-		c.log.Error(utils.RedStyle.Render("[ERROR] Kernel %s did not match against \"execute_reply\" with JupyterID=\"%s\""),
-			c.ID(), msg.JupyterParentMessageId())
+	executeRequestId := msg.JupyterParentMessageId()
+
+	_, found := c.pendingExecuteRequestIds.LoadAndDelete(executeRequestId)
+
+	// If this is the replica's own response, then we'll keep track of that.
+	if own {
+		c.receivedExecuteRequestReplies.Store(executeRequestId, msg)
 	}
 
 	numOutstandingRequests := c.pendingExecuteRequestIds.Len()
 	if numOutstandingRequests == 0 {
-		c.log.Debug("\"execute_reply\" message \"%s\" received from kernel %s. Outstanding \"execute_request\" messages: %d.",
-			msg.JupyterParentMessageId(), c.id, c.pendingExecuteRequestIds.Len())
+		c.log.Debug("\"execute_reply\" for message request \"%s\" received from kernel %s. Outstanding \"execute_request\" messages: %d.",
+			executeRequestId, c.id, c.pendingExecuteRequestIds.Len())
 
 		if found {
 			// Notify any waiters that there are no more outstanding requests.
 			c.pendingExecuteRequestCond.Broadcast()
 		} else {
-			c.log.Warn("Because there was no matching \"execute_request\" or \"yield_request\" request matching " +
+			c.log.Debug("Because there was no matching \"execute_request\" or \"yield_request\" request matching " +
 				"the given \"execute_reply\", we will not be broadcasting on the associated condition variable...")
 		}
 	} else {
 		// Print a warning, as we shouldn't be sending concurrent execute requests to the kernel, and we just recorded
 		// that an execute request has been resolved, yet there is still at least one outstanding "execute_request"...
-		c.log.Debug("\"execute_reply\" message \"%s\" received from kernel %s. Outstanding \"execute_request\" messages: %d.",
-			msg.JupyterParentMessageId(), c.id, c.pendingExecuteRequestIds.Len())
+		c.log.Debug("\"execute_reply\" for message request \"%s\" received from kernel %s. Outstanding \"execute_request\" messages: %d.",
+			executeRequestId, c.id, c.pendingExecuteRequestIds.Len())
 	}
 }
 
@@ -571,6 +577,7 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v",
 				c.ID(), c.ReplicaID(), err)
+
 			return err
 		}
 	}
@@ -1098,6 +1105,18 @@ func (c *KernelReplicaClient) RequestWithHandler(ctx context.Context, _ string, 
 func (c *KernelReplicaClient) RequestWithHandlerAndWaitOptionGetter(parentContext context.Context, typ messaging.MessageType, msg *messaging.JupyterMessage, handler scheduling.KernelReplicaMessageHandler, getOption server.WaitResponseOptionGetter, done func()) error {
 	if c.status < jupyter.KernelStatusRunning {
 		return jupyter.ErrKernelNotReady
+	}
+
+	jupyterMsgTyp := msg.JupyterMessageType()
+	if jupyterMsgTyp == messaging.ShellExecuteRequest || jupyterMsgTyp == messaging.ShellYieldRequest {
+		// This ensures that we send "execute_request" messages one-at-a-time.
+		// We wait until any pending "execute_request" messages receive an "execute_reply"
+		// response before we can forward this next "execute_request".
+		if c.submitRequestsOneAtATime {
+			c.WaitForPendingExecuteRequests()
+		}
+
+		c.SendingExecuteRequest(msg)
 	}
 
 	// Use a default "done" handler.

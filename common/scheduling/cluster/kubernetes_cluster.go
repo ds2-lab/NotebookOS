@@ -65,7 +65,7 @@ func NewKubernetesCluster(kubeClient scheduling.KubeClient, hostSpec types.Spec,
 }
 
 func (c *KubernetesCluster) String() string {
-	return fmt.Sprintf("DockerComposeCluster[Size=%d,NumSessions=%d]", c.Len(), c.sessions.Len())
+	return fmt.Sprintf("DockerCluster[Size=%d,NumSessions=%d]", c.Len(), c.sessions.Len())
 }
 
 // NodeType returns the type of node provisioned within the Cluster.
@@ -78,10 +78,9 @@ func (c *KubernetesCluster) RequestHost(_ types.Spec) promise.Promise {
 }
 
 // CanPossiblyScaleOut returns true if the Cluster could possibly scale-out.
-// This is always true for docker compose clusters, but for kubernetes and docker swarm clusters,
-// it is currently not supported unless there is at least one disabled host already within the cluster.
+// For now, we scale-out using disabled nodes, so whether we can scale-out depends
+// upon whether there is at least one disabled node.
 func (c *KubernetesCluster) CanPossiblyScaleOut() bool {
-	// For now, this is never supported for Kubernetes clusters.
 	return false
 }
 

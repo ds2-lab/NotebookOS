@@ -3,8 +3,10 @@ package resource_test
 import (
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/scusemua/distributed-notebook/common/scheduling"
 	"github.com/scusemua/distributed-notebook/common/scheduling/resource"
 	"github.com/scusemua/distributed-notebook/common/scheduling/transaction"
 	"github.com/scusemua/distributed-notebook/common/types"
@@ -14,7 +16,7 @@ import (
 var _ = Describe("Manager Tests", func() {
 	Context("Transactions", func() {
 		It("Should commit participants that would not result in invalid resource counts", func() {
-			transaction := func(s *transaction.State) {
+			transaction := func(s scheduling.TransactionState) {
 				s.PendingResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 				s.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
 
@@ -44,7 +46,7 @@ var _ = Describe("Manager Tests", func() {
 		})
 
 		It("Should reject participants that would result in invalid resource counts", func() {
-			tx := func(s *transaction.State) {
+			tx := func(s scheduling.TransactionState) {
 				s.IdleResources().Add(types.NewDecimalSpec(25, 25, 25, 25))
 
 				s.PendingResources().Subtract(types.NewDecimalSpec(25, 25, 25, 25))
@@ -66,7 +68,9 @@ var _ = Describe("Manager Tests", func() {
 
 			err := manager.RunTransaction(tx)
 			Expect(err).ToNot(BeNil())
-			Expect(errors.Is(err, transaction.ErrTransactionFailed)).To(BeTrue())
+
+			var txFailedError transaction.ErrTransactionFailed
+			Expect(errors.As(err, &txFailedError)).To(BeTrue())
 
 			fmt.Printf("Post-operation: %s\n", manager.GetResourceCountsAsString())
 
@@ -81,7 +85,7 @@ var _ = Describe("Manager Tests", func() {
 		deltaSpec := types.NewDecimalSpec(25, 25, 25, 25)
 
 		It("Will correctly commit a valid coordinated transaction", func() {
-			coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+			coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 			Expect(coordinatedTransaction).ToNot(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(0))
@@ -89,7 +93,7 @@ var _ = Describe("Manager Tests", func() {
 			Expect(coordinatedTransaction.Started()).To(BeFalse())
 			Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-			tx := func(state *transaction.State) {
+			tx := func(state scheduling.TransactionState) {
 				state.PendingResources().Add(deltaSpec)
 
 				state.PendingResources().Add(deltaSpec)
@@ -106,7 +110,7 @@ var _ = Describe("Manager Tests", func() {
 			manager1 := resource.NewManager(baseSpec)
 			initialState1, commit1 := manager1.GetTransactionData()
 
-			err := coordinatedTransaction.RegisterParticipant(1, func() (*transaction.State, transaction.CommitTransactionResult) {
+			err := coordinatedTransaction.RegisterParticipant(1, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState1, commit1
 			}, tx, &mu1)
 			Expect(err).To(BeNil())
@@ -118,7 +122,7 @@ var _ = Describe("Manager Tests", func() {
 
 			manager2 := resource.NewManager(baseSpec)
 			initialState2, commit2 := manager2.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(2, func() (*transaction.State, transaction.CommitTransactionResult) {
+			err = coordinatedTransaction.RegisterParticipant(2, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState2, commit2
 			}, tx, &mu2)
 			Expect(err).To(BeNil())
@@ -130,15 +134,21 @@ var _ = Describe("Manager Tests", func() {
 
 			manager3 := resource.NewManager(baseSpec)
 			initialState3, commit3 := manager3.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(3, func() (*transaction.State, transaction.CommitTransactionResult) {
+			err = coordinatedTransaction.RegisterParticipant(3, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState3, commit3
 			}, tx, &mu3)
 			Expect(err).To(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
-			succeeded := coordinatedTransaction.Wait()
-			Expect(succeeded).To(BeTrue())
+			for i := 0; i < 2; i++ {
+				go func() {
+					_ = coordinatedTransaction.Run()
+				}()
+			}
+
+			err = coordinatedTransaction.Run()
+			Expect(err).To(BeNil())
 			Expect(coordinatedTransaction.Succeeded()).To(BeTrue())
 			Expect(coordinatedTransaction.Started()).To(BeTrue())
 			Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
@@ -146,7 +156,7 @@ var _ = Describe("Manager Tests", func() {
 		})
 
 		It("Will correctly reject a coordinated transaction that would result in an invalid resource state", func() {
-			coordinatedTransaction := transaction.NewCoordinatedTransaction(3)
+			coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
 			Expect(coordinatedTransaction).ToNot(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(0))
@@ -154,7 +164,7 @@ var _ = Describe("Manager Tests", func() {
 			Expect(coordinatedTransaction.Started()).To(BeFalse())
 			Expect(coordinatedTransaction.IsComplete()).To(BeFalse())
 
-			tx := func(state *transaction.State) {
+			tx := func(state scheduling.TransactionState) {
 				state.PendingResources().Add(deltaSpec)
 
 				state.PendingResources().Add(deltaSpec)
@@ -173,7 +183,7 @@ var _ = Describe("Manager Tests", func() {
 
 			manager1 := resource.NewManager(baseSpec)
 			initialState1, commit1 := manager1.GetTransactionData()
-			err := coordinatedTransaction.RegisterParticipant(1, func() (*transaction.State, transaction.CommitTransactionResult) {
+			err := coordinatedTransaction.RegisterParticipant(1, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState1, commit1
 			}, tx, &mu1)
 			Expect(err).To(BeNil())
@@ -185,7 +195,7 @@ var _ = Describe("Manager Tests", func() {
 
 			manager2 := resource.NewManager(baseSpec)
 			initialState2, commit2 := manager2.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(2, func() (*transaction.State, transaction.CommitTransactionResult) {
+			err = coordinatedTransaction.RegisterParticipant(2, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState2, commit2
 			}, tx, &mu2)
 			Expect(err).To(BeNil())
@@ -197,21 +207,31 @@ var _ = Describe("Manager Tests", func() {
 
 			manager3 := resource.NewManager(baseSpec)
 			initialState3, commit3 := manager3.GetTransactionData()
-			err = coordinatedTransaction.RegisterParticipant(3, func() (*transaction.State, transaction.CommitTransactionResult) {
+			err = coordinatedTransaction.RegisterParticipant(3, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
 				return initialState3, commit3
 			}, tx, &mu3)
 			Expect(err).To(BeNil())
 			Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 			Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
-			succeeded := coordinatedTransaction.Wait()
-			Expect(succeeded).To(BeFalse())
+			for i := 0; i < 2; i++ {
+				go func() {
+					_ = coordinatedTransaction.Run()
+				}()
+			}
+
+			err = coordinatedTransaction.Run()
+			Expect(err).ToNot(BeNil())
+
 			Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
 			Expect(coordinatedTransaction.Started()).To(BeTrue())
 			Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
 			Expect(coordinatedTransaction.FailureReason()).ToNot(BeNil())
-			Expect(errors.Is(coordinatedTransaction.FailureReason(), transaction.ErrTransactionFailed)).To(BeTrue())
-			Expect(errors.Is(coordinatedTransaction.FailureReason(), transaction.ErrNegativeResourceCount)).To(BeTrue())
+
+			var txFailedError transaction.ErrTransactionFailed
+			Expect(errors.As(coordinatedTransaction.FailureReason(), &txFailedError)).To(BeTrue())
+			Expect(txFailedError).ToNot(BeNil())
+			Expect(errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount)).To(BeTrue())
 		})
 	})
 })

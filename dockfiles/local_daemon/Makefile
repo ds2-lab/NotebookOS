@@ -32,7 +32,7 @@ clean:
 
 # build-image-cpu-jupyter:
 # ifeq ($(ARCH), x86_64)
-# 	cd ../cpu-python3-amd64 && make
+# 	cd ../gpu-python3-amd64 && make
 # else
 # 	cd ../cpu-python3-arm64 && make
 # endif 
@@ -41,7 +41,7 @@ clean:
 # 	cd ../cpu-python3-arm64 && make
 
 # build-image-cpu-jupyter-amd64:
-# 	cd ../cpu-python3-amd64 && make
+# 	cd ../gpu-python3-amd64 && make
 
 # build-image-gateway:
 # 	cd ../gateway && make

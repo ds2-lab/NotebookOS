@@ -573,6 +573,7 @@ message HostId {
   string id = 1;
   string nodeName = 2; // The name of the Kubernetes node that the Host is running on.
   bool existing = 3; // Indicates whether the node is starting for the first time or not.
+  ResourceSpec specResources = 4;
 }
 
 // KernelErrorReporter is a gRPC service provided by Local Daemon nodes.
@@ -642,6 +643,10 @@ service LocalGateway {
   // the current resource quantities on the node.
   rpc ResourcesSnapshot(Void) returns (NodeResourcesSnapshotWithContainers) {}
 
+  // GetLocalDaemonInfo returns key information about the Local Daemon, including its current resource counts,
+  // its ID, etc.
+  rpc GetLocalDaemonInfo(Void) returns (LocalDaemonInfo) {}
+
   // Return the current GPU resource metrics on the node.
   // @Deprecated: this should eventually be merged with the updated/unified ModifyClusterNodes API.
   rpc GetActualGpuInfo(Void) returns (GpuInfo) {}
@@ -667,6 +672,17 @@ service LocalGateway {
   // The reconnection procedure is optionally initiated shortly after the ReconnectToGateway gRPC call returns,
   // to avoid causing the ReconnectToGateway to encounter an error.
   rpc ReconnectToGateway(ReconnectToGatewayRequest) returns (Void) {}
+}
+
+// LocalDaemonInfo encapsulates key information about the Local Daemon, including its current resource counts,
+// its ID, etc.
+message LocalDaemonInfo {
+//  ResourceSpec idleResources = 1;
+//  ResourceSpec pendingResources = 2;
+//  ResourceSpec committedResources = 3;
+  ResourceSpec specResources = 1;
+  string gpuSchedulerId = 2;
+  string localDaemonId = 3;
 }
 
 // ReconnectToGatewayRequest is sent as an argument to the ReconnectToGateway gRPC call.
@@ -787,6 +803,9 @@ message ResourceSpec {
   float memory = 2; // In MB.
   int32 gpu = 3; // Number of GPUs.
   float vram = 4; // Amount of VRAM in GB.
+
+  // Assigned GPU device IDs. Only used for scheduling policies with single-training container lifetimes.
+  repeated int32 gpuDeviceIds = 5;
 }
 
 // The kernel id.

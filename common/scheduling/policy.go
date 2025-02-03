@@ -190,7 +190,7 @@ type ScalingConfiguration struct {
 	// GpusPerHost is the number of virtual GPUs per host.
 	GpusPerHost int
 
-	// ScalingFactor defines how many hosts the cluster will provision based on busy Resources.
+	// ScalingFactor defines how many hosts the cluster will provision based on busy TransactionResources.
 	// Specifically, a proposed auto-scale-out is computed as:
 	//
 	// (<Current GPU Load> * <Scaling Factor>) / <GPUs Per Host>
@@ -210,7 +210,7 @@ type ScalingConfiguration struct {
 	ScalingIntervalSec int32
 	ScalingInterval    time.Duration
 
-	// ScalingLimit defines how many hosts the cluster will provision at maximum based on busy Resources.
+	// ScalingLimit defines how many hosts the cluster will provision at maximum based on busy TransactionResources.
 	ScalingLimit float64
 
 	// ScalingBufferSize is how many extra hosts we provision so that we can quickly scale if needed.
@@ -231,16 +231,11 @@ func NewScalingConfiguration(opts *SchedulerOptions) *ScalingConfiguration {
 	}
 
 	gpusPerHost := opts.GpusPerHost
-	if gpusPerHost == -1 {
-		if !opts.UseRealGPUs {
-			panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d", gpusPerHost))
-		}
-
-		var err error
-		gpusPerHost, err = utils.GetNumberOfActualGPUs()
-		if err != nil {
-			panic(err)
-		}
+	if gpusPerHost <= 0 {
+		fmt.Printf(utils.RedStyle.Render("Invalid number of simulated GPUs specified: %d. Value must be >= 1 (even if there are no real GPUs available).\n"),
+			gpusPerHost)
+		panic(fmt.Sprintf("invalid number of simulated GPUs specified: %d. Value must be >= 1 (even if there are no real GPUs available).",
+			gpusPerHost))
 	}
 
 	return &ScalingConfiguration{
