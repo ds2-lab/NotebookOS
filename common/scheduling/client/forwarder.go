@@ -84,9 +84,8 @@ func NewExecuteRequestForwarder[MessageType any](notifyCallback scheduling.Notif
 		executeRequestQueueStopChannels:    hashmap.NewCornelkMap[string, chan interface{}](128),
 		notificationCallback:               notifyCallback,
 		processCallback:                    processCallback,
+		log:                                config.GetLogger("ExecuteRequestForwarder "),
 	}
-
-	config.InitLogger(&submitter.log, submitter)
 
 	return submitter
 }

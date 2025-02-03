@@ -964,7 +964,7 @@ func (m *AllocationManager) PromotePreCommitment(replicaId int32, kernelId strin
 	}
 
 	if allocation.IsPending() {
-		m.log.Error("Found existing resource allocation for replica %d of kernel %s; "+
+		m.log.Warn("Found existing resource allocation for replica %d of kernel %s; "+
 			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsPreCommittedAllocation=true.",
 			replicaId, kernelId, allocation.GetAllocationType().String(), scheduling.CommittedAllocation.String())
 		return fmt.Errorf("%w: expected '%s', found '%s'",
@@ -1136,7 +1136,8 @@ func (m *AllocationManager) PreCommitResourcesToExistingContainer(replicaId int3
 
 	decimalSpec := types.ToDecimalSpec(resourceRequestArg)
 
-	err := m.allocateCommittedResources(replicaId, kernelId, decimalSpec, allocation, true, true, key)
+	err := m.allocateCommittedResources(replicaId, kernelId, decimalSpec, allocation, true,
+		true, executionId, key)
 	if err != nil {
 		m.log.Warn("Failed to pre-commit resources [%v] to replica %d of kernel %s: %v",
 			decimalSpec.String(), replicaId, kernelId, err)
@@ -1211,7 +1212,7 @@ func (m *AllocationManager) CommitResourcesToExistingContainer(replicaId int32, 
 
 	// Next, execute an (atomic) transaction which modifies resources of all relevant statuses/types.
 	err := m.allocateCommittedResources(replicaId, kernelId, requestedResources, allocation, true,
-		isPreCommitment, key)
+		isPreCommitment, executionId, key)
 	if err != nil {
 		return nil, err
 	}
@@ -1259,7 +1260,7 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 		// However, if we already knew that there were insufficient HostResources available prior to the leader election,
 		// then we'll not have reserved any, and the call to ReleaseCommittedResources will "fail" (as there won't
 		// be any committed HostResources to release). In this case, it's not an error.
-		m.log.Debug("Found existing resource allocation for replica %d of kernel %s; "+
+		m.log.Warn("Found existing resource allocation for replica %d of kernel %s; "+
 			"however, resource allocation is of type '%s'. Expected an allocation of type '%s' with IsPreCommittedAllocation=true.",
 			replicaId, kernelId, allocation.GetAllocationType().String(), scheduling.CommittedAllocation.String())
 		return fmt.Errorf("%w: expected '%s', found '%s'",
@@ -1436,6 +1437,7 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 		WithVRAM(spec.VRAM()).
 		WithHostId(m.NodeId).
 		WithHostName(m.NodeName).
+		WithExecutionId(scheduling.DefaultExecutionId).
 		IsAReservation().
 		IsNotAPreCommitment().
 		BuildResourceAllocation()
@@ -1461,7 +1463,7 @@ func (m *AllocationManager) ReserveResources(replicaId int32, kernelId string, s
 			status, kernelId, spec.String())
 
 		err = m.allocateCommittedResources(ReplicaIdForReservation, kernelId, requestedResources, allocation, false,
-			false, key)
+			false, scheduling.DefaultExecutionId, key)
 	}
 
 	if err != nil {
@@ -1586,6 +1588,7 @@ func (m *AllocationManager) ContainerStartedRunningOnHost(replicaId int32, kerne
 		WithVRAM(spec.VRAM()).
 		WithHostId(m.NodeId).
 		WithHostName(m.NodeName).
+		WithExecutionId(scheduling.DefaultExecutionId).
 		IsNotAReservation().
 		IsNotAPreCommitment().
 		BuildResourceAllocation()
@@ -2026,7 +2029,7 @@ func (m *AllocationManager) allocatePendingResources(spec *types.DecimalSpec,
 //
 // allocateCommittedResources is not thread safe (with respect to the AllocationManager).
 func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId string, resourceRequest *types.DecimalSpec,
-	allocation scheduling.Allocation, decrementPending bool, isPreCommitment bool, key string) error {
+	allocation scheduling.Allocation, decrementPending bool, isPreCommitment bool, executionId string, key string) error {
 
 	m.log.Debug("Allocating committed resources. Current resources: %s. TransactionResources to be allocated: %v. DecrPending=%v. IsPreCommit=%v.",
 		m.resourceManager.GetResourceCountsAsString(), resourceRequest.String(), decrementPending, isPreCommitment)
@@ -2075,13 +2078,6 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 			"Allocated committed resources [%v] to replica %d of kernel %s. New resource counts: %s."),
 		resourceRequest.String(), replicaId, kernelId, m.resourceManager.GetResourceCountsAsString())
 
-	// Store the allocation in the mapping.
-	m.allocationKernelReplicaMap.Store(key, allocation)
-	m.kernelAllocationMap.Store(kernelId, allocation)
-
-	m.log.Debug("Stored committed allocation for replica %d of kernel %s stored under key \"%s\".",
-		replicaId, kernelId, key)
-
 	if decrementPending {
 		// Update the pending/committed allocation counters.
 		m.numPendingAllocations.Add(-1)
@@ -2101,6 +2097,7 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 	allocation.SetVramGb(resourceRequest.VRam)
 	allocation.SetAllocationType(scheduling.CommittedAllocation)
 	allocation.SetIsPreCommitted(isPreCommitment)
+	allocation.SetExecutionId(executionId)
 
 	if int(allocation.GetGpus()) > m.availableGpuDevices.Len() {
 		panic(fmt.Sprintf("Require %d GPU device ID(s) for replica %d of kernel %s, but only %d is/are available. Committed GPUs: %.0f.",
@@ -2127,6 +2124,13 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 	allocation.SetGpuDeviceIds(gpuDeviceIds)
 
 	m.log.Debug("Updated GPU device IDs: %v", allocation.GetGpuDeviceIds())
+
+	// Store the allocation in the mapping.
+	m.allocationKernelReplicaMap.Store(key, allocation)
+	m.kernelAllocationMap.Store(kernelId, allocation)
+
+	m.log.Debug("Stored committed allocation for replica %d of kernel %s stored under key \"%s\".",
+		replicaId, kernelId, key)
 
 	if m.updateSubscriptionRatio != nil {
 		m.updateSubscriptionRatio()
@@ -2155,7 +2159,7 @@ func (m *AllocationManager) allocateCommittedResources(replicaId int32, kernelId
 	// m.resourceMetricsCallback(m.Manager)
 	m.unsafeUpdatePrometheusResourceMetrics()
 
-	m.log.Debug("Successfully committed the following HostResources to replica %d of kernel %s (isPreCommitment=%v): %v. GPUs reserved/allocated: %v.",
+	m.log.Debug("Successfully committed resources to replica %d of kernel %s (isPreCommitment=%v): %v. GPUs IDs: %v.",
 		replicaId, kernelId, isPreCommitment, resourceRequest.String(), allocation.GetGpuDeviceIds())
 	m.log.Debug("Updated resource counts: %s.", m.resourceManager.GetResourceCountsAsString())
 

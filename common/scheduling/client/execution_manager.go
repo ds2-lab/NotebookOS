@@ -508,16 +508,6 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 
 	executeRequestId := msg.JupyterParentMessageId()
 
-	// We'll notify ALL replicas that we received a response, so the next execute requests can be sent (at least
-	// to the local daemons).
-	for _, kernelReplica := range m.Kernel.Replicas() {
-		kernelReplica.ReceivedExecuteReply(msg, kernelReplica.ReplicaID() == replica.ReplicaID())
-
-		// Make sure all pre-committed resources for this request are released.
-		container := kernelReplica.Container()
-		_ = container.Host().ReleasePreCommitedResources(container, executeRequestId)
-	}
-
 	// Attempt to load the execution from the "active" map.
 	activeExecution, loaded := m.activeExecutions[executeRequestId]
 	if !loaded {
@@ -597,6 +587,22 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 		m.log.Error("Error while calling KernelStoppedTraining on active replica %d for execution \"%s\": %v",
 			activeExecution.ActiveReplica.ReplicaID(), msg.JupyterParentMessageId(), err)
 		return nil, err
+	}
+
+	// We'll notify ALL replicas that we received a response, so the next execute requests can be sent (at least
+	// to the local daemons).
+	for _, kernelReplica := range m.Kernel.Replicas() {
+		m.log.Debug("Notifying non-primary replica %d of kernel %s that execution \"%s\" has concluded successfully.",
+			kernelReplica.ReplicaID(), kernelReplica.ID(), executeRequestId)
+
+		// Make sure all pre-committed resources for this request are released.
+		container := kernelReplica.Container()
+		_ = container.Host().ReleasePreCommitedResources(container, executeRequestId)
+
+		// Skip the active replica, as we already called these methods on/for that replica.
+		if kernelReplica.ReplicaID() != activeExecution.ActiveReplica.ReplicaID() {
+			kernelReplica.ReceivedExecuteReply(msg, kernelReplica.ReplicaID() == replica.ReplicaID())
+		}
 	}
 
 	if activeExecution.ActiveReplica.ReplicaID() != replica.ReplicaID() {

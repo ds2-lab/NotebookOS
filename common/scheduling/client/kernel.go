@@ -577,6 +577,7 @@ func (c *KernelReplicaClient) unsafeKernelStoppedTraining(reason string) error {
 		if err := p.Error(); err != nil {
 			c.log.Error("Failed to stop training on scheduling.Container %s-%d during replica removal because: %v",
 				c.ID(), c.ReplicaID(), err)
+
 			return err
 		}
 	}

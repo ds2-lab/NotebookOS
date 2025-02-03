@@ -815,13 +815,14 @@ func (c *DistributedKernelClient) getRequestContext(ctx context.Context, typ mes
 // there won't be issues with concurrently modifying the messaging.JupyterMessage instances, or with the fact that
 // each replica will want to add its own unique request trace to the messaging.JupyterMessage.
 func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targetReplica scheduling.KernelReplica,
-	jupyterMessage *messaging.JupyterMessage, typ messaging.MessageType, responseReceivedSem *semaphore.Weighted, numResponsesSoFar *atomic.Int32,
-	responseHandler scheduling.KernelReplicaMessageHandler) error {
+	jMsg *messaging.JupyterMessage, typ messaging.MessageType, responseReceivedSem *semaphore.Weighted,
+	numResponsesSoFar *atomic.Int32, respHandler scheduling.KernelReplicaMessageHandler) error {
 
-	// TODO: If the ACKs fail on this and we reconnect and retry, the responseReceivedSem may be called too many times.
-	// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
-	// to be cleared after the context ends; we just do it on ACK timeout.
-	err := targetReplica.RequestWithHandlerAndWaitOptionGetter(ctx, typ, jupyterMessage, responseHandler, c.getWaitResponseOption, func() {
+	c.log.Debug("Sending %v '%s' message '%s' to replica %d of kernel '%s' on host %s (ID=%s) now.",
+		typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId(), targetReplica.ReplicaID(),
+		c.id, targetReplica.Host().GetNodeName(), targetReplica.Host().GetID())
+
+	doneFunc := func() {
 		if responseReceivedSem != nil {
 			// responseReceivedSem.Done()
 			responseReceivedSem.Release(1)
@@ -830,11 +831,16 @@ func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targ
 		if numResponsesSoFar != nil {
 			numResponsesSoFar.Add(1)
 		}
-	})
+	}
+
+	// TODO: If the ACKs fail on this and we reconnect and retry, the responseReceivedSem may be called too many times.
+	// Need to fix this. Either make the timeout bigger, or... do something else. Maybe we don't need the pending request
+	// to be cleared after the context ends; we just do it on ACK timeout.
+	err := targetReplica.RequestWithHandlerAndWaitOptionGetter(ctx, typ, jMsg, respHandler, c.getWaitResponseOption, doneFunc)
 
 	if err != nil {
 		c.log.Error("Error while issuing %s '%s' request to targetReplica %s: %v",
-			typ, jupyterMessage.JupyterMessageType(), c.id, err)
+			typ, jMsg.JupyterMessageType(), c.id, err)
 		return err
 	}
 
@@ -1043,9 +1049,6 @@ func (c *DistributedKernelClient) RequestWithHandlerAndReplicas(ctx context.Cont
 		numResponsesExpected += 1
 
 		msg := jupyterMessages[idx]
-
-		c.log.Debug("Sending %v '%s' message '%s' to replica %d of kernel '%s' now.",
-			typ.String(), msg.JupyterMessageType(), msg.JupyterMessageId(), replica.ReplicaID(), c.id)
 
 		go func() {
 			err := c.sendRequestToReplica(replicaCtx, replica, msg, typ, respReceivedSemaphore, &numResponsesSoFar,
