@@ -29,20 +29,25 @@ class S3Log(object):
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+        # Basically just the number of times we've written something to S3.
+        self._num_changes: int = 0
+        self._term: int = 0
+
     @property
     def num_changes(self) -> int:  # type: ignore
         """The number of incremental changes since first set or the latest checkpoint."""
+        return self._num_changes
 
     @property
     def term(self) -> int:  # type: ignore
         """Current term."""
+        return self._term
 
     @property
     def current_election(self)->Any:
         """
         :return: the current election, if one exists
         """
-        self.log.warning("Current election requested from S3Log. S3Log does not support elections.")
         return None
 
     @property
@@ -56,42 +61,44 @@ class S3Log(object):
         """
         :return: the current election with the specified term number, if one exists.
         """
-        self.log.warning(f"Election with term={term_number} requested from S3Log. S3Log does not support elections.")
         return None
 
     def get_known_election_terms(self)->Optional[list[int]]:
         """
         :return: a list of term numbers for which we have an associated Election object
         """
-        self.log.warning(f"Known elections requested from S3Log. S3Log does not support elections.")
         return []
 
     def start(self, handler):
         """Register change handler, restore internel states, and start monitoring changes.
           handler will be in the form listerner(key, val: SyncValue)"""
+        raise NotImplemented("Need to implement this.")
 
     def set_should_checkpoint_callback(self, callback):
         """Set the callback that will be called when the SyncLog decides if to checkpoint or not.
           callback will be in the form callback(SyncLog) bool"""
+        raise NotImplemented("Need to implement this.")
 
     def set_checkpoint_callback(self, callback):
         """Set the callback that will be called when the SyncLog decides to checkpoint.
           callback will be in the form callback(Checkpointer)."""
+        raise NotImplemented("Need to implement this.")
 
     async def try_yield_execution(self, jupyter_message_id: str, term_number: int) -> bool:
         """Request yield the update of a term to another replica."""
+        return False
 
     async def try_lead_execution(self, jupyter_message_id: str, term_number: int) -> bool:
         """Request to lead the update of a term. A following append call
            without leading status will fail."""
+        return True
 
     async def set_election_waiter_ioloop(self, io_loop: asyncio.AbstractEventLoop, term_number: int):
         """
         Set the asyncio IOLoop that will be used when notifying the calling thread that the election of the
         specified term number has completed.
         """
-        # No-op.
-        self.log.warning("Attempted to set election waiter IO loop for S3Log. S3Log does not support elections.")
+        pass
 
     async def wait_for_election_to_end(self, term_number: int):
         """
@@ -100,7 +107,7 @@ class S3Log(object):
 
         :param term_number: the term number of the election
         """
-        raise ValueError(f"Cannot wait for election with term={term_number} to end; S3Log does not support elections.")
+        pass
 
     async def append_execution_end_notification(self, notification: ExecutionCompleteNotification):
         """
@@ -112,7 +119,7 @@ class S3Log(object):
 
         :param notification: the notification to be appended to the sync log
         """
-        self.log.warning("Attempted to append ExecutionCompleteNotification to S3Log. S3Log does not support elections.")
+        pass
 
     async def notify_execution_complete(self, term_number: int):
         """
@@ -121,15 +128,20 @@ class S3Log(object):
         :param term_number: the term of the election for which we served as leader and executed
         the user-submitted code.
         """
+        self._term += 1
 
     async def append(self, val: SynchronizedValue):
         """Append the difference of the value of specified key to the synchronization queue."""
+        raise NotImplemented("Need to implement this.")
 
     def sync(self, term):
         """Manually trigger the synchronization of changes since specified term."""
+        raise NotImplemented("Need to implement this.")
 
     def reset(self, term, logs: Tuple[SynchronizedValue]):
         """Clear logs equal and before specified term and replaced with specified logs"""
+        raise NotImplemented("Need to implement this.")
 
     def close(self):
         """Ensure all async coroutines end and clean up."""
+        raise NotImplemented("Need to implement this.")
