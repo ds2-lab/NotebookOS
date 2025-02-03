@@ -27,9 +27,9 @@ func (m MessageSMRReady) String() string {
 
 type MessageDataDirectory struct {
 	KernelId      string `json:"kernel_id"`
-	NodeID        int32  `json:"id"`
 	DataDirectory string `json:"data_directory"`
 	Status        string `json:"status"`
+	NodeID        int32  `json:"id"`
 }
 
 func (m MessageDataDirectory) String() string {
@@ -48,16 +48,9 @@ func (m MessageSMRNodeUpdated) String() string {
 }
 
 type MessageSMRLeadTask struct {
-	GPURequired bool `json:"gpu"`
-
-	// UnixMilliseconds is the Unix epoch time in milliseconds at which the "smr_lead_task" notification
-	// message was created (and thus approximates when it was sent and when the kernel began executing
-	// the user's code).
-	UnixMilliseconds int64 `json:"msg_created_at_unix_milliseconds"`
-
-	// ExecuteRequestMsgId is the Jupyter msg_id (from the header) of the "execute_request"
-	// message that was used to submit the code execution request.
 	ExecuteRequestMsgId string `json:"execute_request_msg_id"`
+	UnixMilliseconds    int64  `json:"msg_created_at_unix_milliseconds"`
+	GPURequired         bool   `json:"gpu"`
 }
 
 type MessageSMRLeadAfterYield struct {
@@ -69,8 +62,8 @@ func (m MessageSMRLeadTask) String() string {
 }
 
 type MessageSMRAddOrUpdateReplicaRequest struct {
-	NodeID  int32  `json:"id"`
 	Address string `json:"addr"`
+	NodeID  int32  `json:"id"`
 }
 
 func (m MessageSMRAddOrUpdateReplicaRequest) String() string {
