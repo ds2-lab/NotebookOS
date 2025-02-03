@@ -1924,17 +1924,17 @@ var _ = Describe("Cluster Gateway Tests", func() {
 			By("Correctly registering the first Host")
 
 			// Add first host.
-			err = clusterGateway.registerNewHost(host1)
+			err = clusterGateway.RegisterNewHost(host1)
 
 			By("Correctly registering the second Host")
 
 			// Add second host.
-			err = clusterGateway.registerNewHost(host2)
+			err = clusterGateway.RegisterNewHost(host2)
 
 			By("Correctly registering the third Host")
 
 			// Add third host.
-			err = clusterGateway.registerNewHost(host3)
+			err = clusterGateway.RegisterNewHost(host3)
 
 			var startKernelReplicaCalled sync.WaitGroup
 			startKernelReplicaCalled.Add(3)
@@ -3006,7 +3006,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host).ToNot(BeNil())
 					Expect(localGatewayClient).ToNot(BeNil())
 
-					err = clusterGateway.registerNewHost(host)
+					err = clusterGateway.RegisterNewHost(host)
 					Expect(err).To(BeNil())
 					clusterSize += 1
 
@@ -3036,7 +3036,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host).ToNot(BeNil())
 					Expect(localGatewayClient).ToNot(BeNil())
 
-					err = clusterGateway.registerNewHost(host)
+					err = clusterGateway.RegisterNewHost(host)
 					Expect(err).To(BeNil())
 					numDisabledHosts += 1
 
@@ -3066,7 +3066,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host).ToNot(BeNil())
 					Expect(localGatewayClient).ToNot(BeNil())
 
-					err = clusterGateway.registerNewHost(host)
+					err = clusterGateway.RegisterNewHost(host)
 					Expect(err).To(BeNil())
 					clusterSize += 1
 
@@ -3195,7 +3195,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Expect(host).ToNot(BeNil())
 					Expect(localGatewayClient).ToNot(BeNil())
 
-					err = clusterGateway.registerNewHost(host)
+					err = clusterGateway.RegisterNewHost(host)
 					Expect(err).To(BeNil())
 
 					Hosts = append(Hosts, host)
@@ -3452,7 +3452,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 			It("Will correctly schedule a new kernel using non-spoofed scheduling.Host instances", func() {
 				kernelId := uuid.NewString()
-
+				kernelKey := uuid.NewString()
 				resourceSpec := &proto.ResourceSpec{
 					Gpu:    2,
 					Vram:   2,
@@ -3476,23 +3476,58 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				Expect(placer.NumHostsInIndex()).To(Equal(0))
 				Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(0))
 
-				host1Id := uuid.NewString()
-				node1Name := "TestNode1"
-				host1Spoofer := distNbTesting.NewResourceSpoofer(node1Name, host1Id, clusterGateway.hostSpec)
-				host1, localGatewayClient1, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host1Id, node1Name, host1Spoofer)
-				Expect(err).To(BeNil())
+				numHosts := 3
+				hosts := make([]scheduling.Host, 0, numHosts)
+				localGatewayClients := make([]*mock_proto.MockLocalGatewayClient, 0, numHosts)
 
-				host2Id := uuid.NewString()
-				node2Name := "TestNode2"
-				host2Spoofer := distNbTesting.NewResourceSpoofer(node2Name, host2Id, clusterGateway.hostSpec)
-				host2, localGatewayClient2, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host2Id, node2Name, host2Spoofer)
-				Expect(err).To(BeNil())
+				for i := 0; i < numHosts; i++ {
+					hostId := uuid.NewString()
+					hostName := fmt.Sprintf("TestNode-%d", i)
+					hostSpoofer := distNbTesting.NewResourceSpoofer(hostName, hostId, clusterGateway.hostSpec)
+					host, localGatewayClient, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, hostId, hostName, hostSpoofer)
+					Expect(err).To(BeNil())
+					Expect(host).ToNot(BeNil())
+					Expect(localGatewayClient).ToNot(BeNil())
 
-				host3Id := uuid.NewString()
-				node3Name := "TestNode3"
-				host3Spoofer := distNbTesting.NewResourceSpoofer(node3Name, host3Id, clusterGateway.hostSpec)
-				host3, localGatewayClient3, err := distNbTesting.NewHostWithSpoofedGRPC(mockCtrl, cluster, host3Id, node3Name, host3Spoofer)
-				Expect(err).To(BeNil())
+					hosts = append(hosts, host)
+					localGatewayClients = append(localGatewayClients, localGatewayClient)
+				}
+
+				By("Registering hosts")
+
+				for i, host := range hosts {
+					err := clusterGateway.RegisterNewHost(host)
+					Expect(err).To(BeNil())
+
+					Expect(cluster.Len()).To(Equal(i + 1))
+				}
+
+				kernelSpec := &proto.KernelSpec{
+					Id:              kernelId,
+					Session:         kernelId,
+					Argv:            []string{"~/home/Python3.12.6/debug/python3", "-m", "distributed_notebook.kernel", "-f", "{connection_file}", "--debug", "--IPKernelApp.outstream_class=distributed_notebook.kernel.iostream.OutStream"},
+					SignatureScheme: messaging.JupyterSignatureScheme,
+					Key:             kernelKey,
+					ResourceSpec:    resourceSpec,
+				}
+
+				connInfoChannel := make(chan *proto.KernelConnectionInfo)
+
+				By("Scheduling the kernel")
+
+				go func() {
+					defer GinkgoRecover()
+
+					connInfo, err := clusterGateway.StartKernel(context.Background(), kernelSpec)
+					Expect(err).To(BeNil())
+
+					connInfoChannel <- connInfo
+				}()
+
+				kernelConnInfo := <-connInfoChannel
+				Expect(kernelConnInfo).ToNot(BeNil())
+
+				Expect(clusterGateway.NumKernels()).To(Equal(1))
 			})
 
 			It("Will correctly schedule a new kernel", func() {
@@ -3547,7 +3582,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the first Host")
 
 				// Add first host.
-				err = clusterGateway.registerNewHost(host1)
+				err = clusterGateway.RegisterNewHost(host1)
 				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(1))
@@ -3558,7 +3593,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the second Host")
 
 				// Add second host.
-				err = clusterGateway.registerNewHost(host2)
+				err = clusterGateway.RegisterNewHost(host2)
 				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(2))
@@ -3569,7 +3604,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				By("Correctly registering the third Host")
 
 				// Add third host.
-				err = clusterGateway.registerNewHost(host3)
+				err = clusterGateway.RegisterNewHost(host3)
 				Expect(err).To(BeNil())
 
 				Expect(cluster.Len()).To(Equal(3))
@@ -3917,7 +3952,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				size := 0
 				for i, host := range hosts {
 					By(fmt.Sprintf("Correctly registering Host %d (%d/%d)", i, size+1, len(hosts)))
-					err := clusterGateway.registerNewHost(host)
+					err := clusterGateway.RegisterNewHost(host)
 					Expect(err).To(BeNil())
 					size += 1
 

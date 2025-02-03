@@ -22,8 +22,6 @@ func ContainsOffendingResourceKind(lst []scheduling.ResourceKind, target schedul
 func NewHostWithSpoofedGRPC(ctrl *gomock.Controller, cluster scheduling.Cluster, hostId string, nodeName string,
 	resourceSpoofer *ResourceSpoofer) (scheduling.UnitTestingHost, *mock_proto.MockLocalGatewayClient, error) {
 
-	//gpuSchedulerId := uuid.NewString()
-
 	localGatewayClient := mock_proto.NewMockLocalGatewayClient(ctrl)
 
 	localGatewayClient.EXPECT().SetID(

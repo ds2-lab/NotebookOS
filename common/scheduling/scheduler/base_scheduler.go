@@ -1506,15 +1506,24 @@ func (s *BaseScheduler) migrateContainersFromHost(host scheduling.Host, forTrain
 	}
 }
 
-// includeHostsInScheduling iterates over the given slice of scheduling.Host instances and sets their ExcludedFromScheduling
-// field to false.
+// includeHostsInScheduling iterates over the given slice of scheduling.Host instances and sets their
+// ExcludedFromScheduling field to false.
+//
+// includeHostsInScheduling then pushes the host back into the idleHosts heap.
 func (s *BaseScheduler) includeHostsInScheduling(hosts []scheduling.Host) {
 	for _, host := range hosts {
 		err := host.IncludeForScheduling()
 		if err != nil {
 			s.log.Error("Host %s (ID=%s) is already allowed to be considered for scheduling (%v)",
 				host.GetNodeName(), host.GetID(), err)
+			continue
 		}
+
+		heap.Push(s.idleHosts, &idleSortedHost{
+			Host: host,
+		})
+
+		s.log.Debug("Added host %s back to 'idle hosts' heap.", host.GetNodeName())
 	}
 }
 
@@ -1526,7 +1535,7 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 	// For now, just ensure the heap is in a valid order.
 	heap.Init(s.idleHosts)
 
-	s.log.Debug("Attempting to release %d idle host(s). There are currently %d host(s) in the Cluster. Length of idle hosts: %d.",
+	s.log.Debug("Attempting to release %d idle host(s). Currently %d host(s) in the Cluster. Length of idle hosts: %d.",
 		n, s.cluster.Len(), s.idleHosts.Len())
 
 	toBeReleased := make([]scheduling.Host, 0, n)
@@ -1543,6 +1552,14 @@ func (s *BaseScheduler) ReleaseIdleHosts(n int32) (int, error) {
 			// If we failed to exclude the host, then we won't reclaim it.
 			toBeReleased = append(toBeReleased, idleHost.Host)
 			s.log.Debug("Selected host \"%s\" (ID=%s) as candidate for release.", idleHost.GetNodeName(), idleHost.GetID())
+
+			// Remove the host so that we can get to the next host.
+			tmpHost := heap.Pop(s.idleHosts)
+
+			// Sanity check.
+			if tmpHost.(scheduling.Host).GetID() != idleHost.GetID() {
+				panic("Host popped off of idleHosts heap does not equal host peeked from idleHosts.")
+			}
 		} else {
 			s.log.Debug("Host \"%s\" (ID=%s) is ineligible for release: it's being considered in >= 1 scheduling operation(s).",
 				idleHost.Host.GetNodeName(), idleHost.Host.GetID())

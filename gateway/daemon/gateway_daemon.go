@@ -1068,11 +1068,11 @@ func (d *ClusterGatewayImpl) restoreHost(host scheduling.Host) error {
 	return entity.ErrRestorationFailed
 }
 
-// registerNewHost is used to register a new Host (i.e., Local Daemon) with the Cluster after the Host connects
+// RegisterNewHost is used to register a new Host (i.e., Local Daemon) with the Cluster after the Host connects
 // to the Cluster Gateway.
 //
 // This will return nil on success.
-func (d *ClusterGatewayImpl) registerNewHost(host scheduling.Host) error {
+func (d *ClusterGatewayImpl) RegisterNewHost(host scheduling.Host) error {
 	if !host.IsProperlyInitialized() {
 		log.Fatalf(utils.RedStyle.Render("Newly-connected Host %s (ID=%s) was NOT properly initialized..."),
 			host.GetNodeName(), host.GetID())
@@ -1129,7 +1129,7 @@ func (d *ClusterGatewayImpl) Accept() (net.Conn, error) {
 		}
 	}
 
-	registrationError := d.registerNewHost(host)
+	registrationError := d.RegisterNewHost(host)
 	if registrationError != nil {
 		d.log.Error("Failed to register new host %s (ID=%s) because: %v", host.GetNodeName(), host.GetID(), registrationError)
 		return nil, registrationError
