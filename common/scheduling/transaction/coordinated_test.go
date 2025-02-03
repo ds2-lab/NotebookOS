@@ -121,8 +121,14 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
-		succeeded := coordinatedTransaction.Wait()
-		Expect(succeeded).To(BeTrue())
+		for i := 0; i < 2; i++ {
+			go func() {
+				_ = coordinatedTransaction.Run()
+			}()
+		}
+
+		err = coordinatedTransaction.Run()
+		Expect(err).To(BeNil())
 		Expect(coordinatedTransaction.Succeeded()).To(BeTrue())
 		Expect(coordinatedTransaction.Started()).To(BeTrue())
 		Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
@@ -206,8 +212,14 @@ var _ = Describe("Coordinated", func() {
 
 		mu3.Unlock()
 
-		succeeded := coordinatedTransaction.Wait()
-		Expect(succeeded).To(BeTrue())
+		for i := 0; i < 2; i++ {
+			go func() {
+				_ = coordinatedTransaction.Run()
+			}()
+		}
+
+		err = coordinatedTransaction.Run()
+		Expect(err).To(BeNil())
 		Expect(coordinatedTransaction.Succeeded()).To(BeTrue())
 		Expect(coordinatedTransaction.Started()).To(BeTrue())
 		Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
@@ -269,12 +281,21 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
-		succeeded := coordinatedTransaction.Wait()
-		Expect(succeeded).To(BeFalse())
+		for i := 0; i < 2; i++ {
+			go func() {
+				_ = coordinatedTransaction.Run()
+			}()
+		}
+
+		err = coordinatedTransaction.Run()
+		fmt.Printf("Error: %v\n", err)
+
+		Expect(err).ToNot(BeNil())
 		Expect(coordinatedTransaction.Succeeded()).To(BeFalse())
 		Expect(coordinatedTransaction.Started()).To(BeTrue())
 		Expect(coordinatedTransaction.IsComplete()).To(BeTrue())
 		Expect(coordinatedTransaction.FailureReason()).ToNot(BeNil())
+		fmt.Printf("coordinatedTransaction.FailureReason(): %v\n", coordinatedTransaction.FailureReason())
 
 		GinkgoWriter.Printf("Error: %v\n", err)
 		GinkgoWriter.Printf("coordinatedTransaction.FailureReason(): %v\n", coordinatedTransaction.FailureReason())
@@ -282,6 +303,34 @@ var _ = Describe("Coordinated", func() {
 		var txFailedError transaction.ErrTransactionFailed
 		Expect(errors.As(coordinatedTransaction.FailureReason(), &txFailedError)).To(BeTrue())
 		Expect(errors.Is(txFailedError.Reason, transaction.ErrNegativeResourceCount)).To(BeTrue())
+	})
+
+	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the participant has already registered", func() {
+		coordinatedTransaction := transaction.NewCoordinatedTransaction(3, uuid.NewString())
+
+		container1 := newResourceContainer(1, types.NewDecimalSpec(100, 100, 100, 100))
+
+		tx := func(state scheduling.TransactionState) {
+			state.PendingResources().Add(spec1)
+		}
+
+		var mu1 sync.Mutex
+
+		err := coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+			state := container1.getStateForTransaction()
+			commit := container1.getCommit()
+
+			return state, commit
+		}, tx, &mu1)
+		Expect(err).To(BeNil())
+
+		err = coordinatedTransaction.RegisterParticipant(container1.Id, func() (scheduling.TransactionState, scheduling.CommitTransactionResult) {
+			state := container1.getStateForTransaction()
+			commit := container1.getCommit()
+
+			return state, commit
+		}, tx, &mu1)
+		Expect(errors.Is(err, transaction.ErrParticipantAlreadyRegistered)).To(BeTrue())
 	})
 
 	It("Will return an error from CoordinatedTransaction::RegisterParticipant if the transaction has already started", func() {
@@ -323,8 +372,14 @@ var _ = Describe("Coordinated", func() {
 		Expect(coordinatedTransaction.NumExpectedParticipants()).To(Equal(3))
 		Expect(coordinatedTransaction.NumRegisteredParticipants()).To(Equal(3))
 
-		succeeded := coordinatedTransaction.Wait()
-		Expect(succeeded).To(BeTrue())
+		for i := 0; i < 2; i++ {
+			go func() {
+				_ = coordinatedTransaction.Run()
+			}()
+		}
+
+		err = coordinatedTransaction.Run()
+		Expect(err).To(BeNil())
 		Expect(coordinatedTransaction.Succeeded()).To(BeTrue())
 		Expect(coordinatedTransaction.Started()).To(BeTrue())
 		Expect(coordinatedTransaction.IsComplete()).To(BeTrue())

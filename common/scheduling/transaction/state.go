@@ -88,9 +88,9 @@ func (t *State) Validate() ([]scheduling.ResourceKind, error) {
 	}
 
 	getNegResourceReason := func(kinds []scheduling.ResourceKind, status scheduling.ResourceStatus, res *Resources) error {
-		var explanation string
+		explanation := "("
 		for idx, kind := range kinds {
-			explanation = explanation + fmt.Sprintf("(%s %s = %s", scheduling.IdleResources.String(),
+			explanation = explanation + fmt.Sprintf("%s %s = %s", scheduling.IdleResources.String(),
 				kind.String(), getQuantityOfResourceKind(res, kind))
 
 			if idx == len(kinds)-1 {
