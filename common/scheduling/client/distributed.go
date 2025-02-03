@@ -813,10 +813,14 @@ func (c *DistributedKernelClient) sendRequestToReplica(ctx context.Context, targ
 		if responseReceivedSem != nil {
 			// responseReceivedSem.Done()
 			responseReceivedSem.Release(1)
+			c.log.Debug("Called Release(1) on semaphore for %s '%s' message '%s'.",
+				typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId())
 		}
 
 		if numResponsesSoFar != nil {
-			numResponsesSoFar.Add(1)
+			numResp := numResponsesSoFar.Add(1)
+			c.log.Debug("Received %d response(s) to %s '%s' message '%s' request so far.",
+				numResp, typ.String(), jMsg.JupyterMessageType(), jMsg.JupyterMessageId())
 		}
 	}
 
@@ -1140,6 +1144,8 @@ func (c *DistributedKernelClient) handleDoneCallbackForRequest(done func(), resp
 		err := responseReceivedSem.Acquire(ctx, int64(numResponsesExpected))
 		if err != nil {
 			allResponsesReceivedNotificationChannel <- struct{}{} // Send the notification.
+		} else {
+			cancel()
 		}
 	}()
 

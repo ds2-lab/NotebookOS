@@ -1358,7 +1358,7 @@ func (m *AllocationManager) ReleaseCommittedResources(replicaId int32, kernelId 
 		m.log.Warn("Committed allocation of [%v] for replica %d of kernel %s is associated with execution \"%s\"; however, de-commit request is for execution \"%s\". Ignoring.",
 			allocation.ToSpecString(), replicaId, kernelId, prevExecutionId, executionId)
 
-		return fmt.Errorf("%w: \"%s\" (requested execution = \"%s\"",
+		return fmt.Errorf("%w: \"%s\" (requested execution = \"%s\")",
 			ErrMismatchedExecutionIds, prevExecutionId, executionId)
 	}
 

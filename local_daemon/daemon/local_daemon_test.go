@@ -1184,8 +1184,13 @@ var _ = Describe("Local Daemon Tests", func() {
 			kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
 			kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
 
+			execReqHeader, err := processedMessage.GetHeader()
+			Expect(err).To(BeNil())
+			Expect(execReqHeader).ToNot(BeNil())
+
 			executeReplyContent := map[string]interface{}{"status": "ok"}
-			executeReplyMsg := test_utils.CreateJupyterMessageWithContent(messaging.ShellExecuteReply, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key, executeReplyContent)
+			executeReplyMsg := test_utils.CreateJupyterMessageWithContent(messaging.ShellExecuteReply,
+				kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key, executeReplyContent, execReqHeader)
 			err = schedulerDaemon.processExecuteReply(executeReplyMsg, kernel1Replica1)
 			Expect(err).To(BeNil())
 
@@ -1428,8 +1433,13 @@ var _ = Describe("Local Daemon Tests", func() {
 				kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
 				kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
 
+				execReqHeader, err := processedMessage.GetHeader()
+				Expect(err).To(BeNil())
+				Expect(execReqHeader).ToNot(BeNil())
+
 				executeReplyContent := map[string]interface{}{"status": "ok"}
-				executeReplyMsg := test_utils.CreateJupyterMessageWithContent(messaging.ShellExecuteReply, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key, executeReplyContent)
+				executeReplyMsg := test_utils.CreateJupyterMessageWithContent(messaging.ShellExecuteReply,
+					kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key, executeReplyContent, execReqHeader)
 				err = schedulerDaemon.processExecuteReply(executeReplyMsg, kernel1Replica1)
 				Expect(err).To(BeNil())
 
@@ -1496,8 +1506,14 @@ var _ = Describe("Local Daemon Tests", func() {
 
 					kernel1Replica1.EXPECT().ReceivedExecuteReply(gomock.Any(), gomock.Any()).Times(1)
 					kernel1Replica1.EXPECT().KernelStoppedTraining("Received \"execute_reply\" message, indicating that the training has stopped.").Times(1).Return(nil)
+
+					execReqHeader, err := processedMessage.GetHeader()
+					Expect(err).To(BeNil())
+					Expect(execReqHeader).ToNot(BeNil())
+
 					executeReplyContent = map[string]interface{}{"status": "ok"}
-					executeReplyMsg = test_utils.CreateJupyterMessageWithContent(messaging.ShellExecuteReply, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key, executeReplyContent)
+					executeReplyMsg = test_utils.CreateJupyterMessageWithContent(messaging.ShellExecuteReply,
+						kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key, executeReplyContent, execReqHeader)
 					err = schedulerDaemon.processExecuteReply(executeReplyMsg, kernel1Replica1)
 					Expect(err).To(BeNil())
 
