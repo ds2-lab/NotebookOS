@@ -6,6 +6,7 @@ import (
 	"github.com/Scusemua/go-utils/logger"
 	"github.com/pkg/errors"
 	"github.com/scusemua/distributed-notebook/common/scheduling"
+	"go.uber.org/atomic"
 )
 
 var (
@@ -46,6 +47,8 @@ func GetIdleSessionReclamationPolicy(opts *scheduling.SchedulerOptions) (schedul
 type baseSchedulingPolicy struct {
 	scalingConfiguration         *scheduling.ScalingConfiguration
 	idleSessionReclamationPolicy scheduling.IdleSessionReclamationPolicy
+
+	isValidatingCapacity atomic.Int32
 
 	scalingOutEnabled bool
 	supportsMigration bool

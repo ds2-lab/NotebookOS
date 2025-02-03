@@ -85,7 +85,16 @@ func (p *GandivaPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvider)
 // ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (p *GandivaPolicy) ValidateCapacity(_ scheduling.Cluster) {
-	return // No-op, not supported
+	// Ensure we don't double-up on capacity validations. Only one at a time.
+	if !p.isValidatingCapacity.CompareAndSwap(0, 1) {
+		return
+	}
+
+	// No-Op. Do nothing.
+
+	if !p.isValidatingCapacity.CompareAndSwap(1, 0) {
+		panic("Failed to swap isValidatingCapacity 1 → 0 after finishing call to ReservationPolicy::ValidateCapacity")
+	}
 }
 
 // SelectReplicaForMigration selects a KernelReplica of the specified Kernel to be migrated.

@@ -96,7 +96,16 @@ func (p *ReservationPolicy) GetNewPlacer(metricsProvider scheduling.MetricsProvi
 // ValidateCapacity validates the Cluster's capacity according to the configured scheduling / scaling policy.
 // Adjust the Cluster's capacity as directed by scaling policy.
 func (p *ReservationPolicy) ValidateCapacity(cluster scheduling.Cluster) {
+	// Ensure we don't double-up on capacity validations. Only one at a time.
+	if !p.isValidatingCapacity.CompareAndSwap(0, 1) {
+		return
+	}
+
 	singleReplicaValidateCapacity(p, cluster, p.log)
+
+	if !p.isValidatingCapacity.CompareAndSwap(1, 0) {
+		panic("Failed to swap isValidatingCapacity 1 → 0 after finishing call to ReservationPolicy::ValidateCapacity")
+	}
 }
 
 // SupportsDynamicResourceAdjustments returns true if the Policy allows for dynamically altering the

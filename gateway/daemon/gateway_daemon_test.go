@@ -3414,36 +3414,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					Should(Equal(clusterSize - 1))
 			})
 
-			Context("Scaling In / Scaling Down", func() {
-				MinimumNumNodes := 3
-				ScalingBufferSize := 1
-				InitialClusterSize := 16
-				NumHostsToCreate := 16
-				InitialConnectionTimeSeconds := 1
-				MaximumHostsToReleaseAtOnce := 2
-				MeanScaleInPerHostSec := 0.100 // Super quick.
-				MeanScaleOutPerHostSec := 0.05 // Super quick.
-				ScalingIntervalSec := 0.20     // Very frequently.
-				InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
-
-				BeforeEach(func() {
-					Hosts = make([]scheduling.UnitTestingHost, 0, NumHostsToCreate)
-
-					// Relatively quick, but long enough that we can see individual scale-outs.
-
-					options.ScalingIntervalSec = ScalingIntervalSec
-					options.InitialClusterSize = InitialClusterSize
-					options.InitialClusterConnectionPeriodSec = InitialConnectionTimeSeconds
-					options.MinimumNumNodes = MinimumNumNodes
-					options.ScalingBufferSize = ScalingBufferSize
-					options.MeanScaleInPerHostSec = MeanScaleInPerHostSec
-					options.MeanScaleOutPerHostSec = MeanScaleOutPerHostSec
-					options.MaximumHostsToReleaseAtOnce = MaximumHostsToReleaseAtOnce
-
-					mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
-				})
-
-				createHosts := func(policyKey scheduling.PolicyKey) {
+			Context("Autoscaling Without Any Kernels Scheduled", func() {
+				createHosts := func(policyKey scheduling.PolicyKey, numHostsToCreate int, initialClusterSize int, initialConnectionTime time.Duration) {
 					options.SchedulingPolicy = policyKey.String()
 
 					clusterGateway = New(&options.ConnectionInfo, &options.ClusterDaemonOptions, func(srv ClusterGateway) {
@@ -3456,8 +3428,8 @@ var _ = Describe("Cluster Gateway Tests", func() {
 
 					Expect(clusterGateway.metricsProvider).ToNot(BeNil())
 					Expect(clusterGateway.metricsProvider.GetGatewayPrometheusManager()).To(BeNil())
-					Expect(clusterGateway.initialClusterSize).To(Equal(InitialClusterSize))
-					Expect(clusterGateway.initialConnectionPeriod).To(Equal(InitialConnectionTime))
+					Expect(clusterGateway.initialClusterSize).To(Equal(initialClusterSize))
+					Expect(clusterGateway.initialConnectionPeriod).To(Equal(initialConnectionTime))
 					Expect(clusterGateway.inInitialConnectionPeriod.Load()).To(Equal(true))
 
 					dockerCluster = clusterGateway.cluster
@@ -3482,67 +3454,178 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, 0)
 
 					clusterSize := 0
-					for i := 0; i < NumHostsToCreate; i++ {
+					disabledHosts := 0
+					for i := 0; i < numHostsToCreate; i++ {
 						host := createHost(i)
-						clusterSize += 1
+
+						if i >= initialClusterSize {
+							disabledHosts += 1
+							Expect(host.Enabled()).To(BeFalse())
+							assertClusterResourceCounts(clusterGateway.ClusterStatistics, false, clusterSize)
+						} else {
+							clusterSize += 1
+							Expect(host.Enabled()).To(BeTrue())
+							assertClusterResourceCounts(clusterGateway.ClusterStatistics, true, clusterSize)
+						}
 
 						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.NumDisabledHosts()).To(Equal(disabledHosts))
 						Expect(index.Len()).To(Equal(clusterSize))
 						Expect(placer.NumHostsInIndex()).To(Equal(clusterSize))
 						Expect(scheduler.Placer().NumHostsInIndex()).To(Equal(clusterSize))
-						Expect(dockerCluster.NumDisabledHosts()).To(Equal(0))
-						Expect(host.Enabled()).To(BeTrue())
-
-						assertClusterResourceCounts(clusterGateway.ClusterStatistics, true, clusterSize)
 					}
 				}
 
-				It("Will automatically scale-in while using static scheduling", func() {
-					createHosts(scheduling.Static)
+				Context("Scaling Out -- Automatically Adding Hosts", func() {
+					MinimumNumNodes := 8
+					ScalingBufferSize := 8 // Large scaling buffer to promote scaling out.
+					InitialClusterSize := 8
+					NumHostsToCreate := 16 // Larger than InitialClusterSize so that there are some disabled hosts.
+					InitialConnectionTimeSeconds := 1
+					MaximumHostsToReleaseAtOnce := 2
+					MeanScaleInPerHostSec := 0.100   // Super quick.
+					MeanScaleOutPerHostSec := 0.0125 // Super quick.
+					ScalingIntervalSec := 0.175      // Very frequently.
+					InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
 
-					clusterSize := NumHostsToCreate
-					Expect(dockerCluster.Len()).To(Equal(clusterSize))
-					Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Static))
+					BeforeEach(func() {
+						Hosts = make([]scheduling.UnitTestingHost, 0, NumHostsToCreate)
 
-					minCapacity := dockerCluster.Scheduler().MinimumCapacity()
-					bufferSize := dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize
-					targetSize := minCapacity + bufferSize
+						// Relatively quick, but long enough that we can see individual scale-outs.
 
-					Eventually(func() int32 {
-						return int32(dockerCluster.Len())
-					}, time.Second*5, time.Millisecond*100).Should(Equal(targetSize))
+						options.ScalingIntervalSec = ScalingIntervalSec
+						options.InitialClusterSize = InitialClusterSize
+						options.InitialClusterConnectionPeriodSec = InitialConnectionTimeSeconds
+						options.MinimumNumNodes = MinimumNumNodes
+						options.ScalingBufferSize = ScalingBufferSize
+						options.MeanScaleInPerHostSec = MeanScaleInPerHostSec
+						options.MeanScaleOutPerHostSec = MeanScaleOutPerHostSec
+						options.MaximumHostsToReleaseAtOnce = MaximumHostsToReleaseAtOnce
+
+						mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
+					})
+
+					It("Will automatically scale-out while using static scheduling", func() {
+						createHosts(scheduling.Static, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+
+						clusterSize := InitialClusterSize
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Static))
+
+						minCapacity := dockerCluster.Scheduler().MinimumCapacity()
+						bufferSize := dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize
+						targetSize := minCapacity + bufferSize
+
+						Eventually(func() int32 {
+							return int32(dockerCluster.Len())
+						}, time.Second*5, time.Millisecond*100).Should(Equal(targetSize))
+					})
+
+					It("Will NOT automatically scale-out while using reservation-based scheduling", func() {
+						createHosts(scheduling.Reservation, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+
+						clusterSize := InitialClusterSize
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Reservation))
+
+						// Sleep for a bit to let the Cluster/Scheduler do their thing(s).
+						time.Sleep(time.Second * 3)git 
+
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Len()).To(Equal(InitialClusterSize))
+					})
+
+					It("Will NOT automatically scale-out while using FCFS batch scheduling", func() {
+						createHosts(scheduling.FcfsBatch, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+
+						clusterSize := InitialClusterSize
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.FcfsBatch))
+
+						// Sleep for a bit to let the Cluster/Scheduler do their thing(s).
+						time.Sleep(time.Second * 3)
+
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Len()).To(Equal(InitialClusterSize))
+					})
 				})
 
-				It("Will automatically scale-in while using reservation-based scheduling", func() {
-					createHosts(scheduling.Reservation)
+				Context("Scaling In (Automatically Removing Hosts)", func() {
+					MinimumNumNodes := 3
+					ScalingBufferSize := 1
+					InitialClusterSize := 16
+					NumHostsToCreate := InitialClusterSize
+					InitialConnectionTimeSeconds := 1
+					MaximumHostsToReleaseAtOnce := 2
+					MeanScaleInPerHostSec := 0.100   // Super quick.
+					MeanScaleOutPerHostSec := 0.0125 // Super quick.
+					ScalingIntervalSec := 0.175      // Very frequently.
+					InitialConnectionTime := time.Duration(InitialConnectionTimeSeconds) * time.Second
 
-					clusterSize := NumHostsToCreate
-					Expect(dockerCluster.Len()).To(Equal(clusterSize))
-					Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Reservation))
+					BeforeEach(func() {
+						Hosts = make([]scheduling.UnitTestingHost, 0, NumHostsToCreate)
 
-					minCapacity := dockerCluster.Scheduler().MinimumCapacity()
-					bufferSize := dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize
-					targetSize := minCapacity + bufferSize
+						// Relatively quick, but long enough that we can see individual scale-outs.
 
-					Eventually(func() int32 {
-						return int32(dockerCluster.Len())
-					}, time.Second*5, time.Millisecond*100).Should(Equal(targetSize))
-				})
+						options.ScalingIntervalSec = ScalingIntervalSec
+						options.InitialClusterSize = InitialClusterSize
+						options.InitialClusterConnectionPeriodSec = InitialConnectionTimeSeconds
+						options.MinimumNumNodes = MinimumNumNodes
+						options.ScalingBufferSize = ScalingBufferSize
+						options.MeanScaleInPerHostSec = MeanScaleInPerHostSec
+						options.MeanScaleOutPerHostSec = MeanScaleOutPerHostSec
+						options.MaximumHostsToReleaseAtOnce = MaximumHostsToReleaseAtOnce
 
-				It("Will automatically scale-in while using FCFS batch scheduling", func() {
-					createHosts(scheduling.FcfsBatch)
+						mockedDistributedKernelClientProvider = NewMockedDistributedKernelClientProvider(mockCtrl)
+					})
 
-					clusterSize := NumHostsToCreate
-					Expect(dockerCluster.Len()).To(Equal(clusterSize))
-					Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.FcfsBatch))
+					It("Will automatically scale-in while using static scheduling", func() {
+						createHosts(scheduling.Static, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
 
-					minCapacity := dockerCluster.Scheduler().MinimumCapacity()
-					bufferSize := dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize
-					targetSize := minCapacity + bufferSize
+						clusterSize := NumHostsToCreate
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Static))
 
-					Eventually(func() int32 {
-						return int32(dockerCluster.Len())
-					}, time.Second*5, time.Millisecond*100).Should(Equal(targetSize))
+						minCapacity := dockerCluster.Scheduler().MinimumCapacity()
+						bufferSize := dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize
+						targetSize := minCapacity + bufferSize
+
+						Eventually(func() int32 {
+							return int32(dockerCluster.Len())
+						}, time.Second*5, time.Millisecond*100).Should(Equal(targetSize))
+					})
+
+					It("Will automatically scale-in while using reservation-based scheduling", func() {
+						createHosts(scheduling.Reservation, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+
+						clusterSize := NumHostsToCreate
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.Reservation))
+
+						minCapacity := dockerCluster.Scheduler().MinimumCapacity()
+						bufferSize := dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize
+						targetSize := minCapacity + bufferSize
+
+						Eventually(func() int32 {
+							return int32(dockerCluster.Len())
+						}, time.Second*5, time.Millisecond*100).Should(Equal(targetSize))
+					})
+
+					It("Will automatically scale-in while using FCFS batch scheduling", func() {
+						createHosts(scheduling.FcfsBatch, NumHostsToCreate, InitialClusterSize, InitialConnectionTime)
+
+						clusterSize := NumHostsToCreate
+						Expect(dockerCluster.Len()).To(Equal(clusterSize))
+						Expect(dockerCluster.Scheduler().PolicyKey()).To(Equal(scheduling.FcfsBatch))
+
+						minCapacity := dockerCluster.Scheduler().MinimumCapacity()
+						bufferSize := dockerCluster.Scheduler().Policy().ScalingConfiguration().ScalingBufferSize
+						targetSize := minCapacity + bufferSize
+
+						Eventually(func() int32 {
+							return int32(dockerCluster.Len())
+						}, time.Second*5, time.Millisecond*100).Should(Equal(targetSize))
+					})
 				})
 			})
 		})
