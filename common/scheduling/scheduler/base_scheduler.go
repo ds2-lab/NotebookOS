@@ -35,25 +35,12 @@ var IdleHostMetadataKey types.HeapElementMetadataKey = "idle_host_metadata_key"
 // schedulingNotification is a struct that is sent over a channel to notify the "main" goroutine handling the
 // scheduling of a new kernel that the scheduling of one of that kernel's replicas has completed successfully.
 type schedulingNotification struct {
-	// SchedulingCompletedAt is the time at which the scheduling operation concluded
-	// for the particular replica of the associated kernel.
 	SchedulingCompletedAt time.Time
-
-	// Host is the Host on which the kernel was scheduled (or attempted to be scheduled).
-	Host scheduling.Host
-
-	// KernelId is the ID of the kernel for which a replica was scheduled.
-	KernelId string
-
-	// ReplicaId is the SMR node ID of the replica that was scheduled (or whose scheduling was attempted but failed).
-	ReplicaId int32
-
-	// Successful indicates whether the operation succeeded or whether it failed.
-	Successful bool
-
-	// Error is the error that occurred that caused the scheduling operation to fail.
-	// This field will be nil if the scheduling operation was successful.
-	Error error
+	Host                  scheduling.Host
+	Error                 error
+	KernelId              string
+	ReplicaId             int32
+	Successful            bool
 }
 
 type KernelProvider interface {
@@ -187,79 +174,36 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 }
 
 type BaseScheduler struct {
-	instance           clusterSchedulerInternal
-	cluster            scheduling.Cluster
-	hostMapper         HostMapper
-	placer             scheduling.Placer
-	kernelProvider     KernelProvider
-	notificationBroker NotificationBroker
-
-	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
-	// kernels (or other resources) and could occur in-parallel (such as being triggered
-	// by multiple concurrent RPC requests).
-	addReplicaMutex sync.Mutex
-
-	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from TransactionOperation ID to AddReplicaOperation.
-	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]]
-
-	// Mapping from new kernel-replica key (i.e., <kernel-id>-<replica-id>) to AddReplicaOperation.
-	addReplicaOperationsByKernelReplicaId *hashmap.CornelkMap[string, *scheduling.AddReplicaOperation]
-
-	// Mapping from NewPodName to chan string.
-	// In theory, it's possible to receive a PodCreated notification from Kubernetes AFTER the replica within the new Pod
-	// has started running and has registered with the Gateway. In this case, we won't be able to retrieve the AddReplicaOperation
-	// associated with that replica via the new Pod's name, as that mapping is created when the PodCreated notification is received.
-	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
+	lastNodeRefreshTime                      time.Time
+	lastCapacityValidation                   time.Time
+	hostSpec                                 types.Spec
+	log                                      logger.Logger
+	kernelProvider                           KernelProvider
+	notificationBroker                       NotificationBroker
+	instance                                 clusterSchedulerInternal
+	cluster                                  scheduling.Cluster
+	hostMapper                               HostMapper
+	placer                                   scheduling.Placer
+	containerEventHandler                    scheduling.ContainerWatcher
+	schedulingPolicy                         SchedulingPolicy
 	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *scheduling.AddReplicaOperation]
-
-	// resourceBindingMode describes when resources are committed and uncommitted from Containers.
-	resourceBindingMode scheduling.ResourceBindingMode
-
-	// schedulingPolicy specifies the scheduling behavior for the scheduling.Cluster and scheduling.Scheduler.
-	schedulingPolicy SchedulingPolicy
-
-	//-//-//-//-//-//-//-//-//-//
-	//  Scaling Configuration  //
-	//-//-//-//-//-//-//-//-//-//
-	//gpusPerHost                  float64       // The number of actual GPUs that are available for use on each node/host.
-	//virtualGpusPerHost           int32         // The number of virtual GPUs per host.
-	//scalingFactor                float64       // scalingFactor defines how many hosts the cluster will provision based on busy TransactionResources.
-	//maximumHostsToReleaseAtOnce  int32         // `maximumHostsToReleaseAtOnce` defines how many hosts the cluster can de-provision during a single scale-in event. This is equivalent to Jingyuan's "scaling-in limit" parameter.
-	//scalingIntervalSec           int32         // How often to call UpdateRatio in seconds.
-	//scalingInterval              time.Duration // How often to call UpdateRatio .
-	//scalingLimit                 float64       // scalingLimit defines how many hosts the cluster will provision at maximum based on busy TransactionResources.
-	//predictiveAutoscalingEnabled bool          // If enabled, the scaling manager will attempt to over-provision hosts slightly to leave room for fluctuation, and will also scale-in if we are over-provisioned relative to the current request load. If this is disabled, the cluster can still provision new hosts if demand surges, but it will not scale-down, nor will it automatically scale to leave room for fluctuation.
-	//scalingBufferSize            int32         // How many extra hosts we provision so that we can quickly scale if needed.
-	//minimumCapacity              int32         // The minimum number of nodes we must have available at any time.
-	//maximumCapacity              int32         // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
-
-	canScaleIn                    bool                         // Can the Cluster/Placer scale-in?
-	opts                          *scheduling.SchedulerOptions // Configuration options.
-	hostSpec                      types.Spec                   // The types.Spec used when creating new Host instances.
-	remoteSynchronizationInterval time.Duration                // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
-	lastNodeRefreshTime           time.Time                    // The time at which the nodes were last refreshed.
-
-	// Watches for new Pods/Containers.
-	//
-	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
-	containerEventHandler scheduling.ContainerWatcher
-
-	oversubscribed  *types.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
-	undersubscribed *types.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
-	idleHosts       *types.Heap
-
-	lastCapacityValidation time.Time         // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
-	stRatio                *types.MovingStat // session/training ratio
-	subscriptionRatio      decimal.Decimal   // Subscription ratio.
-	maxSubscribedRatio     decimal.Decimal
-	invalidated            float64
-	lastSubscribedRatio    float64
-	pendingSubscribedRatio float64
-
-	// numCapacityValidations is a counter for the number of times we call scheduling.Policy::ValidateCapacity.
-	numCapacityValidations atomic.Int64
-
-	log logger.Logger
+	addReplicaOperationsByKernelReplicaId    *hashmap.CornelkMap[string, *scheduling.AddReplicaOperation]
+	stRatio                                  *types.MovingStat
+	activeAddReplicaOpsPerKernel             *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]]
+	idleHosts                                *types.Heap
+	opts                                     *scheduling.SchedulerOptions
+	oversubscribed                           *types.Heap
+	undersubscribed                          *types.Heap
+	resourceBindingMode                      scheduling.ResourceBindingMode
+	subscriptionRatio                        decimal.Decimal
+	maxSubscribedRatio                       decimal.Decimal
+	pendingSubscribedRatio                   float64
+	invalidated                              float64
+	lastSubscribedRatio                      float64
+	remoteSynchronizationInterval            time.Duration
+	numCapacityValidations                   atomic.Int64
+	addReplicaMutex                          sync.Mutex
+	canScaleIn                               bool
 }
 
 func (s *BaseScheduler) GetResourceBindingMode() scheduling.ResourceBindingMode {
