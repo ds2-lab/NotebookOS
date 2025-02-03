@@ -460,7 +460,7 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 	}
 
 	if activeExecution.ActiveReplica == nil {
-		m.log.Warn("Execution \"%s\" does not have its ActiveReplica specified, despite having just finished...")
+		m.log.Warn("ActiveReplica unspecified for exec \"%s\", despite having just finished...", executeRequestId)
 		activeExecution.ActiveReplica = replica
 	}
 
