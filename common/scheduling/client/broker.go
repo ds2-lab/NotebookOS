@@ -19,9 +19,9 @@ type MessageTopicRecognizer[R any, T any] func(msg R) (string, T)
 // Users will need to provide the type of message source(S), raw message(R), normalized message(MessageType), and a topic recognizer.
 type MessageBroker[S any, R any, T any] struct {
 	topics            map[string][]scheduling.MessageBrokerHandler[S, T, R]
-	topicMutex        sync.RWMutex
 	topicRecognizer   MessageTopicRecognizer[R, T]
 	allTopicsHandlers []scheduling.MessageBrokerHandler[S, T, R]
+	topicMutex        sync.RWMutex
 }
 
 func NewMessageBroker[S any, R any, T any](recognizer MessageTopicRecognizer[R, T]) *MessageBroker[S, R, T] {
