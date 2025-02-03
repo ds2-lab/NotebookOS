@@ -461,7 +461,9 @@ func (m *ExecutionManager) ExecutionComplete(msg *messaging.JupyterMessage, repl
 
 	if activeExecution.ActiveReplica == nil {
 		m.log.Warn("ActiveReplica unspecified for exec \"%s\", despite having just finished...", executeRequestId)
-		activeExecution.ActiveReplica = replica
+
+		activeExecution.SetActiveReplica(replica)
+		m.lastPrimaryReplica = replica
 	}
 
 	if activeExecution.ActiveReplica.ReplicaID() != replica.ReplicaID() {
@@ -575,9 +577,11 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 		return nil
 	}
 
+	// If the execution index associated with the "smr_lead_task" message matches that of the last-submitted
+	// "execute_request" message, then we can update the 'activeExecutionIndex' field.
 	if executionIndex == m.submittedExecutionIndex {
-		m.log.Debug("Execution index associated with \"smr_lead_task\" message (%d) matches last-submitted index.",
-			executionIndex)
+		m.log.Debug("Execution index associated with \"smr_lead_task\" message (%d) for execution \"%s\" matches last-submitted index.",
+			executionIndex, executeRequestMsgId)
 
 		m.activeExecutionIndex = executionIndex
 	}
@@ -588,8 +592,21 @@ func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelRep
 	// We pass (as the second argument) the time at which the kernel replica began executing the code.
 	m.processExecutionStartLatency(activeExecution, time.UnixMilli(leadMessage.UnixMilliseconds))
 
+	// If the 'completed' execution index is greater than or equal to the execution index of the "smr_lead_task"
+	// message, then that means that we received the "smr_lead_task" AFTER receiving the "execute_reply". So,
+	// we've already processed the execution has having completed. We should NOT call KernelStartedTraining, or
+	// very bad things will happen.
+	if m.completedExecutionIndex >= executionIndex {
+		m.log.Debug("Execution index of \"smr_lead_task\" message for execution \"%s\" %d <= 'completed' execution index %d. This training has already completed.",
+			executeRequestMsgId, executionIndex, m.completedExecutionIndex)
+
+		// The training is already over. We can just return. No need to return an error, as messages can be delayed
+		// sometimes. It's not a big deal.
+		return nil
+	}
+
 	// Record that the kernel has started training.
-	if err := replica.KernelStartedTraining(); err != nil {
+	if err = replica.KernelStartedTraining(); err != nil {
 		m.log.Error("Failed to start training for kernel replica %s-%d: %v", m.Kernel.ID(),
 			replica.ReplicaID(), err)
 
