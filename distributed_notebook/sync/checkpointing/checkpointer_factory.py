@@ -3,7 +3,7 @@ from typing import Any
 from distributed_notebook.sync.checkpointing.hdfs_checkpointer import HdfsCheckpointer
 from distributed_notebook.sync.checkpointing.local_checkpointer import LocalCheckpointer
 from distributed_notebook.sync.checkpointing.redis_checkpointer import RedisCheckpointer
-from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.s3_checkpointer import S3Checkpointer
 
 remote_checkpointer_factory: dict[str, Any] = {
@@ -13,7 +13,7 @@ remote_checkpointer_factory: dict[str, Any] = {
     "local": LocalCheckpointer,
 }
 
-def get_remote_checkpointer(remote_storage: str, host: str)->RemoteCheckpointer:
+def get_remote_checkpointer(remote_storage: str, host: str)->Checkpointer:
     if remote_storage is None:
         raise ValueError("remote storage cannot be null")
 

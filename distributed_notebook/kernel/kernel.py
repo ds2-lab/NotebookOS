@@ -44,7 +44,7 @@ from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
 from distributed_notebook.sync.checkpointing.checkpointer_factory import get_remote_checkpointer
 from distributed_notebook.sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPointer
-from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.election import Election, ElectionTimestamps
 from distributed_notebook.sync.errors import DiscardMessageError
 from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer import (
@@ -530,7 +530,7 @@ class DistributedKernel(IPythonKernel):
         # _user_ns_lock ensures atomic operations when accessing self.shell.user_ns from coroutines.
         self._user_ns_lock: asyncio.Lock = asyncio.Lock()
 
-        self._remote_checkpointer: RemoteCheckpointer = get_remote_checkpointer(
+        self._remote_checkpointer: Checkpointer = get_remote_checkpointer(
             self.remote_storage, self.remote_storage_hostname
         )
 

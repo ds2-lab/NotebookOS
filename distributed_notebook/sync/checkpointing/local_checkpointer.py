@@ -11,10 +11,10 @@ import torch
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
-from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 
 
-class LocalCheckpointer(RemoteCheckpointer):
+class LocalCheckpointer(Checkpointer):
     """
     LocalCheckpointer is an implementation of RemoteCheckpointer that stores data locally in a dictionary.
 

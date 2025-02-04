@@ -8,19 +8,30 @@ import boto3
 import torch
 
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
-from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
+from distributed_notebook.sync.storage.s3_provider import S3Provider
+from distributed_notebook.sync.storage.storage_provider import RemoteStorageProvider
 
 DEFAULT_S3_BUCKET_NAME: str = "distributed-notebook-storage"
 
 
-class S3Checkpointer(RemoteCheckpointer):
+class S3Checkpointer(Checkpointer):
     def __init__(self, bucket_name: str = DEFAULT_S3_BUCKET_NAME):
         super().__init__()
 
-        self._s3_client = boto3.client('s3')
         self._bucket_name: str = bucket_name
 
-        self._aio_session: aioboto3.session.Session = aioboto3.Session()
+        self._s3_provider: S3Provider = S3Provider(
+            bucket_name = self._bucket_name
+        )
+
+    @property
+    def storage_provider(self)->RemoteStorageProvider:
+        return self._s3_provider
+
+    @property
+    def storage_name(self)->str:
+        return self.storage_provider.storage_name
 
     @property
     def bucket_name(self) -> str:
@@ -447,6 +458,3 @@ class S3Checkpointer(RemoteCheckpointer):
                        f'Wrote {self.num_objects_written - initial_num_objects_written} objects in total.')
 
         return [model_object_name, optimizer_object_name, criterion_object_name, constructor_state_key]
-
-    def storage_name(self) -> str:
-        return f"AWS S3"

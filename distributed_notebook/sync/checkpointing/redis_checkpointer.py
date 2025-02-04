@@ -9,7 +9,7 @@ import torch
 
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.data import load_dataset
-from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
 
 from typing import Optional, Any, Dict
@@ -18,7 +18,7 @@ from distributed_notebook.sync.storage.redis_provider import RedisProvider
 from distributed_notebook.sync.storage.storage_provider import RemoteStorageProvider
 
 
-class RedisCheckpointer(RemoteCheckpointer):
+class RedisCheckpointer(Checkpointer):
     def __init__(
             self,
             host:str = "",

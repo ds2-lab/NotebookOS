@@ -13,7 +13,7 @@ from distributed_notebook.deep_learning.models.model import DeepLearningModel
 
 from .ast import SyncAST
 from .checkpointing.pointer import DatasetPointer, ModelPointer, SyncPointer
-from .checkpointing.remote_checkpointer import RemoteCheckpointer
+from .checkpointing.checkpointer import Checkpointer
 from .election import Election
 from .errors import DiscardMessageError, SyncError
 from .log import KEY_SYNC_END, Checkpointer, SynchronizedValue, SyncLog
@@ -48,7 +48,7 @@ class Synchronizer:
         large_object_pointer_committed: Callable[
             [SyncPointer], Optional[CustomDataset | DeepLearningModel]
         ] = None,
-        remote_checkpointer: RemoteCheckpointer = None,
+        remote_checkpointer: Checkpointer = None,
     ):
         if module is None and ns is not None:
             self._module = SyncModule()  # type: ignore
@@ -104,7 +104,7 @@ class Synchronizer:
 
         if remote_checkpointer is None:
             raise ValueError("remote checkpointer cannot be null")
-        self._remote_checkpointer: RemoteCheckpointer = remote_checkpointer
+        self._remote_checkpointer: Checkpointer = remote_checkpointer
 
         self.log.debug("Finished creating Synchronizer")
 

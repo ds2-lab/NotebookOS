@@ -25,7 +25,7 @@ from distributed_notebook.deep_learning.models.simple_model import SimpleModel
 from distributed_notebook.sync import Synchronizer
 from distributed_notebook.sync.checkpointing.local_checkpointer import LocalCheckpointer
 from distributed_notebook.sync.checkpointing.local_checkpointer import (
-    RemoteCheckpointer,
+    Checkpointer,
 )
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
 from distributed_notebook.sync.checkpointing.pointer import SyncPointer, DatasetPointer
@@ -67,7 +67,7 @@ def loaded_serialized_state_callback(state=None):
 
 def large_object_pointer_committed(
         pointer: SyncPointer,
-        checkpointer: RemoteCheckpointer,
+        checkpointer: Checkpointer,
         existing_model: Optional[DeepLearningModel] = None,
 ) -> Optional[CustomDataset | DeepLearningModel]:
     """
@@ -127,7 +127,7 @@ def prepare_user_module():
     return user_module, user_ns
 
 
-def __get_raft_log(local_checkpointer: RemoteCheckpointer) -> RaftLog:
+def __get_raft_log(local_checkpointer: Checkpointer) -> RaftLog:
     raft_log: RaftLog = RaftLog(
         node_id=1,
         kernel_id=str(uuid.uuid4()),
@@ -142,7 +142,7 @@ def __get_raft_log(local_checkpointer: RemoteCheckpointer) -> RaftLog:
 def __get_synchronizer(
         raft_log: RaftLog,
         user_module: types.ModuleType,
-        checkpointer: RemoteCheckpointer,
+        checkpointer: Checkpointer,
 ) -> Synchronizer:
     def pointer_committed(pointer: SyncPointer):
         return large_object_pointer_committed(pointer, checkpointer)
