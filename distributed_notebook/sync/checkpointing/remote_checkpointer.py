@@ -150,7 +150,10 @@ class RemoteCheckpointer(Checkpointer):
             raise ValueError(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
                              f"because there was no value stored at that key.")
 
-        buffer: io.BytesIO = io.BytesIO(val)
+        if not isinstance(val, io.BytesIO):
+            buffer: io.BytesIO = io.BytesIO(val)
+        else:
+            buffer: io.BytesIO = val
 
         self.log.debug(f"Successfully read state of model \"{model_name}\" to {self.storage_name} at key \"{key}\" "
                        f"(model size: {buffer.getbuffer().nbytes / 1.0e6} MB) in {et - st} seconds.")
@@ -193,7 +196,10 @@ class RemoteCheckpointer(Checkpointer):
             raise ValueError(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
                              f"because there was no value stored at that key.")
 
-        buffer: io.BytesIO = io.BytesIO(val)
+        if not isinstance(val, io.BytesIO):
+            buffer: io.BytesIO = io.BytesIO(val)
+        else:
+            buffer: io.BytesIO = val
 
         self.log.debug(f"Successfully read state of model \"{model_name}\" to {self.storage_name} at key \"{key}\" "
                        f"(model size: {buffer.getbuffer().nbytes / 1.0e6} MB) in {et - st} seconds.")

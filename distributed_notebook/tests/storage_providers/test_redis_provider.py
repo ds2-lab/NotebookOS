@@ -37,8 +37,8 @@ def test_upload_and_download_string(redis_client, async_redis_client):
     success: bool = redis_provider.write_value(obj_name, data)
     assert success
 
-    data: io.BytesIO = redis_provider.read_value(obj_name)
-    print("Read data:", data.getvalue().decode("utf-8"))
+    data: str | bytes = redis_provider.read_value(obj_name)
+    print("Read data:", data.decode("utf-8"))
 
     success = redis_provider.delete_value(obj_name)
     assert success
