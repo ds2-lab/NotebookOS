@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import time
 from typing import Any, Optional
@@ -66,6 +67,13 @@ class RedisProvider(RemoteStorageProvider):
             self.log.debug(f"Creating asynchronous Redis client of Redis server at {host}:{port} (db={db}).")
             self._async_redis = async_redis.Redis(host = host, port = port, db = db, password = password, **additional_redis_args)
 
+    @property
+    def hostname(self)->str:
+        return self._redis_host
+
+    @property
+    def redis_port(self)->int:
+        return self._redis_port
 
     def __ensure_async_redis(self)->bool:
         """
@@ -280,3 +288,20 @@ class RedisProvider(RemoteStorageProvider):
         self.log.debug(f'Deleted value stored at key "{key}" from Redis in {time_elapsed_ms:,} ms.')
 
         return True
+
+    async def close_async(self):
+        self.log.debug(f"Closing {self.storage_name}.")
+
+        self._redis.close()
+        await self._async_redis.close()
+
+    def close(self):
+        """Ensure all async coroutines end and clean up."""
+        self.log.debug(f"Closing {self.storage_name}.")
+
+        self._redis.close()
+
+        try:
+            asyncio.run(self._async_redis.close())
+        except RuntimeError as ex:
+            self.log.debug(f"RuntimeError occurred while closing RedisLog: {ex}")

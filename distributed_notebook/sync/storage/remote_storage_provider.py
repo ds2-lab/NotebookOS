@@ -101,6 +101,14 @@ class RemoteStorageProvider(ABC):
         pass
 
     @abstractmethod
+    def close(self):
+        pass
+
+    @abstractmethod
+    async def close_async(self):
+        pass
+
+    @abstractmethod
     def is_too_large(self, size_bytes: int)->bool:
         """
         :param size_bytes: the size of the data to (potentially) be written to remote storage

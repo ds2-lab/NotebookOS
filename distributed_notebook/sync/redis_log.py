@@ -1,23 +1,20 @@
-import asyncio
-import time
-import pickle
-import os
 import logging
+import os
+import pickle
+import time
 from typing import Optional, Any, Dict
-
-from distributed_notebook.logs import ColoredLogFormatter
-from distributed_notebook.sync.log import SynchronizedValue
-
-import redis
-import redis.asyncio as async_redis
 
 from prometheus_client import Histogram
 
+from distributed_notebook.logs import ColoredLogFormatter
+from distributed_notebook.sync.log import SynchronizedValue
+from distributed_notebook.sync.storage.redis_provider import RedisProvider
 from distributed_notebook.sync.util import get_size
 
 
 class RedisLog(object):
-    _metadata_key:str = "RedisLog_Metadata"
+    # This is the key at which we store the metadata for the RedisLog so that we can recover it in the future.
+    _metadata_key: str = "RedisLog_Metadata"
 
     """
     RedisLog is an implementation of SyncLog -- just like RaftLog -- but RedisLog uses Redis to persist checkpointed state.
@@ -25,6 +22,7 @@ class RedisLog(object):
     RedisLog only supports single-replica scheduling policies. Scheduling policies with > 1 replica (e.g., static or
     dynamic) should use the RaftLog class.
     """
+
     def __init__(
             self,
             node_id: int = -1,
@@ -59,17 +57,13 @@ class RedisLog(object):
         self._remote_storage_write_latency_ms: Optional[Histogram] = remote_storage_write_latency_milliseconds
         self._workload_id: Optional[str] = workload_id
 
-        self._hostname: str = hostname
-        self._port: int = port
-        self._db: int = db
-        self._password: str = password
-        self._additional_redis_args: Optional[dict] = additional_redis_args
-
-        self._async_redis = async_redis.Redis(host = hostname, port = port, db = db, password = password, **additional_redis_args)
-        self._redis = redis.Redis(host = hostname, port = port, db = db, password = password, **additional_redis_args)
-
-        self._total_read_time_sec: float = 0
-        self._total_write_time_sec: float = 0
+        self.storage_provider: RedisProvider = RedisProvider(
+            host=hostname,
+            port=port,
+            db=db,
+            password=password,
+            additional_redis_args=additional_redis_args,
+        )
 
         # The full keys that we've written.
         self._keys_written: set[str] = set()
@@ -81,11 +75,10 @@ class RedisLog(object):
 
         # Basically just the number of times we've written something to Redis.
         self._num_changes: int = 0
-        self._num_reads: int = 0
         self._term: int = 0
 
     @property
-    def workload_id(self)->Optional[str]:
+    def workload_id(self) -> Optional[str]:
         return self._workload_id
 
     @workload_id.setter
@@ -94,30 +87,30 @@ class RedisLog(object):
 
     @property
     def hostname(self) -> str:
-        return self._hostname
+        return self.storage_provider.hostname
+
+    @property
+    def port(self) -> int:
+        return self.storage_provider.redis_port
 
     @property
     def total_read_time_sec(self) -> float:
         """
         Read the total amount of time spent reading data in seconds.
         """
-        return self._total_read_time_sec
+        return self.storage_provider.read_time
 
     @property
     def total_write_time_sec(self) -> float:
         """
         Read the total amount of time spent writing data in seconds.
         """
-        return self._total_write_time_sec
-
-    @property
-    def port(self) -> int:
-        return self._port
+        return self.storage_provider.write_time
 
     @property
     def num_reads(self) -> int:  # type: ignore
         """The number of individual remote storage reads."""
-        return self._num_reads
+        return self.storage_provider.num_objects_read
 
     @property
     def num_changes(self) -> int:  # type: ignore
@@ -130,26 +123,26 @@ class RedisLog(object):
         return self._term
 
     @property
-    def current_election(self)->Any:
+    def current_election(self) -> Any:
         """
         :return: the current election, if one exists
         """
         return None
 
     @property
-    def created_first_election(self)->bool:
+    def created_first_election(self) -> bool:
         """
         :return: return a boolean indicating whether we've created the first election yet.
         """
         return False
 
-    def get_election(self, term_number: int)->Any:
+    def get_election(self, term_number: int) -> Any:
         """
         :return: the current election with the specified term number, if one exists.
         """
         return None
 
-    def get_known_election_terms(self)->Optional[list[int]]:
+    def get_known_election_terms(self) -> Optional[list[int]]:
         """
         :return: a list of term numbers for which we have an associated Election object
         """
@@ -209,10 +202,8 @@ class RedisLog(object):
 
         data = pickle.dumps(self._variables_written)
 
-        await self._async_redis.set(redis_key, data)
+        await self.storage_provider.write_value_async(redis_key, data)
         time_elapsed: float = time.time() - start_time
-
-        self._total_write_time_sec += time_elapsed
 
         self.log.debug(f'Wrote RedisLog metadata for term {term_number} with {len(self._variables_written)} '
                        f'entries and total size of {len(data)} bytes to Redis at key "{redis_key}" '
@@ -261,13 +252,21 @@ class RedisLog(object):
 
         start_time: float = time.time()
 
-        data = pickle.dumps(val)
+        data: Dict[str, Any] | bytes = {
+            "variable_names": self._variables_written,
+            "s3_log_state": {
+                "term": self._term,
+                "workload_id": self._workload_id
+            }
+        }
 
-        await self._async_redis.set(redis_key, data)
+        data = pickle.dumps(data)
+
+        await self.storage_provider.write_value_async(redis_key, data)
         time_elapsed: float = time.time() - start_time
 
         self._num_changes += 1
-        self._total_write_time_sec += time_elapsed
+
         self._keys_written.add(redis_key)
         self._variables_written.add(val.key)
 
@@ -283,21 +282,15 @@ class RedisLog(object):
     async def close_async(self):
         self.log.debug("Closing RedisLog.")
 
-        self._redis.close()
-        await self._async_redis.close()
+        await self.storage_provider.close_async()
 
     def close(self):
         """Ensure all async coroutines end and clean up."""
         self.log.debug("Closing RedisLog.")
 
-        self._redis.close()
+        self.storage_provider.close()
 
-        try:
-            asyncio.run(self._async_redis.close())
-        except RuntimeError as ex:
-            self.log.debug(f"RuntimeError occurred while closing RedisLog: {ex}")
-
-    def __get_path_for_metadata(self)->str:
+    def __get_path_for_metadata(self) -> str:
         """
         Generate and return the path to which we write our metadata.
         """

@@ -190,3 +190,9 @@ class LocalStorageProvider(RemoteStorageProvider):
         self._num_objects_deleted += 1
 
         self.log.debug(f'Deleted value stored at key "{key}" from {self.storage_name} in {time_elapsed_ms:,} ms.')
+
+    async def close_async(self):
+        self.close()
+
+    def close(self):
+        self._data.clear()

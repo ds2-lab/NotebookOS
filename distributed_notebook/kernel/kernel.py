@@ -2103,10 +2103,6 @@ class DistributedKernel(IPythonKernel):
             )
 
             self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
-        else:
-            # TODO: Do we need this call? Or can we make this a special case
-            # of the RedisLog/S3Log SyncLog implementations?
-            await self.checkpoint_model_state()
 
         # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
         # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
@@ -2124,6 +2120,12 @@ class DistributedKernel(IPythonKernel):
         # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
         # runtime state.
         await self.schedule_notify_execution_complete(term_number)
+
+        # Record synchronization and checkpointing overhead.
+        # For replica-based approaches, this won't be included in what is sent back to the client.
+        # But we will update the Prometheus metrics (if Prometheus is enabled).
+
+        self.current_execution_stats.upload_model_and_training_data_microseconds
 
         if not self.smr_enabled:
             self.log.debug("Sending 'execute_reply' message now.")

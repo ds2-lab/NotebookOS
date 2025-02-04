@@ -267,3 +267,12 @@ class S3Provider(RemoteStorageProvider):
         self.log.debug(f'Deleted value stored at key "{key}" from AWS S3 in {time_elapsed_ms:,} ms.')
         
         return True
+
+    async def close_async(self):
+        self.close()
+
+    def close(self):
+        """Ensure all async coroutines end and clean up."""
+        self.log.debug(f"Closing {self.storage_name}.")
+
+        self._s3_client.close()
