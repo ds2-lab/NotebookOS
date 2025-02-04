@@ -46,13 +46,14 @@ class S3Checkpointer(RemoteCheckpointer):
         :param object_name: the name/key of the file to delete
         :return: True if the file was deleted successfully, otherwise False.
         """
-        try:
-            self._s3_client.delete_object(Bucket=self._bucket_name, Key=object_name)
-            self._num_objects_deleted += 1
-            return True
-        except Exception as e:
-            self.log.error(f"Error deleting object \"{object_name}\": {e}")
-            return False
+        async with self._aio_session.client('s3') as s3:
+            try:
+                await s3.delete_object(Bucket=self._bucket_name, Key=object_name)
+                self._num_objects_deleted += 1
+                return True
+            except Exception as e:
+                self.log.error(f"Error deleting object \"{object_name}\": {e}")
+                return False
 
     async def upload_bytes_to_s3_async(self, data, object_name: str):
         """
@@ -70,7 +71,7 @@ class S3Checkpointer(RemoteCheckpointer):
         async with self._aio_session.client('s3') as s3:
             try:
                 start_time: float = time.time()
-                s3.upload_fileobj(Fileobj=io.BytesIO(data), Bucket=self._bucket_name, Key=object_name)
+                await s3.upload_fileobj(Fileobj=io.BytesIO(data), Bucket=self._bucket_name, Key=object_name)
                 time_elapsed: float = time.time() - start_time
 
                 self.log.debug(f'{len(data)} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{object_name}" '
@@ -103,7 +104,7 @@ class S3Checkpointer(RemoteCheckpointer):
             time_elapsed: float = time.time() - start_time
 
             self.log.debug(f'{data.getbuffer().nbytes} bytes uploaded to AWS S3 bucket/key '
-                           f'"{self._bucket_name}/{object_name}" in {round(time_elapsed, 3):,} ms.')
+                           f'"{self._bucket_name}/{object_name}" in {round(time_elapsed * 1.0e3, 3):,} ms.')
 
             self._num_objects_written += 1
             self._write_time += time_elapsed
@@ -124,12 +125,12 @@ class S3Checkpointer(RemoteCheckpointer):
             buffer: io.BytesIO = io.BytesIO()
             try:
                 st: float = time.time()
-                s3.download_fileobj(self._bucket_name, object_name, buffer)
+                await s3.download_fileobj(self._bucket_name, object_name, buffer)
                 et: float = time.time()
                 time_elapsed: float = et - st
 
                 self.log.debug(f'Read {buffer.getbuffer().nbytes} bytes from AWS S3 bucket/key '
-                               f'"{self._bucket_name}/{object_name}" in {round(time_elapsed, 3):,} ms.')
+                               f'"{self._bucket_name}/{object_name}" in {round(time_elapsed * 1.0e3, 3):,} ms.')
 
                 self._read_time += time_elapsed
                 self._num_objects_read += 1
@@ -235,25 +236,25 @@ class S3Checkpointer(RemoteCheckpointer):
         constructor_args_key: str = os.path.join(base_object_name, "constructor_args.pt")
 
         try:
-            model_state_dict = self.__read_state_dict(model_object_name, model_name)
+            model_state_dict = await self.__read_state_dict_async(model_object_name, model_name)
         except Exception as ex:
             self.log.error(f"Failed to read model state dictionary from AWS S3: {ex}")
             raise ex  # re-raise
 
         try:
-            optimizer_state_dict = self.__read_state_dict(optimizer_object_name, model_name)
+            optimizer_state_dict = await self.__read_state_dict_async(optimizer_object_name, model_name)
         except Exception as ex:
             self.log.error(f"Failed to read optimizer state dictionary from AWS S3: {ex}")
             raise ex  # re-raise
 
         try:
-            criterion_state_dict = self.__read_state_dict(criterion_object_name, model_name)
+            criterion_state_dict = await self.__read_state_dict_async(criterion_object_name, model_name)
         except Exception as ex:
             self.log.error(f"Failed to read criterion state dictionary from AWS S3: {ex}")
             raise ex  # re-raise
 
         try:
-            constructor_args_dict = self.__read_state_dict(constructor_args_key, model_name)
+            constructor_args_dict = await self.__read_state_dict_async(constructor_args_key, model_name)
         except Exception as ex:
             self.log.error(f"Failed to read constructor arguments dictionary from Local Python Dict: {ex}")
             raise ex  # re-raise
