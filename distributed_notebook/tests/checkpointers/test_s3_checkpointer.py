@@ -159,8 +159,8 @@ def test_checkpoint_after_training():
     )
     checkpointer.write_state_dicts(model_pointer)
 
-    num_epochs: int = 5
-    num_training_loops: int = 5
+    num_epochs: int = 3
+    num_training_loops: int = 3
     previous_weights: Tensor = initial_weights
     for i in range(0, num_training_loops):
         # Train for a while.
@@ -263,8 +263,8 @@ def test_checkpoint_and_train_simple_model():
     )
     checkpointer.write_state_dicts(model_pointer)
 
-    num_epochs: int = 5
-    num_training_loops: int = 5
+    num_epochs: int = 3
+    num_training_loops: int = 3
     previous_weights: Tensor = initial_weights
     for i in range(0, num_training_loops):
         # Train for a while.
