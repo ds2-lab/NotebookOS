@@ -14,7 +14,7 @@ from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, Mode
 
 from typing import Optional, Any, Dict
 
-from distributed_notebook.sync.storage.storage_provider import RemoteStorageProvider
+from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
 
 
 class RemoteCheckpointer(Checkpointer):

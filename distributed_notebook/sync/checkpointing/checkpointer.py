@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
-from distributed_notebook.sync.storage.storage_provider import RemoteStorageProvider
+from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
 
 
 class Checkpointer(ABC):

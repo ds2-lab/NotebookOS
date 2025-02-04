@@ -1,7 +1,7 @@
 import sys
 import time
 
-from distributed_notebook.sync.storage.storage_provider import RemoteStorageProvider
+from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
 
 import asyncio
 import redis

@@ -7,18 +7,18 @@ import pytest
 from torch import Tensor
 
 from distributed_notebook.deep_learning import ResNet18, VGG11, VGG13, VGG16, VGG19, InceptionV3, \
-    ComputerVisionModel, Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
+    Bert, IMDbLargeMovieReviewTruncated, GPT2, LibriSpeech, CIFAR10, DeepSpeech2, TinyImageNet, \
     CoLA, get_model_and_dataset
-from distributed_notebook.deep_learning.data import ComputerVision, NaturalLanguageProcessing, Speech
 from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.data.random import RandomCustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
-from distributed_notebook.sync.checkpointing.s3_checkpointer import S3Checkpointer
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
-
 from .util import create_s3_bucket_if_not_exists
+from ..sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+from ..sync.storage.s3_provider import S3Provider
+
 
 @pytest.fixture(scope="session", autouse=True)
 def create_s3_bucket():
@@ -30,13 +30,21 @@ def create_s3_bucket():
     create_s3_bucket_if_not_exists("distributed-notebook-storage")
 
 def test_create():
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name = "distributed-notebook-storage",
+        aws_region = "us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     assert checkpointer is not None
-    assert isinstance(checkpointer, S3Checkpointer)
+    assert isinstance(checkpointer, RemoteCheckpointer)
 
 def test_upload_and_download_file():
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name = "distributed-notebook-storage",
+        aws_region = "us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     data: str = "Hello, S3! This is a string stored in an object."
     obj_name: str = "test_upload_and_download_file_data"
@@ -57,7 +65,11 @@ def test_upload_and_download_file():
     assert checkpointer.num_objects_deleted == 1
 
 def test_read_after_write_simple_model_state():
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name = "distributed-notebook-storage",
+        aws_region = "us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
@@ -98,7 +110,11 @@ def test_write_model_that_does_not_require_checkpointing():
     """
     Write a model that does NOT require checkpointing, which should cause a ValueError to be raised.
     """
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name = "distributed-notebook-storage",
+        aws_region = "us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=False)
     model_pointer: ModelPointer = ModelPointer(
@@ -113,7 +129,11 @@ def test_write_model_that_does_not_require_checkpointing():
 
 
 def test_read_empty():
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name = "distributed-notebook-storage",
+        aws_region = "us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
@@ -128,7 +148,11 @@ def test_read_empty():
 
 
 def test_checkpoint_after_training():
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name = "distributed-notebook-storage",
+        aws_region = "us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     # Create the model.
     input_size: int = 4
@@ -227,7 +251,11 @@ def test_checkpoint_after_training():
 
 
 def test_checkpoint_and_train_simple_model():
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name = "distributed-notebook-storage",
+        aws_region = "us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     # Create the model.
     input_size: int = 4
@@ -339,7 +367,11 @@ def perform_training_for_model(
     assert issubclass(model_class, DeepLearningModel)
     assert issubclass(dataset_class, CustomDataset)
 
-    checkpointer: S3Checkpointer = S3Checkpointer()
+    s3_provider: S3Provider = S3Provider(
+        bucket_name = "distributed-notebook-storage",
+        aws_region = "us-east-1"
+    )
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
 
     # # Create the model.
     # model = model_class(created_for_first_time=True)

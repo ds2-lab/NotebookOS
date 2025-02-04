@@ -11,5 +11,5 @@ from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, Mode
 from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
 from distributed_notebook.sync.storage.s3_provider import S3Provider
-from distributed_notebook.sync.storage.storage_provider import RemoteStorageProvider
+from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
 

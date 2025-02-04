@@ -7,7 +7,7 @@ import logging
 from distributed_notebook.logs import ColoredLogFormatter
 
 
-class RemoteStorageProvider(object, ABC):
+class RemoteStorageProvider(ABC):
     """
     RemoteStorageProvider is an abstract base class for any remote storage provider that provides a key-value-like
     API for reading and writing values from and to remote storage (e.g., Redis, AWS S3, memcached, HDFS, etc.).

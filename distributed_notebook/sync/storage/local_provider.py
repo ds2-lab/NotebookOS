@@ -4,7 +4,7 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
-from distributed_notebook.sync.storage.storage_provider import RemoteStorageProvider
+from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
 
 
 class LocalStorageProvider(RemoteStorageProvider):
