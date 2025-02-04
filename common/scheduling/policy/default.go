@@ -10,9 +10,16 @@ import (
 	"time"
 )
 
+type schedulingPolicy interface {
+	scheduling.Policy
+
+	getLogger() logger.Logger
+}
+
 // defaultFindReadyReplicaSingleReplicaPolicy provides a common implementation of FindReadyReplica for scheduling.Policy
 // instances that use just a single kernel replica.
-func defaultFindReadyReplicaSingleReplicaPolicy(kernel scheduling.Kernel, migrationAllowed bool, executionId string) (scheduling.KernelReplica, error) {
+func defaultFindReadyReplicaSingleReplicaPolicy(policy schedulingPolicy, kernel scheduling.Kernel, executionId string) (scheduling.KernelReplica, error) {
+
 	// Sanity check: make sure there's only one replica.
 	if len(kernel.Replicas()) > 1 {
 		panic(fmt.Sprintf("defaultFindReadyReplicaSingleReplicaPolicy called for kernel with more than one replica: %d replicas, kernel %s",
@@ -22,14 +29,30 @@ func defaultFindReadyReplicaSingleReplicaPolicy(kernel scheduling.Kernel, migrat
 	// Get a reference to that single replica.
 	replica := kernel.Replicas()[0]
 
+	// If the scheduling policy is such that we bind resources when the container is scheduled, then it should
+	// already have resources bound to it.
+	if policy.ResourceBindingMode() == scheduling.BindResourcesWhenContainerScheduled {
+		if replica.Host().HasResourcesCommittedToKernel(kernel.ID()) {
+			return replica, nil
+		}
+
+		log := policy.getLogger()
+
+		log.Error("Scheduling policy '%s' is supposed to bind resources at scheduling-time.", policy.Name())
+		log.Error("However, replica %d of kernel %s does not have resources committed to it on host %s (ID=%s).",
+			replica.ReplicaID(), replica.ID(), replica.Host().GetNodeName(), replica.Host().GetID())
+
+		panic("Expected kernel replica to already have resources committed to it.")
+	}
+
 	// Attempt to pre-allocate resources to the kernel.
-	allocationError := replica.Host().PreCommitResources(replica.Container(), executionId)
+	_, allocationError := replica.Host().PreCommitResources(replica.Container(), executionId)
 	if allocationError != nil {
 		// If migration is allowed by the scheduling policy that invoked this method,
 		// then we will NOT return an error.
 		//
 		// This will enable the single replica to be migrated.
-		if migrationAllowed {
+		if policy.SupportsMigration() {
 			return nil, nil
 		}
 

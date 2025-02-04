@@ -1082,10 +1082,12 @@ func (m *AllocationManager) PreCommitResourcesToExistingContainer(replicaId int3
 		// Check if the existing committed allocation for the specified kernel replica is a pre-commit.
 		// If it isn't, then that's very problematic.
 		if !allocation.IsPreCommitted() {
-			m.log.Error("Found existing (non-pre) committed allocation for replica %d of kernel %s with resources %v while trying to commit resources %v for execution \"%s\"...",
+			m.log.Error("Found existing (non-pre) committed allocation for replica %d of kernel %s with resources "+
+				"%v while trying to commit resources %v for execution \"%s\"...",
 				replicaId, kernelId, allocation.ToSpecString(), resourceRequestArg.String(), executionId)
-			panic(fmt.Sprintf("Found existing, non-pre committed allocation for replica %d of kernel %s while trying to pre-commit for execution \"%s\"",
-				replicaId, kernelId, executionId))
+
+			return allocation.GetGpuDeviceIds(), fmt.Errorf("%w: replica %d of kernel %s",
+				scheduling.ErrResourcesAlreadyCommitted, replicaId, kernelId)
 		}
 
 		// If the allocation exists, is a pre-commit, and the execution IDs match, then we're OK. Just return now.

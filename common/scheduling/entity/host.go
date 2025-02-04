@@ -34,7 +34,6 @@ var (
 	ErrNodeNameUnspecified              = errors.New("no kubernetes node name returned for LocalDaemonClient")
 	ErrReservationNotFound              = errors.New("no resource reservation found for the specified kernel")
 	ErrHostAlreadyIncludedForScheduling = errors.New("the specified host is already being included for consideration in scheduling operations")
-	ErrResourcesAlreadyCommitted        = errors.New("we have already committed resources to a replica of the specified kernel on the target host")
 	ErrWillOversubscribe                = errors.New("cannot reserve or allocate requested resources: host will become too oversubscribed")
 )
 
@@ -916,17 +915,15 @@ func (h *Host) ContainerStartedTraining(container scheduling.KernelContainer) er
 // the de-allocation request if it is outdated.
 //
 // PreCommitResources is the inverse/counterpart to ReleasePreCommitedResources.
-func (h *Host) PreCommitResources(container scheduling.KernelContainer, executionId string) error {
+func (h *Host) PreCommitResources(container scheduling.KernelContainer, executionId string) ([]int, error) {
 	h.schedulingMutex.Lock()
 	defer h.schedulingMutex.Unlock()
 
 	kernelId := container.KernelID()
 	replicaId := container.ReplicaId()
 
-	_, err := h.allocationManager.PreCommitResourcesToExistingContainer(
+	return h.allocationManager.PreCommitResourcesToExistingContainer(
 		replicaId, kernelId, executionId, container.ResourceSpec())
-
-	return err // Will be nil on success.
 }
 
 // GetResourceCountsAsString returns the current resource counts of the Host as a string and is useful for printing.

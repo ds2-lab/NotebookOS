@@ -13,6 +13,7 @@ var (
 	ErrInsufficientHostsAvailable          = status.Error(codes.Internal, "insufficient hosts available")
 	ErrHostNotFound                        = status.Error(codes.Internal, "host not found")
 	ErrReplicaNotFound                     = fmt.Errorf("replica not found")
+	ErrResourcesAlreadyCommitted           = errors.New("cannot pre-commit resources to specified kernel replica as resources are already (fully) committed")
 	ErrHostNotViable                       = status.Error(codes.Internal, "host is not viable; cannot host specified kernel replica")
 	ErrInvalidHost                         = errors.New("invalid host specified")
 	ErrHostAlreadyEnabled                  = errors.New("host is already enabled")

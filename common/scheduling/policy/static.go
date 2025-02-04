@@ -126,7 +126,7 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 		p.log.Debug("Attempting to reuse previous primary replica %d for new execution \"%s\" for kernel \"%s\"",
 			lastPrimaryReplica.ReplicaID(), executionId, kernel.ID())
 
-		allocationError := lastPrimaryReplica.Host().PreCommitResources(lastPrimaryReplica.Container(), executionId)
+		_, allocationError := lastPrimaryReplica.Host().PreCommitResources(lastPrimaryReplica.Container(), executionId)
 		if allocationError == nil {
 			p.log.Debug(
 				utils.LightGreenStyle.Render(
@@ -159,7 +159,7 @@ func (p *StaticPolicy) FindReadyReplica(kernel scheduling.Kernel, executionId st
 			candidateReplica.ResourceSpec(), candidateReplica.ReplicaID(), candidateReplica.ID(),
 			int(candidateReplica.Host().IdleGPUs()))
 		// Try to commit resources to the candidateReplica replica.
-		allocationError := candidateReplica.Host().PreCommitResources(candidateReplica.Container(), executionId)
+		_, allocationError := candidateReplica.Host().PreCommitResources(candidateReplica.Container(), executionId)
 		if allocationError != nil {
 			// Failed to commit resources. Continue.
 			p.log.Debug("Resource pre-commitment %s. Replica %d of kernel %s is not viable for execution \"%s\".",
