@@ -8,16 +8,57 @@ from typing import Any
 
 import aioboto3
 import boto3
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
+
+
 DEFAULT_S3_BUCKET_NAME: str = "distributed-notebook-storage"
+DEFAULT_AWS_S3_REGION: str = "us-east-1"
 
 class S3Provider(RemoteStorageProvider):
-    def __init__(self, bucket_name: str = DEFAULT_S3_BUCKET_NAME):
+    def __init__(
+            self,
+            bucket_name: str = DEFAULT_S3_BUCKET_NAME,
+            aws_region: str = DEFAULT_AWS_S3_REGION,
+    ):
         super().__init__()
 
         self._s3_client = boto3.client('s3')
         self._bucket_name: str = bucket_name
+        self._aws_region: str = aws_region
+
+        self.init_bucket(bucket_name = bucket_name, aws_region= aws_region)
 
         self._aio_session: aioboto3.session.Session = aioboto3.Session()
+
+    def init_bucket(self, bucket_name:str = DEFAULT_S3_BUCKET_NAME, aws_region:str = DEFAULT_AWS_S3_REGION):
+        """
+        This method creates the specified AWS S3 bucket if it does not already exist.
+        """
+        try:
+            # Check if the bucket already exists
+            response = self._s3_client.list_buckets()
+            buckets = [bucket['Name'] for bucket in response.get('Buckets', [])]
+
+            if bucket_name in buckets:
+                print(f"Bucket '{bucket_name}' already exists.")
+                return
+
+            # Create the bucket
+            create_bucket_params = {'Bucket': bucket_name}
+
+            # Add region if it is specified and is not 'us-east-1' (special rule for AWS S3).
+            if aws_region and aws_region != 'us-east-1':
+                create_bucket_params['CreateBucketConfiguration'] = {'LocationConstraint': aws_region}
+
+            self._s3_client.create_bucket(**create_bucket_params)
+            print(f"Bucket '{bucket_name}' created successfully.")
+
+        except NoCredentialsError:
+            print("AWS credentials not found. Please configure them.")
+        except PartialCredentialsError:
+            print("Incomplete AWS credentials. Please check your configuration.")
+        except ClientError as e:
+            print(f"Client error: {e}")
 
     @property
     def storage_name(self) -> str:

@@ -275,6 +275,31 @@ class DistributedKernel(IPythonKernel):
         default_value="redis",
     ).tag(config=True)
 
+    s3_bucket: Union[str, Unicode] = Unicode(
+        help = "The AWS S3 bucket name if we're using AWS S3 for our remote storage.",
+        default_value="distributed-notebook-storage",
+    ).tag(config=True)
+
+    aws_region: Union[str, Unicode] = Unicode(
+        help = "The AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).",
+        default_value="us-east-1",
+    ).tag(config=True)
+
+    redis_password: Union[str, Unicode] = Unicode(
+        help = "The password to access Redis (only relevant if using Redis for remote storage).",
+        default_value=None,
+    ).tag(config=True)
+
+    redis_port: Integer = Integer(
+        default_value = 6379,
+        help="Port of the Redis server (only relevant if using Redis for remote storage)."
+    ).tag(config=True)
+
+    redis_database: Integer = Integer(
+        default_value = 0,
+        help="Redis database number to use (only relevant if using Redis for remote storage)."
+    ).tag(config=True)
+
     prometheus_port: Integer = Integer(8089, help="Port of the Prometheus Server").tag(
         config=True
     )
@@ -530,8 +555,30 @@ class DistributedKernel(IPythonKernel):
         # _user_ns_lock ensures atomic operations when accessing self.shell.user_ns from coroutines.
         self._user_ns_lock: asyncio.Lock = asyncio.Lock()
 
+        if "aws_region" in kwargs:
+            self.aws_region = kwargs["aws_region"]
+
+        if "s3_bucket" in kwargs:
+            self.s3_bucket = kwargs["s3_bucket"]
+
+        if "redis_port" in kwargs:
+            self.redis_port = kwargs["redis_port"]
+
+        if "redis_database" in kwargs:
+            self.redis_database = kwargs["redis_database"]
+
+        if "redis_password" in kwargs:
+            self.redis_password = kwargs["redis_password"]
+
+        # Arguments not relevant to the specified remote storage will be ignored.
         self._remote_checkpointer: Checkpointer = get_checkpointer(
-            self.remote_storage, self.remote_storage_hostname
+            remote_storage_name = self.remote_storage,
+            host = self.remote_storage_hostname,
+            s3_bucket = self.s3_bucket,
+            aws_region = self.aws_region,
+            redis_port = self.redis_port,
+            redis_database = self.redis_database,
+            redis_password = self.redis_password,
         )
 
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
