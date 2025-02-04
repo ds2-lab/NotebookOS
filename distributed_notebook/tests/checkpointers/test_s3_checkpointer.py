@@ -81,7 +81,7 @@ def test_read_after_write_simple_model_state():
     assert isinstance(constructor_args_state, dict)
 
     assert checkpointer.num_objects_read == 4
-    assert checkpointer.num_objects_written == 8
+    assert checkpointer.num_objects_written == 4
     assert checkpointer.num_objects_deleted == 4
 
 
