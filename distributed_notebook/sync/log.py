@@ -480,11 +480,33 @@ class SyncLog(Protocol):
         :return: true if we need to catch up because a migration just occurred
         """
 
-    def catchup_with_peers(self)->None:
+    async def catchup_with_peers(self)->None:
         """
         Propose a new value and wait for it to be commited to know that we're "caught up".
         """
         pass
+
+    @property
+    def restoration_time_seconds(self)->float:
+        """
+        Return the time spent on restoring previous state from remote storage.
+        """
+
+    def clear_restoration_time(self):
+        """
+        Clear the 'restoration_time_seconds' metric.
+        """
+
+    @property
+    def restore_namespace_time_seconds(self)->float:
+        """
+        Return the time spent restoring the user namespace.
+        """
+
+    def clear_restore_namespace_time_seconds(self):
+        """
+        Clear the 'restore_namespace_time_seconds' metric.
+        """
 
     def start(self, handler):
         """Register change handler, restore internal states, and start monitoring changes.

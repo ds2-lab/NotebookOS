@@ -46,6 +46,7 @@ class Synchronizer:
         ns=None,
         opts=0,
         node_id: int = -1,
+        num_replicas: int = 3,
         large_object_pointer_committed: Callable[
             [SyncPointer], Optional[CustomDataset | DeepLearningModel]
         ] = None,
@@ -64,6 +65,7 @@ class Synchronizer:
 
         self._store_path: str = store_path
         self._node_id: int = node_id
+        self._num_replicas: int = num_replicas
 
         # Set callbacks for synclog
         sync_log.set_should_checkpoint_callback(self.should_checkpoint_callback)

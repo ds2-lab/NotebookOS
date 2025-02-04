@@ -139,6 +139,7 @@ class RaftLog(object):
         self._send_notification_func = send_notification_func
         self._deployment_mode = deployment_mode
         self._leader_term_before_migration: int = -1
+        self._restore_namespace_time_seconds: float = 0.0
         self._fast_forward_execution_count_handler: Callable[[], None] = (
             fast_forward_execution_count_handler
         )
@@ -294,6 +295,7 @@ class RaftLog(object):
         sys.stderr.flush()
         sys.stdout.flush()
 
+        self._restoration_time_seconds: float = 0.0
         if hasattr(self, "_log_node"):
             # This will just do nothing if there's no serialized state to be loaded.
             self._needs_to_catch_up: bool = self.load_and_apply_serialized_state()
@@ -303,6 +305,11 @@ class RaftLog(object):
         # If we do need to catch up, then we'll create the state necessary to do so now.
         # As soon as we call `RaftLog::start`, we could begin receiving proposals, so we need this state to exist now.
         # (We compare committed values against `self._catchup_value` when `self._need_to_catch_up` is true.)
+        catchup_start_time: float = time.time()
+        def caught_up_callback(f: Any):
+            self._restore_namespace_time_seconds = time.time() - catchup_start_time
+            self.log.debug(f"Restored user namespace in {self.restore_namespace_time_seconds:,} seconds.")
+
         if self._needs_to_catch_up:
             # We pass the last election term, as we don't want to win the current election.
             # That is, if we pass self._leader_term_before_migration + 1 as the election term,
@@ -323,6 +330,7 @@ class RaftLog(object):
             self._catchup_io_loop = asyncio.get_running_loop()
             self._catchup_io_loop.set_debug(True)
             self._catchup_future = self._catchup_io_loop.create_future()
+            self._catchup_future.add_done_callback(caught_up_callback)
             self.log.debug(
                 f"Created new 'catchup value' with ID={self._catchup_value.id}, timestamp={self._catchup_value.timestamp}, and election term={self._catchup_value.election_term}."
             )
@@ -1651,6 +1659,19 @@ class RaftLog(object):
             sys.stdout.flush()
             raise ex
 
+    @property
+    def restore_namespace_time_seconds(self)->float:
+        """
+        Return the time spent restoring the user namespace.
+        """
+        return self._restore_namespace_time_seconds
+
+    def clear_restore_namespace_time_seconds(self):
+        """
+        Clear the 'restore_namespace_time_seconds' metric.
+        """
+        self._restore_namespace_time_seconds = 0
+
     def load_and_apply_serialized_state(self) -> bool:
         """
         Retrieve the serialized state read by the Go-level LogNode.
@@ -1673,9 +1694,9 @@ class RaftLog(object):
                 "LogNode is None while trying to retrieve and apply serialized state"
             )
 
-        serialized_state_bytes: bytes = (
-            self.retrieve_serialized_state_from_remote_storage()
-        )
+        start_time: float = time.time()
+        serialized_state_bytes: bytes = self.retrieve_serialized_state_from_remote_storage()
+        self._restoration_time_seconds = time.time() - start_time
 
         self.log.debug("Successfully converted Golang Slice_bytes to Python bytes.")
 
@@ -2499,6 +2520,19 @@ class RaftLog(object):
         assert wait == False
         return is_leading
 
+    @property
+    def restoration_time_seconds(self)->float:
+        """
+        Return the time spent on restoring previous state.
+        """
+        return self._restoration_time_seconds
+
+    def clear_restoration_time(self):
+        """
+        Clear the 'restoration_time_seconds' metric.
+        """
+        self._restoration_time_seconds = 0.0
+
     def has_active_election(self) -> bool:
         """
         Return true if the following two conditions are met:
@@ -2510,7 +2544,7 @@ class RaftLog(object):
 
         return self.current_election.is_active
 
-    async def catchup_with_peers(self):
+    async def catchup_with_peers(self)->None:
         """
         Propose a new value and wait for it to be commited to know that we're "caught up".
         """

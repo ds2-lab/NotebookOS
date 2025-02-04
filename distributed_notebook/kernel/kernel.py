@@ -56,6 +56,7 @@ from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
 from ..deep_learning import DatasetClassesByName, ModelClassesByName, ResNet18, CIFAR10, NaturalLanguageProcessing
+from ..sync.log import SyncLog
 from ..sync.remote_storage_log import RemoteStorageLog
 from ..sync.storage.redis_provider import RedisProvider
 from ..sync.storage.s3_provider import S3Provider
@@ -1685,7 +1686,7 @@ class DistributedKernel(IPythonKernel):
         self.log.debug("Overrode shell hooks.")
 
         # Get synclog for synchronization.
-        sync_log: RaftLog = await self.get_synclog(self.store_path)
+        sync_log: SyncLog = await self.get_synclog(self.store_path)
 
         self.init_raft_log_event.set()
 
@@ -1696,15 +1697,17 @@ class DistributedKernel(IPythonKernel):
             store_path=self.store_path,
             module=self.shell.user_module,
             opts=CHECKPOINT_AUTO,
+            num_replicas=self.num_replicas,
             node_id=self.smr_node_id,
             large_object_pointer_committed=self.large_object_pointer_committed,
             remote_checkpointer=self._remote_checkpointer,
         )  # type: ignore
 
-        sync_log.set_fast_forward_executions_handler(
-            self.synchronizer.fast_forward_execution_count
-        )
-        sync_log.set_set_execution_count_handler(self.synchronizer.set_execution_count)
+        if isinstance(sync_log, RaftLog):
+            sync_log.set_fast_forward_executions_handler(
+                self.synchronizer.fast_forward_execution_count
+            )
+            sync_log.set_set_execution_count_handler(self.synchronizer.set_execution_count)
 
         self.init_synchronizer_event.set()
 
@@ -1760,8 +1763,6 @@ class DistributedKernel(IPythonKernel):
             await self.synclog.catchup_with_peers()
 
             await self.__download_pointers_committed_while_catching_up()
-
-        # TODO: Retrieve time spent downloading model state here.
 
         # Send the 'smr_ready' message AFTER we've caught-up with our peers (if that's something that we needed to do).
         await self.send_smr_ready_notification()
@@ -2128,11 +2129,26 @@ class DistributedKernel(IPythonKernel):
         # For replica-based approaches, this won't be included in what is sent back to the client.
         # But we will update the Prometheus metrics (if Prometheus is enabled).
 
+        # Add the time from the synchronizer (so, the overhead of calling `append` on the SyncLog by the synchronizer)
         self.current_execution_stats.upload_model_and_training_data_microseconds += \
             (self.synchronizer.synchronization_time_seconds * 1.0e6)
 
+        # Add the `write_time` from the remote checkpointer.
         self.current_execution_stats.upload_model_and_training_data_microseconds += \
             (self._remote_checkpointer.storage_provider.write_time * 1.0e6)
+
+        # Add the time to load and apply serialized state from remote storage.
+        self.current_execution_stats.download_model_microseconds += \
+            (self.synclog.restoration_time_seconds * 1.0e6)
+
+        # For SMR-based policies, the "restore namespace" time is how long it takes to "catch up".
+        # For other policies, the "restore namespace" time is the time taken to read the data from remote storage.
+        if self.smr_enabled and self.num_replicas > 1:
+            self.current_execution_stats.download_model_microseconds += \
+                (self.synclog.restore_namespace_time_seconds * 1.0e6)
+        else:
+            self.current_execution_stats.download_model_microseconds += \
+                (self.synclog.restore_namespace_time_seconds * 1.0e6)
 
         self.current_execution_stats.download_model_microseconds += \
             (self._remote_checkpointer.storage_provider.read_time * 1.0e6)
@@ -2153,6 +2169,8 @@ class DistributedKernel(IPythonKernel):
 
         self.synchronizer.clear_sync_time()
         self._remote_checkpointer.storage_provider.clear_statistics()
+        self.synclog.clear_restoration_time()
+        self.synclog.clear_restore_namespace_time_seconds()
 
         if not self.smr_enabled:
             self.log.debug("Sending 'execute_reply' message now.")
@@ -4750,7 +4768,7 @@ class DistributedKernel(IPythonKernel):
             f"{time.time() - self.created_at} seconds."
         )
 
-    async def get_synclog(self, store_path) -> RaftLog:
+    async def get_synclog(self, store_path) -> SyncLog:
         assert isinstance(self.smr_nodes, list)
         assert isinstance(self.smr_nodes_map, dict)
         assert isinstance(self.smr_node_id, int)

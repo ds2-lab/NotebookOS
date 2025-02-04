@@ -8,6 +8,7 @@ from prometheus_client import Histogram
 
 from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.sync.log import SynchronizedValue
+from distributed_notebook.sync.storage.error import InvalidKeyError
 from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
 from distributed_notebook.sync.util import get_size
 
@@ -68,6 +69,24 @@ class RemoteStorageLog(object):
         # Basically just the number of times we've written something to remote storage.
         self._num_changes: int = 0
         self._term: int = 0
+        self._restore_namespace_time_seconds: float = 0.0
+
+        start_time: float = time.time()
+        self.variable_names_to_restore: set[str] = self.__load_and_apply_serialized_state()
+        self._restoration_time_seconds: float = time.time() - start_time
+
+    @property
+    def restore_namespace_time_seconds(self)->float:
+        """
+        Return the time spent restoring the user namespace.
+        """
+        return self._restore_namespace_time_seconds
+
+    def clear_restore_namespace_time_seconds(self):
+        """
+        Clear the 'restore_namespace_time_seconds' metric.
+        """
+        self._restore_namespace_time_seconds = 0
 
     @property
     def storage_provider(self) -> RemoteStorageProvider:
@@ -87,12 +106,26 @@ class RemoteStorageLog(object):
 
     @property
     def needs_to_catch_up(self)->bool:
-        # RemoteStorageLog does not support the notion of catching up.
-        return False
+        return len(self.variable_names_to_restore) > 0
 
-    def catchup_with_peers(self)->None:
-        # RemoteStorageLog does not support the notion of catching up.
-        pass
+    @property
+    def restoration_time_seconds(self)->float:
+        """
+        Return the time spent on restoring previous state.
+        """
+        return self._restoration_time_seconds
+
+    def clear_restoration_time(self):
+        """
+        Clear the 'restoration_time_seconds' metric.
+        """
+        self._restoration_time_seconds = 0.0
+
+    async def catchup_with_peers(self)->None:
+        """
+        RemoteStorageLog uses the catchup_with_peers to restore the namespace from remote storage.
+        """
+        await self.restore_namespace()
 
     @property
     def leader_id(self)->int:
@@ -261,17 +294,14 @@ class RemoteStorageLog(object):
                 session_id=self._kernel_id, workload_id=self.workload_id
             ).observe(time_elapsed * 1e3)
 
-    async def restore_namespace(self) -> Dict[str, SynchronizedValue]:
-        """
-        Retrieve metadata from remote storage and use the metadata to read all the keys from the namespace.
-
-        This does NOT restore models/datasets from their pointers.
-
-        :return: a dictionary mapping variable names to the variables.
-        """
+    def __load_and_apply_serialized_state(self)->set[str]:
         metadata_key: str = self.__get_path_for_metadata()
 
-        data: Dict[str, Any] | bytes = self.storage_provider.read_value(metadata_key)
+        try:
+            data: Dict[str, Any] | bytes = self.storage_provider.read_value(metadata_key)
+        except InvalidKeyError:
+            self.log.debug(f'No data stored at metadata key "{metadata_key}". No state to load and apply.')
+            return set()
 
         try:
             data = pickle.loads(data)
@@ -288,10 +318,28 @@ class RemoteStorageLog(object):
         self.log.debug(f'Restored term number {self._term} and workload ID "{self._workload_id}" from {self.storage_name}.')
         self.log.debug(f"Retrieved list of variable names with size={len(variable_names)} from {self.storage_name}.")
 
-        start_time: float = time.time()
+        return set(variable_names)
+
+    async def restore_namespace(self) -> Dict[str, SynchronizedValue]:
+        """
+        Retrieve metadata from remote storage and use the metadata to read all the keys from the namespace.
+
+        This does NOT restore models/datasets from their pointers.
+
+        :return: a dictionary mapping variable names to the variables.
+        """
+        if self.variable_names_to_restore is None:
+            raise ValueError("Cannot restore namespace. 'Variables to Rename' value is None.")
+
         restored_namespace: Dict[str, SynchronizedValue] = {}
 
-        for variable_name in variable_names:
+        if len(self.variable_names_to_restore) == 0:
+            self.log.debug("There are no variables to restore.")
+            return {}
+
+        start_time: float = time.time()
+
+        for variable_name in self.variable_names_to_restore:
             key: str = self.__get_key_from_variable_name(variable_name)
 
             self.log.debug(f'Retrieving value for variable "{variable_name}" from {self.storage_name} at key "{key}".')
@@ -307,8 +355,10 @@ class RemoteStorageLog(object):
             restored_namespace[variable_name] = variable
 
         time_elapsed: float = time.time() - start_time
-        self.log.debug(f"Restored {len(variable_names)} variable(s) from {self.storage_name} "
+        self.log.debug(f"Restored {len(self.variable_names_to_restore)} variable(s) from {self.storage_name} "
                        f"in {round(time_elapsed * 1.0e3, 3):,} ms.")
+
+        self._restore_namespace_time_seconds = time_elapsed
 
         return restored_namespace
 

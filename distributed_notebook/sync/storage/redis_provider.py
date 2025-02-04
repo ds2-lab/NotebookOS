@@ -6,6 +6,7 @@ from typing import Any, Optional
 import redis
 import redis.asyncio as async_redis
 
+from distributed_notebook.sync.storage.error import InvalidKeyError
 from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
 
 try:
@@ -210,7 +211,10 @@ class RedisProvider(RemoteStorageProvider):
 
         start_time: float = time.time()
 
-        value: str|bytes|memoryview = await self._async_redis.get(key)
+        value: Optional[str|bytes|memoryview] = await self._async_redis.get(key)
+
+        if value is None:
+            raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
 
         end_time: float = time.time()
         time_elapsed: float = end_time - start_time
@@ -240,7 +244,10 @@ class RedisProvider(RemoteStorageProvider):
 
         start_time: float = time.time()
 
-        value: str|bytes|memoryview = self._redis.get(key)
+        value: Optional[str|bytes|memoryview] = self._redis.get(key)
+
+        if value is None:
+            raise InvalidKeyError(f'No data stored in Redis at key "{key}"')
 
         end_time: float = time.time()
         time_elapsed: float = end_time - start_time
