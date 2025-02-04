@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
+from distributed_notebook.sync.storage.storage_provider import RemoteStorageProvider
 
 
 class RemoteCheckpointer(ABC):
@@ -48,6 +49,11 @@ class RemoteCheckpointer(ABC):
         Return the total time spent writing data to remote storage in seconds.
         """
         return self._write_time
+
+    @property
+    @abstractmethod
+    def storage_provider(self)->RemoteStorageProvider:
+        pass
 
     @property
     @abstractmethod

@@ -40,15 +40,48 @@ class RedisProvider(RemoteStorageProvider):
             additional_redis_args = dict()
 
         self._additional_redis_args: dict[str, Any] = additional_redis_args
-        self._lock = asyncio.Lock()
 
         self.log.debug(f"Connecting to Redis server at {host}:{port} (db={db}).")
         self._async_redis = async_redis.Redis(host = host, port = port, db = db, password = password, **additional_redis_args)
         self._redis = redis.Redis(host = host, port = port, db = db, password = password, **additional_redis_args)
 
+    def __ensure_async_redis(self)->bool:
+        """
+        Ensure the RedisProvider has created its async Redis client.
+
+        :return: true if the async Redis client already existed, false if the async Redis client did not already exist.
+        """
+        if getattr(self, "_async_redis") is None:
+            self._async_redis = async_redis.Redis(
+                host = self._redis_host,
+                port = self._redis_port,
+                db = self._redis_db,
+                password = self._redis_password,
+                **self._additional_redis_args
+            )
+            return False
+        else:
+            return True
+
+    def __ensure_redis(self):
+        """
+        Ensure the RedisProvider has created its synchronous Redis client.
+
+        :return: true if the synchronous Redis client already existed,
+                 false if the synchronous Redis client did not already exist.
+        """
+        if getattr(self, "_redis") is None:
+            self._redis = redis.Redis(
+                host = self._redis_host,
+                port = self._redis_port,
+                db = self._redis_db,
+                password = self._redis_password,
+                **self._additional_redis_args
+            )
+
     @property
-    def storage_name(self) -> str:
-        return "Redis"
+    def storage_name(self)->str:
+        return f"Redis({self._redis_host}:{self._redis_port},db={self._redis_db})"
 
     async def write_value_async(self, key: str, value: Any):
         """
@@ -57,6 +90,8 @@ class RedisProvider(RemoteStorageProvider):
         :param key: the key at which to store the value in Redis.
         :param value: the value to be written.
         """
+        self.__ensure_async_redis()
+
         value_size: int = sys.getsizeof(value)
 
         start_time: float = time.time()
@@ -80,6 +115,8 @@ class RedisProvider(RemoteStorageProvider):
         :param key: the key at which to store the value in Redis.
         :param value: the value to be written.
         """
+        self.__ensure_redis()
+
         value_size: int = sys.getsizeof(value)
 
         start_time: float = time.time()
@@ -103,6 +140,8 @@ class RedisProvider(RemoteStorageProvider):
 
         :return: the value read from Redis.
         """
+        self.__ensure_async_redis()
+
         start_time: float = time.time()
 
         value: str|bytes|memoryview = await self._async_redis.get(key)
@@ -125,6 +164,8 @@ class RedisProvider(RemoteStorageProvider):
 
         :return: the value read from Redis.
         """
+        self.__ensure_redis()
+
         start_time: float = time.time()
 
         value: str|bytes|memoryview = self._redis.get(key)
@@ -146,6 +187,8 @@ class RedisProvider(RemoteStorageProvider):
 
         :param key: the name/key of the data to delete
         """
+        self.__ensure_async_redis()
+
         start_time: float = time.time()
 
         await self._async_redis.delete(key)
@@ -165,6 +208,8 @@ class RedisProvider(RemoteStorageProvider):
 
         :param key: the name/key of the data to delete
         """
+        self.__ensure_redis()
+
         start_time: float = time.time()
 
         self._redis.delete(key)
