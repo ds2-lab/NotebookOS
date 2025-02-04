@@ -2144,7 +2144,7 @@ class DistributedKernel(IPythonKernel):
             )
 
             # TODO: What if we receive next message before this completes?
-            if duration > 0 and self.prometheus_enabled:
+            if duration > 0 and self.prometheus_enabled and hasattr(self, "remote_storage_write_latency_milliseconds"):
                 self.remote_storage_write_latency_milliseconds.labels(
                     session_id=self.kernel_id, workload_id=self.workload_id
                 ).observe(duration * 1e3)
@@ -4722,7 +4722,6 @@ class DistributedKernel(IPythonKernel):
                 remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
                 deployment_mode=self.deployment_mode,
                 election_timeout_seconds=self.election_timeout_seconds,
-                remote_checkpointer=self._remote_checkpointer,
                 loaded_serialized_state_callback=self.loaded_serialized_state_callback,
             )
         except Exception as exc:

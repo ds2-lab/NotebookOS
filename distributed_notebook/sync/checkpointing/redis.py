@@ -2,6 +2,7 @@ import io
 import json
 import asyncio
 import os
+import sys
 import time
 
 import torch
@@ -140,6 +141,13 @@ class RedisCheckpointer(RemoteCheckpointer):
             st: float = time.time()
             val: str|bytes|memoryview = await self._async_redis.get(redis_key)
             et: float = time.time()
+            time_elapsed: float = et - st
+
+            self.log.debug(f'Read {sys.getsizeof(val)} bytes from Redis key "{redis_key}" '
+                           f'in {round(time_elapsed, 3):,} ms.')
+
+            self._read_time += time_elapsed
+            self._num_objects_read += 1
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from Redis at key \"{redis_key}\" "
                            f"because: {ex}")
@@ -177,6 +185,13 @@ class RedisCheckpointer(RemoteCheckpointer):
             st: float = time.time()
             val: str|bytes|memoryview = self._redis.get(redis_key)
             et: float = time.time()
+            time_elapsed: float = et - st
+
+            self.log.debug(f'Read {sys.getsizeof(val)} bytes from Redis key "{redis_key}" '
+                           f'in {round(time_elapsed, 3):,} ms.')
+
+            self._read_time += time_elapsed
+            self._num_objects_read += 1
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from Redis at key \"{redis_key}\" "
                            f"because: {ex}")
@@ -315,6 +330,13 @@ class RedisCheckpointer(RemoteCheckpointer):
             st: float = time.time()
             self._redis.set(redis_key, buffer.getbuffer())
             et: float = time.time()
+            time_elapsed: float = et - st
+
+            self.log.debug(f'{buffer.getbuffer().nbytes} bytes uploaded to Redis at key "{redis_key}" in '
+                           f'{round(time_elapsed, 3):,}ms.')
+
+            self._num_objects_written += 1
+            self._write_time += time_elapsed
         except Exception as ex:
             self.log.error(f"Failed to write state of model \"{model_name}\" to Redis at key \"{redis_key}\" "
                            f"(model size: {size_mb} MB) because: {ex}")
@@ -351,6 +373,13 @@ class RedisCheckpointer(RemoteCheckpointer):
             st: float = time.time()
             await self._async_redis.set(redis_key, buffer.getbuffer())
             et: float = time.time()
+            time_elapsed: float = et - st
+
+            self.log.debug(f'{buffer.getbuffer().nbytes} bytes uploaded to Redis at key "{redis_key}" in '
+                           f'{round(time_elapsed, 3):,}ms.')
+
+            self._num_objects_written += 1
+            self._write_time += time_elapsed
         except Exception as ex:
             self.log.error(f"Failed to write state of model \"{model_name}\" to Redis at key \"{redis_key}\" "
                            f"(model size: {size_mb} MB) because: {ex}")

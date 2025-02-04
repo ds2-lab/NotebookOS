@@ -699,7 +699,7 @@ class Synchronizer:
             sync_val.set_should_end_execution(end_execution)
 
             assert sync_log is not None
-            await sync_log.append(sync_val)
+            await sync_log.append(sync_val, raw = val)
         elif end_execution:
             # Synthesize end
             assert sync_log is not None

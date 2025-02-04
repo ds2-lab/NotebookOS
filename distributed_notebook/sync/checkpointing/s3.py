@@ -23,22 +23,6 @@ class S3Checkpointer(RemoteCheckpointer):
 
         self._aio_session: aioboto3.session.Session = aioboto3.Session()
 
-        self._num_objects_written: int = 0
-        self._num_objects_read: int = 0
-        self._num_objects_deleted: int = 0
-
-    @property
-    def num_objects_written(self) -> int:
-        return self._num_objects_written
-
-    @property
-    def num_objects_read(self) -> int:
-        return self._num_objects_read
-
-    @property
-    def num_objects_deleted(self) -> int:
-        return self._num_objects_deleted
-
     @property
     def bucket_name(self) -> str:
         return self._bucket_name
@@ -86,9 +70,15 @@ class S3Checkpointer(RemoteCheckpointer):
 
         async with self._aio_session.client('s3') as s3:
             try:
+                start_time: float = time.time()
                 s3.upload_fileobj(Fileobj=io.BytesIO(data), Bucket=self._bucket_name, Key=object_name)
-                self.log.debug(f"Data uploaded to {self._bucket_name}/{object_name}")
+                time_elapsed: float = time.time() - start_time
+
+                self.log.debug(f'{len(data)} bytes uploaded to AWS S3 bucket/key "{self._bucket_name}/{object_name}" '
+                               f'in {round(time_elapsed, 3):,}ms.')
+
                 self._num_objects_written += 1
+                self._write_time += time_elapsed
                 return True
             except Exception as e:
                 self.log.error(f"Error uploading data: {e}")
@@ -108,9 +98,17 @@ class S3Checkpointer(RemoteCheckpointer):
             data = data.getvalue()
 
         try:
-            self._s3_client.upload_fileobj(Fileobj=io.BytesIO(data), Bucket=self._bucket_name, Key=object_name)
-            self.log.debug(f"Data uploaded to {self._bucket_name}/{object_name}")
+            start_time: float = time.time()
+            data = io.BytesIO(data)
+            self._s3_client.upload_fileobj(Fileobj=data, Bucket=self._bucket_name, Key=object_name)
+            time_elapsed: float = time.time() - start_time
+
+            self.log.debug(f'{data.getbuffer().nbytes} bytes uploaded to AWS S3 bucket/key '
+                           f'"{self._bucket_name}/{object_name}" in {round(time_elapsed, 3):,} ms.')
+
             self._num_objects_written += 1
+            self._write_time += time_elapsed
+
             return True
         except Exception as e:
             self.log.error(f"Error uploading data: {e}")
@@ -126,7 +124,15 @@ class S3Checkpointer(RemoteCheckpointer):
         async with self._aio_session.client('s3') as s3:
             buffer: io.BytesIO = io.BytesIO()
             try:
+                st: float = time.time()
                 s3.download_fileobj(self._bucket_name, object_name, buffer)
+                et: float = time.time()
+                time_elapsed: float = et - st
+
+                self.log.debug(f'Read {buffer.getbuffer().nbytes} bytes from AWS S3 bucket/key '
+                               f'"{self._bucket_name}/{object_name}" in {round(time_elapsed, 3):,} ms.')
+
+                self._read_time += time_elapsed
                 self._num_objects_read += 1
 
                 buffer.seek(0) # Need to move pointer back to beginning of buffer.

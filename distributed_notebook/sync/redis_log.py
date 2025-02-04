@@ -3,15 +3,15 @@ import time
 import pickle
 import os
 import logging
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 
-from distributed_notebook.deep_learning import DeepLearningModel
 from distributed_notebook.logs import ColoredLogFormatter
-from distributed_notebook.sync.checkpointing.pointer import ModelPointer
 from distributed_notebook.sync.log import SynchronizedValue
 
 import redis
 import redis.asyncio as async_redis
+
+from prometheus_client import Histogram
 
 from distributed_notebook.sync.util import get_size
 
@@ -36,6 +36,8 @@ class RedisLog(object):
             base_path: str = "/store",
             prometheus_enabled: bool = True,
             kernel_id: Optional[str] = None,
+            workload_id: str = None,
+            remote_storage_write_latency_milliseconds: Optional[Histogram] = None,
     ):
         assert node_id > 0
         assert port > 0
@@ -54,6 +56,8 @@ class RedisLog(object):
         self._kernel_id: str = kernel_id
         self._node_id: int = node_id
         self._prometheus_enabled: bool = prometheus_enabled
+        self._remote_storage_write_latency_ms: Optional[Histogram] = remote_storage_write_latency_milliseconds
+        self._workload_id: Optional[str] = workload_id
 
         self._hostname: str = hostname
         self._port: int = port
@@ -79,6 +83,14 @@ class RedisLog(object):
         self._num_changes: int = 0
         self._num_reads: int = 0
         self._term: int = 0
+
+    @property
+    def workload_id(self)->Optional[str]:
+        return self._workload_id
+
+    @workload_id.setter
+    def workload_id(self, workload_id: Optional[str]):
+        self._workload_id = workload_id
 
     @property
     def hostname(self) -> str:
@@ -206,6 +218,22 @@ class RedisLog(object):
                        f'entries and total size of {len(data)} bytes to Redis at key "{redis_key}" '
                        f'in {round(time_elapsed * 1.0e3, 3)} ms.')
 
+        if (self._prometheus_enabled and hasattr(self, "_remote_storage_write_latency_ms") and
+                self._remote_storage_write_latency_ms is not None):
+            self._remote_storage_write_latency_ms.labels(
+                session_id=self._kernel_id, workload_id=self.workload_id
+            ).observe(time_elapsed * 1e3)
+
+    async def restore_namespace(self) -> Dict[str, Any]:
+        """
+        Retrieve metadata from remote storage and use the metadata to read all the keys from the namespace.
+
+        This does NOT restore models/datasets from their pointers.
+
+        :return: a dictionary mapping variable names to the variables.
+        """
+        raise NotImplemented("Implement me.")
+
     async def append(self, val: SynchronizedValue):
         """
         Append the difference of the value of specified key to the synchronization queue.
@@ -225,6 +253,7 @@ class RedisLog(object):
             self.log.warning(f'Writing variable whose key is equal to "{RedisLog._metadata_key}"')
             raise ValueError(f'Cannot append value to RedisLog whose key is equal to "{val.key}".'
                              f'That is a reserved phrase.')
+
         redis_key: str = os.path.join(self._base_path, val.key)
 
         val_size: int = get_size(val)
@@ -244,6 +273,12 @@ class RedisLog(object):
 
         self.log.debug(f'Wrote value with size={len(data)} bytes to key "{redis_key}" '
                        f'in {round(time_elapsed * 1.0e3, 3)} ms.')
+
+        if (self._prometheus_enabled and hasattr(self, "_remote_storage_write_latency_ms") and
+                self._remote_storage_write_latency_ms is not None):
+            self._remote_storage_write_latency_ms.labels(
+                session_id=self._kernel_id, workload_id=self.workload_id
+            ).observe(time_elapsed * 1e3)
 
     async def close_async(self):
         self.log.debug("Closing RedisLog.")
@@ -267,48 +302,3 @@ class RedisLog(object):
         Generate and return the path to which we write our metadata.
         """
         return os.path.join(self._base_path, RedisLog._metadata_key)
-
-    async def checkpoint_model_state(self, model: DeepLearningModel):
-        """
-        Checkpoint the state dictionary of the DeepLearningModel used during training to remote storage.
-
-        This particular method is only used for non-SMR/non-replica-based scheduling policies.
-
-        :return: the e2e latency of the network write, if it occurred, in milliseconds
-        """
-        # Write the updated model state to remote storage.
-        if model is None:
-            self.log.debug("Did not find any objects of type DeepLearningModel in the user namespace.")
-            return
-
-        if model.requires_checkpointing:
-            self.log.debug(
-                f"Found model '{model.name}' in user namespace; however, model doesn't require checkpointing.")
-            return
-
-        model_pointer: ModelPointer = ModelPointer(
-            deep_learning_model=model,
-            user_namespace_variable_name="model",
-            model_path=os.path.join(self._base_path, model.name),
-            proposer_id=self._node_id,
-        )
-
-        self.log.debug(f"Checkpointing updated state of model '{model.name}' (on critical path)")
-
-        st: float = time.time()
-        await self._remote_checkpointer.write_state_dicts_async(model_pointer)
-        et: float = time.time()
-        duration_ms: float = (et - st) * 1.0e3
-
-        if self._prometheus_enabled and getattr(self, "remote_storage_write_latency_milliseconds") is not None:
-            self.remote_storage_write_latency_milliseconds.labels(
-                session_id=self._kernel_id, workload_id=self.workload_id
-            ).observe(duration_ms * 1e3)
-
-        self.current_execution_stats.upload_model_and_training_data_microseconds += (
-                duration_ms * 1.0e3
-        )
-        self.current_execution_stats.upload_model_start_unix_millis = st
-        self.current_execution_stats.upload_model_end_unix_millis = et
-
-        self.log.debug(f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path).")

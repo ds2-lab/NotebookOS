@@ -16,6 +16,39 @@ class RemoteCheckpointer(ABC):
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+        self._write_time: float = 0
+        self._read_time: float = 0
+
+        self._num_objects_written: int = 0
+        self._num_objects_read: int = 0
+        self._num_objects_deleted: int = 0
+
+    @property
+    def num_objects_written(self) -> int:
+        return self._num_objects_written
+
+    @property
+    def num_objects_read(self) -> int:
+        return self._num_objects_read
+
+    @property
+    def num_objects_deleted(self) -> int:
+        return self._num_objects_deleted
+
+    @property
+    def read_time(self) -> float:
+        """
+        Return the total time spent reading data from remote storage in seconds.
+        """
+        return self._read_time
+
+    @property
+    def write_time(self) -> float:
+        """
+        Return the total time spent writing data to remote storage in seconds.
+        """
+        return self._write_time
+
     @property
     @abstractmethod
     def storage_name(self) -> str:
