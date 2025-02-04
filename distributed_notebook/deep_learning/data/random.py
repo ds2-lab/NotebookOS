@@ -75,6 +75,21 @@ class RandomCustomDataset(CustomDataset):
         self._train_loader = DataLoader(self._train_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
         self._test_loader = DataLoader(self._test_dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
 
+    @property
+    def recorded_tokenization_overhead(self) -> bool:
+        """
+        RandomCustomDataset does not need to be tokenized, so we always return True.
+        :return:
+        """
+        return True
+
+    @recorded_tokenization_overhead.setter
+    def recorded_tokenization_overhead(self, val: bool = True):
+        pass
+
+    def set_recorded_tokenization_overhead(self, val: bool = True):
+        pass
+
     @staticmethod
     def category() -> str:
         return Testing

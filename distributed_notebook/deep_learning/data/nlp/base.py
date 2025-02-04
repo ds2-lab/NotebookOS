@@ -147,6 +147,10 @@ class NLPDataset(HuggingFaceDataset, ABC):
     def recorded_tokenization_overhead(self)->bool:
         return self._recorded_tokenization_overhead
 
+    @recorded_tokenization_overhead.setter
+    def recorded_tokenization_overhead(self, val: bool = True):
+        self._recorded_tokenization_overhead = val
+
     def set_recorded_tokenization_overhead(self, val: bool = True):
         """
         This should be called by the kernel when it retrieves the tokenization overhead, as we only
