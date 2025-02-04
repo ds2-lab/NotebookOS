@@ -12,6 +12,7 @@ from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.data import load_dataset
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer
 from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
+from distributed_notebook.sync.storage.storage_provider import RemoteStorageProvider
 
 
 class LocalCheckpointer(Checkpointer):
@@ -20,6 +21,10 @@ class LocalCheckpointer(Checkpointer):
 
     LocalCheckpointer is intended to be used only for unit tests.
     """
+
+    @property
+    def storage_provider(self) -> RemoteStorageProvider:
+        return None
 
     def __init__(
             self,
