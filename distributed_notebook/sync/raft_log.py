@@ -2821,8 +2821,10 @@ class RaftLog(object):
 
         self.log.info("Successfully started RaftLog and LogNode.")
 
-    # Close the LogNode's RemoteStorage client.
     def close_remote_storage_client(self) -> None:
+        """
+        Close the LogNode's RemoteStorage client.
+        """
         # self.logger.info(">> CALLING INTO GO CODE (_log_node.CloseRemoteStorageClient)")
         sys.stderr.flush()
         sys.stdout.flush()

@@ -2,7 +2,7 @@ import logging
 import os
 import pickle
 import time
-from typing import Optional, Any, Dict, Collection
+from typing import Optional, Any, Dict, Collection, List
 
 from prometheus_client import Histogram
 
@@ -84,6 +84,52 @@ class RemoteStorageLog(object):
     @workload_id.setter
     def workload_id(self, workload_id: Optional[str]):
         self._workload_id = workload_id
+
+    @property
+    def needs_to_catch_up(self)->bool:
+        # RemoteStorageLog does not support the notion of catching up.
+        return False
+
+    def catchup_with_peers(self)->None:
+        # RemoteStorageLog does not support the notion of catching up.
+        pass
+
+    @property
+    def leader_id(self)->int:
+        """
+        Return the ID of the last/current leader node.
+        """
+        return self._node_id
+
+    @property
+    def leader_term(self)->int:
+        """
+        Return the term number of the last/current leader node.
+        """
+        return self._term
+
+    async def remove_node(self, node_id):
+        """Remove a node from the etcd-raft cluster."""
+        self.log.warning(f"RemoteStorageLog just received instruction to remove node {node_id}.")
+        # Not supported. Do nothing more.
+
+    async def update_node(self, node_id, address):
+        """Add a node to the etcd-raft  cluster."""
+        self.log.warning(f"RemoteStorageLog just received instruction to update node {node_id} at address {address}.")
+        # Not supported. Do nothing more.
+
+    async def add_node(self, node_id, address):
+        """
+        Add a node to the etcd-raft cluster.
+
+        NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
+
+        Args:
+            node_id: the ID of the node being added.
+            address: the IP address of the node being added.
+        """
+        self.log.warning(f"RemoteStorageLog just received instruction to add node {node_id} at address {address}.")
+        # Not supported. Do nothing more.
 
     @property
     def total_read_time_sec(self) -> float:
@@ -323,14 +369,31 @@ class RemoteStorageLog(object):
 
         await self.storage_provider.close_async()
 
+    def close_remote_storage_client(self) -> None:
+        """
+        Close the LogNode's RemoteStorage client.
+        """
+        self.storage_provider.close()
+
     def close(self):
         """Ensure all async coroutines end and clean up."""
         self.log.debug("Closing RemoteStorageLog.")
-
-        self.storage_provider.close()
+        self.close_remote_storage_client()
 
     def __get_path_for_metadata(self) -> str:
         """
         Generate and return the path to which we write our metadata.
         """
         return os.path.join(self._base_path, RemoteStorageLog._metadata_key)
+
+    async def write_data_dir_to_remote_storage(
+            self,
+            last_resource_request: Optional[
+                Dict[str, float | int | List[float] | List[int]]
+            ] = None,
+            remote_storage_definitions: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Write the contents of the etcd-Raft data directory to RemoteStorage.
+        """
+        pass

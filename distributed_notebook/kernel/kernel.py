@@ -42,9 +42,9 @@ from distributed_notebook.gateway import gateway_pb2
 from distributed_notebook.gateway.gateway_pb2_grpc import KernelErrorReporterStub
 from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.sync import Synchronizer, RaftLog, CHECKPOINT_AUTO
+from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.checkpointing.checkpointer_factory import get_checkpointer
 from distributed_notebook.sync.checkpointing.pointer import SyncPointer, DatasetPointer, ModelPointer
-from distributed_notebook.sync.checkpointing.checkpointer import Checkpointer
 from distributed_notebook.sync.election import Election, ElectionTimestamps
 from distributed_notebook.sync.errors import DiscardMessageError
 from distributed_notebook.sync.simulated_checkpointing.simulated_checkpointer import (
@@ -56,6 +56,9 @@ from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
 from ..deep_learning import DatasetClassesByName, ModelClassesByName, ResNet18, CIFAR10, NaturalLanguageProcessing
+from ..sync.remote_storage_log import RemoteStorageLog
+from ..sync.storage.redis_provider import RedisProvider
+from ..sync.storage.s3_provider import S3Provider
 
 import_torch_start: float = time.time()
 try:
@@ -276,27 +279,27 @@ class DistributedKernel(IPythonKernel):
     ).tag(config=True)
 
     s3_bucket: Union[str, Unicode] = Unicode(
-        help = "The AWS S3 bucket name if we're using AWS S3 for our remote storage.",
+        help="The AWS S3 bucket name if we're using AWS S3 for our remote storage.",
         default_value="distributed-notebook-storage",
     ).tag(config=True)
 
     aws_region: Union[str, Unicode] = Unicode(
-        help = "The AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).",
+        help="The AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).",
         default_value="us-east-1",
     ).tag(config=True)
 
     redis_password: Union[str, Unicode] = Unicode(
-        help = "The password to access Redis (only relevant if using Redis for remote storage).",
+        help="The password to access Redis (only relevant if using Redis for remote storage).",
         default_value=None,
     ).tag(config=True)
 
     redis_port: Integer = Integer(
-        default_value = 6379,
+        default_value=6379,
         help="Port of the Redis server (only relevant if using Redis for remote storage)."
     ).tag(config=True)
 
     redis_database: Integer = Integer(
-        default_value = 0,
+        default_value=0,
         help="Redis database number to use (only relevant if using Redis for remote storage)."
     ).tag(config=True)
 
@@ -373,7 +376,7 @@ class DistributedKernel(IPythonKernel):
     )
 
     # Indicates whether we should embed Election metadata in "execute_reply" messages.
-    include_election_metadata: Bool = Bool(default_value = True).tag(config = True)
+    include_election_metadata: Bool = Bool(default_value=True).tag(config=True)
 
     smr_enabled: Bool = Bool(default_value=True).tag(config=True)
 
@@ -572,13 +575,13 @@ class DistributedKernel(IPythonKernel):
 
         # Arguments not relevant to the specified remote storage will be ignored.
         self._remote_checkpointer: Checkpointer = get_checkpointer(
-            remote_storage_name = self.remote_storage,
-            host = self.remote_storage_hostname,
-            s3_bucket = self.s3_bucket,
-            aws_region = self.aws_region,
-            redis_port = self.redis_port,
-            redis_database = self.redis_database,
-            redis_password = self.redis_password,
+            remote_storage_name=self.remote_storage,
+            host=self.remote_storage_hostname,
+            s3_bucket=self.s3_bucket,
+            aws_region=self.aws_region,
+            redis_port=self.redis_port,
+            redis_database=self.redis_database,
+            redis_password=self.redis_password,
         )
 
         # Mapping from Remote Storage / SimulatedCheckpointer name to the SimulatedCheckpointer object.
@@ -1273,7 +1276,8 @@ class DistributedKernel(IPythonKernel):
         """
         self.shell_received_at: float = time.time() * 1.0e3
 
-        if self.synclog is not None and self.synclog.fallback_future_io_loop is None:
+        if self.synclog is not None and hasattr(self.synclog,
+                                                "fallback_future_io_loop") and self.synclog.fallback_future_io_loop is None:
             self.synclog.fallback_future_io_loop = asyncio.get_running_loop()
 
         if not self.session:
@@ -4752,48 +4756,86 @@ class DistributedKernel(IPythonKernel):
         sys.stderr.flush()
         sys.stdout.flush()
 
-        self.log.debug("Creating RaftLog now.")
-        try:
-            self.synclog: RaftLog = RaftLog(
-                self.smr_node_id,
+        self.log.debug("Creating SyncLog now.")
+
+        if self.smr_enabled and self.num_replicas > 1:
+            try:
+                self.log.debug(f"SMR is enabled and we have {self.num_replicas} replicas. Using RaftLog.")
+                self.synclog: RaftLog = RaftLog(
+                    self.smr_node_id,
+                    base_path=store,
+                    kernel_id=self.kernel_id,
+                    num_replicas=self.num_replicas,
+                    remote_storage_hostname=self.remote_storage_hostname,
+                    remote_storage=self.remote_storage,
+                    should_read_data=self.should_read_data_from_remote_storage,
+                    peer_addresses=peer_addresses,
+                    peer_ids=ids,
+                    join=self.smr_join,
+                    debug_port=self.debug_port,
+                    report_error_callback=self.report_error,
+                    send_notification_func=self.send_notification,
+                    remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
+                    deployment_mode=self.deployment_mode,
+                    election_timeout_seconds=self.election_timeout_seconds,
+                    loaded_serialized_state_callback=self.loaded_serialized_state_callback,
+                )
+            except Exception as exc:
+                self.log.error("Error while creating RaftLog: %s" % str(exc))
+
+                # Print the stack.
+                stack: list[str] = traceback.format_exception(exc)
+                for stack_entry in stack:
+                    self.log.error(stack_entry)
+
+                self.report_error(
+                    error_title="Failed to Create RaftLog", error_message=str(exc)
+                )
+
+                # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting.
+                await asyncio.sleep(10)
+
+                # Terminate.
+                await self.do_shutdown(False)
+
+                exit(1)
+        else:
+            self.log.debug(f"SMR is disabled and/or we only have 1 replica. (We have {self.num_replicas}.) "
+                           f"Using RemoteStorageLog.")
+
+            remote_storage_read_latency_milliseconds: Optional[Histogram] = None
+            if hasattr(self,
+                       "remote_storage_read_latency_milliseconds") and self.remote_storage_read_latency_milliseconds is not None:
+                remote_storage_read_latency_milliseconds = self.remote_storage_read_latency_milliseconds
+
+            if self.remote_storage.lower() == "redis":
+                remote_storage_provider: RedisProvider = RedisProvider(
+                    host=self.remote_storage_hostname,
+                    port=self.redis_port,
+                    db=self.redis_database,
+                    password=self.redis_password,
+                )
+            elif self.remote_storage.lower() == "s3" or self.remote_storage.lower() == "aws s3":
+                remote_storage_provider: S3Provider = S3Provider(
+                    bucket_name=self.s3_bucket,
+                    aws_region=self.aws_region,
+                )
+            else:
+                raise ValueError(f'Unknown or unsupported remote storage specified: {self.remote_storage.lower()}')
+
+            assert remote_storage_provider is not None
+            self.synclog: RemoteStorageLog = RemoteStorageLog(
+                node_id=self.smr_node_id,
+                remote_storage_provider=remote_storage_provider,
                 base_path=store,
+                prometheus_enabled=self.prometheus_enabled,
                 kernel_id=self.kernel_id,
-                num_replicas=self.num_replicas,
-                remote_storage_hostname=self.remote_storage_hostname,
-                remote_storage=self.remote_storage,
-                should_read_data=self.should_read_data_from_remote_storage,
-                peer_addresses=peer_addresses,
-                peer_ids=ids,
-                join=self.smr_join,
-                debug_port=self.debug_port,
-                report_error_callback=self.report_error,
-                send_notification_func=self.send_notification,
-                remote_storage_read_latency_callback=self.remote_storage_read_latency_callback,
-                deployment_mode=self.deployment_mode,
-                election_timeout_seconds=self.election_timeout_seconds,
-                loaded_serialized_state_callback=self.loaded_serialized_state_callback,
-            )
-        except Exception as exc:
-            self.log.error("Error while creating RaftLog: %s" % str(exc))
-
-            # Print the stack.
-            stack: list[str] = traceback.format_exception(exc)
-            for stack_entry in stack:
-                self.log.error(stack_entry)
-
-            self.report_error(
-                error_title="Failed to Create RaftLog", error_message=str(exc)
+                workload_id=self.workload_id,
+                remote_storage_write_latency_milliseconds=remote_storage_read_latency_milliseconds,
             )
 
-            # Sleep for 10 seconds to provide plenty of time for the error-report message to be sent before exiting.
-            await asyncio.sleep(10)
-
-            # Terminate.
-            await self.do_shutdown(False)
-
-            exit(1)
-
-        self.log.debug("Successfully created RaftLog.")
+        assert self.synclog is not None
+        self.log.debug("Successfully created SyncLog.")
 
         return self.synclog
 

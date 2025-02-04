@@ -1,10 +1,9 @@
-import asyncio
 import datetime
 import time
 import uuid
 from enum import Enum
 from json import JSONEncoder
-from typing import Tuple, Optional, Any
+from typing import Optional, Any, List, Dict
 
 from typing_extensions import Protocol, runtime_checkable
 
@@ -414,6 +413,52 @@ class SyncLog(Protocol):
         """
 
     @property
+    def leader_id(self)->int:
+        """
+        Return the ID of the last/current leader node.
+        """
+
+    @property
+    def leader_term(self)->int:
+        """
+        Return the term number of the last/current leader node.
+        """
+
+    async def remove_node(self, node_id):
+        """Remove a node from the etcd-raft cluster."""
+        pass
+
+    def close_remote_storage_client(self) -> None:
+        """
+        Close the LogNode's RemoteStorage client.
+        """
+
+    async def write_data_dir_to_remote_storage(
+            self,
+            last_resource_request: Optional[
+                Dict[str, float | int | List[float] | List[int]]
+            ] = None,
+            remote_storage_definitions: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        Write the contents of the etcd-Raft data directory to RemoteStorage.
+        """
+
+    async def update_node(self, node_id, address):
+        """Add a node to the etcd-raft  cluster."""
+
+    async def add_node(self, node_id, address):
+        """
+        Add a node to the etcd-raft cluster.
+
+        NOTE: As of right now (5:39pm EST, Oct 11, 2024), this method is not actually used/called.
+
+        Args:
+            node_id: the ID of the node being added.
+            address: the IP address of the node being added.
+        """
+
+    @property
     def created_first_election(self)->bool:
         """
         :return: return a boolean indicating whether we've created the first election yet.
@@ -428,6 +473,18 @@ class SyncLog(Protocol):
         """
         :return: a list of term numbers for which we have an associated Election object
         """
+
+    @property
+    def needs_to_catch_up(self)->bool:
+        """
+        :return: true if we need to catch up because a migration just occurred
+        """
+
+    def catchup_with_peers(self)->None:
+        """
+        Propose a new value and wait for it to be commited to know that we're "caught up".
+        """
+        pass
 
     def start(self, handler):
         """Register change handler, restore internal states, and start monitoring changes.
