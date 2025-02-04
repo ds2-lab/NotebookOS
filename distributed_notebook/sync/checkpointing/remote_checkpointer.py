@@ -254,7 +254,7 @@ class RemoteCheckpointer(Checkpointer):
         try:
             model_state_dict = self.__read_state_dict(model_key, model_name)
         except Exception as ex:
-            self.log.error(f"Failed to read model state dictionary from {self.storage_name}: {ex}")
+            self.log.error(f"{type(ex).__name__}: Failed to read model state dictionary from {self.storage_name} because: {ex}")
             raise ex # re-raise
 
         try:

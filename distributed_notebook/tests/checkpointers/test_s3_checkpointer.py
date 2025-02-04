@@ -3,6 +3,7 @@ import uuid
 from typing import Any, Type
 
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 from torch import Tensor
 
@@ -124,7 +125,7 @@ def test_read_empty():
         proposer_id=1,
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ClientError):
         checkpointer.read_state_dicts(model_pointer)
 
 
