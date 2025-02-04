@@ -73,6 +73,10 @@ class LocalStorageProvider(RemoteStorageProvider):
             self._num_objects_written += 1
             self._bytes_written += value_size
 
+            self._lifetime_num_objects_written += 1
+            self._lifetime_write_time += time_elapsed
+            self._lifetime_bytes_written += value_size
+
         self.log.debug(f'Wrote value of size {value_size} bytes to {self.storage_name} at key "{key}" in {time_elapsed_ms:,} ms.')
 
     def write_value(self, key: str, value: Any):
@@ -95,6 +99,10 @@ class LocalStorageProvider(RemoteStorageProvider):
         self._write_time += time_elapsed
         self._num_objects_written += 1
         self._bytes_written += value_size
+
+        self._lifetime_num_objects_written += 1
+        self._lifetime_write_time += time_elapsed
+        self._lifetime_bytes_written += value_size
 
         self.log.debug(f'Wrote value of size {value_size} bytes to {self.storage_name} '
                        f'at key "{key}" in {time_elapsed_ms:,} ms.')
@@ -120,6 +128,10 @@ class LocalStorageProvider(RemoteStorageProvider):
             self._num_objects_read += 1
             self._bytes_read += value_size
 
+            self._lifetime_read_time += time_elapsed
+            self._lifetime_num_objects_read += 1
+            self._lifetime_bytes_read += value_size
+
             self.log.debug(f'Read value of size {value_size} bytes from {self.storage_name} '
                            f'from key "{key}" in {time_elapsed_ms:,} ms.')
 
@@ -130,8 +142,6 @@ class LocalStorageProvider(RemoteStorageProvider):
 
         :return: the value read from Local In-Memory Storage.
         """
-        self.__ensure_redis()
-
         start_time: float = time.time()
 
         value: Optional[str | bytes | memoryview] = self._data.get(key, None)
@@ -144,6 +154,10 @@ class LocalStorageProvider(RemoteStorageProvider):
         self._read_time += time_elapsed
         self._num_objects_read += 1
         self._bytes_read += value_size
+
+        self._lifetime_read_time += time_elapsed
+        self._lifetime_num_objects_read += 1
+        self._lifetime_bytes_read += value_size
 
         self.log.debug(f'Read value of size {value_size} bytes from {self.storage_name} from key "{key}" '
                        f'in {time_elapsed_ms:,} ms.')
@@ -167,6 +181,9 @@ class LocalStorageProvider(RemoteStorageProvider):
             self._delete_time += time_elapsed
             self._num_objects_deleted += 1
 
+            self._lifetime_delete_time += time_elapsed
+            self._lifetime_num_objects_deleted += 1
+
             self.log.debug(f'Deleted value stored at key "{key}" from {self.storage_name} in {time_elapsed_ms:,} ms.')
 
     def delete_value(self, key: str):
@@ -175,8 +192,6 @@ class LocalStorageProvider(RemoteStorageProvider):
 
         :param key: the name/key of the data to delete
         """
-        self.__ensure_redis()
-
         start_time: float = time.time()
 
         if key in self._data:
@@ -188,6 +203,9 @@ class LocalStorageProvider(RemoteStorageProvider):
 
         self._delete_time += time_elapsed
         self._num_objects_deleted += 1
+
+        self._lifetime_delete_time += time_elapsed
+        self._lifetime_num_objects_deleted += 1
 
         self.log.debug(f'Deleted value stored at key "{key}" from {self.storage_name} in {time_elapsed_ms:,} ms.')
 

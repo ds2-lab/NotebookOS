@@ -35,6 +35,17 @@ class RemoteStorageProvider(ABC):
         self._num_objects_read: int = 0
         self._num_objects_deleted: int = 0
 
+        self._lifetime_write_time: float = 0
+        self._lifetime_read_time: float = 0
+        self._lifetime_delete_time: float = 0
+
+        self._lifetime_bytes_read: int = 0
+        self._lifetime_bytes_written: int = 0
+
+        self._lifetime_num_objects_written: int = 0
+        self._lifetime_num_objects_read: int = 0
+        self._lifetime_num_objects_deleted: int = 0
+
     @property
     def num_objects_written(self) -> int:
         """
@@ -90,6 +101,77 @@ class RemoteStorageProvider(ABC):
         Return the total time spent deleting data from remote storage in seconds.
         """
         return self._delete_time
+
+    @property
+    def lifetime_num_objects_written(self) -> int:
+        """
+        :return: the number of objects written to remote storage.
+        """
+        return self._lifetime_num_objects_written
+
+    @property
+    def lifetime_num_objects_read(self) -> int:
+        """
+        :return: the number of objects read from remote storage.
+        """
+        return self._lifetime_num_objects_read
+
+    @property
+    def lifetime_num_objects_deleted(self) -> int:
+        """
+        :return: the number of objects deleted from remote storage.
+        """
+        return self._lifetime_num_objects_deleted
+
+    @property
+    def lifetime_bytes_read(self) -> int:
+        """
+        :return: the number of bytes read from remote storage.
+        """
+        return self._lifetime_bytes_read
+
+    @property
+    def lifetime_bytes_written(self) -> int:
+        """
+        :return: the number of bytes written to remote storage.
+        """
+        return self._lifetime_bytes_written
+
+    @property
+    def lifetime_read_time(self) -> float:
+        """
+        Return the total time spent reading data from remote storage in seconds.
+        """
+        return self._lifetime_read_time
+
+    @property
+    def lifetime_write_time(self) -> float:
+        """
+        Return the total time spent writing data to remote storage in seconds.
+        """
+        return self._lifetime_write_time
+
+    @property
+    def lifetime_delete_time(self) -> float:
+        """
+        Return the total time spent deleting data from remote storage in seconds.
+        """
+        return self._lifetime_delete_time
+
+    def clear_statistics(self):
+        """
+        This method resets all statistics that aren't prefixed with "lifetime" to 0.
+        """
+        self._write_time = 0
+        self._read_time = 0
+        self._delete_time = 0
+
+        self._bytes_read = 0
+        self._bytes_written = 0
+
+        self._num_objects_written = 0
+        self._num_objects_read = 0
+        self._num_objects_deleted = 0
 
     @property
     @abstractmethod

@@ -1717,36 +1717,35 @@ class DistributedKernel(IPythonKernel):
 
         # If we're not using real GPUs, then we can simulate downloading the model and training data here.
         if self.simulate_training_using_sleep:
-            (
-                download_model_duration,
-                download_training_data_duration,
-            ) = await self.simulate_download_model_and_training_data()
+            download_model_dur, download_training_data_dur = await self.simulate_download_model_and_training_data()
 
-            if download_model_duration > 0 and self.prometheus_enabled:
+            if download_model_dur > 0 and self.prometheus_enabled:
                 self.remote_storage_read_latency_milliseconds.labels(
-                    session_id=self.kernel_id, workload_id=self.workload_id
-                ).observe(download_model_duration * 1e3)
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id
+                ).observe(download_model_dur * 1e3)
+
                 self.delay_milliseconds.labels(
-                    session_id=self.kernel_id, workload_id=self.workload_id
-                ).inc(download_model_duration * 1e3)
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id).inc(download_model_dur * 1e3)
 
                 if self.current_execution_stats is not None:
-                    self.current_execution_stats.download_model_microseconds = (
-                            download_model_duration * 1.0e6
-                    )
+                    self.current_execution_stats.download_model_microseconds = (download_model_dur * 1.0e6)
 
-            if download_training_data_duration > 0 and self.prometheus_enabled:
+            if download_training_data_dur > 0 and self.prometheus_enabled:
                 self.remote_storage_read_latency_milliseconds.labels(
-                    session_id=self.kernel_id, workload_id=self.workload_id
-                ).observe(download_training_data_duration * 1e3)
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id
+                ).observe(download_training_data_dur * 1e3)
+
                 self.delay_milliseconds.labels(
-                    session_id=self.kernel_id, workload_id=self.workload_id
-                ).inc(download_training_data_duration * 1e3)
+                    session_id=self.kernel_id,
+                    workload_id=self.workload_id
+                ).inc(download_training_data_dur * 1e3)
 
                 if self.current_execution_stats is not None:
-                    self.current_execution_stats.download_training_data_microseconds = (
-                            download_training_data_duration * 1.0e6
-                    )
+                    self.current_execution_stats.download_training_data_microseconds = \
+                        download_training_data_dur * 1.0e6
 
         # We do this here (and not earlier, such as right after creating the RaftLog), as the RaftLog needs to be
         # started before we attempt to catch-up. The catch-up process involves appending a new value and waiting until
@@ -2129,7 +2128,27 @@ class DistributedKernel(IPythonKernel):
         # For replica-based approaches, this won't be included in what is sent back to the client.
         # But we will update the Prometheus metrics (if Prometheus is enabled).
 
-        self.current_execution_stats.upload_model_and_training_data_microseconds
+        self.current_execution_stats.upload_model_and_training_data_microseconds += \
+            (self.synchronizer.synchronization_time_seconds * 1.0e6)
+
+        # If prometheus is enabled, then publish the write latencies from the state synchronization to prometheus
+        # (though it may or may not be scraped correctly for policies in which containers only exist for a single
+        # training event due to the short-lived nature of those containers...)
+        if self.prometheus_enabled:
+            for write_time_sec in self.synchronizer.synchronization_times:
+                self.remote_storage_write_latency_milliseconds.labels(
+                    session_id=self.kernel_id, workload_id=self.workload_id
+                ).observe(write_time_sec * 1e3)
+
+        self.synchronizer.clear_sync_time()
+
+        self.current_execution_stats.upload_model_and_training_data_microseconds += \
+            (self._remote_checkpointer.storage_provider.write_time * 1.0e6)
+
+        self.current_execution_stats.download_model_microseconds += \
+            (self._remote_checkpointer.storage_provider.read_time * 1.0e6)
+
+        self._remote_checkpointer.storage_provider.clear_statistics()
 
         if not self.smr_enabled:
             self.log.debug("Sending 'execute_reply' message now.")
@@ -4497,15 +4516,13 @@ class DistributedKernel(IPythonKernel):
 
             if not self.smr_enabled or self.num_replicas <= 1:
                 assert self.current_execution_stats is not None
-                self.current_execution_stats.download_model_microseconds += (
-                                                                                    read_et - read_st
-                                                                            ) * 1.0e6
-                self.current_execution_stats.download_model_start_unix_millis += (
-                        read_st * 1.0e3
-                )
-                self.current_execution_stats.download_model_end_unix_millis += (
-                        read_et * 1.0e3
-                )
+                self.current_execution_stats.download_model_microseconds += \
+                    (read_et - read_st) * 1.0e6
+                self.current_execution_stats.download_model_start_unix_millis += \
+                    read_st * 1.0e3
+                self.current_execution_stats.download_model_end_unix_millis += \
+                    read_et * 1.0e3
+
         except Exception as exc:
             self.log.error(
                 f'Failed to read state dictionaries for model "{pointer.large_object_name}" '

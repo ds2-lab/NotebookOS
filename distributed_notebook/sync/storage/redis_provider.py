@@ -160,6 +160,10 @@ class RedisProvider(RemoteStorageProvider):
         self._num_objects_written += 1
         self._bytes_written += value_size
 
+        self._lifetime_num_objects_written += 1
+        self._lifetime_write_time += time_elapsed
+        self._lifetime_bytes_written += value_size
+
         self.log.debug(f'Wrote value of size {value_size} bytes to Redis at key "{key}" in {time_elapsed_ms:,} ms.')
 
         return True
@@ -187,6 +191,10 @@ class RedisProvider(RemoteStorageProvider):
         self._num_objects_written += 1
         self._bytes_written += value_size
 
+        self._lifetime_num_objects_written += 1
+        self._lifetime_write_time += time_elapsed
+        self._lifetime_bytes_written += value_size
+
         self.log.debug(f'Wrote value of size {value_size} bytes to Redis at key "{key}" in {time_elapsed_ms:,} ms.')
 
         return True
@@ -212,6 +220,10 @@ class RedisProvider(RemoteStorageProvider):
         self._read_time += time_elapsed
         self._num_objects_read += 1
         self._bytes_read += value_size
+
+        self._lifetime_read_time += time_elapsed
+        self._lifetime_num_objects_read += 1
+        self._lifetime_bytes_read += value_size
 
         self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
 
@@ -239,6 +251,10 @@ class RedisProvider(RemoteStorageProvider):
         self._num_objects_read += 1
         self._bytes_read += value_size
 
+        self._lifetime_read_time += time_elapsed
+        self._lifetime_num_objects_read += 1
+        self._lifetime_bytes_read += value_size
+
         self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
 
         return value
@@ -262,6 +278,9 @@ class RedisProvider(RemoteStorageProvider):
         self._delete_time += time_elapsed
         self._num_objects_deleted += 1
 
+        self._lifetime_delete_time += time_elapsed
+        self._lifetime_num_objects_deleted += 1
+
         self.log.debug(f'Deleted value stored at key "{key}" from Redis in {time_elapsed_ms:,} ms.')
 
         return True
@@ -284,6 +303,9 @@ class RedisProvider(RemoteStorageProvider):
 
         self._delete_time += time_elapsed
         self._num_objects_deleted += 1
+
+        self._lifetime_delete_time += time_elapsed
+        self._lifetime_num_objects_deleted += 1
 
         self.log.debug(f'Deleted value stored at key "{key}" from Redis in {time_elapsed_ms:,} ms.')
 

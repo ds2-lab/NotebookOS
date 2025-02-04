@@ -119,6 +119,10 @@ class S3Provider(RemoteStorageProvider):
         self._num_objects_written += 1
         self._write_time += time_elapsed
         self._bytes_written += value_size
+
+        self._lifetime_num_objects_written += 1
+        self._lifetime_write_time += time_elapsed
+        self._lifetime_bytes_written += value_size
         return True
 
     def write_value(self, key: str, value: Any)->bool:
@@ -154,6 +158,10 @@ class S3Provider(RemoteStorageProvider):
         self._num_objects_written += 1
         self._write_time += time_elapsed
         self._bytes_written += value_size
+
+        self._lifetime_num_objects_written += 1
+        self._lifetime_write_time += time_elapsed
+        self._lifetime_bytes_written += value_size
         return True
 
     async def read_value_async(self, key: str)->Any:
@@ -182,6 +190,10 @@ class S3Provider(RemoteStorageProvider):
         self._read_time += time_elapsed
         self._num_objects_read += 1
         self._bytes_read += value_size
+
+        self._lifetime_read_time += time_elapsed
+        self._lifetime_num_objects_read += 1
+        self._lifetime_bytes_read += value_size
 
         self.log.debug(f'Read {buffer.getbuffer().nbytes} bytes from AWS S3 bucket/key '
                        f'"{self._bucket_name}/{key}" in {round(time_elapsed_ms, 3):,} ms.')
@@ -214,6 +226,10 @@ class S3Provider(RemoteStorageProvider):
         self._num_objects_read += 1
         self._bytes_read += value_size
 
+        self._lifetime_read_time += time_elapsed
+        self._lifetime_num_objects_read += 1
+        self._lifetime_bytes_read += value_size
+
         self.log.debug(f'Read {buffer.getbuffer().nbytes} bytes from AWS S3 bucket/key '
                        f'"{self._bucket_name}/{key}" in {round(time_elapsed_ms, 3):,} ms.')
 
@@ -241,6 +257,9 @@ class S3Provider(RemoteStorageProvider):
         self._delete_time += time_elapsed
         self._num_objects_deleted += 1
 
+        self._lifetime_delete_time += time_elapsed
+        self._lifetime_num_objects_deleted += 1
+
         self.log.debug(f'Deleted value stored at key "{key}" from AWS S3 in {time_elapsed_ms:,} ms.')
 
     def delete_value(self, key: str)->bool:
@@ -261,8 +280,8 @@ class S3Provider(RemoteStorageProvider):
         time_elapsed: float = end_time - start_time
         time_elapsed_ms: float = round(time_elapsed * 1.0e3)
 
-        self._delete_time += time_elapsed
-        self._num_objects_deleted += 1
+        self._lifetime_delete_time += time_elapsed
+        self._lifetime_num_objects_deleted += 1
 
         self.log.debug(f'Deleted value stored at key "{key}" from AWS S3 in {time_elapsed_ms:,} ms.')
         
