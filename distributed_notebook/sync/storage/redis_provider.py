@@ -116,16 +116,16 @@ class RedisProvider(RemoteStorageProvider):
 
         global fakeredis_imported
         if not fakeredis_imported:
-            # FakeRedis isn't installed, so just perform strict size checking.
+            # The FakeRedis module isn't installed, so just perform strict size checking.
             return size_bytes > 512e6
 
         # If we were able to import FakeRedis (which is only a dev dependency and may fail for non-development
-        # installations), and our redis clients are instances of the FakeRedis and FakeAsyncRedis classes, then
-        # we'll just return True.
+        # installations), and our redis clients are instances of the FakeRedis and FakeAsyncRedis classes,
+        # then we'll just return True.
         if isinstance(self._redis, fakeredis.FakeRedis) and isinstance(self._async_redis, fakeredis.FakeAsyncRedis):
             self.log.warning(f"We appear to be unit testing, so returning 'False' for 'is_too_large({size_bytes:,}) "
                              f"despite it being >512MB...")
-            return False
+            return False # Allow objects of arbitrary sizes for unit testing (when the flag mentioned above is False).
 
         return size_bytes > 512e6
 
