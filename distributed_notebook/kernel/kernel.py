@@ -292,6 +292,7 @@ class DistributedKernel(IPythonKernel):
     redis_password: Optional[Union[str, Unicode]] = Unicode(
         help="The password to access Redis (only relevant if using Redis for remote storage).",
         default_value=None,
+        allow_none=True
     ).tag(config=True)
 
     redis_port: Integer = Integer(
