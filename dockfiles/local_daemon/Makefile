@@ -19,6 +19,9 @@ docker: build-in-container
 # rm local_daemon
 # ../clean.sh
 
+build-and-push: docker
+	docker push $(DOCKER_USER)gateway:latest
+
 clean:
 	docker builder prune
 
