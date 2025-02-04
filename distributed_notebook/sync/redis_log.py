@@ -5,6 +5,8 @@ from typing import Tuple, Optional, Any
 from distributed_notebook.logs import ColoredLogFormatter
 from distributed_notebook.sync.log import SynchronizedValue, ExecutionCompleteNotification
 
+import redis
+import redis.asyncio as async_redis
 
 class RedisLog(object):
     """
@@ -18,6 +20,9 @@ class RedisLog(object):
             node_id: int = -1,
             hostname: str = "",
             port: int = -1,
+            db: int = 0,
+            password: Optional[str] = None,
+            additional_redis_args: Optional[dict] = None
     ):
         assert node_id > 0
         assert port > 0
@@ -33,9 +38,26 @@ class RedisLog(object):
         ch.setFormatter(ColoredLogFormatter())
         self.log.addHandler(ch)
 
+        self._hostname: str = hostname
+        self._port: int = port
+        self._db: int = db
+        self._password: str = password
+        self._additional_redis_args: Optional[dict] = additional_redis_args
+
+        self._async_redis = async_redis.Redis(host = hostname, port = port, db = db, password = password, **additional_redis_args)
+        self._redis = redis.Redis(host = hostname, port = port, db = db, password = password, **additional_redis_args)
+
         # Basically just the number of times we've written something to Redis.
         self._num_changes: int = 0
         self._term: int = 0
+
+    @property
+    def hostname(self) -> str:  # type: ignore
+        return self._hostname
+
+    @property
+    def port(self) -> int:  # type: ignore
+        return self._port
 
     @property
     def num_changes(self) -> int:  # type: ignore
@@ -74,19 +96,22 @@ class RedisLog(object):
         return []
 
     def start(self, handler):
-        """Register change handler, restore internel states, and start monitoring changes.
-          handler will be in the form listerner(key, val: SyncValue)"""
-        raise NotImplemented("Need to implement this.")
+        """
+        Register change handler, restore internel states, and start monitoring changes.
+
+        handler will be in the form listerner(key, val: SyncValue)
+        """
+        pass
 
     def set_should_checkpoint_callback(self, callback):
         """Set the callback that will be called when the SyncLog decides if to checkpoint or not.
           callback will be in the form callback(SyncLog) bool"""
-        raise NotImplemented("Need to implement this.")
+        pass
 
     def set_checkpoint_callback(self, callback):
         """Set the callback that will be called when the SyncLog decides to checkpoint.
           callback will be in the form callback(Checkpointer)."""
-        raise NotImplemented("Need to implement this.")
+        pass
 
     async def try_yield_execution(self, jupyter_message_id: str, term_number: int) -> bool:
         """Request yield the update of a term to another replica."""
@@ -144,8 +169,17 @@ class RedisLog(object):
 
     def reset(self, term, logs: Tuple[SynchronizedValue]):
         """Clear logs equal and before specified term and replaced with specified logs"""
-        raise NotImplemented("Need to implement this.")
+        pass
+
+    async def close_async(self):
+        self._redis.close()
+        await self._async_redis.close()
 
     def close(self):
         """Ensure all async coroutines end and clean up."""
-        raise NotImplemented("Need to implement this.")
+        self._redis.close()
+
+        try:
+            asyncio.run(self._async_redis.close())
+        except RuntimeError:
+            pass
