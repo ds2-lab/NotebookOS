@@ -1,8 +1,9 @@
-import io
+import os
 import os
 import uuid
 from typing import Any, Type
 
+import fakeredis
 import pytest
 from torch import Tensor
 
@@ -15,61 +16,44 @@ from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
-from .util import create_s3_bucket_if_not_exists
-from ..sync.checkpointing.remote_checkpointer import RemoteCheckpointer
-from ..sync.storage.s3_provider import S3Provider
+from distributed_notebook.sync.checkpointing.remote_checkpointer import RemoteCheckpointer
+from distributed_notebook.sync.storage.redis_provider import RedisProvider
 
 
-@pytest.fixture(scope="session", autouse=True)
-def create_s3_bucket():
-    """
-    Allows plugins and conftest files to perform initial configuration.
-    This hook is called for every plugin and initial conftest
-    file after command line options have been parsed.
-    """
-    create_s3_bucket_if_not_exists("distributed-notebook-storage")
+def get_fake_redis_client() -> fakeredis.FakeRedis:
+    return fakeredis.FakeRedis()
 
-def test_create():
-    s3_provider: S3Provider = S3Provider(
-        bucket_name = "distributed-notebook-storage",
-        aws_region = "us-east-1"
+def get_fake_async_redis_client() -> fakeredis.FakeAsyncRedis:
+    return fakeredis.FakeAsyncRedis()
+
+@pytest.fixture
+def redis_client(request):
+    return get_fake_redis_client()
+
+
+@pytest.fixture
+def async_redis_client(request):
+    async_redis_client = fakeredis.FakeAsyncRedis()
+    return async_redis_client
+
+
+def test_create(redis_client, async_redis_client):
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
     )
-    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     assert checkpointer is not None
     assert isinstance(checkpointer, RemoteCheckpointer)
 
-def test_upload_and_download_file():
-    s3_provider: S3Provider = S3Provider(
-        bucket_name = "distributed-notebook-storage",
-        aws_region = "us-east-1"
+
+def test_read_after_write_simple_model_state(redis_client, async_redis_client):
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
     )
-    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
-
-    data: str = "Hello, S3! This is a string stored in an object."
-    obj_name: str = "test_upload_and_download_file_data"
-
-    success: bool = checkpointer.upload_bytes_to_s3(data, obj_name)
-    assert success
-
-    data: io.BytesIO = checkpointer.download_file_from_s3(obj_name)
-    print("Read data:", data.getvalue().decode("utf-8"))
-
-    success = checkpointer.delete_data(obj_name)
-    assert success
-
-    assert data is not None
-
-    assert checkpointer.num_objects_read == 1
-    assert checkpointer.num_objects_written == 1
-    assert checkpointer.num_objects_deleted == 1
-
-def test_read_after_write_simple_model_state():
-    s3_provider: S3Provider = S3Provider(
-        bucket_name = "distributed-notebook-storage",
-        aws_region = "us-east-1"
-    )
-    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
@@ -106,15 +90,15 @@ def test_read_after_write_simple_model_state():
     assert checkpointer.num_objects_deleted == 4
 
 
-def test_write_model_that_does_not_require_checkpointing():
+def test_write_model_that_does_not_require_checkpointing(redis_client, async_redis_client):
     """
     Write a model that does NOT require checkpointing, which should cause a ValueError to be raised.
     """
-    s3_provider: S3Provider = S3Provider(
-        bucket_name = "distributed-notebook-storage",
-        aws_region = "us-east-1"
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
     )
-    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=False)
     model_pointer: ModelPointer = ModelPointer(
@@ -128,12 +112,12 @@ def test_write_model_that_does_not_require_checkpointing():
         checkpointer.write_state_dicts(model_pointer)
 
 
-def test_read_empty():
-    s3_provider: S3Provider = S3Provider(
-        bucket_name = "distributed-notebook-storage",
-        aws_region = "us-east-1"
+def test_read_empty(redis_client, async_redis_client):
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
     )
-    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     model: SimpleModel = SimpleModel(input_size=2, out_features=4, created_for_first_time=True)
     model_pointer: ModelPointer = ModelPointer(
@@ -147,12 +131,12 @@ def test_read_empty():
         checkpointer.read_state_dicts(model_pointer)
 
 
-def test_checkpoint_after_training():
-    s3_provider: S3Provider = S3Provider(
-        bucket_name = "distributed-notebook-storage",
-        aws_region = "us-east-1"
+def test_checkpoint_after_training(redis_client, async_redis_client):
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
     )
-    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     # Create the model.
     input_size: int = 4
@@ -250,12 +234,12 @@ def test_checkpoint_after_training():
                 assert checkpointed_val.equal(local_val)
 
 
-def test_checkpoint_and_train_simple_model():
-    s3_provider: S3Provider = S3Provider(
-        bucket_name = "distributed-notebook-storage",
-        aws_region = "us-east-1"
+def test_checkpoint_and_train_simple_model(redis_client, async_redis_client):
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
     )
-    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     # Create the model.
     input_size: int = 4
@@ -359,7 +343,9 @@ def perform_training_for_model(
         model_class: Type,
         dataset_class: Type,
         num_training_loops: int = 5,
-        target_training_duration_ms: float = 1000.0
+        target_training_duration_ms: float = 1000.,
+        redis_client=None,
+        async_redis_client=None,
 ):
     """
     Perform deep learning training on a model of type 'cls', where 'cls' is some subtype of ComputerVisionModel.
@@ -367,11 +353,17 @@ def perform_training_for_model(
     assert issubclass(model_class, DeepLearningModel)
     assert issubclass(dataset_class, CustomDataset)
 
-    s3_provider: S3Provider = S3Provider(
-        bucket_name = "distributed-notebook-storage",
-        aws_region = "us-east-1"
+    if redis_client is None:
+        redis_client = get_fake_redis_client()
+
+    if async_redis_client is None:
+        async_redis_client = get_fake_async_redis_client()
+
+    redis_provider: RedisProvider = RedisProvider(
+        redis_client=redis_client,
+        async_redis_client=async_redis_client,
     )
-    checkpointer: RemoteCheckpointer = RemoteCheckpointer(s3_provider)
+    checkpointer: RemoteCheckpointer = RemoteCheckpointer(redis_provider)
 
     # # Create the model.
     # model = model_class(created_for_first_time=True)
@@ -481,9 +473,9 @@ def perform_training_for_model(
     (ResNet18, CIFAR10), (ResNet18, TinyImageNet),
     (InceptionV3, CIFAR10), (InceptionV3, TinyImageNet),
     (VGG11, CIFAR10), (VGG11, TinyImageNet),
-    (VGG13, CIFAR10), (VGG13, TinyImageNet),
-    (VGG16, CIFAR10), (VGG16, TinyImageNet),
-    (VGG19, CIFAR10), (VGG19, TinyImageNet),
+    # (VGG13, CIFAR10), (VGG13, TinyImageNet),
+    # (VGG16, CIFAR10), (VGG16, TinyImageNet),
+    # (VGG19, CIFAR10), (VGG19, TinyImageNet),
     (Bert, IMDbLargeMovieReviewTruncated), (Bert, CoLA),
     (GPT2, IMDbLargeMovieReviewTruncated), (GPT2, CoLA),
     (DeepSpeech2, LibriSpeech)

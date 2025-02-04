@@ -1,5 +1,3 @@
-import io
-
 import fakeredis
 import pytest
 

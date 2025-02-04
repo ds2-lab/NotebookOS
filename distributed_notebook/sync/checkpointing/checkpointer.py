@@ -50,7 +50,7 @@ class Checkpointer(ABC):
         pass
 
     @abstractmethod
-    async def write_state_dicts_async(self, pointer: ModelPointer) -> None:
+    async def write_state_dicts_async(self, pointer: ModelPointer)->list[str]:
         """
         Asynchronously write the state dictionaries of the model, its optimizer, and its criterion to intermediate storage.
 
@@ -59,10 +59,27 @@ class Checkpointer(ABC):
         pass
 
     @abstractmethod
-    def write_state_dicts(self, pointer: ModelPointer) -> None:
+    def write_state_dicts(self, pointer: ModelPointer)->list[str]:
         """
         Write the state dictionaries of the model, its optimizer, and its criterion to intermediate storage.
 
         :param pointer: a pointer to the DeepLearningModel whose state dictionaries we're going to write.
+        """
+        pass
+
+    def delete_data(self, key: str)->bool:
+        """
+        Delete an object from remote storage.
+        :param key: the name/key of the object to delete
+        :return: True if the object was deleted successfully, otherwise False.
+        """
+        pass
+
+
+    async def delete_data_async(self, key: str)->bool:
+        """
+        Asynchronously delete an object from remote storage.
+        :param key: the name/key of the object to delete
+        :return: True if the object was deleted successfully, otherwise False.
         """
         pass

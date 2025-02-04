@@ -172,6 +172,8 @@ class RedisProvider(RemoteStorageProvider):
 
         self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
 
+        return value
+
     def read_value(self, key: str)->Any:
         """
         Read a value from Redis from the specified key.
@@ -195,6 +197,8 @@ class RedisProvider(RemoteStorageProvider):
         self._bytes_read += value_size
 
         self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
+
+        return value
 
     async def delete_value_async(self, key: str)->bool:
         """

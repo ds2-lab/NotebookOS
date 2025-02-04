@@ -81,6 +81,32 @@ class RemoteCheckpointer(Checkpointer):
     def storage_name(self)->str:
         return self.storage_provider.storage_name
 
+    def delete_data(self, key: str)->bool:
+        """
+        Delete an object from remote storage.
+        :param key: the name/key of the object to delete
+        :return: True if the object was deleted successfully, otherwise False.
+        """
+        try:
+            self.storage_provider.delete_value(key)
+        except Exception as e:
+            self.log.error(f"Error deleting object \"{key}\": {e}")
+            return False
+        return True
+
+    async def delete_data_async(self, key: str)->bool:
+        """
+        Asynchronously delete an object from remote storage.
+        :param key: the name/key of the object to delete
+        :return: True if the object was deleted successfully, otherwise False.
+        """
+        try:
+            await self.storage_provider.delete_value_async(key)
+        except Exception as e:
+            self.log.error(f"Error deleting object \"{key}\": {e}")
+            return False
+        return True
+
     def read_dataset(self, pointer: DatasetPointer)->CustomDataset:
         if pointer is None:
             raise ValueError("cannot read dataset from nil DatasetPointer")
@@ -218,27 +244,27 @@ class RemoteCheckpointer(Checkpointer):
             raise ValueError("cannot read model using nil ModelPointer")
 
         model_name:str = pointer.large_object_name
-        base_redis_key:str = pointer.key
+        base_key:str = pointer.key
 
-        model_redis_key: str = os.path.join(base_redis_key, "model.pt")
-        optimizer_redis_key: str = os.path.join(base_redis_key, "optimizer.pt")
-        criterion_redis_key: str = os.path.join(base_redis_key, "criterion.pt")
-        constructor_args_key: str = os.path.join(base_redis_key, "constructor_args.pt")
+        model_key: str = os.path.join(base_key, "model.pt")
+        optimizer_key: str = os.path.join(base_key, "optimizer.pt")
+        criterion_key: str = os.path.join(base_key, "criterion.pt")
+        constructor_args_key: str = os.path.join(base_key, "constructor_args.pt")
 
         try:
-            model_state_dict = self.__read_state_dict(model_redis_key, model_name)
+            model_state_dict = self.__read_state_dict(model_key, model_name)
         except Exception as ex:
             self.log.error(f"Failed to read model state dictionary from {self.storage_name}: {ex}")
             raise ex # re-raise
 
         try:
-            optimizer_state_dict = self.__read_state_dict(optimizer_redis_key, model_name)
+            optimizer_state_dict = self.__read_state_dict(optimizer_key, model_name)
         except Exception as ex:
             self.log.error(f"Failed to read optimizer state dictionary from {self.storage_name}: {ex}")
             raise ex # re-raise
 
         try:
-            criterion_state_dict = self.__read_state_dict(criterion_redis_key, model_name)
+            criterion_state_dict = self.__read_state_dict(criterion_key, model_name)
         except Exception as ex:
             self.log.error(f"Failed to read criterion state dictionary from {self.storage_name}: {ex}")
             raise ex # re-raise
@@ -257,27 +283,27 @@ class RemoteCheckpointer(Checkpointer):
                 raise ValueError("cannot read model using nil ModelPointer")
 
             model_name:str = pointer.large_object_name
-            base_redis_key:str = pointer.key
+            base_key:str = pointer.key
 
-            model_redis_key: str = os.path.join(base_redis_key, "model.pt")
-            optimizer_redis_key: str = os.path.join(base_redis_key, "optimizer.pt")
-            criterion_redis_key: str = os.path.join(base_redis_key, "criterion.pt")
-            constructor_args_key: str = os.path.join(base_redis_key, "constructor_args.pt")
+            model_key: str = os.path.join(base_key, "model.pt")
+            optimizer_key: str = os.path.join(base_key, "optimizer.pt")
+            criterion_key: str = os.path.join(base_key, "criterion.pt")
+            constructor_args_key: str = os.path.join(base_key, "constructor_args.pt")
 
             try:
-                model_state_dict = await self.__read_state_dict_async(model_redis_key, model_name)
+                model_state_dict = await self.__read_state_dict_async(model_key, model_name)
             except Exception as ex:
                 self.log.error(f"Failed to read model state dictionary from {self.storage_name}: {ex}")
                 raise ex # re-raise
 
             try:
-                optimizer_state_dict = await self.__read_state_dict_async(optimizer_redis_key, model_name)
+                optimizer_state_dict = await self.__read_state_dict_async(optimizer_key, model_name)
             except Exception as ex:
                 self.log.error(f"Failed to read optimizer state dictionary from {self.storage_name}: {ex}")
                 raise ex # re-raise
 
             try:
-                criterion_state_dict = await self.__read_state_dict_async(criterion_redis_key, model_name)
+                criterion_state_dict = await self.__read_state_dict_async(criterion_key, model_name)
             except Exception as ex:
                 self.log.error(f"Failed to read criterion state dictionary from {self.storage_name}: {ex}")
                 raise ex # re-raise
@@ -358,7 +384,7 @@ class RemoteCheckpointer(Checkpointer):
         self.log.debug(f"Successfully wrote state of model \"{model_name}\" to {self.storage_name} at key \"{key}\" "
                        f"(model size: {size_mb} MB) in {et - st} seconds.")
 
-    async def write_state_dicts_async(self, pointer: ModelPointer):
+    async def write_state_dicts_async(self, pointer: ModelPointer)->list[str]:
         async with self._lock:
             if pointer is None:
                 raise ValueError("cannot write model using nil ModelPointer")
@@ -368,23 +394,25 @@ class RemoteCheckpointer(Checkpointer):
                 raise ValueError(f"ModelPointer for model \"{pointer.large_object_name}\" does not have a valid pointer")
 
             model_name:str = pointer.large_object_name
-            base_redis_key:str = pointer.key
+            base_key:str = pointer.key
 
-            model_redis_key: str = os.path.join(base_redis_key, "model.pt")
-            await self.__async_write_state_dict(model_redis_key, pointer.model.state_dict, model_name)
+            model_key: str = os.path.join(base_key, "model.pt")
+            await self.__async_write_state_dict(model_key, pointer.model.state_dict, model_name)
 
-            optimizer_redis_key: str = os.path.join(base_redis_key, "optimizer.pt")
-            await self.__async_write_state_dict(optimizer_redis_key, pointer.model.optimizer_state_dict, model_name)
+            optimizer_key: str = os.path.join(base_key, "optimizer.pt")
+            await self.__async_write_state_dict(optimizer_key, pointer.model.optimizer_state_dict, model_name)
 
-            criterion_redis_key: str = os.path.join(base_redis_key, "criterion.pt")
-            await self.__async_write_state_dict(criterion_redis_key, pointer.model.criterion_state_dict, model_name)
+            criterion_key: str = os.path.join(base_key, "criterion.pt")
+            await self.__async_write_state_dict(criterion_key, pointer.model.criterion_state_dict, model_name)
 
-            constructor_state_key: str = os.path.join(base_redis_key, "constructor_args.pt")
+            constructor_state_key: str = os.path.join(base_key, "constructor_args.pt")
             await self.__async_write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
 
             pointer.wrote_model_state()
 
-    def write_state_dicts(self, pointer: ModelPointer):
+            return [model_key, optimizer_key, criterion_key, constructor_state_key]
+
+    def write_state_dicts(self, pointer: ModelPointer)->list[str]:
         if pointer is None:
             raise ValueError("cannot write model using nil ModelPointer")
 
@@ -393,18 +421,20 @@ class RemoteCheckpointer(Checkpointer):
             raise ValueError(f"ModelPointer for model \"{pointer.large_object_name}\" does not have a valid pointer")
 
         model_name:str = pointer.large_object_name
-        base_redis_key:str = pointer.key
+        base_key:str = pointer.key
 
-        model_redis_key: str = os.path.join(base_redis_key, "model.pt")
-        self.__write_state_dict(model_redis_key, pointer.model.state_dict, model_name)
+        model_key: str = os.path.join(base_key, "model.pt")
+        self.__write_state_dict(model_key, pointer.model.state_dict, model_name)
 
-        optimizer_redis_key: str = os.path.join(base_redis_key, "optimizer.pt")
-        self.__write_state_dict(optimizer_redis_key, pointer.model.optimizer_state_dict, model_name)
+        optimizer_key: str = os.path.join(base_key, "optimizer.pt")
+        self.__write_state_dict(optimizer_key, pointer.model.optimizer_state_dict, model_name)
 
-        criterion_redis_key: str = os.path.join(base_redis_key, "criterion.pt")
-        self.__write_state_dict(criterion_redis_key, pointer.model.criterion_state_dict, model_name)
+        criterion_key: str = os.path.join(base_key, "criterion.pt")
+        self.__write_state_dict(criterion_key, pointer.model.criterion_state_dict, model_name)
 
-        constructor_state_key: str = os.path.join(base_redis_key, "constructor_args.pt")
+        constructor_state_key: str = os.path.join(base_key, "constructor_args.pt")
         self.__write_state_dict(constructor_state_key, pointer.model.constructor_args, model_name)
 
         pointer.wrote_model_state()
+
+        return [model_key, optimizer_key, criterion_key, constructor_state_key]
