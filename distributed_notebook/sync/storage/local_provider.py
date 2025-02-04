@@ -4,6 +4,7 @@ import threading
 import time
 from typing import Any, Dict, Optional
 
+from distributed_notebook.sync.storage.error import InvalidKeyError
 from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
 
 
@@ -115,25 +116,7 @@ class LocalStorageProvider(RemoteStorageProvider):
         :return: the value read from Local In-Memory Storage.
         """
         async with self._async_lock:
-            start_time: float = time.time()
-
-            value: Optional[str | bytes | memoryview] = self._data.get(key, None)
-
-            end_time: float = time.time()
-            time_elapsed: float = end_time - start_time
-            time_elapsed_ms: float = round(time_elapsed * 1.0e3)
-            value_size = sys.getsizeof(value)
-
-            self._read_time += time_elapsed
-            self._num_objects_read += 1
-            self._bytes_read += value_size
-
-            self._lifetime_read_time += time_elapsed
-            self._lifetime_num_objects_read += 1
-            self._lifetime_bytes_read += value_size
-
-            self.log.debug(f'Read value of size {value_size} bytes from {self.storage_name} '
-                           f'from key "{key}" in {time_elapsed_ms:,} ms.')
+            return self.read_value(key)
 
     def read_value(self, key: str) -> Any:
         """
@@ -145,6 +128,9 @@ class LocalStorageProvider(RemoteStorageProvider):
         start_time: float = time.time()
 
         value: Optional[str | bytes | memoryview] = self._data.get(key, None)
+
+        if value is None:
+            raise InvalidKeyError(f'No data stored in LocalStorageProvider at key "{key}"', key = key)
 
         end_time: float = time.time()
         time_elapsed: float = end_time - start_time
@@ -161,6 +147,8 @@ class LocalStorageProvider(RemoteStorageProvider):
 
         self.log.debug(f'Read value of size {value_size} bytes from {self.storage_name} from key "{key}" '
                        f'in {time_elapsed_ms:,} ms.')
+
+        return value
 
     async def delete_value_async(self, key: str):
         """
