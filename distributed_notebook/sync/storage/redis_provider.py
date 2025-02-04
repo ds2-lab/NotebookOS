@@ -2,11 +2,16 @@ import sys
 import time
 from typing import Any, Optional
 
-import fakeredis
 import redis
 import redis.asyncio as async_redis
 
 from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
+
+try:
+    import fakeredis
+    fakeredis_imported: bool = True
+except ImportError:
+    fakeredis_imported: bool = False
 
 
 class RedisProvider(RemoteStorageProvider):
@@ -17,8 +22,9 @@ class RedisProvider(RemoteStorageProvider):
             db: int = 0,
             password: Optional[str] = None,
             additional_redis_args: Optional[dict] = None,
-            redis_client: Optional[redis.Redis | fakeredis.FakeRedis] = None, # For unit testing
-            async_redis_client: Optional[async_redis.Redis | fakeredis.FakeAsyncRedis] = None, # For unit testing
+            redis_client = None, # For unit testing
+            async_redis_client = None, # For unit testing
+            strict_size_checking_during_tests: bool = False,
     ):
         super().__init__()
 
@@ -37,6 +43,11 @@ class RedisProvider(RemoteStorageProvider):
         self._redis_db: int = db
         self._redis_port = port
         self._redis_host = host
+
+        # If this is true, then our is_too_large will operate as if our clients are not FakeRedis and FakeAsyncRedis
+        # (which they are while unit testing). That is, we normally just allow objects of any size while unit testing.
+        # But if we want to test something that requires us to be strict about object sizes, then we set this to true.
+        self._strict_size_checking_during_tests: bool = strict_size_checking_during_tests
 
         if additional_redis_args is None:
             additional_redis_args = dict()
@@ -99,6 +110,23 @@ class RedisProvider(RemoteStorageProvider):
         :param size_bytes: the size of the data to (potentially) be written to remote storage
         :return: True if the data is too large to be written, otherwise False
         """
+        if self._strict_size_checking_during_tests:
+            # Even if we're not unit testing, we will just perform strict size checking.
+            return size_bytes > 512e6
+
+        global fakeredis_imported
+        if not fakeredis_imported:
+            # FakeRedis isn't installed, so just perform strict size checking.
+            return size_bytes > 512e6
+
+        # If we were able to import FakeRedis (which is only a dev dependency and may fail for non-development
+        # installations), and our redis clients are instances of the FakeRedis and FakeAsyncRedis classes, then
+        # we'll just return True.
+        if isinstance(self._redis, fakeredis.FakeRedis) and isinstance(self._async_redis, fakeredis.FakeAsyncRedis):
+            self.log.warning(f"We appear to be unit testing, so returning 'False' for 'is_too_large({size_bytes:,}) "
+                             f"despite it being >512MB...")
+            return False
+
         return size_bytes > 512e6
 
     async def write_value_async(self, key: str, value: Any)->bool:
