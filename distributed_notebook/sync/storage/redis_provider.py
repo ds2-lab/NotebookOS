@@ -1,13 +1,13 @@
 import sys
 import time
+from typing import Any, Optional
 
-from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
-
-import asyncio
+import fakeredis
 import redis
 import redis.asyncio as async_redis
 
-from typing import Any, Optional
+from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
+
 
 class RedisProvider(RemoteStorageProvider):
     def __init__(
@@ -16,7 +16,9 @@ class RedisProvider(RemoteStorageProvider):
             port: int = 6379,
             db: int = 0,
             password: Optional[str] = None,
-            additional_redis_args: Optional[dict] = None
+            additional_redis_args: Optional[dict] = None,
+            redis_client: Optional[redis.Redis | fakeredis.FakeRedis] = None, # For unit testing
+            async_redis_client: Optional[async_redis.Redis | fakeredis.FakeAsyncRedis] = None, # For unit testing
     ):
         super().__init__()
 
@@ -41,9 +43,18 @@ class RedisProvider(RemoteStorageProvider):
 
         self._additional_redis_args: dict[str, Any] = additional_redis_args
 
-        self.log.debug(f"Connecting to Redis server at {host}:{port} (db={db}).")
-        self._async_redis = async_redis.Redis(host = host, port = port, db = db, password = password, **additional_redis_args)
-        self._redis = redis.Redis(host = host, port = port, db = db, password = password, **additional_redis_args)
+        if redis_client is not None:
+            self._redis = redis_client
+        else:
+            self.log.debug(f"Creating synchronous Redis client of Redis server at {host}:{port} (db={db}).")
+            self._redis = redis.Redis(host = host, port = port, db = db, password = password, **additional_redis_args)
+
+        if async_redis_client is not None:
+            self._async_redis = async_redis_client
+        else:
+            self.log.debug(f"Creating asynchronous Redis client of Redis server at {host}:{port} (db={db}).")
+            self._async_redis = async_redis.Redis(host = host, port = port, db = db, password = password, **additional_redis_args)
+
 
     def __ensure_async_redis(self)->bool:
         """
@@ -83,7 +94,7 @@ class RedisProvider(RemoteStorageProvider):
     def storage_name(self)->str:
         return f"Redis({self._redis_host}:{self._redis_port},db={self._redis_db})"
 
-    async def write_value_async(self, key: str, value: Any):
+    async def write_value_async(self, key: str, value: Any)->bool:
         """
         Asynchronously write a value to Redis at the specified key.
 
@@ -108,7 +119,9 @@ class RedisProvider(RemoteStorageProvider):
 
         self.log.debug(f'Wrote value of size {value_size} bytes to Redis at key "{key}" in {time_elapsed_ms:,} ms.')
 
-    def write_value(self, key: str, value: Any):
+        return True
+
+    def write_value(self, key: str, value: Any)->bool:
         """
         Write a value to Redis at the specified key.
 
@@ -132,6 +145,8 @@ class RedisProvider(RemoteStorageProvider):
         self._bytes_written += value_size
 
         self.log.debug(f'Wrote value of size {value_size} bytes to Redis at key "{key}" in {time_elapsed_ms:,} ms.')
+
+        return True
 
     async def read_value_async(self, key: str)->Any:
         """
@@ -181,7 +196,7 @@ class RedisProvider(RemoteStorageProvider):
 
         self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
 
-    async def delete_value_async(self, key: str):
+    async def delete_value_async(self, key: str)->bool:
         """
         Asynchronously delete the value stored at the specified key from Redis.
 
@@ -202,7 +217,9 @@ class RedisProvider(RemoteStorageProvider):
 
         self.log.debug(f'Deleted value stored at key "{key}" from Redis in {time_elapsed_ms:,} ms.')
 
-    def delete_value(self, key: str):
+        return True
+
+    def delete_value(self, key: str)->bool:
         """
         Delete the value stored at the specified key from Redis.
 
@@ -222,3 +239,5 @@ class RedisProvider(RemoteStorageProvider):
         self._num_objects_deleted += 1
 
         self.log.debug(f'Deleted value stored at key "{key}" from Redis in {time_elapsed_ms:,} ms.')
+
+        return True

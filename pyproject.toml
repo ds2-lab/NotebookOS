@@ -100,4 +100,5 @@ dev = [
     "tomli",
     "pytest",
     "pytest-asyncio",
+    "fakeredis",
 ]
