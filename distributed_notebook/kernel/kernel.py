@@ -2131,23 +2131,27 @@ class DistributedKernel(IPythonKernel):
         self.current_execution_stats.upload_model_and_training_data_microseconds += \
             (self.synchronizer.synchronization_time_seconds * 1.0e6)
 
-        # If prometheus is enabled, then publish the write latencies from the state synchronization to prometheus
-        # (though it may or may not be scraped correctly for policies in which containers only exist for a single
-        # training event due to the short-lived nature of those containers...)
-        if self.prometheus_enabled:
-            for write_time_sec in self.synchronizer.synchronization_times:
-                self.remote_storage_write_latency_milliseconds.labels(
-                    session_id=self.kernel_id, workload_id=self.workload_id
-                ).observe(write_time_sec * 1e3)
-
-        self.synchronizer.clear_sync_time()
-
         self.current_execution_stats.upload_model_and_training_data_microseconds += \
             (self._remote_checkpointer.storage_provider.write_time * 1.0e6)
 
         self.current_execution_stats.download_model_microseconds += \
             (self._remote_checkpointer.storage_provider.read_time * 1.0e6)
 
+        # If prometheus is enabled, then publish the write latencies from the state synchronization to prometheus
+        # (though it may or may not be scraped correctly for policies in which containers only exist for a single
+        # training event due to the short-lived nature of those containers...)
+        if self.prometheus_enabled:
+            self.remote_storage_write_latency_milliseconds.labels(
+                session_id=self.kernel_id, workload_id=self.workload_id
+            ).observe(self._remote_checkpointer.storage_provider.write_time * 1e3)
+
+            for write_time_sec in self.synchronizer.synchronization_times:
+                self.remote_storage_write_latency_milliseconds.labels(
+                    session_id=self.kernel_id, workload_id=self.workload_id
+                ).observe(write_time_sec * 1e3)
+
+
+        self.synchronizer.clear_sync_time()
         self._remote_checkpointer.storage_provider.clear_statistics()
 
         if not self.smr_enabled:
