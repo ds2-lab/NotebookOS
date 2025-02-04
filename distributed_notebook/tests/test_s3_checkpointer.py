@@ -15,7 +15,7 @@ from distributed_notebook.deep_learning.data.random import RandomCustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.deep_learning.models.simple_model import SimpleModel, SimpleModule
-from distributed_notebook.sync.checkpointing.s3 import S3Checkpointer
+from distributed_notebook.sync.checkpointing.s3_checkpointer import S3Checkpointer
 from distributed_notebook.sync.checkpointing.pointer import ModelPointer
 
 from .util import create_s3_bucket_if_not_exists

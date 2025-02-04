@@ -5,7 +5,6 @@ from typing import Any, Dict, Optional
 
 import aioboto3
 import boto3
-import botocore
 import torch
 
 from distributed_notebook.sync.checkpointing.pointer import DatasetPointer, ModelPointer

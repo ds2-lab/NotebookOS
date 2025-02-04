@@ -99,7 +99,7 @@ class RedisCheckpointer(RemoteCheckpointer):
         self.log.debug(f"Reading description of dataset \"{dataset_name}\" from redis at key \"{redis_key}\" now...")
 
         st = time.time()
-        val: Optional[str] = self._redis.get(redis_key)
+        val: str|bytes|memoryview = self._redis.get(redis_key)
         et = time.time()
 
         if val is None:
