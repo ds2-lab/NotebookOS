@@ -44,6 +44,12 @@ class LocalStorageProvider(RemoteStorageProvider):
     def __len__(self) -> int:
         return self.size
 
+    def is_too_large(self, size_bytes: int)->bool:
+        """
+        :param size_bytes: the size of the data to (potentially) be written to remote storage
+        :return: True if the data is too large to be written, otherwise False
+        """
+        return False # never too large!
 
     async def write_value_async(self, key: str, value: Any):
         """

@@ -60,6 +60,13 @@ class S3Provider(RemoteStorageProvider):
         except ClientError as e:
             print(f"Client error: {e}")
 
+    def is_too_large(self, size_bytes: int)->bool:
+        """
+        :param size_bytes: the size of the data to (potentially) be written to remote storage
+        :return: True if the data is too large to be written, otherwise False
+        """
+        return False # never too large!
+
     @property
     def storage_name(self) -> str:
         return "AWS S3"

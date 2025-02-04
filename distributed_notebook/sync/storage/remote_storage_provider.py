@@ -101,6 +101,14 @@ class RemoteStorageProvider(ABC):
         pass
 
     @abstractmethod
+    def is_too_large(self, size_bytes: int)->bool:
+        """
+        :param size_bytes: the size of the data to (potentially) be written to remote storage
+        :return: True if the data is too large to be written, otherwise False
+        """
+        pass
+
+    @abstractmethod
     async def write_value_async(self, key: str, value: Any):
         """
         Asynchronously write a value to remote storage.

@@ -94,6 +94,13 @@ class RedisProvider(RemoteStorageProvider):
     def storage_name(self)->str:
         return f"Redis({self._redis_host}:{self._redis_port},db={self._redis_db})"
 
+    def is_too_large(self, size_bytes: int)->bool:
+        """
+        :param size_bytes: the size of the data to (potentially) be written to remote storage
+        :return: True if the data is too large to be written, otherwise False
+        """
+        return size_bytes > 512e6
+
     async def write_value_async(self, key: str, value: Any)->bool:
         """
         Asynchronously write a value to Redis at the specified key.

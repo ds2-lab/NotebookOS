@@ -325,11 +325,13 @@ class RemoteCheckpointer(Checkpointer):
             self.log.error(f"Failed to save state of model \"{model_name}\" to io.BytesIO buffer because: {ex}")
             raise ex  # re-raise
 
-        size_mb: float = buffer.getbuffer().nbytes / 1.0e6
-        if buffer.getbuffer().nbytes > 512e6:
-            self.log.error(f"Cannot write state of model \"{model_name}\" to Redis. "
+        size_bytes: int = buffer.getbuffer().nbytes
+        size_mb: float = size_bytes / 1.0e6
+        if self.storage_provider.is_too_large(size_bytes):
+            self.log.error(f"Cannot write state of model \"{model_name}\" to {self.storage_name}. "
                            f"Model state is larger than maximum size of 512 MB: {size_mb:,} MB.")
-            raise ValueError("state dictionary buffer is too large (); maximum size is 512 MB")
+            raise ValueError(f"State dictionary buffer with a size of {size_mb:,} MB "
+                             f"is too large to be written to {self.storage_name}.")
 
         return buffer, size_mb
 
