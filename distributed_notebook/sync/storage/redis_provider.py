@@ -73,28 +73,6 @@ class RedisProvider(RemoteStorageProvider):
 
         self.log.debug(f'Wrote value of size {value_size} bytes to Redis at key "{key}" in {time_elapsed_ms:,} ms.')
 
-    async def read_value_async(self, key: str)->Any:
-        """
-        Asynchronously read a value from Redis.
-        :param key: the Redis key from which to read the value.
-
-        :return: the value read from Redis.
-        """
-        start_time: float = time.time()
-
-        value: str|bytes|memoryview = await self._async_redis.get(key)
-
-        end_time: float = time.time()
-        time_elapsed: float = end_time - start_time
-        time_elapsed_ms: float = round(time_elapsed * 1.0e3)
-        value_size = sys.getsizeof(value)
-
-        self._read_time += time_elapsed
-        self._num_objects_read += 1
-        self._bytes_read += value_size
-
-        self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
-
     def write_value(self, key: str, value: Any):
         """
         Write a value to Redis at the specified key.
@@ -118,6 +96,28 @@ class RedisProvider(RemoteStorageProvider):
 
         self.log.debug(f'Wrote value of size {value_size} bytes to Redis at key "{key}" in {time_elapsed_ms:,} ms.')
 
+    async def read_value_async(self, key: str)->Any:
+        """
+        Asynchronously read a value from Redis.
+        :param key: the Redis key from which to read the value.
+
+        :return: the value read from Redis.
+        """
+        start_time: float = time.time()
+
+        value: str|bytes|memoryview = await self._async_redis.get(key)
+
+        end_time: float = time.time()
+        time_elapsed: float = end_time - start_time
+        time_elapsed_ms: float = round(time_elapsed * 1.0e3)
+        value_size = sys.getsizeof(value)
+
+        self._read_time += time_elapsed
+        self._num_objects_read += 1
+        self._bytes_read += value_size
+
+        self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
+
     def read_value(self, key: str)->Any:
         """
         Read a value from Redis from the specified key.
@@ -139,3 +139,41 @@ class RedisProvider(RemoteStorageProvider):
         self._bytes_read += value_size
 
         self.log.debug(f'Read value of size {value_size} bytes from Redis from key "{key}" in {time_elapsed_ms:,} ms.')
+
+    async def delete_value_async(self, key: str):
+        """
+        Asynchronously delete the value stored at the specified key from Redis.
+
+        :param key: the name/key of the data to delete
+        """
+        start_time: float = time.time()
+
+        await self._async_redis.delete(key)
+
+        end_time: float = time.time()
+        time_elapsed: float = end_time - start_time
+        time_elapsed_ms: float = round(time_elapsed * 1.0e3)
+
+        self._delete_time += time_elapsed
+        self._num_objects_deleted += 1
+
+        self.log.debug(f'Deleted value stored at key "{key}" from Redis in {time_elapsed_ms:,} ms.')
+
+    def delete_value(self, key: str):
+        """
+        Delete the value stored at the specified key from Redis.
+
+        :param key: the name/key of the data to delete
+        """
+        start_time: float = time.time()
+
+        self._redis.delete(key)
+
+        end_time: float = time.time()
+        time_elapsed: float = end_time - start_time
+        time_elapsed_ms: float = round(time_elapsed * 1.0e3)
+
+        self._delete_time += time_elapsed
+        self._num_objects_deleted += 1
+
+        self.log.debug(f'Deleted value stored at key "{key}" from Redis in {time_elapsed_ms:,} ms.')

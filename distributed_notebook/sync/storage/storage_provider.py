@@ -26,6 +26,7 @@ class RemoteStorageProvider(object, ABC):
 
         self._write_time: float = 0
         self._read_time: float = 0
+        self._delete_time: float = 0
 
         self._bytes_read: int = 0
         self._bytes_written: int = 0
@@ -84,6 +85,13 @@ class RemoteStorageProvider(object, ABC):
         return self._write_time
 
     @property
+    def delete_time(self) -> float:
+        """
+        Return the total time spent deleting data from remote storage in seconds.
+        """
+        return self._delete_time
+
+    @property
     @abstractmethod
     def storage_name(self) -> str:
         """
@@ -106,6 +114,7 @@ class RemoteStorageProvider(object, ABC):
     async def read_value_async(self, key: str)->Any:
         """
         Asynchronously read a value from remote storage.
+
         :param key: the remote storage key from which to read the value.
 
         :return: the value read from remote storage.
@@ -126,8 +135,27 @@ class RemoteStorageProvider(object, ABC):
     def read_value(self, key: str)->Any:
         """
         Read a value from remote storage.
+
         :param key: the remote storage key from which to read the value.
 
         :return: the value read from remote storage.
+        """
+        pass
+
+    @abstractmethod
+    async def delete_value_async(self, key: str):
+        """
+        Asynchronously delete the value stored at the specified key from remote storage.
+
+        :param key: the name/key of the data to delete
+        """
+        pass
+
+    @abstractmethod
+    def delete_value(self, key: str):
+        """
+        Delete the value stored at the specified key from remote storage.
+
+        :param key: the name/key of the data to delete
         """
         pass
