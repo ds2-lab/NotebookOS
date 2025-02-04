@@ -2,6 +2,7 @@ import io
 import sys
 import time
 
+from distributed_notebook.sync.storage.error import InvalidKeyError
 from distributed_notebook.sync.storage.remote_storage_provider import RemoteStorageProvider
 
 from typing import Any
@@ -178,6 +179,11 @@ class S3Provider(RemoteStorageProvider):
             try:
                 await s3.download_fileobj(self._bucket_name, key, buffer)
                 buffer.seek(0) # Need to move pointer back to beginning of buffer.
+            except ClientError as ce:
+                response_error = ce.response['Error']
+                if response_error['Code'] == 'InvalidAccessKeyId' or response_error['Code'] == '404':
+                    raise InvalidKeyError(f'No object with key "{key}" in S3 bucket "{self._bucket_name}"', key = key)
+                raise ce # re-raise
             except Exception as e:
                 self.log.error(f"Error downloading file: {e}")
                 raise e  # re-raise
@@ -213,6 +219,11 @@ class S3Provider(RemoteStorageProvider):
         try:
             self._s3_client.download_fileobj(self._bucket_name, key, buffer)
             buffer.seek(0) # Need to move pointer back to beginning of buffer.
+        except ClientError as ce:
+            response_error = ce.response['Error']
+            if response_error['Code'] == 'InvalidAccessKeyId' or response_error['Code'] == '404':
+                raise InvalidKeyError(f'No object with key "{key}" in S3 bucket "{self._bucket_name}"', key = key)
+            raise ce # re-raise
         except Exception as e:
             self.log.error(f"Error downloading file: {e}")
             raise e  # re-raise
