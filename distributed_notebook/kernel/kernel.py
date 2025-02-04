@@ -34,8 +34,8 @@ from prometheus_client import Counter, Histogram
 from prometheus_client import start_http_server
 from traitlets import List, Integer, Unicode, Bool, Undefined, Float
 
-from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.data import load_dataset
+from distributed_notebook.deep_learning.data.custom_dataset import CustomDataset
 from distributed_notebook.deep_learning.models.loader import load_model
 from distributed_notebook.deep_learning.models.model import DeepLearningModel
 from distributed_notebook.gateway import gateway_pb2
@@ -56,7 +56,6 @@ from .execution_yield_error import ExecutionYieldError
 from .stats import ExecutionStats
 from .util import extract_header
 from ..deep_learning import DatasetClassesByName, ModelClassesByName, ResNet18, CIFAR10, NaturalLanguageProcessing
-from ..deep_learning.data.nlp.base import NLPDataset
 
 import_torch_start: float = time.time()
 try:
@@ -348,6 +347,9 @@ class DistributedKernel(IPythonKernel):
         config=False
     )
 
+    # Indicates whether we should embed Election metadata in "execute_reply" messages.
+    include_election_metadata: Bool = Bool(default_value = True).tag(config = True)
+
     smr_enabled: Bool = Bool(default_value=True).tag(config=True)
 
     simulate_training_using_sleep: Bool = Bool(default_value=False).tag(config=False)
@@ -467,6 +469,14 @@ class DistributedKernel(IPythonKernel):
         #       read all of these. But we won't know if that variable was defined before or after the large object.
         #       So, at best, we would just know of a potential conflict, but not how to resolve it...
         self.dataset_pointers_catchup: Dict[str, DatasetPointer] = {}
+
+        if "include_election_metadata" in kwargs:
+            self.include_election_metadata = kwargs["include_election_metadata"]
+
+        if self.include_election_metadata:
+            self.log.debug("Will include election metadata in 'execute_reply' messages.")
+        else:
+            self.log.debug("Will NOT include election metadata in 'execute_reply' messages.")
 
         # Committed ModelPointers that we encounter while catching-up after a migration.
         # Once we're caught-up, we download all of these.
@@ -1892,54 +1902,6 @@ class DistributedKernel(IPythonKernel):
 
         return remote_storage_name, gpu_device_ids
 
-    async def checkpoint_model_state(self):
-        """
-        Checkpoint the state dictionary of the DeepLearningModel used during training to remote storage.
-
-        This particular method is only used for non-SMR/non-replica-based scheduling policies.
-
-        :return: the e2e latency of the network write, if it occurred, in milliseconds
-        """
-        # Write the updated model state to remote storage.
-        async with self._user_ns_lock:
-            model: Optional[DeepLearningModel] = self.shell.user_ns.get("model", None)
-
-        if model is None:
-            self.log.debug("Did not find any objects of type DeepLearningModel in the user namespace.")
-            return
-
-        if model.requires_checkpointing:
-            self.log.debug(
-                f"Found model '{model.name}' in user namespace; however, model doesn't require checkpointing.")
-            return
-
-        model_pointer: ModelPointer = ModelPointer(
-            deep_learning_model=model,
-            user_namespace_variable_name="model",
-            model_path=os.path.join(self.store_path, model.name),
-            proposer_id=self.smr_node_id,
-        )
-
-        self.log.debug(f"Checkpointing updated state of model '{model.name}' (on critical path)")
-
-        st: float = time.time()
-        await self._remote_checkpointer.write_state_dicts_async(model_pointer)
-        et: float = time.time()
-        duration_ms: float = (et - st) * 1.0e3
-
-        if self.prometheus_enabled and getattr(self, "remote_storage_write_latency_milliseconds") is not None:
-            self.remote_storage_write_latency_milliseconds.labels(
-                session_id=self.kernel_id, workload_id=self.workload_id
-            ).observe(duration_ms * 1e3)
-
-        self.current_execution_stats.upload_model_and_training_data_microseconds += (
-                duration_ms * 1.0e3
-        )
-        self.current_execution_stats.upload_model_start_unix_millis = st
-        self.current_execution_stats.upload_model_end_unix_millis = et
-
-        self.log.debug(f"Checkpointed updated state of model '{model.name}' in {duration_ms:,} ms (on critical path).")
-
     async def execute_request(self, stream, ident, parent):
         """Override for receiving specific instructions about which replica should execute some code."""
         start_time: float = time.time()
@@ -2030,6 +1992,14 @@ class DistributedKernel(IPythonKernel):
         if inspect.isawaitable(reply_content):
             reply_content = await reply_content
 
+        # Flush output before sending the reply.
+        sys.stdout.flush()
+        sys.stderr.flush()
+        # FIXME: on rare occasions, the flush doesn't seem to make it to the clients...
+        #        This seems to mitigate the problem, but we definitely need to better understand what's going on.
+        if self._execute_sleep:
+            time.sleep(self._execute_sleep)
+
         term_number: int = -1
         was_primary_replica: bool = False
         if LEADER_KEY in reply_content:
@@ -2051,53 +2021,81 @@ class DistributedKernel(IPythonKernel):
                 code=code,
             )
 
-        # Flush output before sending the reply.
-        sys.stdout.flush()
-        sys.stderr.flush()
-        # FIXME: on rare occasions, the flush doesn't seem to make it to the clients...
-        #        This seems to mitigate the problem, but we definitely need to better understand what's going on.
-        if self._execute_sleep:
-            time.sleep(self._execute_sleep)
-
         # Send the reply.
         reply_content = jsonutil.json_clean(reply_content)
         metadata = self.finish_metadata(parent, metadata, reply_content)
 
         if self.smr_enabled:
-            # Schedule task to wait until this current election either fails (due to all replicas yielding)
-            # or until the leader finishes executing the user-submitted code.
+            # Embed the election metadata if we've been configured to do so.
             current_election: Election = self.synchronizer.current_election
-            metadata["election_metadata"] = current_election.get_election_metadata()
-            metadata["election_metadata"]["leader_term"] = self.synclog.leader_term
-            metadata["election_metadata"]["leader_id"] = self.synclog.leader_id
+            if self.include_election_metadata:
+                metadata["election_metadata"] = current_election.get_election_metadata()
+                metadata["election_metadata"]["leader_term"] = self.synclog.leader_term
+                metadata["election_metadata"]["leader_id"] = self.synclog.leader_id
 
             # If we weren't the lead replica, then we didn't recover the term number up above, so
             # let's get the current term number from the election object.
             if term_number == -1:
                 term_number = current_election.term_number
+
+            # If SMR is enabled, then we send the response now.
+            self.log.debug("Sending 'execute_reply' message now.")
+
+            # Send the reply now.
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+                parent, -1, execution_stats=self.current_execution_stats
+            )
+            reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+                stream,
+                "execute_reply",
+                reply_content,
+                parent,
+                metadata=metadata,
+                ident=ident,
+                buffers=buffers,
+            )
+
+            self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
         else:
+            # TODO: Do we need this call? Or can we make this a special case
+            # of the RedisLog/S3Log SyncLog implementations?
             await self.checkpoint_model_state()
 
-        # Send the reply now.
-        buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
-            parent, -1, execution_stats=self.current_execution_stats
-        )
-        reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
-            stream,
-            "execute_reply",
-            reply_content,
-            parent,
-            metadata=metadata,
-            ident=ident,
-            buffers=buffers,
-        )
+        # Synchronize the term's AST. For multi-replica policies, this will append and commit state to the RaftLog.
+        # For single-replica policies, this will persist the AST and any variables to remote storage, namely AWS S3
+        # or Redis, depending on the system's configuration.
+        await self.synchronize_updated_state(term_number)
 
-        self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
+        # The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
+        #
+        # For multi-replica deployments, this will notify the follower/non-primary replicas that we're done executing
+        # the user-submitted code, and that they're up-to-date in terms of receiving state updates from the RaftLog.
+        #
+        # For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote storage
+        # (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list of keys is used
+        # if and when we (this kernel) is recreated in a new container for a future execution. Specifically, we'll
+        # read the list of keys, and then we'll read the data for each key in the list. Doing so will restore our
+        # runtime state.
+        await self.schedule_notify_execution_complete(term_number)
 
-        if self.smr_enabled and was_primary_replica:
-            # Synchronize.
-            await self.synchronize_updated_state(term_number)
-            await self.schedule_notify_execution_complete(term_number)
+        if not self.smr_enabled:
+            self.log.debug("Sending 'execute_reply' message now.")
+
+            # Send the reply now.
+            buffers: Optional[list[bytes]] = self.extract_and_process_request_trace(
+                parent, -1, execution_stats=self.current_execution_stats
+            )
+            reply_msg: dict[str, t.Any] = self.session.send(  # type:ignore[assignment]
+                stream,
+                "execute_reply",
+                reply_content,
+                parent,
+                metadata=metadata,
+                ident=ident,
+                buffers=buffers,
+            )
+
+            self.log.debug(f'Sent "execute_reply" message: {reply_msg}')
 
         if not silent and reply_msg["content"]["status"] == "error" and stop_on_error:
             self._abort_queues()
@@ -3166,9 +3164,12 @@ class DistributedKernel(IPythonKernel):
         :param term_number: the term for which we're performing the state synchronization.
         """
         if self.execution_ast is None:
-            self.log.warning("Execution AST is None. Synchronization will likely fail...")
+            self.log.warning(f"Synchronizing AST for term {term_number}. "
+                             f"Execution AST is None. "
+                             f"Synchronization will likely fail...")
         else:
-            self.log.debug("Synchronizing now. Execution AST is NOT None.")
+            self.log.debug(f"Synchronizing AST for term {term_number}. "
+                           f"Execution AST is NOT None.")
 
         sync_start_time: float = time.time() * 1.0e3
 
@@ -3529,6 +3530,18 @@ class DistributedKernel(IPythonKernel):
     async def schedule_notify_execution_complete(self, term_number: int):
         """
         Schedule the proposal of an "execution complete" notification for this election.
+
+        The effect of this call depends upon whether we're a single-replica or multi-replica deployment.
+
+        For multi-replica deployments, this will notify the follower/non-primary replicas that we're done
+        executing the user-submitted code, and that they're up-to-date in terms of receiving state updates
+        from the RaftLog.
+
+        For single-replica deployments, this will prompt the synchronizer to write a list of keys to remote
+        storage (again, either Redis or AWS S3) at a deterministic key based on our persistent ID. This list
+        of keys is used if and when we (this kernel) is recreated in a new container for a future execution.
+        Specifically, we'll read the list of keys, and then we'll read the data for each key in the list. Doing
+        so will restore our runtime state.
         """
 
         # Add task to the set. This creates a strong reference.

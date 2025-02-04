@@ -2505,14 +2505,6 @@ class RaftLog(object):
         assert wait == False
         return is_leading
 
-    def sync(self, term):
-        """Synchronization changes since specified execution counter."""
-        pass
-
-    def reset(self, term, logs: Tuple[SynchronizedValue]):
-        """Clear logs equal and before specified term and replaced with specified logs"""
-        pass
-
     def has_active_election(self) -> bool:
         """
         Return true if the following two conditions are met:

@@ -430,8 +430,8 @@ class SyncLog(Protocol):
         """
 
     def start(self, handler):
-        """Register change handler, restore internel states, and start monitoring changes.
-          handler will be in the form listerner(key, val: SyncValue)"""
+        """Register change handler, restore internal states, and start monitoring changes.
+          handler will be in the form listener(key, val: SyncValue)"""
 
     def set_should_checkpoint_callback(self, callback):
         """Set the callback that will be called when the SyncLog decides if to checkpoint or not.
@@ -448,29 +448,12 @@ class SyncLog(Protocol):
         """Request to lead the update of a term. A following append call
            without leading status will fail."""
 
-    async def set_election_waiter_ioloop(self, io_loop: asyncio.AbstractEventLoop, term_number: int):
-        """
-        Set the asyncio IOLoop that will be used when notifying the calling thread that the election of the
-        specified term number has completed.
-        """
-
     async def wait_for_election_to_end(self, term_number: int):
         """
         Wait until the leader of the specified election finishes executing the code,
         or until we know that all replicas yielded.
 
         :param term_number: the term number of the election
-        """
-
-    async def append_execution_end_notification(self, notification: ExecutionCompleteNotification):
-        """
-        Explicitly propose and append (to the synchronized Raft log) a ExecutionCompleteNotification object to
-        signify that we've finished executing code in the current election.
-
-        This function exists so that we can mock proposals of ExecutionCompleteNotification objects specifically,
-        rather than mocking the more generic _serialize_and_append_value method.
-
-        :param notification: the notification to be appended to the sync log
         """
 
     async def notify_execution_complete(self, term_number: int):
@@ -483,12 +466,6 @@ class SyncLog(Protocol):
 
     async def append(self, val: SynchronizedValue):
         """Append the difference of the value of specified key to the synchronization queue."""
-
-    def sync(self, term):
-        """Manually trigger the synchronization of changes since specified term."""
-
-    def reset(self, term, logs: Tuple[SynchronizedValue]):
-        """Clear logs equal and before specified term and replaced with specified logs"""
 
     def close(self):
         """Ensure all async coroutines end and clean up."""
