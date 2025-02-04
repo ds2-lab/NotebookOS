@@ -4,7 +4,6 @@ import asyncio
 import os
 import sys
 import time
-from abc import ABC
 
 import torch
 
@@ -24,6 +23,55 @@ class RemoteCheckpointer(Checkpointer):
 
         self._lock = asyncio.Lock()
         self._storage_provider: RemoteStorageProvider = storage_provider
+
+    @property
+    def num_objects_written(self) -> int:
+        """
+        :return: the total, cumulative number of objects written to remote storage.
+        """
+        return self.storage_provider.num_objects_written
+
+    @property
+    def num_objects_read(self) -> int:
+        """
+        :return: the total, cumulative number of objects read from remote storage.
+        """
+        return self.storage_provider.num_objects_read
+
+    @property
+    def num_objects_deleted(self) -> int:
+        """
+        :return: the total, cumulative number of objects deleted from remote storage.
+        """
+        return self.storage_provider.num_objects_deleted
+
+    @property
+    def bytes_read(self) -> int:
+        """
+        :return: the total, cumulative number of bytes read from remote storage.
+        """
+        return self.storage_provider.bytes_read
+
+    @property
+    def bytes_written(self) -> int:
+        """
+        :return: the total, cumulative number of bytes written to remote storage.
+        """
+        return self.storage_provider.bytes_written
+
+    @property
+    def read_time(self) -> float:
+        """
+        :return: the total time spent reading data from remote storage in seconds.
+        """
+        return self.storage_provider.read_time
+
+    @property
+    def write_time(self) -> float:
+        """
+        :return: the total time spent writing data to remote storage in seconds.
+        """
+        return self.storage_provider.write_time
 
     @property
     def storage_provider(self)->RemoteStorageProvider:
@@ -91,9 +139,6 @@ class RemoteCheckpointer(Checkpointer):
 
             self.log.debug(f'Read {sys.getsizeof(val)} bytes from {self.storage_name} key "{key}" '
                            f'in {round(time_elapsed, 3):,} ms.')
-
-            self._read_time += time_elapsed
-            self._num_objects_read += 1
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
                            f"because: {ex}")
@@ -137,9 +182,6 @@ class RemoteCheckpointer(Checkpointer):
 
             self.log.debug(f'Read {sys.getsizeof(val)} bytes from {self.storage_name} key "{key}" '
                            f'in {round(time_elapsed, 3):,} ms.')
-
-            self._read_time += time_elapsed
-            self._num_objects_read += 1
         except Exception as ex:
             self.log.error(f"Failed to read state of model \"{model_name}\" from {self.storage_name} at key \"{key}\" "
                            f"because: {ex}")
@@ -242,6 +284,22 @@ class RemoteCheckpointer(Checkpointer):
 
             return model_state_dict, optimizer_state_dict, criterion_state_dict, constructor_args_dict
 
+    def __get_buffer_to_write(self, state_dict: Dict[str, Any], model_name: str) -> tuple[io.BytesIO, float]:
+        buffer: io.BytesIO = io.BytesIO()
+
+        try:
+            torch.save(state_dict, buffer)
+        except Exception as ex:
+            self.log.error(f"Failed to save state of model \"{model_name}\" to io.BytesIO buffer because: {ex}")
+            raise ex  # re-raise
+
+        size_mb: float = buffer.getbuffer().nbytes / 1.0e6
+        if buffer.getbuffer().nbytes > 512e6:
+            self.log.error(f"Cannot write state of model \"{model_name}\" to Redis. "
+                           f"Model state is larger than maximum size of 512 MB: {size_mb:,} MB.")
+            raise ValueError("state dictionary buffer is too large (); maximum size is 512 MB")
+
+        return buffer, size_mb
 
     def __write_state_dict(self, key: str, state_dict: Dict[str, Any], model_name: str = ""):
         """
@@ -250,19 +308,7 @@ class RemoteCheckpointer(Checkpointer):
         :param key: the key at which the specified state dictionary is to be written.
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to write
         """
-        buffer: io.BytesIO = io.BytesIO()
-
-        try:
-            torch.save(state_dict, buffer)
-        except Exception as ex:
-            self.log.error(f"Failed to save state of model \"{model_name}\" to io.BytesIO buffer because: {ex}")
-            raise ex # re-raise
-
-        size_mb: float = buffer.getbuffer().nbytes / 1.0e6
-        if buffer.getbuffer().nbytes > 512e6:
-            self.log.error(f"Cannot write state of model \"{model_name}\" to {self.storage_name}. "
-                           f"Model state is larger than maximum size of 512 MB: {size_mb:,} MB.")
-            raise ValueError("state dictionary buffer is too large (); maximum size is 512 MB")
+        buffer, size_mb = self.__get_buffer_to_write(state_dict, model_name)
 
         self.log.debug(f"Writing state dictionary associated with model \"{model_name}\" to {self.storage_name} at key \"{key}\". "
                        f"Model size: {size_mb:,} MB.")
@@ -279,24 +325,12 @@ class RemoteCheckpointer(Checkpointer):
 
     async def __async_write_state_dict(self, key: str, state_dict: Dict[str, Any], model_name: str = ""):
         """
-        Write an individual state dictionary to remote storage..
+        Write an individual state dictionary to remote storage.
 
         :param key: the key at which the specified state dictionary is to be written.
         :param model_name: the name of the model associated with the state dictionary that we've been instructed to write
         """
-        buffer: io.BytesIO = io.BytesIO()
-
-        try:
-            torch.save(state_dict, buffer)
-        except Exception as ex:
-            self.log.error(f"Failed to save state of model \"{model_name}\" to io.BytesIO buffer because: {ex}")
-            raise ex # re-raise
-
-        size_mb: float = buffer.getbuffer().nbytes / 1.0e6
-        if buffer.getbuffer().nbytes > 512e6:
-            self.log.error(f"Cannot write state of model \"{model_name}\" to {self.storage_name}. "
-                           f"Model state is larger than maximum size of 512 MB: {size_mb:,} MB.")
-            raise ValueError("state dictionary buffer is too large (); maximum size is 512 MB")
+        buffer, size_mb = self.__get_buffer_to_write(state_dict, model_name)
 
         self.log.debug(f"Writing state dictionary associated with model \"{model_name}\" to {self.storage_name} at key \"{key}\". "
                        f"Model size: {size_mb:,} MB.")
@@ -310,8 +344,6 @@ class RemoteCheckpointer(Checkpointer):
             self.log.debug(f'{buffer.getbuffer().nbytes} bytes uploaded to {self.storage_name} at key "{key}" in '
                            f'{round(time_elapsed, 3):,}ms.')
 
-            self._num_objects_written += 1
-            self._write_time += time_elapsed
         except Exception as ex:
             self.log.error(f"Failed to write state of model \"{model_name}\" to {self.storage_name} at key \"{key}\" "
                            f"(model size: {size_mb} MB) because: {ex}")
