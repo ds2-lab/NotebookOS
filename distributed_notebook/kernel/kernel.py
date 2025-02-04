@@ -289,7 +289,7 @@ class DistributedKernel(IPythonKernel):
         default_value="us-east-1",
     ).tag(config=True)
 
-    redis_password: Union[str, Unicode] = Unicode(
+    redis_password: Optional[Union[str, Unicode]] = Unicode(
         help="The password to access Redis (only relevant if using Redis for remote storage).",
         default_value=None,
     ).tag(config=True)

@@ -131,6 +131,9 @@ type LocalScheduler struct {
 	dockerStorageBase                   string
 	remoteStorage                       string
 	remoteStorageEndpoint               string
+	S3Bucket                            string // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
+	AwsRegion                           string // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
+	RedisPassword                       string // RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
 	deploymentMode                      types.DeploymentMode
 	schedulerDaemonOptions              domain.SchedulerDaemonOptions
 	prometheusStarted                   sync.WaitGroup
@@ -139,6 +142,8 @@ type LocalScheduler struct {
 	kernelRegistryPort                  int
 	electionTimeoutSeconds              int
 	prometheusPort                      int
+	RedisPort                           int // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
+	RedisDatabase                       int // RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
 	prometheusInterval                  time.Duration
 	kernelErrorReporterServerPort       int
 	connectingToGateway                 atomic.Int32
@@ -218,6 +223,11 @@ func New(connectionOptions *jupyter.ConnectionInfo, localDaemonOptions *domain.L
 		simulateTrainingUsingSleep:         localDaemonOptions.SimulateTrainingUsingSleep,
 		bindDebugpyPort:                    localDaemonOptions.BindDebugPyPort,
 		saveStoppedKernelContainers:        localDaemonOptions.SaveStoppedKernelContainers,
+		S3Bucket:                           localDaemonOptions.S3Bucket,
+		AwsRegion:                          localDaemonOptions.AwsRegion,
+		RedisPassword:                      localDaemonOptions.RedisPassword,
+		RedisPort:                          localDaemonOptions.RedisPort,
+		RedisDatabase:                      localDaemonOptions.RedisDatabase,
 	}
 
 	for _, configFunc := range configs {
@@ -883,6 +893,11 @@ func (d *LocalScheduler) registerKernelReplicaKube(kernelReplicaSpec *proto.Kern
 		BindGPUs:                             d.realGpusAvailable,
 		BindAllGpus:                          d.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning,
 		AssignedGpuDeviceIds:                 kernelReplicaSpec.ResourceSpec().GpuDeviceIds,
+		S3Bucket:                             d.S3Bucket,
+		AwsRegion:                            d.AwsRegion,
+		RedisPassword:                        d.RedisPassword,
+		RedisPort:                            d.RedisPort,
+		RedisDatabase:                        d.RedisDatabase,
 	}
 
 	dockerInvoker := invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
@@ -1857,6 +1872,11 @@ func (d *LocalScheduler) StartKernelReplica(ctx context.Context, in *proto.Kerne
 			BindGPUs:                             d.realGpusAvailable,
 			BindAllGpus:                          d.schedulingPolicy.ContainerLifetime() == scheduling.LongRunning,
 			AssignedGpuDeviceIds:                 in.Kernel.ResourceSpec.GpuDeviceIds,
+			S3Bucket:                             d.S3Bucket,
+			AwsRegion:                            d.AwsRegion,
+			RedisPassword:                        d.RedisPassword,
+			RedisPort:                            d.RedisPort,
+			RedisDatabase:                        d.RedisDatabase,
 		}
 		kernelInvoker = invoker.NewDockerInvoker(d.connectionOptions, invokerOpts, d.prometheusManager)
 		// Note that we could pass d.prometheusManager directly in the call above.

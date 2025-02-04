@@ -42,6 +42,8 @@ distributed_notebook_save_stopped_kernel_containers: false
 distributed_notebook_bind_debugpy_port: false
 distributed_notebook_assign_kernel_debug_ports: false
 distributed_notebook_submit_execute_requests_one_at_a_time: true
+distributed_notebook_s3_bucket: "distributed-notebook-storage"
+distributed_notebook_aws_region: "us-east-1"
 
 # Specify 'hdfs' to use HDFS or 'redis' to use Redis.
 distributed_notebook_remote_storage_type: redis
@@ -104,6 +106,8 @@ local_daemon_docker_image_tag: latest
 
 redis_port: 6379
 redis_maxmemory: 1024mb
+redis_password: ""
+redis_database: 0
 
 ##################################################################
 # Jupyter Server

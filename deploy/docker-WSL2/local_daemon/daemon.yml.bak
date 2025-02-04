@@ -42,7 +42,7 @@ scaling-limit: 1.15
 scaling-in-limit: 2
 predictive_autoscaling: true
 scaling-buffer-size: 3
-min_cluster_nodes: 12
+min_cluster_nodes: 6
 max_cluster_nodes: 48
 gpus-per-host: 8
 local_mode: false
@@ -62,6 +62,6 @@ election_timeout_seconds: 3
 simulate_checkpointing_latency: true
 starting_resource_port: 16007
 num_resource_ports: 4096
-use_real_gpus: true
+use_real_gpus: false
 bind_debugpy_port: false
 save_stopped_kernel_containers: false
