@@ -196,3 +196,6 @@ class LocalStorageProvider(RemoteStorageProvider):
 
     def close(self):
         self._data.clear()
+
+    get = read_value
+    set = write_value

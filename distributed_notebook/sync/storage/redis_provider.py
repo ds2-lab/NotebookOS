@@ -305,3 +305,6 @@ class RedisProvider(RemoteStorageProvider):
             asyncio.run(self._async_redis.close())
         except RuntimeError as ex:
             self.log.debug(f"RuntimeError occurred while closing RedisLog: {ex}")
+
+    get = read_value
+    set = write_value

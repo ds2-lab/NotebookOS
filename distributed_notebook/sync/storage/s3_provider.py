@@ -276,3 +276,6 @@ class S3Provider(RemoteStorageProvider):
         self.log.debug(f"Closing {self.storage_name}.")
 
         self._s3_client.close()
+
+    get = read_value
+    set = write_value

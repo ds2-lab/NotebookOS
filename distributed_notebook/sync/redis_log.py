@@ -2,7 +2,7 @@ import logging
 import os
 import pickle
 import time
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Collection
 
 from prometheus_client import Histogram
 
@@ -200,7 +200,15 @@ class RedisLog(object):
 
         start_time: float = time.time()
 
-        data = pickle.dumps(self._variables_written)
+        data: Dict[str, Any] | bytes = {
+            "variable_names": self._variables_written,
+            "redis_log_state": {
+                "term": self._term,
+                "workload_id": self._workload_id
+            }
+        }
+
+        data = pickle.dumps(data)
 
         await self.storage_provider.write_value_async(redis_key, data)
         time_elapsed: float = time.time() - start_time
@@ -215,7 +223,7 @@ class RedisLog(object):
                 session_id=self._kernel_id, workload_id=self.workload_id
             ).observe(time_elapsed * 1e3)
 
-    async def restore_namespace(self) -> Dict[str, Any]:
+    async def restore_namespace(self) -> Dict[str, SynchronizedValue]:
         """
         Retrieve metadata from remote storage and use the metadata to read all the keys from the namespace.
 
@@ -223,7 +231,55 @@ class RedisLog(object):
 
         :return: a dictionary mapping variable names to the variables.
         """
-        raise NotImplemented("Implement me.")
+        metadata_key: str = self.__get_path_for_metadata()
+
+        data: Dict[str, Any] | bytes = self.storage_provider.read_value(metadata_key)
+
+        try:
+            data = pickle.loads(data)
+        except Exception as ex:
+            self.log.error(f"Failed to unpickle RedisLog metadata: {ex}")
+            raise ex # Re-raise
+
+        redis_log_state: Dict[str, Any] = data["redis_log_state"]
+        variable_names: Collection[str] = data["variable_names"]
+
+        self._term = redis_log_state["term"]
+        self._workload_id = redis_log_state["workload_id"]
+
+        self.log.debug(f'Restored term number {self._term} and workload ID "{self._workload_id}" from Redis.')
+        self.log.debug(f"Retrieved list of variable names with size={len(variable_names)} from Redis.")
+
+
+        start_time: float = time.time()
+        restored_namespace: Dict[str, SynchronizedValue] = {}
+
+        for variable_name in variable_names:
+            key: str = self.__get_key_from_variable_name(variable_name)
+
+            self.log.debug(f'Retrieving value for variable "{variable_name}" from Redis at key "{key}".')
+
+            variable_value: bytes = self.storage_provider.read_value(key)
+
+            try:
+                variable: SynchronizedValue = pickle.loads(variable_value)
+            except Exception as ex:
+                self.log.error(f'Deserialization of variable "{variable_value}" failed: {ex}')
+                raise ex # Re-raise.
+
+            restored_namespace[variable_name] = variable
+
+        time_elapsed: float = time.time() - start_time
+        self.log.debug(f"Restored {len(variable_names)} variable(s) from Redis "
+                       f"in {round(time_elapsed * 1.0e3, 3):,} ms.")
+
+        return restored_namespace
+
+    def __get_key(self, val: SynchronizedValue)->str:
+        return self.__get_key_from_variable_name(val.key)
+
+    def __get_key_from_variable_name(self, name: str)->str:
+        return os.path.join(self._base_path, name)
 
     async def append(self, val: SynchronizedValue):
         """
@@ -245,22 +301,14 @@ class RedisLog(object):
             raise ValueError(f'Cannot append value to RedisLog whose key is equal to "{val.key}".'
                              f'That is a reserved phrase.')
 
-        redis_key: str = os.path.join(self._base_path, val.key)
+        redis_key: str = self.__get_key()
 
         val_size: int = get_size(val)
         self.log.debug(f'Writing value with size={val_size} bytes to Redis at key "{redis_key}": {val}')
 
         start_time: float = time.time()
 
-        data: Dict[str, Any] | bytes = {
-            "variable_names": self._variables_written,
-            "s3_log_state": {
-                "term": self._term,
-                "workload_id": self._workload_id
-            }
-        }
-
-        data = pickle.dumps(data)
+        data = pickle.dumps(val)
 
         await self.storage_provider.write_value_async(redis_key, data)
         time_elapsed: float = time.time() - start_time
