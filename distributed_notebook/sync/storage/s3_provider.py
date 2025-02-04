@@ -34,13 +34,15 @@ class S3Provider(RemoteStorageProvider):
         """
         This method creates the specified AWS S3 bucket if it does not already exist.
         """
+        self.log.debug(f'Initializing AWS S3 bucket "{bucket_name}" in AWS region "{aws_region}".')
+
         try:
             # Check if the bucket already exists
             response = self._s3_client.list_buckets()
             buckets = [bucket['Name'] for bucket in response.get('Buckets', [])]
 
             if bucket_name in buckets:
-                print(f"Bucket '{bucket_name}' already exists.")
+                self.log.debug(f'AWS S3 bucket "{bucket_name}" in AWS region "{aws_region}" already exists.')
                 return
 
             # Create the bucket
@@ -50,15 +52,27 @@ class S3Provider(RemoteStorageProvider):
             if aws_region and aws_region != 'us-east-1':
                 create_bucket_params['CreateBucketConfiguration'] = {'LocationConstraint': aws_region}
 
-            self._s3_client.create_bucket(**create_bucket_params)
-            print(f"Bucket '{bucket_name}' created successfully.")
+            self.log.debug(f'AWS S3 bucket "{bucket_name}" in AWS region "{aws_region}" does not yet exist.'
+                           f'Creating it now.')
 
-        except NoCredentialsError:
-            print("AWS credentials not found. Please configure them.")
-        except PartialCredentialsError:
-            print("Incomplete AWS credentials. Please check your configuration.")
-        except ClientError as e:
-            print(f"Client error: {e}")
+            st: float = time.time()
+            self._s3_client.create_bucket(**create_bucket_params)
+            et: float = time.time()
+            time_elapsed: float = et - st
+
+            self.log.debug(f'Successfully created new AWS S3 bucket "{bucket_name}" '
+                           f'in AWS region "{aws_region}" in {round(time_elapsed * 1.0e3, 3):,} ms.')
+
+        except NoCredentialsError as ex:
+            self.log.error("AWS credentials not found. Please configure them.\n\n")
+            raise ex # Re-raise.
+        except PartialCredentialsError as ex:
+            self.log.error("Incomplete AWS credentials. Please check your configuration.\n\n")
+            raise ex # Re-raise.
+        except ClientError as ex:
+            self.log.error(f'Client error. Failed to initialize AWS S3 bucket "{bucket_name}" '
+                           f'in AWS region "{aws_region}" because: {ex}')
+            raise ex # Re-raise.
 
     def is_too_large(self, size_bytes: int)->bool:
         """
