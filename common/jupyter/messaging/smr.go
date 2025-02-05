@@ -38,9 +38,9 @@ func (m MessageDataDirectory) String() string {
 
 type MessageSMRNodeUpdated struct {
 	MessageSMRReady
-	MessageSMRAddOrUpdateReplicaRequest
 	KernelId string `json:"kernel_id"`
-	Success  bool   `json:"success"`
+	MessageSMRAddOrUpdateReplicaRequest
+	Success bool `json:"success"`
 }
 
 func (m MessageSMRNodeUpdated) String() string {
