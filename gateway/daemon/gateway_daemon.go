@@ -792,6 +792,11 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 			// Record that we've now seen this kernel.
 			kernelsSeen[kernel.ID()] = struct{}{}
 
+			// If the kernel is already de-scheduled -- if its replicas are not scheduled -- then skip over it.
+			if !kernel.ReplicasAreScheduled() {
+				return true
+			}
+
 			// Check if the kernel is idle and, if it is, then add it to the slice of kernels to be reclaimed.
 			timeElapsedSinceLastTrainingEnded := time.Since(kernel.TrainingEndedAt())
 			if timeElapsedSinceLastTrainingEnded > d.IdleSessionReclamationInterval {
