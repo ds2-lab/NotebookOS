@@ -74,6 +74,11 @@ type ExecutionManager interface {
 	TotalNumExecutionOperations() int
 	ExecutionFailedCallback() ExecutionFailedCallback
 
+	// ReplicaRemoved is used to notify the ExecutionManager that a particular KernelReplica has been removed.
+	// This allows the ExecutionManager to set the LastPrimaryReplica field to nil if the removed KernelReplica
+	// is the LastPrimaryReplica.
+	ReplicaRemoved(replica KernelReplica)
+
 	// NumCompletedTrainings returns the number of training events that have been completed successfully.
 	NumCompletedTrainings() int
 

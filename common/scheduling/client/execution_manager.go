@@ -683,6 +683,16 @@ func (m *ExecutionManager) NumCompletedTrainings() int {
 	return len(m.finishedExecutions)
 }
 
+// ReplicaRemoved is used to notify the ExecutionManager that a particular KernelReplica has been removed.
+// This allows the ExecutionManager to set the LastPrimaryReplica field to nil if the removed KernelReplica
+// is the LastPrimaryReplica.
+func (m *ExecutionManager) ReplicaRemoved(replica scheduling.KernelReplica) {
+	if m.lastPrimaryReplica == replica {
+		m.log.Debug("The previous primary replica of kernel \"%s\" has been removed.", m.Kernel.ID())
+		m.lastPrimaryReplica = nil
+	}
+}
+
 // handleSmrLeadTaskMessage is the critical section of HandleSmrLeadTaskMessage.
 func (m *ExecutionManager) handleSmrLeadTaskMessage(replica scheduling.KernelReplica, msg *messaging.JupyterMessage) error {
 	// Decode the jupyter.MessageSMRLeadTask message.

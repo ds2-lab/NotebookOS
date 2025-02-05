@@ -148,7 +148,7 @@ func (p *DistributedKernelClientProvider) NewDistributedKernelClient(ctx context
 			s.DebugMode = debugMode
 			s.Name = fmt.Sprintf("DistrKernelClient-%s", spec.Id)
 			s.StatisticsAndMetricsProvider = statisticsProvider
-			config.InitLogger(&s.Log, fmt.Sprintf("kernel %s ", spec.Id))
+			config.InitLogger(&s.Log, fmt.Sprintf("Kernel %s ", spec.Id))
 		}),
 		status:               jupyter.KernelStatusInitializing,
 		notificationCallback: notificationCallback,
@@ -1488,6 +1488,14 @@ func (c *DistributedKernelClient) stopReplicaLocked(r scheduling.KernelReplica, 
 	if err := remover(host, c.session, noop); err != nil {
 		return host, err
 	}
+
+	if c.LastPrimaryReplica() == r {
+		// Notify the ExecutionManager that we removed the replica.
+		// This is so, if the replica we removed is the last primary replica, that we can set
+		// the last primary replica to nil.
+		c.ExecutionManager.ReplicaRemoved(r)
+	}
+
 	return host, nil
 }
 

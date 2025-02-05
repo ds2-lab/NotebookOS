@@ -4307,7 +4307,7 @@ var _ = Describe("Cluster Gateway Tests", func() {
 					mockedDistributedKernelClientProvider.RegisterMockedDistributedKernel(kernelId, kernel)
 
 					mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
-					mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil)
+					mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil).MaxTimes(1)
 					kernel.EXPECT().
 						BeginSchedulingReplicaContainers().
 						Times(1).
