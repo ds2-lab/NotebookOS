@@ -663,7 +663,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(allocation.IsCommitted()).To(BeTrue())
 			Expect(allocation.IsReservation()).To(BeFalse())
 
-			kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+			kernel1Replica1.EXPECT().KernelStartedTraining(gomock.Any()).Times(1).Return(nil)
 
 			leadTaskMsg := test_utils.CreateJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
 			err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)
@@ -997,7 +997,7 @@ var _ = Describe("Local Daemon Tests", func() {
 			Expect(allocation.IsCommitted()).To(BeTrue())
 			Expect(allocation.IsReservation()).To(BeFalse())
 
-			kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+			kernel1Replica1.EXPECT().KernelStartedTraining(gomock.Any()).Times(1).Return(nil)
 
 			leadTaskMsg := test_utils.CreateJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
 			err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)
@@ -1160,7 +1160,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 			By("Promoting the committed resource reservation to a fully-committed allocation when an 'smr_lead_task' message is received")
 
-			kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+			kernel1Replica1.EXPECT().KernelStartedTraining(gomock.Any()).Times(1).Return(nil)
 
 			leadTaskMsg := test_utils.CreateJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
 			err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)
@@ -1432,7 +1432,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 				By("Promoting the committed resource reservation to a fully-committed allocation when an 'smr_lead_task' message is received")
 
-				kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+				kernel1Replica1.EXPECT().KernelStartedTraining(gomock.Any()).Times(1).Return(nil)
 
 				leadTaskMsg := test_utils.CreateJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
 				err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)
@@ -1501,7 +1501,7 @@ var _ = Describe("Local Daemon Tests", func() {
 
 					By("Promoting the committed resource reservation to a fully-committed allocation when an 'smr_lead_task' message is received")
 
-					kernel1Replica1.EXPECT().KernelStartedTraining().Times(1).Return(nil)
+					kernel1Replica1.EXPECT().KernelStartedTraining(gomock.Any()).Times(1).Return(nil)
 
 					leadTaskMsg = test_utils.CreateJupyterMessage(messaging.MessageTypeSMRLeadTask, kernel1Replica1.ID(), kernel1Replica1.ConnectionInfo().Key)
 					err = schedulerDaemon.handleSMRLeadTask(kernel1Replica1, leadTaskMsg.JupyterFrames, leadTaskMsg)
