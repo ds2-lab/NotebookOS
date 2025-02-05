@@ -68,6 +68,10 @@ const (
 
 	// SkipValidationKey is passed in Context of NotifyKernelRegistered to skip the connection validation step.
 	SkipValidationKey contextKey = "SkipValidationKey"
+
+	// maxSemaphoreWeight is the max weight used when creating semaphores for the kernelDescheduleAttempt
+	// and kernelCreateContainers structs.
+	maxSemaphoreWeight int64 = 999999999
 )
 
 type contextKey string
@@ -110,19 +114,24 @@ type DistributedClientProvider interface {
 // kernelDescheduleAttempt encapsulates an attempt to deschedule (i.e., remove all replicas/containers of)
 // a particular scheduling.Kernel.
 type kernelDescheduleAttempt struct {
+	// Semaphore is used to enable waiting with a timeout for the de-scheduling operation to complete.
 	Semaphore *semaphore.Weighted
+	// StartedAt is the time at which the de-scheduling operation began.
 	StartedAt time.Time
-	Complete  atomic.Bool
-	KernelId  string
-	Kernel    scheduling.Kernel
+	// Complete indicates whether the de-scheduling operation has completed.
+	Complete atomic.Bool
+	// KernelId is the ID of the associated scheduling.Kernel.
+	KernelId string
+	// Kernel is the target of the associated de-scheduling operation.
+	Kernel scheduling.Kernel
 }
 
 // newKernelDescheduleAttempt creates a new kernelDescheduleAttempt struct and returns a pointer to it.
 func newKernelDescheduleAttempt(kernel scheduling.Kernel) *kernelDescheduleAttempt {
-	weightedSemaphore := semaphore.NewWeighted(1)
+	weightedSemaphore := semaphore.NewWeighted(maxSemaphoreWeight)
 
 	// Acquire the weightedSemaphore so anybody who calls Wait will have to wait.
-	err := weightedSemaphore.Acquire(context.Background(), 1)
+	err := weightedSemaphore.Acquire(context.Background(), 999999)
 	if err != nil {
 		panic(err)
 	}
@@ -155,8 +164,26 @@ func (a *kernelDescheduleAttempt) IsComplete() bool {
 // a bool indicating whether the target kernelDescheduleAttempt was finished or not (which is what
 // IsComplete is used for). So, I changed the name from Done to SetDone.
 func (a *kernelDescheduleAttempt) SetDone() {
-	a.Semaphore.Release(1)
+	// Release maxSemaphoreWeight so that Wait() can be called an arbitrary number of times.
+	a.Semaphore.Release(maxSemaphoreWeight)
 	a.Complete.Store(true)
+}
+
+// kernelCreateContainers is similar to kernelDescheduleAttempt, but kernelCreateContainers is used
+// to keep track of a kernel whose kernel replicas and kernel containers are being created, rather than removed.
+type kernelCreateContainers struct {
+	// Semaphore is used to enable waiting with a timeout for the container creation operation(s) to complete.
+	Semaphore *semaphore.Weighted
+	// StartedAt is the time at which the container creation operation(s) began.
+	StartedAt time.Time
+	// Complete indicates whether the container creation operation(s) has/have completed.
+	Complete atomic.Bool
+	// KernelId is the ID of the associated scheduling.Kernel whose kernel replica(s) and kernel container(s)
+	// is/are being created.
+	KernelId string
+	// Kernel is the target of the associated container creation operation(s).
+	Kernel              scheduling.Kernel
+	PlacementInProgress atomic.Bool
 }
 
 // ClusterGateway is an interface for the "main" scheduler/manager of the distributed notebook Cluster.
@@ -265,7 +292,27 @@ type ClusterGatewayImpl struct {
 
 	// kernelIdToKernel is a map from Kernel ID to client.DistributedKernelClient.
 	kernelIdToKernel hashmap.HashMap[string, scheduling.Kernel]
-	kernelSpecs      hashmap.HashMap[string, *proto.KernelSpec]
+
+	// kernelSpecs is a map from kernel ID to the *proto.KernelSpec specified when the kernel was first created.
+	kernelSpecs hashmap.HashMap[string, *proto.KernelSpec]
+
+	// Map of kernels that are starting for the first time.
+	//
+	// We add an entry to this map at the beginning of ClusterDaemon::StartKernel.
+	//
+	// We remove an entry from this map when all replicas of that kernel have joined their SMR cluster.
+	// We also send a notification on the channel mapped by the kernel's key when all replicas have joined their SMR cluster.
+	kernelsStarting *hashmap.ThreadsafeCornelkMap[string, chan struct{}]
+
+	// kernelsWithReplicasBeingCreated is a map whose keys are kernel IDs.
+	// The entries in the kernelsWithReplicasBeingCreated map correspond to kernels whose replicas are in the process
+	// of being created/scheduled. This is used to prevent multiple concurrent requests to schedule the kernel replicas
+	// and kernel replica containers of the same kernel.
+	kernelsWithReplicasBeingCreated *hashmap.ThreadsafeCornelkMap[string, *kernelCreateContainers]
+
+	// kernelRegisteredNotifications is a map from notification ID to *proto.KernelRegistrationNotification
+	// to keep track of the notifications that we've received so we can discard duplicates.
+	kernelRegisteredNotifications *hashmap.ThreadsafeCornelkMap[string, *proto.KernelRegistrationNotification]
 
 	log logger.Logger
 
@@ -302,18 +349,6 @@ type ClusterGatewayImpl struct {
 
 	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
 	executeRequestForwarder *client.ExecuteRequestForwarder[[]*messaging.JupyterMessage]
-
-	// Map of kernels that are starting for the first time.
-	//
-	// We add an entry to this map at the beginning of ClusterDaemon::StartKernel.
-	//
-	// We remove an entry from this map when all replicas of that kernel have joined their SMR cluster.
-	// We also send a notification on the channel mapped by the kernel's key when all replicas have joined their SMR cluster.
-	kernelsStarting *hashmap.ThreadsafeCornelkMap[string, chan struct{}]
-
-	// kernelRegisteredNotifications is a map from notification ID to *proto.KernelRegistrationNotification
-	// to keep track of the notifications that we've received so we can discard duplicates.
-	kernelRegisteredNotifications *hashmap.ThreadsafeCornelkMap[string, *proto.KernelRegistrationNotification]
 
 	// remoteDockerEventAggregator listens for docker events that occur on remote nodes in Docker Swarm mode.
 	remoteDockerEventAggregator *RemoteDockerEventAggregator
@@ -446,6 +481,7 @@ func New(opts *jupyter.ConnectionInfo, clusterDaemonOptions *domain.ClusterDaemo
 		ip:                              opts.IP,
 		DebugMode:                       clusterDaemonOptions.CommonOptions.DebugMode,
 		kernels:                         hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
+		kernelsWithReplicasBeingCreated: hashmap.NewThreadsafeCornelkMap[string, *kernelCreateContainers](128),
 		kernelsBeingDescheduled:         hashmap.NewThreadsafeCornelkMap[string, *kernelDescheduleAttempt](128),
 		kernelIdToKernel:                hashmap.NewThreadsafeCornelkMap[string, scheduling.Kernel](128),
 		kernelSpecs:                     hashmap.NewThreadsafeCornelkMap[string, *proto.KernelSpec](128),
@@ -4721,7 +4757,7 @@ func (d *ClusterGatewayImpl) forwardResponse(from router.Info, typ messaging.Mes
 	// If we just processed an "execute_reply" (without error, or else we would've returned earlier), and the
 	// scheduling policy indicates that the kernel container(s) should be stopped after processing a training
 	// event, then let's stop the kernel container(s).
-	if typ == messaging.ShellMessage && d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
+	if msg.JupyterMessageType() == messaging.ShellExecuteReply && d.Scheduler().Policy().ContainerLifetime() == scheduling.SingleTrainingEvent {
 		d.log.Debug("Kernel \"%s\" has finished training. Removing container.", from.ID())
 
 		kernel, loaded := d.kernels.Load(from.ID())
