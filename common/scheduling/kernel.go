@@ -153,6 +153,11 @@ type Kernel interface {
 	ReplicasAreScheduled() bool
 	// NumCompletedTrainings returns the number of training events that have been completed successfully.
 	NumCompletedTrainings() int
+	// ReplicaContainersAreBeingScheduled returns true if there is an active 'create container(s)' operation
+	// for the target Kernel.
+	ReplicaContainersAreBeingScheduled() bool
+	// ReplicaContainersStartedAt returns the time at which the target Kernel's KernelContainer instances last started.
+	ReplicaContainersStartedAt() time.Time
 	AggregateBusyStatus() string
 	BindSession(sess string)
 	Size() int

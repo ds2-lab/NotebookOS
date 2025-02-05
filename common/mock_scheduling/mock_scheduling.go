@@ -6904,6 +6904,34 @@ func (mr *MockKernelMockRecorder) RemoveReplicaByID(id, remover, noop any) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveReplicaByID", reflect.TypeOf((*MockKernel)(nil).RemoveReplicaByID), id, remover, noop)
 }
 
+// ReplicaContainersAreBeingScheduled mocks base method.
+func (m *MockKernel) ReplicaContainersAreBeingScheduled() bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplicaContainersAreBeingScheduled")
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// ReplicaContainersAreBeingScheduled indicates an expected call of ReplicaContainersAreBeingScheduled.
+func (mr *MockKernelMockRecorder) ReplicaContainersAreBeingScheduled() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplicaContainersAreBeingScheduled", reflect.TypeOf((*MockKernel)(nil).ReplicaContainersAreBeingScheduled))
+}
+
+// ReplicaContainersStartedAt mocks base method.
+func (m *MockKernel) ReplicaContainersStartedAt() time.Time {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplicaContainersStartedAt")
+	ret0, _ := ret[0].(time.Time)
+	return ret0
+}
+
+// ReplicaContainersStartedAt indicates an expected call of ReplicaContainersStartedAt.
+func (mr *MockKernelMockRecorder) ReplicaContainersStartedAt() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplicaContainersStartedAt", reflect.TypeOf((*MockKernel)(nil).ReplicaContainersStartedAt))
+}
+
 // Replicas mocks base method.
 func (m *MockKernel) Replicas() []scheduling.KernelReplica {
 	m.ctrl.T.Helper()

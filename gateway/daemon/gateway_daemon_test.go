@@ -4004,6 +4004,17 @@ var _ = Describe("Cluster Gateway Tests", func() {
 				startKernelReturnValChan2 := make(chan *proto.KernelConnectionInfo)
 				startKernelReturnValChan3 := make(chan *proto.KernelConnectionInfo)
 
+				mockCreateReplicaContainersAttempt := mock_scheduling.NewMockCreateReplicaContainersAttempt(mockCtrl)
+				mockCreateReplicaContainersAttempt.EXPECT().SetDone(nil)
+				kernel.EXPECT().
+					BeginSchedulingReplicaContainers().
+					Times(1).
+					DoAndReturn(func() (bool, scheduling.CreateReplicaContainersAttempt) {
+						return true, mockCreateReplicaContainersAttempt
+					})
+
+				kernel.EXPECT().ReplicasAreScheduled().Times(1).Return(false)
+
 				localGatewayClient1.EXPECT().StartKernelReplica(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx any, in any, opts ...any) (*proto.KernelConnectionInfo, error) {
 					GinkgoWriter.Printf("LocalGateway #1 has called spoofed StartKernelReplica\n")
 

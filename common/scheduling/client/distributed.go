@@ -96,8 +96,25 @@ type DistributedKernelClient struct {
 
 	numActiveAddOperations atomic.Int32 // Number of active migrations of the associated kernel's replicas.
 
+	// replicaContainersStartedAt is the time at which the target Kernel's KernelContainer instances last started.
+	replicaContainersStartedAt time.Time
+
+	// createReplicaContainersAttempt is non-nil when there's an active 'create containers' operation for this
+	// DistributedKernelClient. The createReplicaContainersAttempt encapsulates info about that operation.
+	//
+	// In order to check if there's an active operation, one should inspect the value of the
+	// createReplicaContainersAttempt variable. Checking if createReplicaContainersAttempt is non-nil is not the
+	// correct or intended way to check whether there is an active 'create containers' operation.
 	createReplicaContainersAttempt *CreateReplicaContainersAttempt
-	creatingReplicaContainers      atomic.Int32
+
+	// replicaContainersAreBeingScheduled indicates whether there is an active 'create containers' operation.
+	// It is the ground truth, whereas the non-nil-ness of the createReplicaContainersAttempt variable is sort of
+	// a proxy indicator. (That is, createReplicaContainersAttempt is only non-nil when there is an active operation,
+	// but in order to check if there's an active operation, one should inspect the value of the
+	// createReplicaContainersAttempt variable.)
+	//
+	// When there is an active operation, the value of createReplicaContainersAttempt will be strictly positive.
+	replicaContainersAreBeingScheduled atomic.Int32
 
 	nextNodeId atomic.Int32
 
@@ -169,6 +186,17 @@ func (c *DistributedKernelClient) LastTrainingStartedAt() time.Time {
 	return c.ExecutionManager.LastTrainingStartedAt()
 }
 
+// ReplicaContainersStartedAt returns the time at which the target Kernel's KernelContainer instances last started.
+func (c *DistributedKernelClient) ReplicaContainersStartedAt() time.Time {
+	return c.replicaContainersStartedAt
+}
+
+// ReplicaContainersAreBeingScheduled returns true if there is an active 'create container(s)' operation
+// for the target DistributedKernelClient.
+func (c *DistributedKernelClient) ReplicaContainersAreBeingScheduled() bool {
+	return c.replicaContainersAreBeingScheduled.Load() > 0
+}
+
 // BeginSchedulingReplicaContainers attempts to take ownership over the next/current scheduling attempt.
 //
 // If there's another active operation, then this will return false along with the CreateReplicaContainersAttempt
@@ -182,7 +210,7 @@ func (c *DistributedKernelClient) BeginSchedulingReplicaContainers() (bool, sche
 
 	// Attempt to take ownership over the next/current scheduling attempt.
 	// If this CAS operation fails, then that means that there's another active container creation attempt.
-	if !c.creatingReplicaContainers.CompareAndSwap(0, 1) {
+	if !c.replicaContainersAreBeingScheduled.CompareAndSwap(0, 1) {
 		return false, c.createReplicaContainersAttempt
 	}
 
@@ -225,13 +253,14 @@ func (c *DistributedKernelClient) concludeSchedulingReplicaContainers() bool {
 	c.replicasMutex.RLock()
 	defer c.replicasMutex.RUnlock()
 
-	if !c.creatingReplicaContainers.CompareAndSwap(1, 0) {
+	if !c.replicaContainersAreBeingScheduled.CompareAndSwap(1, 0) {
 		c.log.Error("Failed to flip value of 'CreatingReplicaContainers' flag from 1 to 0.")
 		return false
 	}
 
 	if c.unsafeAreReplicasScheduled() {
 		c.log.Debug("Successfully scheduled %d replica container(s).", c.targetNumReplicas)
+		c.replicaContainersStartedAt = time.Now()
 	} else {
 		c.log.Warn("Attempt to schedule %d replica container(s) has failed.", c.targetNumReplicas)
 	}
@@ -1079,7 +1108,7 @@ func (c *DistributedKernelClient) replaceMessageContentWithError(resp *messaging
 // the Jupyter Server and subsequently the Jupyter Client.
 func (c *DistributedKernelClient) getResponseForwarder(handler scheduling.KernelReplicaMessageHandler, cancel context.CancelFunc, once *sync.Once) scheduling.KernelReplicaMessageHandler {
 	return func(replica scheduling.KernelReplicaInfo, socketType messaging.MessageType, response *messaging.JupyterMessage) (respForwardingError error) {
-		c.log.Debug(utils.BlueStyle.Render("Received %s \"%s\" response with Jupyter message ID \"%s\" from kernel %v"),
+		c.log.Debug(utils.CyanStyle.Render("Received %s \"%s\" response with Jupyter message ID \"%s\" from kernel %v"),
 			socketType.String(), response.JupyterMessageType(), response.JupyterMessageId(), replica)
 		response.ReplicaId = replica.ReplicaID()
 

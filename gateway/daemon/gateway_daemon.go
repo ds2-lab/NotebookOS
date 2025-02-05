@@ -820,39 +820,59 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 				return true
 			}
 
+			// If the kernel has never trained before, then it is ineligible for idle reclamation.
+			if kernel.NumCompletedTrainings() == 0 {
+				return true
+			}
+
+			// If the kernel's containers are actively being scheduled right now, then we shouldn't reclaim it.
+			if kernel.ReplicaContainersAreBeingScheduled() {
+				return true
+			}
+
 			// Check if the kernel is idle and, if it is, then add it to the slice of kernels to be reclaimed.
 			timeElapsedSinceLastTrainingSubmitted := time.Since(kernel.LastTrainingSubmittedAt())
 			timeElapsedSinceLastTrainingBegan := time.Since(kernel.LastTrainingStartedAt())
 			timeElapsedSinceLastTrainingEnded := time.Since(kernel.LastTrainingEndedAt())
+			timeElapsedSinceContainersCreated := time.Since(kernel.ReplicaContainersStartedAt())
 
-			// For sessions that have not executed any training events, the idle timeout is 5x longer.
-			var multiplier time.Duration
-			if kernel.NumCompletedTrainings() == 0 {
-				// TODO: Switch this back once idle session reclamation is confirmed to be working.
-				multiplier = time.Duration(1) // time.Duration(5)
-			} else {
-				multiplier = time.Duration(1)
-			}
+			// May want to use this to dynamically adjust the interval required for a kernel to be considered idle.
+			multiplier := time.Duration(1)
 
 			// Compute how long it has been since the kernel last submitted a training event, last began training,
 			// and last completed training. If the idle interval has elapsed for all of these times, then the
 			// session is eligible for idle reclamation.
-			idleIntervalElapsedSinceLastTrainingSubmitted := timeElapsedSinceLastTrainingSubmitted > (d.IdleSessionReclamationInterval * multiplier)
-			idleIntervalElapsedSinceLastTrainingBegan := timeElapsedSinceLastTrainingBegan > (d.IdleSessionReclamationInterval * multiplier)
-			idleIntervalElapsedSinceLastTrainingEnded := timeElapsedSinceLastTrainingEnded > (d.IdleSessionReclamationInterval * multiplier)
 
-			if idleIntervalElapsedSinceLastTrainingSubmitted && idleIntervalElapsedSinceLastTrainingBegan && idleIntervalElapsedSinceLastTrainingEnded {
-				reclaimerLog.Debug(utils.LightPurpleStyle.Render("Kernel \"%s\" last submitted a training event %v ago, last began training %v ago, "+
-					"and last finished training %v ago, so kernel \"%s\" is now eligible for idle reclamation."),
-					kernelId, timeElapsedSinceLastTrainingSubmitted,
-					timeElapsedSinceLastTrainingBegan, timeElapsedSinceLastTrainingEnded)
-
-				if kernelsToReclaim == nil {
-					kernelsToReclaim = make([]scheduling.Kernel, 0, 1)
-				}
-
-				kernelsToReclaim = append(kernelsToReclaim, kernel)
+			if timeElapsedSinceLastTrainingSubmitted < (d.IdleSessionReclamationInterval * multiplier) {
+				// Skip this container
+				return true
 			}
+
+			if timeElapsedSinceLastTrainingBegan < (d.IdleSessionReclamationInterval * multiplier) {
+				// Skip this container
+				return true
+			}
+
+			if timeElapsedSinceLastTrainingEnded < (d.IdleSessionReclamationInterval * multiplier) {
+				// Skip this container
+				return true
+			}
+
+			if timeElapsedSinceContainersCreated < (d.IdleSessionReclamationInterval * multiplier) {
+				// Skip this container
+				return true
+			}
+
+			reclaimerLog.Debug(utils.LightPurpleStyle.Render("Kernel \"%s\" last submitted a training event %v ago, last began training %v ago, "+
+				"and last finished training %v ago, and its replica container(s) were created %v ago, so kernel \"%s\" is now eligible for idle reclamation."),
+				kernelId, timeElapsedSinceLastTrainingSubmitted, timeElapsedSinceLastTrainingBegan,
+				timeElapsedSinceLastTrainingEnded, timeElapsedSinceContainersCreated, kernel.ID())
+
+			if kernelsToReclaim == nil {
+				kernelsToReclaim = make([]scheduling.Kernel, 0, 1)
+			}
+
+			kernelsToReclaim = append(kernelsToReclaim, kernel)
 
 			return true
 		})
@@ -868,8 +888,8 @@ func (d *ClusterGatewayImpl) idleSessionReclaimer() {
 				if err != nil {
 					reclaimerLog.Error("Error while removing replicas of idle kernel \"%s\": %v", kernel.ID(), err)
 				} else {
-					reclaimerLog.Debug(utils.LightPurpleStyle.Render("Successfully removed replicas of idle kernel \"%s\" in %v."),
-						kernel.ID(), time.Since(reclamationStartTime))
+					reclaimerLog.Debug(utils.LightPurpleStyle.Render("Successfully removed all %d replica(s) of idle kernel \"%s\" in %v."),
+						d.NumReplicas(), kernel.ID(), time.Since(reclamationStartTime))
 				}
 			}
 		}
@@ -3734,7 +3754,7 @@ func (d *ClusterGatewayImpl) ensureKernelReplicasAreScheduled(kernel scheduling.
 
 	// For any message that isn't an "execute_request" message, we'll return an artificial response when the
 	// replicas of the kernel are not actively running.
-	if typ != messaging.ShellMessage || (msg.JupyterMessageType() != messaging.ShellExecuteRequest && msg.JupyterMessageType() != messaging.ShellYieldRequest) {
+	if msg.JupyterMessageType() != messaging.ShellExecuteRequest && msg.JupyterMessageType() != messaging.ShellYieldRequest {
 		d.log.Debug("Replicas of kernel %s are NOT scheduled. Generating artificial response to %s \"%s\" message %s (JupyterID=\"%s\").",
 			kernel.ID(), typ.String(), msg.JupyterMessageType(), msg.RequestId, msg.JupyterMessageId())
 		resp, err := d.generateArtificialResponse(kernel, msg, typ)
