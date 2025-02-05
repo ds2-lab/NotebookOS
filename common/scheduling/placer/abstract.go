@@ -309,7 +309,8 @@ func (placer *AbstractPlacer) Reclaim(host scheduling.Host, sess scheduling.User
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	// We'll wait up to 5 minutes for the operation to complete, in case there is some significant I/O required.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	placer.log.Debug("Calling StopKernel on kernel %s running on host %s (ID=%v).",
