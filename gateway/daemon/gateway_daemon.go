@@ -116,12 +116,16 @@ type DistributedClientProvider interface {
 type kernelDescheduleAttempt struct {
 	// Semaphore is used to enable waiting with a timeout for the de-scheduling operation to complete.
 	Semaphore *semaphore.Weighted
+	
 	// StartedAt is the time at which the de-scheduling operation began.
 	StartedAt time.Time
+
 	// Complete indicates whether the de-scheduling operation has completed.
 	Complete atomic.Bool
+
 	// KernelId is the ID of the associated scheduling.Kernel.
 	KernelId string
+
 	// Kernel is the target of the associated de-scheduling operation.
 	Kernel scheduling.Kernel
 }
@@ -174,15 +178,23 @@ func (a *kernelDescheduleAttempt) SetDone() {
 type kernelCreateContainers struct {
 	// Semaphore is used to enable waiting with a timeout for the container creation operation(s) to complete.
 	Semaphore *semaphore.Weighted
+
 	// StartedAt is the time at which the container creation operation(s) began.
 	StartedAt time.Time
+
 	// Complete indicates whether the container creation operation(s) has/have completed.
 	Complete atomic.Bool
+
 	// KernelId is the ID of the associated scheduling.Kernel whose kernel replica(s) and kernel container(s)
 	// is/are being created.
 	KernelId string
+
 	// Kernel is the target of the associated container creation operation(s).
-	Kernel              scheduling.Kernel
+	Kernel scheduling.Kernel
+
+	// PlacementInProgress indicates whether the process of placing and creating the scheduling.KernelContainer
+	// instances has started. Generally, if this stage is reached, then the operation will most-likely complete
+	// successfully, as errors are unlikely, and it means that resources were available and whatnot.
 	PlacementInProgress atomic.Bool
 }
 
