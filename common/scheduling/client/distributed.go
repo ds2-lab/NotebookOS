@@ -56,45 +56,49 @@ func (c *TemporaryKernelReplicaClient) ReplicaID() int32 {
 // DistributedKernelClient is a client of a Distributed Jupyter Kernel that is used by the Gateway daemon.
 // It wraps individual KernelReplicaClient instances -- one for each replica of the kernel.
 type DistributedKernelClient struct {
-	*server.BaseServer
 	scheduling.SessionManager
+
+	// ExecutionManager is responsible for managing the user-submitted cell executions.
+	ExecutionManager scheduling.ExecutionManager
+
+	session scheduling.UserSession
+
+	log logger.Logger
+	*server.BaseServer
 	server *server.AbstractServer
 
-	id             string
-	status         jupyter.KernelStatus
 	busyStatus     *AggregateKernelStatus
 	lastBStatusMsg *messaging.JupyterMessage
 
 	temporaryKernelReplicaClient *TemporaryKernelReplicaClient
 
-	spec              *proto.KernelSpec
-	replicas          map[int32]scheduling.KernelReplica
-	targetNumReplicas int32
+	spec     *proto.KernelSpec
+	replicas map[int32]scheduling.KernelReplica
+
+	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
+	notificationCallback scheduling.NotificationCallback
+
+	cleaned chan struct{}
+
+	id string
 
 	persistentId string
+
+	mu sync.RWMutex
+
+	// replicasMutex provides atomicity for operations that add or remove kernel replicas from the replicas slice.
+	replicasMutex sync.RWMutex
+
+	status            jupyter.KernelStatus
+	targetNumReplicas int32
 
 	numActiveAddOperations atomic.Int32 // Number of active migrations of the associated kernel's replicas.
 
 	nextNodeId atomic.Int32
 
-	// ExecutionManager is responsible for managing the user-submitted cell executions.
-	ExecutionManager scheduling.ExecutionManager
-
-	// notificationCallback is used to send notifications to the frontend dashboard from this kernel/client.
-	notificationCallback scheduling.NotificationCallback
-
-	session scheduling.UserSession
+	closing int32
 
 	debugMode bool
-
-	log logger.Logger
-	mu  sync.RWMutex
-
-	// replicasMutex provides atomicity for operations that add or remove kernel replicas from the replicas slice.
-	replicasMutex sync.RWMutex
-
-	closing int32
-	cleaned chan struct{}
 }
 
 // DistributedKernelClientProvider enables the creation of DistributedKernelClient structs.

@@ -16,8 +16,8 @@ const (
 
 type HostPool[T scheduling.ClusterIndex] struct {
 	Pool       T
-	PoolNumber int32
 	Identifier string
+	PoolNumber int32
 }
 
 func NewHostPool[T scheduling.ClusterIndex](pool T, poolNumber int32) *HostPool[T] {
@@ -91,6 +91,7 @@ func initializeHostPoolsDefault[T scheduling.ClusterIndex](numPools int32, index
 // The type parameter is the concrete type of the "sub-indices" or the "host pools" managed by the MultiIndex.
 // For example, LeastLoadedIndex, StaticIndex, RandomClusterIndex, etc.
 type MultiIndex[T scheduling.ClusterIndex] struct {
+	log logger.Logger
 	// FreeHosts are scheduling.Host instances that have not been placed into a particular HostPool yet.
 	FreeHosts *queue.Fifo[scheduling.Host]
 
@@ -103,9 +104,6 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 	// IndexProvider provides the individual indices used by a MultiIndex.
 	IndexProvider Provider[T]
 
-	// HostGroupsInitialized indicates whether the host pools have been initialized.
-	HostGroupsInitialized bool
-
 	// HostIdToHostPool is a mapping from Host ID to the Host Pool in which the Host is contained.
 	HostIdToHostPool map[string]*HostPool[T]
 
@@ -113,8 +111,10 @@ type MultiIndex[T scheduling.ClusterIndex] struct {
 	// Size includes scheduling.Host instances in FreeHosts as well as those in the HostPools.
 	Size int
 
-	log logger.Logger
-	mu  sync.Mutex
+	mu sync.Mutex
+
+	// HostGroupsInitialized indicates whether the host pools have been initialized.
+	HostGroupsInitialized bool
 }
 
 // NewMultiIndexWithHostPoolInitializer creates and returns a new MultiIndex.

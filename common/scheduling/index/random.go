@@ -23,15 +23,15 @@ const (
 // RandomClusterIndex is a simple Cluster that seeks hosts randomly.
 // RandomClusterIndex uses CategoryClusterIndex and all hosts are qualified.
 type RandomClusterIndex struct {
+	log logger.Logger
 	*CallbackManager
 	perm        []int             // The permutation of the hosts. Collection of indices that gets shuffled. We use these to index the hosts field.
-	freeStart   int32             // The first freed index.
-	seekStart   int32             // The start index of the seek.
-	numShuffles atomic.Int32      // The number of times the index has been shuffled to a new random permutation.
 	hosts       []scheduling.Host // The Host instances contained within the RandomClusterIndex.
-	len         int32
 	mu          sync.Mutex
-	log         logger.Logger
+	freeStart   int32        // The first freed index.
+	seekStart   int32        // The start index of the seek.
+	numShuffles atomic.Int32 // The number of times the index has been shuffled to a new random permutation.
+	len         int32
 }
 
 func NewRandomClusterIndex(size int) *RandomClusterIndex {

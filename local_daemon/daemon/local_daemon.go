@@ -96,37 +96,11 @@ type GRPCServerWrapper struct {
 // TODO: Synchronize resource status using replica network (e.g., control socket).
 // Synchronization message should load-balance between replicas mapped the same host.
 type LocalScheduler struct {
-	// SchedulerOptions
-	id       string
-	nodeName string
+	proto.UnimplementedLocalGatewayServer
+	proto.UnimplementedKernelErrorReporterServer
 
-	S3Bucket      string // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
-	AwsRegion     string // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
-	RedisPassword string // RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
-	RedisPort     int    // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
-	RedisDatabase int    // RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
-
-	// finishedGatewayHandshake is set in setID when the Local Daemon completes to registration
-	// procedure with the cluster gateway for the first time.
-	finishedGatewayHandshake bool
-
-	tracer       opentracing.Tracer
-	consulClient *consul.Client
-
-	// The gRPC server used by the Local Daemon and Cluster Gateway.
-	grpcServer *GRPCServerWrapper
-	listener   net.Listener
-
-	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
-	executeRequestForwarder *client.ExecuteRequestForwarder[*messaging.JupyterMessage]
-
-	// connectingToGateway indicates whether the scheduler is actively trying to connect to the Cluster Gateway.
-	// If its value is > 0, then it is. If its value is 0, then it is not.
-	connectingToGateway atomic.Int32
-
-	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
-	// as the request history.
-	DebugMode bool
+	tracer   opentracing.Tracer
+	listener net.Listener
 
 	virtualGpuPluginServer device.VirtualGpuPluginServer
 
@@ -134,32 +108,8 @@ type LocalScheduler struct {
 
 	kernelsStopping hashmap.HashMap[string, chan struct{}]
 
-	proto.UnimplementedLocalGatewayServer
-	proto.UnimplementedKernelErrorReporterServer
-	router *router.Router
-
-	// SchedulerOptions
-	connectionOptions      *jupyter.ConnectionInfo
-	schedulerDaemonOptions domain.SchedulerDaemonOptions
-
 	// internalCluster client
-	provisioner                     proto.ClusterGatewayClient
-	provisionerClientConnectionGRPC *grpc.ClientConn
-
-	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
-	prometheusManager *metrics.LocalDaemonPrometheusManager
-	// Indicates that a goroutine has been started to publish metrics to Prometheus.
-	servingPrometheus atomic.Int32
-	// prometheusStarted is a sync.WaitGroup used to signal to the metric-publishing goroutine
-	// that it should start publishing metrics now.
-	prometheusStarted sync.WaitGroup
-	// prometheusInterval is how often we publish metrics to Prometheus.
-	prometheusInterval time.Duration
-	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
-	prometheusPort int
-
-	// electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before electing a leader
-	electionTimeoutSeconds int
+	provisioner proto.ClusterGatewayClient
 
 	// outgoingExecuteRequestQueue is used to send "execute_request" messages one-at-a-time to their target kernels.
 	outgoingExecuteRequestQueue hashmap.HashMap[string, chan *enqueuedExecOrYieldRequest]
@@ -171,19 +121,30 @@ type LocalScheduler struct {
 	// the kernel replica).
 	executeRequestQueueStopChannels hashmap.HashMap[string, chan interface{}]
 
-	smrPort int
-
-	// members
-	transport                    string
-	ip                           string
 	kernels                      hashmap.HashMap[string, scheduling.KernelReplica]
 	kernelClientCreationChannels hashmap.HashMap[string, chan *proto.KernelConnectionInfo]
 
 	log logger.Logger
 
-	// SimulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of
-	// performing checkpointing after a migration (read) and after executing code (write).
-	SimulateCheckpointingLatency bool
+	// When using Docker mode, we assign "debug ports" to kernels so that they can serve a Go HTTP server for debugging.
+	kernelDebugPorts hashmap.HashMap[string, int]
+
+	consulClient *consul.Client
+
+	// The gRPC server used by the Local Daemon and Cluster Gateway.
+	grpcServer *GRPCServerWrapper
+
+	// executeRequestForwarder forwards "execute_request" (or "yield_request") messages to kernels one-at-a-time.
+	executeRequestForwarder *client.ExecuteRequestForwarder[*messaging.JupyterMessage]
+
+	router *router.Router
+
+	// SchedulerOptions
+	connectionOptions               *jupyter.ConnectionInfo
+	provisionerClientConnectionGRPC *grpc.ClientConn
+
+	// prometheusManager creates and serves Prometheus metrics for the Local Daemon.
+	prometheusManager *metrics.LocalDaemonPrometheusManager
 
 	// The IOPub socket that the Gateway subscribes to.
 	// All pub/sub messages are forwarded from kernels to the gateway (through us, the local daemon) using this socket.
@@ -204,14 +165,26 @@ type LocalScheduler struct {
 	// This is only used (and is only non-nil) when deployed in Docker Swarm/Compose mode.
 	containerStartedNotificationManager *notification_manager.ContainerStartedNotificationManager
 
-	// There's a simple TCP server that listens for kernel registration notifications on this port.
-	kernelRegistryPort int
-
-	// numResendAttempts is the number of times to try resending a message before giving up.
-	numResendAttempts int
-
 	// Manages resource allocations on behalf of the Local Daemon.
 	allocationManager *resource.AllocationManager
+
+	// localDaemonOptions is the options struct that the Local Daemon was created with.
+	localDaemonOptions *domain.LocalDaemonOptions
+
+	// lifetime
+	closed  chan struct{}
+	cleaned chan struct{}
+	// SchedulerOptions
+	id       string
+	nodeName string
+
+	S3Bucket      string // S3Bucket is the AWS S3 bucket name if we're using AWS S3 for our remote storage.
+	AwsRegion     string // AwsRegion is the AWS region in which to create/look for the S3 bucket (if we're using AWS S3 for remote storage).
+	RedisPassword string // RedisPassword is the password to access Redis (only relevant if using Redis for remote storage).
+
+	// members
+	transport string
+	ip        string
 
 	// Hostname of the remote storage. The SyncLog's remote storage client will connect to this.
 	remoteStorageEndpoint string
@@ -225,8 +198,51 @@ type LocalScheduler struct {
 	// Kubernetes or Docker.
 	deploymentMode types.DeploymentMode
 
-	// When using Docker mode, we assign "debug ports" to kernels so that they can serve a Go HTTP server for debugging.
-	kernelDebugPorts hashmap.HashMap[string, int]
+	schedulerDaemonOptions domain.SchedulerDaemonOptions
+
+	// prometheusStarted is a sync.WaitGroup used to signal to the metric-publishing goroutine
+	// that it should start publishing metrics now.
+	prometheusStarted sync.WaitGroup
+	RedisPort         int // RedisPort is the port of the Redis server (only relevant if using Redis for remote storage).
+	RedisDatabase     int // RedisDatabase is the database number to use (only relevant if using Redis for remote storage).
+
+	// prometheusInterval is how often we publish metrics to Prometheus.
+	prometheusInterval time.Duration
+	// prometheusPort is the port on which this local daemon will serve Prometheus metrics.
+	prometheusPort int
+
+	// electionTimeoutSeconds is how long kernel leader elections wait to receive all proposals before electing a leader
+	electionTimeoutSeconds int
+
+	smrPort int
+
+	// There's a simple TCP server that listens for kernel registration notifications on this port.
+	kernelRegistryPort int
+
+	// numResendAttempts is the number of times to try resending a message before giving up.
+	numResendAttempts int
+
+	// kernelErrorReporterServerPort is the port on which the proto.KernelErrorReporterServer gRPC service is listening.
+	kernelErrorReporterServerPort int
+
+	// connectingToGateway indicates whether the scheduler is actively trying to connect to the Cluster Gateway.
+	// If its value is > 0, then it is. If its value is 0, then it is not.
+	connectingToGateway atomic.Int32
+
+	// Indicates that a goroutine has been started to publish metrics to Prometheus.
+	servingPrometheus atomic.Int32
+
+	// finishedGatewayHandshake is set in setID when the Local Daemon completes to registration
+	// procedure with the cluster gateway for the first time.
+	finishedGatewayHandshake bool
+
+	// DebugMode is a configuration parameter that, when enabled, causes the RequestTrace to be enabled as well
+	// as the request history.
+	DebugMode bool
+
+	// SimulateCheckpointingLatency controls whether the kernels will be configured to simulate the latency of
+	// performing checkpointing after a migration (read) and after executing code (write).
+	SimulateCheckpointingLatency bool
 
 	// MessageAcknowledgementsEnabled indicates whether we send/expect to receive message acknowledgements
 	// for the ZMQ messages that we're forwarding back and forth between the Cluster Gateway and kernel replicas.
@@ -236,12 +252,6 @@ type LocalScheduler struct {
 
 	// If true, then the kernels will be executed within GDB.
 	runKernelsInGdb bool
-
-	// kernelErrorReporterServerPort is the port on which the proto.KernelErrorReporterServer gRPC service is listening.
-	kernelErrorReporterServerPort int
-
-	// localDaemonOptions is the options struct that the Local Daemon was created with.
-	localDaemonOptions *domain.LocalDaemonOptions
 
 	// simulateTrainingUsingSleep controls whether we tell the kernels to train using real GPUs and
 	// real PyTorch code or not.
@@ -255,10 +265,6 @@ type LocalScheduler struct {
 
 	// realGpusAvailable indicates whether there are real GPUs available that should be bound to kernel containers.
 	realGpusAvailable bool
-
-	// lifetime
-	closed  chan struct{}
-	cleaned chan struct{}
 }
 
 type KernelRegistrationPayload struct {

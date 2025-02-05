@@ -21,10 +21,10 @@ const (
 // LeastLoadedIndex is a simple Cluster that seeks the least-loaded hosts.
 // LeastLoadedIndex uses CategoryClusterIndex and all hosts are qualified.
 type LeastLoadedIndex struct {
+	log logger.Logger
 	*CallbackManager
 	hosts *types.Heap // The Host instances contained within the LeastLoadedIndex.
 	mu    sync.Mutex
-	log   logger.Logger
 }
 
 // NewLeastLoadedIndexWrapper satisfies the index.Provider definition.

@@ -228,11 +228,11 @@ func (f *StatFloat64) LoadInt() int {
 }
 
 type MovingStat struct {
+	values    []float64
+	sum       [2]float64 // include a moving sum(0) and a reset(1) used to ensuring moving sum by adding only.
 	window    int64
 	n         int64
-	values    []float64
 	last      int64
-	sum       [2]float64 // include a moving sum(0) and a reset(1) used to ensuring moving sum by adding only.
 	active    int
 	resetting int
 }

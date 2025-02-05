@@ -25,6 +25,14 @@ func (s JobStatus) String() string {
 // It is a notebook cell execution in the context of this system, but it includes the various metrics
 // used by Tiresias when scheduling jobs.
 type Job struct {
+	StartTime     time.Time // StartTime is the time at which the Job started running.
+	LastStartTime time.Time // LastStartTime is the time at which the Job was last scheduled.
+	LastCheckTime time.Time // LastCheckTime is the time at which the Job's progress was last checked.
+	SubmitTime    time.Time // SubmitTime is the time at which the Job was submitted by a user.
+
+	// ResourceSpec is the amount of resources required by the Job.
+	ResourceSpec types.Spec
+
 	// JobId uniquely identifies the job.
 	//
 	// The JobId comes from the "msg_id" field of the "execute_request" Jupyter message's header.
@@ -36,11 +44,7 @@ type Job struct {
 	// Status is the status of the job.
 	Status JobStatus
 
-	StartTime     time.Time     // StartTime is the time at which the Job started running.
-	LastStartTime time.Time     // LastStartTime is the time at which the Job was last scheduled.
-	LastCheckTime time.Time     // LastCheckTime is the time at which the Job's progress was last checked.
-	SubmitTime    time.Time     // SubmitTime is the time at which the Job was submitted by a user.
-	PendingTime   time.Duration // PendingTime is how long the Job has been waiting to be scheduled.
+	PendingTime time.Duration // PendingTime is how long the Job has been waiting to be scheduled.
 
 	// TotalExecutedTime is the cumulative amount of time that the Job has spent executing
 	// across all the times that the Job has been scheduled.
@@ -54,9 +58,6 @@ type Job struct {
 	// LastPendingTime is the amount of time that the Job spent waiting to be scheduled the last time
 	// that the Job was in the Pending state (i.e., Status).
 	LastPendingTime time.Duration
-
-	// ResourceSpec is the amount of resources required by the Job.
-	ResourceSpec types.Spec
 
 	// CurrentQueueId is the ID of the queue that the Job is currently in.
 	CurrentQueueId int

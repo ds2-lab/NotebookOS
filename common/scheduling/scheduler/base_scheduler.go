@@ -42,6 +42,10 @@ type schedulingNotification struct {
 	// Host is the Host on which the kernel was scheduled (or attempted to be scheduled).
 	Host scheduling.Host
 
+	// Error is the error that occurred that caused the scheduling operation to fail.
+	// This field will be nil if the scheduling operation was successful.
+	Error error
+
 	// KernelId is the ID of the kernel for which a replica was scheduled.
 	KernelId string
 
@@ -50,10 +54,6 @@ type schedulingNotification struct {
 
 	// Successful indicates whether the operation succeeded or whether it failed.
 	Successful bool
-
-	// Error is the error that occurred that caused the scheduling operation to fail.
-	// This field will be nil if the scheduling operation was successful.
-	Error error
 }
 
 type KernelProvider interface {
@@ -187,17 +187,27 @@ func (b *baseSchedulerBuilder) Build() *BaseScheduler {
 }
 
 type BaseScheduler struct {
-	instance           clusterSchedulerInternal
-	cluster            scheduling.Cluster
-	hostMapper         HostMapper
-	placer             scheduling.Placer
-	kernelProvider     KernelProvider
-	notificationBroker NotificationBroker
+	lastNodeRefreshTime time.Time // The time at which the nodes were last refreshed.
 
-	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
-	// kernels (or other resources) and could occur in-parallel (such as being triggered
-	// by multiple concurrent RPC requests).
-	addReplicaMutex sync.Mutex
+	lastCapacityValidation time.Time // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
+	instance               clusterSchedulerInternal
+	cluster                scheduling.Cluster
+	hostMapper             HostMapper
+	placer                 scheduling.Placer
+	kernelProvider         KernelProvider
+	notificationBroker     NotificationBroker
+
+	// schedulingPolicy specifies the scheduling behavior for the scheduling.Cluster and scheduling.Scheduler.
+	schedulingPolicy SchedulingPolicy
+
+	hostSpec types.Spec // The types.Spec used when creating new Host instances.
+
+	// Watches for new Pods/Containers.
+	//
+	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
+	containerEventHandler scheduling.ContainerWatcher
+
+	log logger.Logger
 
 	// Mapping of kernel ID to all active add-replica operations associated with that kernel. The inner maps are from TransactionOperation ID to AddReplicaOperation.
 	activeAddReplicaOpsPerKernel *hashmap.CornelkMap[string, *orderedmap.OrderedMap[string, *scheduling.AddReplicaOperation]]
@@ -212,11 +222,31 @@ type BaseScheduler struct {
 	// In this case, the goroutine handling the replica registration waits on a channel for the associated AddReplicaOperation.
 	addReplicaNewPodOrContainerNotifications *hashmap.CornelkMap[string, chan *scheduling.AddReplicaOperation]
 
+	opts *scheduling.SchedulerOptions // Configuration options.
+
+	oversubscribed  *types.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
+	undersubscribed *types.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
+	idleHosts       *types.Heap
+
+	stRatio *types.MovingStat // session/training ratio
+
 	// resourceBindingMode describes when resources are committed and uncommitted from Containers.
 	resourceBindingMode scheduling.ResourceBindingMode
 
-	// schedulingPolicy specifies the scheduling behavior for the scheduling.Cluster and scheduling.Scheduler.
-	schedulingPolicy SchedulingPolicy
+	subscriptionRatio             decimal.Decimal // Subscription ratio.
+	maxSubscribedRatio            decimal.Decimal
+	remoteSynchronizationInterval time.Duration // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
+	invalidated                   float64
+	lastSubscribedRatio           float64
+	pendingSubscribedRatio        float64
+
+	// numCapacityValidations is a counter for the number of times we call scheduling.Policy::ValidateCapacity.
+	numCapacityValidations atomic.Int64
+
+	// addReplicaMutex makes certain operations atomic, specifically operations that target the same
+	// kernels (or other resources) and could occur in-parallel (such as being triggered
+	// by multiple concurrent RPC requests).
+	addReplicaMutex sync.Mutex
 
 	//-//-//-//-//-//-//-//-//-//
 	//  Scaling Configuration  //
@@ -233,33 +263,7 @@ type BaseScheduler struct {
 	//minimumCapacity              int32         // The minimum number of nodes we must have available at any time.
 	//maximumCapacity              int32         // The maximum number of nodes we may have available at any time. If this value is < 0, then it is unbounded.
 
-	canScaleIn                    bool                         // Can the Cluster/Placer scale-in?
-	opts                          *scheduling.SchedulerOptions // Configuration options.
-	hostSpec                      types.Spec                   // The types.Spec used when creating new Host instances.
-	remoteSynchronizationInterval time.Duration                // remoteSynchronizationInterval specifies how frequently to poll the remote scheduler nodes for updated GPU info.
-	lastNodeRefreshTime           time.Time                    // The time at which the nodes were last refreshed.
-
-	// Watches for new Pods/Containers.
-	//
-	// The concrete/implementing type differs depending on whether we're deployed in Kubernetes Mode or Docker Mode.
-	containerEventHandler scheduling.ContainerWatcher
-
-	oversubscribed  *types.Heap // The host index for oversubscribed hosts. Ordering is implemented by schedulerHost.
-	undersubscribed *types.Heap // The host index for under-subscribed hosts. Ordering is implemented by schedulerHost.
-	idleHosts       *types.Heap
-
-	lastCapacityValidation time.Time         // lastCapacityValidation is the time at which the last call to ValidateCapacity finished.
-	stRatio                *types.MovingStat // session/training ratio
-	subscriptionRatio      decimal.Decimal   // Subscription ratio.
-	maxSubscribedRatio     decimal.Decimal
-	invalidated            float64
-	lastSubscribedRatio    float64
-	pendingSubscribedRatio float64
-
-	// numCapacityValidations is a counter for the number of times we call scheduling.Policy::ValidateCapacity.
-	numCapacityValidations atomic.Int64
-
-	log logger.Logger
+	canScaleIn bool // Can the Cluster/Placer scale-in?
 }
 
 func (s *BaseScheduler) GetResourceBindingMode() scheduling.ResourceBindingMode {

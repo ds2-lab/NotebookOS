@@ -28,21 +28,31 @@ type BaseCluster struct {
 
 	// hosts is a map from host ID to *entity.Host containing all the Host instances provisioned within the Cluster.
 	hosts hashmap.HashMap[string, scheduling.Host]
-	// hostMutex controls external access to the internal Host mapping.
-	hostMutex sync.RWMutex
 
 	// sessions is a map of Sessions.
-	sessions      hashmap.HashMap[string, scheduling.UserSession]
-	sessionsMutex sync.RWMutex
+	sessions hashmap.HashMap[string, scheduling.UserSession]
 
 	// indexes is a map from index key to IndexProvider containing all the indexes in the Cluster.
 	indexes hashmap.BaseHashMap[string, scheduling.IndexProvider]
+
+	// scheduler is the scheduling.Scheduler for the Cluster.
+	scheduler scheduling.Scheduler
+
+	log logger.Logger
+
+	// metricsProvider provides access to Prometheus metrics (for publishing purposes).
+	metricsProvider scheduling.MetricsProvider
 
 	// activeScaleOperation is a reference to the currently-active scale-out/scale-in operation.
 	// There may only be one scaling operation active at any given time.
 	// If activeScaleOperation is nil, then there is no active scale-out or scale-in operation.
 	activeScaleOperation *scheduler.ScaleOperation
 	scaleOperationCond   *sync.Cond
+
+	// statisticsUpdaterProvider is used to update metrics/statistics.
+	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))
+
+	opts *scheduling.SchedulerOptions
 
 	numFailedScaleInOps      int
 	numFailedScaleOutOps     int
@@ -52,10 +62,24 @@ type BaseCluster struct {
 	// gpusPerHost is the number of GPUs available on each host.
 	gpusPerHost int
 
-	// scheduler is the scheduling.Scheduler for the Cluster.
-	scheduler scheduling.Scheduler
+	// validateCapacityInterval is how frequently the Cluster should validate its capacity,
+	// scaling-in or scaling-out depending on the current load and whatnot.
+	validateCapacityInterval time.Duration
 
-	log logger.Logger
+	MeanScaleOutPerHost   time.Duration
+	StdDevScaleOutPerHost time.Duration
+
+	MeanScaleInPerHost   time.Duration
+	StdDevScaleInPerHost time.Duration
+
+	// hostMutex controls external access to the internal Host mapping.
+	hostMutex sync.RWMutex
+
+	sessionsMutex sync.RWMutex
+
+	// scalingOpMutex controls access to the currently active scaling operation.
+	// scalingOpMutex is also used as the sync.Locker for the scaleOperationCond.
+	scalingOpMutex sync.Mutex
 
 	// minimumCapacity is the minimum number of nodes we must have available at any time.
 	// It must be at least equal to the number of replicas per kernel.
@@ -66,29 +90,7 @@ type BaseCluster struct {
 	// It must be at least equal to the number of replicas per kernel, and it cannot be smaller than the minimum capacity.
 	maximumCapacity int32
 
-	// metricsProvider provides access to Prometheus metrics (for publishing purposes).
-	metricsProvider scheduling.MetricsProvider
-
-	// scalingOpMutex controls access to the currently active scaling operation.
-	// scalingOpMutex is also used as the sync.Locker for the scaleOperationCond.
-	scalingOpMutex sync.Mutex
-
-	// validateCapacityInterval is how frequently the Cluster should validate its capacity,
-	// scaling-in or scaling-out depending on the current load and whatnot.
-	validateCapacityInterval time.Duration
-
-	// statisticsUpdaterProvider is used to update metrics/statistics.
-	statisticsUpdaterProvider func(func(statistics *metrics.ClusterStatistics))
-
-	MeanScaleOutPerHost   time.Duration
-	StdDevScaleOutPerHost time.Duration
-
-	MeanScaleInPerHost   time.Duration
-	StdDevScaleInPerHost time.Duration
-
 	closed atomic.Bool
-
-	opts *scheduling.SchedulerOptions
 }
 
 // newBaseCluster creates a new BaseCluster struct and returns a pointer to it.

@@ -14,17 +14,12 @@ import (
 
 // JobManager manages Tiresias jobs.
 type JobManager struct {
+	log            logger.Logger
 	RunningJobs    []*Job // RunningJobs contains Job instances that are actively running.
 	PendingJobs    []*Job // PendingJobs contains Job instances that are waiting to be scheduled.
 	RunnableJobs   []*Job // RunnableJobs contains Job instances that can be run, but are not yet running.
 	CompletedJobs  []*Job // CompletedJobs contains Job instances that have completed successfully.
 	MigratableJobs []*Job // MigratableJobs contains Job instances that are eligible for migration.
-
-	// TotalNumJobs is the total number of Job instances currently under the management of the JobManager.
-	TotalNumJobs int
-
-	// NumCompletedJobs is the number of Job instances that have completed.
-	NumCompletedJobs int
 
 	// Queues are the different Job queues managed by the JobManager.
 	Queues []map[string]*Job
@@ -32,11 +27,16 @@ type JobManager struct {
 	// QueueLimits defines the GPU time limits for each queue.
 	QueueLimits []time.Duration
 
+	// TotalNumJobs is the total number of Job instances currently under the management of the JobManager.
+	TotalNumJobs int
+
+	// NumCompletedJobs is the number of Job instances that have completed.
+	NumCompletedJobs int
+
 	// StarvationLimit corresponds to the 'solve_starvation' parameter from the original Tiresias implementation.
 	StarvationLimit time.Duration
 
-	log logger.Logger
-	mu  sync.Mutex
+	mu sync.Mutex
 }
 
 func NewJobManager(numQueues int, starvationLimit time.Duration) *JobManager {

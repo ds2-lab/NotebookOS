@@ -17,7 +17,6 @@ type ContainerStartedNotification struct {
 
 type DockerEventHandler struct {
 	log logger.Logger
-	mu  sync.Mutex
 
 	// Mapping from Kernel ID to a slice of channels, each of which would correspond to a scale-up operation.
 	channels hashmap.BaseHashMap[string, []chan string]
@@ -29,6 +28,7 @@ type DockerEventHandler struct {
 	// Note that we use a slice of *ContainerStartedNotification here because there will be N unwatched
 	// notifications for a kernel, where N is the number of replicas of that kernel.
 	unwatchedNotifications hashmap.BaseHashMap[string, []*ContainerStartedNotification]
+	mu                     sync.Mutex
 }
 
 func NewDockerEventHandler() *DockerEventHandler {

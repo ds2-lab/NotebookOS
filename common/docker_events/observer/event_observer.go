@@ -35,6 +35,7 @@ type EventConsumer interface {
 //
 // This is only used for Docker Compose clusters.
 type EventObserver struct {
+	log            logger.Logger
 	eventConsumers map[string]EventConsumer
 
 	// Docker Swarm / Docker Compose project name.
@@ -43,8 +44,6 @@ type EventObserver struct {
 	networkName string
 
 	mu sync.Mutex
-
-	log logger.Logger
 }
 
 func NewEventObserver(projectName string, networkName string) *EventObserver {
